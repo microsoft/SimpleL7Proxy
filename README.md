@@ -1,6 +1,8 @@
 # SimpleL7Proxy
 
-The SimpleL7Proxy is a lightweight, performance based proxy designed to route network traffic between clients and servers. It operates at the application layer (Layer 7) of the OSI model, enabling it to route HTTP(s) requests. It can be used as a regional internal proxy to manage traffic across specific regions. The server calculates the latency for each backend on a regular interval so that when a request comes in, it will connect to the lowest latency host first.
+The SimpleL7Proxy is a lightweight, performance based proxy designed to route network traffic between clients and servers. It operates at the application layer (Layer 7) of the OSI model, enabling it to route HTTP(s) requests. It can be used as a regional internal proxy to manage traffic across specific regions. The server calculates the latency for each backend on a regular interval so that when a request comes in, it will connect to the lowest latency host first. Optionally, higher priority transactions can preempt lower priority requests.
+
+
 
 In the diagram below, a client connected to the proxy which has 3 backend hosts. The proxy identified the host with the lowest latency (Host 2) to make the request to.
 
@@ -12,6 +14,7 @@ In the diagram below, a client connected to the proxy which has 3 backend hosts.
 - Failover
 - Load balance based on latency
 - SSL termination
+- Priority based processing
 - Cross-platform compatibility (Windows, Linux, macOS)
 - Logging to Application Insights
 - Logging to EventHub
