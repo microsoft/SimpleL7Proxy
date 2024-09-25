@@ -62,7 +62,8 @@ public class PriorityQueueItemComparer<T> : IComparer<PriorityQueueItem<T>>
         if (priorityComparison == 0)
         {
             // If priorities are equal, sort by timestamp (older items are "bigger")
-            return y.Timestamp.CompareTo(x.Timestamp);
+            //return y.Timestamp.CompareTo(x.Timestamp);
+            return x.Timestamp.CompareTo(y.Timestamp);
         }
         return priorityComparison;
     }
