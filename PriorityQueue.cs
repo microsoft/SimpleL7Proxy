@@ -85,12 +85,13 @@ public class BlockingPriorityQueue<T>
         {
             while (_priorityQueue.Count == 0)
             {
-                Monitor.Wait(_lock); // Wait for an item to be added
+                Monitor.Wait(_lock, 500); // Wait for an item to be added
                 cancellationToken.ThrowIfCancellationRequested();
             }
 
             return _priorityQueue.Dequeue();
         }
     }
+    
 }
 
