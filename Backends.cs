@@ -114,7 +114,7 @@ public class Backends : IBackendService
             _client.Timeout = TimeSpan.FromMilliseconds(_options.PollTimeout);
 
             using (var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationToken)) {
-                while (!linkedCts.Token.IsCancellationRequested) {
+                while (!linkedCts.Token.IsCancellationRequested && _cancellationToken.IsCancellationRequested == false) {
                     try {
                         await UpdateHostStatus(_client);
                         FilterActiveHosts();
@@ -122,16 +122,19 @@ public class Backends : IBackendService
                         if ((DateTime.Now - _lastStatusDisplay).TotalSeconds > 60) {
                             DisplayHostStatus();
                         }
+
+                        await Task.Delay(_options.PollInterval, linkedCts.Token);
+
                     } catch (OperationCanceledException) {
-                        Console.WriteLine("Operation was canceled. Stopping the server.");
-                        break;
+                        Console.WriteLine("Operation was canceled. Stopping the backend poller task.");
+                        break;;
                     } catch (Exception e) {
                         Console.WriteLine($"An unexpected error occurred: {e.Message}");
                     }
-
-                    await Task.Delay(_options.PollInterval, linkedCts.Token);
                 }
             }
+
+            Console.WriteLine("Backend Poller stopped.");
         }
     }
 
@@ -168,6 +171,9 @@ public class Backends : IBackendService
                 _statusChanged = true;
             }
         }
+
+        if (_debug)
+            Console.WriteLine("Returning status changed: " + _statusChanged);
 
         return _statusChanged;
     }
