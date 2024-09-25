@@ -21,8 +21,8 @@ public interface IBackendOptions {
     int SuccessRate { get; set; }
     int Timeout { get; set; }
     int Workers { get; set; }
-    public string PriorityKey1 { get; set; }
-    public string PriorityKey2 { get; set; }
+    public List<string> PriorityKeys { get; set; }
+    public List<int> PriorityValues { get; set; }
     List<BackendHost>? Hosts { get; set; }
     HttpClient? Client { get; set; }
 }
