@@ -70,8 +70,8 @@ public class Program
                     options.Workers = backendOptions.Workers;
                     options.OAuthAudience = backendOptions.OAuthAudience;
                     options.UseOAuth = backendOptions.UseOAuth;
-                    options.PriorityKey1 = backendOptions.PriorityKey1;
-                    options.PriorityKey2 = backendOptions.PriorityKey2;
+                    options.PriorityKeys = backendOptions.PriorityKeys;
+                    options.PriorityValues = backendOptions.PriorityValues;
                 });
 
                 services.AddLogging(loggingBuilder => loggingBuilder.AddFilter<Microsoft.Extensions.Logging.ApplicationInsights.ApplicationInsightsLoggerProvider>("Category", LogLevel.Information));
@@ -140,7 +140,10 @@ public class Program
 
         try {        
             await server.Run();
-            await Task.WhenAll(tasks); // Wait for all tasks to complete
+            Console.WriteLine("Waiting for tasks to complete for maximum 10 seconds");
+            var timeoutTask = Task.Delay(10000); // 10 seconds timeout
+            var allTasks = Task.WhenAll(tasks);
+            var completedTask = await Task.WhenAny(allTasks, timeoutTask);
         }
         catch (Exception e)
         {
@@ -190,6 +193,32 @@ public class Program
         return envValue.Trim();
     }
 
+    // Converts a comma-separated string to a list of strings.
+    private static List<string> toListOfString(string s)
+    {
+        return s.Split(',').Select(p => p.Trim()).ToList();
+    }
+
+    // Converts a comma-separated string to a list of integers.
+    private static List<int> toListOfInt(string s)
+    {
+
+        // parse each value in the list
+        List<int> ints = new List<int>(); 
+        foreach (var item in s.Split(','))
+        {
+            if (int.TryParse(item.Trim(), out int value))
+            {
+                ints.Add(value);
+            } else {
+                Console.WriteLine($"Could not parse {item} as an integer, defaulting to 5");
+                ints.Add(5);
+            }
+        }
+
+        return s.Split(',').Select(p => int.Parse(p.Trim())).ToList();
+    }
+
     // Loads backend options from environment variables or uses default values if the variables are not set.
     // It also configures the DNS refresh timeout and sets up an HttpClient instance.
     // If the IgnoreSSLCert environment variable is set to true, it configures the HttpClient to ignore SSL certificate errors.
@@ -219,8 +248,8 @@ public class Program
             Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
             OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
             UseOAuth = Environment.GetEnvironmentVariable("UseOAuth")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true,
-            PriorityKey1 = ReadEnvironmentVariableOrDefault("PriorityKey1", "12345"),
-            PriorityKey2 = ReadEnvironmentVariableOrDefault("PriorityKey2", "67890"),
+            PriorityKeys = toListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
+            PriorityValues = toListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,2")),
             Client = _client, 
             Hosts = new List<BackendHost>()
         };
@@ -233,25 +262,23 @@ public class Program
         {
 
             var hostname = Environment.GetEnvironmentVariable($"Host{i}")?.Trim();
-            if (hostname == null) break;
+            if (string.IsNullOrEmpty(hostname)) break;
+
+            var probePath = Environment.GetEnvironmentVariable($"Probe_path{i}")?.Trim();
+            var ip = Environment.GetEnvironmentVariable($"IP{i}")?.Trim();
 
             try
             {
-                var probePath = Environment.GetEnvironmentVariable($"Probe_path{i}")?.Trim();
-                var ip = Environment.GetEnvironmentVariable($"IP{i}")?.Trim();
+                Console.WriteLine($"Adding host {hostname} with probe path {probePath} and IP {ip}");
                 var bh = new BackendHost(hostname, probePath, ip);
                 backendOptions.Hosts.Add(bh);
 
-                if (ip != null)
-                {
-                    sb.Append(ip);
-                    sb.Append(" ");
-                    sb.Append(bh.host + Environment.NewLine);
-                }
+                sb.AppendLine($"{ip} {bh.host}");
+
             }
             catch (UriFormatException e)
             {
-                Console.WriteLine($"Could not add {hostname}: {e.Message}");
+                Console.WriteLine($"Could not add Host{i} with {hostname} : {e.Message}");
             }
 
             i++;
@@ -264,6 +291,13 @@ public class Program
             {
                 sw.WriteLine(sb.ToString());
             }
+        }
+
+        // confirm the number of priority keys and values match
+        if (backendOptions.PriorityKeys.Count != backendOptions.PriorityValues.Count)
+        {
+            Console.WriteLine("The number of PriorityKeys and PriorityValues do not match in length, defaulting all values to 5");
+            backendOptions.PriorityValues = Enumerable.Repeat(5, backendOptions.PriorityKeys.Count).ToList();
         }
 
         Console.WriteLine ("=======================================================================================");
