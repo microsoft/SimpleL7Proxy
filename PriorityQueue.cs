@@ -36,8 +36,11 @@ public class PriorityQueue<T>
         if (_items.Count == 0)
             throw new InvalidOperationException("The queue is empty.");
 
-        var item = _items[_items.Count - 1]; // Get the last item
-        _items.RemoveAt(_items.Count - 1); // Remove the last item
+        // var item = _items[_items.Count - 1]; // Get the last item
+        // _items.RemoveAt(_items.Count - 1); // Remove the last item
+        var item = _items[0]; // Get the first item
+        _items.RemoveAt(0); // Remove the first item
+
         return item.Item;
     }
 }
