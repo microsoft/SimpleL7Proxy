@@ -82,9 +82,10 @@ inp=$(az ad app show --id $APP_ID --query "api" )
 out=$(echo "$inp" | jq --argjson x "$json" '.oauth2PermissionScopes = $x')
 az ad app update --id $APP_ID --set api="$out"
 
-# Assign the app role to the service principal
+# look up the resource id for the app
 RESOURCE_ID=$(az ad sp show --id $APP_ID --query "id" --output tsv)
 
+# Assign the app role to the service principal
 az rest --method POST --uri "https://graph.microsoft.com/v1.0/servicePrincipals/$directory_object_id/appRoleAssignments" --body '{
   "principalId": "'$directory_object_id'",
   "resourceId": "'$RESOURCE_ID'",
