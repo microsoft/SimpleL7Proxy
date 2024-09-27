@@ -30,20 +30,28 @@ fi
 # Assign input arguments to variables
 appname=$1
 
-# Create the service principal, its client secret and client_ID
+# ============================== SERVICE PRINCIPAL ==============================
+
+# Create the service principal, its client secret and client_ID ( Used to call the Container App )
 sp_output=$(az ad sp create-for-rbac --name "$appname-SP" --skip-assignment) #2> /dev/null
 client_ID=$(jq -r '.appId' <<< "$sp_output")
 
 # Calculate the expiration date (90 days from now)
 expiry_date=$(date -d "90 days" '+%Y-%m-%dT%H:%M:%SZ')
 
-# Reset the credentials to set the expiration date
+# Reset the credentials to set the expiration date .. 
 sp_out=$(az ad sp credential reset --id $client_ID --end-date $expiry_date)
 password=$(jq -r '.password' <<< "$sp_output")
-export password=$(echo $credential_output | jq -r '.password')
+#export password=$(echo $credential_output | jq -r '.password')
+
 # Get the directory object ID for the service principal
 directory_object_id=$(az ad sp show --id "$client_ID" --query "id" --output tsv)
 
+#===============================================================================
+
+
+
+# ============================== CONTAINER APP =================================
 
 # Create the app registration for the container app:
 APP_ID=$(az ad app create --display-name "$appname-CA" --query "appId" --output tsv)
@@ -97,6 +105,7 @@ echo "Please run the following commands to complete the setup:"
 echo "========================================================"
 echo ""
 echo "export SP_CLIENT_ID=$client_ID"
+echo "export SP_CLIENT_SECRET=$password"
 echo "export CONTAINER_APP_ID=$APP_ID"
 echo "export CONTAINER_APP_PASSWORD=$app_password"
 echo "export ROLE_ID=$ROLE_ID"

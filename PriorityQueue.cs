@@ -36,8 +36,11 @@ public class PriorityQueue<T>
         if (_items.Count == 0)
             throw new InvalidOperationException("The queue is empty.");
 
-        var item = _items[_items.Count - 1]; // Get the last item
-        _items.RemoveAt(_items.Count - 1); // Remove the last item
+        // var item = _items[_items.Count - 1]; // Get the last item
+        // _items.RemoveAt(_items.Count - 1); // Remove the last item
+        var item = _items[0]; // Get the first item
+        _items.RemoveAt(0); // Remove the first item
+
         return item.Item;
     }
 }
@@ -59,7 +62,8 @@ public class PriorityQueueItemComparer<T> : IComparer<PriorityQueueItem<T>>
         if (priorityComparison == 0)
         {
             // If priorities are equal, sort by timestamp (older items are "bigger")
-            return y.Timestamp.CompareTo(x.Timestamp);
+            //return y.Timestamp.CompareTo(x.Timestamp);
+            return x.Timestamp.CompareTo(y.Timestamp);
         }
         return priorityComparison;
     }
@@ -85,12 +89,13 @@ public class BlockingPriorityQueue<T>
         {
             while (_priorityQueue.Count == 0)
             {
-                Monitor.Wait(_lock); // Wait for an item to be added
+                Monitor.Wait(_lock, 500); // Wait for an item to be added
                 cancellationToken.ThrowIfCancellationRequested();
             }
 
             return _priorityQueue.Dequeue();
         }
     }
+    
 }
 

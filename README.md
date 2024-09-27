@@ -49,11 +49,11 @@ SimpleL7Proxy can be run standalone on the commandline or it can be deployed as 
 | |
 |**Port** | Specifies the port number that the server will listen on. | 443 |
 | |
-|**PriorityKey1** | If the incoming request has the header 'S7PPriorityKey' set to this value,  use the value of S7PPriority as the priority. | |
+|**PriorityKeys** | If the incoming request has the header 'S7PPriorityKey' set to one of these values,  use the value of PriorityValues as the priority. The contents should be a comma delimited list of keys. | |
 | |
-|**PriorityKey2** | This is the secondary key.  If the incoming request has the header 'S7PPriorityKey' set to this value,  use the value of S7PPriority as the priority.| |
+|**PriorityValues** | This is the list of priority values to use.  If the incoming request has the header 'S7PPriorityKey' matches PriorityKeys, the corresponding value from this list will be used as the message priority. In the case this list is not specified or parsable, the default priority is used. | 5 |
 | |
-|**Probe_path1, Probe_path2, ...** | Specifies the probe paths for the corresponding backend hosts. If a Host variable is set, the application will attempt to read the corresponding Probe_path variable when creating the BackendHost instance. | echo/resource?param1=sample |
+|**Probe_path1, Probe_path2, ...** | Specifies the probe paths for the corresponding backend hosts. If a Host variable is set, the application will attempt to read the corresponding Probe_path variable when creating the BackendHost instance. Depending on the tier for your APIM, you can also try: status-0123456789abcdef or internal-status-0123456789abcdef | echo/resource?param1=sample |
 | |
 |**Success-rate** | The percentage success rate required to be used for proxying.  Any host whose success rate is lower will not be in rotation. | 80 |
 | |
@@ -83,7 +83,7 @@ This will create a listener on port 8000 and will check the health of the two ho
 
 **Run it**
 ```
-export PORT=8000
+export Port=8000
 export Host1=https://localhost:3000
 export Host2=http://localhost:5000
 export Timeout=2000

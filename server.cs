@@ -90,12 +90,12 @@ public class Server : IServer
                         var rd = new RequestData(await getContextTask.ConfigureAwait(false));
                         int priority = 1;
                         var priorityKey = rd.Headers.Get("S7PPriorityKey");
-                        if (priorityKey != null && (priorityKey == _options.PriorityKey1 || priorityKey == _options.PriorityKey2))
+                        if (!string.IsNullOrEmpty(priorityKey) && _options.PriorityKeys.Contains(priorityKey)) //lookup the priority
                         {
-                            var priorityHeader = rd.Headers.Get("S7PPriority");
-                            if (priorityHeader != null && int.TryParse(priorityHeader, out var parsedPriority))
+                            var index = _options.PriorityKeys.IndexOf(priorityKey);
+                            if (index >= 0)
                             {
-                                priority = parsedPriority;
+                                priority = _options.PriorityValues[index];
                             }
                         }
                         rd.Priority = priority;
@@ -115,7 +115,7 @@ public class Server : IServer
             catch (OperationCanceledException)
             {
                 // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
-                Console.WriteLine("Operation was canceled. Stopping the server.");
+                Console.WriteLine("Operation was canceled. Stopping the listener.");
                 break; // Exit the loop
             }
             catch (Exception e)
@@ -124,5 +124,7 @@ public class Server : IServer
                 Console.WriteLine($"Error: {e.Message}\n{e.StackTrace}");
             }
         }
+
+        Console.WriteLine("Listener task stopped.");
     }
 }

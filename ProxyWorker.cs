@@ -52,6 +52,7 @@ public class ProxyWorker  {
             }
             catch (OperationCanceledException)
             {
+                //Console.WriteLine("Operation was cancelled. Stopping the worker.");
                 break; // Exit the loop if the operation is cancelled
             }
 
@@ -140,6 +141,8 @@ public class ProxyWorker  {
                 }
             }
         }
+
+        Console.WriteLine("Worker stopped.");
     }
 
     private async Task WriteResponseAsync(HttpListenerContext context, ProxyData pr) 
