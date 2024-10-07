@@ -28,6 +28,13 @@ public class PriorityQueue<T>
         int index = _items.BinarySearch(queueItem, Comparer);
         if (index < 0) index = ~index; // If not found, BinarySearch returns the bitwise complement of the index of the next element that is larger.
         _items.Insert(index, queueItem);
+
+        //Console.WriteLine($"Enqueue:  Priority: {priority}  length: {_items.Count}  index: {index} : {GetItemsAsCommaSeparatedString()}");
+    }
+
+    public string GetItemsAsCommaSeparatedString()
+    {
+        return string.Join(", ", _items.Select(i => $"{i.Priority} "));
     }
 
     public T Dequeue()
@@ -91,7 +98,6 @@ public class BlockingPriorityQueue<T>
                 Monitor.Wait(_lock, 500); // Wait for an item to be added
                 cancellationToken.ThrowIfCancellationRequested();
             }
-
             return _priorityQueue.Dequeue();
         }
     }
