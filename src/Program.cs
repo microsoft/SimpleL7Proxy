@@ -72,6 +72,8 @@ public class Program
                     options.UseOAuth = backendOptions.UseOAuth;
                     options.PriorityKeys = backendOptions.PriorityKeys;
                     options.PriorityValues = backendOptions.PriorityValues;
+                    options.DefaultPriority = backendOptions.DefaultPriority;
+                    options.MaxQueueLength = backendOptions.MaxQueueLength;
                 });
 
                 services.AddLogging(loggingBuilder => loggingBuilder.AddFilter<Microsoft.Extensions.Logging.ApplicationInsights.ApplicationInsightsLoggerProvider>("Category", LogLevel.Information));
@@ -249,7 +251,9 @@ public class Program
             OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
             UseOAuth = Environment.GetEnvironmentVariable("UseOAuth")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true,
             PriorityKeys = toListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
-            PriorityValues = toListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,2")),
+            PriorityValues = toListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
+            DefaultPriority = ReadEnvironmentVariableOrDefault("DefaultPriority", 2),
+            MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
             Client = _client, 
             Hosts = new List<BackendHost>()
         };

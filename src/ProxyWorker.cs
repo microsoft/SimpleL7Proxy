@@ -341,10 +341,12 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
                 }
             }
 
-            catch (TaskCanceledException)
+            catch (TaskCanceledException e)
             {
                 // 408 Request Timeout
-                lastStatusCode = HandleError(host, null, request.Timestamp, request.FullURL, HttpStatusCode.RequestTimeout, "Request to " + host.url + " timed out"); 
+                lastStatusCode = HandleError(host, null, request.Timestamp, request.FullURL, HttpStatusCode.RequestTimeout, "Request to " + host.url + " timed out");
+                // log the stack trace 
+                //Console.WriteLine($"Error: {e.StackTrace}");
                 continue;
             }
             catch (OperationCanceledException e)
