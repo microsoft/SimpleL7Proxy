@@ -14,6 +14,9 @@ namespace test.generator.generator_one
         private readonly ConfigBuilder _configBuilder;
         private readonly HttpClient _httpClient;
 
+        private static int _requestCount = 0;
+        private readonly object _lock = new object();
+
         public Server(ConfigBuilder configBuilder, HttpClient httpClient) : base()
         {
             _configBuilder = configBuilder;
@@ -77,48 +80,58 @@ namespace test.generator.generator_one
                             var request = new HttpRequestMessage(new HttpMethod(test.Method), test_endpoint + test.Path);
                             bool hasContentType = false;
 
+                            lock (_lock)
+                            {
+                                _requestCount++;
+                                if (test.Headers == null)
+                                {
+                                    test.Headers = new Dictionary<string, string>();
+                                }
+                                test.Headers["xx-Request-Sequence"] = _requestCount.ToString();
+                            }
+
                             // Add headers to the request
                             if (test.Headers != null)
                             {
                                 foreach (var header in test.Headers)
                                 {
-                                    //Console.WriteLine($"Header: {header.Key} = {header.Value}");
-                                    switch (header.Key)
+                                    // Console.WriteLine($"Header: {header.Key} = {header.Value}");
+                                    switch (header.Key.ToLower())
                                     {
-                                        case "Content-Type":
+                                        case "content-type":
                                             if (request.Content == null)
                                             {
                                                 request.Content = new ByteArrayContent(new byte[0]); // Initialize content to avoid null reference
                                             }
-                                            request.Content.Headers.Add(header.Key, header.Value);
+                                            request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(header.Value);
                                             hasContentType = true;
                                             break;
-                                        case "Accept":
+                                        case "accept":
                                             request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue(header.Value));
                                             break;
-                                        case "User-Agent":
+                                        case "user-agent":
                                             request.Headers.UserAgent.ParseAdd(header.Value);
                                             break;
-                                        case "Content-Length":
+                                        case "content-length":
                                             if (request.Content == null)
                                             {
                                                 request.Content = new ByteArrayContent(new byte[0]); // Initialize content to avoid null reference
                                             }
                                             request.Content.Headers.ContentLength = long.Parse(header.Value);
                                             break;
-                                        case "Authorization":
+                                        case "authorization":
                                             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", header.Value);
                                             break;
-                                        case "Cache-Control":
+                                        case "cache-control":
                                             request.Headers.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue { NoCache = true };
                                             break;
-                                        case "If-Modified-Since":
+                                        case "if-modified-since":
                                             request.Headers.IfModifiedSince = DateTimeOffset.Parse(header.Value);
                                             break;
-                                        case "Referer":
+                                        case "referer":
                                             request.Headers.Referrer = new Uri(header.Value);
                                             break;
-                                        case "Host":
+                                        case "host":
                                             request.Headers.Host = header.Value;
                                             break;
                                         default:
