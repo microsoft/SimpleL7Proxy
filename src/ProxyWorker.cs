@@ -250,7 +250,7 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
                 {
                     proxyRequest.Content = bodyContent;
                     
-                    CopyHeaders( request.Headers, proxyRequest, true);
+                    CopyHeaders( request.Headers, proxyRequest, false);
                     if (bodyBytes.Length > 0)
                     {
                         proxyRequest.Content.Headers.ContentLength = bodyBytes.Length;

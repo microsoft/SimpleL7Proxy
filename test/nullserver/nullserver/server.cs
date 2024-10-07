@@ -59,8 +59,24 @@ namespace test.nullserver.nullserver
                     var context = await getContextTask;
                     context.Response.KeepAlive = false;
                     //Console.WriteLine($"Received request from {context.Request.RemoteEndPoint}");
-                    await Task.Delay(response_delay, cancellationToken);
-                    await Task.Run(() => ProcessRequestAsync(context, cancellationToken));
+
+                    // Process each request in a separate task
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(response_delay, cancellationToken);
+                            await ProcessRequestAsync(context, cancellationToken);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Error processing request: {ex.Message}");
+                        }
+                        finally
+                        {
+                            context.Response.Close();
+                        }
+                    }, cancellationToken);
                 }
                 catch (HttpListenerException ex)
                 {
