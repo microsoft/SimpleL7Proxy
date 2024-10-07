@@ -82,6 +82,8 @@ public class BlockingPriorityQueue<T>
 
     public int MaxQueueLength { get; set; }
 
+    public int Count => _priorityQueue.Count;
+
     public bool Enqueue(T item, int priority)
     {
         lock (_lock)
