@@ -13,10 +13,7 @@ public class Startup
 {
     public static async Task Main(string[] args)
     {
-        // Print a message
-        Console.WriteLine("Hello, World!");
-
-        // read the config
+            // read the config
         var config = new ConfigurationBuilder()
             .SetBasePath(Directory.GetCurrentDirectory())
             .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
@@ -38,8 +35,10 @@ public class Startup
         var serverTask = server.StartAsync(cts.Token);
 
         // Wait for a key press to cancel
-        Console.WriteLine("Press any key to stop the server...");
-        Console.ReadKey();
+        Console.WriteLine("Press q to exit, r to repeat: ");
+        var k = Console.ReadKey();
+
+
         cts.Cancel();
 
         // Wait for the server to stop

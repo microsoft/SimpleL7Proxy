@@ -92,6 +92,21 @@ namespace test.nullserver.nullserver
                 //Console.WriteLine($"Request body: {requestBody}");
             }
 
+            try {
+                // read the x-request-count header
+                var requestSequence = request.Headers["xx-Request-Sequence"];
+                var queueTime = request.Headers["xx-Request-Queue-Duration"];
+                var processingTime = request.Headers["xx-Request-Process-Duration"];
+
+                var url = request.Url.ToString();
+
+                Console.WriteLine($"{url}  Request Sequence: {requestSequence} QueueTime: {queueTime} ProcessTime: {processingTime}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error reading header: {ex.Message}");
+            }
+
             // Write the response with status code 200
             response.StatusCode = 200;
             response.ContentType = "text/plain";

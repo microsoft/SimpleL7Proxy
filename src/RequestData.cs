@@ -17,6 +17,8 @@ public class RequestData : IDisposable, IAsyncDisposable
     public bool Debug { get; set; } 
 
     public int Priority { get; set; }
+    public DateTime EnqueueTime { get; set; }
+    public DateTime DequeueTime { get; set; }
 
     public RequestData(HttpListenerContext context)
     {

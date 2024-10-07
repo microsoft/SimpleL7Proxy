@@ -49,6 +49,7 @@ public class ProxyWorker  {
             {
                 //incomingRequest = _requestsQueue.Take(_cancellationToken); // This will block until an item is available or the token is cancelled
                 incomingRequest = _requestsQueue.Dequeue(_cancellationToken);
+                incomingRequest.DequeueTime = DateTime.UtcNow;
             }
             catch (OperationCanceledException)
             {
@@ -79,6 +80,9 @@ public class ProxyWorker  {
                         await lcontext.Response.OutputStream.WriteAsync(healthMessage, 0, healthMessage.Length);
                         continue;
                     }
+
+                    incomingRequest.Headers.Add("xx-Request-Queue-Duration", (incomingRequest.DequeueTime - incomingRequest.EnqueueTime).TotalMilliseconds.ToString());
+                    incomingRequest.Headers.Add("xx-Request-Process-Duration", (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString());
 
                     var pr = await ReadProxyAsync(incomingRequest).ConfigureAwait(false);
                     await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);
@@ -151,14 +155,14 @@ public class ProxyWorker  {
         context.Response.StatusCode = (int)pr.StatusCode;
 
         // Copy headers to the response
-        CopyHeaders(pr.Headers, context.Response.Headers);
+        CopyHeadersToResponse(pr.Headers, context.Response.Headers);
 
         // Set content-specific headers
         if (pr.ContentHeaders != null)
         {
             foreach (var key in pr.ContentHeaders.AllKeys)
             {
-                switch (key.ToLowerInvariant())
+                switch (key.ToLower())
                 {
                     case "content-length":
                         var length = pr.ContentHeaders[key];
@@ -182,7 +186,13 @@ public class ProxyWorker  {
                 }
             }
         }
+
         context.Response.KeepAlive = false;
+
+        // foreach (var key in context.Response.Headers.AllKeys)
+        // {
+        //     Console.WriteLine($"Response Header: {key} : {context.Response.Headers[key]}");
+        // }
 
         // Write the response body to the client as a byte array
         if (pr.Body != null)
@@ -431,10 +441,11 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
         }
     }
 
-    private void CopyHeaders(WebHeaderCollection sourceHeaders, WebHeaderCollection targetHeaders)
+    private void CopyHeadersToResponse(WebHeaderCollection sourceHeaders, WebHeaderCollection targetHeaders)
     {
         foreach (var key in sourceHeaders.AllKeys)
         {
+            //Console.WriteLine($"Copying {key} : {sourceHeaders[key]}");
             targetHeaders.Add(key, sourceHeaders[key]);
         }
     }
