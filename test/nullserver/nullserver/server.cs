@@ -57,7 +57,7 @@ namespace test.nullserver.nullserver
                 {
                     var getContextTask = httpListener.GetContextAsync();
                     var context = await getContextTask;
-                    context.Response.KeepAlive = true;
+                    context.Response.KeepAlive = false;
                     //Console.WriteLine($"Received request from {context.Request.RemoteEndPoint}");
                     await Task.Delay(response_delay, cancellationToken);
                     await Task.Run(() => ProcessRequestAsync(context, cancellationToken));
@@ -85,14 +85,13 @@ namespace test.nullserver.nullserver
             var request = context.Request;
             var response = context.Response;
 
-            // Read the request body asynchronously
-            using (var reader = new System.IO.StreamReader(request.InputStream))
-            {
-                var requestBody = await reader.ReadToEndAsync();
-                //Console.WriteLine($"Request body: {requestBody}");
-            }
-
             try {
+                // Read the request body asynchronously
+                using (var reader = new System.IO.StreamReader(request.InputStream))
+                {
+                    var requestBody = await reader.ReadToEndAsync();
+                    //Console.WriteLine($"Request body: {requestBody}");
+                }
                 // read the x-request-count header
                 var requestSequence = request.Headers["x-Request-Sequence"];
                 var queueTime = request.Headers["x-Request-Queue-Duration"];
@@ -101,26 +100,18 @@ namespace test.nullserver.nullserver
                 var url = request.Url.ToString();
 
                 Console.WriteLine($"{url}  Request Sequence: {requestSequence} QueueTime: {queueTime} ProcessTime: {processingTime}");
+
+                // Write the response
+                response.StatusCode = 200;
+                using (var writer = new System.IO.StreamWriter(response.OutputStream))
+                {
+                    await writer.WriteAsync("OK");
+                }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error reading header: {ex.Message}");
             }
-
-            // Write the response with status code 200
-            response.StatusCode = 200;
-            response.ContentType = "text/plain";
-
-            var responseString = "OK";
-            var buffer = System.Text.Encoding.UTF8.GetBytes(responseString);
-            response.ContentLength64 = buffer.Length;
-
-            using (var output = response.OutputStream)
-            {
-                await output.WriteAsync(buffer, 0, buffer.Length);
-            }
-
-            response.Close();
         }
     }
 }
