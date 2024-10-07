@@ -81,8 +81,8 @@ public class ProxyWorker  {
                         continue;
                     }
 
-                    incomingRequest.Headers.Add("xx-Request-Queue-Duration", (incomingRequest.DequeueTime - incomingRequest.EnqueueTime).TotalMilliseconds.ToString());
-                    incomingRequest.Headers.Add("xx-Request-Process-Duration", (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString());
+                    incomingRequest.Headers.Add("x-Request-Queue-Duration", (incomingRequest.DequeueTime - incomingRequest.EnqueueTime).TotalMilliseconds.ToString());
+                    incomingRequest.Headers.Add("x-Request-Process-Duration", (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString());
 
                     var pr = await ReadProxyAsync(incomingRequest).ConfigureAwait(false);
                     await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);

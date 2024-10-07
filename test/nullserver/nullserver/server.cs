@@ -94,9 +94,9 @@ namespace test.nullserver.nullserver
 
             try {
                 // read the x-request-count header
-                var requestSequence = request.Headers["xx-Request-Sequence"];
-                var queueTime = request.Headers["xx-Request-Queue-Duration"];
-                var processingTime = request.Headers["xx-Request-Process-Duration"];
+                var requestSequence = request.Headers["x-Request-Sequence"];
+                var queueTime = request.Headers["x-Request-Queue-Duration"];
+                var processingTime = request.Headers["x-Request-Process-Duration"];
 
                 var url = request.Url.ToString();
 
