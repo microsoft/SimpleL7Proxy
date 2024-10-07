@@ -104,7 +104,7 @@ public class Server : IServer
 
                         //_requestsQueue.Enqueue(new RequestData(await getContextTask.ConfigureAwait(false)));
                         if (!_requestsQueue.Enqueue(rd, priority)) {
-                            Console.WriteLine("Failed to enqueue request.");
+                            Console.WriteLine("Failed to enqueue request. " + _requestsQueue.Count);
 
                             // send a 429 response
                             rd.Context.Response.StatusCode = 429;
