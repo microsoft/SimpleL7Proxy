@@ -81,8 +81,8 @@ public class ProxyWorker  {
                         continue;
                     }
 
-                    incomingRequest.Headers.Add("xx-Request-Queue-Duration", (incomingRequest.DequeueTime - incomingRequest.EnqueueTime).TotalMilliseconds.ToString());
-                    incomingRequest.Headers.Add("xx-Request-Process-Duration", (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString());
+                    incomingRequest.Headers.Add("x-Request-Queue-Duration", (incomingRequest.DequeueTime - incomingRequest.EnqueueTime).TotalMilliseconds.ToString());
+                    incomingRequest.Headers.Add("x-Request-Process-Duration", (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString());
 
                     var pr = await ReadProxyAsync(incomingRequest).ConfigureAwait(false);
                     await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);
@@ -341,10 +341,12 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
                 }
             }
 
-            catch (TaskCanceledException)
+            catch (TaskCanceledException e)
             {
                 // 408 Request Timeout
-                lastStatusCode = HandleError(host, null, request.Timestamp, request.FullURL, HttpStatusCode.RequestTimeout, "Request to " + host.url + " timed out"); 
+                lastStatusCode = HandleError(host, null, request.Timestamp, request.FullURL, HttpStatusCode.RequestTimeout, "Request to " + host.url + " timed out");
+                // log the stack trace 
+                //Console.WriteLine($"Error: {e.StackTrace}");
                 continue;
             }
             catch (OperationCanceledException e)

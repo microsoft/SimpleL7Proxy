@@ -80,13 +80,22 @@ public class BlockingPriorityQueue<T>
     private readonly PriorityQueue<T> _priorityQueue = new PriorityQueue<T>();
     private readonly object _lock = new object();
 
-    public void Enqueue(T item, int priority)
+    public int MaxQueueLength { get; set; }
+
+    public bool Enqueue(T item, int priority)
     {
         lock (_lock)
         {
+            //Console.WriteLine($"Count: {_priorityQueue.Count} , Max: {MaxQueueLength}");
+            if (_priorityQueue.Count >= MaxQueueLength)
+            {
+                return false;
+            }
             _priorityQueue.Enqueue(item, priority);
             Monitor.Pulse(_lock); // Signal that an item has been added
         }
+
+        return true;
     }
 
     public T Dequeue(CancellationToken cancellationToken)

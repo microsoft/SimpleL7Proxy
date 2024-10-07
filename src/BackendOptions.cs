@@ -9,6 +9,8 @@ public class BackendOptions : IBackendOptions
     public int Workers { get; set; }
     public List<string> PriorityKeys { get; set; } = new List<string>();
     public List<int> PriorityValues { get; set; } = new List<int>();
+    public int DefaultPriority { get; set; }
+    public int MaxQueueLength { get; set; }
     public string OAuthAudience { get; set; } = "";
     public bool UseOAuth { get; set; }
 

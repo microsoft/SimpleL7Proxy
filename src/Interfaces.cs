@@ -23,6 +23,8 @@ public interface IBackendOptions {
     int Workers { get; set; }
     public List<string> PriorityKeys { get; set; }
     public List<int> PriorityValues { get; set; }
+    public int DefaultPriority { get; set; }
+    public int MaxQueueLength { get; set; }
     List<BackendHost>? Hosts { get; set; }
     HttpClient? Client { get; set; }
 }

@@ -87,7 +87,7 @@ namespace test.generator.generator_one
                                 {
                                     test.Headers = new Dictionary<string, string>();
                                 }
-                                test.Headers["xx-Request-Sequence"] = _requestCount.ToString();
+                                test.Headers["x-Request-Sequence"] = _requestCount.ToString();
                             }
 
                             // Add headers to the request

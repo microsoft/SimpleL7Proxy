@@ -25,6 +25,7 @@ public class Server : IServer
 
         _options = backendOptions.Value;
         _telemetryClient = telemetryClient;
+        _requestsQueue.MaxQueueLength = _options.MaxQueueLength;
 
         var _listeningUrl = $"http://+:{_options.Port}/";
 
@@ -88,7 +89,7 @@ public class Server : IServer
                         delayCts.Cancel();
                        // _requestsQueue.Add(new RequestData(await getContextTask.ConfigureAwait(false)));
                         var rd = new RequestData(await getContextTask.ConfigureAwait(false));
-                        int priority = 1;
+                        int priority = _options.DefaultPriority;
                         var priorityKey = rd.Headers.Get("S7PPriorityKey");
                         if (!string.IsNullOrEmpty(priorityKey) && _options.PriorityKeys.Contains(priorityKey)) //lookup the priority
                         {
@@ -102,7 +103,20 @@ public class Server : IServer
                         rd.EnqueueTime = DateTime.UtcNow;
 
                         //_requestsQueue.Enqueue(new RequestData(await getContextTask.ConfigureAwait(false)));
-                        _requestsQueue.Enqueue(rd, priority);
+                        if (!_requestsQueue.Enqueue(rd, priority)) {
+                            Console.WriteLine("Failed to enqueue request.");
+
+                            // send a 429 response
+                            rd.Context.Response.StatusCode = 429;
+                            rd.Context.Response.Headers["Retry-After"] = "500ms";
+                            using (var writer = new System.IO.StreamWriter(rd.Context.Response.OutputStream))
+                            {
+                                await writer.WriteAsync("Too many requests. Please try again later.");
+                            }
+                            rd.Context.Response.Close();
+                            Console.WriteLine($"Pri: {priority} Stat: 429 Len: - {rd.Path}");
+
+                        }
                     }
                     else
                     {
