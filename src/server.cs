@@ -99,6 +99,7 @@ public class Server : IServer
                             }
                         }
                         rd.Priority = priority;
+                        rd.EnqueueTime = DateTime.UtcNow;
 
                         //_requestsQueue.Enqueue(new RequestData(await getContextTask.ConfigureAwait(false)));
                         _requestsQueue.Enqueue(rd, priority);
