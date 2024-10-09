@@ -12,18 +12,21 @@ public class Server : IServer
     private IBackendOptions? _options;
     private readonly TelemetryClient? _telemetryClient; // Add this line
     private HttpListener httpListener;
+
+    private IBackendService _backends;
     private CancellationToken _cancellationToken;
     //private BlockingCollection<RequestData> _requestsQueue = new BlockingCollection<RequestData>();
     private BlockingPriorityQueue<RequestData> _requestsQueue = new BlockingPriorityQueue<RequestData>();
 
 
     // Constructor to initialize the server with backend options and telemetry client.
-    public Server(IOptions<BackendOptions> backendOptions, TelemetryClient? telemetryClient)
+    public Server(IOptions<BackendOptions> backendOptions, IBackendService backends, TelemetryClient? telemetryClient)
     {
         if (backendOptions == null) throw new ArgumentNullException(nameof(backendOptions));
         if (backendOptions.Value == null) throw new ArgumentNullException(nameof(backendOptions.Value));
 
         _options = backendOptions.Value;
+        _backends = backends;
         _telemetryClient = telemetryClient;
         _requestsQueue.MaxQueueLength = _options.MaxQueueLength;
 
@@ -103,12 +106,13 @@ public class Server : IServer
                         rd.EnqueueTime = DateTime.UtcNow;
 
                         //_requestsQueue.Enqueue(new RequestData(await getContextTask.ConfigureAwait(false)));
-                        if (!_requestsQueue.Enqueue(rd, priority)) {
+                        if (  _backends.CheckFailedStatus() || _backends.ActiveHostCount() == 0 || !_requestsQueue.Enqueue(rd, priority)){
                             Console.WriteLine("Failed to enqueue request. " + _requestsQueue.Count);
 
-                            // send a 429 response
+                            // send a 429 response to client in the number of milliseconds specified in Retry-After header
                             rd.Context.Response.StatusCode = 429;
-                            rd.Context.Response.Headers["Retry-After"] = "500ms";
+                            rd.Context.Response.Headers["Retry-After"]=(_backends.ActiveHostCount()==0) ? _options.PollInterval.ToString() : "500";
+
                             using (var writer = new System.IO.StreamWriter(rd.Context.Response.OutputStream))
                             {
                                 await writer.WriteAsync("Too many requests. Please try again later.");

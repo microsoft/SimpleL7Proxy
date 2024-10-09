@@ -117,6 +117,11 @@ namespace test.nullserver.nullserver
 
                 Console.WriteLine($"{url}  Request Sequence: {requestSequence} QueueTime: {queueTime} ProcessTime: {processingTime}");
 
+                // Add response headers
+                response.Headers["x-Request-Sequence"] = requestSequence;
+                response.Headers["x-Request-Queue-Duration"] = queueTime;
+                response.Headers["x-Request-Process-Duration"] = processingTime;
+
                 // Write the response
                 response.StatusCode = 200;
                 using (var writer = new System.IO.StreamWriter(response.OutputStream))
