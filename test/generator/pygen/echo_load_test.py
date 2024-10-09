@@ -37,7 +37,7 @@ data = {
 # Global counter and lock for thread safety
 counter = 0
 counter_lock = threading.Lock()
-max_retries = 5
+max_retries = 15
 
 def make_request():
     global counter
@@ -58,13 +58,14 @@ def make_request():
         queue_time = response.headers.get("x-Request-Queue-Duration") or response.headers.get("x-request-queue-duration") or'-'
         process_time = response.headers.get("x-Request-Process-Duration") or response.headers.get("x-request-process-duration") or '-'
 
-        print(response.status_code, " - ", str(seq_number), " Q: ", queue_time, " P  ", process_time)
 
         if response.status_code == 200:
+            print(response.status_code, " - ", str(seq_number), " Q: ", queue_time, " P  ", process_time)
             return "response.json()"
         elif response.status_code == 429:
             retry_delay = int(response.headers.get("Retry-After", 500)) / 1000
-            print(f"Request {seq_number} failed with status code 429. Retrying in {retry_delay} seconds...")
+            retry_delay = 30
+            print(f"Throttled:  Request {seq_number} returned code 429. Retrying in {retry_delay} seconds...")
             time.sleep(retry_delay)
         else:
             return f"Request failed with status code {response.status_code}: {response.text}"
@@ -72,7 +73,7 @@ def make_request():
     return f"Request {seq_number} failed after {max_retries} retries."
 
 def main():
-    with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=200) as executor:
         futures = [executor.submit(make_request) for _ in range(10000)]
         for future in concurrent.futures.as_completed(futures):
             try:
