@@ -32,6 +32,8 @@ public class Backends : IBackendService
     private CancellationToken _cancellationToken;
 
     private Azure.Core.AccessToken? AuthToken { get; set; }
+    private object lockObj = new object();
+
 
     //public Backends(List<BackendHost> hosts, HttpClient client, int interval, int successRate)
     public Backends(IOptions<BackendOptions> options)
@@ -60,11 +62,50 @@ public class Backends : IBackendService
         }
     }   
 
+
+    List<DateTime> hostFailureTimes = new List<DateTime>();
+    private const int FailureThreshold = 5;
+    private const int FailureTimeFrame = 10; // seconds
+
     public List<BackendHost> GetActiveHosts()
     {
         return _activeHosts;
     }
+    public int ActiveHostCount() {
+        return _activeHosts.Count;
+    }
 
+
+    public void TrackStatus(int code)
+    {
+        lock(lockObj)
+        {
+            if (code == 200)
+            {
+                hostFailureTimes.Clear();
+            }
+            else
+            {
+                DateTime now = DateTime.UtcNow;
+                hostFailureTimes.Add(now);
+
+                // truncate older entries
+                hostFailureTimes.RemoveAll(t => (now - t).TotalSeconds >= FailureTimeFrame);
+            }
+        }
+    }
+
+    // returns true if the service is in failure state
+    public bool CheckFailedStatus() {
+        lock(lockObj)
+        {
+            DateTime now = DateTime.UtcNow;
+            hostFailureTimes.RemoveAll(t => (now - t).TotalSeconds >= FailureTimeFrame);
+            return hostFailureTimes.Count >= FailureThreshold;
+        }
+
+    }
+   
     public string OAuth2Token() {
         while (AuthToken?.ExpiresOn < DateTime.UtcNow)
         {

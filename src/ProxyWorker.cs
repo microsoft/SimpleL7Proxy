@@ -88,6 +88,9 @@ public class ProxyWorker  {
                     await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);
 
                     Console.WriteLine($"Pri: {incomingRequest.Priority} Stat: {(int)pr.StatusCode} Len: {pr.ContentHeaders["Content-Length"]} {pr.FullURL}");
+                   
+                    // Track the status of the request for circuit breaker
+                    _backends.TrackStatus((int)pr.StatusCode);
 
                     if (_eventHubClient != null)
                         SendEventData(pr.FullURL, pr.StatusCode, incomingRequest.Timestamp, pr.ResponseDate);
@@ -108,6 +111,7 @@ public class ProxyWorker  {
                     {
                         Console.WriteLine($"Failed to write error message: {writeEx.Message}");
                     }
+
                 }
                 catch (Exception ex)
                 {
@@ -250,7 +254,7 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
                 {
                     proxyRequest.Content = bodyContent;
                     
-                    CopyHeaders( request.Headers, proxyRequest, false);
+                    CopyHeaders( request.Headers, proxyRequest, true);
                     if (bodyBytes.Length > 0)
                     {
                         proxyRequest.Content.Headers.ContentLength = bodyBytes.Length;
@@ -436,7 +440,7 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
         foreach (string? key in sourceHeaders.AllKeys)
         {
             if (key == null) continue;
-            if ( !ignoreHeaders ||  (!key.StartsWith("S7P") && !key.StartsWith("x-", StringComparison.OrdinalIgnoreCase) &&  !key.Equals("content-length", StringComparison.OrdinalIgnoreCase)))
+            if ( !ignoreHeaders ||  (!key.StartsWith("S7P") && !key.StartsWith("X-MS-CLIENT", StringComparison.OrdinalIgnoreCase) &&  !key.Equals("content-length", StringComparison.OrdinalIgnoreCase)))
             {
                 targetMessage?.Headers.TryAddWithoutValidation(key, sourceHeaders[key]);
             }
