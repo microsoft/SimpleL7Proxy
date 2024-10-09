@@ -143,8 +143,8 @@ public class ProxyWorker  {
                 finally
                 {
                     // Track the status of the request for circuit breaker
-                    _backends.TrackStatus((int)pr.StatusCode);
-                    
+                    _backends.TrackStatus((int)lcontext.Response.StatusCode);
+
                     _telemetryClient?.TrackRequest($"{incomingRequest.Method} {incomingRequest.Path}", 
                         DateTimeOffset.UtcNow, new TimeSpan(0, 0, 0), $"{lcontext.Response.StatusCode}", true);
                 }
