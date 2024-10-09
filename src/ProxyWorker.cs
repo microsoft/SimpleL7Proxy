@@ -89,8 +89,6 @@ public class ProxyWorker  {
 
                     Console.WriteLine($"Pri: {incomingRequest.Priority} Stat: {(int)pr.StatusCode} Len: {pr.ContentHeaders["Content-Length"]} {pr.FullURL}");
                    
-                    // Track the status of the request for circuit breaker
-                    _backends.TrackStatus((int)pr.StatusCode);
 
                     if (_eventHubClient != null)
                         SendEventData(pr.FullURL, pr.StatusCode, incomingRequest.Timestamp, pr.ResponseDate);
@@ -144,6 +142,9 @@ public class ProxyWorker  {
                 }
                 finally
                 {
+                    // Track the status of the request for circuit breaker
+                    _backends.TrackStatus((int)pr.StatusCode);
+                    
                     _telemetryClient?.TrackRequest($"{incomingRequest.Method} {incomingRequest.Path}", 
                         DateTimeOffset.UtcNow, new TimeSpan(0, 0, 0), $"{lcontext.Response.StatusCode}", true);
                 }

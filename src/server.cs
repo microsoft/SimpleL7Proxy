@@ -105,7 +105,7 @@ public class Server : IServer
                         rd.Priority = priority;
                         rd.EnqueueTime = DateTime.UtcNow;
 
-                        //_requestsQueue.Enqueue(new RequestData(await getContextTask.ConfigureAwait(false)));
+                        // Check circuit breaker status and enqueue the request
                         if (  _backends.CheckFailedStatus() || _backends.ActiveHostCount() == 0 || !_requestsQueue.Enqueue(rd, priority)){
                             Console.WriteLine("Failed to enqueue request. " + _requestsQueue.Count);
 
