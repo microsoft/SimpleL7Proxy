@@ -39,6 +39,10 @@ counter = 0
 counter_lock = threading.Lock()
 max_retries = 15
 
+# Event to handle 429 status code
+throttle_event = threading.Event()
+
+
 def make_request():
     global counter
 
@@ -54,26 +58,35 @@ def make_request():
     print("Making request: " + str(seq_number))
 
     for attempt in range(max_retries):
-        response = requests.post(url, headers=headers_with_seq, json=data, timeout=120, verify=False)
-        queue_time = response.headers.get("x-Request-Queue-Duration") or response.headers.get("x-request-queue-duration") or'-'
-        process_time = response.headers.get("x-Request-Process-Duration") or response.headers.get("x-request-process-duration") or '-'
-
+        # Wait if throttled
+        throttle_event.wait()
+        
+        response = requests.post(url, headers=headers_with_seq, json=data, timeout=240, verify=False)
 
         if response.status_code == 200:
-            print(response.status_code, " - ", str(seq_number), " Q: ", queue_time, " P  ", process_time)
+            queue_time = response.headers.get("x-Request-Queue-Duration") or response.headers.get("x-request-queue-duration") or'-'
+            process_time = response.headers.get("x-Request-Process-Duration") or response.headers.get("x-request-process-duration") or '-'
+            worker = response.headers.get("x-Request-Worker") or response.headers.get("x-request-worker") or '-'
+            print(worker, ":  ", response.status_code, " - ", str(seq_number), " Q: ", queue_time, " P  ", process_time)
             return "response.json()"
         elif response.status_code == 429:
+            # Set the throttle event to block all threads
+            throttle_event.clear()
+
             retry_delay = int(response.headers.get("Retry-After", 500)) / 1000
             retry_delay = 30
             print(f"Throttled:  Request {seq_number} returned code 429. Retrying in {retry_delay} seconds...")
             time.sleep(retry_delay)
+
+            # Reset the throttle event to allow threads to continue
+            throttle_event.set()
         else:
             return f"Request failed with status code {response.status_code}: {response.text}"
 
     return f"Request {seq_number} failed after {max_retries} retries."
 
 def main():
-    with concurrent.futures.ThreadPoolExecutor(max_workers=200) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1000) as executor:
         futures = [executor.submit(make_request) for _ in range(10000)]
         for future in concurrent.futures.as_completed(futures):
             try:
