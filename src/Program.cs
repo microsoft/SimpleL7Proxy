@@ -130,7 +130,7 @@ public class Program
             // startup Worker # of tasks
             for (int i = 0; i < backendOptions.Workers; i++)
             {
-                var pw = new ProxyWorker(cancellationToken, queue, backendOptions, backends, eventHubClient, telemetryClient);
+                var pw = new ProxyWorker(cancellationToken, i, queue, backendOptions, backends, eventHubClient, telemetryClient);
                 tasks.Add( Task.Run(() => pw.TaskRunner(), cancellationToken));
             }
 
@@ -313,7 +313,7 @@ public class Program
         Console.WriteLine("#     #  # #    # #      #      #      #         #     #      #   #  #    #  #  #    #");
         Console.WriteLine(" #####   # #    # #      ###### ###### #######   #     #      #    #  ####  #    #   #");
         Console.WriteLine ("=======================================================================================");
-        Console.WriteLine("Version: 1.0.0");
+        Console.WriteLine("Version: 1.1.0");
 
         return backendOptions;
     }
