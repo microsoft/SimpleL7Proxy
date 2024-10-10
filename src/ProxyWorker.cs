@@ -25,10 +25,11 @@ public class ProxyWorker  {
     private readonly BackendOptions _options;
     private readonly TelemetryClient? _telemetryClient;
     private readonly IEventHubClient? _eventHubClient;
+    private string IDstr="";
 
 
     //public ProxyWorker( CancellationToken cancellationToken, BlockingCollection<RequestData> requestsQueue, BackendOptions backendOptions, IBackendService? backends, IEventHubClient? eventHubClient, TelemetryClient? telemetryClient) {
-    public ProxyWorker(CancellationToken cancellationToken, BlockingPriorityQueue<RequestData> requestsQueue, BackendOptions backendOptions, IBackendService? backends, IEventHubClient? eventHubClient, TelemetryClient? telemetryClient) 
+    public ProxyWorker(CancellationToken cancellationToken,int ID, BlockingPriorityQueue<RequestData> requestsQueue, BackendOptions backendOptions, IBackendService? backends, IEventHubClient? eventHubClient, TelemetryClient? telemetryClient) 
     {
         _cancellationToken = cancellationToken;
         _requestsQueue = requestsQueue ?? throw new ArgumentNullException(nameof(requestsQueue));
@@ -37,6 +38,7 @@ public class ProxyWorker  {
         _telemetryClient = telemetryClient;
         _options = backendOptions ?? throw new ArgumentNullException(nameof(backendOptions));
         if (_options.Client == null) throw new ArgumentNullException(nameof(_options.Client));
+        IDstr = ID.ToString();
     }
 
     public async Task TaskRunner() {
@@ -83,6 +85,7 @@ public class ProxyWorker  {
 
                     incomingRequest.Headers.Add("x-Request-Queue-Duration", (incomingRequest.DequeueTime - incomingRequest.EnqueueTime).TotalMilliseconds.ToString());
                     incomingRequest.Headers.Add("x-Request-Process-Duration", (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString());
+                    incomingRequest.Headers.Add("x-Request-Worker", IDstr);
 
                     var pr = await ReadProxyAsync(incomingRequest).ConfigureAwait(false);
                     await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);
@@ -301,7 +304,7 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
                         lastStatusCode = proxyResponse.StatusCode;
 
                         // Check if the status code of the response is in the set of allowed status codes, else try the next host
-                       if (((int)proxyResponse.StatusCode > 300 &&  (int)proxyResponse.StatusCode < 400) || (int)proxyResponse.StatusCode > 500)
+                       if (((int)proxyResponse.StatusCode > 300 &&  (int)proxyResponse.StatusCode < 400) || (int)proxyResponse.StatusCode >= 500)
                        {
 
                            if (request.Debug) {
@@ -317,7 +320,7 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
                                     Console.WriteLine($"Got: {temp_pr.StatusCode} {temp_pr.FullURL} {temp_pr.ContentHeaders["Content-Length"]} Body: {temp_pr?.Body?.Length} bytes"); 
                                     Console.WriteLine($"< {temp_pr?.Body }"); 
                                } catch (Exception e) {
-                                    Console.WriteLine($"Error reading from remote host: {e.Message}");
+                                    Console.WriteLine($"Error reading from backend host: {e.Message}");
                                }
 
                                Console.WriteLine($"Trying next host: Response: {proxyResponse.StatusCode}");
@@ -349,7 +352,7 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
             catch (TaskCanceledException e)
             {
                 // 408 Request Timeout
-                lastStatusCode = HandleError(host, null, request.Timestamp, request.FullURL, HttpStatusCode.RequestTimeout, "Request to " + host.url + " timed out");
+                lastStatusCode = HandleProxyRequestError(host, null, request.Timestamp, request.FullURL, HttpStatusCode.RequestTimeout, "Request to " + host.url + " timed out");
                 // log the stack trace 
                 //Console.WriteLine($"Error: {e.StackTrace}");
                 continue;
@@ -357,13 +360,13 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
             catch (OperationCanceledException e)
             {
                 // 502 Bad Gateway
-                lastStatusCode = HandleError(host, e, request.Timestamp, request.FullURL, HttpStatusCode.BadGateway, "Request to " + host.url + " was cancelled");
+                lastStatusCode = HandleProxyRequestError(host, e, request.Timestamp, request.FullURL, HttpStatusCode.BadGateway, "Request to " + host.url + " was cancelled");
                 continue;
             }
             catch (HttpRequestException e)
             {
                 // 400 Bad Request
-                lastStatusCode = HandleError(host, e, request.Timestamp, request.FullURL, HttpStatusCode.BadRequest);
+                lastStatusCode = HandleProxyRequestError(host, e, request.Timestamp, request.FullURL, HttpStatusCode.BadRequest);
                 continue;
             }
             catch (Exception e)
@@ -371,7 +374,7 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
                 // 500 Internal Server Error
                 Console.WriteLine($"Error: {e.StackTrace}");
                 Console.WriteLine($"Error: {e.Message}");
-                lastStatusCode = HandleError(host, e, request.Timestamp, request.FullURL, HttpStatusCode.InternalServerError);
+                lastStatusCode = HandleProxyRequestError(host, e, request.Timestamp, request.FullURL, HttpStatusCode.InternalServerError);
             }
         }
 
@@ -388,6 +391,7 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
 
     }
 
+    // Read the response from the proxy and set the response body
     private async Task GetProxyResponseAsync(HttpResponseMessage proxyResponse, RequestData request, ProxyData pr)
     {       
         // Get a stream to the response body
@@ -430,7 +434,7 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
         }
         catch (ArgumentException)
         {
-            HandleError(null, null, request.Timestamp, request.FullURL, HttpStatusCode.UnsupportedMediaType,
+            HandleProxyRequestError(null, null, request.Timestamp, request.FullURL, HttpStatusCode.UnsupportedMediaType,
                 $"Unsupported charset: {contentType.CharSet}");
             return Encoding.UTF8; // Fallback to UTF-8 in case of error
         }
@@ -486,7 +490,7 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
         }
     }
 
-    private HttpStatusCode HandleError(BackendHost? host, Exception? e, DateTime requestDate, string url, HttpStatusCode statusCode, string? customMessage = null)
+    private HttpStatusCode HandleProxyRequestError(BackendHost? host, Exception? e, DateTime requestDate, string url, HttpStatusCode statusCode, string? customMessage = null)
     {
         // Common operations for all exceptions
 

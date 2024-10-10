@@ -86,6 +86,9 @@ public class Server : IServer
 
                     var completedTask = await Task.WhenAny(getContextTask, delayTask).ConfigureAwait(false);
 
+                    // relinquish control to allow other tasks to run
+                    await Task.Yield();
+
                     // Cancel the delay task immedietly if the getContextTask completes first
                     if (completedTask == getContextTask)
                     {
@@ -107,7 +110,7 @@ public class Server : IServer
 
                         // Check circuit breaker status and enqueue the request
                         if (  _backends.CheckFailedStatus() || _backends.ActiveHostCount() == 0 || !_requestsQueue.Enqueue(rd, priority)){
-                            Console.WriteLine("Failed to enqueue request. " + _requestsQueue.Count);
+                            Console.WriteLine($"Failed to enqueue request. Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}, Circuit Breaker Status: {_backends.CheckFailedStatus()}");
 
                             // send a 429 response to client in the number of milliseconds specified in Retry-After header
                             rd.Context.Response.StatusCode = 429;
@@ -120,6 +123,9 @@ public class Server : IServer
                             rd.Context.Response.Close();
                             Console.WriteLine($"Pri: {priority} Stat: 429 Len: - {rd.Path}");
 
+                        }
+                        else {
+                            Console.WriteLine($"Enqueued request.  Pri: {priority} Queue Length: {_requestsQueue.Count} Status: {_backends.CheckFailedStatus()} Active Hosts: {_backends.ActiveHostCount()}");
                         }
                     }
                     else

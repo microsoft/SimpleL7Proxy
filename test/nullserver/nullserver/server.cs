@@ -12,6 +12,7 @@ namespace test.nullserver.nullserver
     {
         private readonly ConfigBuilder _configBuilder;
         private readonly HttpClient _httpClient;
+        private int response_delay = 0;
 
         public Server(ConfigBuilder configBuilder, HttpClient httpClient) : base()
         {
@@ -37,7 +38,7 @@ namespace test.nullserver.nullserver
 
             var httpListener = new HttpListener();
             httpListener.Prefixes.Add(_listeningUrl);
-            var response_delay = ParseTime(_configBuilder.ResponseDelay);
+            response_delay = ParseTime(_configBuilder.ResponseDelay);
 
             try
             {
@@ -65,7 +66,6 @@ namespace test.nullserver.nullserver
                     {
                         try
                         {
-                            await Task.Delay(response_delay, cancellationToken);
                             await ProcessRequestAsync(context, cancellationToken);
                         }
                         catch (Exception ex)
@@ -102,6 +102,13 @@ namespace test.nullserver.nullserver
             var response = context.Response;
 
             try {
+                var url = request.Url.ToString();
+
+                if (!url.Contains("/status-0123456789abcdef")) {
+                   // Simulate response delay
+                   await Task.Delay(response_delay, cancellationToken);
+                }
+
                 // Read the request body asynchronously
                 using (var reader = new System.IO.StreamReader(request.InputStream))
                 {
@@ -113,7 +120,6 @@ namespace test.nullserver.nullserver
                 var queueTime = request.Headers["x-Request-Queue-Duration"];
                 var processingTime = request.Headers["x-Request-Process-Duration"];
 
-                var url = request.Url.ToString();
 
                 Console.WriteLine($"{url}  Request Sequence: {requestSequence} QueueTime: {queueTime} ProcessTime: {processingTime}");
 
