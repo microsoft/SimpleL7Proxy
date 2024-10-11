@@ -108,9 +108,27 @@ public class Server : IServer
                         rd.Priority = priority;
                         rd.EnqueueTime = DateTime.UtcNow;
 
+                        var return429 = false;
+
                         // Check circuit breaker status and enqueue the request
-                        if (  _backends.CheckFailedStatus() || _backends.ActiveHostCount() == 0 || !_requestsQueue.Enqueue(rd, priority)){
-                            Console.WriteLine($"Failed to enqueue request. Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}, Circuit Breaker Status: {_backends.CheckFailedStatus()}");
+                        if (  _backends.CheckFailedStatus() ) {
+                            return429 = true;
+                            Console.WriteLine($"Circuit breaker on => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
+                        }
+                        else if (_requestsQueue.Count >= _options.MaxQueueLength) {
+                            return429 = true;
+                            Console.WriteLine($"Queue is full  => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
+                        }
+                        else if (_backends.ActiveHostCount() == 0) {
+                            return429 = true;
+                            Console.WriteLine($"No active hosts => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
+                        }
+                        else if (!_requestsQueue.Enqueue(rd, priority)) {
+                            return429 = true;
+                            Console.WriteLine($"Failed to enqueue request => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
+                        }
+
+                        if (return429) {
 
                             // send a 429 response to client in the number of milliseconds specified in Retry-After header
                             rd.Context.Response.StatusCode = 429;
