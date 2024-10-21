@@ -4,6 +4,7 @@ using System.Collections.Specialized;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.DataContracts;
 
@@ -62,6 +63,17 @@ public class ProxyWorker  {
             await using (incomingRequest ) {
 
                 var lcontext = incomingRequest?.Context;
+                Dictionary<string, string> eventData = new Dictionary<string, string>();
+                eventData["Date"] = incomingRequest?.DequeueTime.ToString("o") ?? DateTime.UtcNow.ToString("o");
+                eventData["Path"] = incomingRequest?.Path ?? "N/A";
+                eventData["RequestPriority"] = incomingRequest?.Priority.ToString() ?? "N/A";
+                eventData["RequestMethod"] = incomingRequest?.Method ?? "N/A";
+                eventData["RequestPath"] = incomingRequest?.Path ?? "N/A";
+                eventData["RequestHost"] = incomingRequest?.Headers["Host"] ?? "N/A";
+                eventData["RequestUserAgent"] = incomingRequest?.Headers["User-Agent"] ?? "N/A";
+                eventData["RequestContentType"] = incomingRequest?.Headers["Content-Type"] ?? "N/A";
+                eventData["RequestContentLength"] = incomingRequest?.Headers["Content-Length"] ?? "N/A";
+                eventData["RequestWorker"] = IDstr;
 
                 if (lcontext == null || incomingRequest == null) {
                     continue;
@@ -86,15 +98,26 @@ public class ProxyWorker  {
                     incomingRequest.Headers.Add("x-Request-Queue-Duration", (incomingRequest.DequeueTime - incomingRequest.EnqueueTime).TotalMilliseconds.ToString());
                     incomingRequest.Headers.Add("x-Request-Process-Duration", (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString());
                     incomingRequest.Headers.Add("x-Request-Worker", IDstr);
+                    eventData["RequestQueueDuration"] = incomingRequest?.Headers["x-Request-Queue-Duration"] ?? "N/A";
+                    eventData["RequestProcessDuration"] = incomingRequest?.Headers["x-Request-Process-Duration"] ?? "N/A";
 
                     var pr = await ReadProxyAsync(incomingRequest).ConfigureAwait(false);
                     await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);
 
                     Console.WriteLine($"Pri: {incomingRequest.Priority} Stat: {(int)pr.StatusCode} Len: {pr.ContentHeaders["Content-Length"]} {pr.FullURL}");
+
+                    eventData["Url"] = pr.FullURL;
+                    eventData["Status"] = ((int)pr.StatusCode).ToString();
+                    eventData["ResponseLatency"] = (pr.ResponseDate - incomingRequest.Timestamp).ToString(@"ss\:fff");
+                    eventData["TotalLatency"] = ( DateTime.Now - incomingRequest.Timestamp).ToString(@"ss\:fff");
                    
 
-                    if (_eventHubClient != null)
-                        SendEventData(pr.FullURL, pr.StatusCode, incomingRequest.Timestamp, pr.ResponseDate);
+                    if (_eventHubClient != null) {
+                        //SendEventData(pr.FullURL, pr.StatusCode, incomingRequest.Timestamp, pr.ResponseDate);
+                        eventData["Type"] = "ProxyRequest";
+
+                        SendEventData(eventData);
+                    }
 
                     pr.Body=[];
                     pr.ContentHeaders.Clear();
@@ -113,6 +136,12 @@ public class ProxyWorker  {
                         Console.WriteLine($"Failed to write error message: {writeEx.Message}");
                     }
 
+                    eventData["Status"] = "502";
+                    eventData["Type"] = "IOException";
+                    eventData["Message"] = ioEx.Message;
+
+                    SendEventData(eventData);
+
                 }
                 catch (Exception ex)
                 {
@@ -125,17 +154,16 @@ public class ProxyWorker  {
                     Console.WriteLine($"Exception: {ex.Message}");
                     Console.WriteLine($"Stack Trace: {ex.StackTrace}");
 
+                    eventData["Status"] = "500";
+                    eventData["Type"] = "IOException";
+                    eventData["Message"] = ex.Message;
+
                     // Set an appropriate status code for the error
                     lcontext.Response.StatusCode = 500;
                     var errorMessage = Encoding.UTF8.GetBytes("Internal Server Error");
                     try
                     { 
-                        Dictionary<string, string> prop = new Dictionary<string, string>();
-                        prop["Method"] = incomingRequest.Method;
-                        prop["Path"] = incomingRequest.Path;
-                        prop["StatusCode"] = lcontext.Response.StatusCode.ToString();
-                        prop["Message"] = ex.Message;
-                        _telemetryClient?.TrackException(ex, prop);
+                        _telemetryClient?.TrackException(ex, eventData);
                         await lcontext.Response.OutputStream.WriteAsync(errorMessage, 0, errorMessage.Length);
                     }
                     catch (Exception writeEx)
@@ -475,11 +503,14 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
         }
     }
 
-    private void SendEventData(string urlWithPath, HttpStatusCode statusCode, DateTime requestDate, DateTime responseDate)
+    private void SendEventData(Dictionary<string, string> eventData)//string urlWithPath, HttpStatusCode statusCode, DateTime requestDate, DateTime responseDate)
     {
-        string date = responseDate.ToString("o");
-        var delta = (responseDate - requestDate).ToString(@"ss\:fff");
-        _eventHubClient?.SendData($"{{\"Date\":\"{date}\", \"Url\":\"{urlWithPath}\", \"Status\":\"{statusCode}\", \"Latency\":\"{delta}\"}}");
+        // string date = responseDate.ToString("o");
+        // var delta = (responseDate - requestDate).ToString(@"ss\:fff");
+        // _eventHubClient?.SendData($"{{\"Date\":\"{date}\", \"Url\":\"{urlWithPath}\", \"Status\":\"{statusCode}\", \"Latency\":\"{delta}\"}}");
+
+        string jsonData = JsonSerializer.Serialize(eventData);
+        _eventHubClient?.SendData(jsonData);
     }
 
     private void LogHeaders(IEnumerable<KeyValuePair<string, IEnumerable<string>>> headers, string prefix)

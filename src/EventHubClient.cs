@@ -3,6 +3,7 @@ using Azure.Messaging.EventHubs.Producer;
 using System;
 using System.IO;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -91,4 +92,11 @@ public class EventHubClient : IEventHubClient
             EHLogBuffer.Enqueue(value);
         }
     }
+
+    public void SendData(Dictionary<string, string> eventData) {
+
+        string jsonData = JsonSerializer.Serialize(eventData);
+        SendData(jsonData);
+    }
+
 }

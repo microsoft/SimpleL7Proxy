@@ -10,6 +10,7 @@ using System.Text;
 using Azure.Identity;
 using Azure.Core;
 using System.Security.AccessControl;
+using System.Text.Json;
 
 
 
@@ -33,15 +34,20 @@ public class Backends : IBackendService
 
     private Azure.Core.AccessToken? AuthToken { get; set; }
     private object lockObj = new object();
+    private readonly IEventHubClient? _eventHubClient;
+
 
 
     //public Backends(List<BackendHost> hosts, HttpClient client, int interval, int successRate)
-    public Backends(IOptions<BackendOptions> options)
+    public Backends(IOptions<BackendOptions> options, IEventHubClient? eventHubClient)
     {
         if (options == null) throw new ArgumentNullException(nameof(options));
         if (options.Value == null) throw new ArgumentNullException(nameof(options.Value));
         if (options.Value.Hosts == null) throw new ArgumentNullException(nameof(options.Value.Hosts));
         if (options.Value.Client == null) throw new ArgumentNullException(nameof(options.Value.Client));
+
+        _eventHubClient = eventHubClient;
+
 
         var bo = options.Value; // Access the IBackendOptions instance
 
@@ -222,8 +228,14 @@ public class Backends : IBackendService
 
     private async Task<bool> GetHostStatus(BackendHost host, HttpClient client)
     {
+        Dictionary<string, string> probeData = new Dictionary<string, string>();
+        probeData["host"] = host.host;
+        probeData["port"] = host.port.ToString();
+        probeData["path"] = host.probe_path;
+
         if (_debug)
             Console.WriteLine($"Checking host {host.url + host.probe_path}");
+
 
         var request = new HttpRequestMessage(HttpMethod.Get, host.probeurl);
         if (_options.UseOAuth)
@@ -243,6 +255,10 @@ public class Backends : IBackendService
             // Update the host with the new latency
             host.AddLatency(latency);
 
+            probeData["latency"] = latency.ToString() + "ms";
+            probeData["code"] = response.StatusCode.ToString();
+            probeData["Type"] = "Poller";
+
             response.EnsureSuccessStatusCode();
 
             _isRunning = true;
@@ -253,14 +269,20 @@ public class Backends : IBackendService
         catch (UriFormatException e) {
             Program.telemetryClient?.TrackException(e);
             Console.WriteLine($"Poller: Could not check probe: {e.Message}");
+            probeData["Type"] = "Uri Format Exception";
+            probeData["code"] = "-";
         }
         catch (System.Threading.Tasks.TaskCanceledException) {
             Console.WriteLine($"Poller: Host Timeout: {host.host}");
-        }
+            probeData["Type"] = "TaskCanceledException";
+            probeData["code"] = "-";
+                    }
         catch (HttpRequestException e) {
             Program.telemetryClient?.TrackException(e);
             Console.WriteLine($"Poller: Host {host.host} is down with exception: {e.Message}");
-        }
+            probeData["Type"] = "HttpRequestException";
+            probeData["code"] = "-";
+                    }
         catch (OperationCanceledException) {
             // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
             Console.WriteLine("Poller: Operation was canceled. Stopping the server.");
@@ -268,10 +290,17 @@ public class Backends : IBackendService
         }
         catch (System.Net.Sockets.SocketException e) {
             Console.WriteLine($"Poller: Host {host.host} is down:  {e.Message}");
+            probeData["Type"] = "SocketException";
+            probeData["code"] = "-";
         }
         catch (Exception e) {
             Program.telemetryClient?.TrackException(e);
             Console.WriteLine($"Poller: Error: {e.Message}");
+            probeData["Type"] = "Exception " + e.Message;
+            probeData["code"] = "-";
+        }
+        finally {
+            SendEventData(probeData);
         }
 
         return false;
@@ -331,6 +360,11 @@ public class Backends : IBackendService
         }
     }
 
+    private void SendEventData(Dictionary<string, string> eventData)//string urlWithPath, HttpStatusCode statusCode, DateTime requestDate, DateTime responseDate)
+    {
+        string jsonData = JsonSerializer.Serialize(eventData);
+        _eventHubClient?.SendData(jsonData);
+    }
     
     // Fetches the OAuth2 Token as a seperate task. The token is fetched and updated 100ms before it expires. 
     public void GetToken() {
