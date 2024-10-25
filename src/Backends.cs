@@ -255,7 +255,7 @@ public class Backends : IBackendService
             // Update the host with the new latency
             host.AddLatency(latency);
 
-            probeData["Latency"] = latency.ToString() + "ms";
+            probeData["Latency"] = latency.ToString();
             probeData["Code"] = response.StatusCode.ToString();
             probeData["Type"] = "Poller";
 
