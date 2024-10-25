@@ -365,7 +365,8 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
                             ResponseDate = responseDate,
                             StatusCode = proxyResponse.StatusCode,
                             FullURL = request.FullURL,
-                            CalculatedHostLatency = host.calculatedAverageLatency
+                            CalculatedHostLatency = host.calculatedAverageLatency,
+                            BackendHostname = host.host
                         };
                         bodyBytes = [];
                         await GetProxyResponseAsync(proxyResponse, request, pr);
