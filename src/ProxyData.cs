@@ -13,6 +13,7 @@ public class ProxyData
 
     // this is a copy of the calculated average latency
     public double CalculatedHostLatency { get; set; }
+    public string BackendHostname { get; set; }
 
     public DateTime ResponseDate { get; set; }
 
