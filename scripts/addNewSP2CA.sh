@@ -18,17 +18,15 @@ Options:
 EOF
     exit 0
 }
-EOF
-    exit 0
-}
 
 # Check if the -h or --help flag is specified
 if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
     usage
 fi
 
+
 # Check if the correct number of arguments are provided
-if [ "$#" -ne 7 ]; then
+if [ "$#" -ne 6 ]; then
     usage
 fi
 
@@ -37,7 +35,7 @@ while getopts "a:r:n:" opt; do
     case $opt in
         a) APP_ID=$OPTARG ;;
         r) ROLE_ID=$OPTARG ;;
-        n) SP_NAME=$OPTARG ;
+        n) SP_NAME=$OPTARG ;;
         \?) echo "Invalid option: $OPTARG" >&2
             usage ;;
         :) echo "Option -$OPTARG requires an argument." >&2
@@ -73,7 +71,3 @@ az rest --method POST --uri "https://graph.microsoft.com/v1.0/servicePrincipals/
   "resourceId": "'$RESOURCE_ID'",
   "appRoleId": "'$ROLE_ID'"
 }'
-
-
-
- 
