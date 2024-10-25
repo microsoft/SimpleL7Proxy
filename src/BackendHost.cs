@@ -19,6 +19,7 @@ public class BackendHost
     private const int MaxData = 50;
     private readonly Queue<double> latencies = new Queue<double>();
     private readonly Queue<bool> callSuccess = new Queue<bool>();
+    public double calculatedAverageLatency { get;  set; }    
 
     private Queue<double> PxLatency = new Queue<double>();
     private int errors=0;

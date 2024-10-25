@@ -66,14 +66,14 @@ public class ProxyWorker  {
                 Dictionary<string, string> eventData = new Dictionary<string, string>();
                 eventData["Date"] = incomingRequest?.DequeueTime.ToString("o") ?? DateTime.UtcNow.ToString("o");
                 eventData["Path"] = incomingRequest?.Path ?? "N/A";
-                eventData["RequestPriority"] = incomingRequest?.Priority.ToString() ?? "N/A";
-                eventData["RequestMethod"] = incomingRequest?.Method ?? "N/A";
-                eventData["RequestPath"] = incomingRequest?.Path ?? "N/A";
-                eventData["RequestHost"] = incomingRequest?.Headers["Host"] ?? "N/A";
-                eventData["RequestUserAgent"] = incomingRequest?.Headers["User-Agent"] ?? "N/A";
-                eventData["RequestContentType"] = incomingRequest?.Headers["Content-Type"] ?? "N/A";
-                eventData["RequestContentLength"] = incomingRequest?.Headers["Content-Length"] ?? "N/A";
-                eventData["RequestWorker"] = IDstr;
+                eventData["x-RequestPriority"] = incomingRequest?.Priority.ToString() ?? "N/A";
+                eventData["x-RequestMethod"] = incomingRequest?.Method ?? "N/A";
+                eventData["x-RequestPath"] = incomingRequest?.Path ?? "N/A";
+                eventData["x-RequestHost"] = incomingRequest?.Headers["Host"] ?? "N/A";
+                eventData["x-RequestUserAgent"] = incomingRequest?.Headers["User-Agent"] ?? "N/A";
+                eventData["x-RequestContentType"] = incomingRequest?.Headers["Content-Type"] ?? "N/A";
+                eventData["x-RequestContentLength"] = incomingRequest?.Headers["Content-Length"] ?? "N/A";
+                eventData["x-RequestWorker"] = IDstr;
 
                 if (lcontext == null || incomingRequest == null) {
                     continue;
@@ -98,8 +98,8 @@ public class ProxyWorker  {
                     incomingRequest.Headers.Add("x-Request-Queue-Duration", (incomingRequest.DequeueTime - incomingRequest.EnqueueTime).TotalMilliseconds.ToString());
                     incomingRequest.Headers.Add("x-Request-Process-Duration", (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString());
                     incomingRequest.Headers.Add("x-Request-Worker", IDstr);
-                    eventData["RequestQueueDuration"] = incomingRequest?.Headers["x-Request-Queue-Duration"] ?? "N/A";
-                    eventData["RequestProcessDuration"] = incomingRequest?.Headers["x-Request-Process-Duration"] ?? "N/A";
+                    eventData["x-Request-Queue-Duration"] = incomingRequest?.Headers["x-Request-Queue-Duration"] ?? "N/A";
+                    eventData["x-Request-Process-Duration"] = incomingRequest?.Headers["x-Request-Process-Duration"] ?? "N/A";
 
                     var pr = await ReadProxyAsync(incomingRequest).ConfigureAwait(false);
                     await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);
@@ -107,11 +107,12 @@ public class ProxyWorker  {
                     Console.WriteLine($"Pri: {incomingRequest.Priority} Stat: {(int)pr.StatusCode} Len: {pr.ContentHeaders["Content-Length"]} {pr.FullURL}");
 
                     eventData["Url"] = pr.FullURL;
-                    eventData["Status"] = ((int)pr.StatusCode).ToString();
-                    eventData["ResponseLatency"] = (pr.ResponseDate - incomingRequest.Timestamp).ToString(@"ss\:fff");
-                    eventData["TotalLatency"] = ( DateTime.Now - incomingRequest.Timestamp).ToString(@"ss\:fff");
+                    eventData["x-Status"] = ((int)pr.StatusCode).ToString();
+                    eventData["x-Response-Latency"] = (pr.ResponseDate - incomingRequest.Timestamp).TotalMilliseconds.ToString("F3");
+                    eventData["x-Total-Latency"] = ( DateTime.Now - incomingRequest.Timestamp).TotalMilliseconds.ToString("F3");
+                    eventData["x-Backend-Host"] = pr?.Headers["Host"] ?? "N/A";
+                    eventData["x-Backend-Host-Latency"] = pr?.CalculatedHostLatency.ToString("F3") ?? "N/A";
                    
-
                     if (_eventHubClient != null) {
                         //SendEventData(pr.FullURL, pr.StatusCode, incomingRequest.Timestamp, pr.ResponseDate);
                         eventData["Type"] = "ProxyRequest";
@@ -136,9 +137,9 @@ public class ProxyWorker  {
                         Console.WriteLine($"Failed to write error message: {writeEx.Message}");
                     }
 
-                    eventData["Status"] = "502";
+                    eventData["x-Status"] = "502";
                     eventData["Type"] = "IOException";
-                    eventData["Message"] = ioEx.Message;
+                    eventData["x-Message"] = ioEx.Message;
 
                     SendEventData(eventData);
 
@@ -154,9 +155,9 @@ public class ProxyWorker  {
                     Console.WriteLine($"Exception: {ex.Message}");
                     Console.WriteLine($"Stack Trace: {ex.StackTrace}");
 
-                    eventData["Status"] = "500";
+                    eventData["x-Status"] = "500";
                     eventData["Type"] = "IOException";
-                    eventData["Message"] = ex.Message;
+                    eventData["x-Message"] = ex.Message;
 
                     // Set an appropriate status code for the error
                     lcontext.Response.StatusCode = 500;
@@ -249,7 +250,7 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
         if (request.Method == null) throw new ArgumentNullException(nameof(request.Method), "Request method cannot be null.");
 
         // Use the current active hosts
-        var activeHosts = _backends.GetActiveHosts();
+        var activeHosts = _backends.GetActiveHosts(); 
 
         request.Debug = request.Headers["S7PDEBUG"] == "true" || _debug;
         HttpStatusCode lastStatusCode = HttpStatusCode.ServiceUnavailable;
@@ -364,6 +365,7 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
                             ResponseDate = responseDate,
                             StatusCode = proxyResponse.StatusCode,
                             FullURL = request.FullURL,
+                            CalculatedHostLatency = host.calculatedAverageLatency
                         };
                         bodyBytes = [];
                         await GetProxyResponseAsync(proxyResponse, request, pr);

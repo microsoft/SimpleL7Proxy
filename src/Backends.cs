@@ -86,7 +86,7 @@ public class Backends : IBackendService
     {
         lock(lockObj)
         {
-            Console.WriteLine($"TrackStatus: {code}");
+            //Console.WriteLine($"TrackStatus: {code}");
             if (code == 200)
             {
                 //hostFailureTimes.Clear();
@@ -229,9 +229,9 @@ public class Backends : IBackendService
     private async Task<bool> GetHostStatus(BackendHost host, HttpClient client)
     {
         Dictionary<string, string> probeData = new Dictionary<string, string>();
-        probeData["host"] = host.host;
-        probeData["port"] = host.port.ToString();
-        probeData["path"] = host.probe_path;
+        probeData["Host"] = host.host;
+        probeData["Port"] = host.port.ToString();
+        probeData["Path"] = host.probe_path;
 
         if (_debug)
             Console.WriteLine($"Checking host {host.url + host.probe_path}");
@@ -255,8 +255,8 @@ public class Backends : IBackendService
             // Update the host with the new latency
             host.AddLatency(latency);
 
-            probeData["latency"] = latency.ToString() + "ms";
-            probeData["code"] = response.StatusCode.ToString();
+            probeData["Latency"] = latency.ToString() + "ms";
+            probeData["Code"] = response.StatusCode.ToString();
             probeData["Type"] = "Poller";
 
             response.EnsureSuccessStatusCode();
@@ -270,18 +270,18 @@ public class Backends : IBackendService
             Program.telemetryClient?.TrackException(e);
             Console.WriteLine($"Poller: Could not check probe: {e.Message}");
             probeData["Type"] = "Uri Format Exception";
-            probeData["code"] = "-";
+            probeData["Code"] = "-";
         }
         catch (System.Threading.Tasks.TaskCanceledException) {
             Console.WriteLine($"Poller: Host Timeout: {host.host}");
             probeData["Type"] = "TaskCanceledException";
-            probeData["code"] = "-";
+            probeData["Code"] = "-";
                     }
         catch (HttpRequestException e) {
             Program.telemetryClient?.TrackException(e);
             Console.WriteLine($"Poller: Host {host.host} is down with exception: {e.Message}");
             probeData["Type"] = "HttpRequestException";
-            probeData["code"] = "-";
+            probeData["Code"] = "-";
                     }
         catch (OperationCanceledException) {
             // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
@@ -291,13 +291,13 @@ public class Backends : IBackendService
         catch (System.Net.Sockets.SocketException e) {
             Console.WriteLine($"Poller: Host {host.host} is down:  {e.Message}");
             probeData["Type"] = "SocketException";
-            probeData["code"] = "-";
+            probeData["Code"] = "-";
         }
         catch (Exception e) {
             Program.telemetryClient?.TrackException(e);
             Console.WriteLine($"Poller: Error: {e.Message}");
             probeData["Type"] = "Exception " + e.Message;
-            probeData["code"] = "-";
+            probeData["Code"] = "-";
         }
         finally {
             SendEventData(probeData);
@@ -309,9 +309,15 @@ public class Backends : IBackendService
     // Filter the active hosts based on the success rate
     private void FilterActiveHosts()
     {
+        //Console.WriteLine("Filtering active hosts");
         _activeHosts = _hosts
             .Where(h => h.SuccessRate() > _successRate)
-            .OrderBy(h => h.AverageLatency())
+            .Select(h => 
+            {
+                h.calculatedAverageLatency = h.AverageLatency();
+                return h;
+            })
+            .OrderBy(h => h.calculatedAverageLatency)
             .ToList();
     }
 
