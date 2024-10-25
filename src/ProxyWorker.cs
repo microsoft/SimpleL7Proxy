@@ -110,7 +110,7 @@ public class ProxyWorker  {
                     eventData["x-Status"] = ((int)pr.StatusCode).ToString();
                     eventData["x-Response-Latency"] = (pr.ResponseDate - incomingRequest.Timestamp).TotalMilliseconds.ToString("F3");
                     eventData["x-Total-Latency"] = ( DateTime.Now - incomingRequest.Timestamp).TotalMilliseconds.ToString("F3");
-                    eventData["x-Backend-Host"] = pr?.Headers["Host"] ?? "N/A";
+                    eventData["x-Backend-Host"] = pr?.BackendHostname ?? "N/A";
                     eventData["x-Backend-Host-Latency"] = pr?.CalculatedHostLatency.ToString("F3") ?? "N/A";
                    
                     if (_eventHubClient != null) {
