@@ -229,6 +229,7 @@ public class Backends : IBackendService
     private async Task<bool> GetHostStatus(BackendHost host, HttpClient client)
     {
         Dictionary<string, string> probeData = new Dictionary<string, string>();
+        probeData["ProxyHost"] = _options.HostName;
         probeData["Host"] = host.host;
         probeData["Port"] = host.port.ToString();
         probeData["Path"] = host.probe_path;
