@@ -74,6 +74,8 @@ public class Program
                     options.PriorityValues = backendOptions.PriorityValues;
                     options.DefaultPriority = backendOptions.DefaultPriority;
                     options.MaxQueueLength = backendOptions.MaxQueueLength;
+                    options.LogHeaders = backendOptions.LogHeaders;
+                    options.HostName = backendOptions.HostName;
                 });
 
                 services.AddLogging(loggingBuilder => loggingBuilder.AddFilter<Microsoft.Extensions.Logging.ApplicationInsights.ApplicationInsightsLoggerProvider>("Category", LogLevel.Information));
@@ -249,11 +251,13 @@ public class Program
             PollTimeout = ReadEnvironmentVariableOrDefault("PollTimeout", 3000),
             Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
             OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
-            UseOAuth = Environment.GetEnvironmentVariable("UseOAuth")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true,
+            UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", "false").Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true,
             PriorityKeys = toListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
             PriorityValues = toListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
             DefaultPriority = ReadEnvironmentVariableOrDefault("DefaultPriority", 2),
             MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
+            LogHeaders = ReadEnvironmentVariableOrDefault("LogHeaders", "").Split(',').Select(x=>x.Trim()).ToList(),
+            HostName = ReadEnvironmentVariableOrDefault("Hostname", "Default"),
             Client = _client, 
             Hosts = new List<BackendHost>()
         };
