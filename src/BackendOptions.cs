@@ -13,7 +13,8 @@ public class BackendOptions : IBackendOptions
     public int MaxQueueLength { get; set; }
     public string OAuthAudience { get; set; } = "";
     public bool UseOAuth { get; set; }
-
+    public string HostName { get; set; } = "";
+    public List<string> LogHeaders { get; set; } = new List<string>();
     public List<BackendHost>? Hosts { get; set; }
     public HttpClient? Client { get; set; }
 

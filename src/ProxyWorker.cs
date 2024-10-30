@@ -64,6 +64,7 @@ public class ProxyWorker  {
 
                 var lcontext = incomingRequest?.Context;
                 Dictionary<string, string> eventData = new Dictionary<string, string>();
+                eventData["ProxyHost"] = _options.HostName;
                 eventData["Date"] = incomingRequest?.DequeueTime.ToString("o") ?? DateTime.UtcNow.ToString("o");
                 eventData["Path"] = incomingRequest?.Path ?? "N/A";
                 eventData["x-RequestPriority"] = incomingRequest?.Priority.ToString() ?? "N/A";
@@ -112,6 +113,16 @@ public class ProxyWorker  {
                     eventData["x-Total-Latency"] = ( DateTime.Now - incomingRequest.Timestamp).TotalMilliseconds.ToString("F3");
                     eventData["x-Backend-Host"] = pr?.BackendHostname ?? "N/A";
                     eventData["x-Backend-Host-Latency"] = pr?.CalculatedHostLatency.ToString("F3") ?? "N/A";
+                    eventData["Content-Length"] = lcontext.Response?.ContentLength64.ToString() ?? "N/A";
+                    eventData["Content-Type"] = lcontext?.Response?.ContentType ?? "N/A";
+
+                    if (_options.LogHeaders != null && _options.LogHeaders.Count > 0)
+                    {
+                        foreach (var header in _options.LogHeaders)
+                        {
+                            eventData[header] = lcontext?.Response?.Headers[header] ?? "N/A" ;
+                        }
+                    }
                    
                     if (_eventHubClient != null) {
                         //SendEventData(pr.FullURL, pr.StatusCode, incomingRequest.Timestamp, pr.ResponseDate);
@@ -179,6 +190,7 @@ public class ProxyWorker  {
 
                     _telemetryClient?.TrackRequest($"{incomingRequest.Method} {incomingRequest.Path}", 
                         DateTimeOffset.UtcNow, new TimeSpan(0, 0, 0), $"{lcontext.Response.StatusCode}", true);
+                    _telemetryClient?.TrackEvent("ProxyRequest", eventData);
                 }
             }
         }
