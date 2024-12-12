@@ -275,6 +275,29 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
             bodyBytes = ms.ToArray();
         }
 
+        // Convert S7PTTL to DateTime
+        if (request.Headers["S7PTTL"] != null ) {
+            if (!DateTime.TryParse(request.Headers["S7PTTL"], out var ttlDate)) {
+                HandleProxyRequestError(null, null, request.Timestamp, request.FullURL, HttpStatusCode.BadRequest, "Invalid TTL format: " + request.Headers["S7PTTL"]);
+                return new ProxyData
+                {
+                    StatusCode = HttpStatusCode.BadRequest,
+                    Body = Encoding.UTF8.GetBytes("Invalid TTL format: " + request.Headers["S7PTTL"])
+                };
+            }
+
+            // Check ttlDate against current time
+            if (ttlDate < DateTime.UtcNow)
+            {
+                HandleProxyRequestError(null, null, request.Timestamp, request.FullURL, HttpStatusCode.Gone, "Request has expired: " + request.Headers["S7PTTL"]);
+                return new ProxyData
+                {
+                    StatusCode = HttpStatusCode.Gone,
+                    Body = Encoding.UTF8.GetBytes("Request has expired: " + request.Headers["S7PTTL"])
+                };
+            }
+        }
+
         if (_options.UseOAuth) {
             // Get a token
             var token = _backends.OAuth2Token();
