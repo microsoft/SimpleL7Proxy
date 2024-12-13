@@ -6,11 +6,11 @@ public class PriorityQueueItem<T>
     public int Priority { get; }
     public DateTime Timestamp { get; }
 
-    public PriorityQueueItem(T item, int priority)
+    public PriorityQueueItem(T item, int priority, DateTime timestamp)
     {
         Item = item;
         Priority = priority;
-        Timestamp = DateTime.UtcNow;
+        Timestamp = timestamp;
     }
 }
 public class PriorityQueue<T>
@@ -20,9 +20,9 @@ public class PriorityQueue<T>
 
     public int Count => _items.Count;
 
-    public void Enqueue(T item, int priority)
+    public void Enqueue(PriorityQueueItem<T> queueItem)
     {
-        var queueItem = new PriorityQueueItem<T>(item, priority);
+        //var queueItem = new PriorityQueueItem<T>(item, priority);
 
         // inserting into a sorted list is best with binary search:  O(n)
         int index = _items.BinarySearch(queueItem, Comparer);
@@ -84,7 +84,7 @@ public class BlockingPriorityQueue<T>
 
     public int Count => _priorityQueue.Count;
 
-    public bool Enqueue(T item, int priority)
+    public bool Enqueue(T item, int priority, DateTime timestamp)
     {
         lock (_lock)
         {
@@ -93,7 +93,21 @@ public class BlockingPriorityQueue<T>
             {
                 return false;
             }
-            _priorityQueue.Enqueue(item, priority);
+            //_priorityQueue.Enqueue(item, priority);
+            var queueItem = new PriorityQueueItem<T>(item, priority, timestamp);
+            _priorityQueue.Enqueue(queueItem);
+            Monitor.Pulse(_lock); // Signal that an item has been added
+        }
+
+        return true;
+    }
+
+    public bool Requeue(T item, int priority, DateTime timestamp)
+    {
+        lock (_lock)
+        {
+            var queueItem = new PriorityQueueItem<T>(item, priority, timestamp);
+            _priorityQueue.Enqueue(queueItem);
             Monitor.Pulse(_lock); // Signal that an item has been added
         }
 

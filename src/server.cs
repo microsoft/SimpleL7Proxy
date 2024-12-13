@@ -86,8 +86,8 @@ public class Server : IServer
 
                     var completedTask = await Task.WhenAny(getContextTask, delayTask).ConfigureAwait(false);
 
-                    // relinquish control to allow other tasks to run
-                    await Task.Yield();
+                    //  control to allow other tasks to run .. doesn't make sense here
+                    // await Task.Yield();
 
                     // Cancel the delay task immedietly if the getContextTask completes first
                     if (completedTask == getContextTask)
@@ -123,7 +123,10 @@ public class Server : IServer
                             return429 = true;
                             Console.WriteLine($"No active hosts => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
                         }
-                        else if (!_requestsQueue.Enqueue(rd, priority)) {
+
+                        // Enqueue the request
+
+                        else if (!_requestsQueue.Enqueue(rd, priority, rd.EnqueueTime)) {
                             return429 = true;
                             Console.WriteLine($"Failed to enqueue request => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
                         }

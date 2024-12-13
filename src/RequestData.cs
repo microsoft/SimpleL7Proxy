@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Net;
 using System.Threading.Tasks;
+using Microsoft.Azure.Amqp;
 
 // This class represents the request received from the upstream client.
 
@@ -16,9 +17,14 @@ public class RequestData : IDisposable, IAsyncDisposable
     public string FullURL { get;  set; }
     public bool Debug { get; set; } 
 
+    public byte[]? BodyBytes { get; set; }=null;
     public int Priority { get; set; }
     public DateTime EnqueueTime { get; set; }
     public DateTime DequeueTime { get; set; }
+
+    // Track if the request was re-qued for cleanup purposes
+    //public bool Requeued { get; set; } = false;
+    public bool SkipDispose { get; set; } = false;
 
     public RequestData(HttpListenerContext context)
     {
@@ -37,32 +43,66 @@ public class RequestData : IDisposable, IAsyncDisposable
         Debug = false;
     }
 
+    public async Task<byte[]> CachBodyAsync() {
+
+        if (BodyBytes != null)
+        {
+            return BodyBytes;
+        }
+
+        // Read the body stream once and reuse it
+        using (MemoryStream ms = new MemoryStream())
+        {
+            await Body.CopyToAsync(ms);
+            BodyBytes = ms.ToArray();
+        }
+
+        return BodyBytes;
+    }
+
     // Implement IDisposable
     public void Dispose()
     {
+        if (SkipDispose)
+        {
+            return;
+        }
+
         Dispose(true);
         GC.SuppressFinalize(this);
+    
     }
 
-protected virtual void Dispose(bool disposing)
-{
-    if (disposing)
+    protected virtual void Dispose(bool disposing)
     {
-        // Dispose managed resources
-        FullURL = Path = Method = "";
 
-        Body?.Dispose();
-        Body = null;
-        Context?.Request?.InputStream.Dispose();
-        Context?.Response?.OutputStream?.Dispose();
-        Context?.Response?.Close();
-        Context = null;
+        if (SkipDispose)
+        {
+            return;
+        }
+
+        if (disposing)
+        {
+            // Dispose managed resources
+
+            FullURL = Path = Method = "";
+            Body?.Dispose();
+            Body = null;
+            Context?.Request?.InputStream.Dispose();
+            Context?.Response?.OutputStream?.Dispose();
+            Context?.Response?.Close();
+            Context = null;
+        }
     }
-}
 
     // Implement IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
+        if (SkipDispose)
+        {
+            return;
+        }
+
         await DisposeAsyncCore();
 
         // Dispose of unmanaged resources
@@ -72,6 +112,12 @@ protected virtual void Dispose(bool disposing)
 
     protected virtual async ValueTask DisposeAsyncCore()
     {
+        if (SkipDispose)
+        {
+            return;
+        }
+
+
         if (Body != null)
         {
             await Body.DisposeAsync();

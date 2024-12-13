@@ -61,8 +61,9 @@ public class ProxyWorker  {
             }
 
             await using (incomingRequest ) {
-
+                var requestWasRetried = false;
                 var lcontext = incomingRequest?.Context;
+
                 Dictionary<string, string> eventData = new Dictionary<string, string>();
                 eventData["ProxyHost"] = _options.HostName;
                 eventData["Date"] = incomingRequest?.DequeueTime.ToString("o") ?? DateTime.UtcNow.ToString("o");
@@ -81,7 +82,8 @@ public class ProxyWorker  {
                 }
 
                 try
-                {   
+                {  
+
                     if (incomingRequest.Path == "/health")
                     {
                         lcontext.Response.StatusCode = 200;
@@ -95,6 +97,7 @@ public class ProxyWorker  {
                         await lcontext.Response.OutputStream.WriteAsync(healthMessage, 0, healthMessage.Length);
                         continue;
                     }
+
 
                     incomingRequest.Headers.Add("x-Request-Queue-Duration", (incomingRequest.DequeueTime - incomingRequest.EnqueueTime).TotalMilliseconds.ToString());
                     incomingRequest.Headers.Add("x-Request-Process-Duration", (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString());
@@ -134,6 +137,14 @@ public class ProxyWorker  {
                     pr.Body=[];
                     pr.ContentHeaders.Clear();
                     pr.FullURL="";
+                }
+                catch (S7PRequeueException)
+                {
+                    // Requeue the request 
+                    _requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.EnqueueTime);
+                    Console.WriteLine($"Requeued request.  Pri: {incomingRequest.Priority} Queue Length: {_requestsQueue.Count} Status: {_backends.CheckFailedStatus()} Active Hosts: {_backends.ActiveHostCount()}");
+                    requestWasRetried = true;   
+                    incomingRequest.SkipDispose = true;
                 }
                 catch (IOException ioEx) {
                     Console.WriteLine($"An IO exception occurred: {ioEx.Message}");
@@ -185,12 +196,18 @@ public class ProxyWorker  {
                 }
                 finally
                 {
-                    // Track the status of the request for circuit breaker
-                    _backends.TrackStatus((int)lcontext.Response.StatusCode);
+                    // Let's not track the request if it was retried.
+                    if (!requestWasRetried)
+                    {
+                        // Track the status of the request for circuit breaker
+                        _backends.TrackStatus((int)lcontext.Response.StatusCode);
 
-                    _telemetryClient?.TrackRequest($"{incomingRequest.Method} {incomingRequest.Path}", 
-                        DateTimeOffset.UtcNow, new TimeSpan(0, 0, 0), $"{lcontext.Response.StatusCode}", true);
-                    _telemetryClient?.TrackEvent("ProxyRequest", eventData);
+                        _telemetryClient?.TrackRequest($"{incomingRequest.Method} {incomingRequest.Path}", 
+                            DateTimeOffset.UtcNow, new TimeSpan(0, 0, 0), $"{lcontext.Response.StatusCode}", true);
+                        _telemetryClient?.TrackEvent("ProxyRequest", eventData);
+
+                        lcontext?.Response.Close();
+                    }
                 }
             }
         }
@@ -264,20 +281,18 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
         // Use the current active hosts
         var activeHosts = _backends.GetActiveHosts(); 
 
-        request.Debug = request.Headers["S7PDEBUG"] == "true" || _debug;
+        request.Debug = _debug || (request.Headers["S7PDEBUG"] != null && string.Equals(request.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase));
         HttpStatusCode lastStatusCode = HttpStatusCode.ServiceUnavailable;
 
         // Read the body stream once and reuse it
-        byte[] bodyBytes;
-        using (MemoryStream ms = new MemoryStream())
-        {
-            await request.Body.CopyToAsync(ms);
-            bodyBytes = ms.ToArray();
-        }
+        byte[] bodyBytes = await request.CachBodyAsync();
+
+
 
         // Convert S7PTTL to DateTime
         if (request.Headers["S7PTTL"] != null ) {
-            if (!DateTime.TryParse(request.Headers["S7PTTL"], out var ttlDate)) {
+            if (!DateTimeOffset.TryParse(request.Headers["S7PTTL"], out var ttlDate))
+            {
                 HandleProxyRequestError(null, null, request.Timestamp, request.FullURL, HttpStatusCode.BadRequest, "Invalid TTL format: " + request.Headers["S7PTTL"]);
                 return new ProxyData
                 {
@@ -287,9 +302,11 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
             }
 
             // Check ttlDate against current time
-            if (ttlDate < DateTime.UtcNow)
+            if (ttlDate < DateTimeOffset.UtcNow)
             {
-                HandleProxyRequestError(null, null, request.Timestamp, request.FullURL, HttpStatusCode.Gone, "Request has expired: " + request.Headers["S7PTTL"]);
+                TimeSpan diff = DateTimeOffset.UtcNow - ttlDate;
+                Console.WriteLine($"Request has expired: {diff.TotalSeconds} seconds");
+                HandleProxyRequestError(null, null, request.Timestamp, request.FullURL, HttpStatusCode.Gone, "Request has expired: " + ttlDate.ToLocalTime() + " < " + DateTimeOffset.UtcNow.ToLocalTime());
                 return new ProxyData
                 {
                     StatusCode = HttpStatusCode.Gone,
@@ -394,7 +411,7 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
 
                         host.AddPxLatency((responseDate - ProxyStartDate).TotalMilliseconds);
 
-                        // Read the response
+                        // Capture the response
                         var pr = new ProxyData()
                         {
                             ResponseDate = responseDate,
@@ -404,8 +421,27 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
                             BackendHostname = host.host
                         };
                         bodyBytes = [];
+
+                        // Read the response
                         await GetProxyResponseAsync(proxyResponse, request, pr);
 
+                        if ((int)proxyResponse.StatusCode == 429 && proxyResponse.Headers.TryGetValues("S7PREQUEUE", out var values))
+                        {
+                            // Requeue the request if the response is a 429 and the S7PREQUEUE header is set
+                            var s7PrequeueValue = values.FirstOrDefault();
+
+                            if (s7PrequeueValue != null && string.Equals(s7PrequeueValue, "true", StringComparison.OrdinalIgnoreCase))
+                            {
+                                throw new S7PRequeueException("Requeue request");
+                            }
+                        }
+                        else
+                        {
+                            // request was successful, so we can disable the skip
+                            request.SkipDispose = false;
+                        }
+
+                        // Log the response if debugging is enabled
                         if (request.Debug)
                         {
                             Console.WriteLine($"Got: {pr.StatusCode} {pr.FullURL} {pr.ContentHeaders["Content-Length"]} Body: {pr?.Body?.Length} bytes");  
@@ -414,7 +450,11 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
                     }
                 }
             }
-
+            catch (S7PRequeueException)
+            {
+                // rethrow the exception
+                throw;
+            }
             catch (TaskCanceledException e)
             {
                 // 408 Request Timeout
