@@ -27,6 +27,7 @@ public interface IBackendOptions {
     int SuccessRate { get; set; }
     int Timeout { get; set; }
     int Workers { get; set; }
+    string IDStr { get; set; }
     public List<string> PriorityKeys { get; set; }
     public List<int> PriorityValues { get; set; }
     public int DefaultPriority { get; set; }

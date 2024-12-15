@@ -72,6 +72,8 @@ public class Server : IServer
     // Each request is enqueued with a priority into BlockingPriorityQueue.
     public async Task Run()
     {
+        long counter=0;
+
         if (_options == null) throw new ArgumentNullException(nameof(_options));
 
         while (!_cancellationToken.IsCancellationRequested)
@@ -92,9 +94,18 @@ public class Server : IServer
                     // Cancel the delay task immedietly if the getContextTask completes first
                     if (completedTask == getContextTask)
                     {
+                        var mid="";
+                        try {
+                            mid = _options.IDStr + counter++.ToString();
+                        }
+                        catch (OverflowException ex) {
+                            mid = _options.IDStr + "0";
+                            counter = 1;
+                        }
+
                         delayCts.Cancel();
                        // _requestsQueue.Add(new RequestData(await getContextTask.ConfigureAwait(false)));
-                        var rd = new RequestData(await getContextTask.ConfigureAwait(false));
+                        var rd = new RequestData(await getContextTask.ConfigureAwait(false),  mid);
                         int priority = _options.DefaultPriority;
                         var priorityKey = rd.Headers.Get("S7PPriorityKey");
                         if (!string.IsNullOrEmpty(priorityKey) && _options.PriorityKeys.Contains(priorityKey)) //lookup the priority

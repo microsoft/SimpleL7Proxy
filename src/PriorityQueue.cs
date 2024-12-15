@@ -79,10 +79,21 @@ public class BlockingPriorityQueue<T>
 {
     private readonly PriorityQueue<T> _priorityQueue = new PriorityQueue<T>();
     private readonly object _lock = new object();
+    private readonly ManualResetEventSlim _enqueueEvent = new ManualResetEventSlim(false);
 
     public int MaxQueueLength { get; set; }
 
-    public int Count => _priorityQueue.Count;
+    // Thread-safe Count property
+    public int Count
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _priorityQueue.Count;
+            }
+        }
+    }
 
     public bool Enqueue(T item, int priority, DateTime timestamp)
     {
@@ -96,7 +107,9 @@ public class BlockingPriorityQueue<T>
             //_priorityQueue.Enqueue(item, priority);
             var queueItem = new PriorityQueueItem<T>(item, priority, timestamp);
             _priorityQueue.Enqueue(queueItem);
-            Monitor.Pulse(_lock); // Signal that an item has been added
+            _enqueueEvent.Set(); // Signal that an item has been added
+
+            //Monitor.Pulse(_lock); // Signal that an item has been added
         }
 
         return true;
@@ -108,22 +121,31 @@ public class BlockingPriorityQueue<T>
         {
             var queueItem = new PriorityQueueItem<T>(item, priority, timestamp);
             _priorityQueue.Enqueue(queueItem);
-            Monitor.Pulse(_lock); // Signal that an item has been added
+            _enqueueEvent.Set(); // Signal that an item has been added
+
+            //Monitor.Pulse(_lock); // Signal that an item has been added
         }
 
         return true;
     }
 
-    public T Dequeue(CancellationToken cancellationToken)
+    public T Dequeue(CancellationToken cancellationToken, string id)
     {
-        lock (_lock)
+        while (true)
         {
-            while (_priorityQueue.Count == 0)
+            _enqueueEvent.Wait(cancellationToken); // Wait for an item to be added
+            lock (_lock)
             {
-                Monitor.Wait(_lock, 500); // Wait for an item to be added
-                cancellationToken.ThrowIfCancellationRequested();
+                if (_priorityQueue.Count > 0)
+                {
+                    var queueItem = _priorityQueue.Dequeue();
+                    if (_priorityQueue.Count == 0)
+                    {
+                        _enqueueEvent.Reset(); // Reset the event if the queue is empty
+                    }
+                    return queueItem;
+                }
             }
-            return _priorityQueue.Dequeue();
         }
     }
     

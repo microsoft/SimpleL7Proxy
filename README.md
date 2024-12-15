@@ -54,6 +54,7 @@ SimpleL7Proxy can be run standalone on the commandline or it can be deployed as 
 |**PriorityValues** | This is the list of priority values to use.  If the incoming request has the header 'S7PPriorityKey' matches PriorityKeys, the corresponding value from this list will be used as the message priority. In the case this list is not specified or parsable, the default priority is used. | 5 |
 | |
 |**Probe_path1, Probe_path2, ...** | Specifies the probe paths for the corresponding backend hosts. If a Host variable is set, the application will attempt to read the corresponding Probe_path variable when creating the BackendHost instance. Depending on the tier for your APIM, you can also try: status-0123456789abcdef or internal-status-0123456789abcdef | echo/resource?param1=sample |
+| **RequestIDPrefix** | the set of characters to prefix to the unique request ID |
 | |
 |**Success-rate** | The percentage success rate required to be used for proxying.  Any host whose success rate is lower will not be in rotation. | 80 |
 | |
@@ -63,6 +64,32 @@ SimpleL7Proxy can be run standalone on the commandline or it can be deployed as 
 | |
 |**Workers** | The number of proxy worker threads. | 10 |
 | |
+
+### Proxy response codes:
+
+| Code | Description |
+|-|-|
+| 200 | Success |
+| 400 | Bad Request, there was an issue with the http request format |
+| 408 | Request Timed Out, the request to the specific backend host timed out. | 
+| 410 | The time specified in the S7PTTL header is older than the time when the request was processed |
+| 500 | Internal Server Error, Check application insights for details |
+| 502 | Bad Gateway, The request could not be completed.  Are the backend hosts overloaded?  |
+| |
+
+### Headers Used : 
+
+| Header | Description |
+|-|-|
+| **S7PDEBUG** | Set to true to enable tracing at the request level. |
+| **S7PPriorityKey** | If the incoming request has this header and it matches one of the values in the 'PriorityKeys' environment variable, than the request will use the associated priority. |
+| **S7PREQUEUE** | If the remote host returns a 429 and sets this header with a value of true, the request will be requeued using the original enqueue time. |
+| **S7PTTL** | The time after which the message will be considered to be expired.  In this case, the proxy will respond with a 410 status code. |
+| **x-Request-Queue-Duration** | The amount of time the message was enqueue'd.  | 
+| **x-Request-Process-Duration** | The amount of time it took to process it. |
+| **x-Request-Worker** | The worker ID | 
+| |
+
 
 ### Example:
 ```

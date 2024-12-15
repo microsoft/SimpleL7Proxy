@@ -21,12 +21,13 @@ public class RequestData : IDisposable, IAsyncDisposable
     public int Priority { get; set; }
     public DateTime EnqueueTime { get; set; }
     public DateTime DequeueTime { get; set; }
+    public string MID { get; set; } = "";
 
     // Track if the request was re-qued for cleanup purposes
     //public bool Requeued { get; set; } = false;
     public bool SkipDispose { get; set; } = false;
 
-    public RequestData(HttpListenerContext context)
+    public RequestData(HttpListenerContext context, string mid)
     {
         if (context.Request.Url?.PathAndQuery == null)
         {
@@ -41,6 +42,7 @@ public class RequestData : IDisposable, IAsyncDisposable
         Timestamp = DateTime.UtcNow;
         FullURL = "";
         Debug = false;
+        MID = mid;
     }
 
     public async Task<byte[]> CachBodyAsync() {
@@ -63,6 +65,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     // Implement IDisposable
     public void Dispose()
     {
+
         if (SkipDispose)
         {
             return;
@@ -75,7 +78,6 @@ public class RequestData : IDisposable, IAsyncDisposable
 
     protected virtual void Dispose(bool disposing)
     {
-
         if (SkipDispose)
         {
             return;
@@ -84,11 +86,10 @@ public class RequestData : IDisposable, IAsyncDisposable
         if (disposing)
         {
             // Dispose managed resources
-
             FullURL = Path = Method = "";
             Body?.Dispose();
             Body = null;
-            Context?.Request?.InputStream.Dispose();
+            Context?.Request?.InputStream?.Dispose();
             Context?.Response?.OutputStream?.Dispose();
             Context?.Response?.Close();
             Context = null;
@@ -112,11 +113,12 @@ public class RequestData : IDisposable, IAsyncDisposable
 
     protected virtual async ValueTask DisposeAsyncCore()
     {
+Console.WriteLine($"DisposeAsyncCore called. SkipDispose  {SkipDispose}  " );
+
         if (SkipDispose)
         {
             return;
         }
-
 
         if (Body != null)
         {
@@ -131,9 +133,16 @@ public class RequestData : IDisposable, IAsyncDisposable
                 await Context.Request.InputStream.DisposeAsync();
             }
 
-            if (Context.Response?.OutputStream != null)
+            try 
             {
-                await Context.Response.OutputStream.DisposeAsync();
+                if (Context?.Response?.OutputStream != null)
+                {
+                    await Context.Response.OutputStream.DisposeAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                // Ignore exceptions
             }
 
             Context.Response?.Close();

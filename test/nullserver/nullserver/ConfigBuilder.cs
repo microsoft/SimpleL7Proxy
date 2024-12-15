@@ -15,5 +15,7 @@ namespace test.nullserver.config
         public string Port => _configuration["port"];
         public string ResponseDelay => _configuration["response_delay"];
 
+        public string RequestRequeue => _configuration["request_requeue"];
+
     }
 }
