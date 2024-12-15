@@ -76,6 +76,7 @@ public class Program
                     options.MaxQueueLength = backendOptions.MaxQueueLength;
                     options.LogHeaders = backendOptions.LogHeaders;
                     options.HostName = backendOptions.HostName;
+                    options.IDStr = backendOptions.IDStr;
                 });
 
                 services.AddLogging(loggingBuilder => loggingBuilder.AddFilter<Microsoft.Extensions.Logging.ApplicationInsights.ApplicationInsightsLoggerProvider>("Category", LogLevel.Information));
@@ -241,6 +242,8 @@ public class Program
             _client = new HttpClient(handler);
         }
 
+        string replicaID = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REPLICA_NAME", "01");
+
         // Create and return a BackendOptions object populated with values from environment variables or default values.
         var backendOptions = new BackendOptions
         {
@@ -258,6 +261,7 @@ public class Program
             MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
             LogHeaders = ReadEnvironmentVariableOrDefault("LogHeaders", "").Split(',').Select(x=>x.Trim()).ToList(),
             HostName = ReadEnvironmentVariableOrDefault("Hostname", "Default"),
+            IDStr = ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P") + "-" + replicaID +"-",
             Client = _client, 
             Hosts = new List<BackendHost>()
         };

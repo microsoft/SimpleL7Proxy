@@ -51,7 +51,8 @@ public class ProxyWorker  {
             try
             {
                 //incomingRequest = _requestsQueue.Take(_cancellationToken); // This will block until an item is available or the token is cancelled
-                incomingRequest = _requestsQueue.Dequeue(_cancellationToken);
+
+                incomingRequest = _requestsQueue.Dequeue(_cancellationToken, IDstr); // This will block until an item is available or the token is cancelled
                 incomingRequest.DequeueTime = DateTime.UtcNow;
             }
             catch (OperationCanceledException)
@@ -77,6 +78,7 @@ public class ProxyWorker  {
                 eventData["x-RequestContentLength"] = incomingRequest?.Headers["Content-Length"] ?? "N/A";
                 eventData["x-RequestWorker"] = IDstr;
 
+
                 if (lcontext == null || incomingRequest == null) {
                     continue;
                 }
@@ -98,12 +100,13 @@ public class ProxyWorker  {
                         continue;
                     }
 
-
                     incomingRequest.Headers.Add("x-Request-Queue-Duration", (incomingRequest.DequeueTime - incomingRequest.EnqueueTime).TotalMilliseconds.ToString());
                     incomingRequest.Headers.Add("x-Request-Process-Duration", (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString());
                     incomingRequest.Headers.Add("x-Request-Worker", IDstr);
+                    incomingRequest.Headers.Add("x-S7PID", incomingRequest?.MID ?? "N/A");
                     eventData["x-Request-Queue-Duration"] = incomingRequest?.Headers["x-Request-Queue-Duration"] ?? "N/A";
                     eventData["x-Request-Process-Duration"] = incomingRequest?.Headers["x-Request-Process-Duration"] ?? "N/A";
+                    eventData["x-S7PID"] = incomingRequest?.MID ?? "N/A";
 
                     var pr = await ReadProxyAsync(incomingRequest).ConfigureAwait(false);
                     await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);
@@ -137,6 +140,7 @@ public class ProxyWorker  {
                     pr.Body=[];
                     pr.ContentHeaders.Clear();
                     pr.FullURL="";
+
                 }
                 catch (S7PRequeueException)
                 {
@@ -196,6 +200,7 @@ public class ProxyWorker  {
                 }
                 finally
                 {
+
                     // Let's not track the request if it was retried.
                     if (!requestWasRetried)
                     {
@@ -208,7 +213,9 @@ public class ProxyWorker  {
 
                         lcontext?.Response.Close();
                     }
+
                 }
+
             }
         }
 
@@ -286,8 +293,6 @@ public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requ
 
         // Read the body stream once and reuse it
         byte[] bodyBytes = await request.CachBodyAsync();
-
-
 
         // Convert S7PTTL to DateTime
         if (request.Headers["S7PTTL"] != null ) {

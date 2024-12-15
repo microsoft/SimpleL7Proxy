@@ -14,6 +14,8 @@ namespace test.nullserver.nullserver
         private readonly HttpClient _httpClient;
         private int response_delay = 0;
 
+        private bool requeue = false;
+
         public Server(ConfigBuilder configBuilder, HttpClient httpClient) : base()
         {
             _configBuilder = configBuilder;
@@ -37,8 +39,10 @@ namespace test.nullserver.nullserver
             var _listeningUrl = $"http://+:{_configBuilder.Port}/"; // Changed to HTTP for simplicity
 
             var httpListener = new HttpListener();
+
             httpListener.Prefixes.Add(_listeningUrl);
             response_delay = ParseTime(_configBuilder.ResponseDelay);
+            bool.TryParse(_configBuilder.RequestRequeue, out requeue);
 
             try
             {
@@ -100,13 +104,18 @@ namespace test.nullserver.nullserver
             // Read the request
             var request = context.Request;
             var response = context.Response;
+            bool inHealthCheck = false;
 
             try {
                 var url = request.Url.ToString();
+                int code = 200;
 
-                if (!url.Contains("/status-0123456789abcdef")) {
+                if (!url.Contains("/status-0123456789abcdef") && !url.Contains("resource?param1=sample")) {
+
                    // Simulate response delay
                    await Task.Delay(response_delay, cancellationToken);
+                } else {
+                    inHealthCheck = true;
                 }
 
                 // Read the request body asynchronously
@@ -116,20 +125,36 @@ namespace test.nullserver.nullserver
                     //Console.WriteLine($"Request body: {requestBody}");
                 }
                 // read the x-request-count header
-                var requestSequence = request.Headers["x-Request-Sequence"];
-                var queueTime = request.Headers["x-Request-Queue-Duration"];
-                var processingTime = request.Headers["x-Request-Process-Duration"];
 
+                var requestSequence = "N/A";
+                var queueTime = "N/A";
+                var processingTime = "N/A";
+                var mid = "N/A";
 
-                Console.WriteLine($"{url}  Request Sequence: {requestSequence} QueueTime: {queueTime} ProcessTime: {processingTime}");
+                try 
+                {
+                 requestSequence = request.Headers["x-Request-Sequence"];
+                 queueTime = request.Headers["x-Request-Queue-Duration"];
+                 processingTime = request.Headers["x-Request-Process-Duration"];
+                 mid = request.Headers["x-S7PID"] ?? "0";
+                } catch (Exception ex) {
+                    // ignore the exception
+                }
+
+                Console.WriteLine($"{url} ID: {mid} Request Sequence: {requestSequence} QueueTime: {queueTime} ProcessTime: {processingTime}");
 
                 // Add response headers
                 response.Headers["x-Request-Sequence"] = requestSequence;
                 response.Headers["x-Request-Queue-Duration"] = queueTime;
                 response.Headers["x-Request-Process-Duration"] = processingTime;
 
+                if (requeue && !inHealthCheck) {
+                    response.Headers["S7PREQUEUE"] = "true";
+                    code = 429;
+                }
+
                 // Write the response
-                response.StatusCode = 200;
+                response.StatusCode = code;
                 using (var writer = new System.IO.StreamWriter(response.OutputStream))
                 {
                     await writer.WriteAsync("OK");
