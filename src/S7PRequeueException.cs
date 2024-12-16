@@ -3,8 +3,11 @@ using System.Threading.Tasks;
 // This class represents the request received from the upstream client.
 public class S7PRequeueException : Exception, IDisposable
 {
-    public S7PRequeueException(string message) : base(message)
+
+    public ProxyData pr { get; set; }
+    public S7PRequeueException(string message, ProxyData pd) : base(message)
     {
+        pr = pd;
     }
     public void Dispose()
     {

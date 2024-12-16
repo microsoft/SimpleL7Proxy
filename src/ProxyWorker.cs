@@ -147,13 +147,23 @@ public class ProxyWorker
                     pr.FullURL = "";
 
                 }
-                catch (S7PRequeueException)
+                catch (S7PRequeueException e)
                 {
                     // Requeue the request 
                     _requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.EnqueueTime);
                     Console.WriteLine($"Requeued request.  Pri: {incomingRequest.Priority} Queue Length: {_requestsQueue.Count} Status: {_backends.CheckFailedStatus()} Active Hosts: {_backends.ActiveHostCount()}");
                     requestWasRetried = true;
                     incomingRequest.SkipDispose = true;
+                    eventData["Url"] = e.pr.FullURL;
+                    eventData["x-Status"] = ((int)503).ToString();
+                    eventData["x-Response-Latency"] = (e.pr.ResponseDate - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
+                    eventData["x-Total-Latency"] = (DateTime.Now - incomingRequest.Timestamp).TotalMilliseconds.ToString("F3");
+                    eventData["x-Backend-Host"] = e.pr?.BackendHostname ?? "N/A";
+                    eventData["x-Backend-Host-Latency"] = e.pr?.CalculatedHostLatency.ToString("F3") ?? "N/A";
+                    eventData["Type"] = "Requeue-ProxyRequest";
+
+                    SendEventData(eventData);
+
                 }
                 catch (IOException ioEx)
                 {
@@ -445,7 +455,7 @@ public class ProxyWorker
 
                             if (s7PrequeueValue != null && string.Equals(s7PrequeueValue, "true", StringComparison.OrdinalIgnoreCase))
                             {
-                                throw new S7PRequeueException("Requeue request");
+                                throw new S7PRequeueException("Requeue request", pr);
                             }
                         }
                         else
