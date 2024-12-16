@@ -23,6 +23,9 @@ public class RequestData : IDisposable, IAsyncDisposable
     public DateTime DequeueTime { get; set; }
     public string MID { get; set; } = "";
 
+    public string TTL="";
+    public long TTLSeconds = 0;
+
     // Track if the request was re-qued for cleanup purposes
     //public bool Requeued { get; set; } = false;
     public bool SkipDispose { get; set; } = false;

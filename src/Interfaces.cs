@@ -21,17 +21,18 @@ public interface IEventHubClient
 }
 
 public interface IBackendOptions {
+    HttpClient? Client { get; set; }
+    public int DefaultPriority { get; set; }
+    public int DefaultTTLSecs { get; set; }
+    List<BackendHost>? Hosts { get; set; }
+    string IDStr { get; set; }
+    public int MaxQueueLength { get; set; }
     int Port { get; set; }
     int PollInterval { get; set; }
     int PollTimeout { get; set; }
     int SuccessRate { get; set; }
     int Timeout { get; set; }
     int Workers { get; set; }
-    string IDStr { get; set; }
     public List<string> PriorityKeys { get; set; }
     public List<int> PriorityValues { get; set; }
-    public int DefaultPriority { get; set; }
-    public int MaxQueueLength { get; set; }
-    List<BackendHost>? Hosts { get; set; }
-    HttpClient? Client { get; set; }
 }

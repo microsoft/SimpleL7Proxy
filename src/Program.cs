@@ -60,23 +60,24 @@ public class Program
                 // Register the configured BackendOptions instance with DI
                 services.Configure<BackendOptions>(options =>
                 {
-                    options.Timeout = backendOptions.Timeout;
+                    options.Client = backendOptions.Client;
+                    options.DefaultPriority = backendOptions.DefaultPriority;
+                    options.DefaultTTLSecs = backendOptions.DefaultTTLSecs;
+                    options.HostName = backendOptions.HostName;
+                    options.Hosts = backendOptions.Hosts;
+                    options.IDStr = backendOptions.IDStr;
+                    options.LogHeaders = backendOptions.LogHeaders;
+                    options.MaxQueueLength = backendOptions.MaxQueueLength;
+                    options.OAuthAudience = backendOptions.OAuthAudience;
+                    options.PriorityKeys = backendOptions.PriorityKeys;
+                    options.PriorityValues = backendOptions.PriorityValues;
                     options.Port = backendOptions.Port;
                     options.PollInterval = backendOptions.PollInterval;
                     options.PollTimeout = backendOptions.PollTimeout;
                     options.SuccessRate = backendOptions.SuccessRate;
-                    options.Hosts = backendOptions.Hosts;
-                    options.Client = backendOptions.Client;
-                    options.Workers = backendOptions.Workers;
-                    options.OAuthAudience = backendOptions.OAuthAudience;
+                    options.Timeout = backendOptions.Timeout;
                     options.UseOAuth = backendOptions.UseOAuth;
-                    options.PriorityKeys = backendOptions.PriorityKeys;
-                    options.PriorityValues = backendOptions.PriorityValues;
-                    options.DefaultPriority = backendOptions.DefaultPriority;
-                    options.MaxQueueLength = backendOptions.MaxQueueLength;
-                    options.LogHeaders = backendOptions.LogHeaders;
-                    options.HostName = backendOptions.HostName;
-                    options.IDStr = backendOptions.IDStr;
+                    options.Workers = backendOptions.Workers;
                 });
 
                 services.AddLogging(loggingBuilder => loggingBuilder.AddFilter<Microsoft.Extensions.Logging.ApplicationInsights.ApplicationInsightsLoggerProvider>("Category", LogLevel.Information));
@@ -179,7 +180,7 @@ public class Program
     {
         if (!int.TryParse(OS.Environment.GetEnvironmentVariable(variableName), out var value))
         {
-            Console.WriteLine($"Using default:   {variableName}: {defaultValue}");
+            Console.WriteLine($"Using default: {variableName}: {defaultValue}");
             return defaultValue;
         }
         return value;
@@ -247,23 +248,24 @@ public class Program
         // Create and return a BackendOptions object populated with values from environment variables or default values.
         var backendOptions = new BackendOptions
         {
+            Client = _client, 
+            DefaultPriority = ReadEnvironmentVariableOrDefault("DefaultPriority", 2),
+            DefaultTTLSecs = ReadEnvironmentVariableOrDefault("DefaultTTLSecs", 300),
+            HostName = ReadEnvironmentVariableOrDefault("Hostname", "Default"),
+            Hosts = new List<BackendHost>(),
+            IDStr = ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P") + "-" + replicaID +"-",
+            LogHeaders = ReadEnvironmentVariableOrDefault("LogHeaders", "").Split(',').Select(x=>x.Trim()).ToList(),
+            MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
+            OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
             Port = ReadEnvironmentVariableOrDefault("Port", 443),
             PollInterval = ReadEnvironmentVariableOrDefault("PollInterval", 15000),
-            SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
-            Timeout = ReadEnvironmentVariableOrDefault("Timeout", 3000),
             PollTimeout = ReadEnvironmentVariableOrDefault("PollTimeout", 3000),
-            Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
-            OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
-            UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", "false").Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true,
             PriorityKeys = toListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
             PriorityValues = toListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
-            DefaultPriority = ReadEnvironmentVariableOrDefault("DefaultPriority", 2),
-            MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
-            LogHeaders = ReadEnvironmentVariableOrDefault("LogHeaders", "").Split(',').Select(x=>x.Trim()).ToList(),
-            HostName = ReadEnvironmentVariableOrDefault("Hostname", "Default"),
-            IDStr = ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P") + "-" + replicaID +"-",
-            Client = _client, 
-            Hosts = new List<BackendHost>()
+            SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
+            Timeout = ReadEnvironmentVariableOrDefault("Timeout", 3000),
+            UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", "false").Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true,
+            Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
         };
 
         backendOptions.Client.Timeout = TimeSpan.FromMilliseconds(backendOptions.Timeout);
@@ -281,7 +283,7 @@ public class Program
 
             try
             {
-                Console.WriteLine($"Adding host {hostname} with probe path {probePath} and IP {ip}");
+                Console.WriteLine($"Found host {hostname} with probe path {probePath} and IP {ip}");
                 var bh = new BackendHost(hostname, probePath, ip);
                 backendOptions.Hosts.Add(bh);
 
