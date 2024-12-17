@@ -6,6 +6,8 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using test.generator.config;
+using Azure.Identity;
+using Azure.Core;
 
 namespace test.generator.generator_one
 {
@@ -16,6 +18,9 @@ namespace test.generator.generator_one
 
         private static int _requestCount = 0;
         private readonly object _lock = new object();
+
+        private  DateTimeOffset tokenExpiry = DateTime.MinValue;
+        private Azure.Core.AccessToken? token = null;
 
         public Server(ConfigBuilder configBuilder, HttpClient httpClient) : base()
         {
@@ -33,6 +38,37 @@ namespace test.generator.generator_one
             Console.WriteLine($"Duration: {_configBuilder.DurationSeconds}");
             Console.WriteLine($"Concurrency: {_configBuilder.Concurrency}");
             Console.WriteLine($"Delay: {_configBuilder.InterrunDelay}");
+
+            if (_configBuilder.needsToken())
+            {
+                Console.WriteLine("Getting token ...");
+                try {
+                    var tokenStr = GetToken();
+                    Console.WriteLine($"Token: {tokenStr}");
+                } catch (Exception ex) {
+                    Console.WriteLine($"Exception in getting token: {ex.Message}");
+                } 
+            }
+        }
+
+        private string GetToken()
+        {
+            if (DateTime.Now < token?.ExpiresOn && token is not null)
+            {
+                return token?.Token;
+            }
+
+            // Lookup the values from the congiguration
+            var audience = _configBuilder.EntraAudience;
+            var clientId = _configBuilder.EntraClientID;
+            var clientSecret = _configBuilder.EntraSecret;
+            var tenantId = _configBuilder.EntraTenantID;
+
+            var credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+            var tokenRequestContext = new TokenRequestContext(new[] { audience });
+            token = credential.GetToken(tokenRequestContext);
+
+            return token?.Token;
         }
 
         public async Task StartAsync(CancellationToken cancellationToken)
@@ -120,7 +156,24 @@ namespace test.generator.generator_one
                                             request.Content.Headers.ContentLength = long.Parse(header.Value);
                                             break;
                                         case "authorization":
-                                            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", header.Value);
+
+                                            if (string.Equals(header.Value, "<token>", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                var token = GetToken();
+                                                if (string.IsNullOrEmpty(token))
+                                                {
+                                                    token = Environment.GetEnvironmentVariable("token");
+                                                    if (string.IsNullOrEmpty(token))
+                                                    {
+                                                        Console.WriteLine($"Environment variable 'token' is not set");
+                                                    }
+                                                }
+                                                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                                            }
+                                            else
+                                            {
+                                                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", header.Value);
+                                            }
                                             break;
                                         case "cache-control":
                                             request.Headers.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue { NoCache = true };
