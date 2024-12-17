@@ -133,10 +133,10 @@ namespace test.nullserver.nullserver
 
                 try 
                 {
-                 requestSequence = request.Headers["x-Request-Sequence"];
-                 queueTime = request.Headers["x-Request-Queue-Duration"];
-                 processingTime = request.Headers["x-Request-Process-Duration"];
-                 mid = request.Headers["x-S7PID"] ?? "0";
+                    requestSequence = request.Headers["x-Request-Sequence"];
+                    queueTime = request.Headers["x-Request-Queue-Duration"];
+                    processingTime = request.Headers["x-Request-Process-Duration"];
+                    mid = request.Headers["x-S7PID"] ?? "0";
                 } catch (Exception ex) {
                     // ignore the exception
                 }
