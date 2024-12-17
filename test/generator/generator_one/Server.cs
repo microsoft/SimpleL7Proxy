@@ -21,6 +21,7 @@ namespace test.generator.generator_one
 
         private  DateTimeOffset tokenExpiry = DateTime.MinValue;
         private Azure.Core.AccessToken? token = null;
+        private string tokenStr = "";
 
         public Server(ConfigBuilder configBuilder, HttpClient httpClient) : base()
         {
@@ -53,9 +54,20 @@ namespace test.generator.generator_one
 
         private string GetToken()
         {
+            if (!string.IsNullOrEmpty( tokenStr) ) {
+                return tokenStr;
+            }
+
             if (DateTime.Now < token?.ExpiresOn && token is not null)
             {
                 return token?.Token;
+            }
+            
+            var tokenEnv = Environment.GetEnvironmentVariable("token");
+            if (!string.IsNullOrEmpty(tokenEnv))
+            {
+                tokenStr = tokenEnv;
+                return tokenStr;
             }
 
             // Lookup the values from the congiguration
@@ -160,14 +172,6 @@ namespace test.generator.generator_one
                                             if (string.Equals(header.Value, "<token>", StringComparison.OrdinalIgnoreCase))
                                             {
                                                 var token = GetToken();
-                                                if (string.IsNullOrEmpty(token))
-                                                {
-                                                    token = Environment.GetEnvironmentVariable("token");
-                                                    if (string.IsNullOrEmpty(token))
-                                                    {
-                                                        Console.WriteLine($"Environment variable 'token' is not set");
-                                                    }
-                                                }
                                                 request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
                                             }
                                             else
