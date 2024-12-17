@@ -104,10 +104,11 @@ public class ProxyWorker
                         continue;
                     }
 
-                    incomingRequest.Headers.Add("x-Request-Queue-Duration", (incomingRequest.DequeueTime - incomingRequest.EnqueueTime).TotalMilliseconds.ToString());
-                    incomingRequest.Headers.Add("x-Request-Process-Duration", (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString());
-                    incomingRequest.Headers.Add("x-Request-Worker", IDstr);
-                    incomingRequest.Headers.Add("x-S7PID", incomingRequest?.MID ?? "N/A");
+                    incomingRequest.Headers["x-Request-Queue-Duration"]=  (incomingRequest.DequeueTime - incomingRequest.EnqueueTime).TotalMilliseconds.ToString();
+                    incomingRequest.Headers["x-Request-Process-Duration"]= (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString();
+                    incomingRequest.Headers["x-Request-Worker"]= IDstr;
+                    incomingRequest.Headers["x-S7PID"]=  incomingRequest?.MID ?? "N/A";
+                    
                     eventData["x-Request-Queue-Duration"] = incomingRequest?.Headers["x-Request-Queue-Duration"] ?? "N/A";
                     eventData["x-Request-Process-Duration"] = incomingRequest?.Headers["x-Request-Process-Duration"] ?? "N/A";
                     eventData["x-S7PID"] = incomingRequest?.MID ?? "N/A";
@@ -236,6 +237,16 @@ public class ProxyWorker
         }
 
         Console.WriteLine("Worker stopped.");
+    }
+
+    // Method to replace or add a header
+    void ReplaceOrAddHeader(WebHeaderCollection headers, string headerName, string headerValue)
+    {
+        if (headers[headerName] != null)
+        {
+            headers.Remove(headerName);
+        }
+        headers.Add(headerName, headerValue);
     }
 
     private async Task WriteResponseAsync(HttpListenerContext context, ProxyData pr)

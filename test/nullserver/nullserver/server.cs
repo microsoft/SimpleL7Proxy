@@ -133,17 +133,17 @@ namespace test.nullserver.nullserver
 
                 try 
                 {
-                 requestSequence = request.Headers["x-Request-Sequence"];
-                 queueTime = request.Headers["x-Request-Queue-Duration"];
-                 processingTime = request.Headers["x-Request-Process-Duration"];
-                 mid = request.Headers["x-S7PID"] ?? "0";
+                    requestSequence = request.Headers["x-Request-Sequence"];
+                    queueTime = request.Headers["x-Request-Queue-Duration"];
+                    processingTime = request.Headers["x-Request-Process-Duration"];
+                    mid = request.Headers["x-S7PID"] ?? "0";
                 } catch (Exception ex) {
                     // ignore the exception
                 }
 
                 Console.WriteLine($"{url} ID: {mid} Request Sequence: {requestSequence} QueueTime: {queueTime} ProcessTime: {processingTime}");
 
-                try {}
+                try {
                     // Add response headers
                     response.Headers["x-Request-Sequence"] = requestSequence;
                     response.Headers["x-Request-Queue-Duration"] = queueTime;
