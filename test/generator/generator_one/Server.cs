@@ -22,7 +22,7 @@ namespace test.generator.generator_one
         private  DateTimeOffset tokenExpiry = DateTime.MinValue;
         private Azure.Core.AccessToken? token = null;
         private string tokenStr = "";
-
+        private int totalRequests = 0;
         public Server(ConfigBuilder configBuilder, HttpClient httpClient) : base()
         {
             _configBuilder = configBuilder;
@@ -76,6 +76,8 @@ namespace test.generator.generator_one
             var clientSecret = _configBuilder.EntraSecret;
             var tenantId = _configBuilder.EntraTenantID;
 
+            Console.WriteLine($"Getting token for {audience} {clientId} {clientSecret} {tenantId}");
+
             var credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
             var tokenRequestContext = new TokenRequestContext(new[] { audience });
             token = credential.GetToken(tokenRequestContext);
@@ -94,7 +96,8 @@ namespace test.generator.generator_one
             var delay = ParseTime(_configBuilder.InterrunDelay);
 
             var endTime = DateTime.Now.AddMilliseconds(duration);
-
+            totalRequests=0;
+            _requestCount = 0;
             List<Task> tasks = new List<Task>();
             for (int i = 0; i < concurrency; i++)
             {
@@ -104,7 +107,7 @@ namespace test.generator.generator_one
 
             await Task.WhenAll(tasks);
 
-            Console.WriteLine("Server stopped");
+            Console.WriteLine($"Tests Completed {_requestCount} rquests.");
         }
 
         private Dictionary<string, byte[]> _dataCache = new Dictionary<string, byte[]>();
@@ -114,6 +117,8 @@ namespace test.generator.generator_one
 
             while (!cancellationToken.IsCancellationRequested && DateTime.Now < endTime)
             {
+                int currentTestNumber=0;
+
                 // Perform some work
                try
                 {
@@ -128,13 +133,14 @@ namespace test.generator.generator_one
                             var request = new HttpRequestMessage(new HttpMethod(test.Method), test_endpoint + test.Path);
                             bool hasContentType = false;
 
+                            if (test.Headers == null)
+                            {
+                                test.Headers = new Dictionary<string, string>();
+                            }
+
                             lock (_lock)
                             {
-                                _requestCount++;
-                                if (test.Headers == null)
-                                {
-                                    test.Headers = new Dictionary<string, string>();
-                                }
+                                currentTestNumber=_requestCount++;
                                 test.Headers["x-Request-Sequence"] = _requestCount.ToString();
                             }
 
@@ -238,6 +244,7 @@ namespace test.generator.generator_one
                                 }
                                 using (var response = await _httpClient.SendAsync(request, cancellationToken))
                                 {
+                                    Console.WriteLine($"Test #{currentTestNumber} {test.Name} {test.Path} {test.Method} {test.DataFile}");
                                     // Read the response
                                     var content = await response.Content.ReadAsStringAsync();
                                     Console.WriteLine($"{response.StatusCode} Content-Length: {response.Content.Headers.ContentLength} <: {test.Name} {test.Path} {test.Method} {test.DataFile}");
