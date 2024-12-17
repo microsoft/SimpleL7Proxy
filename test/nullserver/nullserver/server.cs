@@ -143,11 +143,15 @@ namespace test.nullserver.nullserver
 
                 Console.WriteLine($"{url} ID: {mid} Request Sequence: {requestSequence} QueueTime: {queueTime} ProcessTime: {processingTime}");
 
-                // Add response headers
-                response.Headers["x-Request-Sequence"] = requestSequence;
-                response.Headers["x-Request-Queue-Duration"] = queueTime;
-                response.Headers["x-Request-Process-Duration"] = processingTime;
-
+                try {}
+                    // Add response headers
+                    response.Headers["x-Request-Sequence"] = requestSequence;
+                    response.Headers["x-Request-Queue-Duration"] = queueTime;
+                    response.Headers["x-Request-Process-Duration"] = processingTime;
+                } catch (Exception e) {
+                    // ignore
+                }
+                
                 if (requeue && !inHealthCheck) {
                     response.Headers["S7PREQUEUE"] = "true";
                     code = 429;
