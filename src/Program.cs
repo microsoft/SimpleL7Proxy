@@ -323,7 +323,7 @@ public class Program
         Console.WriteLine("#     #  # #    # #      #      #      #         #     #      #   #  #    #  #  #    #");
         Console.WriteLine(" #####   # #    # #      ###### ###### #######   #     #      #    #  ####  #    #   #");
         Console.WriteLine ("=======================================================================================");
-        Console.WriteLine("Version: 1.1.0");
+        Console.WriteLine("Version: 1.2.0");
 
         return backendOptions;
     }
