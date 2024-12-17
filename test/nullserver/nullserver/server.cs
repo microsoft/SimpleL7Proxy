@@ -143,7 +143,7 @@ namespace test.nullserver.nullserver
 
                 Console.WriteLine($"{url} ID: {mid} Request Sequence: {requestSequence} QueueTime: {queueTime} ProcessTime: {processingTime}");
 
-                try {}
+                try {
                     // Add response headers
                     response.Headers["x-Request-Sequence"] = requestSequence;
                     response.Headers["x-Request-Queue-Duration"] = queueTime;
