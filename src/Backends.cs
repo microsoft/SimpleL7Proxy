@@ -87,7 +87,7 @@ public class Backends : IBackendService
         lock(lockObj)
         {
             //Console.WriteLine($"TrackStatus: {code}");
-            if (code == 200)
+            if (code == 200 || code == 410)
             {
                 //hostFailureTimes.Clear();
             }

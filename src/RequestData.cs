@@ -143,12 +143,12 @@ public class RequestData : IDisposable, IAsyncDisposable
                     await Context.Response.OutputStream.DisposeAsync();
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 // Ignore exceptions
             }
 
-            Context.Response?.Close();
+            Context?.Response?.Close();
             Context = null;
         }
     }
