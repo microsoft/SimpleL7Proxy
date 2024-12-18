@@ -34,11 +34,6 @@ public class Startup
         // Start the server with the cancellation token
         var serverTask = server.StartAsync(cts.Token);
 
-        // Wait for a key press to cancel
-        Console.WriteLine("Press q to exit, r to repeat: ");
-        var k = Console.ReadKey();
-
-
         cts.Cancel();
 
         // Wait for the server to stop
