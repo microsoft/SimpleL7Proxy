@@ -67,6 +67,7 @@ public class ProxyWorker
             {
                 var requestWasRetried = false;
                 var lcontext = incomingRequest?.Context;
+                bool isExpired = false;
 
                 Dictionary<string, string> eventData = new Dictionary<string, string>();
                 eventData["ProxyHost"] = _options.HostName;
@@ -114,19 +115,7 @@ public class ProxyWorker
                     eventData["x-S7PID"] = incomingRequest?.MID ?? "N/A";
 
                     var pr = await ReadProxyAsync(incomingRequest).ConfigureAwait(false);
-                    await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);
-
-                    Console.WriteLine($"Pri: {incomingRequest.Priority} Stat: {(int)pr.StatusCode} Len: {pr.ContentHeaders["Content-Length"]} {pr.FullURL}");
-
-                    eventData["Url"] = pr.FullURL;
                     eventData["x-Status"] = ((int)pr.StatusCode).ToString();
-                    eventData["x-Response-Latency"] = (pr.ResponseDate - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
-                    eventData["x-Total-Latency"] = (DateTime.Now - incomingRequest.Timestamp).TotalMilliseconds.ToString("F3");
-                    eventData["x-Backend-Host"] = pr?.BackendHostname ?? "N/A";
-                    eventData["x-Backend-Host-Latency"] = pr?.CalculatedHostLatency.ToString("F3") ?? "N/A";
-                    eventData["Content-Length"] = lcontext.Response?.ContentLength64.ToString() ?? "N/A";
-                    eventData["Content-Type"] = lcontext?.Response?.ContentType ?? "N/A";
-
                     if (_options.LogHeaders != null && _options.LogHeaders.Count > 0)
                     {
                         foreach (var header in _options.LogHeaders)
@@ -135,10 +124,31 @@ public class ProxyWorker
                         }
                     }
 
+                    if (pr.StatusCode == HttpStatusCode.Gone)
+                    {
+                        // Request has expired
+                        isExpired = true;
+                    }
+                    await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);  
+
+                    Console.WriteLine($"Pri: {incomingRequest.Priority} Stat: {(int)pr.StatusCode} Len: {pr.ContentHeaders["Content-Length"]} {pr.FullURL}");
+
+                    eventData["Url"] = pr.FullURL;
+                    eventData["x-Response-Latency"] = (pr.ResponseDate - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
+                    eventData["x-Total-Latency"] = (DateTime.Now - incomingRequest.Timestamp).TotalMilliseconds.ToString("F3");
+                    eventData["x-Backend-Host"] = pr?.BackendHostname ?? "N/A";
+                    eventData["x-Backend-Host-Latency"] = pr?.CalculatedHostLatency.ToString("F3") ?? "N/A";
+                    eventData["Content-Length"] = lcontext.Response?.ContentLength64.ToString() ?? "N/A";
+                    eventData["Content-Type"] = lcontext?.Response?.ContentType ?? "N/A";
+
                     if (_eventHubClient != null)
                     {
                         //SendEventData(pr.FullURL, pr.StatusCode, incomingRequest.Timestamp, pr.ResponseDate);
                         eventData["Type"] = "ProxyRequest";
+                        if (isExpired)
+                        {
+                            eventData["Type"] = "Expired-ProxyRequest";
+                        }
 
                         SendEventData(eventData);
                     }
@@ -168,6 +178,11 @@ public class ProxyWorker
                 }
                 catch (IOException ioEx)
                 {
+                    if (isExpired) {
+                        Console.WriteLine("IoException on an exipred request");
+                        continue;
+                    }
+
                     Console.WriteLine($"An IO exception occurred: {ioEx.Message}");
                     lcontext.Response.StatusCode = 502;
                     var errorMessage = Encoding.UTF8.GetBytes($"Broken Pipe: {ioEx.Message}");
@@ -189,6 +204,10 @@ public class ProxyWorker
                 }
                 catch (Exception ex)
                 {
+                    if (isExpired) {
+                        Console.WriteLine("IoException on an exipred request");
+                        continue;
+                    }
                     if (ex.Message == "Cannot access a disposed object.") // The client likely closed the connection
                     {
                         Console.WriteLine($"Client closed connection: {incomingRequest.FullURL}");
@@ -332,7 +351,7 @@ public class ProxyWorker
             }
         }
 
-        // Check ttlSeconds against current time
+        // Check ttlSeconds against current time .. keep in mind, client may have disconnected already
         if (request.TTLSeconds < DateTimeOffset.UtcNow.ToUnixTimeSeconds())
         {
             HandleProxyRequestError(null, null, request.Timestamp, request.FullURL, HttpStatusCode.Gone, "Request has expired: " + DateTimeOffset.UtcNow.ToLocalTime());
