@@ -124,7 +124,7 @@ public class ProxyWorker
                         }
                     }
 
-                    if (pr.StatusCode == HttpStatusCode.Gone)
+                    if (pr.StatusCode == HttpStatusCode.Gone) // 410 Gone
                     {
                         // Request has expired
                         isExpired = true;

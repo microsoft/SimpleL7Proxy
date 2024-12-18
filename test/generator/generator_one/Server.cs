@@ -25,6 +25,8 @@ namespace test.generator.generator_one
         private int totalRequests = 0;
 
         private List<PreparedTest> allTests = new List<PreparedTest>();
+        private Dictionary <int, int> testResults = new Dictionary<int, int>();
+
         public Server(ConfigBuilder configBuilder, HttpClient httpClient) : base()
         {
             _configBuilder = configBuilder;
@@ -104,11 +106,13 @@ namespace test.generator.generator_one
             var duration = ParseTime(_configBuilder.DurationSeconds);
             var delay = ParseTime(_configBuilder.InterrunDelay);
 
-            totalRequests = 0;
-            _requestCount = 0;
 
             while (true)
             {
+
+                totalRequests = 0;
+                _requestCount = 0;
+                testResults.Clear();
 
                 var endTime = DateTime.Now.AddMilliseconds(duration);
                 Console.WriteLine($"{DateTime.Now} Endpoint: {test_endpoint}  Concurrency: {concurrency}  EndTime: {endTime}  Delay: {delay}ms");
@@ -126,6 +130,13 @@ namespace test.generator.generator_one
 
                 Console.WriteLine($"Tests Completed {_requestCount} rquests.");
 
+                // Summarize the results
+                Console.WriteLine("Results:");
+                foreach (var key in testResults.Keys)
+                {
+                    Console.WriteLine($"{key} : {testResults[key]}");
+                }
+
                 // Wait for a key press to cancel
                 Console.WriteLine("\n\nPress q to exit, any other key to repeat: ");
                 var k = Console.ReadKey();
@@ -141,6 +152,8 @@ namespace test.generator.generator_one
 
         private async Task RunTest(CancellationToken cancellationToken, string test_endpoint, int delay, DateTime endTime)
         {
+
+            Dictionary <int, int> localTestResults = new Dictionary<int, int>();
 
             while (!cancellationToken.IsCancellationRequested && DateTime.Now < endTime)
             {
@@ -173,19 +186,28 @@ namespace test.generator.generator_one
                                     // Read the response
                                     var content = await response?.Content?.ReadAsStringAsync() ?? "N/A";
                                     Console.WriteLine($"{response.StatusCode} Content-Length: {response.Content.Headers.ContentLength} <: {test.Name} {test.Path} {test.Method} ");
+
+                                    int code= (int)response.StatusCode;
+                                    // Add the test result
+                                    localTestResults[code] = localTestResults.ContainsKey(code) ? localTestResults[code] + 1 : 1;
+
                                     response?.Dispose();
+
                                 }
                             }
                             catch (TaskCanceledException e)
                             {
+                                localTestResults[408] = localTestResults.ContainsKey(408) ? localTestResults[408] + 1 : 1;
                                 Console.WriteLine($"Test #{currentTestNumber} TaskCanceledException: {test.Name} {e.Message}");
                             }
                             catch (HttpRequestException httpEx)
                             {
+                                localTestResults[500] = localTestResults.ContainsKey(500) ? localTestResults[500] + 1 : 1;
                                 Console.WriteLine($"HttpRequestException: {httpEx.Message}");
                             }
                             catch (Exception ex)
                             {
+                                localTestResults[500] = localTestResults.ContainsKey(500) ? localTestResults[500] + 1 : 1;
                                 Console.WriteLine($"Test #{currentTestNumber} Exception: {ex.Message}");
                                 Console.WriteLine($"Test #{currentTestNumber} {ex.StackTrace}");
                             }
@@ -205,6 +227,14 @@ namespace test.generator.generator_one
                 {
                     Console.WriteLine($"Exception in processing request: {ex.Message}");
                     await Task.Delay(delay, cancellationToken);
+                }
+            }
+
+            lock (_lock)
+            {
+                foreach (var key in localTestResults.Keys)
+                {
+                    testResults[key] = testResults.ContainsKey(key) ? testResults[key] + localTestResults[key] : localTestResults[key];
                 }
             }
         }
