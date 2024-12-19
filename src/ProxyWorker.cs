@@ -108,11 +108,12 @@ public class ProxyWorker
                     incomingRequest.Headers["x-Request-Queue-Duration"]=  (incomingRequest.DequeueTime - incomingRequest.EnqueueTime).TotalMilliseconds.ToString();
                     incomingRequest.Headers["x-Request-Process-Duration"]= (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString();
                     incomingRequest.Headers["x-Request-Worker"]= IDstr;
-                    incomingRequest.Headers["x-S7PID"]=  incomingRequest?.MID ?? "N/A";
-                    
-                    eventData["x-Request-Queue-Duration"] = incomingRequest?.Headers["x-Request-Queue-Duration"] ?? "N/A";
-                    eventData["x-Request-Process-Duration"] = incomingRequest?.Headers["x-Request-Process-Duration"] ?? "N/A";
-                    eventData["x-S7PID"] = incomingRequest?.MID ?? "N/A";
+                    incomingRequest.Headers["x-S7PID"]=  incomingRequest.MID ?? "N/A";
+                    incomingRequest.Headers["x-S7PPriority"] = incomingRequest.Priority.ToString() ?? "N/A";
+
+                    eventData["x-Request-Queue-Duration"] = incomingRequest.Headers["x-Request-Queue-Duration"] ?? "N/A";
+                    eventData["x-Request-Process-Duration"] = incomingRequest.Headers["x-Request-Process-Duration"] ?? "N/A";
+                    eventData["x-S7PID"] = incomingRequest.MID ?? "N/A";
 
                     var pr = await ReadProxyAsync(incomingRequest).ConfigureAwait(false);
                     eventData["x-Status"] = ((int)pr.StatusCode).ToString();
@@ -120,7 +121,7 @@ public class ProxyWorker
                     {
                         foreach (var header in _options.LogHeaders)
                         {
-                            eventData[header] = lcontext?.Response?.Headers[header] ?? "N/A";
+                            eventData[header] = lcontext.Response?.Headers[header] ?? "N/A";
                         }
                     }
 
@@ -559,7 +560,7 @@ public class ProxyWorker
             if (request.Headers["S7PTTL"] != null)
             {
                 long longSeconds;
-                string ttlString = request?.Headers["S7PTTL"] ?? "";
+                string ttlString = request.Headers["S7PTTL"] ?? "";
 
                 // TTL can be specified as +300 ( 300 seconds from now ) or as an absolute number of seconds
                 if (ttlString.StartsWith("+") && long.TryParse(ttlString.Substring(1), out longSeconds))

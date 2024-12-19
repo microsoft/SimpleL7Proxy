@@ -221,7 +221,7 @@ public class Backends : IBackendService
         }
 
         if (_debug)
-            Console.WriteLine("Returning status changed: " + _statusChanged);
+            WriteOutput("Returning status changed: " + _statusChanged);
 
         return _statusChanged;
     }
@@ -235,7 +235,7 @@ public class Backends : IBackendService
         probeData["Path"] = host.probe_path;
 
         if (_debug)
-            Console.WriteLine($"Checking host {host.url + host.probe_path}");
+            WriteOutput($"Checking host {host.url + host.probe_path}");
 
 
         var request = new HttpRequestMessage(HttpMethod.Get, host.probeurl);
@@ -269,34 +269,34 @@ public class Backends : IBackendService
         }
         catch (UriFormatException e) {
             Program.telemetryClient?.TrackException(e);
-            Console.WriteLine($"Poller: Could not check probe: {e.Message}");
+            WriteOutput($"Poller: Could not check probe: {e.Message}");
             probeData["Type"] = "Uri Format Exception";
             probeData["Code"] = "-";
         }
         catch (System.Threading.Tasks.TaskCanceledException) {
-            Console.WriteLine($"Poller: Host Timeout: {host.host}");
+            WriteOutput($"Poller: Host Timeout: {host.host}");
             probeData["Type"] = "TaskCanceledException";
             probeData["Code"] = "-";
                     }
         catch (HttpRequestException e) {
             Program.telemetryClient?.TrackException(e);
-            Console.WriteLine($"Poller: Host {host.host} is down with exception: {e.Message}");
+            WriteOutput($"Poller: Host {host.host} is down with exception: {e.Message}");
             probeData["Type"] = "HttpRequestException";
             probeData["Code"] = "-";
                     }
         catch (OperationCanceledException) {
             // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
-            Console.WriteLine("Poller: Operation was canceled. Stopping the server.");
+            WriteOutput("Poller: Operation was canceled. Stopping the server.");
             throw; // Exit the loop
         }
         catch (System.Net.Sockets.SocketException e) {
-            Console.WriteLine($"Poller: Host {host.host} is down:  {e.Message}");
+            WriteOutput($"Poller: Host {host.host} is down:  {e.Message}");
             probeData["Type"] = "SocketException";
             probeData["Code"] = "-";
         }
         catch (Exception e) {
             Program.telemetryClient?.TrackException(e);
-            Console.WriteLine($"Poller: Error: {e.Message}");
+            WriteOutput($"Poller: Error: {e.Message}");
             probeData["Type"] = "Exception " + e.Message;
             probeData["Code"] = "-";
         }
@@ -354,7 +354,7 @@ public class Backends : IBackendService
 
         _lastStatusDisplay = DateTime.Now;
         _hostStatus = sb.ToString();
-        Console.WriteLine(_hostStatus);
+        WriteOutput(_hostStatus);
 
         //Console.WriteLine($"Total Transactions: {txActivity}   Time to go: {DateTime.Now - _lastGCTime}" );
         if (txActivity == 0 && (DateTime.Now - _lastGCTime).TotalSeconds > (60*15) )
@@ -384,16 +384,16 @@ public class Backends : IBackendService
 
                     if (AuthToken.HasValue)
                     {
-                        var timeout =(AuthToken?.ExpiresOn - DateTimeOffset.UtcNow).Value.TotalMilliseconds;
-
+                        var timeout =(AuthToken.Value.ExpiresOn - DateTimeOffset.UtcNow).TotalMilliseconds;
+                    
                         if ( timeout < 500 )
                         {
-                            Console.WriteLine($"Auth Token is about to expire. Retrying in {timeout} ms.");
+                            WriteOutput($"Auth Token is about to expire. Retrying in {timeout} ms.");
                             await Task.Delay((int)timeout, _cancellationToken);
                         } else {
                             // Calculate the time to refresh the token, 100 ms before it expires
                             var refreshTime = timeout - 100;
-                            Console.WriteLine($"Auth Token expires on: {AuthToken?.ExpiresOn} Refresh in: {FormatMilliseconds(refreshTime)} (100 ms grace)");
+                            WriteOutput($"Auth Token expires on: {AuthToken.Value.ExpiresOn} Refresh in: {FormatMilliseconds(refreshTime)} (100 ms grace)");
                             // Wait for the calculated refresh time or until a cancellation is requested
                             await Task.Delay((int)refreshTime, _cancellationToken);
                         }
@@ -401,7 +401,7 @@ public class Backends : IBackendService
                     else
                     {
                         // Handle the case where the token is null
-                        Console.WriteLine("Auth Token is null. Retrying in 10 seconds.");
+                        WriteOutput("Auth Token is null. Retrying in 10 seconds.");
                         await Task.Delay(TimeSpan.FromMilliseconds(10000), _cancellationToken);
                     }
 
@@ -409,11 +409,11 @@ public class Backends : IBackendService
             } 
             catch (OperationCanceledException) {
                 // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
-                Console.WriteLine("Exiting fetching Auth Token: Operation was canceled.");
+                WriteOutput("Exiting fetching Auth Token: Operation was canceled.");
             }   
             catch (Exception e) {
                 // Handle any unexpected errors that occur during token fetching
-                Console.WriteLine($"An unexpected error occurred while fetching Auth Token: {e.Message}");
+                WriteOutput($"An unexpected error occurred while fetching Auth Token: {e.Message}");
             }
         }, _cancellationToken);
     }
@@ -440,15 +440,32 @@ public class Backends : IBackendService
         }
         catch (AuthenticationFailedException ex)
         {
-            Console.WriteLine($"Authentication failed: {ex.Message}");
+            WriteOutput($"Authentication failed: {ex.Message}");
             // Handle the exception as needed, e.g., return a default value or rethrow the exception
             throw;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"An unexpected error occurred: {ex.Message}");
+            WriteOutput($"An unexpected error occurred: {ex.Message}");
             // Handle other potential exceptions
             throw;
         }
+    }
+
+    private void WriteOutput(string data="", Dictionary<string, string>? eventData=null)
+    {
+        if (!string.IsNullOrEmpty(data))
+        {
+            Console.WriteLine(data);
+            _eventHubClient?.SendData(data);
+        }
+
+        if (eventData == null) return;
+
+        if (!string.IsNullOrEmpty(data)) {
+            eventData.Add("message", data);
+        }
+        string jsonData = JsonSerializer.Serialize(eventData);
+        _eventHubClient?.SendData(jsonData);
     }
 }
