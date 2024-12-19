@@ -153,9 +153,9 @@ public class ProxyWorker
                         SendEventData(eventData);
                     }
 
-                    pr.Body = [];
-                    pr.ContentHeaders.Clear();
-                    pr.FullURL = "";
+                    // pr.Body = [];
+                    // pr.ContentHeaders.Clear();
+                    // pr.FullURL = "";
 
                 }
                 catch (S7PRequeueException e)
@@ -508,7 +508,7 @@ public class ProxyWorker
                 // rethrow the exception
                 throw;
             }
-            catch (TaskCanceledException e)
+            catch (TaskCanceledException)
             {
                 // 408 Request Timeout
                 lastStatusCode = HandleProxyRequestError(host, null, request.Timestamp, request.FullURL, HttpStatusCode.RequestTimeout, "Request to " + host.url + " timed out");
@@ -550,9 +550,11 @@ public class ProxyWorker
 
     }
 
+
+    // Returns false if the TTL is invalid else returns true
     private bool CalculateTTL(RequestData request)
     {
-        if (request.TTLSeconds == 0)
+        if (request is not null && request.TTLSeconds == 0)
         {
             if (request.Headers["S7PTTL"] != null)
             {

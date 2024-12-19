@@ -55,6 +55,11 @@ public class RequestData : IDisposable, IAsyncDisposable
             return BodyBytes;
         }
 
+        if (Body is null)
+        {
+            return [];
+        }
+
         // Read the body stream once and reuse it
         using (MemoryStream ms = new MemoryStream())
         {
