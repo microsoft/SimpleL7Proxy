@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using Microsoft.ApplicationInsights;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
@@ -17,16 +18,19 @@ public class Server : IServer
     private CancellationToken _cancellationToken;
     //private BlockingCollection<RequestData> _requestsQueue = new BlockingCollection<RequestData>();
     private BlockingPriorityQueue<RequestData> _requestsQueue = new BlockingPriorityQueue<RequestData>();
+    private readonly IEventHubClient? _eventHubClient;
+
 
 
     // Constructor to initialize the server with backend options and telemetry client.
-    public Server(IOptions<BackendOptions> backendOptions, IBackendService backends, TelemetryClient? telemetryClient)
+    public Server(IOptions<BackendOptions> backendOptions, IEventHubClient? eventHubClient, IBackendService backends, TelemetryClient? telemetryClient)
     {
         if (backendOptions == null) throw new ArgumentNullException(nameof(backendOptions));
         if (backendOptions.Value == null) throw new ArgumentNullException(nameof(backendOptions.Value));
 
         _options = backendOptions.Value;
         _backends = backends;
+        _eventHubClient = eventHubClient;
         _telemetryClient = telemetryClient;
         _requestsQueue.MaxQueueLength = _options.MaxQueueLength;
 
@@ -36,7 +40,7 @@ public class Server : IServer
         httpListener.Prefixes.Add(_listeningUrl);
 
         var timeoutTime = TimeSpan.FromMilliseconds(_options.Timeout).ToString(@"hh\:mm\:ss\.fff");
-        Console.WriteLine($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
+        WriteOutput($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
     }
 
     // Method to start the server and begin processing requests.
@@ -46,7 +50,7 @@ public class Server : IServer
         {
             _cancellationToken = cancellationToken;
             httpListener.Start();
-            Console.WriteLine($"Listening on {_options?.Port}");
+            WriteOutput($"Listening on {_options?.Port}");
             // Additional setup or async start operations can be performed here
 
             return _requestsQueue;
@@ -54,14 +58,14 @@ public class Server : IServer
         catch (HttpListenerException ex)
         {
             // Handle specific errors, e.g., port already in use
-            Console.WriteLine($"Failed to start HttpListener: {ex.Message}");
+            WriteOutput($"Failed to start HttpListener: {ex.Message}");
             // Consider rethrowing, logging the error, or handling it as needed
             throw new Exception("Failed to start the server due to an HttpListener exception.", ex);
         }
         catch (Exception ex)
         {
             // Handle other potential errors
-            Console.WriteLine($"An error occurred: {ex.Message}");
+            WriteOutput($"An error occurred: {ex.Message}");
             throw new Exception("An error occurred while starting the server.", ex);
         }
     }
@@ -98,7 +102,7 @@ public class Server : IServer
                         try {
                             mid = _options.IDStr + counter++.ToString();
                         }
-                        catch (OverflowException ex) {
+                        catch (OverflowException ) {
                             mid = _options.IDStr + "0";
                             counter = 1;
                         }
@@ -124,40 +128,42 @@ public class Server : IServer
                         // Check circuit breaker status and enqueue the request
                         if (  _backends.CheckFailedStatus() ) {
                             return429 = true;
-                            Console.WriteLine($"Circuit breaker on => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
+                            WriteOutput($"Circuit breaker on => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
                         }
                         else if (_requestsQueue.Count >= _options.MaxQueueLength) {
                             return429 = true;
-                            Console.WriteLine($"Queue is full  => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
+                            WriteOutput($"Queue is full  => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
                         }
                         else if (_backends.ActiveHostCount() == 0) {
                             return429 = true;
-                            Console.WriteLine($"No active hosts => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
+                            WriteOutput($"No active hosts => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
                         }
 
                         // Enqueue the request
 
                         else if (!_requestsQueue.Enqueue(rd, priority, rd.EnqueueTime)) {
                             return429 = true;
-                            Console.WriteLine($"Failed to enqueue request => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
+                            WriteOutput($"Failed to enqueue request => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
                         }
 
                         if (return429) {
 
-                            // send a 429 response to client in the number of milliseconds specified in Retry-After header
-                            rd.Context.Response.StatusCode = 429;
-                            rd.Context.Response.Headers["Retry-After"]=(_backends.ActiveHostCount()==0) ? _options.PollInterval.ToString() : "500";
-
-                            using (var writer = new System.IO.StreamWriter(rd.Context.Response.OutputStream))
+                            if (rd.Context is not null) 
                             {
-                                await writer.WriteAsync("Too many requests. Please try again later.");
-                            }
-                            rd.Context.Response.Close();
-                            Console.WriteLine($"Pri: {priority} Stat: 429 Len: - {rd.Path}");
+                                // send a 429 response to client in the number of milliseconds specified in Retry-After header
+                                rd.Context.Response.StatusCode = 429;
+                                rd.Context.Response.Headers["Retry-After"]=(_backends.ActiveHostCount()==0) ? _options.PollInterval.ToString() : "500";
 
+                                using (var writer = new System.IO.StreamWriter(rd.Context.Response.OutputStream))
+                                {
+                                    await writer.WriteAsync("Too many requests. Please try again later.");
+                                }
+                                rd.Context.Response.Close();
+                                WriteOutput($"Pri: {priority} Stat: 429 Len: - {rd.Path}");
+                            }
                         }
                         else {
-                            Console.WriteLine($"Enqueued request.  Pri: {priority} Queue Length: {_requestsQueue.Count} Status: {_backends.CheckFailedStatus()} Active Hosts: {_backends.ActiveHostCount()}");
+                            WriteOutput($"Enqueued request.  Pri: {priority} Queue Length: {_requestsQueue.Count} Status: {_backends.CheckFailedStatus()} Active Hosts: {_backends.ActiveHostCount()}");
                         }
                     }
                     else
@@ -167,21 +173,38 @@ public class Server : IServer
                 }
             }
             catch (IOException ioEx) {
-                Console.WriteLine($"An IO exception occurred: {ioEx.Message}");
+                WriteOutput($"An IO exception occurred: {ioEx.Message}");
             }
             catch (OperationCanceledException)
             {
                 // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
-                Console.WriteLine("Operation was canceled. Stopping the listener.");
+                WriteOutput("Operation was canceled. Stopping the listener.");
                 break; // Exit the loop
             }
             catch (Exception e)
             {
                 _telemetryClient?.TrackException(e);
-                Console.WriteLine($"Error: {e.Message}\n{e.StackTrace}");
+                WriteOutput($"Error: {e.Message}\n{e.StackTrace}");
             }
         }
 
-        Console.WriteLine("Listener task stopped.");
+        WriteOutput("Listener task stopped.");
+    }
+
+    private void WriteOutput(string data="", Dictionary<string, string>? eventData=null)
+    {
+        if (!string.IsNullOrEmpty(data))
+        {
+            Console.WriteLine(data);
+            _eventHubClient?.SendData(data);
+        }
+
+        if (eventData == null) return;
+
+        if (!string.IsNullOrEmpty(data)) {
+            eventData.Add("message", data);
+        }
+        string jsonData = JsonSerializer.Serialize(eventData);
+        _eventHubClient?.SendData(jsonData);
     }
 }

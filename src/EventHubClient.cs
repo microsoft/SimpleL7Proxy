@@ -8,44 +8,49 @@ using System.Text.Json;
 public class EventHubClient : IEventHubClient
 {
 
-    private EventHubProducerClient? _producerClient;
-    private EventDataBatch? _batchData;
-    private CancellationTokenSource _cancellationTokenSource = new CancellationTokenSource();
-    private bool _isRunning = false;
+    private EventHubProducerClient? producerClient;
+    private EventDataBatch? batchData;
+    private CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+    private bool isRunning = false;
     private ConcurrentQueue<string> _logBuffer = new ConcurrentQueue<string>();
 
     public EventHubClient(string connectionString, string eventHubName)
     {
-        if (connectionString != "" && eventHubName != "")
+        if (string.IsNullOrEmpty(connectionString) || string.IsNullOrEmpty(eventHubName))
         {
-            _producerClient = new EventHubProducerClient(connectionString, eventHubName);
-            _batchData = _producerClient.CreateBatchAsync().Result;
-            _isRunning = true;
+            isRunning = false;
+            producerClient = null;
+            batchData = null;
+            return;
         }
+
+        producerClient = new EventHubProducerClient(connectionString, eventHubName);
+        batchData = producerClient.CreateBatchAsync().Result;
+        isRunning = true;
     }
 
     public void StartTimer()
     {
-        if (_isRunning && _producerClient is not null && _batchData is not null)
+        if (isRunning && producerClient is not null && batchData is not null)
             Task.Run(() => WriterTask());
     }
 
     public async Task WriterTask()
     {
-        if (_batchData is null || _producerClient is null)
+        if (batchData is null || producerClient is null)
             return;
             
         try {
 
-            while (!_cancellationTokenSource.Token.IsCancellationRequested)
+            while (!cancellationTokenSource.Token.IsCancellationRequested)
             {
                 if (GetNextBatch(100) > 0)
                 {
-                    await _producerClient.SendAsync(_batchData);
-                    _batchData = await _producerClient.CreateBatchAsync();
+                    await producerClient.SendAsync(batchData);
+                    batchData = await producerClient.CreateBatchAsync();
                 }
 
-                await Task.Delay(1000, _cancellationTokenSource.Token); // Wait for 1 second
+                await Task.Delay(1000, cancellationTokenSource.Token); // Wait for 1 second
             }
 
         } catch (TaskCanceledException) {
@@ -55,7 +60,7 @@ public class EventHubClient : IEventHubClient
             while (true) {
                 if (GetNextBatch(100) > 0)
                 {
-                    await _producerClient.SendAsync(_batchData);
+                    await producerClient.SendAsync(batchData);
                 } else {
                     break;
                 }
@@ -66,24 +71,27 @@ public class EventHubClient : IEventHubClient
     // Add the log to the batch up to count number at a time
     private int GetNextBatch(int count)
     {
+        if (batchData is null)
+          return 0;
+
         while (_logBuffer.TryDequeue(out string? log) && count-- > 0)
         {
-            _batchData.TryAdd(new EventData(Encoding.UTF8.GetBytes(log)));
+            batchData.TryAdd(new EventData(Encoding.UTF8.GetBytes(log)));
         }
 
-        return _batchData.Count;
+        return batchData.Count;
     }
 
     public void StopTimer()
     {
-        if (_isRunning)
-            _cancellationTokenSource?.Cancel();
-        _isRunning = false;
+        if (isRunning)
+            cancellationTokenSource?.Cancel();
+        isRunning = false;
     }
 
     public void SendData(string? value)
     {
-        if (!_isRunning) return;
+        if (!isRunning) return;
 
         if (value == null) return;
 
@@ -94,6 +102,7 @@ public class EventHubClient : IEventHubClient
     }
 
     public void SendData(Dictionary<string, string> eventData) {
+        if (!isRunning) return;
 
         string jsonData = JsonSerializer.Serialize(eventData);
         SendData(jsonData);
