@@ -54,3 +54,6 @@ dkms.conf
 
 **/bin/
 **/obj/
+**/.vs/
+**/*.user
+**/*settings.json

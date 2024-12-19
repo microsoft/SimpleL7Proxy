@@ -339,6 +339,10 @@ public class ProxyWorker
         HttpStatusCode lastStatusCode = HttpStatusCode.ServiceUnavailable;
 
         // Read the body stream once and reuse it
+
+
+        //TODO: PJM parse body for stream -- this is the trigger
+
         byte[] bodyBytes = await request.CachBodyAsync();
 
         // Convert S7PTTL to DateTime
@@ -433,7 +437,7 @@ public class ProxyWorker
                     {
                         var responseDate = DateTime.UtcNow;
                         lastStatusCode = proxyResponse.StatusCode;
-
+                        
                         // Check if the status code of the response is in the set of allowed status codes, else try the next host
                         if (((int)proxyResponse.StatusCode > 300 && (int)proxyResponse.StatusCode < 400) || (int)proxyResponse.StatusCode >= 500)
                         {
@@ -477,6 +481,9 @@ public class ProxyWorker
                         bodyBytes = [];
 
                         // Read the response
+
+                        //TODO: The entire response is here and the streaming alternate should be here. If you're in streaming
+                        //An issue is that for logging the headers need to pulled and logged
                         await GetProxyResponseAsync(proxyResponse, request, pr);
 
                         if ((int)proxyResponse.StatusCode == 429 && proxyResponse.Headers.TryGetValues("S7PREQUEUE", out var values))

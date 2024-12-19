@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using System.Threading.Tasks;
 using Azure.Identity;
 using Azure.Core;
+using Microsoft.Extensions.Configuration;
 
 
 // This code serves as the entry point for the .NET application.
@@ -244,6 +245,19 @@ public class Program
         }
 
         string replicaID = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REPLICA_NAME", "01");
+
+#if DEBUG
+        // Load appsettings.json only in Debug mode
+        var configuration = new ConfigurationBuilder()
+                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+                .AddEnvironmentVariables()
+                .Build();
+
+        foreach (var setting in configuration.GetSection("Settings").GetChildren())
+        {
+            Environment.SetEnvironmentVariable(setting.Key, setting.Value);
+        }
+#endif
 
         // Create and return a BackendOptions object populated with values from environment variables or default values.
         var backendOptions = new BackendOptions
