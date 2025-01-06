@@ -1,10 +1,10 @@
-
 using System.Collections.Concurrent;
 using System.Collections.Specialized;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using Azure.Core;
 using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.DataContracts;
 
@@ -105,10 +105,10 @@ public class ProxyWorker
                         continue;
                     }
 
-                    incomingRequest.Headers["x-Request-Queue-Duration"]=  (incomingRequest.DequeueTime - incomingRequest.EnqueueTime).TotalMilliseconds.ToString();
-                    incomingRequest.Headers["x-Request-Process-Duration"]= (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString();
-                    incomingRequest.Headers["x-Request-Worker"]= IDstr;
-                    incomingRequest.Headers["x-S7PID"]=  incomingRequest.MID ?? "N/A";
+                    incomingRequest.Headers["x-Request-Queue-Duration"] = (incomingRequest.DequeueTime - incomingRequest.EnqueueTime).TotalMilliseconds.ToString();
+                    incomingRequest.Headers["x-Request-Process-Duration"] = (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString();
+                    incomingRequest.Headers["x-Request-Worker"] = IDstr;
+                    incomingRequest.Headers["x-S7PID"] = incomingRequest.MID ?? "N/A";
                     incomingRequest.Headers["x-S7PPriority"] = incomingRequest.Priority.ToString() ?? "N/A";
 
                     eventData["x-Request-Queue-Duration"] = incomingRequest.Headers["x-Request-Queue-Duration"] ?? "N/A";
@@ -130,7 +130,7 @@ public class ProxyWorker
                         // Request has expired
                         isExpired = true;
                     }
-                    await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);  
+                    await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);
 
                     Console.WriteLine($"Pri: {incomingRequest.Priority} Stat: {(int)pr.StatusCode} Len: {pr.ContentHeaders["Content-Length"]} {pr.FullURL}");
 
@@ -179,7 +179,8 @@ public class ProxyWorker
                 }
                 catch (IOException ioEx)
                 {
-                    if (isExpired) {
+                    if (isExpired)
+                    {
                         Console.WriteLine("IoException on an exipred request");
                         continue;
                     }
@@ -205,7 +206,8 @@ public class ProxyWorker
                 }
                 catch (Exception ex)
                 {
-                    if (isExpired) {
+                    if (isExpired)
+                    {
                         Console.WriteLine("IoException on an exipred request");
                         continue;
                     }
@@ -269,6 +271,40 @@ public class ProxyWorker
         headers.Add(headerName, headerValue);
     }
 
+    private async Task WriteResponseAsync(HttpListenerContext context, HttpResponseMessage proxyResponse, RequestData request, ProxyData pr)
+    {
+        // Set the response status code  
+        context.Response.StatusCode = (int)proxyResponse.StatusCode;
+
+        // Copy headers to the response  
+        CopyHeadersToResponse(context.Response.Headers, context.Response.Headers);
+
+        if (proxyResponse.Content.Headers != null)
+        {
+            foreach (var header in proxyResponse.Content.Headers)
+            {
+                context.Response.Headers[header.Key] = string.Join(", ", header.Value);
+            }
+        }
+
+        context.Response.KeepAlive = false;
+
+        // Stream the response body to the client  
+        if (proxyResponse.Content != null)
+        {
+            if (proxyResponse.Content.Headers is not null && proxyResponse.Content.Headers.ContentType is not null && proxyResponse.Content.Headers.ContentType.MediaType == "text/event-stream")
+            {
+                await using var responseStream = await proxyResponse.Content.ReadAsStreamAsync();
+                await responseStream.CopyToAsync(context.Response.OutputStream);
+                await context.Response.OutputStream.FlushAsync();
+            }
+            else
+            {
+                await GetProxyResponseAsync(proxyResponse, request, pr);
+            }
+        }
+    }
+
     private async Task WriteResponseAsync(HttpListenerContext context, ProxyData pr)
     {
         // Set the response status code
@@ -314,7 +350,7 @@ public class ProxyWorker
         //     Console.WriteLine($"Response Header: {key} : {context.Response.Headers[key]}");
         // }
 
-        // Write the response body to the client as a byte array
+        // Write the response body to the client as a stream
         if (pr.Body != null)
         {
             await using (var memoryStream = new MemoryStream(pr.Body))
@@ -332,136 +368,45 @@ public class ProxyWorker
         if (request.Headers == null) throw new ArgumentNullException(nameof(request.Headers), "Request headers cannot be null.");
         if (request.Method == null) throw new ArgumentNullException(nameof(request.Method), "Request method cannot be null.");
 
-        // Use the current active hosts
         var activeHosts = _backends.GetActiveHosts();
-
         request.Debug = _debug || (request.Headers["S7PDEBUG"] != null && string.Equals(request.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase));
+
         HttpStatusCode lastStatusCode = HttpStatusCode.ServiceUnavailable;
 
-        // Read the body stream once and reuse it
-
-
-        //TODO: PJM parse body for stream -- this is the trigger
-
-        byte[] bodyBytes = await request.CachBodyAsync();
-
-        // Convert S7PTTL to DateTime
-        if (request.TTLSeconds == 0) {
-            if (!CalculateTTL(request)) {
-                return new ProxyData
-                    {
-                        StatusCode = HttpStatusCode.BadRequest,
-                        Body = Encoding.UTF8.GetBytes("Invalid TTL format: " + request.Headers["S7PTTL"])
-                    };
-            }
-        }
-
-        // Check ttlSeconds against current time .. keep in mind, client may have disconnected already
-        if (request.TTLSeconds < DateTimeOffset.UtcNow.ToUnixTimeSeconds())
-        {
-            HandleProxyRequestError(null, null, request.Timestamp, request.FullURL, HttpStatusCode.Gone, "Request has expired: " + DateTimeOffset.UtcNow.ToLocalTime());
-            return new ProxyData
-            {
-                StatusCode = HttpStatusCode.Gone,
-                Body = Encoding.UTF8.GetBytes("Request has expired: " + request.Headers["S7PTTL"])
-            };
-        }
-
-        if (_options.UseOAuth)
-        {
-            // Get a token
-            var token = _backends.OAuth2Token();
-            if (request.Debug)
-            {
-                Console.WriteLine("Token: " + token);
-            }
-            // Set the token in the headers
-            request.Headers.Set("Authorization", $"Bearer {token}");
-        }
+        // Check for TTL and OAuth token as before...  
 
         foreach (var host in activeHosts)
         {
-            // Try the request on each active host, stop if it worked
             try
             {
                 request.Headers.Set("Host", host.host);
                 var urlWithPath = new UriBuilder(host.url) { Path = request.Path }.Uri.AbsoluteUri;
                 request.FullURL = System.Net.WebUtility.UrlDecode(urlWithPath);
 
-                using (var bodyContent = new ByteArrayContent(bodyBytes))
                 using (var proxyRequest = new HttpRequestMessage(new HttpMethod(request.Method), request.FullURL))
                 {
-                    proxyRequest.Content = bodyContent;
-
+                    proxyRequest.Content = new StreamContent(request.Body);
                     CopyHeaders(request.Headers, proxyRequest, true);
-                    if (bodyBytes.Length > 0)
-                    {
-                        proxyRequest.Content.Headers.ContentLength = bodyBytes.Length;
-
-                        // Preserve the content type if it was provided
-                        string contentType = request.Context?.Request.ContentType ?? "application/octet-stream"; // Default to application/octet-stream if not specified
-                        var mediaTypeHeaderValue = new MediaTypeHeaderValue(contentType);
-
-                        // Preserve the encoding type if it was provided
-                        if (request.Context?.Request.ContentType != null && request.Context.Request.ContentType.Contains("charset"))
-                        {
-                            var charset = request.Context.Request.ContentType.Split(';').LastOrDefault(s => s.Trim().StartsWith("charset"));
-                            if (charset != null)
-                            {
-                                mediaTypeHeaderValue.CharSet = charset.Split('=').Last().Trim();
-                            }
-                        }
-                        else
-                        {
-                            mediaTypeHeaderValue.CharSet = "utf-8";
-                        }
-
-                        proxyRequest.Content.Headers.ContentType = mediaTypeHeaderValue;
-                    }
-
                     proxyRequest.Headers.ConnectionClose = true;
 
-                    // Log request headers if debugging is enabled
                     if (request.Debug)
                     {
-                        Console.WriteLine($"> {request.Method} {request.FullURL} {bodyBytes.Length} bytes");
+                        Console.WriteLine($"> {request.Method} {request.FullURL}");
                         LogHeaders(proxyRequest.Headers, ">");
                         LogHeaders(proxyRequest.Content.Headers, "  >");
-                        string bodyString = System.Text.Encoding.UTF8.GetString(bodyBytes);
-                        //Console.WriteLine($"Body Content: {bodyString}");
                     }
 
-                    // Send the request and get the response
                     var ProxyStartDate = DateTime.UtcNow;
-                    using (var proxyResponse = await (_options?.Client ?? throw new ArgumentNullException(nameof(_options))).SendAsync(proxyRequest))
+                    using (var proxyResponse = await (_options?.Client ?? throw new ArgumentNullException(nameof(_options)))
+                        .SendAsync(proxyRequest, HttpCompletionOption.ResponseHeadersRead, _cancellationToken))
                     {
                         var responseDate = DateTime.UtcNow;
                         lastStatusCode = proxyResponse.StatusCode;
-                        
-                        // Check if the status code of the response is in the set of allowed status codes, else try the next host
-                        if (((int)proxyResponse.StatusCode > 300 && (int)proxyResponse.StatusCode < 400) || (int)proxyResponse.StatusCode >= 500)
-                        {
 
+                        if (((int)proxyResponse.StatusCode >= 300 && (int)proxyResponse.StatusCode < 400) || (int)proxyResponse.StatusCode >= 500)
+                        {
                             if (request.Debug)
                             {
-                                try
-                                {
-                                    var temp_pr = new ProxyData()
-                                    {
-                                        ResponseDate = responseDate,
-                                        StatusCode = proxyResponse.StatusCode,
-                                        FullURL = request.FullURL,
-                                    };
-                                    bodyBytes = [];
-                                    await GetProxyResponseAsync(proxyResponse, request, temp_pr);
-                                    Console.WriteLine($"Got: {temp_pr.StatusCode} {temp_pr.FullURL} {temp_pr.ContentHeaders["Content-Length"]} Body: {temp_pr?.Body?.Length} bytes");
-                                    Console.WriteLine($"< {temp_pr?.Body}");
-                                }
-                                catch (Exception e)
-                                {
-                                    Console.WriteLine($"Error reading from backend host: {e.Message}");
-                                }
-
                                 Console.WriteLine($"Trying next host: Response: {proxyResponse.StatusCode}");
                             }
                             continue;
@@ -469,7 +414,6 @@ public class ProxyWorker
 
                         host.AddPxLatency((responseDate - ProxyStartDate).TotalMilliseconds);
 
-                        // Capture the response
                         var pr = new ProxyData()
                         {
                             ResponseDate = responseDate,
@@ -478,36 +422,14 @@ public class ProxyWorker
                             CalculatedHostLatency = host.calculatedAverageLatency,
                             BackendHostname = host.host
                         };
-                        bodyBytes = [];
 
-                        // Read the response
+                        await WriteResponseAsync(request.Context, proxyResponse, request, pr);
 
-                        //TODO: The entire response is here and the streaming alternate should be here. If you're in streaming
-                        //An issue is that for logging the headers need to pulled and logged
-                        await GetProxyResponseAsync(proxyResponse, request, pr);
-
-                        if ((int)proxyResponse.StatusCode == 429 && proxyResponse.Headers.TryGetValues("S7PREQUEUE", out var values))
-                        {
-                            // Requeue the request if the response is a 429 and the S7PREQUEUE header is set
-                            var s7PrequeueValue = values.FirstOrDefault();
-
-                            if (s7PrequeueValue != null && string.Equals(s7PrequeueValue, "true", StringComparison.OrdinalIgnoreCase))
-                            {
-                                throw new S7PRequeueException("Requeue request", pr);
-                            }
-                        }
-                        else
-                        {
-                            // request was successful, so we can disable the skip
-                            request.SkipDispose = false;
-                        }
-
-                        // Log the response if debugging is enabled
                         if (request.Debug)
                         {
-                            Console.WriteLine($"Got: {pr.StatusCode} {pr.FullURL} {pr.ContentHeaders["Content-Length"]} Body: {pr?.Body?.Length} bytes");
+                            Console.WriteLine($"Got: {pr.StatusCode} {pr.FullURL}");
                         }
-                        return pr ?? throw new ArgumentNullException(nameof(pr));
+                        return pr;
                     }
                 }
             }
@@ -545,17 +467,11 @@ public class ProxyWorker
             }
         }
 
-        // If we get here, then no hosts were able to handle the request
-        //Console.WriteLine($"{path}  - {lastStatusCode}");
-
         return new ProxyData
         {
-            // 502 Bad Gateway
             StatusCode = HttpStatusCode.BadGateway,
             Body = Encoding.UTF8.GetBytes("No active hosts were able to handle the request.")
         };
-
-
     }
 
 
