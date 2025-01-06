@@ -1,0 +1,94 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/dotnet
+{
+	"name": "C# (.NET)",
+	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
+	"image": "mcr.microsoft.com/devcontainers/dotnet:1-9.0-bookworm",
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"GitHub.copilot",
+				"ms-dotnettools.csdevkit"
+			]
+		}
+	},
+
+	// Features to add to the dev container. More info: https://containers.dev/features.
+	// "features": {},
+
+	// Use 'forwardPorts' to make a list of ports inside the container available locally.
+	// "forwardPorts": [5000, 5001],
+	// "portsAttributes": {
+	//		"5001": {
+	//			"protocol": "https"
+	//		}
+	// }
+
+	// Use 'postCreateCommand' to run commands after the container is created.
+	// "postCreateCommand": "dotnet restore",
+
+	// Configure tool-specific properties.
+	// "customizations": {},
+
+	// Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
+	// "remoteUser": "root"
+	"secrets": {
+		"APPENDHOSTSFILE": {
+			"description": "When running as a container and DNS does not resolve you can have the service append to the hosts file. You will need to specify Host1, IP1 as the host and ip combination.  When the container starts up, this will add an entry to the hosts file for each combination specified."
+		},
+		"APPINSIGHTS_CONNECTIONSTRING": {
+			"description": "This variable is used to specify the connection string for Azure Application Insights. If it's set, the application will send logs to the application insights instance."
+		},
+		"DnsRefreshTimeout": {
+			"description": "The number of ms to force a dns refresh.  Useful to have a small value when testing failover."
+		},
+		"EVENTHUB_CONNECTIONSTRING": {
+			"description": "The connection for the eventhub to log into. Both the connection string and namespace are needed for logging to work."
+		},
+		"EVENTHUB_NAME": {
+			"description": "The eventhub namesapce.  Both the connection string and namespace are needed for logging to work."
+		},
+		"Host1": {
+			"description": "The hostnames of the backend servers. Up to 9 backend hosts can be specified. If a hostname is provided, the application creates a new BackendHost instance and adds it to the hosts list.  The hostname should be in the form http(s)://fqdnhostname and DNS should resolve these to an IP address."
+		},
+		"IgnoreSSLCert": {
+			"description": "Toggles if the server should validate certificates.  If your hosts are using self-signed certs, set this value to true."
+		},
+		"IP1": {
+			"description": " Used to specify the IP address of hosts if DNS is unavailable.  Must define Host, IP and APPENDHOSTSFILE and run as container for this to work."
+		},
+		"OAuthAudience": {
+			"description": "The audience to fetch the Oauth token for.  Used in combination with UseOauth."
+		},
+		"PollInterval": {
+			"description": "This variable is used to specify the interval (in milliseconds) at which the application will poll the backend servers."
+		},
+		"Port": {
+			"description": "Specifies the port number that the server will listen on."
+		},
+		"PriorityKeys": {
+			"description": "If the incoming request has the header 'S7PPriorityKey' set to one of these values,  use the value of PriorityValues as the priority. The contents should be a comma delimited list of keys."
+		},
+		"PriorityValues": {
+			"description": "This is the list of priority values to use.  If the incoming request has the header 'S7PPriorityKey' matches PriorityKeys, the corresponding value from this list will be used as the message priority. In the case this list is not specified or parsable, the default priority is used."
+		},
+		"Probe_path1": {
+			"description": "Specifies the probe paths for the corresponding backend hosts. If a Host variable is set, the application will attempt to read the corresponding Probe_path variable when creating the BackendHost instance. Depending on the tier for your APIM, you can also try: status-0123456789abcdef or internal-status-0123456789abcdef"
+		},
+		"RequestIDPrefix": {
+			"description": "the set of characters to prefix to the unique request ID"
+		},
+		"Success_rate": {
+			"description": "The percentage success rate required to be used for proxying.  Any host whose success rate is lower will not be in rotation."
+		},
+		"Timeout": {
+			"description": "The connection timeout for each backend.  If the proxy times out, it will try the next host."
+		},
+		"UseOauth": {
+			"description": "Enable the Oauth token fetch.  Should be used in combination with OAuthAudience."
+		},
+		"Workers": {
+			"description": "The number of proxy worker threads."
+		}
+	}
+}
