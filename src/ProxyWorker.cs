@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using Azure;
 using Azure.Core;
 using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.DataContracts;
@@ -271,23 +272,25 @@ public class ProxyWorker
         headers.Add(headerName, headerValue);
     }
 
-    private async Task WriteResponseAsync(HttpListenerContext context, HttpResponseMessage proxyResponse, RequestData request, ProxyData pr)
+    private async Task WriteResponseAsync(RequestData request, HttpResponseMessage proxyResponse, ProxyData pr)
     {
+        if (request.Context == null) throw new ArgumentNullException(nameof(request), "Request context cannot be null.");
+
         // Set the response status code  
-        context.Response.StatusCode = (int)proxyResponse.StatusCode;
+        request.Context.Response.StatusCode = (int)proxyResponse.StatusCode;
 
         // Copy headers to the response  
-        CopyHeadersToResponse(context.Response.Headers, context.Response.Headers);
+        CopyHeadersToResponse(request.Context.Response.Headers, request.Context.Response.Headers);
 
         if (proxyResponse.Content.Headers != null)
         {
             foreach (var header in proxyResponse.Content.Headers)
             {
-                context.Response.Headers[header.Key] = string.Join(", ", header.Value);
+                request.Context.Response.Headers[header.Key] = string.Join(", ", header.Value);
             }
         }
 
-        context.Response.KeepAlive = false;
+        request.Context.Response.KeepAlive = false;
 
         // Stream the response body to the client  
         if (proxyResponse.Content != null)
@@ -295,8 +298,8 @@ public class ProxyWorker
             if (proxyResponse.Content.Headers is not null && proxyResponse.Content.Headers.ContentType is not null && proxyResponse.Content.Headers.ContentType.MediaType == "text/event-stream")
             {
                 await using var responseStream = await proxyResponse.Content.ReadAsStreamAsync();
-                await responseStream.CopyToAsync(context.Response.OutputStream);
-                await context.Response.OutputStream.FlushAsync();
+                await responseStream.CopyToAsync(request.Context.Response.OutputStream);
+                await request.Context.Response.OutputStream.FlushAsync();
             }
             else
             {
@@ -373,7 +376,40 @@ public class ProxyWorker
 
         HttpStatusCode lastStatusCode = HttpStatusCode.ServiceUnavailable;
 
-        // Check for TTL and OAuth token as before...  
+        if (request.TTLSeconds == 0)
+        {
+            if (!CalculateTTL(request))
+            {
+                return new ProxyData
+                {
+                    StatusCode = HttpStatusCode.BadRequest,
+                    Body = Encoding.UTF8.GetBytes("Invalid TTL format: " + request.Headers["S7PTTL"])
+                };
+            }
+        }
+
+        // Check ttlSeconds against current time .. keep in mind, client may have disconnected already
+        if (request.TTLSeconds < DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+        {
+            HandleProxyRequestError(null, null, request.Timestamp, request.FullURL, HttpStatusCode.Gone, "Request has expired: " + DateTimeOffset.UtcNow.ToLocalTime());
+            return new ProxyData
+            {
+                StatusCode = HttpStatusCode.Gone,
+                Body = Encoding.UTF8.GetBytes("Request has expired: " + request.Headers["S7PTTL"])
+            };
+        }
+
+        if (_options.UseOAuth)
+        {
+            // Get a token
+            var token = _backends.OAuth2Token();
+            if (request.Debug)
+            {
+                Console.WriteLine("Token: " + token);
+            }
+            // Set the token in the headers
+            request.Headers.Set("Authorization", $"Bearer {token}");
+        }
 
         foreach (var host in activeHosts)
         {
@@ -423,13 +459,29 @@ public class ProxyWorker
                             BackendHostname = host.host
                         };
 
-                        await WriteResponseAsync(request.Context, proxyResponse, request, pr);
+                        if ((int)proxyResponse.StatusCode == 429 && proxyResponse.Headers.TryGetValues("S7PREQUEUE", out var values))
+                        {
+                            // Requeue the request if the response is a 429 and the S7PREQUEUE header is set
+                            var s7PrequeueValue = values.FirstOrDefault();
+
+                            if (s7PrequeueValue != null && string.Equals(s7PrequeueValue, "true", StringComparison.OrdinalIgnoreCase))
+                            {
+                                throw new S7PRequeueException("Requeue request", pr);
+                            }
+                        }
+                        else
+                        {
+                            // request was successful, so we can disable the skip
+                            request.SkipDispose = false;
+                        }
+
+                        await WriteResponseAsync(request, proxyResponse, pr);
 
                         if (request.Debug)
                         {
                             Console.WriteLine($"Got: {pr.StatusCode} {pr.FullURL}");
                         }
-                        return pr;
+                        return pr ?? throw new ArgumentNullException(nameof(pr));
                     }
                 }
             }
