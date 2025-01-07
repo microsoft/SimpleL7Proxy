@@ -8,6 +8,7 @@ using Azure;
 using Azure.Core;
 using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.DataContracts;
+using static Microsoft.AspNetCore.Hosting.Internal.HostingApplication;
 
 
 // The ProxyWorker class has the following main objectives:
@@ -131,7 +132,6 @@ public class ProxyWorker
                         // Request has expired
                         isExpired = true;
                     }
-                    await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);
 
                     Console.WriteLine($"Pri: {incomingRequest.Priority} Stat: {(int)pr.StatusCode} Len: {pr.ContentHeaders["Content-Length"]} {pr.FullURL}");
 
@@ -145,7 +145,6 @@ public class ProxyWorker
 
                     if (_eventHubClient != null)
                     {
-                        //SendEventData(pr.FullURL, pr.StatusCode, incomingRequest.Timestamp, pr.ResponseDate);
                         eventData["Type"] = "ProxyRequest";
                         if (isExpired)
                         {
@@ -154,11 +153,6 @@ public class ProxyWorker
 
                         SendEventData(eventData);
                     }
-
-                    // pr.Body = [];
-                    // pr.ContentHeaders.Clear();
-                    // pr.FullURL = "";
-
                 }
                 catch (S7PRequeueException e)
                 {
@@ -287,6 +281,11 @@ public class ProxyWorker
             foreach (var header in proxyResponse.Content.Headers)
             {
                 request.Context.Response.Headers[header.Key] = string.Join(", ", header.Value);
+
+                if(header.Key.ToLower().Equals("content-length"))
+                {
+                    request.Context.Response.ContentLength64 = proxyResponse.Content.Headers.ContentLength ?? 0;
+                }
             }
         }
 
@@ -295,72 +294,9 @@ public class ProxyWorker
         // Stream the response body to the client  
         if (proxyResponse.Content != null)
         {
-            if (proxyResponse.Content.Headers is not null && proxyResponse.Content.Headers.ContentType is not null && proxyResponse.Content.Headers.ContentType.MediaType == "text/event-stream")
-            {
-                await using var responseStream = await proxyResponse.Content.ReadAsStreamAsync();
-                await responseStream.CopyToAsync(request.Context.Response.OutputStream);
-                await request.Context.Response.OutputStream.FlushAsync();
-            }
-            else
-            {
-                await GetProxyResponseAsync(proxyResponse, request, pr);
-            }
-        }
-    }
-
-    private async Task WriteResponseAsync(HttpListenerContext context, ProxyData pr)
-    {
-        // Set the response status code
-        context.Response.StatusCode = (int)pr.StatusCode;
-
-        // Copy headers to the response
-        CopyHeadersToResponse(pr.Headers, context.Response.Headers);
-
-        // Set content-specific headers
-        if (pr.ContentHeaders != null)
-        {
-            foreach (var key in pr.ContentHeaders.AllKeys)
-            {
-                switch (key.ToLower())
-                {
-                    case "content-length":
-                        var length = pr.ContentHeaders[key];
-                        if (long.TryParse(length, out var contentLength))
-                        {
-                            context.Response.ContentLength64 = contentLength;
-                        }
-                        else
-                        {
-                            Console.WriteLine($"Invalid Content-Length: {length}");
-                        }
-                        break;
-
-                    case "content-type":
-                        context.Response.ContentType = pr.ContentHeaders[key];
-                        break;
-
-                    default:
-                        context.Response.Headers[key] = pr.ContentHeaders[key];
-                        break;
-                }
-            }
-        }
-
-        context.Response.KeepAlive = false;
-
-        // foreach (var key in context.Response.Headers.AllKeys)
-        // {
-        //     Console.WriteLine($"Response Header: {key} : {context.Response.Headers[key]}");
-        // }
-
-        // Write the response body to the client as a stream
-        if (pr.Body != null)
-        {
-            await using (var memoryStream = new MemoryStream(pr.Body))
-            {
-                await memoryStream.CopyToAsync(context.Response.OutputStream);
-                await context.Response.OutputStream.FlushAsync();
-            }
+            await using var responseStream = await proxyResponse.Content.ReadAsStreamAsync();
+            await responseStream.CopyToAsync(request.Context.Response.OutputStream);
+            await request.Context.Response.OutputStream.FlushAsync();
         }
     }
 
@@ -455,7 +391,7 @@ public class ProxyWorker
 
                     if (request.Debug)
                     {
-                        Console.WriteLine($"> {request.Method} {request.FullURL}");
+                        Console.WriteLine($"> {request.Method} {request.FullURL} {bodyBytes.Length} bytes");
                         LogHeaders(proxyRequest.Headers, ">");
                         LogHeaders(proxyRequest.Content.Headers, "  >");
                     }
