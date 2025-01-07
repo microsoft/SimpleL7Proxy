@@ -43,6 +43,10 @@ public class Server : IServer
         WriteOutput($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
     }
 
+    public BlockingPriorityQueue<RequestData> Queue() {
+        return _requestsQueue;
+    }
+
     // Method to start the server and begin processing requests.
     public BlockingPriorityQueue<RequestData> Start(CancellationToken cancellationToken)
     {

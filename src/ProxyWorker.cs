@@ -51,10 +51,6 @@ public class ProxyWorker
             try
             {
                 incomingRequest = await _requestsQueue.Dequeue(_cancellationToken, IDstr); // This will block until an item is available or the token is cancelled
-
-                // Skip if the request is null [ shutdown scenario ]  < HACK > 
-                //if (incomingRequest == _requestsQueue.NULL_REQUEST) continue; 
-
                 incomingRequest.DequeueTime = DateTime.UtcNow;
             }
             catch (OperationCanceledException)
