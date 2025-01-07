@@ -1,14 +1,10 @@
-using System.Collections.Concurrent;
 using System.Collections.Specialized;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using Azure;
-using Azure.Core;
 using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.DataContracts;
-using static Microsoft.AspNetCore.Hosting.Internal.HostingApplication;
 
 
 // The ProxyWorker class has the following main objectives:
