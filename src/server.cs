@@ -124,26 +124,56 @@ public class Server : IServer
                         rd.EnqueueTime = DateTime.UtcNow;
                         
                         var return429 = false;
+                        var retrymsg = "";
 
+                        var ed = new Dictionary<string, string>();
                         // Check circuit breaker status and enqueue the request
                         if (  _backends.CheckFailedStatus() ) {
                             return429 = true;
-                            WriteOutput($"Circuit breaker on => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
+
+                            ed["Type"] = "S7P-CircuitBreaker";
+                            ed["Message"] = "Circuit breaker on - 429";
+                            ed["QueueLength"] = _requestsQueue.Count.ToString();
+                            ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
+                            retrymsg = "Too many failures in last 10 seconds";
+
+                            WriteOutput($"Circuit breaker on => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}", ed);
                         }
                         else if (_requestsQueue.Count >= _options.MaxQueueLength) {
                             return429 = true;
-                            WriteOutput($"Queue is full  => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
+
+                            ed["Type"] = "S7P-QueueFull";
+                            ed["Message"] = "Queue is full";
+                            ed["QueueLength"] = _requestsQueue.Count.ToString();
+                            ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
+                            retrymsg = "Queue is full";
+
+                            WriteOutput($"Queue is full  => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}", ed);
                         }
                         else if (_backends.ActiveHostCount() == 0) {
                             return429 = true;
-                            WriteOutput($"No active hosts => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
+
+                            ed["Type"] = "S7P-NoActiveHosts";
+                            ed["Message"] = "No active hosts";
+                            ed["QueueLength"] = _requestsQueue.Count.ToString();
+                            ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
+                            retrymsg = "No active hosts";
+
+                            WriteOutput($"No active hosts => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}", ed);
                         }
 
                         // Enqueue the request
 
                         else if (!_requestsQueue.Enqueue(rd, priority, rd.EnqueueTime)) {
                             return429 = true;
-                            WriteOutput($"Failed to enqueue request => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
+
+                            ed["Type"] = "S7P-EnqueueFailed";
+                            ed["Message"] = "Failed to enqueue request";
+                            ed["QueueLength"] = _requestsQueue.Count.ToString();
+                            ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
+                            retrymsg = "Failed to enqueue request";
+
+                            WriteOutput($"Failed to enqueue request => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}", ed);
                         }
 
                         if (return429) {
@@ -156,14 +186,20 @@ public class Server : IServer
 
                                 using (var writer = new System.IO.StreamWriter(rd.Context.Response.OutputStream))
                                 {
-                                    await writer.WriteAsync("Too many requests. Please try again later.");
+                                    await writer.WriteAsync(retrymsg);
                                 }
                                 rd.Context.Response.Close();
-                                WriteOutput($"Pri: {priority} Stat: 429 Len: - {rd.Path}");
+                                WriteOutput($"Pri: {priority} Stat: 429 Path: {rd.Path}");
                             }
                         }
                         else {
-                            WriteOutput($"Enqueued request.  Pri: {priority} Queue Length: {_requestsQueue.Count} Status: {_backends.CheckFailedStatus()} Active Hosts: {_backends.ActiveHostCount()}");
+                            ed["Type"] = "S7P-Enqueue";
+                            ed["Message"] = "Enqueued request";
+                            ed["QueueLength"] = _requestsQueue.Count.ToString();
+                            ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
+                            ed["Priority"] = priority.ToString();
+
+                            WriteOutput($"Enqueued request.  Pri: {priority} Queue Length: {_requestsQueue.Count} Status: {_backends.CheckFailedStatus()} Active Hosts: {_backends.ActiveHostCount()}", ed);
                         }
                     }
                     else
@@ -193,17 +229,27 @@ public class Server : IServer
 
     private void WriteOutput(string data="", Dictionary<string, string>? eventData=null)
     {
+
+        // Log the data to the console
         if (!string.IsNullOrEmpty(data))
         {
             Console.WriteLine(data);
-            _eventHubClient?.SendData(data);
+
+            // if eventData is null, create a new dictionary and add the message to it
+            if (eventData == null) {
+                eventData = new Dictionary<string, string>();
+                eventData.Add("Message", data);
+            }
+        }
+        
+        if (eventData == null)
+            eventData = new Dictionary<string, string>();
+
+        if (!eventData.TryGetValue("Type", out var typeValue))
+        {
+            eventData["Type"] = "S7P-Console";
         }
 
-        if (eventData == null) return;
-
-        if (!string.IsNullOrEmpty(data)) {
-            eventData.Add("message", data);
-        }
         string jsonData = JsonSerializer.Serialize(eventData);
         _eventHubClient?.SendData(jsonData);
     }
