@@ -252,47 +252,32 @@ public class ProxyWorker
         Console.WriteLine("Worker stopped.");
     }
 
-    // Method to replace or add a header
-    void ReplaceOrAddHeader(WebHeaderCollection headers, string headerName, string headerValue)
+    private async Task WriteResponseAsync(HttpListenerContext context, ProxyData pr)
     {
-        if (headers[headerName] != null)
-        {
-            headers.Remove(headerName);
-        }
-        headers.Add(headerName, headerValue);
-    }
-
-    private async Task WriteResponseAsync(RequestData request, HttpResponseMessage proxyResponse, ProxyData pr)
-    {
-        if (request.Context == null) throw new ArgumentNullException(nameof(request), "Request context cannot be null.");
-
         // Set the response status code  
-        request.Context.Response.StatusCode = (int)proxyResponse.StatusCode;
+        context.Response.StatusCode = (int)pr.ResponseMessage.StatusCode;
 
-        // Copy headers to the response  
-        CopyHeadersToResponse(request.Context.Response.Headers, request.Context.Response.Headers);
-
-        if (proxyResponse.Content.Headers != null)
+        if (pr.ResponseMessage.Content.Headers != null)
         {
-            foreach (var header in proxyResponse.Content.Headers)
+            foreach (var header in pr.ResponseMessage.Content.Headers)
             {
-                request.Context.Response.Headers[header.Key] = string.Join(", ", header.Value);
+                context.Response.Headers[header.Key] = string.Join(", ", header.Value);
 
                 if(header.Key.ToLower().Equals("content-length"))
                 {
-                    request.Context.Response.ContentLength64 = proxyResponse.Content.Headers.ContentLength ?? 0;
+                    context.Response.ContentLength64 = pr.ResponseMessage.Content.Headers.ContentLength ?? 0;
                 }
             }
         }
 
-        request.Context.Response.KeepAlive = false;
+        context.Response.KeepAlive = false;
 
         // Stream the response body to the client  
-        if (proxyResponse.Content != null)
+        if (pr.ResponseMessage.Content != null)
         {
-            await using var responseStream = await proxyResponse.Content.ReadAsStreamAsync();
-            await responseStream.CopyToAsync(request.Context.Response.OutputStream);
-            await request.Context.Response.OutputStream.FlushAsync();
+            await using var responseStream = await pr.ResponseMessage.Content.ReadAsStreamAsync();
+            await responseStream.CopyToAsync(context.Response.OutputStream);
+            await context.Response.OutputStream.FlushAsync();
         }
     }
 
@@ -414,6 +399,7 @@ public class ProxyWorker
                         {
                             ResponseDate = responseDate,
                             StatusCode = proxyResponse.StatusCode,
+                            ResponseMessage = proxyResponse,
                             FullURL = request.FullURL,
                             CalculatedHostLatency = host.calculatedAverageLatency,
                             BackendHostname = host.host
@@ -435,7 +421,7 @@ public class ProxyWorker
                             request.SkipDispose = false;
                         }
 
-                        await WriteResponseAsync(request, proxyResponse, pr);
+                        await WriteResponseAsync(request.Context, pr);
 
                         if (request.Debug)
                         {
@@ -525,55 +511,6 @@ public class ProxyWorker
         return true;
     }
 
-    // Read the response from the proxy and set the response body
-    private async Task GetProxyResponseAsync(HttpResponseMessage proxyResponse, RequestData request, ProxyData pr)
-    {
-        // Get a stream to the response body
-        await using (var responseBody = await proxyResponse.Content.ReadAsStreamAsync())
-        {
-            if (request.Debug)
-            {
-                LogHeaders(proxyResponse.Headers, "<");
-                LogHeaders(proxyResponse.Content.Headers, "  <");
-            }
-
-            // Copy across all the response headers to the client
-            CopyHeaders(proxyResponse, pr.Headers, pr.ContentHeaders);
-
-            // Determine the encoding from the Content-Type header
-            MediaTypeHeaderValue? contentType = proxyResponse.Content.Headers.ContentType;
-            var encoding = GetEncodingFromContentType(contentType, request);
-
-            using (var reader = new StreamReader(responseBody, encoding))
-            {
-                pr.Body = encoding.GetBytes(await reader.ReadToEndAsync());
-            }
-        }
-    }
-
-    private Encoding GetEncodingFromContentType(MediaTypeHeaderValue? contentType, RequestData request)
-    {
-        if (string.IsNullOrWhiteSpace(contentType?.CharSet))
-        {
-            if (request.Debug)
-            {
-                Console.WriteLine("< No charset specified, using default UTF-8");
-            }
-            return Encoding.UTF8;
-        }
-
-        try
-        {
-            return Encoding.GetEncoding(contentType.CharSet);
-        }
-        catch (ArgumentException)
-        {
-            HandleProxyRequestError(null, null, request.Timestamp, request.FullURL, HttpStatusCode.UnsupportedMediaType,
-                $"Unsupported charset: {contentType.CharSet}");
-            return Encoding.UTF8; // Fallback to UTF-8 in case of error
-        }
-    }
-
     private void CopyHeaders(NameValueCollection sourceHeaders, HttpRequestMessage? targetMessage, bool ignoreHeaders = false)
     {
         foreach (string? key in sourceHeaders.AllKeys)
@@ -582,30 +519,6 @@ public class ProxyWorker
             if (!ignoreHeaders || (!key.StartsWith("S7P") && !key.StartsWith("X-MS-CLIENT", StringComparison.OrdinalIgnoreCase) && !key.Equals("content-length", StringComparison.OrdinalIgnoreCase)))
             {
                 targetMessage?.Headers.TryAddWithoutValidation(key, sourceHeaders[key]);
-            }
-        }
-    }
-
-    private void CopyHeadersToResponse(WebHeaderCollection sourceHeaders, WebHeaderCollection targetHeaders)
-    {
-        foreach (var key in sourceHeaders.AllKeys)
-        {
-            //Console.WriteLine($"Copying {key} : {sourceHeaders[key]}");
-            targetHeaders.Add(key, sourceHeaders[key]);
-        }
-    }
-
-    private void CopyHeaders(HttpResponseMessage sourceMessage, WebHeaderCollection targetHeaders, WebHeaderCollection? targetContentHeaders = null)
-    {
-        foreach (var header in sourceMessage.Headers)
-        {
-            targetHeaders.Add(header.Key, string.Join(", ", header.Value));
-        }
-        if (targetContentHeaders != null)
-        {
-            foreach (var header in sourceMessage.Content.Headers)
-            {
-                targetContentHeaders.Add(header.Key, string.Join(", ", header.Value));
             }
         }
     }
