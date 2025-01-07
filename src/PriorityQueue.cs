@@ -83,9 +83,6 @@ public class BlockingPriorityQueue<T>
     private readonly PriorityQueue<T> _priorityQueue = new PriorityQueue<T>();
     private readonly object _lock = new object();
     private readonly ManualResetEventSlim _enqueueEvent = new ManualResetEventSlim(false);
-
-    public PriorityQueueItem<RequestData> NULL_REQUEST = new PriorityQueueItem<RequestData>(null, 0, DateTime.MinValue);
-
     private TaskSignaler<T> _taskSignaler = new TaskSignaler<T>();
 
     public int MaxQueueLength { get; set; }
@@ -153,7 +150,7 @@ public class BlockingPriorityQueue<T>
             _enqueueEvent.Wait(cancellationToken); // Wait for an item to be added
             lock (_lock)
             {
-                if (_priorityQueue.Count > 0)
+                if (_priorityQueue.Count > 0 && _taskSignaler.HasWaitingTasks())
                 {
                     var queueItem = _priorityQueue.Dequeue();
                     if (_priorityQueue.Count == 0)
@@ -161,7 +158,11 @@ public class BlockingPriorityQueue<T>
                         _enqueueEvent.Reset(); // Reset the event if the queue is empty
                     }
 
+                    // Signal a random task or requeue the item if no tasks are waiting
                     _taskSignaler.SignalRandomTask(queueItem);
+                } 
+                else {
+                    Task.Delay(10).Wait(); // Wait for 10 ms for a Task Worker to be ready
                 }
             }
         }
@@ -203,14 +204,18 @@ public class TaskSignaler<T>
         }
     }
 
-    public void SignalRandomTask(T parameter)
+    public bool SignalRandomTask(T parameter)
     {
         var taskIds = _taskCompletionSources.Keys.ToList();
         if (taskIds.Count > 0)
         {
             var randomTaskId = taskIds[_random.Next(taskIds.Count)];
             SignalTask(randomTaskId, parameter);
+
+            return true;
         }
+
+        return false;
     }
 
     public void CancelAllTasks()
@@ -222,5 +227,10 @@ public class TaskSignaler<T>
                 tcs.TrySetCanceled();
             }
         }
+    }
+
+    public bool HasWaitingTasks()
+    {
+        return !_taskCompletionSources.IsEmpty;
     }
 }

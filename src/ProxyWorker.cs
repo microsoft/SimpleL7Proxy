@@ -250,7 +250,7 @@ public class ProxyWorker
             }
         }
 
-        Console.WriteLine("Worker stopped.");
+        Console.WriteLine($"Worker {IDstr} stopped.");
     }
 
     private async Task WriteResponseAsync(HttpListenerContext context, ProxyData pr)
