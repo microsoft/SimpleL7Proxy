@@ -94,6 +94,11 @@ public class BlockingPriorityQueue<T>
     {
         Task.Run(() => SignalWorker(cancellationToken), cancellationToken);
     }
+    public void Stop()
+    {
+        // Shutdown
+        _taskSignaler.CancelAllTasks();
+    }
 
     // Thread-safe Count property
     public int Count
@@ -160,12 +165,20 @@ public class BlockingPriorityQueue<T>
                 }
             }
         }
+        Console.WriteLine("SignalWorker: Canceled");
+
+        // Shutdown
+        _taskSignaler.CancelAllTasks();
     }
 
     public async Task<T> Dequeue(CancellationToken cancellationToken, string id)
     {
-        var parameter = await _taskSignaler.WaitForSignalAsync(id);
-        return parameter;
+        try {
+            var parameter = await _taskSignaler.WaitForSignalAsync(id);
+            return parameter;
+        } catch (TaskCanceledException) {
+            throw ;
+        }
     }
     
 }
@@ -197,6 +210,17 @@ public class TaskSignaler<T>
         {
             var randomTaskId = taskIds[_random.Next(taskIds.Count)];
             SignalTask(randomTaskId, parameter);
+        }
+    }
+
+    public void CancelAllTasks()
+    {
+        foreach (var key in _taskCompletionSources.Keys.ToList())
+        {
+            if (_taskCompletionSources.TryRemove(key, out var tcs))
+            {
+                tcs.TrySetCanceled();
+            }
         }
     }
 }
