@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 
+
 public class PriorityQueueItem<T>
 {
     public T Item { get; }
@@ -13,6 +14,7 @@ public class PriorityQueueItem<T>
         Timestamp = timestamp;
     }
 }
+
 public class PriorityQueue<T>
 {
     private readonly List<PriorityQueueItem<T>> _items = new List<PriorityQueueItem<T>>();
@@ -51,6 +53,7 @@ public class PriorityQueue<T>
     }
 }
 
+
 public class PriorityQueueItemComparer<T> : IComparer<PriorityQueueItem<T>>
 {
     public int Compare(PriorityQueueItem<T>? x, PriorityQueueItem<T>? y)
@@ -81,7 +84,16 @@ public class BlockingPriorityQueue<T>
     private readonly object _lock = new object();
     private readonly ManualResetEventSlim _enqueueEvent = new ManualResetEventSlim(false);
 
+    public PriorityQueueItem<RequestData> NULL_REQUEST = new PriorityQueueItem<RequestData>(null, 0, DateTime.MinValue);
+
+    private TaskSignaler<T> _taskSignaler = new TaskSignaler<T>();
+
     public int MaxQueueLength { get; set; }
+
+    public void StartSignaler(CancellationToken cancellationToken)
+    {
+        Task.Run(() => SignalWorker(cancellationToken), cancellationToken);
+    }
 
     // Thread-safe Count property
     public int Count
@@ -129,9 +141,9 @@ public class BlockingPriorityQueue<T>
         return true;
     }
 
-    public T Dequeue(CancellationToken cancellationToken, string id)
+    public async Task SignalWorker(CancellationToken cancellationToken)
     {
-        while (true)
+        while (!cancellationToken.IsCancellationRequested)
         {
             _enqueueEvent.Wait(cancellationToken); // Wait for an item to be added
             lock (_lock)
@@ -143,11 +155,48 @@ public class BlockingPriorityQueue<T>
                     {
                         _enqueueEvent.Reset(); // Reset the event if the queue is empty
                     }
-                    return queueItem;
+
+                    _taskSignaler.SignalRandomTask(queueItem);
                 }
             }
         }
     }
+
+    public async Task<T> Dequeue(CancellationToken cancellationToken, string id)
+    {
+        var parameter = await _taskSignaler.WaitForSignalAsync(id);
+        return parameter;
+    }
     
 }
 
+public class TaskSignaler<T>
+{
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<T>> _taskCompletionSources = new ConcurrentDictionary<string, TaskCompletionSource<T>>();
+    private readonly Random _random = new Random();
+
+    public Task<T> WaitForSignalAsync(string taskId)
+    {
+        var tcs = new TaskCompletionSource<T>();
+        _taskCompletionSources[taskId] = tcs;
+        return tcs.Task;
+    }
+
+    public void SignalTask(string taskId, T parameter)
+    {
+        if (_taskCompletionSources.TryRemove(taskId, out var tcs))
+        {
+            tcs.SetResult(parameter);
+        }
+    }
+
+    public void SignalRandomTask(T parameter)
+    {
+        var taskIds = _taskCompletionSources.Keys.ToList();
+        if (taskIds.Count > 0)
+        {
+            var randomTaskId = taskIds[_random.Next(taskIds.Count)];
+            SignalTask(randomTaskId, parameter);
+        }
+    }
+}
