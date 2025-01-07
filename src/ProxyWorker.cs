@@ -374,6 +374,7 @@ public class ProxyWorker
         var activeHosts = _backends.GetActiveHosts();
         request.Debug = _debug || (request.Headers["S7PDEBUG"] != null && string.Equals(request.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase));
 
+        byte[] bodyBytes = await request.CachBodyAsync();
         HttpStatusCode lastStatusCode = HttpStatusCode.ServiceUnavailable;
 
         if (request.TTLSeconds == 0)
@@ -419,10 +420,37 @@ public class ProxyWorker
                 var urlWithPath = new UriBuilder(host.url) { Path = request.Path }.Uri.AbsoluteUri;
                 request.FullURL = System.Net.WebUtility.UrlDecode(urlWithPath);
 
+                using (var bodyContent = new ByteArrayContent(bodyBytes))
                 using (var proxyRequest = new HttpRequestMessage(new HttpMethod(request.Method), request.FullURL))
                 {
-                    proxyRequest.Content = new StreamContent(request.Body);
+                    proxyRequest.Content = bodyContent;
                     CopyHeaders(request.Headers, proxyRequest, true);
+
+                    if (bodyBytes.Length > 0)
+                    {
+                        proxyRequest.Content.Headers.ContentLength = bodyBytes.Length;
+
+                        // Preserve the content type if it was provided
+                        string contentType = request.Context?.Request.ContentType ?? "application/octet-stream"; // Default to application/octet-stream if not specified
+                        var mediaTypeHeaderValue = new MediaTypeHeaderValue(contentType);
+
+                        // Preserve the encoding type if it was provided
+                        if (request.Context?.Request.ContentType != null && request.Context.Request.ContentType.Contains("charset"))
+                        {
+                            var charset = request.Context.Request.ContentType.Split(';').LastOrDefault(s => s.Trim().StartsWith("charset"));
+                            if (charset != null)
+                            {
+                                mediaTypeHeaderValue.CharSet = charset.Split('=').Last().Trim();
+                            }
+                        }
+                        else
+                        {
+                            mediaTypeHeaderValue.CharSet = "utf-8";
+                        }
+
+                        proxyRequest.Content.Headers.ContentType = mediaTypeHeaderValue;
+                    }
+
                     proxyRequest.Headers.ConnectionClose = true;
 
                     if (request.Debug)
