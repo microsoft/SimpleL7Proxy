@@ -131,6 +131,7 @@ public class Program
         {
             await backends.waitForStartup(20); // wait for up to 20 seconds for startup
             var queue = server.Start(cancellationToken);
+            queue.StartSignaler(cancellationToken);
 
             // startup Worker # of tasks
             for (int i = 0; i < backendOptions.Workers; i++)
@@ -148,6 +149,7 @@ public class Program
         try {        
             await server.Run();
             Console.WriteLine("Waiting for tasks to complete for maximum 10 seconds");
+            server.Queue().Stop();
             var timeoutTask = Task.Delay(10000); // 10 seconds timeout
             var allTasks = Task.WhenAll(tasks);
             var completedTask = await Task.WhenAny(allTasks, timeoutTask);
@@ -337,7 +339,7 @@ public class Program
         Console.WriteLine("#     #  # #    # #      #      #      #         #     #      #   #  #    #  #  #    #");
         Console.WriteLine(" #####   # #    # #      ###### ###### #######   #     #      #    #  ####  #    #   #");
         Console.WriteLine ("=======================================================================================");
-        Console.WriteLine("Version: 1.2.0");
+        Console.WriteLine("Version: 2.0.0");
 
         return backendOptions;
     }

@@ -61,7 +61,7 @@ namespace test.nullserver.nullserver
                 try
                 {
                     var getContextTask = httpListener.GetContextAsync();
-                    var context = await getContextTask;
+                    var context = await getContextTask.ConfigureAwait(false);
                     context.Response.KeepAlive = false;
                     //Console.WriteLine($"Received request from {context.Request.RemoteEndPoint}");
 
@@ -70,7 +70,7 @@ namespace test.nullserver.nullserver
                     {
                         try
                         {
-                            await ProcessRequestAsync(context, cancellationToken);
+                            await ProcessRequestAsync(context, cancellationToken).ConfigureAwait(false);
                         }
                         catch (Exception ex)
                         {
@@ -113,7 +113,7 @@ namespace test.nullserver.nullserver
                 if (!url.Contains("/status-0123456789abcdef") && !url.Contains("resource?param1=sample")) {
 
                    // Simulate response delay
-                   await Task.Delay(response_delay, cancellationToken);
+                   await Task.Delay(response_delay, cancellationToken).ConfigureAwait(false);
                 } else {
                     inHealthCheck = true;
                 }
@@ -121,7 +121,7 @@ namespace test.nullserver.nullserver
                 // Read the request body asynchronously
                 using (var reader = new System.IO.StreamReader(request.InputStream))
                 {
-                    var requestBody = await reader.ReadToEndAsync();
+                    var requestBody = await reader.ReadToEndAsync().ConfigureAwait(false);
                     //Console.WriteLine($"Request body: {requestBody}");
                 }
                 // read the x-request-count header
@@ -148,6 +148,9 @@ namespace test.nullserver.nullserver
                     response.Headers["x-Request-Sequence"] = requestSequence;
                     response.Headers["x-Request-Queue-Duration"] = queueTime;
                     response.Headers["x-Request-Process-Duration"] = processingTime;
+                    response.Headers["x-S7PID"] = mid;
+                    response.Headers["Random-Header"] = "Random-Value";
+                    response.Headers["x-Random-Header"] = "Random-Value";
                 } catch (Exception e) {
                     // ignore
                 }
@@ -161,7 +164,7 @@ namespace test.nullserver.nullserver
                 response.StatusCode = code;
                 using (var writer = new System.IO.StreamWriter(response.OutputStream))
                 {
-                    await writer.WriteAsync("OK");
+                    await writer.WriteAsync("OK").ConfigureAwait(false);
                 }
             }
             catch (Exception ex)
