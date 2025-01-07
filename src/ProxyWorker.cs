@@ -258,7 +258,7 @@ public class ProxyWorker
             }
         }
 
-        Console.WriteLine("Worker stopped.");
+        Console.WriteLine($"Worker {IDstr} stopped.");
     }
 
     // Method to replace or add a header
