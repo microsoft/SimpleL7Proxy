@@ -1,4 +1,5 @@
 ﻿using Azure.AI.OpenAI;
+using Azure.Core;
 using Azure.Identity;
 using Microsoft.Extensions.Configuration;
 using OpenAI.Chat;
@@ -8,9 +9,17 @@ using TestClient;
 
 ApplicationSettings applicationSettings = GetApplicationSettings();
 Uri azureOpenAIEndpoint = new (applicationSettings.AzureOpenAI.Endpoint);
-DefaultAzureCredential credentials = new();
-ApiKeyCredential keyCredentials = new(applicationSettings.AzureOpenAI.Key);
-AzureOpenAIClient azureClient = new(azureOpenAIEndpoint, keyCredentials);
+
+AzureOpenAIClient azureClient;
+if (!string.IsNullOrEmpty(applicationSettings.AzureOpenAI.Key))
+{
+  azureClient = new AzureOpenAIClient(azureOpenAIEndpoint, new ApiKeyCredential(applicationSettings.AzureOpenAI.Key));
+}
+else
+{
+  azureClient = new AzureOpenAIClient(azureOpenAIEndpoint, new DefaultAzureCredential());
+}
+
 ChatClient chatClient = azureClient.GetChatClient(applicationSettings.AzureOpenAI.DeploymentName);
 
 Console.WriteLine("CALLING STREAMING");
