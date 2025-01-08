@@ -3,7 +3,7 @@ using System.Text.Json;
 using Microsoft.ApplicationInsights;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
-
+using SimpleL7Proxy.Events;
 
 // This class represents a server that listens for HTTP requests and processes them.
 // It uses a priority queue to manage incoming requests and supports telemetry for monitoring.
@@ -18,12 +18,12 @@ public class Server : IServer
     private CancellationToken _cancellationToken;
     //private BlockingCollection<RequestData> _requestsQueue = new BlockingCollection<RequestData>();
     private BlockingPriorityQueue<RequestData> _requestsQueue = new BlockingPriorityQueue<RequestData>();
-    private readonly IEventHubClient? _eventHubClient;
+    private readonly IEventClient? _eventHubClient;
 
 
 
     // Constructor to initialize the server with backend options and telemetry client.
-    public Server(IOptions<BackendOptions> backendOptions, IEventHubClient? eventHubClient, IBackendService backends, TelemetryClient? telemetryClient)
+    public Server(IOptions<BackendOptions> backendOptions, IEventClient? eventHubClient, IBackendService backends, TelemetryClient? telemetryClient)
     {
         if (backendOptions == null) throw new ArgumentNullException(nameof(backendOptions));
         if (backendOptions.Value == null) throw new ArgumentNullException(nameof(backendOptions.Value));

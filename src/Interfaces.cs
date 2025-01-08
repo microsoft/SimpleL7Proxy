@@ -12,14 +12,6 @@ public interface IBackendService
     public string OAuth2Token();
 }
 
-public interface IEventHubClient
-{
-    void StartTimer();
-    void StopTimer();
-    void SendData(string? value);
-    void SendData(Dictionary<string, string> eventData);
-}
-
 public interface IBackendOptions {
     HttpClient? Client { get; set; }
     public int DefaultPriority { get; set; }

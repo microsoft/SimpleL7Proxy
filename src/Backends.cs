@@ -11,7 +11,7 @@ using Azure.Identity;
 using Azure.Core;
 using System.Security.AccessControl;
 using System.Text.Json;
-
+using SimpleL7Proxy.Events;
 
 
 // This code has 3 objectives:  
@@ -34,19 +34,18 @@ public class Backends : IBackendService
 
     private Azure.Core.AccessToken? AuthToken { get; set; }
     private object lockObj = new object();
-    private readonly IEventHubClient? _eventHubClient;
-
+    private readonly IEventClient _eventClient;
 
 
     //public Backends(List<BackendHost> hosts, HttpClient client, int interval, int successRate)
-    public Backends(IOptions<BackendOptions> options, IEventHubClient? eventHubClient)
+    public Backends(IOptions<BackendOptions> options, IEventClient eventClient)
     {
         if (options == null) throw new ArgumentNullException(nameof(options));
         if (options.Value == null) throw new ArgumentNullException(nameof(options.Value));
         if (options.Value.Hosts == null) throw new ArgumentNullException(nameof(options.Value.Hosts));
         if (options.Value.Client == null) throw new ArgumentNullException(nameof(options.Value.Client));
 
-        _eventHubClient = eventHubClient;
+        _eventClient = eventClient;
 
 
         var bo = options.Value; // Access the IBackendOptions instance
@@ -369,7 +368,7 @@ public class Backends : IBackendService
     private void SendEventData(Dictionary<string, string> eventData)//string urlWithPath, HttpStatusCode statusCode, DateTime requestDate, DateTime responseDate)
     {
         string jsonData = JsonSerializer.Serialize(eventData);
-        _eventHubClient?.SendData(jsonData);
+        _eventClient?.SendData(jsonData);
     }
     
     // Fetches the OAuth2 Token as a seperate task. The token is fetched and updated 100ms before it expires. 
@@ -474,7 +473,7 @@ public class Backends : IBackendService
         }
 
         string jsonData = JsonSerializer.Serialize(eventData);
-        _eventHubClient?.SendData(jsonData);
+        _eventClient?.SendData(jsonData);
     }
 
 }

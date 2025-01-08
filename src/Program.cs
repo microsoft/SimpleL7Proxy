@@ -12,6 +12,8 @@ using System.Threading.Tasks;
 using Azure.Identity;
 using Azure.Core;
 using Microsoft.Extensions.Configuration;
+using SimpleL7Proxy.Events;
+using SimpleL7Proxy.Extensions;
 
 
 // This code serves as the entry point for the .NET application.
@@ -56,59 +58,57 @@ public class Program
                 cancellationTokenSource.Cancel(); // Signal the application to shut down.
             };
 
-        var hostBuilder = Host.CreateDefaultBuilder(args).ConfigureServices((hostContext, services) =>
-            {        
-                // Register the configured BackendOptions instance with DI
-                services.Configure<BackendOptions>(options =>
+    var hostBuilder = Host.CreateDefaultBuilder(args).ConfigureServices((hostContext, services) =>
+        {
+          // Register the configured BackendOptions instance with DI
+          services.Configure<BackendOptions>(options =>
+              {
+                options.Client = backendOptions.Client;
+                options.DefaultPriority = backendOptions.DefaultPriority;
+                options.DefaultTTLSecs = backendOptions.DefaultTTLSecs;
+                options.HostName = backendOptions.HostName;
+                options.Hosts = backendOptions.Hosts;
+                options.IDStr = backendOptions.IDStr;
+                options.LogHeaders = backendOptions.LogHeaders;
+                options.MaxQueueLength = backendOptions.MaxQueueLength;
+                options.OAuthAudience = backendOptions.OAuthAudience;
+                options.PriorityKeys = backendOptions.PriorityKeys;
+                options.PriorityValues = backendOptions.PriorityValues;
+                options.Port = backendOptions.Port;
+                options.PollInterval = backendOptions.PollInterval;
+                options.PollTimeout = backendOptions.PollTimeout;
+                options.SuccessRate = backendOptions.SuccessRate;
+                options.Timeout = backendOptions.Timeout;
+                options.UseOAuth = backendOptions.UseOAuth;
+                options.Workers = backendOptions.Workers;
+              });
+
+          services.AddLogging(loggingBuilder => loggingBuilder.AddFilter<Microsoft.Extensions.Logging.ApplicationInsights.ApplicationInsightsLoggerProvider>("Category", LogLevel.Information));
+          var aiConnectionString = OS.Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING") ?? "";
+          if (aiConnectionString != null)
+          {
+            services.AddApplicationInsightsTelemetryWorkerService((ApplicationInsightsServiceOptions options) => options.ConnectionString = aiConnectionString);
+            services.AddApplicationInsightsTelemetry(options =>
                 {
-                    options.Client = backendOptions.Client;
-                    options.DefaultPriority = backendOptions.DefaultPriority;
-                    options.DefaultTTLSecs = backendOptions.DefaultTTLSecs;
-                    options.HostName = backendOptions.HostName;
-                    options.Hosts = backendOptions.Hosts;
-                    options.IDStr = backendOptions.IDStr;
-                    options.LogHeaders = backendOptions.LogHeaders;
-                    options.MaxQueueLength = backendOptions.MaxQueueLength;
-                    options.OAuthAudience = backendOptions.OAuthAudience;
-                    options.PriorityKeys = backendOptions.PriorityKeys;
-                    options.PriorityValues = backendOptions.PriorityValues;
-                    options.Port = backendOptions.Port;
-                    options.PollInterval = backendOptions.PollInterval;
-                    options.PollTimeout = backendOptions.PollTimeout;
-                    options.SuccessRate = backendOptions.SuccessRate;
-                    options.Timeout = backendOptions.Timeout;
-                    options.UseOAuth = backendOptions.UseOAuth;
-                    options.Workers = backendOptions.Workers;
+                  options.EnableRequestTrackingTelemetryModule = true;
                 });
+            if (aiConnectionString != "")
+              Console.WriteLine("AppInsights initialized");
+          }
 
-                services.AddLogging(loggingBuilder => loggingBuilder.AddFilter<Microsoft.Extensions.Logging.ApplicationInsights.ApplicationInsightsLoggerProvider>("Category", LogLevel.Information));
-                var aiConnectionString = OS.Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING") ?? "";
-                if (aiConnectionString != null)
-                {
-                    services.AddApplicationInsightsTelemetryWorkerService((ApplicationInsightsServiceOptions options) => options.ConnectionString = aiConnectionString);
-                    services.AddApplicationInsightsTelemetry(options => 
-                    { 
-                        options.EnableRequestTrackingTelemetryModule = true; 
-                    });
-                    if (aiConnectionString != "")
-                        Console.WriteLine("AppInsights initialized");
-                }
+          // Add the proxy event client
+          var eventHubConnectionString = OS.Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING");
+          var eventHubName = OS.Environment.GetEnvironmentVariable("EVENTHUB_NAME");
+          services.AddProxyEventClient(eventHubConnectionString, eventHubName, aiConnectionString);
 
-                var eventHubConnectionString = OS.Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING") ?? "";
-                var eventHubName = OS.Environment.GetEnvironmentVariable("EVENTHUB_NAME") ?? "";
-                var eventHubClient = new EventHubClient(eventHubConnectionString, eventHubName);
-                eventHubClient.StartTimer();
+          //services.AddHttpLogging(o => { });
+          services.AddSingleton<IBackendOptions>(backendOptions);
+          services.AddSingleton<IBackendService, Backends>();
+          services.AddSingleton<IServer, Server>();
 
-                services.AddSingleton<IEventHubClient>(provider => eventHubClient);
-                //services.AddHttpLogging(o => { });
-                services.AddSingleton<IBackendOptions>(backendOptions);
-                services.AddSingleton<IBackendService, Backends>();
-                services.AddSingleton<IServer, Server>();
-                
-                
-                // Add other necessary service registrations here
-            });
-    
+
+          // Add other necessary service registrations here
+        });
 
         var frameworkHost = hostBuilder.Build();
         var serviceProvider =frameworkHost.Services;
@@ -125,7 +125,7 @@ public class Program
         backends.Start(cancellationToken);
 
         var server = serviceProvider.GetRequiredService<IServer>();
-        var eventHubClient = serviceProvider.GetRequiredService<IEventHubClient>();
+        var eventHubClient = serviceProvider.GetRequiredService<IEventClient>();
         var tasks = new List<Task>();
         try
         {
