@@ -1,8 +1,8 @@
 {
     "test_endpoint": "http://localhost:8000",
-    "duration_seconds": "10s",
-    "concurrency": 5,
-    "interrun_delay": "50ms",
+    "duration_seconds": "5s",
+    "concurrency": 10,
+    "interrun_delay": "0ms",
     //"Entra_audience": "http://localhost:",
     //"Entra_clientID": "12345",
     //"Entra_tenantID": "12345",
@@ -11,23 +11,22 @@
             "name": "test1",
             "method": "GET",
             "path": "/test1",
-            "timeout": "200s",
+            "timeout": "2s",
             "headers": {
               "S7PPriorityKey": "234",
               "Authorization" : "d<TOKEN>",
-              "S7PTTL": "+1"
+              "S7PTTL": "+2"
     	    }
         },
         {
             "name": "test2",
             "method": "POST",
             "path": "/highPriority",
-            "timeout": "200s",
             "headers": {
                 "Content-Type": "application/json",
-		        "S7PPriorityKey": "12345",
+		"S7PPriorityKey": "12345",
                 "Authorization" : "re<token>",
-                "S7PTTL": "+50"
+                "S7PTTL": "+1"
             },
             "data_file": "data.json"
         }
