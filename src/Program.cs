@@ -325,7 +325,7 @@ public class Program
         Console.WriteLine("#     #  # #    # #      #      #      #         #     #      #   #  #    #  #  #    #");
         Console.WriteLine(" #####   # #    # #      ###### ###### #######   #     #      #    #  ####  #    #   #");
         Console.WriteLine ("=======================================================================================");
-        Console.WriteLine("Version: 2.0.0");
+        Console.WriteLine("Version: 2.0.1");
 
         return backendOptions;
     }
