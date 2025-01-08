@@ -116,11 +116,11 @@ public class ProxyWorker
 //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
 
                     eventData["x-Status"] = ((int)pr.StatusCode).ToString();
-                    if (_options.LogHeaders != null && _options.LogHeaders.Count > 0)
+                    if (_options.LogHeaders?.Count > 0)
                     {
                         foreach (var header in _options.LogHeaders)
                         {
-                            eventData[header] = lcontext.Response?.Headers[header] ?? "N/A";
+                            eventData[header] = pr?.Headers[header] ?? "N/A";
                         }
                     }
 
