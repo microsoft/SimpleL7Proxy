@@ -360,7 +360,7 @@ public class ProxyWorker
             HandleProxyRequestError(null, null, request.Timestamp, request.FullURL, HttpStatusCode.Gone, "Request has expired: " + DateTimeOffset.UtcNow.ToLocalTime());
             return new ProxyData
             {
-                StatusCode = HttpStatusCode.Gone,
+                StatusCode = HttpStatusCode.PreconditionFailed,
                 Body = Encoding.UTF8.GetBytes("Request has expired: " + request.Headers["S7PTTL"])
             };
         }
@@ -567,7 +567,7 @@ public class ProxyWorker
                 // TTL can be specified as +300 ( 300 seconds from now ) or as an absolute number of seconds
                 if (ttlString.StartsWith("+") && long.TryParse(ttlString.Substring(1), out longSeconds))
                 {
-                    request.TTLSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + longSeconds;
+                    request.TTLSeconds = ((DateTimeOffset)request.EnqueueTime).ToUnixTimeSeconds()+ longSeconds;
                 }
                 else if (long.TryParse(ttlString, out longSeconds))
                 {

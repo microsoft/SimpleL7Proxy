@@ -72,6 +72,7 @@ public class Backends : IBackendService
     List<DateTime> hostFailureTimes = new List<DateTime>();
     private const int FailureThreshold = 5;
     private const int FailureTimeFrame = 10; // seconds
+    static int[] allowableCodes = {200, 410, 412, 417, 400};
 
     public List<BackendHost> GetActiveHosts()
     {
@@ -87,7 +88,7 @@ public class Backends : IBackendService
         lock(lockObj)
         {
             //Console.WriteLine($"TrackStatus: {code}");
-            if (code == 200 || code == 410)
+            if (allowableCodes.Contains(code))
             {
                 //hostFailureTimes.Clear();
             }
