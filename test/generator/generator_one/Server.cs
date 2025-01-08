@@ -181,7 +181,7 @@ namespace test.generator.generator_one
                             try
                             {
                                 // Send the request
-                                using (var response = await SendRequestAsync(m, cancellationToken, test.timeout))
+                                using (var response = await SendRequestAsync(m, cancellationToken, test.timeout).ConfigureAwait(false))
                                 {
                                     // Read the response
                                     var content = await response?.Content?.ReadAsStringAsync() ?? "N/A";
@@ -217,7 +217,7 @@ namespace test.generator.generator_one
                             }
 
                             // sleep delay ms
-                            await Task.Delay(delay);
+                            await Task.Delay(delay).ConfigureAwait(false);
 
                         }
                     }
@@ -388,7 +388,7 @@ namespace test.generator.generator_one
 
             try
             {
-                return await _httpClient.SendAsync(request, cts.Token);
+                return await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
             }
             catch (TaskCanceledException)
             {

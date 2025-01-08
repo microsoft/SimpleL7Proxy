@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 
+
 public class PriorityQueueItem<T>
 {
     public T Item { get; }
@@ -13,6 +14,7 @@ public class PriorityQueueItem<T>
         Timestamp = timestamp;
     }
 }
+
 public class PriorityQueue<T>
 {
     private readonly List<PriorityQueueItem<T>> _items = new List<PriorityQueueItem<T>>();
@@ -51,6 +53,7 @@ public class PriorityQueue<T>
     }
 }
 
+
 public class PriorityQueueItemComparer<T> : IComparer<PriorityQueueItem<T>>
 {
     public int Compare(PriorityQueueItem<T>? x, PriorityQueueItem<T>? y)
@@ -80,8 +83,19 @@ public class BlockingPriorityQueue<T>
     private readonly PriorityQueue<T> _priorityQueue = new PriorityQueue<T>();
     private readonly object _lock = new object();
     private readonly ManualResetEventSlim _enqueueEvent = new ManualResetEventSlim(false);
+    private TaskSignaler<T> _taskSignaler = new TaskSignaler<T>();
 
     public int MaxQueueLength { get; set; }
+
+    public void StartSignaler(CancellationToken cancellationToken)
+    {
+        Task.Run(() => SignalWorker(cancellationToken), cancellationToken);
+    }
+    public void Stop()
+    {
+        // Shutdown
+        _taskSignaler.CancelAllTasks();
+    }
 
     // Thread-safe Count property
     public int Count
@@ -129,25 +143,94 @@ public class BlockingPriorityQueue<T>
         return true;
     }
 
-    public T Dequeue(CancellationToken cancellationToken, string id)
+    public async Task SignalWorker(CancellationToken cancellationToken)
     {
-        while (true)
+        while (!cancellationToken.IsCancellationRequested)
         {
             _enqueueEvent.Wait(cancellationToken); // Wait for an item to be added
             lock (_lock)
             {
-                if (_priorityQueue.Count > 0)
+                if (_priorityQueue.Count > 0 && _taskSignaler.HasWaitingTasks())
                 {
                     var queueItem = _priorityQueue.Dequeue();
                     if (_priorityQueue.Count == 0)
                     {
                         _enqueueEvent.Reset(); // Reset the event if the queue is empty
                     }
-                    return queueItem;
+
+                    // Signal a random task or requeue the item if no tasks are waiting
+                    _taskSignaler.SignalRandomTask(queueItem);
+                } 
+                else {
+                    Task.Delay(10).Wait(); // Wait for 10 ms for a Task Worker to be ready
                 }
             }
+        }
+        Console.WriteLine("SignalWorker: Canceled");
+
+        // Shutdown
+        _taskSignaler.CancelAllTasks();
+    }
+
+    public async Task<T> Dequeue(CancellationToken cancellationToken, string id)
+    {
+        try {
+            var parameter = await _taskSignaler.WaitForSignalAsync(id);
+            return parameter;
+        } catch (TaskCanceledException) {
+            throw ;
         }
     }
     
 }
 
+public class TaskSignaler<T>
+{
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<T>> _taskCompletionSources = new ConcurrentDictionary<string, TaskCompletionSource<T>>();
+    private readonly Random _random = new Random();
+
+    public Task<T> WaitForSignalAsync(string taskId)
+    {
+        var tcs = new TaskCompletionSource<T>();
+        _taskCompletionSources[taskId] = tcs;
+        return tcs.Task;
+    }
+
+    public void SignalTask(string taskId, T parameter)
+    {
+        if (_taskCompletionSources.TryRemove(taskId, out var tcs))
+        {
+            tcs.SetResult(parameter);
+        }
+    }
+
+    public bool SignalRandomTask(T parameter)
+    {
+        var taskIds = _taskCompletionSources.Keys.ToList();
+        if (taskIds.Count > 0)
+        {
+            var randomTaskId = taskIds[_random.Next(taskIds.Count)];
+            SignalTask(randomTaskId, parameter);
+
+            return true;
+        }
+
+        return false;
+    }
+
+    public void CancelAllTasks()
+    {
+        foreach (var key in _taskCompletionSources.Keys.ToList())
+        {
+            if (_taskCompletionSources.TryRemove(key, out var tcs))
+            {
+                tcs.TrySetCanceled();
+            }
+        }
+    }
+
+    public bool HasWaitingTasks()
+    {
+        return !_taskCompletionSources.IsEmpty;
+    }
+}

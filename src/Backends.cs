@@ -106,8 +106,7 @@ public class Backends : IBackendService
     public bool CheckFailedStatus() {
         lock(lockObj)
         {
-            DateTime now = DateTime.UtcNow;
-            hostFailureTimes.RemoveAll(t => (now - t).TotalSeconds >= FailureTimeFrame);
+            hostFailureTimes.RemoveAll(t => (DateTime.UtcNow - t).TotalSeconds >= FailureTimeFrame);
             return hostFailureTimes.Count >= FailureThreshold;
         }
 
@@ -454,18 +453,28 @@ public class Backends : IBackendService
 
     private void WriteOutput(string data="", Dictionary<string, string>? eventData=null)
     {
+        // Log the data to the console
         if (!string.IsNullOrEmpty(data))
         {
             Console.WriteLine(data);
-            _eventHubClient?.SendData(data);
+
+            // if eventData is null, create a new dictionary and add the message to it
+            if (eventData == null) {
+                eventData = new Dictionary<string, string>();
+                eventData.Add("Message", data);
+            }
         }
 
-        if (eventData == null) return;
+        if (eventData == null)
+            eventData = new Dictionary<string, string>();
 
-        if (!string.IsNullOrEmpty(data)) {
-            eventData.Add("message", data);
+        if (!eventData.TryGetValue("Type", out var typeValue))
+        {
+            eventData["Type"] = "S7P-Backend-Status";
         }
+
         string jsonData = JsonSerializer.Serialize(eventData);
         _eventHubClient?.SendData(jsonData);
     }
+
 }

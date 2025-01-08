@@ -8,7 +8,6 @@ In the diagram below, a client connected to the proxy which has 3 backend hosts.
 
 ![image](https://github.com/nagendramishr/SimpleL7Proxy/assets/81572024/d2b09ebb-1bce-41a7-879a-ac90aa5ae227)
 
-
 ## Features
 - HTTP/HTTPS traffic proxy
 - Failover
@@ -21,7 +20,6 @@ In the diagram below, a client connected to the proxy which has 3 backend hosts.
 
 ## Usage
 SimpleL7Proxy can be run standalone on the commandline or it can be deployed as a container.  All configuration is passed to it via environment variables.  When running, the server will periodically display the current back-end latencies.
-
 
 ### Environment Variables:
 
@@ -89,7 +87,6 @@ SimpleL7Proxy can be run standalone on the commandline or it can be deployed as 
 | **x-Request-Process-Duration** | The amount of time it took to process it. |
 | **x-Request-Worker** | The worker ID | 
 | |
-
 
 ### Example:
 ```
@@ -162,5 +159,3 @@ az containerapp create --name $ACANAME --resource-group $GROUP --environment $AC
 You can create a github workflow to deploy this code to an Azure container app.  You can follow the step by step instruction from a similar project in the following video:
 
 [![Video Title](https://i.ytimg.com/vi/-KojzBMM2ic/hqdefault.jpg)](https://www.youtube.com/watch?v=-KojzBMM2ic "How to Create a Github Action to Deploy to Azure Container Apps")
-
-
