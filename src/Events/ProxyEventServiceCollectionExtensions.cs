@@ -1,9 +1,8 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
-using SimpleL7Proxy.Events;
 
-namespace SimpleL7Proxy.Extensions;
+namespace SimpleL7Proxy.Events;
 
-public static class ServiceCollectionExtensions
+public static class ProxyEventServiceCollectionExtensions
 {
   // TODO: Pass in service configuration
   public static IServiceCollection AddProxyEventClient(
