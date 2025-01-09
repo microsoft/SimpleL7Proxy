@@ -292,31 +292,29 @@ public class ProxyWorker
     private static async Task WriteResponseDataAsync(HttpListenerContext context,
         ProxyData pr, CancellationToken token)
     {
-        var response = context.Response;
-        var responseMessage = pr.ResponseMessage;
-        var contentHeaders = responseMessage.Content.Headers;
         // Set the response status code  
-        response.StatusCode = (int)responseMessage.StatusCode;
-        //TODO: Why flag as false?
-        response.KeepAlive = false;
-        foreach (var header in responseMessage.Content.Headers)
+        context.Response.StatusCode = (int)pr.ResponseMessage.StatusCode;
+
+        if (pr.ResponseMessage.Content.Headers != null)
         {
-            response.Headers[header.Key] = string.Join(", ", header.Value);
-            if (header.Key.ToLower().Equals("content-length"))
+            foreach (var header in pr.ResponseMessage.Content.Headers)
             {
-                response.ContentLength64 = contentHeaders.ContentLength ?? 0;
+                context.Response.Headers[header.Key] = string.Join(", ", header.Value);
+
+                if (header.Key.ToLower().Equals("content-length"))
+                {
+                    context.Response.ContentLength64 = pr.ResponseMessage.Content.Headers.ContentLength ?? 0;
+                }
             }
         }
 
-        await foreach(var datum in ReadResponseBytesAsync(pr, token))
+        context.Response.KeepAlive = false;
+        // Stream the response body to the client  
+        if (pr.ResponseMessage.Content != null)
         {
-            await Task.Yield();
-            token.ThrowIfCancellationRequested();
-            var bytes = Encoding.UTF8.GetBytes(datum);
-            var stream = response.OutputStream;
-            Memory<byte> memory = new(bytes);
-            await stream.WriteAsync(memory, token);
-            await stream.FlushAsync(token);
+            await using var responseStream = await pr.ResponseMessage.Content.ReadAsStreamAsync().ConfigureAwait(false);
+            await responseStream.CopyToAsync(context.Response.OutputStream).ConfigureAwait(false);
+            await context.Response.OutputStream.FlushAsync().ConfigureAwait(false);
         }
     }
 
@@ -347,10 +345,13 @@ public class ProxyWorker
         {
             if (!CalculateTTL(request))
             {
+                HttpResponseMessage ttlResponseMessage = new(HttpStatusCode.InternalServerError);
+
+                ttlResponseMessage.Content = new StringContent("Invalid TTL format: " + request.Headers["S7PTTL"], Encoding.UTF8);
                 return await WriteProxyDataAsync(new()
                 {
                     StatusCode = HttpStatusCode.BadRequest,
-                    Body = Encoding.UTF8.GetBytes("Invalid TTL format: " + request.Headers["S7PTTL"])
+                    ResponseMessage = ttlResponseMessage
                 }, cancellationToken);
             }
         }
@@ -359,10 +360,14 @@ public class ProxyWorker
         if (request.TTLSeconds < DateTimeOffset.UtcNow.ToUnixTimeSeconds())
         {
             HandleProxyRequestError(null, null, request.Timestamp, request.FullURL, HttpStatusCode.Gone, "Request has expired: " + DateTimeOffset.UtcNow.ToLocalTime());
+            HttpResponseMessage invalidTTLResponseMessage = new(HttpStatusCode.InternalServerError);
+
+            invalidTTLResponseMessage.Content = new StringContent("Invalid TTL format: " + request.Headers["S7PTTL"], Encoding.UTF8);
+
             return await WriteProxyDataAsync(new()
             {
                 StatusCode = HttpStatusCode.Gone,
-                Body = Encoding.UTF8.GetBytes("Request has expired: " + request.Headers["S7PTTL"])
+                ResponseMessage = invalidTTLResponseMessage
             }, cancellationToken);
         }
 
@@ -538,10 +543,13 @@ public class ProxyWorker
 
         }
 
+        HttpResponseMessage responseMessage = new(HttpStatusCode.InternalServerError);
+
+        responseMessage.Content = new StringContent("No active hosts were able to handle the request.", Encoding.UTF8);
         return await WriteProxyDataAsync(new()
         {
             StatusCode = HttpStatusCode.BadGateway,
-            Body = Encoding.UTF8.GetBytes("No active hosts were able to handle the request.")
+            ResponseMessage = responseMessage
         }, cancellationToken);
     }
 
