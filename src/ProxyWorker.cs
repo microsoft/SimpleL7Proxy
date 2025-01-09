@@ -349,7 +349,7 @@ public class ProxyWorker
 
                         // Preserve the content type if it was provided
                         string contentType = request.Context?.Request.ContentType ?? "application/octet-stream"; // Default to application/octet-stream if not specified
-                        var mediaTypeHeaderValue = new MediaTypeHeaderValue(contentType);
+                        var mediaTypeHeaderValue = MediaTypeHeaderValue.Parse(contentType);
 
                         // Preserve the encoding type if it was provided
                         if (request.Context?.Request.ContentType != null && request.Context.Request.ContentType.Contains("charset"))

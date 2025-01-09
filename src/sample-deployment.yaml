@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proxy-deployment
+  namespace: proxy-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: proxy-server
+  template:
+    metadata:
+      labels:
+        app: proxy-server
+    spec:
+      containers:
+      - name: proxy-container
+        image: <ACRNAME>/<CONTAINER>
+        env:
+        - name: Host1
+          value: "APIM_HOSTNAME"
+        - name: Probe_path1
+          value: "HEALTH_ENDPOINT"
+        - name: Timeout
+          value: "120000"
+        - name: Port
+          value: "80"
+        - name: Workers
+          value: "10"
+        ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: proxy-service
+  namespace: proxy-server
+spec:
+  selector:
+    app: proxy-server
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: LoadBalancer
