@@ -108,7 +108,7 @@ public class ProxyWorker
                     eventData["x-Request-Process-Duration"] = incomingRequest.Headers["x-Request-Process-Duration"] ?? "N/A";
                     eventData["x-S7PID"] = incomingRequest.MID ?? "N/A";
 
-                    var pr = await ReadProxyAsync(incomingRequest).ConfigureAwait(false);
+                    var pr = await ReadProxyAsync(incomingRequest, _cancellationToken).ConfigureAwait(false);
 
                     //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
 
@@ -310,6 +310,7 @@ public class ProxyWorker
 
         await foreach(var datum in ReadResponseBytesAsync(pr, token))
         {
+            await Task.Yield();
             token.ThrowIfCancellationRequested();
             var bytes = Encoding.UTF8.GetBytes(datum);
             var stream = response.OutputStream;
@@ -317,38 +318,9 @@ public class ProxyWorker
             await stream.WriteAsync(memory, token);
             await stream.FlushAsync(token);
         }
-
     }
 
-    private async Task WriteResponseAsync(HttpListenerContext context, ProxyData pr)
-    {
-        // Set the response status code  
-        context.Response.StatusCode = (int)pr.ResponseMessage.StatusCode;
-
-        if (pr.ResponseMessage.Content.Headers != null)
-        {
-            foreach (var header in pr.ResponseMessage.Content.Headers)
-            {
-                context.Response.Headers[header.Key] = string.Join(", ", header.Value);
-
-                if (header.Key.ToLower().Equals("content-length"))
-                {
-                    context.Response.ContentLength64 = pr.ResponseMessage.Content.Headers.ContentLength ?? 0;
-                }
-            }
-        }
-
-        context.Response.KeepAlive = false;
-        // Stream the response body to the client  
-        if (pr.ResponseMessage.Content != null)
-        {
-            await using var responseStream = await pr.ResponseMessage.Content.ReadAsStreamAsync().ConfigureAwait(false);
-            await responseStream.CopyToAsync(context.Response.OutputStream).ConfigureAwait(false);
-            await context.Response.OutputStream.FlushAsync().ConfigureAwait(false);
-        }
-    }
-
-    public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requestDate, string method, string path, WebHeaderCollection headers, Stream body)//HttpListenerResponse downStreamResponse)
+    public async Task<ProxyData> ReadProxyAsync(RequestData request, CancellationToken cancellationToken) //DateTime requestDate, string method, string path, WebHeaderCollection headers, Stream body)//HttpListenerResponse downStreamResponse)
     {
         if (request == null) throw new ArgumentNullException(nameof(request), "Request cannot be null.");
         if (request.Body == null) throw new ArgumentNullException(nameof(request.Body), "Request body cannot be null.");
@@ -360,16 +332,23 @@ public class ProxyWorker
 
         byte[] bodyBytes = await request.CachBodyAsync().ConfigureAwait(false);
         HttpStatusCode lastStatusCode = HttpStatusCode.ServiceUnavailable;
+        async Task<ProxyData> WriteProxyDataAsync(ProxyData data, CancellationToken token)
+        {
+            var context = request.Context
+                ?? throw new NullReferenceException("Request context cannot be null.");
+            await WriteResponseDataAsync(context, data, token);
+            return data;
+        }
 
         if (request.TTLSeconds == 0)
         {
             if (!CalculateTTL(request))
             {
-                return new ProxyData
+                return await WriteProxyDataAsync(new()
                 {
                     StatusCode = HttpStatusCode.BadRequest,
                     Body = Encoding.UTF8.GetBytes("Invalid TTL format: " + request.Headers["S7PTTL"])
-                };
+                }, cancellationToken);
             }
         }
 
@@ -377,11 +356,11 @@ public class ProxyWorker
         if (request.TTLSeconds < DateTimeOffset.UtcNow.ToUnixTimeSeconds())
         {
             HandleProxyRequestError(null, null, request.Timestamp, request.FullURL, HttpStatusCode.Gone, "Request has expired: " + DateTimeOffset.UtcNow.ToLocalTime());
-            return new ProxyData
+            return await WriteProxyDataAsync(new()
             {
                 StatusCode = HttpStatusCode.Gone,
                 Body = Encoding.UTF8.GetBytes("Request has expired: " + request.Headers["S7PTTL"])
-            };
+            }, cancellationToken);
         }
 
         if (_options.UseOAuth)
@@ -396,8 +375,10 @@ public class ProxyWorker
             request.Headers.Set("Authorization", $"Bearer {token}");
         }
 
+        //TODO: Parallelize this
         foreach (var host in activeHosts)
         {
+            await Task.Yield();
             try
             {
                 request.Headers.Set("Host", host.host);
@@ -457,7 +438,7 @@ public class ProxyWorker
                                 try
                                 {
                                     //Why do this?
-                                    var temp_pr = new ProxyData()
+                                    ProxyData temp_pr = new()
                                     {
                                         ResponseDate = responseDate,
                                         StatusCode = proxyResponse.StatusCode,
@@ -479,7 +460,7 @@ public class ProxyWorker
 
                         host.AddPxLatency((responseDate - ProxyStartDate).TotalMilliseconds);
 
-                        var pr = new ProxyData()
+                        ProxyData pr = new()
                         {
                             ResponseDate = responseDate,
                             StatusCode = proxyResponse.StatusCode,
@@ -504,20 +485,24 @@ public class ProxyWorker
                             // request was successful, so we can disable the skip
                             request.SkipDispose = false;
                         }
+
+                        var context = request.Context
+                            ?? throw new NullReferenceException("Request context cannot be null.");
                         // TODO: Move to caller to handle writing errors?
-                        await WriteResponseAsync(request.Context, pr);
+                        await WriteResponseDataAsync(context, pr, cancellationToken);
 
                         if (request.Debug)
                         {
                             Console.WriteLine($"Got: {pr.StatusCode} {pr.FullURL}");
                         }
-                        return pr ?? throw new ArgumentNullException(nameof(pr));
+                        return pr;
                     }
                 }
             }
             catch (S7PRequeueException)
             {
                 // rethrow the exception
+                //TODO: Figure out if this should write to the output stream.
                 throw;
             }
             catch (TaskCanceledException)
@@ -550,11 +535,11 @@ public class ProxyWorker
 
         }
 
-        return new ProxyData
+        return await WriteProxyDataAsync(new()
         {
             StatusCode = HttpStatusCode.BadGateway,
             Body = Encoding.UTF8.GetBytes("No active hosts were able to handle the request.")
-        };
+        }, cancellationToken);
     }
 
     // Returns false if the TTL is invalid else returns true
@@ -653,5 +638,4 @@ public class ProxyWorker
         host?.AddError();
         return statusCode;
     }
-
 }
