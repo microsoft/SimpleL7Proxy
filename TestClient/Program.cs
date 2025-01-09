@@ -8,7 +8,7 @@ using TestClient;
 
 ApplicationSettings applicationSettings = GetApplicationSettings();
 Uri azureOpenAIEndpoint = new (applicationSettings.AzureOpenAI.Endpoint);
-DefaultAzureCredential credentials = new();
+DefaultAzureCredential credentials = new(); //TODO: USE?!
 ApiKeyCredential keyCredentials = new(applicationSettings.AzureOpenAI.Key);
 AzureOpenAIClient azureClient = new(azureOpenAIEndpoint, keyCredentials);
 ChatClient chatClient = azureClient.GetChatClient(applicationSettings.AzureOpenAI.DeploymentName);
@@ -48,9 +48,10 @@ Console.ReadLine();
 static ApplicationSettings GetApplicationSettings()
 {
     IConfigurationRoot config = new ConfigurationBuilder()
-        .AddJsonFile("appsettings.json")
+        .AddJsonFile("appsettings.json", true)
         .AddUserSecrets(Assembly.GetExecutingAssembly())
         .Build();
 
-    return config.GetSection("ApplicationSettings").Get<ApplicationSettings>();
+    return config.GetSection("ApplicationSettings").Get<ApplicationSettings>()
+        ?? throw new InvalidOperationException("ApplicationSettings not found in configuration.");
 }

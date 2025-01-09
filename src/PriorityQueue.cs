@@ -143,7 +143,7 @@ public class BlockingPriorityQueue<T>
         return true;
     }
 
-    public async Task SignalWorker(CancellationToken cancellationToken)
+    public Task SignalWorker(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -170,6 +170,7 @@ public class BlockingPriorityQueue<T>
 
         // Shutdown
         _taskSignaler.CancelAllTasks();
+        return Task.CompletedTask;
     }
 
     public async Task<T> Dequeue(CancellationToken cancellationToken, string id)
@@ -186,7 +187,8 @@ public class BlockingPriorityQueue<T>
 
 public class TaskSignaler<T>
 {
-    private readonly ConcurrentDictionary<string, TaskCompletionSource<T>> _taskCompletionSources = new ConcurrentDictionary<string, TaskCompletionSource<T>>();
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<T>> _taskCompletionSources
+        = new ConcurrentDictionary<string, TaskCompletionSource<T>>();
     private readonly Random _random = new Random();
 
     public Task<T> WaitForSignalAsync(string taskId)

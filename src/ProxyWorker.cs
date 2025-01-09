@@ -1,6 +1,7 @@
 using System.Collections.Specialized;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using Microsoft.ApplicationInsights;
@@ -23,8 +24,7 @@ public class ProxyWorker
     private readonly BackendOptions _options;
     private readonly TelemetryClient? _telemetryClient;
     private readonly IEventHubClient? _eventHubClient;
-    private string IDstr = "";
-
+    private readonly string IDstr = "";
 
     public ProxyWorker(CancellationToken cancellationToken, int ID, BlockingPriorityQueue<RequestData> requestsQueue, BackendOptions backendOptions, IBackendService? backends, IEventHubClient? eventHubClient, TelemetryClient? telemetryClient)
     {
@@ -253,6 +253,73 @@ public class ProxyWorker
         Console.WriteLine($"Worker {IDstr} stopped.");
     }
 
+    private static async Task<Stream> ReadResponseAsync(ProxyData pr, CancellationToken token)
+    {
+        var content = pr.ResponseMessage.Content;
+        // Stream the response body to the client
+        if (content != null)
+        {
+            using var responseStream = await content.ReadAsStreamAsync(token);
+            return responseStream;
+        }
+        throw new ArgumentNullException(nameof(pr), "Response content cannot be null.");
+    }
+    
+    public static async IAsyncEnumerable<string> ReadResponseBytesAsync(
+        ProxyData pr,
+        [EnumeratorCancellation] CancellationToken token)
+    {
+        using var responseStream = await ReadResponseAsync(pr, token);
+        using StreamReader streamReader = new(responseStream);
+        var index = 0;
+        while(!streamReader.EndOfStream)
+        {
+            token.ThrowIfCancellationRequested();
+            //TODO: read using position and length
+            //allocate buffer size based on content length
+            var length = responseStream.Length;
+            var count = (int)(length - index);
+            //TODO: potentionally read in smaller chunks than stream length.
+            var buffer = new char[count];
+            var read = await streamReader.ReadBlockAsync(buffer, index, buffer.Length);
+            if (read == 0) break;
+            else yield return new string(buffer, 0, read);
+            index += read;
+        }
+        await streamReader.BaseStream.FlushAsync(token);
+    }
+
+    private static async Task WriteResponseDataAsync(HttpListenerContext context,
+        ProxyData pr, CancellationToken token)
+    {
+        var response = context.Response;
+        var responseMessage = pr.ResponseMessage;
+        var contentHeaders = responseMessage.Content.Headers;
+        // Set the response status code  
+        response.StatusCode = (int)responseMessage.StatusCode;
+        //TODO: Why flag as false?
+        response.KeepAlive = false;
+        foreach (var header in responseMessage.Content.Headers)
+        {
+            response.Headers[header.Key] = string.Join(", ", header.Value);
+            if (header.Key.ToLower().Equals("content-length"))
+            {
+                response.ContentLength64 = contentHeaders.ContentLength ?? 0;
+            }
+        }
+
+        await foreach(var datum in ReadResponseBytesAsync(pr, token))
+        {
+            token.ThrowIfCancellationRequested();
+            var bytes = Encoding.UTF8.GetBytes(datum);
+            var stream = response.OutputStream;
+            Memory<byte> memory = new(bytes);
+            await stream.WriteAsync(memory, token);
+            await stream.FlushAsync(token);
+        }
+
+    }
+
     private async Task WriteResponseAsync(HttpListenerContext context, ProxyData pr)
     {
         // Set the response status code  
@@ -385,11 +452,11 @@ public class ProxyWorker
 
                         if (((int)proxyResponse.StatusCode > 300 && (int)proxyResponse.StatusCode < 400) || (int)proxyResponse.StatusCode >= 500)
                         {
-
                             if (request.Debug)
                             {
                                 try
                                 {
+                                    //Why do this?
                                     var temp_pr = new ProxyData()
                                     {
                                         ResponseDate = responseDate,
@@ -409,7 +476,6 @@ public class ProxyWorker
                             }
                             continue;
                         }
-
 
                         host.AddPxLatency((responseDate - ProxyStartDate).TotalMilliseconds);
 
@@ -438,7 +504,7 @@ public class ProxyWorker
                             // request was successful, so we can disable the skip
                             request.SkipDispose = false;
                         }
-
+                        // TODO: Move to caller to handle writing errors?
                         await WriteResponseAsync(request.Context, pr);
 
                         if (request.Debug)
