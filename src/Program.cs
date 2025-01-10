@@ -248,11 +248,11 @@ public class Program
     string replicaID = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REPLICA_NAME", "01");
 
 #if DEBUG
-    // Load appsettings.json only in Debug mode
-    var configuration = new ConfigurationBuilder()
-            .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
-            .AddEnvironmentVariables()
-            .Build();
+        // Load appsettings.json only in Debug mode
+        var configuration = new ConfigurationBuilder()
+                .AddJsonFile("appsettings.json", optional: true)
+                .AddEnvironmentVariables()
+                .Build();
 
     foreach (var setting in configuration.GetSection("Settings").GetChildren())
     {
