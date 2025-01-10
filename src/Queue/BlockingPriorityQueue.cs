@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -12,12 +13,14 @@ public class BlockingPriorityQueue<T> : IBlockingPriorityQueue<T>
   private readonly object _lock = new object();
   private readonly ManualResetEventSlim _enqueueEvent = new ManualResetEventSlim(false);
   private TaskSignaler<T> _taskSignaler;
+  private ILogger<BlockingPriorityQueue<T>> _logger;
 
-  public BlockingPriorityQueue(PriorityQueue<T> baseQueue, TaskSignaler<T> taskSignaler, BackendOptions backendOptions)
+  public BlockingPriorityQueue(PriorityQueue<T> baseQueue, TaskSignaler<T> taskSignaler, BackendOptions backendOptions, ILogger<BlockingPriorityQueue<T>> logger)
   {
     MaxQueueLength = backendOptions.MaxQueueLength;
     _priorityQueue = baseQueue;
     _taskSignaler = taskSignaler;
+    _logger = logger;
   }
 
   public int MaxQueueLength { get; private set; }
@@ -48,17 +51,14 @@ public class BlockingPriorityQueue<T> : IBlockingPriorityQueue<T>
   {
     lock (_lock)
     {
-      //Console.WriteLine($"Count: {_priorityQueue.Count} , Max: {MaxQueueLength}");
       if (_priorityQueue.Count >= MaxQueueLength)
       {
         return false;
       }
-      //_priorityQueue.Enqueue(item, priority);
       var queueItem = new PriorityQueueItem<T>(item, priority, timestamp);
       _priorityQueue.Enqueue(queueItem);
       _enqueueEvent.Set(); // Signal that an item has been added
 
-      //Monitor.Pulse(_lock); // Signal that an item has been added
     }
 
     return true;
@@ -102,7 +102,7 @@ public class BlockingPriorityQueue<T> : IBlockingPriorityQueue<T>
         }
       }
     }
-    Console.WriteLine("SignalWorker: Canceled");
+    _logger.LogInformation("SignalWorker: Canceled");
 
     // Shutdown
     _taskSignaler.CancelAllTasks();

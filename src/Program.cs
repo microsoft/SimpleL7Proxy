@@ -299,6 +299,7 @@ public class Program
       try
       {
         _logger?.LogInformation($"Found host {hostname} with probe path {probePath} and IP {ip}");
+
         var bh = new BackendHost(hostname, probePath, ip);
         backendOptions.Hosts.Add(bh);
 

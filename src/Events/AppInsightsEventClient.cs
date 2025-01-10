@@ -21,10 +21,16 @@ public class AppInsightsEventClient : IEventClient
 
   public void SendData(ProxyEvent proxyEvent)
   {
-    // TODO - check if there's a Type header
     if (string.IsNullOrEmpty(proxyEvent.Name))
     {
-      proxyEvent.Name = "ProxyEvent";
+      if (proxyEvent.EventData.TryGetValue("Type", out var type))
+      {
+        proxyEvent.Name = type;
+      }
+      else
+      {
+        proxyEvent.Name = "ProxyEvent";
+      }
     }
     _telemetryClient.TrackEvent(proxyEvent.Name, proxyEvent.EventData);
   }
