@@ -48,7 +48,7 @@ public class RequestData : IDisposable, IAsyncDisposable
         MID = mid;
     }
 
-    public async Task<byte[]> CachBodyAsync() {
+    public async Task<byte[]> CacheBodyAsync() {
 
         if (BodyBytes != null)
         {
@@ -61,12 +61,9 @@ public class RequestData : IDisposable, IAsyncDisposable
         }
 
         // Read the body stream once and reuse it
-        using (MemoryStream ms = new MemoryStream())
-        {
-            await Body.CopyToAsync(ms);
-            BodyBytes = ms.ToArray();
-        }
-
+        using MemoryStream ms = new();
+        await Body.CopyToAsync(ms);
+        BodyBytes = ms.ToArray();
         return BodyBytes;
     }
 
