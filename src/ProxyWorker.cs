@@ -253,42 +253,6 @@ public class ProxyWorker
         Console.WriteLine($"Worker {IDstr} stopped.");
     }
 
-    private static async Task<Stream> ReadResponseAsync(ProxyData pr, CancellationToken token)
-    {
-        var content = pr.ResponseMessage.Content;
-        // Stream the response body to the client
-        if (content != null)
-        {
-            using var responseStream = await content.ReadAsStreamAsync(token);
-            return responseStream;
-        }
-        throw new ArgumentNullException(nameof(pr), "Response content cannot be null.");
-    }
-    
-    public static async IAsyncEnumerable<string> ReadResponseBytesAsync(
-        ProxyData pr,
-        [EnumeratorCancellation] CancellationToken token)
-    {
-        using var responseStream = await ReadResponseAsync(pr, token);
-        using StreamReader streamReader = new(responseStream);
-        var index = 0;
-        while(!streamReader.EndOfStream)
-        {
-            token.ThrowIfCancellationRequested();
-            //TODO: read using position and length
-            //allocate buffer size based on content length
-            var length = responseStream.Length;
-            var count = (int)(length - index);
-            //TODO: potentionally read in smaller chunks than stream length.
-            var buffer = new char[count];
-            var read = await streamReader.ReadBlockAsync(buffer, index, buffer.Length);
-            if (read == 0) break;
-            else yield return new string(buffer, 0, read);
-            index += read;
-        }
-        await streamReader.BaseStream.FlushAsync(token);
-    }
-
     private static async Task WriteResponseDataAsync(HttpListenerContext context,
         ProxyData pr, CancellationToken token)
     {
