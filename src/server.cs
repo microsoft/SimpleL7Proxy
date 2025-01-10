@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Queue;
+using Microsoft.Extensions.Logging;
 
 // This class represents a server that listens for HTTP requests and processes them.
 // It uses a priority queue to manage incoming requests and supports telemetry for monitoring.
@@ -19,6 +20,7 @@ public class Server : IServer
   private CancellationToken _cancellationToken;
   private IBlockingPriorityQueue<RequestData> _requestsQueue;
   private readonly IEventClient? _eventHubClient;
+  private readonly ILogger<Server> _logger;
 
   // Constructor to initialize the server with backend options and telemetry client.
   public Server(
@@ -26,7 +28,8 @@ public class Server : IServer
     IOptions<BackendOptions> backendOptions,
     IEventClient? eventHubClient,
     IBackendService backends,
-    TelemetryClient? telemetryClient)
+    TelemetryClient? telemetryClient,
+    ILogger<Server> logger)
   {
     if (backendOptions == null) throw new ArgumentNullException(nameof(backendOptions));
     if (backendOptions.Value == null) throw new ArgumentNullException(nameof(backendOptions.Value));
@@ -36,6 +39,7 @@ public class Server : IServer
     _eventHubClient = eventHubClient;
     _telemetryClient = telemetryClient;
     _requestsQueue = blockingPriorityQueue;
+    _logger = logger;
 
     var _listeningUrl = $"http://+:{_options.Port}/";
 
@@ -43,7 +47,7 @@ public class Server : IServer
     httpListener.Prefixes.Add(_listeningUrl);
 
     var timeoutTime = TimeSpan.FromMilliseconds(_options.Timeout).ToString(@"hh\:mm\:ss\.fff");
-    WriteOutput($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
+    _logger.LogInformation($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
   }
 
   public IBlockingPriorityQueue<RequestData> Queue()
@@ -58,7 +62,7 @@ public class Server : IServer
     {
       _cancellationToken = cancellationToken;
       httpListener.Start();
-      WriteOutput($"Listening on {_options?.Port}");
+      _logger.LogInformation($"Listening on {_options?.Port}");
       // Additional setup or async start operations can be performed here
 
       _requestsQueue.StartSignaler(cancellationToken);
@@ -66,14 +70,14 @@ public class Server : IServer
     catch (HttpListenerException ex)
     {
       // Handle specific errors, e.g., port already in use
-      WriteOutput($"Failed to start HttpListener: {ex.Message}");
+      _logger.LogError($"Failed to start HttpListener: {ex.Message}");
       // Consider rethrowing, logging the error, or handling it as needed
       throw new Exception("Failed to start the server due to an HttpListener exception.", ex);
     }
     catch (Exception ex)
     {
       // Handle other potential errors
-      WriteOutput($"An error occurred: {ex.Message}");
+      _logger.LogError($"An error occurred: {ex.Message}");
       throw new Exception("An error occurred while starting the server.", ex);
     }
   }
@@ -118,7 +122,6 @@ public class Server : IServer
             }
 
             delayCts.Cancel();
-            // _requestsQueue.Add(new RequestData(await getContextTask.ConfigureAwait(false)));
             var rd = new RequestData(await getContextTask.ConfigureAwait(false), mid);
             int priority = _options.DefaultPriority;
             var priorityKey = rd.Headers.Get("S7PPriorityKey");
@@ -148,7 +151,7 @@ public class Server : IServer
               ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
               retrymsg = "Too many failures in last 10 seconds";
 
-              WriteOutput($"Circuit breaker on => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}", ed);
+              _logger.LogError($"Circuit breaker on => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
             }
             else if (_requestsQueue.Count >= _options.MaxQueueLength)
             {
@@ -160,7 +163,7 @@ public class Server : IServer
               ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
               retrymsg = "Queue is full";
 
-              WriteOutput($"Queue is full  => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}", ed);
+              _logger.LogError($"Queue is full => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
             }
             else if (_backends.ActiveHostCount() == 0)
             {
@@ -172,7 +175,7 @@ public class Server : IServer
               ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
               retrymsg = "No active hosts";
 
-              WriteOutput($"No active hosts => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}", ed);
+              _logger.LogError($"No active hosts => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}", ed);
             }
 
             // Enqueue the request
@@ -187,7 +190,7 @@ public class Server : IServer
               ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
               retrymsg = "Failed to enqueue request";
 
-              WriteOutput($"Failed to enqueue request => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}", ed);
+              _logger.LogError($"Failed to enqueue request => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}", ed);
             }
 
             if (return429)
@@ -204,7 +207,7 @@ public class Server : IServer
                   await writer.WriteAsync(retrymsg);
                 }
                 rd.Context.Response.Close();
-                WriteOutput($"Pri: {priority} Stat: 429 Path: {rd.Path}");
+                _logger.LogError($"Pri: {priority} Stat: 429 Path: {rd.Path}");
               }
             }
             else
@@ -215,7 +218,7 @@ public class Server : IServer
               ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
               ed["Priority"] = priority.ToString();
 
-              WriteOutput($"Enqueued request.  Pri: {priority} Queue Length: {_requestsQueue.Count} Status: {_backends.CheckFailedStatus()} Active Hosts: {_backends.ActiveHostCount()}", ed);
+              _logger.LogInformation($"Enqueued request.  Pri: {priority} Queue Length: {_requestsQueue.Count} Status: {_backends.CheckFailedStatus()} Active Hosts: {_backends.ActiveHostCount()}", ed);
             }
           }
           else
@@ -226,49 +229,22 @@ public class Server : IServer
       }
       catch (IOException ioEx)
       {
-        WriteOutput($"An IO exception occurred: {ioEx.Message}");
+        _logger.LogError($"An IO exception occurred: {ioEx.Message}");
       }
       catch (OperationCanceledException)
       {
         // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
-        WriteOutput("Operation was canceled. Stopping the listener.");
+        _logger.LogInformation("Operation was canceled. Stopping the listener.");
         break; // Exit the loop
       }
       catch (Exception e)
       {
         _telemetryClient?.TrackException(e);
-        WriteOutput($"Error: {e.Message}\n{e.StackTrace}");
+        _logger.LogError($"Error: {e.Message}\n{e.StackTrace}");
       }
     }
     _requestsQueue.Stop();
-    WriteOutput("Listener task stopped.");
+    _logger.LogInformation("Listener task stopped.");
   }
 
-  private void WriteOutput(string data = "", Dictionary<string, string>? eventData = null)
-  {
-
-    // Log the data to the console
-    if (!string.IsNullOrEmpty(data))
-    {
-      Console.WriteLine(data);
-
-      // if eventData is null, create a new dictionary and add the message to it
-      if (eventData == null)
-      {
-        eventData = new Dictionary<string, string>();
-        eventData.Add("Message", data);
-      }
-    }
-
-    if (eventData == null)
-      eventData = new Dictionary<string, string>();
-
-    if (!eventData.TryGetValue("Type", out var typeValue))
-    {
-      eventData["Type"] = "S7P-Console";
-    }
-
-    string jsonData = JsonSerializer.Serialize(eventData);
-    _eventHubClient?.SendData(jsonData);
-  }
 }
