@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.DataContracts;
+using Microsoft.Extensions.Logging;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Queue;
 
@@ -26,15 +27,23 @@ public class ProxyWorker
     private readonly BackendOptions _options;
     private readonly TelemetryClient? _telemetryClient;
     private readonly IEventClient _eventClient;
+    private readonly ILogger<ProxyWorker> _logger;
     private string IDstr = "";
 
-
-    public ProxyWorker(CancellationToken cancellationToken, int ID, IBlockingPriorityQueue<RequestData> requestsQueue, BackendOptions backendOptions, IBackendService? backends, IEventClient eventClient, TelemetryClient? telemetryClient)
+    public ProxyWorker(
+      CancellationToken cancellationToken, 
+      int ID, 
+      IBlockingPriorityQueue<RequestData> requestsQueue, 
+      BackendOptions backendOptions, IBackendService? backends, 
+      IEventClient eventClient, 
+      TelemetryClient? telemetryClient,
+      ILogger<ProxyWorker> logger)
     {
         _cancellationToken = cancellationToken;
         _requestsQueue = requestsQueue ?? throw new ArgumentNullException(nameof(requestsQueue));
         _backends = backends ?? throw new ArgumentNullException(nameof(backends));
         _eventClient = eventClient;
+        _logger = logger;
         _telemetryClient = telemetryClient;
         _options = backendOptions ?? throw new ArgumentNullException(nameof(backendOptions));
         if (_options.Client == null) throw new ArgumentNullException(nameof(_options.Client));
@@ -55,7 +64,6 @@ public class ProxyWorker
       }
       catch (OperationCanceledException)
       {
-        //Console.WriteLine("Operation was cancelled. Stopping the worker.");
         break; // Exit the loop if the operation is cancelled
       }
 
@@ -130,7 +138,7 @@ public class ProxyWorker
             isExpired = true;
           }
 
-          Console.WriteLine($"Pri: {incomingRequest.Priority} Stat: {(int)pr.StatusCode} Len: {pr.ContentHeaders["Content-Length"]} {pr.FullURL}");
+          _logger.LogInformation($"Pri: {incomingRequest.Priority} Stat: {(int)pr.StatusCode} Len: {pr.ContentHeaders["Content-Length"]} {pr.FullURL}");
 
           proxyEvent.EventData["Url"] = pr.FullURL;
           proxyEvent.EventData["x-Response-Latency"] = (pr.ResponseDate - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
@@ -150,7 +158,7 @@ public class ProxyWorker
         {
           // Requeue the request 
           _requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.EnqueueTime);
-          Console.WriteLine($"Requeued request.  Pri: {incomingRequest.Priority} Queue Length: {_requestsQueue.Count} Status: {_backends.CheckFailedStatus()} Active Hosts: {_backends.ActiveHostCount()}");
+          _logger.LogInformation($"Requeued request.  Pri: {incomingRequest.Priority} Queue Length: {_requestsQueue.Count} Status: {_backends.CheckFailedStatus()} Active Hosts: {_backends.ActiveHostCount()}");
           requestWasRetried = true;
           incomingRequest.SkipDispose = true;
           proxyEvent.EventData["Url"] = e.pr.FullURL;
@@ -168,14 +176,14 @@ public class ProxyWorker
         {
           if (isExpired)
           {
-            Console.WriteLine("IoException on an exipred request");
+            _logger.LogError("IoException on an exipred request");
             continue;
           }
           proxyEvent.EventData["x-Status"] = "502";
           proxyEvent.EventData["Type"] = "S7P-IOException";
           proxyEvent.EventData["x-Message"] = ioEx.Message;
 
-          Console.WriteLine($"An IO exception occurred: {ioEx.Message}");
+          _logger.LogError($"An IO exception occurred: {ioEx.Message}");
           lcontext.Response.StatusCode = 502;
           var errorMessage = Encoding.UTF8.GetBytes($"Broken Pipe: {ioEx.Message}");
           try
@@ -184,7 +192,7 @@ public class ProxyWorker
           }
           catch (Exception writeEx)
           {
-            Console.WriteLine($"Failed to write error message: {writeEx.Message}");
+            _logger.LogError($"Failed to write error message: {writeEx.Message}");
             proxyEvent.EventData["x-Status"] = "Network Error";
             _eventClient.SendData(proxyEvent);
           }
@@ -197,8 +205,7 @@ public class ProxyWorker
         {
           if (isExpired)
           {
-            Console.WriteLine("Exception on an exipred request");
-            Console.WriteLine("IoException on an exipred request");
+            _logger.LogError("Exception on an exipred request");
             continue;
           }
 
@@ -208,15 +215,15 @@ public class ProxyWorker
 
           if (ex.Message == "Cannot access a disposed object." || ex.Message.StartsWith("Unable to write data") || ex.Message.Contains("Broken Pipe")) // The client likely closed the connection
           {
-            Console.WriteLine($"Client closed connection: {incomingRequest.FullURL}");
+            _logger.LogError($"Client closed connection: {incomingRequest.FullURL}");
             proxyEvent.EventData["x-Status"] = "Network Error";
             _eventClient.SendData(proxyEvent);
 
             continue;
           }
           // Log the exception
-          Console.WriteLine($"Exception: {ex.Message}");
-          Console.WriteLine($"Stack Trace: {ex.StackTrace}");
+          _logger.LogError($"Exception: {ex.Message}");
+          _logger.LogError($"Stack Trace: {ex.StackTrace}");
 
           // Set an appropriate status code for the error
           lcontext.Response.StatusCode = 500;
@@ -228,7 +235,7 @@ public class ProxyWorker
           }
           catch (Exception writeEx)
           {
-            Console.WriteLine($"Failed to write error message: {writeEx.Message}");
+            _logger.LogError($"Failed to write error message: {writeEx.Message}");
           }
         }
         finally
@@ -251,7 +258,7 @@ public class ProxyWorker
       }
     }
 
-    Console.WriteLine($"Worker {IDstr} stopped.");
+    _logger.LogInformation($"Worker {IDstr} stopped.");
   }
 
     private async Task WriteResponseAsync(HttpListenerContext context, ProxyData pr)
@@ -324,7 +331,7 @@ public class ProxyWorker
             var token = _backends.OAuth2Token();
             if (request.Debug)
             {
-                Console.WriteLine("Token: " + token);
+                _logger.LogDebug("Token: " + token);
             }
             // Set the token in the headers
             request.Headers.Set("Authorization", $"Bearer {token}");
@@ -373,7 +380,7 @@ public class ProxyWorker
 
                     if (request.Debug)
                     {
-                        Console.WriteLine($"> {request.Method} {request.FullURL} {bodyBytes.Length} bytes");
+                        _logger.LogDebug($"> {request.Method} {request.FullURL} {bodyBytes.Length} bytes");
                         LogHeaders(proxyRequest.Headers, ">");
                         LogHeaders(proxyRequest.Content.Headers, "  >");
                     }
@@ -398,15 +405,15 @@ public class ProxyWorker
                                         FullURL = request.FullURL,
                                     };
                                     bodyBytes = [];
-                                    Console.WriteLine($"Got: {temp_pr.StatusCode} {temp_pr.FullURL} {temp_pr.ContentHeaders["Content-Length"]} bytes");
-                                    Console.WriteLine($"< {temp_pr?.Body}");
+                                    _logger.LogDebug($"Got: {temp_pr.StatusCode} {temp_pr.FullURL} {temp_pr.ContentHeaders["Content-Length"]} bytes");
+                                    _logger.LogDebug($"< {temp_pr?.Body}");
                                 }
                                 catch (Exception e)
                                 {
-                                    Console.WriteLine($"Error reading from backend host: {e.Message}");
+                                    _logger.LogError($"Error reading from backend host: {e.Message}");
                                 }
 
-                                Console.WriteLine($"Trying next host: Response: {proxyResponse.StatusCode}");
+                                _logger.LogInformation($"Trying next host: Response: {proxyResponse.StatusCode}");
                             }
                             continue;
                         }
@@ -444,7 +451,7 @@ public class ProxyWorker
 
                         if (request.Debug)
                         {
-                            Console.WriteLine($"Got: {pr.StatusCode} {pr.FullURL}");
+                            _logger.LogDebug($"Got: {pr.StatusCode} {pr.FullURL}");
                         }
                         return pr ?? throw new ArgumentNullException(nameof(pr));
                     }
@@ -460,7 +467,6 @@ public class ProxyWorker
                 // 408 Request Timeout
                 lastStatusCode = HandleProxyRequestError(host, null, request.Timestamp, request.FullURL, HttpStatusCode.RequestTimeout, "Request to " + host.url + " timed out");
                 // log the stack trace 
-                //Console.WriteLine($"Error: {e.StackTrace}");
                 continue;
             }
             catch (OperationCanceledException e)
@@ -478,8 +484,8 @@ public class ProxyWorker
             catch (Exception e)
             {
                 // 500 Internal Server Error
-                Console.WriteLine($"Error: {e.StackTrace}");
-                Console.WriteLine($"Error: {e.Message}");
+                _logger.LogError($"Error: {e.StackTrace}");
+                _logger.LogError($"Error: {e.Message}");
                 lastStatusCode = HandleProxyRequestError(host, e, request.Timestamp, request.FullURL, HttpStatusCode.InternalServerError);
             }
 
@@ -546,7 +552,7 @@ public class ProxyWorker
     {
         foreach (var header in headers)
         {
-            Console.WriteLine($"{prefix} {header.Key} : {string.Join(", ", header.Value)}");
+            _logger.LogInformation($"{prefix} {header.Key} : {string.Join(", ", header.Value)}");
         }
     }
 
@@ -570,7 +576,7 @@ public class ProxyWorker
 
         if (!string.IsNullOrEmpty(customMessage))
         {
-            Console.WriteLine($"{e?.Message ?? customMessage}");
+            _logger.LogError($"{e?.Message ?? customMessage}");
         }
         var date = requestDate.ToString("o");
         _eventClient?.SendData($"{{\"Date\":\"{date}\", \"Url\":\"{url}\", \"Error\":\"{e?.Message ?? customMessage}\"}}");

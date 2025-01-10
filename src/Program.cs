@@ -163,12 +163,13 @@ public class Program
     }
     catch (OperationCanceledException)
     {
-      _logger.LogError("Operation was canceled.");
+      // Don't use logger here, as our logger may have been disposed
+      Console.WriteLine("Operation was canceled.");
     }
     catch (Exception e)
     {
       // Handle other exceptions that might occur
-      _logger.LogError($"An unexpected error occurred: {e.Message}");
+      Console.WriteLine($"An unexpected error occurred: {e.Message}");
     }
   }
 

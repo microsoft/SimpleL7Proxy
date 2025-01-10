@@ -1,4 +1,5 @@
 ﻿using Microsoft.ApplicationInsights;
+using Microsoft.Extensions.Logging;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Queue;
 using System;
@@ -22,6 +23,7 @@ public class ProxyWorkerCollection
     IBackendService backends,
     IEventClient eventClient,
     TelemetryClient telemetryClient,
+    ILogger<ProxyWorker> logger,
     CancellationToken cancellationToken)
   {
     _workers = new List<ProxyWorker>();
@@ -29,7 +31,7 @@ public class ProxyWorkerCollection
 
     for (int i = 0; i < backendOptions.Workers; i++)
     {
-      var pw = new ProxyWorker(cancellationToken, i, queue, backendOptions, backends, eventClient, telemetryClient);
+      var pw = new ProxyWorker(cancellationToken, i, queue, backendOptions, backends, eventClient, telemetryClient, logger);
       _workers.Add(pw);
       _cancellationToken = cancellationToken; // FIXME
     }

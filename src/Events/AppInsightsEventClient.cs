@@ -21,6 +21,7 @@ public class AppInsightsEventClient : IEventClient
 
   public void SendData(ProxyEvent proxyEvent)
   {
+    // TODO - check if there's a Type header
     if (string.IsNullOrEmpty(proxyEvent.Name))
     {
       proxyEvent.Name = "ProxyEvent";
