@@ -251,7 +251,7 @@ public class Program
 #if DEBUG
         // Load appsettings.json only in Debug mode
         var configuration = new ConfigurationBuilder()
-                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+                .AddJsonFile("appsettings.json", optional: true)
                 .AddEnvironmentVariables()
                 .Build();
 

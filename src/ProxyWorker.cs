@@ -1,6 +1,7 @@
 using System.Collections.Specialized;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using Microsoft.ApplicationInsights;
@@ -23,8 +24,7 @@ public class ProxyWorker
     private readonly BackendOptions _options;
     private readonly TelemetryClient? _telemetryClient;
     private readonly IEventHubClient? _eventHubClient;
-    private string IDstr = "";
-
+    private readonly string IDstr = "";
 
     public ProxyWorker(CancellationToken cancellationToken, int ID, BlockingPriorityQueue<RequestData> requestsQueue, BackendOptions backendOptions, IBackendService? backends, IEventHubClient? eventHubClient, TelemetryClient? telemetryClient)
     {
@@ -108,7 +108,7 @@ public class ProxyWorker
                     eventData["x-Request-Process-Duration"] = incomingRequest.Headers["x-Request-Process-Duration"] ?? "N/A";
                     eventData["x-S7PID"] = incomingRequest.MID ?? "N/A";
 
-                    var pr = await ReadProxyAsync(incomingRequest).ConfigureAwait(false);
+                    var pr = await ReadProxyAsync(incomingRequest, _cancellationToken).ConfigureAwait(false);
 
                     //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
 
@@ -253,7 +253,8 @@ public class ProxyWorker
         Console.WriteLine($"Worker {IDstr} stopped.");
     }
 
-    private async Task WriteResponseAsync(HttpListenerContext context, ProxyData pr)
+    private static async Task WriteResponseDataAsync(HttpListenerContext context,
+        ProxyData pr, CancellationToken token)
     {
         // Set the response status code  
         context.Response.StatusCode = (int)pr.ResponseMessage.StatusCode;
@@ -281,7 +282,7 @@ public class ProxyWorker
         }
     }
 
-    public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requestDate, string method, string path, WebHeaderCollection headers, Stream body)//HttpListenerResponse downStreamResponse)
+    public async Task<ProxyData> ReadProxyAsync(RequestData request, CancellationToken cancellationToken) //DateTime requestDate, string method, string path, WebHeaderCollection headers, Stream body)//HttpListenerResponse downStreamResponse)
     {
         if (request == null) throw new ArgumentNullException(nameof(request), "Request cannot be null.");
         if (request.Body == null) throw new ArgumentNullException(nameof(request.Body), "Request body cannot be null.");
@@ -293,16 +294,29 @@ public class ProxyWorker
 
         byte[] bodyBytes = await request.CachBodyAsync().ConfigureAwait(false);
         HttpStatusCode lastStatusCode = HttpStatusCode.ServiceUnavailable;
+        async Task<ProxyData> WriteProxyDataAsync(ProxyData data, CancellationToken token)
+        {
+            var context = request.Context
+                ?? throw new NullReferenceException("Request context cannot be null.");
+
+            data.ResponseMessage = new HttpResponseMessage(HttpStatusCode.InternalServerError);
+
+            await WriteResponseDataAsync(context, data, token);
+            return data;
+        }
 
         if (request.TTLSeconds == 0)
         {
             if (!CalculateTTL(request))
             {
-                return new ProxyData
+                HttpResponseMessage ttlResponseMessage = new(HttpStatusCode.InternalServerError);
+
+                ttlResponseMessage.Content = new StringContent("Invalid TTL format: " + request.Headers["S7PTTL"], Encoding.UTF8);
+                return await WriteProxyDataAsync(new()
                 {
                     StatusCode = HttpStatusCode.BadRequest,
-                    Body = Encoding.UTF8.GetBytes("Invalid TTL format: " + request.Headers["S7PTTL"])
-                };
+                    ResponseMessage = ttlResponseMessage
+                }, cancellationToken);
             }
         }
 
@@ -310,11 +324,15 @@ public class ProxyWorker
         if (request.TTLSeconds < DateTimeOffset.UtcNow.ToUnixTimeSeconds())
         {
             HandleProxyRequestError(null, null, request.Timestamp, request.FullURL, HttpStatusCode.Gone, "Request has expired: " + DateTimeOffset.UtcNow.ToLocalTime());
-            return new ProxyData
+            HttpResponseMessage invalidTTLResponseMessage = new(HttpStatusCode.InternalServerError);
+
+            invalidTTLResponseMessage.Content = new StringContent("Invalid TTL format: " + request.Headers["S7PTTL"], Encoding.UTF8);
+
+            return await WriteProxyDataAsync(new()
             {
                 StatusCode = HttpStatusCode.Gone,
-                Body = Encoding.UTF8.GetBytes("Request has expired: " + request.Headers["S7PTTL"])
-            };
+                ResponseMessage = invalidTTLResponseMessage
+            }, cancellationToken);
         }
 
         if (_options.UseOAuth)
@@ -329,8 +347,10 @@ public class ProxyWorker
             request.Headers.Set("Authorization", $"Bearer {token}");
         }
 
+        //TODO: Parallelize this
         foreach (var host in activeHosts)
         {
+            await Task.Yield();
             try
             {
                 request.Headers.Set("Host", host.host);
@@ -385,12 +405,12 @@ public class ProxyWorker
 
                         if (((int)proxyResponse.StatusCode > 300 && (int)proxyResponse.StatusCode < 400) || (int)proxyResponse.StatusCode >= 500)
                         {
-
                             if (request.Debug)
                             {
                                 try
                                 {
-                                    var temp_pr = new ProxyData()
+                                    //Why do this?
+                                    ProxyData temp_pr = new()
                                     {
                                         ResponseDate = responseDate,
                                         StatusCode = proxyResponse.StatusCode,
@@ -410,10 +430,9 @@ public class ProxyWorker
                             continue;
                         }
 
-
                         host.AddPxLatency((responseDate - ProxyStartDate).TotalMilliseconds);
 
-                        var pr = new ProxyData()
+                        ProxyData pr = new()
                         {
                             ResponseDate = responseDate,
                             StatusCode = proxyResponse.StatusCode,
@@ -439,19 +458,23 @@ public class ProxyWorker
                             request.SkipDispose = false;
                         }
 
-                        await WriteResponseAsync(request.Context, pr);
+                        var context = request.Context
+                            ?? throw new NullReferenceException("Request context cannot be null.");
+                        // TODO: Move to caller to handle writing errors?
+                        await WriteResponseDataAsync(context, pr, cancellationToken);
 
                         if (request.Debug)
                         {
                             Console.WriteLine($"Got: {pr.StatusCode} {pr.FullURL}");
                         }
-                        return pr ?? throw new ArgumentNullException(nameof(pr));
+                        return pr;
                     }
                 }
             }
             catch (S7PRequeueException)
             {
                 // rethrow the exception
+                //TODO: Figure out if this should write to the output stream.
                 throw;
             }
             catch (TaskCanceledException)
@@ -484,11 +507,14 @@ public class ProxyWorker
 
         }
 
-        return new ProxyData
+        HttpResponseMessage responseMessage = new(HttpStatusCode.InternalServerError);
+
+        responseMessage.Content = new StringContent("No active hosts were able to handle the request.", Encoding.UTF8);
+        return await WriteProxyDataAsync(new()
         {
             StatusCode = HttpStatusCode.BadGateway,
-            Body = Encoding.UTF8.GetBytes("No active hosts were able to handle the request.")
-        };
+            ResponseMessage = responseMessage
+        }, cancellationToken);
     }
 
     // Returns false if the TTL is invalid else returns true
@@ -587,5 +613,4 @@ public class ProxyWorker
         host?.AddError();
         return statusCode;
     }
-
 }

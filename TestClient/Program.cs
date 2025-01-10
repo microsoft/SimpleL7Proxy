@@ -50,7 +50,7 @@ namespace TestClient
                 new AssistantChatMessage("Arrr! Of course, me hearty! What can I do for ye?"),
                 new UserChatMessage("Write me a 2500 word paper on how to train a parrot to talk and be a friend. Be as proffessional and technical as possible and evaluate your response. Be long winded an imaginative."),
             ];
-            
+
             azureOpenAIService.StreamOutCompletion(Console.Write, chatMessages);
         }
 
@@ -87,12 +87,12 @@ namespace TestClient
         static ApplicationSettings GetApplicationSettings()
         {
             IConfigurationRoot config = new ConfigurationBuilder()
-                .AddJsonFile("appsettings.json")
+                .AddJsonFile("appsettings.json", true)
                 .AddUserSecrets(Assembly.GetExecutingAssembly())
                 .Build();
 
-            return config.GetSection("ApplicationSettings").Get<ApplicationSettings>();
+            return config.GetSection("ApplicationSettings").Get<ApplicationSettings>()
+                ?? throw new InvalidOperationException("ApplicationSettings not found in configuration.");
         }
     }
 }
-
