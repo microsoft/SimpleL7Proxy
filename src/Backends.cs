@@ -12,6 +12,7 @@ using Azure.Core;
 using System.Security.AccessControl;
 using System.Text.Json;
 using SimpleL7Proxy.Events;
+using Microsoft.ApplicationInsights;
 
 
 // This code has 3 objectives:  
@@ -36,9 +37,8 @@ public class Backends : IBackendService
     private object lockObj = new object();
     private readonly IEventClient _eventClient;
 
-
-    //public Backends(List<BackendHost> hosts, HttpClient client, int interval, int successRate)
-    public Backends(IOptions<BackendOptions> options, IEventClient eventClient)
+    private readonly TelemetryClient _telemetryClient;
+  public Backends(IOptions<BackendOptions> options, IEventClient eventClient, TelemetryClient telemetryClient)
     {
         if (options == null) throw new ArgumentNullException(nameof(options));
         if (options.Value == null) throw new ArgumentNullException(nameof(options.Value));
@@ -46,9 +46,10 @@ public class Backends : IBackendService
         if (options.Value.Client == null) throw new ArgumentNullException(nameof(options.Value.Client));
 
         _eventClient = eventClient;
+        _telemetryClient = telemetryClient;
 
 
-        var bo = options.Value; // Access the IBackendOptions instance
+    var bo = options.Value; // Access the IBackendOptions instance
 
         _hosts = bo.Hosts;
         _options = bo;
@@ -266,7 +267,7 @@ public class Backends : IBackendService
             return response.IsSuccessStatusCode;
         }
         catch (UriFormatException e) {
-            Program.telemetryClient?.TrackException(e);
+            _telemetryClient?.TrackException(e);
             WriteOutput($"Poller: Could not check probe: {e.Message}");
             probeData["Type"] = "Uri Format Exception";
             probeData["Code"] = "-";
@@ -277,7 +278,7 @@ public class Backends : IBackendService
             probeData["Code"] = "-";
                     }
         catch (HttpRequestException e) {
-            Program.telemetryClient?.TrackException(e);
+            _telemetryClient?.TrackException(e);
             WriteOutput($"Poller: Host {host.host} is down with exception: {e.Message}");
             probeData["Type"] = "HttpRequestException";
             probeData["Code"] = "-";
@@ -293,7 +294,7 @@ public class Backends : IBackendService
             probeData["Code"] = "-";
         }
         catch (Exception e) {
-            Program.telemetryClient?.TrackException(e);
+            _telemetryClient?.TrackException(e);
             WriteOutput($"Poller: Error: {e.Message}");
             probeData["Type"] = "Exception " + e.Message;
             probeData["Code"] = "-";

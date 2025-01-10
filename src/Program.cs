@@ -24,9 +24,8 @@ using OS = System;
 
 public class Program
 {
-  private static HttpClient hc = new HttpClient();
-  Program program = new Program();
-  public static TelemetryClient? telemetryClient;
+  private static TelemetryClient? _telemetryClient;
+  private static ILogger<Program>? _logger;
 
   static CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
   public string OAuthAudience { get; set; } = "";
@@ -36,15 +35,6 @@ public class Program
   {
     var cancellationToken = cancellationTokenSource.Token;
     var backendOptions = LoadBackendOptions();
-
-    // Set up logging
-    using var loggerFactory = LoggerFactory.Create(builder =>
-    {
-      builder.AddConsole();
-      builder.AddFilter("Azure.Identity", LogLevel.Debug);
-    });
-
-    var logger = loggerFactory.CreateLogger<Program>();
 
     Console.CancelKeyPress += (sender, e) =>
         {
@@ -78,8 +68,20 @@ public class Program
                 options.Workers = backendOptions.Workers;
               });
 
-          services.AddLogging(loggingBuilder => loggingBuilder.AddFilter<Microsoft.Extensions.Logging.ApplicationInsights.ApplicationInsightsLoggerProvider>("Category", LogLevel.Information));
           var aiConnectionString = OS.Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING") ?? "";
+
+          services.AddLogging(
+            loggingBuilder => {
+              if (!string.IsNullOrEmpty(aiConnectionString)) {
+                loggingBuilder.AddApplicationInsights(
+                  configureTelemetryConfiguration: (config) => config.ConnectionString = aiConnectionString,
+                  configureApplicationInsightsLoggerOptions: (options) => {  }
+                );
+              }
+              //loggingBuilder.AddFilter<Microsoft.Extensions.Logging.ApplicationInsights.ApplicationInsightsLoggerProvider>("Category", LogLevel.Information)
+              loggingBuilder.AddConsole();
+          });
+        
           if (aiConnectionString != null)
           {
             services.AddApplicationInsightsTelemetryWorkerService((ApplicationInsightsServiceOptions options) => options.ConnectionString = aiConnectionString);
@@ -87,8 +89,7 @@ public class Program
                 {
                   options.EnableRequestTrackingTelemetryModule = true;
                 });
-            if (aiConnectionString != "")
-              Console.WriteLine("AppInsights initialized");
+            Console.WriteLine("AppInsights initialized");
           }
 
           // Add the proxy event client
@@ -118,17 +119,9 @@ public class Program
     var serviceProvider = frameworkHost.Services;
 
     var backends = serviceProvider.GetRequiredService<IBackendService>();
-    //ILogger<Program> logger = serviceProvider.GetRequiredService<ILogger<Program>>();
-    try
-    {
-      Program.telemetryClient = serviceProvider.GetRequiredService<TelemetryClient>();
-      if (Program.telemetryClient != null)
-        Console.SetOut(new AppInsightsTextWriter(Program.telemetryClient, Console.Out));
-    }
-    catch (System.InvalidOperationException)
-    {
-    }
-
+    
+    _logger = serviceProvider.GetRequiredService<ILogger<Program>>();
+    
     backends.Start(cancellationToken);
 
     var server = serviceProvider.GetRequiredService<IServer>();
@@ -144,23 +137,23 @@ public class Program
     }
     catch (Exception e)
     {
-      Console.WriteLine($"Exiting: {e.Message}"); ;
+      _logger.LogError(e, "Exiting: {Message}", e.Message);
       System.Environment.Exit(1);
     }
 
     try
     {
       await server.Run();
-      Console.WriteLine("Waiting for tasks to complete for maximum 10 seconds");
+      _logger.LogInformation("Waiting for tasks to complete for maximum 10 seconds");
       var timeoutTask = Task.Delay(10000); // 10 seconds timeout
       var allTasks = pwCollection.GetAllProxyWorkerTasks();
       var completedTask = await Task.WhenAny(allTasks, timeoutTask);
     }
     catch (Exception e)
     {
-      telemetryClient?.TrackException(e);
-      Console.WriteLine($"Error: {e.Message}");
-      Console.WriteLine($"Stack Trace: {e.StackTrace}");
+      _telemetryClient?.TrackException(e);
+      _logger.LogError($"Error: {e.Message}");
+      _logger.LogError($"Stack Trace: {e.StackTrace}");
     }
 
     try
@@ -170,12 +163,12 @@ public class Program
     }
     catch (OperationCanceledException)
     {
-      Console.WriteLine("Operation was canceled.");
+      _logger.LogError("Operation was canceled.");
     }
     catch (Exception e)
     {
       // Handle other exceptions that might occur
-      Console.WriteLine($"An unexpected error occurred: {e.Message}");
+      _logger.LogError($"An unexpected error occurred: {e.Message}");
     }
   }
 
@@ -198,7 +191,7 @@ public class Program
     var envValue = Environment.GetEnvironmentVariable(variableName);
     if (string.IsNullOrEmpty(envValue))
     {
-      Console.WriteLine($"Using default: {variableName}: {defaultValue}");
+      _logger?.LogInformation($"Using default: {variableName}: {defaultValue}");
       return defaultValue;
     }
     return envValue.Trim();
@@ -224,7 +217,7 @@ public class Program
       }
       else
       {
-        Console.WriteLine($"Could not parse {item} as an integer, defaulting to 5");
+        _logger?.LogError($"Could not parse {item} as an integer, defaulting to 5");
         ints.Add(5);
       }
     }
@@ -304,7 +297,7 @@ public class Program
 
       try
       {
-        Console.WriteLine($"Found host {hostname} with probe path {probePath} and IP {ip}");
+        _logger?.LogInformation($"Found host {hostname} with probe path {probePath} and IP {ip}");
         var bh = new BackendHost(hostname, probePath, ip);
         backendOptions.Hosts.Add(bh);
 
@@ -313,7 +306,7 @@ public class Program
       }
       catch (UriFormatException e)
       {
-        Console.WriteLine($"Could not add Host{i} with {hostname} : {e.Message}");
+        _logger?.LogError($"Could not add Host{i} with {hostname} : {e.Message}");
       }
 
       i++;
@@ -322,7 +315,7 @@ public class Program
     if (Environment.GetEnvironmentVariable("APPENDHOSTSFILE")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true ||
         Environment.GetEnvironmentVariable("AppendHostsFile")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true)
     {
-      Console.WriteLine($"Adding {sb.ToString()} to /etc/hosts");
+      _logger?.LogInformation($"Appending {sb.ToString()} to /etc/hosts");
       using (StreamWriter sw = File.AppendText("/etc/hosts"))
       {
         sw.WriteLine(sb.ToString());

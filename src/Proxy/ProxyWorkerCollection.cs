@@ -31,7 +31,7 @@ public class ProxyWorkerCollection
     {
       var pw = new ProxyWorker(cancellationToken, i, queue, backendOptions, backends, eventClient, telemetryClient);
       _workers.Add(pw);
-      _cancellationToken = cancellationToken;
+      _cancellationToken = cancellationToken; // FIXME
     }
 
   }
