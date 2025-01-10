@@ -30,8 +30,7 @@ public class Program
     static CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
     public string OAuthAudience { get; set; } ="";  
 
-
-    public static async Task<int> Main(string[] args)
+    public static async Task Main(string[] args)
     {
         var cancellationToken = cancellationTokenSource.Token;
         var backendOptions = LoadBackendOptions();
@@ -46,62 +45,62 @@ public class Program
         var logger = loggerFactory.CreateLogger<Program>();
 
         Console.CancelKeyPress += (sender, e) =>
-        {
-            Console.WriteLine("Shutdown signal received. Initiating shutdown...");
-            e.Cancel = true; // Prevent the process from terminating immediately.
-            cancellationTokenSource.Cancel(); // Signal the application to shut down.
-        };
+            {
+                Console.WriteLine("Shutdown signal received. Initiating shutdown...");
+                e.Cancel = true; // Prevent the process from terminating immediately.
+                cancellationTokenSource.Cancel(); // Signal the application to shut down.
+            };
 
         var hostBuilder = Host.CreateDefaultBuilder(args).ConfigureServices((hostContext, services) =>
-        {        
-            // Register the configured BackendOptions instance with DI
-            services.Configure<BackendOptions>(options =>
-            {
-                options.Client = backendOptions.Client;
-                options.DefaultPriority = backendOptions.DefaultPriority;
-                options.DefaultTTLSecs = backendOptions.DefaultTTLSecs;
-                options.HostName = backendOptions.HostName;
-                options.Hosts = backendOptions.Hosts;
-                options.IDStr = backendOptions.IDStr;
-                options.LogHeaders = backendOptions.LogHeaders;
-                options.MaxQueueLength = backendOptions.MaxQueueLength;
-                options.OAuthAudience = backendOptions.OAuthAudience;
-                options.PriorityKeys = backendOptions.PriorityKeys;
-                options.PriorityValues = backendOptions.PriorityValues;
-                options.Port = backendOptions.Port;
-                options.PollInterval = backendOptions.PollInterval;
-                options.PollTimeout = backendOptions.PollTimeout;
-                options.SuccessRate = backendOptions.SuccessRate;
-                options.Timeout = backendOptions.Timeout;
-                options.UseOAuth = backendOptions.UseOAuth;
-                options.Workers = backendOptions.Workers;
-            });
-
-            services.AddLogging(loggingBuilder => loggingBuilder.AddFilter<Microsoft.Extensions.Logging.ApplicationInsights.ApplicationInsightsLoggerProvider>("Category", LogLevel.Information));
-            var aiConnectionString = Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING") ?? "";
-            if (aiConnectionString != null)
-            {
-                services.AddApplicationInsightsTelemetryWorkerService((ApplicationInsightsServiceOptions options) => options.ConnectionString = aiConnectionString);
-                services.AddApplicationInsightsTelemetry(options => 
-                { 
-                    options.EnableRequestTrackingTelemetryModule = true; 
+            {        
+                // Register the configured BackendOptions instance with DI
+                services.Configure<BackendOptions>(options =>
+                {
+                    options.Client = backendOptions.Client;
+                    options.DefaultPriority = backendOptions.DefaultPriority;
+                    options.DefaultTTLSecs = backendOptions.DefaultTTLSecs;
+                    options.HostName = backendOptions.HostName;
+                    options.Hosts = backendOptions.Hosts;
+                    options.IDStr = backendOptions.IDStr;
+                    options.LogHeaders = backendOptions.LogHeaders;
+                    options.MaxQueueLength = backendOptions.MaxQueueLength;
+                    options.OAuthAudience = backendOptions.OAuthAudience;
+                    options.PriorityKeys = backendOptions.PriorityKeys;
+                    options.PriorityValues = backendOptions.PriorityValues;
+                    options.Port = backendOptions.Port;
+                    options.PollInterval = backendOptions.PollInterval;
+                    options.PollTimeout = backendOptions.PollTimeout;
+                    options.SuccessRate = backendOptions.SuccessRate;
+                    options.Timeout = backendOptions.Timeout;
+                    options.UseOAuth = backendOptions.UseOAuth;
+                    options.Workers = backendOptions.Workers;
                 });
-                if (aiConnectionString != "")
-                    Console.WriteLine("AppInsights initialized");
-            }
 
-            var eventHubConnectionString = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING") ?? "";
-            var eventHubName = Environment.GetEnvironmentVariable("EVENTHUB_NAME") ?? "";
-            EventHubClient eventHubClient = new(eventHubConnectionString, eventHubName);
-            eventHubClient.StartTimer();
+                services.AddLogging(loggingBuilder => loggingBuilder.AddFilter<Microsoft.Extensions.Logging.ApplicationInsights.ApplicationInsightsLoggerProvider>("Category", LogLevel.Information));
+                var aiConnectionString = Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING") ?? "";
+                if (aiConnectionString != null)
+                {
+                    services.AddApplicationInsightsTelemetryWorkerService((ApplicationInsightsServiceOptions options) => options.ConnectionString = aiConnectionString);
+                    services.AddApplicationInsightsTelemetry(options => 
+                    { 
+                        options.EnableRequestTrackingTelemetryModule = true; 
+                    });
+                    if (aiConnectionString != "")
+                        Console.WriteLine("AppInsights initialized");
+                }
 
-            services.AddSingleton<IEventHubClient>(provider => eventHubClient);
-            services.AddSingleton<IBackendOptions>(backendOptions);
-            services.AddSingleton<IBackendService, Backends>();
-            services.AddSingleton<IServer, Server>();
-            services.AddSingleton<ProxyStreamWriter>();
-        });
+                var eventHubConnectionString = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING") ?? "";
+                var eventHubName = Environment.GetEnvironmentVariable("EVENTHUB_NAME") ?? "";
+                EventHubClient eventHubClient = new(eventHubConnectionString, eventHubName);
+                eventHubClient.StartTimer();
+
+                services.AddSingleton<IEventHubClient>(provider => eventHubClient);
+                services.AddSingleton<IBackendOptions>(backendOptions);
+                services.AddSingleton<IBackendService, Backends>();
+                services.AddSingleton<IServer, Server>();
+            });
     
+
         var frameworkHost = hostBuilder.Build();
         var serviceProvider = frameworkHost.Services;
         var backends = serviceProvider.GetRequiredService<IBackendService>();
@@ -113,51 +112,29 @@ public class Program
         }
         catch (InvalidOperationException)
         {
-            //TODO: handle this.
+            //TODO: Handle this exception
         }
 
         backends.Start(cancellationToken);
 
         var server = serviceProvider.GetRequiredService<IServer>();
         var eventHubClient = serviceProvider.GetRequiredService<IEventHubClient>();
-        BlockingPriorityQueue<RequestData> queue;
-        IQueryable<Task> tasks;
-        try
-        {
-            await backends.waitForStartup(20); // wait for up to 20 seconds for startup
-            queue = server.Start(cancellationToken);
-            queue.StartSignaler(cancellationToken);
-            
-            var proxyStreamWriter = serviceProvider.GetRequiredService<ProxyStreamWriter>();
-            // startup Worker # of tasks
-            tasks = Enumerable.Range(0, backendOptions.Workers)
-                .AsQueryable()
-                .Select(worker => new ProxyWorker(
-                    worker,
-                    proxyStreamWriter,
-                    queue,
-                    backendOptions,
-                    backends,
-                    eventHubClient,
-                    telemetryClient,
-                    cancellationToken))
-                .Select(x => Task.Run(() => x.TaskRunner(), cancellationToken));
-        }
-        catch (Exception e)
-        {
-            Console.WriteLine($"Exiting: {e.Message}"); ;
-            Environment.Exit(1);
-            return 1;
-        }
+        IEnumerable<Task> tasks = await QueueWork(
+            server,
+            eventHubClient,
+            backendOptions,
+            backends,
+            telemetryClient,
+            cancellationToken);
 
         try
-        {
-            var timeout = TimeSpan.FromSeconds(10);
-            var runTask = server.Run();
+        {        
+            await server.Run();
             Console.WriteLine("Waiting for tasks to complete for maximum 10 seconds");
-            await runTask; //.WaitAsync(timeout, cancellationToken);
             server.Queue().Stop();
-            await Task.WhenAll(tasks).WaitAsync(timeout, cancellationToken);
+            var timeoutTask = Task.Delay(10000); // 10 seconds timeout
+            var allTasks = Task.WhenAll(tasks);
+            var completedTask = await Task.WhenAny(allTasks, timeoutTask);
         }
         catch (Exception e)
         {
@@ -180,7 +157,6 @@ public class Program
             // Handle other exceptions that might occur
             Console.WriteLine($"An unexpected error occurred: {e.Message}");
         }
-        return 0;
     }
 
     // Rreads an environment variable and returns its value as an integer.
@@ -209,15 +185,14 @@ public class Program
     }
 
     // Converts a comma-separated string to a list of strings.
-    private static List<string> toListOfString(string s)
+    private static List<string> ToListOfString(string s)
     {
         return s.Split(',').Select(p => p.Trim()).ToList();
     }
 
     // Converts a comma-separated string to a list of integers.
-    private static List<int> toListOfInt(string s)
+    private static List<int> ToListOfInt(string s)
     {
-
         // parse each value in the list
         List<int> ints = new List<int>(); 
         foreach (var item in s.Split(','))
@@ -282,8 +257,8 @@ public class Program
             Port = ReadEnvironmentVariableOrDefault("Port", 443),
             PollInterval = ReadEnvironmentVariableOrDefault("PollInterval", 15000),
             PollTimeout = ReadEnvironmentVariableOrDefault("PollTimeout", 3000),
-            PriorityKeys = toListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
-            PriorityValues = toListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
+            PriorityKeys = ToListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
+            PriorityValues = ToListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
             SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
             Timeout = ReadEnvironmentVariableOrDefault("Timeout", 3000),
             UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", "false").Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true,
@@ -348,5 +323,42 @@ public class Program
         Console.WriteLine("Version: 2.0.0");
 
         return backendOptions;
+    }
+    
+    private static async Task<IEnumerable<Task>> QueueWork(
+        IServer server,
+        IEventHubClient eventHubClient,
+        BackendOptions backendOptions,
+        IBackendService backends,
+        TelemetryClient? telemetryClient,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await backends.waitForStartup(20); // wait for up to 20 seconds for startup
+            var queue = server.Start(cancellationToken);
+            queue.StartSignaler(cancellationToken);
+
+            ProxyStreamWriter proxyStreamWriter = new();
+            var queuedTasks = Enumerable.Range(0, backendOptions.Workers)
+                .AsQueryable()
+                .Select(worker => new ProxyWorker(
+                    worker,
+                    proxyStreamWriter,
+                    queue,
+                    backendOptions,
+                    backends,
+                    eventHubClient,
+                    telemetryClient,
+                    cancellationToken))
+                .Select(t => Task.Run(() => t.TaskRunner(), cancellationToken));
+            return [..queuedTasks];
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"Exiting: {e.Message}");
+            Environment.Exit(1);
+            throw;
+        }
     }
 }
