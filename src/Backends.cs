@@ -336,10 +336,11 @@ public class Backends : IBackendService
 
         int txActivity=0;
 
+        string statusIndicator = string.Empty;
         if (_hosts != null )
             foreach (var host in _hosts )
             {
-                string statusIndicator = host.SuccessRate() > _successRate ? "Good  " : "Errors";
+                statusIndicator = host.SuccessRate() > _successRate ? "Good  " : "Errors";
                 double roundedLatency = Math.Round(host.AverageLatency(), 3);
                 double successRatePercentage = Math.Round(host.SuccessRate() * 100, 2);
 
@@ -354,7 +355,7 @@ public class Backends : IBackendService
         _lastStatusDisplay = DateTime.Now;
         _hostStatus = sb.ToString();
 
-        if (_hostStatus.StartsWith("Good"))
+        if (statusIndicator.StartsWith("Good"))
         {
           _logger.LogInformation(_hostStatus);
         } else
