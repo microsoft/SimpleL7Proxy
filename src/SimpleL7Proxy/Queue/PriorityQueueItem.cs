@@ -1,15 +1,8 @@
 ﻿namespace SimpleL7Proxy.Queue;
 
-public class PriorityQueueItem<T>
+public class PriorityQueueItem<T>(T item, int priority, DateTime timestamp)
 {
-  public T Item { get; }
-  public int Priority { get; }
-  public DateTime Timestamp { get; }
-
-  public PriorityQueueItem(T item, int priority, DateTime timestamp)
-  {
-    Item = item;
-    Priority = priority;
-    Timestamp = timestamp;
-  }
+    public T Item { get; } = item;
+    public int Priority { get; } = priority;
+    public DateTime Timestamp { get; } = timestamp;
 }

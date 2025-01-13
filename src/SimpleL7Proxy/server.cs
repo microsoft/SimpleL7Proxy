@@ -4,19 +4,20 @@ using Microsoft.Extensions.Options;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Queue;
 using Microsoft.Extensions.Logging;
+namespace SimpleL7Proxy;
 
 // This class represents a server that listens for HTTP requests and processes them.
 // It uses a priority queue to manage incoming requests and supports telemetry for monitoring.
 // If the incoming request has the S7PPriorityKey header, it will be assigned a priority based the S7PPriority header.
 public class Server : IServer
 {
-  private BackendOptions? _options;
+  private readonly BackendOptions? _options;
   private readonly TelemetryClient? _telemetryClient; // Add this line
-  private HttpListener httpListener;
+  private readonly HttpListener _httpListener;
 
-  private Backends _backends;
+  private readonly Backends _backends;
   private CancellationToken _cancellationToken;
-  private IBlockingPriorityQueue<RequestData> _requestsQueue;
+  private readonly IBlockingPriorityQueue<RequestData> _requestsQueue;
   private readonly IEventClient? _eventHubClient;
   private readonly ILogger<Server> _logger;
 
@@ -41,25 +42,22 @@ public class Server : IServer
 
     var _listeningUrl = $"http://+:{_options.Port}/";
 
-    httpListener = new HttpListener();
-    httpListener.Prefixes.Add(_listeningUrl);
+    _httpListener = new HttpListener();
+    _httpListener.Prefixes.Add(_listeningUrl);
 
     var timeoutTime = TimeSpan.FromMilliseconds(_options.Timeout).ToString(@"hh\:mm\:ss\.fff");
     _logger.LogInformation($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
   }
 
-  public IBlockingPriorityQueue<RequestData> Queue()
-  {
-    return _requestsQueue;
-  }
+    public IBlockingPriorityQueue<RequestData> Queue() => _requestsQueue;
 
-  // Method to start the server and begin processing requests.
-  public void Start(CancellationToken cancellationToken)
+    // Method to start the server and begin processing requests.
+    public void Start(CancellationToken cancellationToken)
   {
     try
     {
       _cancellationToken = cancellationToken;
-      httpListener.Start();
+      _httpListener.Start();
       _logger.LogInformation($"Listening on {_options?.Port}");
       // Additional setup or async start operations can be performed here
 
@@ -95,28 +93,23 @@ public class Server : IServer
       try
       {
         // Use the CancellationToken to asynchronously wait for an HTTP request.
-        var getContextTask = httpListener.GetContextAsync();
-        using (var delayCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationToken))
+        var getContextTask = _httpListener.GetContextAsync();
+        using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationToken);
+        var delayTask = Task.Delay(Timeout.Infinite, delayCts.Token);
+        var completedTask = await Task.WhenAny(getContextTask, delayTask).ConfigureAwait(false);
+
+        // Cancel the delay task immedietly if the getContextTask completes first
+        if (completedTask == getContextTask)
         {
-          var delayTask = Task.Delay(Timeout.Infinite, delayCts.Token);
-
-          var completedTask = await Task.WhenAny(getContextTask, delayTask).ConfigureAwait(false);
-
-          //  control to allow other tasks to run .. doesn't make sense here
-          // await Task.Yield();
-
-          // Cancel the delay task immedietly if the getContextTask completes first
-          if (completedTask == getContextTask)
-          {
             var mid = "";
             try
             {
-              mid = _options.IDStr + counter++.ToString();
+                mid = _options.IDStr + counter++.ToString();
             }
             catch (OverflowException)
             {
-              mid = _options.IDStr + "0";
-              counter = 1;
+                mid = _options.IDStr + "0";
+                counter = 1;
             }
 
             delayCts.Cancel();
@@ -125,11 +118,11 @@ public class Server : IServer
             var priorityKey = rd.Headers.Get("S7PPriorityKey");
             if (!string.IsNullOrEmpty(priorityKey) && _options.PriorityKeys.Contains(priorityKey)) //lookup the priority
             {
-              var index = _options.PriorityKeys.IndexOf(priorityKey);
-              if (index >= 0)
-              {
-                priority = _options.PriorityValues[index];
-              }
+                var index = _options.PriorityKeys.IndexOf(priorityKey);
+                if (index >= 0)
+                {
+                    priority = _options.PriorityValues[index];
+                }
             }
             rd.Priority = priority;
             rd.EnqueueTime = DateTime.UtcNow;
@@ -137,92 +130,86 @@ public class Server : IServer
             var return429 = false;
             var retrymsg = "";
 
-            var ed = new Dictionary<string, string>();
+            Dictionary<string, string> ed = [];
             // Check circuit breaker status and enqueue the request
             if (_backends.CheckFailedStatus())
             {
-              return429 = true;
+                return429 = true;
 
-              ed["Type"] = "S7P-CircuitBreaker";
-              ed["Message"] = "Circuit breaker on - 429";
-              ed["QueueLength"] = _requestsQueue.Count.ToString();
-              ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
-              retrymsg = "Too many failures in last 10 seconds";
+                ed["Type"] = "S7P-CircuitBreaker";
+                ed["Message"] = "Circuit breaker on - 429";
+                ed["QueueLength"] = _requestsQueue.Count.ToString();
+                ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
+                retrymsg = "Too many failures in last 10 seconds";
 
-              _logger.LogError($"Circuit breaker on => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
+                _logger.LogError($"Circuit breaker on => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
             }
             else if (_requestsQueue.Count >= _options.MaxQueueLength)
             {
-              return429 = true;
+                return429 = true;
 
-              ed["Type"] = "S7P-QueueFull";
-              ed["Message"] = "Queue is full";
-              ed["QueueLength"] = _requestsQueue.Count.ToString();
-              ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
-              retrymsg = "Queue is full";
+                ed["Type"] = "S7P-QueueFull";
+                ed["Message"] = "Queue is full";
+                ed["QueueLength"] = _requestsQueue.Count.ToString();
+                ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
+                retrymsg = "Queue is full";
 
-              _logger.LogError($"Queue is full => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
+                _logger.LogError($"Queue is full => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}");
             }
             else if (_backends.ActiveHostCount() == 0)
             {
-              return429 = true;
+                return429 = true;
 
-              ed["Type"] = "S7P-NoActiveHosts";
-              ed["Message"] = "No active hosts";
-              ed["QueueLength"] = _requestsQueue.Count.ToString();
-              ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
-              retrymsg = "No active hosts";
+                ed["Type"] = "S7P-NoActiveHosts";
+                ed["Message"] = "No active hosts";
+                ed["QueueLength"] = _requestsQueue.Count.ToString();
+                ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
+                retrymsg = "No active hosts";
 
-              _logger.LogError($"No active hosts => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}", ed);
+                _logger.LogError($"No active hosts => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}", ed);
             }
-
             // Enqueue the request
-
             else if (!_requestsQueue.Enqueue(rd, priority, rd.EnqueueTime))
             {
-              return429 = true;
+                return429 = true;
 
-              ed["Type"] = "S7P-EnqueueFailed";
-              ed["Message"] = "Failed to enqueue request";
-              ed["QueueLength"] = _requestsQueue.Count.ToString();
-              ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
-              retrymsg = "Failed to enqueue request";
+                ed["Type"] = "S7P-EnqueueFailed";
+                ed["Message"] = "Failed to enqueue request";
+                ed["QueueLength"] = _requestsQueue.Count.ToString();
+                ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
+                retrymsg = "Failed to enqueue request";
 
-              _logger.LogError($"Failed to enqueue request => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}", ed);
+                _logger.LogError($"Failed to enqueue request => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}", ed);
             }
 
             if (return429)
             {
-
-              if (rd.Context is not null)
-              {
-                // send a 429 response to client in the number of milliseconds specified in Retry-After header
-                rd.Context.Response.StatusCode = 429;
-                rd.Context.Response.Headers["Retry-After"] = (_backends.ActiveHostCount() == 0) ? _options.PollInterval.ToString() : "500";
-
-                using (var writer = new System.IO.StreamWriter(rd.Context.Response.OutputStream))
+                if (rd.Context is not null)
                 {
-                  await writer.WriteAsync(retrymsg);
+                    // send a 429 response to client in the number of milliseconds specified in Retry-After header
+                    rd.Context.Response.StatusCode = 429;
+                    rd.Context.Response.Headers["Retry-After"] = (_backends.ActiveHostCount() == 0) ? _options.PollInterval.ToString() : "500";
+
+                    using StreamWriter writer = new(rd.Context.Response.OutputStream);
+                    await writer.WriteAsync(retrymsg);
+                    rd.Context.Response.Close();
+                    _logger.LogError($"Pri: {priority} Stat: 429 Path: {rd.Path}");
                 }
-                rd.Context.Response.Close();
-                _logger.LogError($"Pri: {priority} Stat: 429 Path: {rd.Path}");
-              }
             }
             else
             {
-              ed["Type"] = "S7P-Enqueue";
-              ed["Message"] = "Enqueued request";
-              ed["QueueLength"] = _requestsQueue.Count.ToString();
-              ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
-              ed["Priority"] = priority.ToString();
+                ed["Type"] = "S7P-Enqueue";
+                ed["Message"] = "Enqueued request";
+                ed["QueueLength"] = _requestsQueue.Count.ToString();
+                ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
+                ed["Priority"] = priority.ToString();
 
-              _logger.LogInformation($"Enqueued request.  Pri: {priority} Queue Length: {_requestsQueue.Count} Status: {_backends.CheckFailedStatus()} Active Hosts: {_backends.ActiveHostCount()}", ed);
+                _logger.LogInformation($"Enqueued request.  Pri: {priority} Queue Length: {_requestsQueue.Count} Status: {_backends.CheckFailedStatus()} Active Hosts: {_backends.ActiveHostCount()}", ed);
             }
-          }
-          else
-          {
+        }
+        else
+        {
             _cancellationToken.ThrowIfCancellationRequested(); // This will throw if the token is cancelled while waiting for a request.
-          }
         }
       }
       catch (IOException ioEx)
@@ -244,5 +231,4 @@ public class Server : IServer
     _requestsQueue.Stop();
     _logger.LogInformation("Listener task stopped.");
   }
-
 }

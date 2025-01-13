@@ -1,29 +1,32 @@
+
+using Microsoft.Extensions.Logging;
+
 public class BackendHost
 {
-    public string host;
-    public string? ipaddr;
-    public int port;
-    public string protocol;
-    public string probe_path;
+    public string Host { get; set; }
+    public string? IpAddr { get; set; }
+    public int Port { get; set; }
+    public string Protocol { get; set; }
+    public string ProbePath { get; set; }
 
-    string? _url = null;
-    string? _probeurl = null;
-    public string url => _url ??= new UriBuilder(protocol, ipaddr ?? host, port).Uri.AbsoluteUri;
+    private string? _url = null;
+    private string? _probeurl = null;
+    public string Url => _url ??= new UriBuilder(Protocol, IpAddr ?? Host, Port).Uri.AbsoluteUri;
 
-    public string probeurl => _probeurl ??= System.Net.WebUtility.UrlDecode( new UriBuilder(protocol, ipaddr ?? host, port, probe_path).Uri.AbsoluteUri );
+    public string ProbeUrl => _probeurl ??= System.Net.WebUtility.UrlDecode($"{Url}/{ProbePath}");
 
     private const int MaxData = 50;
-    private readonly Queue<double> latencies = new Queue<double>();
-    private readonly Queue<bool> callSuccess = new Queue<bool>();
-    public double calculatedAverageLatency { get;  set; }    
+    private readonly Queue<double> latencies = new();
+    private readonly Queue<bool> callSuccess = new();
+    public double CalculatedAverageLatency { get; set; }    
 
-    private Queue<double> PxLatency = new Queue<double>();
-    private int errors=0;
-    private object lockObj = new object();
+    private Queue<double> PxLatency = new();
+    private int errors = 0;
+    private readonly Lock lockObj = new();
+    private readonly ILogger<BackendHost> _logger;
 
-    public BackendHost(string hostname, string? probepath, string? ipaddress)
+    public BackendHost(string hostname, string? probepath, string? ipaddress, ILogger<BackendHost> logger)
     {
-
         // If host does not have a protocol, add one
         if (!hostname.StartsWith("http://") && !hostname.StartsWith("https://"))
         {
@@ -31,40 +34,40 @@ public class BackendHost
         }
 
         // if host ends with a slash, remove it
-        if (hostname.EndsWith("/"))
+        if (hostname.EndsWith('/'))
         {
-            hostname = hostname.Substring(0, hostname.Length - 1);
+            hostname = hostname[..^1];
         }
 
         // parse the host, prototol and port
-        Uri uri = new Uri(hostname);
-        protocol = uri.Scheme;
-        port = uri.Port;
-        host = uri.Host;
+        Uri uri = new(hostname);
+        Protocol = uri.Scheme;
+        Port = uri.Port;
+        Host = uri.Host;
 
-        probe_path = probepath ?? "echo/resource?param1=sample";
-        if (probe_path.StartsWith("/"))
+        ProbePath = probepath ?? "echo/resource?param1=sample";
+        _logger = logger;
+        if (ProbePath.StartsWith('/'))
         {
-            probe_path = probe_path.Substring(1);
+            ProbePath = ProbePath[1..];
         }
 
-        Console.WriteLine($"Adding backend host: {this.host}  probe path: {this.probe_path}");
-    //_logger.LogInformation($"Adding backend host: {this.host}  probe path: {this.probe_path}");
+        _logger.LogInformation($"Adding backend host: {Host}  probe path: {ProbePath}");
   }
-    public override string ToString()
-    {
-        return $"{protocol}://{host}:{port}";
-    }
+    public override string ToString() => $"{Protocol}://{Host}:{Port}";
 
     public void AddPxLatency(double latency)
     {
-        lock(lockObj) {
+        lock(lockObj)
+        {
             PxLatency.Enqueue(latency);
         }
     }
 
-    public void AddError() {
-        lock(lockObj) {
+    public void AddError()
+    {
+        lock(lockObj)
+        {
             errors++;
         }
     }
@@ -83,12 +86,12 @@ public class BackendHost
             return " - ";
         }
 
-        var status=PxLatency;
-        errorCalls=errors;
+        var status = PxLatency;
+        errorCalls = errors;
         lock (lockObj)
         {
             // Reset the counts
-            PxLatency = new Queue<double>();
+            PxLatency = new();
             errors = 0;
         }
 

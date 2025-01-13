@@ -4,12 +4,12 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using SimpleL7Proxy;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Queue;
 using System.Net;
 using System.Text;
-using OS = System;
 
 // This code serves as the entry point for the .NET application.
 // It sets up the necessary configurations, including logging and telemetry.
@@ -24,16 +24,17 @@ using OS = System;
 
 public class Program
 {
-  private static TelemetryClient? _telemetryClient;
+  private static readonly TelemetryClient? _telemetryClient;
   private static ILogger<Program>? _logger;
 
-  static CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+  static readonly CancellationTokenSource cancellationTokenSource = new();
   public string OAuthAudience { get; set; } = "";
 
   public static async Task Main(string[] args)
   {
     var cancellationToken = cancellationTokenSource.Token;
-    var backendOptions = LoadBackendOptions();
+    ILoggerFactory loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+    var backendOptions = LoadBackendOptions(loggerFactory);
 
     Console.CancelKeyPress += (sender, e) =>
         {
@@ -67,7 +68,7 @@ public class Program
                 options.Workers = backendOptions.Workers;
               });
 
-          var aiConnectionString = OS.Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING") ?? "";
+          var aiConnectionString = Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING") ?? "";
 
           services.AddLogging(
             loggingBuilder => {
@@ -92,8 +93,8 @@ public class Program
           }
 
           // Add the proxy event client
-          var eventHubConnectionString = OS.Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING");
-          var eventHubName = OS.Environment.GetEnvironmentVariable("EVENTHUB_NAME");
+          var eventHubConnectionString = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING");
+          var eventHubName = Environment.GetEnvironmentVariable("EVENTHUB_NAME");
           services.AddProxyEventClient(eventHubConnectionString, eventHubName, aiConnectionString);
 
           //services.AddHttpLogging(o => { });
@@ -126,7 +127,7 @@ public class Program
     var pwCollection = serviceProvider.GetRequiredService<ProxyWorkerCollection>();
     try
     {
-      await backends.waitForStartup(20); // wait for up to 20 seconds for startup
+      await backends.WaitForStartup(20); // wait for up to 20 seconds for startup
       server.Start(cancellationToken);
 
       pwCollection.StartWorkers();
@@ -134,7 +135,7 @@ public class Program
     catch (Exception e)
     {
       _logger.LogError(e, "Exiting: {Message}", e.Message);
-      System.Environment.Exit(1);
+            Environment.Exit(1);
     }
 
     try
@@ -173,7 +174,7 @@ public class Program
   // If the environment variable is not set, it returns the provided default value.
   private static int ReadEnvironmentVariableOrDefault(string variableName, int defaultValue)
   {
-    if (!int.TryParse(OS.Environment.GetEnvironmentVariable(variableName), out var value))
+    if (!int.TryParse(Environment.GetEnvironmentVariable(variableName), out var value))
     {
       Console.WriteLine($"Using default: {variableName}: {defaultValue}");
       return defaultValue;
@@ -194,16 +195,12 @@ public class Program
     return envValue.Trim();
   }
 
-  // Converts a comma-separated string to a list of strings.
-  private static List<string> toListOfString(string s)
-  {
-    return s.Split(',').Select(p => p.Trim()).ToList();
-  }
+    // Converts a comma-separated string to a list of strings.
+    private static List<string> ToListOfString(string s) => s.Split(',').Select(p => p.Trim()).ToList();
 
-  // Converts a comma-separated string to a list of integers.
-  private static List<int> toListOfInt(string s)
+    // Converts a comma-separated string to a list of integers.
+  private static List<int> ToListOfInt(string s)
   {
-
     // parse each value in the list
     List<int> ints = [];
     foreach (var item in s.Split(','))
@@ -226,29 +223,31 @@ public class Program
   // It also configures the DNS refresh timeout and sets up an HttpClient instance.
   // If the IgnoreSSLCert environment variable is set to true, it configures the HttpClient to ignore SSL certificate errors.
   // If the AppendHostsFile environment variable is set to true, it appends the IP addresses and hostnames to the /etc/hosts file.
-  private static BackendOptions LoadBackendOptions()
+  private static BackendOptions LoadBackendOptions(ILoggerFactory loggerFactory)
   {
+    var logger = loggerFactory.CreateLogger<BackendHost>();
     // Read and set the DNS refresh timeout from environment variables or use the default value
     var DNSTimeout = ReadEnvironmentVariableOrDefault("DnsRefreshTimeout", 120000);
     ServicePointManager.DnsRefreshTimeout = DNSTimeout;
 
     // Initialize HttpClient and configure it to ignore SSL certificate errors if specified in environment variables.
-    HttpClient _client = new HttpClient();
+    HttpClient _client = new();
     if (Environment.GetEnvironmentVariable("IgnoreSSLCert")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true)
     {
-      var handler = new HttpClientHandler();
-      handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
-      _client = new HttpClient(handler);
+      _client = new(new HttpClientHandler
+      {
+          ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
+      });
     }
 
     string replicaID = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REPLICA_NAME", "01");
 
 #if DEBUG
-        // Load appsettings.json only in Debug mode
-        var configuration = new ConfigurationBuilder()
-                .AddJsonFile("appsettings.json", optional: true)
-                .AddEnvironmentVariables()
-                .Build();
+    // Load appsettings.json only in Debug mode
+    var configuration = new ConfigurationBuilder()
+            .AddJsonFile("appsettings.json", optional: true)
+            .AddEnvironmentVariables()
+            .Build();
 
     foreach (var setting in configuration.GetSection("Settings").GetChildren())
     {
@@ -271,8 +270,8 @@ public class Program
       Port = ReadEnvironmentVariableOrDefault("Port", 443),
       PollInterval = ReadEnvironmentVariableOrDefault("PollInterval", 15000),
       PollTimeout = ReadEnvironmentVariableOrDefault("PollTimeout", 3000),
-      PriorityKeys = toListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
-      PriorityValues = toListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
+      PriorityKeys = ToListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
+      PriorityValues = ToListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
       SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
       Timeout = ReadEnvironmentVariableOrDefault("Timeout", 3000),
       UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", "false").Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true,
@@ -282,7 +281,7 @@ public class Program
     backendOptions.Client.Timeout = TimeSpan.FromMilliseconds(backendOptions.Timeout);
 
     int i = 1;
-    StringBuilder sb = new StringBuilder();
+    StringBuilder sb = new();
     while (true)
     {
 
@@ -296,10 +295,10 @@ public class Program
       {
         _logger?.LogInformation($"Found host {hostname} with probe path {probePath} and IP {ip}");
 
-        var bh = new BackendHost(hostname, probePath, ip);
+        BackendHost bh = new(hostname, probePath, ip, logger);
         backendOptions.Hosts.Add(bh);
 
-        sb.AppendLine($"{ip} {bh.host}");
+        sb.AppendLine($"{ip} {bh.Host}");
 
       }
       catch (UriFormatException e)
@@ -314,11 +313,9 @@ public class Program
         Environment.GetEnvironmentVariable("AppendHostsFile")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true)
     {
       _logger?.LogInformation($"Appending {sb.ToString()} to /etc/hosts");
-      using (StreamWriter sw = File.AppendText("/etc/hosts"))
-      {
-        sw.WriteLine(sb.ToString());
-      }
-    }
+            using StreamWriter sw = File.AppendText("/etc/hosts");
+            sw.WriteLine(sb.ToString());
+        }
 
     // confirm the number of priority keys and values match
     if (backendOptions.PriorityKeys.Count != backendOptions.PriorityValues.Count)

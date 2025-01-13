@@ -12,7 +12,7 @@ public class ProxyStreamWriterTestFixture
     {
         // Arrange
         ProxyStreamWriter concern = new();
-        var listenerResponse = new FakeHttpListenerResponse();
+        FakeHttpListenerResponse listenerResponse = new();
         const string proxyBody = "Hello, World!";
         ProxyData proxyData = new()
         {

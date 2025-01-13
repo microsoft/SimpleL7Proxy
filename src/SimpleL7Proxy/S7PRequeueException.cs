@@ -1,21 +1,20 @@
-using SimpleL7Proxy.Proxy;
-// This class represents the request received from the upstream client.
-public class S7PRequeueException : Exception, IDisposable
-{
+namespace SimpleL7Proxy;
+using Proxy;
 
-    public ProxyData pr { get; set; }
-    public S7PRequeueException(string message, ProxyData pd) : base(message)
+// This class represents the request received from the upstream client.
+public class S7PRequeueException(string message, ProxyData pd)
+    : Exception(message), IDisposable
+{
+    public ProxyData Pr { get; set; } = pd;
+
+    void IDisposable.Dispose()
     {
-        pr = pd;
-    }
-    public void Dispose()
-    {
-        // Dispose of unmanaged resources here
+        // TODO: Dispose of unmanaged resources here
     }
 
     public ValueTask DisposeAsync()
     {
-        Dispose();
+        ((IDisposable)this).Dispose();
         return ValueTask.CompletedTask;
     }
 }

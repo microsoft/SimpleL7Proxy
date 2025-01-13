@@ -1,3 +1,5 @@
+namespace SimpleL7Proxy;
+
 public class BackendOptions
 {
     public HttpClient? Client { get; set; }

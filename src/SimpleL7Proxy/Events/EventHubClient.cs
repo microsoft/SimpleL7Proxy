@@ -8,41 +8,41 @@ namespace SimpleL7Proxy.Events;
 public class EventHubClient : IEventClient
 {
 
-    private EventHubProducerClient producerClient;
-    private EventDataBatch batchData;
-    private CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+    private readonly EventHubProducerClient _producerClient;
+    private EventDataBatch _batchData;
+    private readonly CancellationTokenSource _cancellationTokenSource = new();
     private bool isRunning = false;
-    private ConcurrentQueue<string> _logBuffer = new ConcurrentQueue<string>();
+    private readonly ConcurrentQueue<string> _logBuffer = new();
 
     public EventHubClient(string connectionString, string eventHubName)
     {
-        producerClient = new EventHubProducerClient(connectionString, eventHubName);
-        batchData = producerClient.CreateBatchAsync().Result;
+        _producerClient = new EventHubProducerClient(connectionString, eventHubName);
+        _batchData = _producerClient.CreateBatchAsync().Result; //TODO: Don't await in constructors.
         isRunning = true;
     }
 
     public void StartTimer()
     {
-        if (isRunning && producerClient is not null && batchData is not null)
+        if (isRunning && _producerClient is not null && _batchData is not null)
             Task.Run(() => WriterTask());
     }
 
     public async Task WriterTask()
     {
-        if (batchData is null || producerClient is null)
+        if (_batchData is null || _producerClient is null)
             return;
             
         try {
 
-            while (!cancellationTokenSource.Token.IsCancellationRequested)
+            while (!_cancellationTokenSource.Token.IsCancellationRequested)
             {
                 if (GetNextBatch(100) > 0)
                 {
-                    await producerClient.SendAsync(batchData);
-                    batchData = await producerClient.CreateBatchAsync();
+                    await _producerClient.SendAsync(_batchData);
+                    _batchData = await _producerClient.CreateBatchAsync();
                 }
 
-                await Task.Delay(1000, cancellationTokenSource.Token); // Wait for 1 second
+                await Task.Delay(1000, _cancellationTokenSource.Token); // Wait for 1 second
             }
 
         } catch (TaskCanceledException) {
@@ -52,7 +52,7 @@ public class EventHubClient : IEventClient
             while (true) {
                 if (GetNextBatch(100) > 0)
                 {
-                    await producerClient.SendAsync(batchData);
+                    await _producerClient.SendAsync(_batchData);
                 } else {
                     break;
                 }
@@ -63,32 +63,30 @@ public class EventHubClient : IEventClient
     // Add the log to the batch up to count number at a time
     private int GetNextBatch(int count)
     {
-        if (batchData is null)
+        if (_batchData is null)
           return 0;
 
         while (_logBuffer.TryDequeue(out string? log) && count-- > 0)
         {
-            batchData.TryAdd(new EventData(Encoding.UTF8.GetBytes(log)));
+            _batchData.TryAdd(new EventData(Encoding.UTF8.GetBytes(log)));
         }
 
-        return batchData.Count;
+        return _batchData.Count;
     }
 
     public void StopTimer()
     {
         if (isRunning)
-            cancellationTokenSource.Cancel();
+            _cancellationTokenSource.Cancel();
         isRunning = false;
     }
 
     public void SendData(string? value)
     {
-        if (!isRunning) return;
-
-        if (value == null) return;
+        if (!isRunning || value == null) return;
 
         if (value.StartsWith("\n\n")) 
-            value = value.Substring(2);
+            value = value[2..];
         
         _logBuffer.Enqueue(value);
     }
@@ -99,5 +97,4 @@ public class EventHubClient : IEventClient
         string jsonData = JsonSerializer.Serialize(proxyEvent.EventData);
         SendData(jsonData);
     }
-
 }

@@ -25,10 +25,19 @@ public class ProxyWorkerCollection
     _tasks = [];
     for (int i = 0; i < backendOptions.Workers; i++)
     {
-      var pw = new ProxyWorker(cancellationToken, i, queue, backendOptions, backends, eventClient, telemetryClient, logger, proxyStreamWriter);
-      _workers.Add(pw);
-      _cancellationToken = cancellationToken; // FIXME
+      _workers.Add(new(
+        i,
+        queue,
+        backendOptions,
+        backends,
+        eventClient,
+        telemetryClient,
+        logger,
+        proxyStreamWriter,
+        cancellationToken));
     }
+    
+    _cancellationToken = cancellationToken; // FIXME
   }
 
   public void StartWorkers()

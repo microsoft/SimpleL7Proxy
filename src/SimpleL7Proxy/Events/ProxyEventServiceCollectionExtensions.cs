@@ -24,7 +24,7 @@ public static class ProxyEventServiceCollectionExtensions
 
     services.AddSingleton<IEventClient, CompositeEventClient>(svc =>
     {
-      var clients = new List<IEventClient>();
+      List<IEventClient> clients = [];
       var eventHubClient = svc.GetService<EventHubClient>();
       var appInsightsClient = svc.GetService<AppInsightsEventClient>();
       if (eventHubClient != null)
@@ -35,7 +35,7 @@ public static class ProxyEventServiceCollectionExtensions
       {
         clients.Add(appInsightsClient);
       }
-      return new CompositeEventClient(clients);
+      return new(clients);
     });
 
     return services;

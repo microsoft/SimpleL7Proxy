@@ -8,5 +8,5 @@ public interface IBlockingPriorityQueue<T>
   int Count { get; }
   bool Enqueue(T item, int priority, DateTime timestamp);
   bool Requeue(T item, int priority, DateTime timestamp);
-  Task<T> Dequeue(CancellationToken cancellationToken, string id);
+  Task<T> Dequeue(string id, CancellationToken cancellationToken);
 }

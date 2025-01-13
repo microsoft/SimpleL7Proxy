@@ -66,7 +66,6 @@ public class RequestData : IDisposable, IAsyncDisposable
     // Implement IDisposable
     public void Dispose()
     {
-
         if (SkipDispose)
         {
             return;
@@ -74,7 +73,6 @@ public class RequestData : IDisposable, IAsyncDisposable
 
         Dispose(true);
         GC.SuppressFinalize(this);
-    
     }
 
     protected virtual void Dispose(bool disposing)
@@ -114,8 +112,6 @@ public class RequestData : IDisposable, IAsyncDisposable
 
     protected virtual async ValueTask DisposeAsyncCore()
     {
-
-
         if (SkipDispose)
         {
             return;

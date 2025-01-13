@@ -4,12 +4,13 @@ namespace SimpleL7Proxy.Queue;
 
 public class TaskSignaler<T>
 {
-  private readonly ConcurrentDictionary<string, TaskCompletionSource<T>> _taskCompletionSources = new ConcurrentDictionary<string, TaskCompletionSource<T>>();
-  private readonly Random _random = new Random();
+  private readonly ConcurrentDictionary<string, TaskCompletionSource<T>> _taskCompletionSources = new();
+  private readonly Random _random = new();
 
-  public Task<T> WaitForSignalAsync(string taskId)
+  public Task<T> WaitForSignalAsync(string taskId, CancellationToken cancellationToken)
   {
-    var tcs = new TaskCompletionSource<T>();
+    //TODO: Implement cancellation token
+    TaskCompletionSource<T> tcs = new();
     _taskCompletionSources[taskId] = tcs;
     return tcs.Task;
   }
@@ -47,8 +48,5 @@ public class TaskSignaler<T>
     }
   }
 
-  public bool HasWaitingTasks()
-  {
-    return !_taskCompletionSources.IsEmpty;
-  }
+  public bool HasWaitingTasks() => !_taskCompletionSources.IsEmpty;
 }

@@ -2,33 +2,24 @@
 
 namespace SimpleL7Proxy.Queue;
 
-public class BlockingPriorityQueue<T> : IBlockingPriorityQueue<T>
+public class BlockingPriorityQueue<T>(
+  PriorityQueue<T> baseQueue,
+  TaskSignaler<T> taskSignaler,
+  BackendOptions backendOptions,
+  ILogger<BlockingPriorityQueue<T>> logger)
+  : IBlockingPriorityQueue<T>
 {
-  private readonly PriorityQueue<T> _priorityQueue;
-  private readonly object _lock = new object();
-  private readonly ManualResetEventSlim _enqueueEvent = new ManualResetEventSlim(false);
-  private TaskSignaler<T> _taskSignaler;
-  private ILogger<BlockingPriorityQueue<T>> _logger;
+  private readonly PriorityQueue<T> _priorityQueue = baseQueue;
+  private readonly Lock _lock = new();
+  private readonly ManualResetEventSlim _enqueueEvent = new(false);
+  private readonly TaskSignaler<T> _taskSignaler = taskSignaler;
+  private readonly ILogger<BlockingPriorityQueue<T>> _logger = logger;
 
-  public BlockingPriorityQueue(PriorityQueue<T> baseQueue, TaskSignaler<T> taskSignaler, BackendOptions backendOptions, ILogger<BlockingPriorityQueue<T>> logger)
-  {
-    MaxQueueLength = backendOptions.MaxQueueLength;
-    _priorityQueue = baseQueue;
-    _taskSignaler = taskSignaler;
-    _logger = logger;
-  }
-
-  public int MaxQueueLength { get; private set; }
+  public int MaxQueueLength { get; private set; } = backendOptions.MaxQueueLength;
 
   public void StartSignaler(CancellationToken cancellationToken)
-  {
-    Task.Run(() => SignalWorker(cancellationToken), cancellationToken);
-  }
-  public void Stop()
-  {
-    // Shutdown
-    _taskSignaler.CancelAllTasks();
-  }
+    => Task.Run(() => SignalWorker(cancellationToken), cancellationToken);
+  public void Stop() => _taskSignaler.CancelAllTasks();
 
   // Thread-safe Count property
   public int Count
@@ -50,10 +41,9 @@ public class BlockingPriorityQueue<T> : IBlockingPriorityQueue<T>
       {
         return false;
       }
-      var queueItem = new PriorityQueueItem<T>(item, priority, timestamp);
+      PriorityQueueItem<T> queueItem = new(item, priority, timestamp);
       _priorityQueue.Enqueue(queueItem);
       _enqueueEvent.Set(); // Signal that an item has been added
-
     }
 
     return true;
@@ -63,17 +53,15 @@ public class BlockingPriorityQueue<T> : IBlockingPriorityQueue<T>
   {
     lock (_lock)
     {
-      var queueItem = new PriorityQueueItem<T>(item, priority, timestamp);
+      PriorityQueueItem<T> queueItem = new(item, priority, timestamp);
       _priorityQueue.Enqueue(queueItem);
       _enqueueEvent.Set(); // Signal that an item has been added
-
-      //Monitor.Pulse(_lock); // Signal that an item has been added
     }
 
     return true;
   }
 
-  public async Task SignalWorker(CancellationToken cancellationToken)
+  public Task SignalWorker(CancellationToken cancellationToken)
   {
     while (!cancellationToken.IsCancellationRequested)
     {
@@ -93,7 +81,7 @@ public class BlockingPriorityQueue<T> : IBlockingPriorityQueue<T>
         }
         else
         {
-          Task.Delay(10).Wait(); // Wait for 10 ms for a Task Worker to be ready
+          Task.Delay(10, cancellationToken).Wait(cancellationToken); // Wait for 10 ms for a Task Worker to be ready
         }
       }
     }
@@ -101,19 +89,18 @@ public class BlockingPriorityQueue<T> : IBlockingPriorityQueue<T>
 
     // Shutdown
     _taskSignaler.CancelAllTasks();
+    return Task.CompletedTask; // TODO: refactor this to a proper task completion source implementation.
   }
 
-  public async Task<T> Dequeue(CancellationToken cancellationToken, string id)
+  public async Task<T> Dequeue(string id, CancellationToken cancellationToken)
   {
     try
     {
-      var parameter = await _taskSignaler.WaitForSignalAsync(id);
-      return parameter;
+      return await _taskSignaler.WaitForSignalAsync(id, cancellationToken);
     }
     catch (TaskCanceledException)
     {
       throw;
     }
   }
-
 }

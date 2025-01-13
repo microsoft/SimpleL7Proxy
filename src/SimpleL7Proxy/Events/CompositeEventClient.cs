@@ -1,17 +1,11 @@
 ﻿namespace SimpleL7Proxy.Events;
 
-public class CompositeEventClient : IEventClient
+public class CompositeEventClient(IEnumerable<IEventClient> eventClients)
+  : IEventClient
 {
-  private readonly IEnumerable<IEventClient> _eventClients;
-
-  public CompositeEventClient(IEnumerable<IEventClient> eventClients)
-  {
-    _eventClients = eventClients;
-  }
-
   public void SendData(string? value)
   {
-    foreach (var client in _eventClients)
+    foreach (var client in eventClients)
     {
       client.SendData(value);
     }
@@ -19,7 +13,7 @@ public class CompositeEventClient : IEventClient
 
   public void SendData(ProxyEvent proxyEvent)
   {
-    foreach (var client in _eventClients)
+    foreach (var client in eventClients)
     {
       client.SendData(proxyEvent);
     }
