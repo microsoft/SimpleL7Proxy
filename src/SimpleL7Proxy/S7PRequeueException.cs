@@ -1,5 +1,4 @@
-using System;
-using System.Threading.Tasks;
+using SimpleL7Proxy.Proxy;
 // This class represents the request received from the upstream client.
 public class S7PRequeueException : Exception, IDisposable
 {

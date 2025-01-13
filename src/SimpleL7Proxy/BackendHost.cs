@@ -1,7 +1,3 @@
-using OS = System;
-using System.Collections.Generic;
-
-
 public class BackendHost
 {
     public string host;
@@ -28,7 +24,6 @@ public class BackendHost
     public BackendHost(string hostname, string? probepath, string? ipaddress)
     {
 
-
         // If host does not have a protocol, add one
         if (!hostname.StartsWith("http://") && !hostname.StartsWith("https://"))
         {
@@ -53,20 +48,9 @@ public class BackendHost
             probe_path = probe_path.Substring(1);
         }
 
-        // Uncomment UNTIL sslStream is implemented
-        // if (ipaddress != null)
-        // {
-        //     // Valudate that the address is in the right format
-        //     if (!System.Net.IPAddress.TryParse(ipaddress, out _))
-        //     {
-        //         throw new System.UriFormatException($"Invalid IP address: {ipaddress}");
-        //     }
-        //     ipaddr = ipaddress;
-        // }
-
-
         Console.WriteLine($"Adding backend host: {this.host}  probe path: {this.probe_path}");
-    }
+    //_logger.LogInformation($"Adding backend host: {this.host}  probe path: {this.probe_path}");
+  }
     public override string ToString()
     {
         return $"{protocol}://{host}:{port}";

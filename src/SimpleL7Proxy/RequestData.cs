@@ -1,8 +1,4 @@
-using System;
-using System.IO;
 using System.Net;
-using System.Threading.Tasks;
-using Microsoft.Azure.Amqp;
 
 // This class represents the request received from the upstream client.
 

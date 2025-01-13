@@ -1,4 +1,4 @@
-public class BackendOptions : IBackendOptions
+public class BackendOptions
 {
     public HttpClient? Client { get; set; }
     public int DefaultPriority { get; set; }
