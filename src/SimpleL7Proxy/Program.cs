@@ -213,7 +213,7 @@ public class Program
     // It also configures the DNS refresh timeout and sets up an HttpClient instance.
     // If the IgnoreSSLCert environment variable is set to true, it configures the HttpClient to ignore SSL certificate errors.
     // If the AppendHostsFile environment variable is set to true, it appends the IP addresses and hostnames to the /etc/hosts file.
-     private static BackendOptions LoadBackendOptions()
+    private static BackendOptions LoadBackendOptions()
     {
         // Read and set the DNS refresh timeout from environment variables or use the default value
         var DNSTimeout= ReadEnvironmentVariableOrDefault("DnsRefreshTimeout", 120000);
