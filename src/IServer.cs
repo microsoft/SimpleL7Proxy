@@ -1,10 +1,7 @@
-
-using System.Collections.Concurrent;
+using SimpleL7Proxy.Queue;
 
 public interface IServer
 {
     Task Run();
-    //BlockingCollection<RequestData> Start(CancellationToken cancellationToken);
-    BlockingPriorityQueue<RequestData> Start(CancellationToken cancellationToken);
-    BlockingPriorityQueue<RequestData> Queue();
+    void Start(CancellationToken cancellationToken);
 }
