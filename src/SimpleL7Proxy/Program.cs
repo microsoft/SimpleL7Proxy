@@ -205,7 +205,7 @@ public class Program
   {
 
     // parse each value in the list
-    List<int> ints = new List<int>();
+    List<int> ints = [];
     foreach (var item in s.Split(','))
     {
       if (int.TryParse(item.Trim(), out int value))
@@ -263,7 +263,7 @@ public class Program
       DefaultPriority = ReadEnvironmentVariableOrDefault("DefaultPriority", 2),
       DefaultTTLSecs = ReadEnvironmentVariableOrDefault("DefaultTTLSecs", 300),
       HostName = ReadEnvironmentVariableOrDefault("Hostname", "Default"),
-      Hosts = new List<BackendHost>(),
+      Hosts = [],
       IDStr = ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P") + "-" + replicaID + "-",
       LogHeaders = ReadEnvironmentVariableOrDefault("LogHeaders", "").Split(',').Select(x => x.Trim()).ToList(),
       MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),

@@ -27,7 +27,7 @@ public class ProxyWorker
     private readonly TelemetryClient? _telemetryClient;
     private readonly IEventClient _eventClient;
     private readonly ILogger<ProxyWorker> _logger;
-    private readonly ProxyStreamWriter proxyStreamWriter;
+    private readonly ProxyStreamWriter _proxyStreamWriter;
     private readonly string IDstr = "";
 
     public ProxyWorker(
@@ -45,7 +45,7 @@ public class ProxyWorker
         _backends = backends ?? throw new ArgumentNullException(nameof(backends));
         _eventClient = eventClient;
         _logger = logger;
-        this.proxyStreamWriter = proxyStreamWriter;
+        _proxyStreamWriter = proxyStreamWriter;
         _telemetryClient = telemetryClient;
         _options = backendOptions ?? throw new ArgumentNullException(nameof(backendOptions));
         if (_options.Client == null) throw new ArgumentNullException(nameof(_options.Client));
@@ -263,33 +263,11 @@ public class ProxyWorker
     _logger.LogInformation($"Worker {IDstr} stopped.");
   }
 
-    private static async Task WriteResponseDataAsync(HttpListenerContext context,
+    private Task WriteResponseDataAsync(HttpListenerContext context,
         ProxyData pr, CancellationToken token)
     {
-        // Set the response status code  
-        context.Response.StatusCode = (int)pr.ResponseMessage.StatusCode;
-
-        if (pr.ResponseMessage.Content.Headers != null)
-        {
-            foreach (var header in pr.ResponseMessage.Content.Headers)
-            {
-                context.Response.Headers[header.Key] = string.Join(", ", header.Value);
-
-                if (header.Key.ToLower().Equals("content-length"))
-                {
-                    context.Response.ContentLength64 = pr.ResponseMessage.Content.Headers.ContentLength ?? 0;
-                }
-            }
-        }
-
-        context.Response.KeepAlive = false;
-        // Stream the response body to the client  
-        if (pr.ResponseMessage.Content != null)
-        {
-            await using var responseStream = await pr.ResponseMessage.Content.ReadAsStreamAsync().ConfigureAwait(false);
-            await responseStream.CopyToAsync(context.Response.OutputStream).ConfigureAwait(false);
-            await context.Response.OutputStream.FlushAsync().ConfigureAwait(false);
-        }
+        HttpListenerResponseWrapper listener = new(context.Response);
+        return _proxyStreamWriter.WriteResponseDataAsync(listener, pr, token);
     }
 
     public async Task<ProxyData> ReadProxyAsync(RequestData request, CancellationToken cancellationToken) //DateTime requestDate, string method, string path, WebHeaderCollection headers, Stream body)//HttpListenerResponse downStreamResponse)

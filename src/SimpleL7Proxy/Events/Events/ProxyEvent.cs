@@ -2,6 +2,6 @@
 
 public class ProxyEvent
 {
-  public Dictionary<string, string> EventData { get; private set; } = new Dictionary<string, string>();
+  public Dictionary<string, string> EventData { get; private set; } = [];
   public string Name { get; set; } = string.Empty;
 }

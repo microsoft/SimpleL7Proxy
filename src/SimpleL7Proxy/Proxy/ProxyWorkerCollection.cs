@@ -21,8 +21,8 @@ public class ProxyWorkerCollection
     CancellationToken cancellationToken,
     ProxyStreamWriter proxyStreamWriter)
   {
-    _workers = new List<ProxyWorker>();
-    _tasks = new List<Task>();
+    _workers = [];
+    _tasks = [];
     for (int i = 0; i < backendOptions.Workers; i++)
     {
       var pw = new ProxyWorker(cancellationToken, i, queue, backendOptions, backends, eventClient, telemetryClient, logger, proxyStreamWriter);

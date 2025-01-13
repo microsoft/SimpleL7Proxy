@@ -47,7 +47,7 @@ public class Backends
 
         _hosts = bo.Hosts;
         _options = bo;
-        _activeHosts = new List<BackendHost>();
+        _activeHosts = [];
         _successRate = bo.SuccessRate / 100.0;
     }
 
@@ -63,7 +63,7 @@ public class Backends
     }   
 
 
-    List<DateTime> hostFailureTimes = new List<DateTime>();
+    List<DateTime> hostFailureTimes = [];
     private const int FailureThreshold = 5;
     private const int FailureTimeFrame = 10; // seconds
 
@@ -143,7 +143,7 @@ public class Backends
         throw new Exception("Backend Poller did not start in time.");
     }
     
-    Dictionary<string, bool> currentHostStatus = new Dictionary<string, bool>();
+    Dictionary<string, bool> currentHostStatus = [];
     private async Task Run() {
 
         using (HttpClient _client = CreateHttpClient()) {

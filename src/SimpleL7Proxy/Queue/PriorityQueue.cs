@@ -2,7 +2,7 @@ namespace SimpleL7Proxy.Queue;
 
 public class PriorityQueue<T>
 {
-    private readonly List<PriorityQueueItem<T>> _items = new List<PriorityQueueItem<T>>();
+    private readonly List<PriorityQueueItem<T>> _items = [];
     private static readonly PriorityQueueItemComparer<T> Comparer = new PriorityQueueItemComparer<T>();
 
     public int Count => _items.Count;

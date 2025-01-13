@@ -1,6 +1,6 @@
 using System.Net;
 
-namespace SimpleL7Proxy;
+namespace SimpleL7Proxy.Proxy;
 
 public interface IHttpListenerResponse
 {

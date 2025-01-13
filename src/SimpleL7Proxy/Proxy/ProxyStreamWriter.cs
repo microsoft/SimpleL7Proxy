@@ -1,7 +1,6 @@
 using CommunityToolkit.Diagnostics;
-using SimpleL7Proxy.Proxy;
 
-namespace SimpleL7Proxy;
+namespace SimpleL7Proxy.Proxy;
 
 public class ProxyStreamWriter
 {

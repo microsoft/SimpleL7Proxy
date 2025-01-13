@@ -1,4 +1,5 @@
 using System.Net;
+using SimpleL7Proxy.Proxy;
 
 namespace Tests;
 

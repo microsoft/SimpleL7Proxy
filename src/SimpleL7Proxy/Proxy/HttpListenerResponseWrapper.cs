@@ -1,8 +1,8 @@
 using System.Net;
 
-namespace SimpleL7Proxy;
+namespace SimpleL7Proxy.Proxy;
 
-public class HttpListenerResponseDecorator(HttpListenerResponse response)
+internal class HttpListenerResponseWrapper(HttpListenerResponse response)
     : IHttpListenerResponse
 {
     public int StatusCode
@@ -23,7 +23,11 @@ public class HttpListenerResponseDecorator(HttpListenerResponse response)
         set => response.ContentLength64 = value;
     }
 
-    public WebHeaderCollection Headers => response.Headers;
+    public WebHeaderCollection Headers
+    {
+        get => response.Headers;
+        set => response.Headers = value;
+    }
 
     public Stream OutputStream => response.OutputStream;
 }
