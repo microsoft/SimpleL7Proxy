@@ -5,6 +5,6 @@ public interface IServer
 {
     Task Run();
     //BlockingCollection<RequestData> Start(CancellationToken cancellationToken);
-    BlockingPriorityQueue<RequestData> Start(CancellationToken cancellationToken);
-    BlockingPriorityQueue<RequestData> Queue();
+    ConcurrentPriQueue<RequestData> Start(CancellationToken cancellationToken);
+    ConcurrentPriQueue<RequestData> Queue();
 }

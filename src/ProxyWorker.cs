@@ -21,21 +21,24 @@ public class ProxyWorker
 
     private static bool _debug = false;
     private CancellationToken _cancellationToken;
-    private BlockingPriorityQueue<RequestData>? _requestsQueue;
+//    private BlockingPriorityQueue<RequestData>? _requestsQueue;
+    private ConcurrentPriQueue<RequestData>? _requestsQueue;
     private readonly IBackendService _backends;
     private readonly BackendOptions _options;
     private readonly TelemetryClient? _telemetryClient;
     private readonly IEventHubClient? _eventHubClient;
+    private IUserPriority _userPriority;
     private string IDstr = "";
 
 
-    public ProxyWorker(CancellationToken cancellationToken, int ID, BlockingPriorityQueue<RequestData> requestsQueue, BackendOptions backendOptions, IBackendService? backends, IEventHubClient? eventHubClient, TelemetryClient? telemetryClient)
+    public ProxyWorker(CancellationToken cancellationToken, int ID, ConcurrentPriQueue<RequestData> requestsQueue, BackendOptions backendOptions, IUserPriority userPriority, IBackendService? backends, IEventHubClient? eventHubClient, TelemetryClient? telemetryClient)
     {
         _cancellationToken = cancellationToken;
         _requestsQueue = requestsQueue ?? throw new ArgumentNullException(nameof(requestsQueue));
         _backends = backends ?? throw new ArgumentNullException(nameof(backends));
         _eventHubClient = eventHubClient;
         _telemetryClient = telemetryClient;
+        _userPriority = userPriority ?? throw new ArgumentNullException(nameof(userPriority));
         _options = backendOptions ?? throw new ArgumentNullException(nameof(backendOptions));
         if (_options.Client == null) throw new ArgumentNullException(nameof(_options.Client));
         IDstr = ID.ToString();
@@ -50,7 +53,7 @@ public class ProxyWorker
             RequestData incomingRequest;
             try
             {
-                incomingRequest = await _requestsQueue.Dequeue(_cancellationToken, IDstr); // This will block until an item is available or the token is cancelled
+                incomingRequest = await _requestsQueue.dequeueAsync(IDstr, _cancellationToken); // This will block until an item is available or the token is cancelled
                 incomingRequest.DequeueTime = DateTime.UtcNow;
             }
             catch (OperationCanceledException)
@@ -158,7 +161,7 @@ public class ProxyWorker
                 catch (S7PRequeueException e)
                 {
                     // Requeue the request 
-                    _requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.EnqueueTime);
+                    _requestsQueue.requeue(incomingRequest, incomingRequest.Priority, incomingRequest.Priority2, incomingRequest.EnqueueTime);
                     Console.WriteLine($"Requeued request.  Pri: {incomingRequest.Priority} Queue Length: {_requestsQueue.Count} Status: {_backends.CheckFailedStatus()} Active Hosts: {_backends.ActiveHostCount()}");
                     requestWasRetried = true;
                     incomingRequest.SkipDispose = true;
@@ -179,12 +182,12 @@ public class ProxyWorker
                         Console.WriteLine("IoException on an exipred request");
                         continue;
                     }
-                    eventData["x-Status"] = "502";
+                    eventData["x-Status"] = "408";
                     eventData["Type"] = "S7P-IOException";
                     eventData["x-Message"] = ioEx.Message;
 
                     Console.WriteLine($"An IO exception occurred: {ioEx.Message}");
-                    lcontext.Response.StatusCode = 502;
+                    lcontext.Response.StatusCode = 408;
                     var errorMessage = Encoding.UTF8.GetBytes($"Broken Pipe: {ioEx.Message}");
                     try
                     {
@@ -243,6 +246,8 @@ public class ProxyWorker
                     // Let's not track the request if it was retried.
                     if (!requestWasRetried)
                     {
+                        _userPriority.removeRequest(incomingRequest.UserID, incomingRequest.Guid);
+
                         // Track the status of the request for circuit breaker
                         _backends.TrackStatus((int)lcontext.Response.StatusCode);
 
@@ -522,7 +527,7 @@ public class ProxyWorker
             catch (OperationCanceledException e)
             {
                 // 502 Bad Gateway
-                lastStatusCode = HandleProxyRequestError(host, e, request.Timestamp, request.FullURL, HttpStatusCode.BadGateway, "Request to " + host.url + " was cancelled");
+                lastStatusCode = HandleProxyRequestError(host, e, request.Timestamp, request.FullURL, HttpStatusCode.RequestTimeout, "Request to " + host.url + " was cancelled");
                 continue;
             }
             catch (HttpRequestException e)
@@ -545,12 +550,11 @@ public class ProxyWorker
 
         return new ProxyData
         {
-            // 502 Bad Gateway
-            StatusCode = HttpStatusCode.BadGateway,
+            // 502 Bad Gateway or lastStatus depending on # of hosts available
+            StatusCode = (activeHosts.Count() == 1) ? 
+                    HttpStatusCode.RequestTimeout : HttpStatusCode.BadGateway,
             Body = Encoding.UTF8.GetBytes("No active hosts were able to handle the request.")
         };
-
-
     }
 
 

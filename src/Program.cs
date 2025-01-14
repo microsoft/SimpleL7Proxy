@@ -103,11 +103,10 @@ public class Program
                 services.AddSingleton<IBackendOptions>(backendOptions);
                 services.AddSingleton<IBackendService, Backends>();
                 services.AddSingleton<IServer, Server>();
-                
+                services.AddSingleton<IUserPriority, UserPriority>();
                 
                 // Add other necessary service registrations here
             });
-    
 
         var frameworkHost = hostBuilder.Build();
         var serviceProvider =frameworkHost.Services;
@@ -121,6 +120,8 @@ public class Program
         } catch (System.InvalidOperationException ) {
         }
 
+        var userPriority = serviceProvider.GetService<IUserPriority>();
+        userPriority.threshold = 0.1f;
         backends.Start(cancellationToken);
 
         var server = serviceProvider.GetRequiredService<IServer>();
@@ -130,12 +131,12 @@ public class Program
         {
             await backends.waitForStartup(20); // wait for up to 20 seconds for startup
             var queue = server.Start(cancellationToken);
-            queue.StartSignaler(cancellationToken);
+            queue.startSignaler(cancellationToken);
 
             // startup Worker # of tasks
             for (int i = 0; i < backendOptions.Workers; i++)
             {
-                var pw = new ProxyWorker(cancellationToken, i, queue, backendOptions, backends, eventHubClient, telemetryClient);
+                var pw = new ProxyWorker(cancellationToken, i, queue, backendOptions, userPriority, backends, eventHubClient, telemetryClient);
                 tasks.Add( Task.Run(() => pw.TaskRunner(), cancellationToken));
             }
 
@@ -148,7 +149,7 @@ public class Program
         try {        
             await server.Run();
             Console.WriteLine("Waiting for tasks to complete for maximum 10 seconds");
-            server.Queue().Stop();
+            server.Queue().stop();
             var timeoutTask = Task.Delay(10000); // 10 seconds timeout
             var allTasks = Task.WhenAll(tasks);
             var completedTask = await Task.WhenAny(allTasks, timeoutTask);
@@ -325,7 +326,7 @@ public class Program
         Console.WriteLine("#     #  # #    # #      #      #      #         #     #      #   #  #    #  #  #    #");
         Console.WriteLine(" #####   # #    # #      ###### ###### #######   #     #      #    #  ####  #    #   #");
         Console.WriteLine ("=======================================================================================");
-        Console.WriteLine("Version: 2.0.2");
+        Console.WriteLine("Version: 2.1.0");
 
         return backendOptions;
     }
