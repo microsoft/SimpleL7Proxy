@@ -72,7 +72,7 @@ public class Backends : IBackendService
     List<DateTime> hostFailureTimes = new List<DateTime>();
     private const int FailureThreshold = 5;
     private const int FailureTimeFrame = 10; // seconds
-    static int[] allowableCodes = {200, 410, 412, 417, 400};
+    static int[] allowableCodes = {200, 401, 403, 408, 410, 412, 417, 400};
 
     public List<BackendHost> GetActiveHosts()
     {
@@ -248,7 +248,6 @@ public class Backends : IBackendService
 
         try
         {
-
             var response = await client.SendAsync(request, _cancellationToken);
             stopwatch.Stop();
             var latency = stopwatch.Elapsed.TotalMilliseconds;
