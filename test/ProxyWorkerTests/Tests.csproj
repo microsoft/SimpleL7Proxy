@@ -6,6 +6,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\..\src\SimpleL7Proxy.csproj" />
+        <ProjectReference Include="..\..\src\SimpleL7Proxy\SimpleL7Proxy.csproj" />
+        <Using Include="SimpleL7Proxy" />
     </ItemGroup>
 </Project>
