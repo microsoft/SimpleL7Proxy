@@ -36,3 +36,12 @@ public interface IBackendOptions {
     public List<string> PriorityKeys { get; set; }
     public List<int> PriorityValues { get; set; }
 }
+
+public interface IUserPriority
+{
+    Guid addRequest(string userId);
+    bool removeRequest(string userId, Guid requestId);
+    public bool boostIndicator(string userId, out float boostValue);
+    public float threshold { get; set; }
+
+}
