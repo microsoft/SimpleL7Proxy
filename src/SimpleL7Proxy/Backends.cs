@@ -237,7 +237,7 @@ public class Backends : IBackendService
         if (_debug)
             _logger.LogDebug($"Checking host {host.Url + host.ProbePath}");
 
-        HttpRequestMessage request = new(HttpMethod.Get, host.ProbePath);
+        HttpRequestMessage request = new(HttpMethod.Get, host.ProbeUrl);
         if (_options.UseOAuth)
         {
             request.Headers.Authorization = new("Bearer", OAuth2Token());
@@ -410,7 +410,7 @@ public class Backends : IBackendService
 
     public static string FormatMilliseconds(double milliseconds)
     {
-        TimeSpan timeSpan = TimeSpan.FromMilliseconds(milliseconds);
+        var timeSpan = TimeSpan.FromMilliseconds(milliseconds);
         return string.Format("{0:D2}:{1:D2}:{2:D2} {3:D3} milliseconds",
                              timeSpan.Hours,
                              timeSpan.Minutes,

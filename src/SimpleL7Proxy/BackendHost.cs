@@ -1,5 +1,6 @@
-
 using Microsoft.Extensions.Logging;
+
+namespace SimpleL7Proxy;
 
 public class BackendHost
 {
@@ -9,23 +10,21 @@ public class BackendHost
     public string Protocol { get; set; }
     public string ProbePath { get; set; }
 
-    private string? _url = null;
-    private string? _probeurl = null;
-    public string Url => _url ??= new UriBuilder(Protocol, IpAddr ?? Host, Port).Uri.AbsoluteUri;
+    public string Url => new UriBuilder(Protocol, IpAddr ?? Host, Port).Uri.AbsoluteUri;
 
-    public string ProbeUrl => _probeurl ??= System.Net.WebUtility.UrlDecode($"{Url}/{ProbePath}");
+    public string ProbeUrl => System.Net.WebUtility.UrlDecode(Path.Combine(Url, ProbePath));
 
     private const int MaxData = 50;
     private readonly Queue<double> latencies = new();
     private readonly Queue<bool> callSuccess = new();
-    public double CalculatedAverageLatency { get; set; }    
+    public double CalculatedAverageLatency { get; set; }
 
     private Queue<double> PxLatency = new();
     private int errors = 0;
     private readonly Lock lockObj = new();
     private readonly ILogger<BackendHost> _logger;
 
-    public BackendHost(string hostname, string? probepath, string? ipaddress, ILogger<BackendHost> logger)
+    public BackendHost(string hostname, string? probepath, ILogger<BackendHost> logger)
     {
         // If host does not have a protocol, add one
         if (!hostname.StartsWith("http://") && !hostname.StartsWith("https://"))
@@ -44,21 +43,15 @@ public class BackendHost
         Protocol = uri.Scheme;
         Port = uri.Port;
         Host = uri.Host;
-
-        ProbePath = probepath ?? "echo/resource?param1=sample";
+        ProbePath = probepath?.TrimStart('/') ?? "echo/resource?param1=sample";
         _logger = logger;
-        if (ProbePath.StartsWith('/'))
-        {
-            ProbePath = ProbePath[1..];
-        }
-
         _logger.LogInformation($"Adding backend host: {Host}  probe path: {ProbePath}");
-  }
+    }
     public override string ToString() => $"{Protocol}://{Host}:{Port}";
 
     public void AddPxLatency(double latency)
     {
-        lock(lockObj)
+        lock (lockObj)
         {
             PxLatency.Enqueue(latency);
         }
@@ -66,7 +59,7 @@ public class BackendHost
 
     public void AddError()
     {
-        lock(lockObj)
+        lock (lockObj)
         {
             errors++;
         }
