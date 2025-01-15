@@ -77,6 +77,8 @@ public class Program
                     options.SuccessRate = backendOptions.SuccessRate;
                     options.Timeout = backendOptions.Timeout;
                     options.UseOAuth = backendOptions.UseOAuth;
+                    options.UserConfigUrl = backendOptions.UserConfigUrl;
+                    options.UserPriorityThreshold = backendOptions.UserPriorityThreshold;
                     options.Workers = backendOptions.Workers;
                 });
 
@@ -121,7 +123,10 @@ public class Program
         }
 
         var userPriority = serviceProvider.GetService<IUserPriority>();
-        userPriority.threshold = 0.1f;
+        if (userPriority != null)
+        {
+            userPriority.threshold = backendOptions.UserPriorityThreshold;
+        }
         backends.Start(cancellationToken);
 
         var server = serviceProvider.GetRequiredService<IServer>();
@@ -129,6 +134,11 @@ public class Program
         var tasks = new List<Task>();
         try
         {
+            if (!string.IsNullOrEmpty(backendOptions.UserConfigUrl)) {
+                var userProfile = new UserProfile(backendOptions);
+                userProfile.startBackgroundConfigReader(cancellationToken);
+            }
+
             await backends.waitForStartup(20); // wait for up to 20 seconds for startup
             var queue = server.Start(cancellationToken);
             queue.startSignaler(cancellationToken);
@@ -189,6 +199,17 @@ public class Program
         return value;
     }
 
+    // Rreads an environment variable and returns its value as a float.
+    // If the environment variable is not set, it returns the provided default value.
+    private static float ReadEnvironmentVariableOrDefault(string variableName, float defaultValue)
+    {
+        if (!float.TryParse(OS.Environment.GetEnvironmentVariable(variableName), out var value))
+        {
+            Console.WriteLine($"Using default: {variableName}: {defaultValue}");
+            return defaultValue;
+        }
+        return value;
+    }
     // Rreads an environment variable and returns its value as a string.
     // If the environment variable is not set, it returns the provided default value.
     private static string ReadEnvironmentVariableOrDefault(string variableName, string defaultValue)
@@ -268,6 +289,8 @@ public class Program
             SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
             Timeout = ReadEnvironmentVariableOrDefault("Timeout", 3000),
             UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", "false").Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true,
+            UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", "file:config.json"),
+            UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
             Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
         };
 

@@ -83,9 +83,11 @@ public class Server : IServer
     // Each request is enqueued with a priority into BlockingPriorityQueue.
     public async Task Run()
     {
-        long counter=0;
-
         if (_options == null) throw new ArgumentNullException(nameof(_options));
+        
+        long counter=0;
+        int livenessPriority = _options.PriorityValues.Min();
+
 
         while (!_cancellationToken.IsCancellationRequested)
         {
@@ -105,26 +107,37 @@ public class Server : IServer
                     // Cancel the delay task immedietly if the getContextTask completes first
                     if (completedTask == getContextTask)
                     {
+                        bool doUserconfig = false;
+                        int priority = _options.DefaultPriority;
+                        int priority2 = 0;
                         var mid="";
-                        try {
-                            mid = _options.IDStr + counter++.ToString();
-                        }
-                        catch (OverflowException ) {
-                            mid = _options.IDStr + "0";
-                            counter = 1;
-                        }
 
+                        Interlocked.Increment(ref counter);
+                        mid = _options.IDStr + counter.ToString();
+ 
                         delayCts.Cancel();
                        // _requestsQueue.Add(new RequestData(await getContextTask.ConfigureAwait(false)));
                         var rd = new RequestData(await getContextTask.ConfigureAwait(false),  mid);
 
-                        // Determine priority boost based on the userid
-                        rd.UserID = "user1";
-                        rd.Guid=_userPriority.addRequest(rd.UserID);
-                        bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
-                        int priority2 = shouldBoost ? 1 : 0;
+                        // readiness probes:
+                        // if it's a probe, then bypass all the below checks and enqueue the request 
+                        if (Constants.probes.Contains(rd.Path)) {
 
-                        int priority = _options.DefaultPriority;
+                            priority = (rd.Path == Constants.Liveness) ? livenessPriority : 0;
+
+                            // bypass all the below checks and enqueue the request
+                            _requestsQueue.enqueue(rd, priority, priority2, rd.EnqueueTime, true);
+                            continue;
+                        } 
+
+                        // Determine priority boost based on the userid
+                        if (doUserconfig) {
+                            rd.UserID = "user1";
+                            rd.Guid=_userPriority.addRequest(rd.UserID);
+                            bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
+                            priority2 = shouldBoost ? 1 : 0;
+                        }
+
                         var priorityKey = rd.Headers.Get("S7PPriorityKey");
                         if (!string.IsNullOrEmpty(priorityKey) && _options.PriorityKeys.Contains(priorityKey)) //lookup the priority
                         {
@@ -207,7 +220,9 @@ public class Server : IServer
                                 WriteOutput($"Pri: {priority} Stat: 429 Path: {rd.Path}");
                             }
 
-                            _userPriority.removeRequest(rd.UserID, rd.Guid);
+                            if (doUserconfig)
+                                _userPriority.removeRequest(rd.UserID, rd.Guid);
+
                         }
                         else {
                             ed["Type"] = "S7P-Enqueue";

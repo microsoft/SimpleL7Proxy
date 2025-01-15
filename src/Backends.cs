@@ -20,7 +20,7 @@ using System.Text.Json;
 // * Fetch the OAuth2 token and refresh it 100ms minutes before it expires
 public class Backends : IBackendService
 {
-    private List<BackendHost> _hosts;
+    public List<BackendHost> _hosts { get; set; }
     private List<BackendHost> _activeHosts;
 
     private BackendOptions _options;
@@ -208,6 +208,7 @@ public class Backends : IBackendService
 
         foreach (var host in _hosts )
         {
+            host.ResetStatus();
             var currentStatus = await GetHostStatus(host, _client);
             bool statusChanged = !currentHostStatus.ContainsKey(host.host) || currentHostStatus[host.host] != currentStatus;
 

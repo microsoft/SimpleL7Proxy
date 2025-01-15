@@ -17,5 +17,8 @@ public class BackendOptions : IBackendOptions
     public int SuccessRate { get; set; }
     public int Timeout { get; set; }
     public bool UseOAuth { get; set; }
+    public bool UseUserConfig { get; set; } = false;
+    public string UserConfigUrl { get; set; } = "";
+    public float UserPriorityThreshold { get; set; }
     public int Workers { get; set; }
 }

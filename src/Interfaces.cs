@@ -1,6 +1,7 @@
 public interface IBackendService
 {
     void Start(CancellationToken cancellationToken);
+    public List<BackendHost> _hosts { get; set; }
     public List<BackendHost> GetActiveHosts();
 
     public int ActiveHostCount();
@@ -22,19 +23,21 @@ public interface IEventHubClient
 
 public interface IBackendOptions {
     HttpClient? Client { get; set; }
-    public int DefaultPriority { get; set; }
-    public int DefaultTTLSecs { get; set; }
+    int DefaultPriority { get; set; }
+    int DefaultTTLSecs { get; set; }
     List<BackendHost>? Hosts { get; set; }
     string IDStr { get; set; }
-    public int MaxQueueLength { get; set; }
+    int MaxQueueLength { get; set; }
     int Port { get; set; }
     int PollInterval { get; set; }
     int PollTimeout { get; set; }
+    List<string> PriorityKeys { get; set; }
+    List<int> PriorityValues { get; set; }
     int SuccessRate { get; set; }
     int Timeout { get; set; }
+    string UserConfigUrl { get; set; }
+    float UserPriorityThreshold { get; set; }
     int Workers { get; set; }
-    public List<string> PriorityKeys { get; set; }
-    public List<int> PriorityValues { get; set; }
 }
 
 public interface IUserPriority
