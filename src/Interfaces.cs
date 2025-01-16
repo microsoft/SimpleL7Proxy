@@ -35,6 +35,7 @@ public interface IBackendOptions {
     List<int> PriorityValues { get; set; }
     int SuccessRate { get; set; }
     int Timeout { get; set; }
+    bool UseProfiles { get; set; }
     string UserConfigUrl { get; set; }
     float UserPriorityThreshold { get; set; }
     int Workers { get; set; }
@@ -46,5 +47,10 @@ public interface IUserPriority
     bool removeRequest(string userId, Guid requestId);
     public bool boostIndicator(string userId, out float boostValue);
     public float threshold { get; set; }
+
+}
+
+public interface IUserProfile {
+    public Dictionary<string, string> GetUserProfile(string userId);
 
 }

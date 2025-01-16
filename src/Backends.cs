@@ -27,7 +27,7 @@ public class Backends : IBackendService
     private static bool _debug=false;
 
     private static double _successRate;
-    private static DateTime _lastStatusDisplay = DateTime.Now;
+    private static DateTime _lastStatusDisplay = DateTime.Now - TimeSpan.FromMinutes(10);  // Force display on first run
     private static DateTime _lastGCTime = DateTime.Now;
     private static bool _isRunning = false;
     private CancellationToken _cancellationToken;
@@ -166,7 +166,6 @@ public class Backends : IBackendService
                     try {
                         await UpdateHostStatus(_client);
                         FilterActiveHosts();
-
                         if ((DateTime.Now - _lastStatusDisplay).TotalSeconds > 60) {
                             DisplayHostStatus();
                         }

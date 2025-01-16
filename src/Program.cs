@@ -39,6 +39,7 @@ public class Program
         var cancellationToken = cancellationTokenSource.Token;
         var backendOptions = LoadBackendOptions();
 
+        
         // Set up logging
         using var loggerFactory = LoggerFactory.Create(builder =>
         {
@@ -48,9 +49,11 @@ public class Program
 
         var logger = loggerFactory.CreateLogger<Program>();
 
+       // Handle SIGTERM
+        AppDomain.CurrentDomain.ProcessExit += (s, e) => cancellationTokenSource.Cancel();
         Console.CancelKeyPress += (sender, e) =>
             {
-                Console.WriteLine("Shutdown signal received. Initiating shutdown...");
+                Console.WriteLine("############## Shutdown signal received. Initiating shutdown. ##############");
                 e.Cancel = true; // Prevent the process from terminating immediately.
                 cancellationTokenSource.Cancel(); // Signal the application to shut down.
             };
@@ -77,6 +80,7 @@ public class Program
                     options.SuccessRate = backendOptions.SuccessRate;
                     options.Timeout = backendOptions.Timeout;
                     options.UseOAuth = backendOptions.UseOAuth;
+                    options.UseProfiles = backendOptions.UseProfiles;
                     options.UserConfigUrl = backendOptions.UserConfigUrl;
                     options.UserPriorityThreshold = backendOptions.UserPriorityThreshold;
                     options.Workers = backendOptions.Workers;
@@ -289,6 +293,7 @@ public class Program
             SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
             Timeout = ReadEnvironmentVariableOrDefault("Timeout", 3000),
             UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", "false").Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true,
+            UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", "false").Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true,
             UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", "file:config.json"),
             UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
             Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
@@ -349,7 +354,7 @@ public class Program
         Console.WriteLine("#     #  # #    # #      #      #      #         #     #      #   #  #    #  #  #    #");
         Console.WriteLine(" #####   # #    # #      ###### ###### #######   #     #      #    #  ####  #    #   #");
         Console.WriteLine ("=======================================================================================");
-        Console.WriteLine("Version: 2.1.0");
+        Console.WriteLine("Version: 2.1.2");
 
         return backendOptions;
     }
