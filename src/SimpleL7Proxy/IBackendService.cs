@@ -2,7 +2,7 @@ namespace SimpleL7Proxy;
 
 public interface IBackendService
 {
-    void Start(CancellationToken cancellationToken);
+    void Start();
     public List<BackendHost> GetActiveHosts();
 
     public int ActiveHostCount();

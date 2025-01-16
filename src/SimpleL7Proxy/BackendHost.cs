@@ -22,9 +22,8 @@ public class BackendHost
     private Queue<double> PxLatency = new();
     private int errors = 0;
     private readonly Lock lockObj = new();
-    private readonly ILogger<BackendHost> _logger;
 
-    public BackendHost(string hostname, string? probepath, ILogger<BackendHost> logger)
+    public BackendHost(string hostname, string? probepath)
     {
         // If host does not have a protocol, add one
         if (!hostname.StartsWith("http://") && !hostname.StartsWith("https://"))
@@ -44,8 +43,10 @@ public class BackendHost
         Port = uri.Port;
         Host = uri.Host;
         ProbePath = probepath?.TrimStart('/') ?? "echo/resource?param1=sample";
-        _logger = logger;
-        _logger.LogInformation($"Adding backend host: {Host}  probe path: {ProbePath}");
+
+        // TODO: Make logger injectable
+        Console.WriteLine($"Adding backend host: {Host}  probe path: {ProbePath}");
+        //logger.LogInformation($"Adding backend host: {Host}  probe path: {ProbePath}");
     }
     public override string ToString() => $"{Protocol}://{Host}:{Port}";
 

@@ -4,29 +4,31 @@ using Microsoft.Extensions.Options;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Queue;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Hosting;
+using System.Threading;
 namespace SimpleL7Proxy;
 
 // This class represents a server that listens for HTTP requests and processes them.
 // It uses a priority queue to manage incoming requests and supports telemetry for monitoring.
 // If the incoming request has the S7PPriorityKey header, it will be assigned a priority based the S7PPriority header.
-public class Server : IServer
+public class Server : BackgroundService
 {
   private readonly BackendOptions? _options;
   private readonly TelemetryClient? _telemetryClient; // Add this line
   private readonly HttpListener _httpListener;
 
-  private readonly Backends _backends;
-  private CancellationToken _cancellationToken;
+  private readonly IBackendService _backends;
   private readonly IBlockingPriorityQueue<RequestData> _requestsQueue;
-  private readonly IEventClient? _eventHubClient;
   private readonly ILogger<Server> _logger;
+
+  private CancellationTokenSource? _cancellationTokenSource;
 
   // Constructor to initialize the server with backend options and telemetry client.
   public Server(
     IBlockingPriorityQueue<RequestData> blockingPriorityQueue,
     IOptions<BackendOptions> backendOptions,
-    IEventClient? eventHubClient,
-    Backends backends,
+    IHostApplicationLifetime appLifetime,
+    IBackendService backends,
     TelemetryClient? telemetryClient,
     ILogger<Server> logger)
   {
@@ -35,10 +37,11 @@ public class Server : IServer
 
     _options = backendOptions.Value;
     _backends = backends;
-    _eventHubClient = eventHubClient;
     _telemetryClient = telemetryClient;
     _requestsQueue = blockingPriorityQueue;
     _logger = logger;
+
+    appLifetime.ApplicationStopping.Register(OnApplicationStopping);
 
     var _listeningUrl = $"http://+:{_options.Port}/";
 
@@ -49,14 +52,24 @@ public class Server : IServer
     _logger.LogInformation($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
   }
 
-    public IBlockingPriorityQueue<RequestData> Queue() => _requestsQueue;
-
-    // Method to start the server and begin processing requests.
-    public void Start(CancellationToken cancellationToken)
+  private void OnApplicationStopping()
   {
+    _cancellationTokenSource?.Cancel();
+    _logger.LogInformation("Server stopping.");
+  }
+
+
+  // Method to start the server and begin processing requests.
+  protected override Task ExecuteAsync(CancellationToken cancellationToken)
+  {
+    Task backendStartTask;
     try
     {
-      _cancellationToken = cancellationToken;
+      _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+      _backends.Start();
+      backendStartTask = _backends.WaitForStartup(20);
+
       _httpListener.Start();
       _logger.LogInformation($"Listening on {_options?.Port}");
       // Additional setup or async start operations can be performed here
@@ -76,6 +89,9 @@ public class Server : IServer
       _logger.LogError($"An error occurred: {ex.Message}");
       throw new Exception("An error occurred while starting the server.", ex);
     }
+
+    return backendStartTask.ContinueWith((x) => Run(), _cancellationTokenSource.Token);
+
   }
 
   // Continuously listens for incoming HTTP requests and processes them.
@@ -84,17 +100,24 @@ public class Server : IServer
   // Each request is enqueued with a priority into BlockingPriorityQueue.
   public async Task Run()
   {
+    if (_cancellationTokenSource == null)
+    {
+      throw new InvalidOperationException("The cancellation token source is null.");
+    }
+
+    var cancellationToken = _cancellationTokenSource.Token;
+
     long counter = 0;
 
     if (_options == null) throw new ArgumentNullException(nameof(_options));
 
-    while (!_cancellationToken.IsCancellationRequested)
+    while (!cancellationToken.IsCancellationRequested)
     {
       try
       {
         // Use the CancellationToken to asynchronously wait for an HTTP request.
         var getContextTask = _httpListener.GetContextAsync();
-        using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationToken);
+        using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var delayTask = Task.Delay(Timeout.Infinite, delayCts.Token);
         var completedTask = await Task.WhenAny(getContextTask, delayTask).ConfigureAwait(false);
 
@@ -209,7 +232,7 @@ public class Server : IServer
         }
         else
         {
-            _cancellationToken.ThrowIfCancellationRequested(); // This will throw if the token is cancelled while waiting for a request.
+            cancellationToken.ThrowIfCancellationRequested(); // This will throw if the token is cancelled while waiting for a request.
         }
       }
       catch (IOException ioEx)

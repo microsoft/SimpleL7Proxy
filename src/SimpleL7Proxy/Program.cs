@@ -29,21 +29,11 @@ public class Program
     private static readonly TelemetryClient? _telemetryClient;
     private static ILogger<Program>? _logger;
 
-    static readonly CancellationTokenSource cancellationTokenSource = new();
     public string OAuthAudience { get; set; } = "";
 
     public static async Task Main(string[] args)
     {
-        var cancellationToken = cancellationTokenSource.Token;
-        ILoggerFactory loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
-        var backendOptions = LoadBackendOptions(loggerFactory);
-
-        Console.CancelKeyPress += (sender, e) =>
-            {
-                Console.WriteLine("Shutdown signal received. Initiating shutdown...");
-                e.Cancel = true; // Prevent the process from terminating immediately.
-                cancellationTokenSource.Cancel(); // Signal the application to shut down.
-            };
+        var backendOptions = LoadBackendOptions();
 
         var hostBuilder = Host.CreateDefaultBuilder(args).ConfigureServices((hostContext, services) =>
             {
@@ -101,62 +91,27 @@ public class Program
                 var eventHubName = Environment.GetEnvironmentVariable("EVENTHUB_NAME");
                 services.AddProxyEventClient(eventHubConnectionString, eventHubName, aiConnectionString);
                 services.AddSingleton(backendOptions);
-                services.AddSingleton<Backends>();
-                services.AddSingleton<IServer, Server>();
+                services.AddSingleton<IBackendService, Backends>();
+
+                services.AddHostedService<Server>();
+                services.AddHostedService<ProxyWorkerCollection>();
+
                 services.AddSingleton<TaskSignaler<RequestData>>();
                 services.AddSingleton<PriorityQueue<RequestData>>();
                 services.AddSingleton<IBlockingPriorityQueue<RequestData>, BlockingPriorityQueue<RequestData>>();
                 services.AddSingleton<ProxyStreamWriter>();
-                services.AddSingleton<ProxyWorkerCollection>();
 
-                services.AddSingleton(typeof(CancellationToken), cancellationToken);
+                services.AddTransient(source => new CancellationTokenSource());
             });
 
         var frameworkHost = hostBuilder.Build();
         var serviceProvider = frameworkHost.Services;
 
-        var backends = serviceProvider.GetRequiredService<Backends>();
-
         _logger = serviceProvider.GetRequiredService<ILogger<Program>>();
 
-        backends.Start(cancellationToken);
-
-        var server = serviceProvider.GetRequiredService<IServer>();
-        var eventClient = serviceProvider.GetRequiredService<IEventClient>();
-
-        var pwCollection = serviceProvider.GetRequiredService<ProxyWorkerCollection>();
         try
         {
-            await backends.WaitForStartup(20); // wait for up to 20 seconds for startup
-            server.Start(cancellationToken);
-
-            pwCollection.StartWorkers();
-        }
-        catch (Exception e)
-        {
-            _logger.LogError(e, "Exiting: {Message}", e.Message);
-            Environment.Exit(1);
-        }
-
-        try
-        {
-            await server.Run();
-            _logger.LogInformation("Waiting for tasks to complete for maximum 10 seconds");
-            var timeoutTask = Task.Delay(10000); // 10 seconds timeout
-            var allTasks = pwCollection.GetAllProxyWorkerTasks();
-            var completedTask = await Task.WhenAny(allTasks, timeoutTask);
-        }
-        catch (Exception e)
-        {
-            _telemetryClient?.TrackException(e);
-            _logger.LogError($"Error: {e.Message}");
-            _logger.LogError($"Stack Trace: {e.StackTrace}");
-        }
-
-        try
-        {
-            // Pass the CancellationToken to RunAsync
-            await frameworkHost.RunAsync(cancellationToken);
+            await frameworkHost.RunAsync();
         }
         catch (OperationCanceledException)
         {
@@ -223,9 +178,8 @@ public class Program
     // It also configures the DNS refresh timeout and sets up an HttpClient instance.
     // If the IgnoreSSLCert environment variable is set to true, it configures the HttpClient to ignore SSL certificate errors.
     // If the AppendHostsFile environment variable is set to true, it appends the IP addresses and hostnames to the /etc/hosts file.
-    private static BackendOptions LoadBackendOptions(ILoggerFactory loggerFactory)
+    private static BackendOptions LoadBackendOptions()
     {
-        var logger = loggerFactory.CreateLogger<BackendHost>();
         // Read and set the DNS refresh timeout from environment variables or use the default value
         var DNSTimeout = ReadEnvironmentVariableOrDefault("DnsRefreshTimeout", 120000);
         ServicePointManager.DnsRefreshTimeout = DNSTimeout;
@@ -295,7 +249,7 @@ public class Program
             {
                 _logger?.LogInformation($"Found host {hostname} with probe path {probePath} and IP {ip}");
 
-                BackendHost bh = new(hostname, probePath, logger);
+                BackendHost bh = new(hostname, probePath);
                 backendOptions.Hosts.Add(bh);
 
                 sb.AppendLine($"{ip} {bh.Host}");

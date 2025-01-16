@@ -6,6 +6,8 @@ using Azure.Core;
 using SimpleL7Proxy.Events;
 using Microsoft.ApplicationInsights;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Hosting;
+using System.Threading;
 
 namespace SimpleL7Proxy;
 
@@ -25,6 +27,8 @@ public class Backends : IBackendService
     private static DateTime _lastStatusDisplay = DateTime.Now;
     private static DateTime _lastGCTime = DateTime.Now;
     private static bool _isRunning = false;
+
+    private CancellationTokenSource _cancellationTokenSource;
     private CancellationToken _cancellationToken;
 
     private AccessToken? AuthToken { get; set; }
@@ -35,7 +39,9 @@ public class Backends : IBackendService
     private readonly ILogger<Backends> _logger;
   public Backends(
       IOptions<BackendOptions> options,
+      IHostApplicationLifetime appLifetime,
       IEventClient eventClient,
+      CancellationTokenSource cancellationTokenSource,
       TelemetryClient telemetryClient,
       ILogger<Backends> logger)
     {
@@ -44,9 +50,15 @@ public class Backends : IBackendService
         if (options.Value.Hosts == null) throw new ArgumentNullException(nameof(options.Value.Hosts));
         if (options.Value.Client == null) throw new ArgumentNullException(nameof(options.Value.Client));
 
+        appLifetime.ApplicationStopping.Register(OnApplicationStopping);
+
         _eventClient = eventClient;
         _telemetryClient = telemetryClient;
         _logger = logger;
+
+        _cancellationTokenSource = cancellationTokenSource;
+        _cancellationToken = _cancellationTokenSource.Token;
+
 
         var bo = options.Value; // Access the IBackendOptions instance
 
@@ -56,10 +68,16 @@ public class Backends : IBackendService
         _successRate = bo.SuccessRate / 100.0;
     }
 
-    public void Start(CancellationToken cancellationToken)
+    private void OnApplicationStopping()
     {
-        _cancellationToken = cancellationToken;
-        Task.Run(() => Run(), cancellationToken);
+      _logger.LogInformation("Stopping backend.");
+      _cancellationTokenSource.Cancel();
+    }
+
+
+  public void Start()
+    {
+        Task.Run(() => Run(), _cancellationToken);
 
         if (_options.UseOAuth)
         {
@@ -152,34 +170,32 @@ public class Backends : IBackendService
 
         _client.Timeout = TimeSpan.FromMilliseconds(_options.PollTimeout);
 
-        using (var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationToken))
+        while (!_cancellationToken.IsCancellationRequested)
         {
-            while (!linkedCts.Token.IsCancellationRequested && _cancellationToken.IsCancellationRequested == false)
+            try
             {
-                try
-                {
-                    await UpdateHostStatus(_client);
-                    FilterActiveHosts();
+                await UpdateHostStatus(_client);
+                FilterActiveHosts();
 
-                    if ((DateTime.Now - _lastStatusDisplay).TotalSeconds > 60)
-                    {
-                        DisplayHostStatus();
-                    }
-
-                    await Task.Delay(_options.PollInterval, linkedCts.Token);
-
-                }
-                catch (OperationCanceledException)
+                if ((DateTime.Now - _lastStatusDisplay).TotalSeconds > 60)
                 {
-                    _logger.LogInformation("Operation was canceled. Stopping the backend poller task.");
-                    break; ;
+                    DisplayHostStatus();
                 }
-                catch (Exception e)
-                {
-                    _logger.LogError($"An unexpected error occurred: {e.Message}");
-                }
+
+                await Task.Delay(_options.PollInterval, _cancellationToken);
+
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Operation was canceled. Stopping the backend poller task.");
+                break; ;
+            }
+            catch (Exception e)
+            {
+                _logger.LogError($"An unexpected error occurred: {e.Message}");
             }
         }
+        
 
         _logger.LogInformation("Backend Poller stopped.");
     }
