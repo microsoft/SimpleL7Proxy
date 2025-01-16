@@ -39,6 +39,7 @@ public class Program
         var cancellationToken = cancellationTokenSource.Token;
         var backendOptions = LoadBackendOptions();
 
+        
         // Set up logging
         using var loggerFactory = LoggerFactory.Create(builder =>
         {
@@ -48,9 +49,11 @@ public class Program
 
         var logger = loggerFactory.CreateLogger<Program>();
 
+       // Handle SIGTERM
+        AppDomain.CurrentDomain.ProcessExit += (s, e) => cancellationTokenSource.Cancel();
         Console.CancelKeyPress += (sender, e) =>
             {
-                Console.WriteLine("Shutdown signal received. Initiating shutdown...");
+                Console.WriteLine("############## Shutdown signal received. Initiating shutdown. ##############");
                 e.Cancel = true; // Prevent the process from terminating immediately.
                 cancellationTokenSource.Cancel(); // Signal the application to shut down.
             };
@@ -77,6 +80,9 @@ public class Program
                     options.SuccessRate = backendOptions.SuccessRate;
                     options.Timeout = backendOptions.Timeout;
                     options.UseOAuth = backendOptions.UseOAuth;
+                    options.UseProfiles = backendOptions.UseProfiles;
+                    options.UserConfigUrl = backendOptions.UserConfigUrl;
+                    options.UserPriorityThreshold = backendOptions.UserPriorityThreshold;
                     options.Workers = backendOptions.Workers;
                 });
 
@@ -103,11 +109,10 @@ public class Program
                 services.AddSingleton<IBackendOptions>(backendOptions);
                 services.AddSingleton<IBackendService, Backends>();
                 services.AddSingleton<IServer, Server>();
-                
+                services.AddSingleton<IUserPriority, UserPriority>();
                 
                 // Add other necessary service registrations here
             });
-    
 
         var frameworkHost = hostBuilder.Build();
         var serviceProvider =frameworkHost.Services;
@@ -121,6 +126,11 @@ public class Program
         } catch (System.InvalidOperationException ) {
         }
 
+        var userPriority = serviceProvider.GetService<IUserPriority>();
+        if (userPriority != null)
+        {
+            userPriority.threshold = backendOptions.UserPriorityThreshold;
+        }
         backends.Start(cancellationToken);
 
         var server = serviceProvider.GetRequiredService<IServer>();
@@ -128,14 +138,19 @@ public class Program
         var tasks = new List<Task>();
         try
         {
+            if (!string.IsNullOrEmpty(backendOptions.UserConfigUrl)) {
+                var userProfile = new UserProfile(backendOptions);
+                userProfile.startBackgroundConfigReader(cancellationToken);
+            }
+
             await backends.waitForStartup(20); // wait for up to 20 seconds for startup
             var queue = server.Start(cancellationToken);
-            queue.StartSignaler(cancellationToken);
+            queue.startSignaler(cancellationToken);
 
             // startup Worker # of tasks
             for (int i = 0; i < backendOptions.Workers; i++)
             {
-                var pw = new ProxyWorker(cancellationToken, i, queue, backendOptions, backends, eventHubClient, telemetryClient);
+                var pw = new ProxyWorker(cancellationToken, i, queue, backendOptions, userPriority, backends, eventHubClient, telemetryClient);
                 tasks.Add( Task.Run(() => pw.TaskRunner(), cancellationToken));
             }
 
@@ -148,7 +163,7 @@ public class Program
         try {        
             await server.Run();
             Console.WriteLine("Waiting for tasks to complete for maximum 10 seconds");
-            server.Queue().Stop();
+            server.Queue().stop();
             var timeoutTask = Task.Delay(10000); // 10 seconds timeout
             var allTasks = Task.WhenAll(tasks);
             var completedTask = await Task.WhenAny(allTasks, timeoutTask);
@@ -188,6 +203,17 @@ public class Program
         return value;
     }
 
+    // Rreads an environment variable and returns its value as a float.
+    // If the environment variable is not set, it returns the provided default value.
+    private static float ReadEnvironmentVariableOrDefault(string variableName, float defaultValue)
+    {
+        if (!float.TryParse(OS.Environment.GetEnvironmentVariable(variableName), out var value))
+        {
+            Console.WriteLine($"Using default: {variableName}: {defaultValue}");
+            return defaultValue;
+        }
+        return value;
+    }
     // Rreads an environment variable and returns its value as a string.
     // If the environment variable is not set, it returns the provided default value.
     private static string ReadEnvironmentVariableOrDefault(string variableName, string defaultValue)
@@ -267,6 +293,9 @@ public class Program
             SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
             Timeout = ReadEnvironmentVariableOrDefault("Timeout", 3000),
             UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", "false").Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true,
+            UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", "false").Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true,
+            UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", "file:config.json"),
+            UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
             Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
         };
 
@@ -325,7 +354,7 @@ public class Program
         Console.WriteLine("#     #  # #    # #      #      #      #         #     #      #   #  #    #  #  #    #");
         Console.WriteLine(" #####   # #    # #      ###### ###### #######   #     #      #    #  ####  #    #   #");
         Console.WriteLine ("=======================================================================================");
-        Console.WriteLine("Version: 2.0.2");
+        Console.WriteLine("Version: 2.1.2");
 
         return backendOptions;
     }

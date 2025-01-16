@@ -20,14 +20,14 @@ using System.Text.Json;
 // * Fetch the OAuth2 token and refresh it 100ms minutes before it expires
 public class Backends : IBackendService
 {
-    private List<BackendHost> _hosts;
+    public List<BackendHost> _hosts { get; set; }
     private List<BackendHost> _activeHosts;
 
     private BackendOptions _options;
     private static bool _debug=false;
 
     private static double _successRate;
-    private static DateTime _lastStatusDisplay = DateTime.Now;
+    private static DateTime _lastStatusDisplay = DateTime.Now - TimeSpan.FromMinutes(10);  // Force display on first run
     private static DateTime _lastGCTime = DateTime.Now;
     private static bool _isRunning = false;
     private CancellationToken _cancellationToken;
@@ -72,7 +72,7 @@ public class Backends : IBackendService
     List<DateTime> hostFailureTimes = new List<DateTime>();
     private const int FailureThreshold = 5;
     private const int FailureTimeFrame = 10; // seconds
-    static int[] allowableCodes = {200, 410, 412, 417, 400};
+    static int[] allowableCodes = {200, 401, 403, 408, 410, 412, 417, 400};
 
     public List<BackendHost> GetActiveHosts()
     {
@@ -166,7 +166,6 @@ public class Backends : IBackendService
                     try {
                         await UpdateHostStatus(_client);
                         FilterActiveHosts();
-
                         if ((DateTime.Now - _lastStatusDisplay).TotalSeconds > 60) {
                             DisplayHostStatus();
                         }
@@ -208,6 +207,7 @@ public class Backends : IBackendService
 
         foreach (var host in _hosts )
         {
+            host.ResetStatus();
             var currentStatus = await GetHostStatus(host, _client);
             bool statusChanged = !currentHostStatus.ContainsKey(host.host) || currentHostStatus[host.host] != currentStatus;
 
@@ -248,7 +248,6 @@ public class Backends : IBackendService
 
         try
         {
-
             var response = await client.SendAsync(request, _cancellationToken);
             stopwatch.Stop();
             var latency = stopwatch.Elapsed.TotalMilliseconds;

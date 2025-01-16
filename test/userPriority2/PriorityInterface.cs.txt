@@ -1,0 +1,7 @@
+
+public interface PriorityInterface
+{
+    Guid addRequest(string userId);
+    void removeRequest(string userId, Guid requestId);
+    bool boostStatus(string userId);
+}

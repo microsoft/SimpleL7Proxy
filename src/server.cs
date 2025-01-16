@@ -15,15 +15,17 @@ public class Server : IServer
     private HttpListener httpListener;
 
     private IBackendService _backends;
+
+    private IUserPriority _userPriority;
     private CancellationToken _cancellationToken;
     //private BlockingCollection<RequestData> _requestsQueue = new BlockingCollection<RequestData>();
-    private BlockingPriorityQueue<RequestData> _requestsQueue = new BlockingPriorityQueue<RequestData>();
+    private ConcurrentPriQueue<RequestData> _requestsQueue = new ConcurrentPriQueue<RequestData>();
     private readonly IEventHubClient? _eventHubClient;
 
 
 
     // Constructor to initialize the server with backend options and telemetry client.
-    public Server(IOptions<BackendOptions> backendOptions, IEventHubClient? eventHubClient, IBackendService backends, TelemetryClient? telemetryClient)
+    public Server(IOptions<BackendOptions> backendOptions, IUserPriority userPriority, IEventHubClient? eventHubClient, IBackendService backends, TelemetryClient? telemetryClient)
     {
         if (backendOptions == null) throw new ArgumentNullException(nameof(backendOptions));
         if (backendOptions.Value == null) throw new ArgumentNullException(nameof(backendOptions.Value));
@@ -33,6 +35,7 @@ public class Server : IServer
         _eventHubClient = eventHubClient;
         _telemetryClient = telemetryClient;
         _requestsQueue.MaxQueueLength = _options.MaxQueueLength;
+        _userPriority = userPriority;
 
         var _listeningUrl = $"http://+:{_options.Port}/";
 
@@ -43,12 +46,12 @@ public class Server : IServer
         WriteOutput($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
     }
 
-    public BlockingPriorityQueue<RequestData> Queue() {
+    public ConcurrentPriQueue<RequestData> Queue() {
         return _requestsQueue;
     }
 
     // Method to start the server and begin processing requests.
-    public BlockingPriorityQueue<RequestData> Start(CancellationToken cancellationToken)
+    public ConcurrentPriQueue<RequestData> Start(CancellationToken cancellationToken)
     {
         try
         {
@@ -80,9 +83,11 @@ public class Server : IServer
     // Each request is enqueued with a priority into BlockingPriorityQueue.
     public async Task Run()
     {
-        long counter=0;
-
         if (_options == null) throw new ArgumentNullException(nameof(_options));
+        
+        long counter=0;
+        int livenessPriority = _options.PriorityValues.Min();
+
 
         while (!_cancellationToken.IsCancellationRequested)
         {
@@ -102,19 +107,37 @@ public class Server : IServer
                     // Cancel the delay task immedietly if the getContextTask completes first
                     if (completedTask == getContextTask)
                     {
+                        bool doUserconfig = false;
+                        int priority = _options.DefaultPriority;
+                        int priority2 = 0;
                         var mid="";
-                        try {
-                            mid = _options.IDStr + counter++.ToString();
-                        }
-                        catch (OverflowException ) {
-                            mid = _options.IDStr + "0";
-                            counter = 1;
-                        }
 
+                        Interlocked.Increment(ref counter);
+                        mid = _options.IDStr + counter.ToString();
+ 
                         delayCts.Cancel();
                        // _requestsQueue.Add(new RequestData(await getContextTask.ConfigureAwait(false)));
                         var rd = new RequestData(await getContextTask.ConfigureAwait(false),  mid);
-                        int priority = _options.DefaultPriority;
+
+                        // readiness probes:
+                        // if it's a probe, then bypass all the below checks and enqueue the request 
+                        if (Constants.probes.Contains(rd.Path)) {
+
+                            priority = (rd.Path == Constants.Liveness) ? livenessPriority : 0;
+
+                            // bypass all the below checks and enqueue the request
+                            _requestsQueue.enqueue(rd, priority, priority2, rd.EnqueueTime, true);
+                            continue;
+                        } 
+
+                        // Determine priority boost based on the userid
+                        if (doUserconfig) {
+                            rd.UserID = "user1";
+                            rd.Guid=_userPriority.addRequest(rd.UserID);
+                            bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
+                            priority2 = shouldBoost ? 1 : 0;
+                        }
+
                         var priorityKey = rd.Headers.Get("S7PPriorityKey");
                         if (!string.IsNullOrEmpty(priorityKey) && _options.PriorityKeys.Contains(priorityKey)) //lookup the priority
                         {
@@ -125,6 +148,7 @@ public class Server : IServer
                             }
                         }
                         rd.Priority = priority;
+                        rd.Priority2 = priority2;
                         rd.EnqueueTime = DateTime.UtcNow;
                         
                         var return429 = false;
@@ -168,7 +192,7 @@ public class Server : IServer
 
                         // Enqueue the request
 
-                        else if (!_requestsQueue.Enqueue(rd, priority, rd.EnqueueTime)) {
+                        else if (!_requestsQueue.enqueue(rd, priority, priority2, rd.EnqueueTime)) {
                             return429 = true;
 
                             ed["Type"] = "S7P-EnqueueFailed";
@@ -195,6 +219,10 @@ public class Server : IServer
                                 rd.Context.Response.Close();
                                 WriteOutput($"Pri: {priority} Stat: 429 Path: {rd.Path}");
                             }
+
+                            if (doUserconfig)
+                                _userPriority.removeRequest(rd.UserID, rd.Guid);
+
                         }
                         else {
                             ed["Type"] = "S7P-Enqueue";
@@ -205,6 +233,8 @@ public class Server : IServer
 
                             WriteOutput($"Enqueued request.  Pri: {priority} Queue Length: {_requestsQueue.Count} Status: {_backends.CheckFailedStatus()} Active Hosts: {_backends.ActiveHostCount()}", ed);
                         }
+
+
                     }
                     else
                     {

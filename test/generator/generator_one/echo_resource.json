@@ -1,0 +1,6 @@
+{
+    "VehicleType": "train",
+    "MaxSpeed": "125",
+    "AvgSpeed": "90",
+    "SpeedUnit": "mph"
+  }

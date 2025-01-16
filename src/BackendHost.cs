@@ -14,15 +14,15 @@ public class BackendHost
     string? _probeurl = null;
     public string url => _url ??= new UriBuilder(protocol, ipaddr ?? host, port).Uri.AbsoluteUri;
 
-    public string probeurl => _probeurl ??= System.Net.WebUtility.UrlDecode( new UriBuilder(protocol, ipaddr ?? host, port, probe_path).Uri.AbsoluteUri );
+    public string probeurl => _probeurl ??= System.Net.WebUtility.UrlDecode(new UriBuilder(protocol, ipaddr ?? host, port, probe_path).Uri.AbsoluteUri);
 
     private const int MaxData = 50;
     private readonly Queue<double> latencies = new Queue<double>();
     private readonly Queue<bool> callSuccess = new Queue<bool>();
-    public double calculatedAverageLatency { get;  set; }    
+    public double calculatedAverageLatency { get; set; }
 
     private Queue<double> PxLatency = new Queue<double>();
-    private int errors=0;
+    private int errors = 0;
     private object lockObj = new object();
 
     public BackendHost(string hostname, string? probepath, string? ipaddress)
@@ -74,13 +74,16 @@ public class BackendHost
 
     public void AddPxLatency(double latency)
     {
-        lock(lockObj) {
+        lock (lockObj)
+        {
             PxLatency.Enqueue(latency);
         }
     }
 
-    public void AddError() {
-        lock(lockObj) {
+    public void AddError()
+    {
+        lock (lockObj)
+        {
             errors++;
         }
     }
@@ -99,19 +102,23 @@ public class BackendHost
             return " - ";
         }
 
-        var status=PxLatency;
-        errorCalls=errors;
+        var status = PxLatency;
+        errorCalls = errors;
+
+        average = Math.Round(status.Average(), 3);
+        calls = status.Count;
+
+        return $" Calls: {status.Count} Err: {errorCalls} Avg: {Math.Round(status.Average(), 3)}ms";
+    }
+
+    public void ResetStatus()
+    {
         lock (lockObj)
         {
             // Reset the counts
             PxLatency = new Queue<double>();
             errors = 0;
         }
-
-        average = Math.Round(status.Average(), 3);
-        calls = status.Count;
-
-        return $" Calls: {status.Count} Err: {errorCalls} Avg: {Math.Round(status.Average(), 3)}ms";
     }
 
     // Method to add a new latency

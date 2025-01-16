@@ -1,0 +1,147 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.Threading;
+using System.Threading.Tasks;
+
+public class ConcurrentPriQueue<T>
+{
+    private readonly PriorityQueue<T> _priorityQueue = new PriorityQueue<T>();
+    private readonly SemaphoreSlim _hasWorkEvent = new SemaphoreSlim(0);
+    private volatile bool _running = true;
+
+    public int MaxQueueLength { get; set; } = int.MaxValue;
+
+    // Single Task that coordinates all queue operations
+    private Task? _queueCoordinator;
+
+    // Thread-safe queue of "actions" to run on the coordinator:
+    private readonly ConcurrentQueue<Action> _actions = new ConcurrentQueue<Action>();
+
+    // Track consumers that called Dequeue when the queue was empty:
+    private readonly Queue<TaskCompletionSource<T?>> _waitingConsumers = new Queue<TaskCompletionSource<T?>>();
+
+    private int insertions=0;
+    private int extractions=0;
+
+    public void startCoordination(CancellationToken token)
+    {
+        _queueCoordinator = Task.Run(async () =>
+        {
+            while (_running && !token.IsCancellationRequested)
+            {
+                // Wait for incoming operations
+                await _hasWorkEvent.WaitAsync(token).ConfigureAwait(false);
+
+                // Process queued actions in a single thread
+                while (_actions.TryDequeue(out var act))
+                {
+                    act.Invoke();
+                }
+            }
+        }, token);
+    }
+
+    public void stop()
+    {
+        _running = false;
+        _hasWorkEvent.Release(); 
+    }
+
+    public bool enqueue(T item, int priority, int priority2, DateTime timestamp, bool allowOverflow = false)
+    {
+         bool enqueueResult = true;
+
+        // Build the action for the coordinator:
+        var action = new Action(() =>
+        {
+            // First, if there's already a waiting consumer, fulfill that consumer immediately
+            if (_waitingConsumers.Count > 0)
+            {
+                var waitingTcs = _waitingConsumers.Dequeue();
+                waitingTcs.SetResult(item);
+            }
+            else
+            {
+                // Otherwise, enqueue into the PriorityQueue
+                if (!allowOverflow && _priorityQueue.Count >= MaxQueueLength)
+                {
+                    enqueueResult = false; // Or handle overflow differently
+                }
+                else
+                {
+                    insertions++;
+                    _priorityQueue.Enqueue(new PriorityQueueItem<T>(item, priority, priority2, timestamp));
+                }
+            }
+        });
+
+        // Put the action in the concurrent queue and signal the coordinator
+        _actions.Enqueue(action);
+        _hasWorkEvent.Release();
+
+        return enqueueResult;
+    }
+
+    public Task<T?> dequeueAsync(string id, CancellationToken token)
+    {
+        var tcs = new TaskCompletionSource<T?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var action = new Action(() =>
+        {
+            // If the queue has an item, dequeue it immediately
+            if (_priorityQueue.Count > 0)
+            {
+                extractions++;
+                var item = _priorityQueue.Dequeue();
+                tcs.TrySetResult(item);
+            }
+            else
+            {
+                // Otherwise, store this TCS until an item is eventually enqueued
+                _waitingConsumers.Enqueue(tcs);
+            }
+        });
+
+        // Place the action in the queue, let the coordinator process it
+        _actions.Enqueue(action);
+        _hasWorkEvent.Release();
+
+        // Optional: handle cancellation
+        token.Register(() =>
+        {
+            // If the TCS hasn't been set yet, cancel it
+            if (tcs.TrySetCanceled())
+            {
+                // Remove the TCS from the waiting queue if it was canceled
+                lock (_waitingConsumers)
+                {
+                    var newQueue = new Queue<TaskCompletionSource<T?>>(_waitingConsumers.Where(t => t != tcs));
+                    while (_waitingConsumers.Count > 0) _waitingConsumers.Dequeue();
+                    foreach (var t in newQueue) _waitingConsumers.Enqueue(t);
+                }
+            }
+        });
+
+        return tcs.Task;
+    }
+
+        // Add the GetItems method to return a snapshot of the current items in the queue
+    public IEnumerable<PriorityQueueItem<T>> getItems()
+    {
+        // Because only the coordinator modifies _priorityQueue, you can (safely) freeze the coordinator
+        // or just do a quick one-time snapshot action:
+        var tcs = new TaskCompletionSource<IEnumerable<PriorityQueueItem<T>>>();
+        var action = new Action(() =>
+        {
+            tcs.SetResult(new List<PriorityQueueItem<T>>(_priorityQueue._items));
+        });
+
+        _actions.Enqueue(action);
+        _hasWorkEvent.Release();
+
+        return tcs.Task.Result; // or await tcs.Task if you prefer
+    }
+
+    public string  Counters => $"Ins: {insertions} Ext: {extractions}";
+}
