@@ -3,7 +3,7 @@ using System.IO;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
-public class UserProfile
+public class UserProfile : IUserProfile
 {
 
     private IBackendOptions options;
@@ -14,7 +14,7 @@ public class UserProfile
         this.options = options;
     }
 
-    public void startBackgroundConfigReader(CancellationToken cancellationToken)
+    public void StartBackgroundConfigReader(CancellationToken cancellationToken)
     {
 
         // create a new task that reads the user config every hour
@@ -91,7 +91,7 @@ public class UserProfile
 
         if (!string.IsNullOrEmpty(fileContent))
         {
-            parseUserConfig(fileContent);
+            ParseUserConfig(fileContent);
         }
     }
 
@@ -111,7 +111,7 @@ public class UserProfile
     //     }
     // ]
 
-    public void parseUserConfig(string fileContent)
+    public void ParseUserConfig(string fileContent)
     {
         if (string.IsNullOrWhiteSpace(fileContent))
         {

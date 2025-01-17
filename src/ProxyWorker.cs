@@ -30,6 +30,7 @@ public class ProxyWorker
     private IUserPriority _userPriority;
     private string IDstr = "";
     private static int activeWorkers = 0;
+    private static int workersWaitingForWork = 0;
     private static bool readyToWork = false;
 
 
@@ -48,8 +49,11 @@ public class ProxyWorker
 
     public async Task TaskRunner()
     {
-        bool doUserconfig = false;
+        bool doUserconfig = _options.UseProfiles;
         if (_requestsQueue == null) throw new ArgumentNullException(nameof(_requestsQueue));
+
+        CancellationTokenSource workerCancelTokenSource = new CancellationTokenSource();
+        var workerCancelToken = workerCancelTokenSource.Token;
 
         // increment the active workers count
         Interlocked.Increment(ref activeWorkers);
@@ -58,19 +62,25 @@ public class ProxyWorker
             Console.WriteLine("All workers ready to work");
         }
 
-        while (!_cancellationToken.IsCancellationRequested)
+        // Stop the worker if the cancellation token is cancelled and there is no work to do
+        while (!_cancellationToken.IsCancellationRequested || _requestsQueue.thrdSafeCount > 0)
         {
             RequestData incomingRequest;
             try
             {
-                incomingRequest = await _requestsQueue.dequeueAsync(IDstr, _cancellationToken); // This will block until an item is available or the token is cancelled
-                incomingRequest.DequeueTime = DateTime.UtcNow;
+                Interlocked.Increment(ref workersWaitingForWork);
+                incomingRequest = await _requestsQueue.DequeueAsync(IDstr, workerCancelToken); // This will block until an item is available or the token is cancelled
             }
             catch (OperationCanceledException)
             {
                 //Console.WriteLine("Operation was cancelled. Stopping the worker.");
                 break; // Exit the loop if the operation is cancelled
             }
+            finally {
+                Interlocked.Decrement(ref workersWaitingForWork);
+            }
+
+            incomingRequest.DequeueTime = DateTime.UtcNow;
 
             await using (incomingRequest)
             {
@@ -174,7 +184,7 @@ public class ProxyWorker
                 catch (S7PRequeueException e)
                 {
                     // Requeue the request 
-                    _requestsQueue.requeue(incomingRequest, incomingRequest.Priority, incomingRequest.Priority2, incomingRequest.EnqueueTime);
+                    _requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.Priority2, incomingRequest.EnqueueTime);
                     Console.WriteLine($"Requeued request.  Pri: {incomingRequest.Priority} Queue Length: {_requestsQueue.Count} Status: {_backends.CheckFailedStatus()} Active Hosts: {_backends.ActiveHostCount()}");
                     requestWasRetried = true;
                     incomingRequest.SkipDispose = true;
@@ -281,6 +291,14 @@ public class ProxyWorker
 
         Console.WriteLine($"Worker {IDstr} stopped.");
     }
+
+
+    // Returns probe responses
+    //
+    // /startup - 200  if all workers started, there is at least 1 active host ... runs at fastest priority
+    // /readiness - same as /startup
+    // /liveness - 503 if no active hosts  or  there are many recent errors ... runs on high priority
+    // /health - details on all active hosts ... runs on high priority
 
     private void ProbeResponse(string path, out int probeStatus, out string probeMessage)
     {
@@ -507,7 +525,8 @@ public class ProxyWorker
 
                     // Send the request and get the response
                     var ProxyStartDate = DateTime.UtcNow;
-                    using (var proxyResponse = await _options.Client.SendAsync(proxyRequest, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false))
+                    using (var proxyResponse = await _options.Client.SendAsync(
+                        proxyRequest, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false))
                     {
                         var responseDate = DateTime.UtcNow;
                         lastStatusCode = proxyResponse.StatusCode;
