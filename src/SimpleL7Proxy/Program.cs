@@ -27,8 +27,6 @@ namespace SimpleL7Proxy;
 
 public class Program
 {
-    public string OAuthAudience { get; set; } = "";
-
     public static async Task Main(string[] args)
     {
         Banner.Display();
@@ -100,13 +98,12 @@ public class Program
         }
         catch (OperationCanceledException)
         {
-            // Don't use logger here, as our logger may have been disposed
-            Console.WriteLine("Operation was canceled.");
+            startupLogger.LogInformation("Operation was canceled.");
         }
         catch (Exception e)
         {
             // Handle other exceptions that might occur
-            Console.WriteLine($"An unexpected error occurred: {e.Message}");
+            startupLogger.LogError($"An unexpected error occurred: {e.Message}");
         }
     }
 }
