@@ -1,11 +1,13 @@
 ﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using SimpleL7Proxy.Backend;
 
 namespace SimpleL7Proxy.Queue;
 
 public class BlockingPriorityQueue<T>(
   PriorityQueue<T> baseQueue,
   TaskSignaler<T> taskSignaler,
-  BackendOptions backendOptions,
+  IOptions<BackendOptions> backendOptions,
   ILogger<BlockingPriorityQueue<T>> logger)
   : IBlockingPriorityQueue<T>
 {
@@ -15,7 +17,7 @@ public class BlockingPriorityQueue<T>(
   private readonly TaskSignaler<T> _taskSignaler = taskSignaler;
   private readonly ILogger<BlockingPriorityQueue<T>> _logger = logger;
 
-  public int MaxQueueLength { get; private set; } = backendOptions.MaxQueueLength;
+  public int MaxQueueLength { get; private set; } = backendOptions.Value.MaxQueueLength;
 
   public void StartSignaler(CancellationToken cancellationToken)
     => Task.Run(() => SignalWorker(cancellationToken), cancellationToken);

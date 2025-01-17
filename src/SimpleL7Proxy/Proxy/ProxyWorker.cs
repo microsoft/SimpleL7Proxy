@@ -4,6 +4,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using Microsoft.ApplicationInsights;
 using Microsoft.Extensions.Logging;
+using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Queue;
 
@@ -21,7 +22,7 @@ public class ProxyWorker
     private static readonly bool _debug = false;
     private readonly CancellationToken _cancellationToken;
     private readonly IBlockingPriorityQueue<RequestData> _requestsQueue;
-    private readonly Backends _backends;
+    private readonly IBackendService _backends;
     private readonly BackendOptions _options;
     private readonly TelemetryClient? _telemetryClient;
     private readonly IEventClient _eventClient;
@@ -32,7 +33,8 @@ public class ProxyWorker
     public ProxyWorker(
       int ID,
       IBlockingPriorityQueue<RequestData> requestsQueue, 
-      BackendOptions backendOptions, Backends? backends, 
+      BackendOptions backendOptions, 
+      IBackendService? backends, 
       IEventClient eventClient, 
       TelemetryClient? telemetryClient,
       ILogger<ProxyWorker> logger,
@@ -569,7 +571,7 @@ public class ProxyWorker
     }
 
     private HttpStatusCode HandleProxyRequestError(
-        BackendHost? host,
+        BackendHostHealth? host,
         Exception? e,
         DateTime requestDate,
         string url,
