@@ -1,6 +1,7 @@
 ﻿using Microsoft.ApplicationInsights;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Abstractions;
 using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Events;
@@ -23,7 +24,7 @@ public class ProxyWorkerCollection : BackgroundService
   private readonly List<Task> _tasks;
 
   public ProxyWorkerCollection(
-    BackendOptions backendOptions, 
+    IOptions<BackendOptions> backendOptions, 
     IBlockingPriorityQueue<RequestData> queue, 
     IBackendService backends,
     IEventClient eventClient,
@@ -31,7 +32,7 @@ public class ProxyWorkerCollection : BackgroundService
     ILogger<ProxyWorker> logger,
     ProxyStreamWriter proxyStreamWriter)
   {
-    _backendOptions = backendOptions;
+    _backendOptions = backendOptions.Value;
     _queue = queue;
     _backends = backends;
     _eventClient = eventClient;

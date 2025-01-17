@@ -10,10 +10,10 @@ namespace SimpleL7Proxy.Backend
 {
   public class BackendHostConfig
   {
-    public string Host { get; private set; } = string.Empty;
-    public string ProbePath { get; private set; } = string.Empty;
-    public string Protocol { get; private set; } = string.Empty;
-    public int Port { get; private set; }
+    public readonly string Host;
+    public readonly string ProbePath;
+    public readonly string Protocol;
+    public readonly int Port;
 
     public string Url => new UriBuilder(Protocol, Host, Port).Uri.AbsoluteUri;
 
