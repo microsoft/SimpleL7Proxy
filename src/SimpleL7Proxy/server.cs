@@ -6,6 +6,7 @@ using SimpleL7Proxy.Queue;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
 using System.Threading;
+using SimpleL7Proxy.Backend;
 namespace SimpleL7Proxy;
 
 // This class represents a server that listens for HTTP requests and processes them.

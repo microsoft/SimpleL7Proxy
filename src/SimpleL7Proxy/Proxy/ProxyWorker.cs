@@ -4,6 +4,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using Microsoft.ApplicationInsights;
 using Microsoft.Extensions.Logging;
+using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Queue;
 
@@ -570,7 +571,7 @@ public class ProxyWorker
     }
 
     private HttpStatusCode HandleProxyRequestError(
-        BackendHost? host,
+        BackendHostHealth? host,
         Exception? e,
         DateTime requestDate,
         string url,

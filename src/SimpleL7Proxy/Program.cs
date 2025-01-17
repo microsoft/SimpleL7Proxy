@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Queue;
@@ -100,6 +101,7 @@ public class Program
                 services.AddSingleton<PriorityQueue<RequestData>>();
                 services.AddSingleton<IBlockingPriorityQueue<RequestData>, BlockingPriorityQueue<RequestData>>();
                 services.AddSingleton<ProxyStreamWriter>();
+                services.AddSingleton<IBackendHostHealthCollection, BackendHostHealthCollection>();
 
                 services.AddTransient(source => new CancellationTokenSource());
             });
@@ -216,7 +218,6 @@ public class Program
             DefaultPriority = ReadEnvironmentVariableOrDefault("DefaultPriority", 2),
             DefaultTTLSecs = ReadEnvironmentVariableOrDefault("DefaultTTLSecs", 300),
             HostName = ReadEnvironmentVariableOrDefault("Hostname", "Default"),
-            Hosts = [],
             IDStr = ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P") + "-" + replicaID + "-",
             LogHeaders = ReadEnvironmentVariableOrDefault("LogHeaders", "").Split(',').Select(x => x.Trim()).ToList(),
             MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
@@ -249,7 +250,8 @@ public class Program
             {
                 _logger?.LogInformation($"Found host {hostname} with probe path {probePath} and IP {ip}");
 
-                BackendHost bh = new(hostname, probePath);
+                BackendHostConfig bh = new BackendHostConfig(hostname, probePath);
+
                 backendOptions.Hosts.Add(bh);
 
                 sb.AppendLine($"{ip} {bh.Host}");

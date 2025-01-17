@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
+using SimpleL7Proxy.Backend;
 
 namespace SimpleL7Proxy.Queue;
 
