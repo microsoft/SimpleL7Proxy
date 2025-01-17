@@ -170,9 +170,10 @@ public class Program
             var allTasks = Task.WhenAll(runningTasks);
             var completedTask = await Task.WhenAny(allTasks, timeoutTask);
 
-            for (var ii=0; ii< 1000; ii++) {
-                eventHubClient.SendData($"Server shutting down - {ii}");
-            }
+            //  Test code to validate the hub gets emptied on shutdown
+            //for (var ii=0; ii< 1000; ii++) {
+            //    eventHubClient.SendData($"Server shutting down - {ii}");
+            //}
             
             eventHubClient.StopTimer();
             await eventHubTask;
