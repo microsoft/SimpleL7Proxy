@@ -6,12 +6,15 @@ public class PriorityQueue<T>
 
     public int Count => _items.Count;
 
+    public static int itemCounter =0; 
+
     public void Enqueue(PriorityQueueItem<T> queueItem)
     {
         int index = _items.BinarySearch(queueItem);//, Comparer);
         if (index < 0) index = ~index; // If not found, BinarySearch returns the bitwise complement of the index of the next element that is larger.
         _items.Insert(index, queueItem);
 
+        Interlocked.Increment(ref itemCounter);
         //Console.WriteLine($"Enqueue:  Priority: {priority}  length: {_items.Count}  index: {index} : {GetItemsAsCommaSeparatedString()}");
     }
 
@@ -29,6 +32,8 @@ public class PriorityQueue<T>
         // _items.RemoveAt(_items.Count - 1); // Remove the last item
         var item = _items[0]; // Get the first item
         _items.RemoveAt(0); // Remove the first item
+
+        Interlocked.Decrement(ref itemCounter);
 
         return item.Item;
     }

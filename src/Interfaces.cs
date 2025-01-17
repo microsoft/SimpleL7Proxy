@@ -6,7 +6,7 @@ public interface IBackendService
 
     public int ActiveHostCount();
 
-    public Task waitForStartup(int timeout);
+    public Task WaitForStartup(int timeout);
     public string HostStatus();
     public void TrackStatus(int code);
     public bool CheckFailedStatus();
@@ -15,10 +15,12 @@ public interface IBackendService
 
 public interface IEventHubClient
 {
-    void StartTimer();
+    Task StartTimer();
     void StopTimer();
     void SendData(string? value);
     void SendData(Dictionary<string, string> eventData);
+    int GetEntryCount();
+    bool IsRunning { get; set; }
 }
 
 public interface IBackendOptions {

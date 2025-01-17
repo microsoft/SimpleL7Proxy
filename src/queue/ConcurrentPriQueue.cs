@@ -9,15 +9,15 @@ public class ConcurrentPriQueue<T>
 
     public int MaxQueueLength { get; set; }
 
-    public void stop()
+    public void Stop()
     {
         // Shutdown
         _taskSignaler.CancelAllTasks();
     }
 
-    public void startSignaler(CancellationToken cancellationToken)
+    public void StartSignaler(CancellationToken cancellationToken)
     {
-        Task.Run(() => signalWorker(cancellationToken), cancellationToken);
+        Task.Run(() => SignalWorker(cancellationToken), cancellationToken);
     }
 
     public IEnumerable<PriorityQueueItem<T>> getItems()
@@ -30,6 +30,8 @@ public class ConcurrentPriQueue<T>
     }
 
     // Thread-safe Count property
+    public int thrdSafeCount => _priorityQueue.Count;
+
     public int Count
     {
         get
@@ -43,7 +45,7 @@ public class ConcurrentPriQueue<T>
 
     private string enqueue_status = "Not started";
 
-    public bool enqueue(T item, int priority, int priority2, DateTime timestamp, bool allowOverflow = false)
+    public bool Enqueue(T item, int priority, int priority2, DateTime timestamp, bool allowOverflow = false)
     {
         var queueItem = new PriorityQueueItem<T>(item, priority, priority2, timestamp);
         bool enqueued = false;
@@ -72,13 +74,13 @@ public class ConcurrentPriQueue<T>
         return enqueued;
     }
 
-    public bool requeue(T item, int priority, int priority2, DateTime timestamp)
+    public bool Requeue(T item, int priority, int priority2, DateTime timestamp)
     {
-        return enqueue(item, priority, priority2, timestamp, true);
+        return Enqueue(item, priority, priority2, timestamp, true);
     }
 
     private string sigwrkr_status = "Not started";
-    public async Task signalWorker(CancellationToken cancellationToken)
+    public async Task SignalWorker(CancellationToken cancellationToken)
     {
         bool shouldwait = false;
         while (!cancellationToken.IsCancellationRequested)
@@ -122,7 +124,7 @@ public class ConcurrentPriQueue<T>
         _taskSignaler.CancelAllTasks();
     }
 
-    public async Task<T> dequeueAsync(string id, CancellationToken cancellationToken)
+    public async Task<T> DequeueAsync(string id, CancellationToken cancellationToken)
     {
         try
         {

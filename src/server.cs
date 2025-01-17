@@ -84,7 +84,7 @@ public class Server : IServer
     public async Task Run()
     {
         if (_options == null) throw new ArgumentNullException(nameof(_options));
-        
+
         long counter=0;
         int livenessPriority = _options.PriorityValues.Min();
 
@@ -107,7 +107,7 @@ public class Server : IServer
                     // Cancel the delay task immedietly if the getContextTask completes first
                     if (completedTask == getContextTask)
                     {
-                        bool doUserconfig = false;
+                        bool doUserconfig = _options.UseProfiles;
                         int priority = _options.DefaultPriority;
                         int priority2 = 0;
                         var mid="";
@@ -123,10 +123,11 @@ public class Server : IServer
                         // if it's a probe, then bypass all the below checks and enqueue the request 
                         if (Constants.probes.Contains(rd.Path)) {
 
-                            priority = (rd.Path == Constants.Liveness) ? livenessPriority : 0;
+                            // /startup runs a priority of 0,   otherwise run at highest priority ( lower is more urgent )
+                            priority = (rd.Path == Constants.Liveness || rd.Path == Constants.Health) ? livenessPriority : 0;
 
                             // bypass all the below checks and enqueue the request
-                            _requestsQueue.enqueue(rd, priority, priority2, rd.EnqueueTime, true);
+                            _requestsQueue.Enqueue(rd, priority, priority2, rd.EnqueueTime, true);
                             continue;
                         } 
 
@@ -192,7 +193,7 @@ public class Server : IServer
 
                         // Enqueue the request
 
-                        else if (!_requestsQueue.enqueue(rd, priority, priority2, rd.EnqueueTime)) {
+                        else if (!_requestsQueue.Enqueue(rd, priority, priority2, rd.EnqueueTime)) {
                             return429 = true;
 
                             ed["Type"] = "S7P-EnqueueFailed";

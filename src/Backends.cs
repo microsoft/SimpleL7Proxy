@@ -121,7 +121,7 @@ public class Backends : IBackendService
         return AuthToken?.Token ?? "";
     }
 
-    public async Task waitForStartup(int timeout)
+    public async Task WaitForStartup(int timeout)
     {
         var start = DateTime.Now;
         for (int i=0; i < 10; i++ ) 

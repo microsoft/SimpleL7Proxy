@@ -26,20 +26,23 @@ using Azure.Core;
 
 public class Program
 {
-    private static HttpClient hc = new HttpClient();
     Program program = new Program();
+    private static HttpClient hc = new HttpClient();
     public static TelemetryClient? telemetryClient;
+    public static int terminationGracePeriodSeconds = 30;
 
     static CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
-    public string OAuthAudience { get; set; } ="";  
+    public string OAuthAudience { get; set; } ="";
+
 
 
     public static async Task Main(string[] args)
     {
         var cancellationToken = cancellationTokenSource.Token;
         var backendOptions = LoadBackendOptions();
+        var runningTasks = new List<Task>();
+        Task? eventHubTask = null;;
 
-        
         // Set up logging
         using var loggerFactory = LoggerFactory.Create(builder =>
         {
@@ -102,7 +105,7 @@ public class Program
                 var eventHubConnectionString = OS.Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING") ?? "";
                 var eventHubName = OS.Environment.GetEnvironmentVariable("EVENTHUB_NAME") ?? "";
                 var eventHubClient = new EventHubClient(eventHubConnectionString, eventHubName);
-                eventHubClient.StartTimer();
+                eventHubTask = eventHubClient.StartTimer();   // Must shutdown after worker threads are done
 
                 services.AddSingleton<IEventHubClient>(provider => eventHubClient);
                 //services.AddHttpLogging(o => { });
@@ -135,23 +138,22 @@ public class Program
 
         var server = serviceProvider.GetRequiredService<IServer>();
         var eventHubClient = serviceProvider.GetRequiredService<IEventHubClient>();
-        var tasks = new List<Task>();
         try
         {
             if (!string.IsNullOrEmpty(backendOptions.UserConfigUrl)) {
                 var userProfile = new UserProfile(backendOptions);
-                userProfile.startBackgroundConfigReader(cancellationToken);
+                userProfile.StartBackgroundConfigReader(cancellationToken);
             }
 
-            await backends.waitForStartup(20); // wait for up to 20 seconds for startup
+            await backends.WaitForStartup(20); // wait for up to 20 seconds for startup
             var queue = server.Start(cancellationToken);
-            queue.startSignaler(cancellationToken);
+            queue.StartSignaler(cancellationToken);
 
             // startup Worker # of tasks
             for (int i = 0; i < backendOptions.Workers; i++)
             {
                 var pw = new ProxyWorker(cancellationToken, i, queue, backendOptions, userPriority, backends, eventHubClient, telemetryClient);
-                tasks.Add( Task.Run(() => pw.TaskRunner(), cancellationToken));
+                runningTasks.Add( Task.Run(() => pw.TaskRunner(), cancellationToken));
             }
 
         } catch (Exception e)
@@ -162,11 +164,19 @@ public class Program
 
         try {        
             await server.Run();
-            Console.WriteLine("Waiting for tasks to complete for maximum 10 seconds");
-            server.Queue().stop();
-            var timeoutTask = Task.Delay(10000); // 10 seconds timeout
-            var allTasks = Task.WhenAll(tasks);
+            Console.WriteLine($"Waiting for tasks to complete for maximum {terminationGracePeriodSeconds} seconds");
+            server.Queue().Stop();
+            var timeoutTask = Task.Delay( terminationGracePeriodSeconds * 1000);
+            var allTasks = Task.WhenAll(runningTasks);
             var completedTask = await Task.WhenAny(allTasks, timeoutTask);
+
+            //  Test code to validate the hub gets emptied on shutdown
+            //for (var ii=0; ii< 1000; ii++) {
+            //    eventHubClient.SendData($"Server shutting down - {ii}");
+            //}
+            
+            eventHubClient.StopTimer();
+            await eventHubTask;
         }
         catch (Exception e)
         {
@@ -299,6 +309,7 @@ public class Program
             Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
         };
 
+        terminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30);
         backendOptions.Client.Timeout = TimeSpan.FromMilliseconds(backendOptions.Timeout);
 
         int i = 1;
