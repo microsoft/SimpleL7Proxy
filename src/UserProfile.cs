@@ -12,6 +12,12 @@ public class UserProfile : IUserProfile
     public UserProfile(IBackendOptions options)
     {
         this.options = options;
+
+        // throw an error is not configured to use user profiles
+        if (!options.UseProfiles || string.IsNullOrEmpty(options.UserConfigUrl))
+        {
+            throw new Exception("User profiles are not enabled or configured.");
+        }
     }
 
     public void StartBackgroundConfigReader(CancellationToken cancellationToken)
@@ -148,6 +154,8 @@ public class UserProfile : IUserProfile
                     }
                 }
             }
+
+            Console.WriteLine($"User config parsed successfully.  Found {userProfiles.Count} user profiles.");
         }
         catch (Exception ex)
         {

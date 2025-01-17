@@ -70,7 +70,7 @@ public class EventHubClient : IEventHubClient
                     await Task.Delay(1000, token); // Wait for 1 second
                 }
             }
-            Console.WriteLine("EventHubClient: EventWriter cancelled");
+            Console.WriteLine("EventHubClient: EventWriter exiting");
 
         }
         catch (TaskCanceledException)
@@ -128,7 +128,7 @@ public class EventHubClient : IEventHubClient
         isShuttingDown = true;
         while (isRunning && _logBuffer.Count > 0)
         {
-            Task.Delay(1000).Wait();
+            Task.Delay(100).Wait();
         }
 
         cancellationTokenSource.Cancel();

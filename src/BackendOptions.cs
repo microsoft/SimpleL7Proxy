@@ -19,6 +19,7 @@ public class BackendOptions : IBackendOptions
     public bool UseOAuth { get; set; }
     public bool UseUserConfig { get; set; } = false;
     public bool UseProfiles { get; set; } = false;
+    public string UserProfileHeader { get; set; } = "";
     public string UserConfigUrl { get; set; } = "";
     public float UserPriorityThreshold { get; set; }
     public int Workers { get; set; }

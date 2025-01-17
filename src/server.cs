@@ -17,6 +17,7 @@ public class Server : IServer
     private IBackendService _backends;
 
     private IUserPriority _userPriority;
+    private IUserProfile _userProfile;
     private CancellationToken _cancellationToken;
     //private BlockingCollection<RequestData> _requestsQueue = new BlockingCollection<RequestData>();
     private ConcurrentPriQueue<RequestData> _requestsQueue = new ConcurrentPriQueue<RequestData>();
@@ -25,7 +26,7 @@ public class Server : IServer
 
 
     // Constructor to initialize the server with backend options and telemetry client.
-    public Server(IOptions<BackendOptions> backendOptions, IUserPriority userPriority, IEventHubClient? eventHubClient, IBackendService backends, TelemetryClient? telemetryClient)
+    public Server(IOptions<BackendOptions> backendOptions, IUserPriority userPriority, IUserProfile userProfile, IEventHubClient? eventHubClient, IBackendService backends, TelemetryClient? telemetryClient)
     {
         if (backendOptions == null) throw new ArgumentNullException(nameof(backendOptions));
         if (backendOptions.Value == null) throw new ArgumentNullException(nameof(backendOptions.Value));
@@ -36,6 +37,7 @@ public class Server : IServer
         _telemetryClient = telemetryClient;
         _requestsQueue.MaxQueueLength = _options.MaxQueueLength;
         _userPriority = userPriority;
+        _userProfile = userProfile;
 
         var _listeningUrl = $"http://+:{_options.Port}/";
 
@@ -87,7 +89,7 @@ public class Server : IServer
 
         long counter=0;
         int livenessPriority = _options.PriorityValues.Min();
-
+        bool doUserProfile = _options.UseProfiles;
 
         while (!_cancellationToken.IsCancellationRequested)
         {
@@ -107,7 +109,6 @@ public class Server : IServer
                     // Cancel the delay task immedietly if the getContextTask completes first
                     if (completedTask == getContextTask)
                     {
-                        bool doUserconfig = _options.UseProfiles;
                         int priority = _options.DefaultPriority;
                         int priority2 = 0;
                         var mid="";
@@ -130,10 +131,24 @@ public class Server : IServer
                             _requestsQueue.Enqueue(rd, priority, priority2, rd.EnqueueTime, true);
                             continue;
                         } 
-
                         // Determine priority boost based on the userid
-                        if (doUserconfig) {
-                            rd.UserID = "user1";
+                        if (doUserProfile) {
+
+                            // Lookup the user profile and add the headers to the request
+                            var requestUser = rd.Headers.Get(_options.UserProfileHeader);
+                            if (!string.IsNullOrEmpty(requestUser)) {
+                                var headers= _userProfile.GetUserProfile(requestUser);
+                                rd.UserID = requestUser;
+
+                                if (headers != null) {
+                                    foreach (var header in headers) {
+                                        rd.Headers.Add(header.Key, header.Value);
+                                    }
+                                }
+                            } else {
+                                rd.UserID = "defaultUser";
+                            }
+
                             rd.Guid=_userPriority.addRequest(rd.UserID);
                             bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
                             priority2 = shouldBoost ? 1 : 0;
@@ -221,7 +236,7 @@ public class Server : IServer
                                 WriteOutput($"Pri: {priority} Stat: 429 Path: {rd.Path}");
                             }
 
-                            if (doUserconfig)
+                            if (doUserProfile)
                                 _userPriority.removeRequest(rd.UserID, rd.Guid);
 
                         }

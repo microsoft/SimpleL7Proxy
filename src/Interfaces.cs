@@ -38,6 +38,7 @@ public interface IBackendOptions {
     int SuccessRate { get; set; }
     int Timeout { get; set; }
     bool UseProfiles { get; set; }
+    string UserProfileHeader { get; set; }
     string UserConfigUrl { get; set; }
     float UserPriorityThreshold { get; set; }
     int Workers { get; set; }

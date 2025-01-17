@@ -28,13 +28,14 @@ public class ProxyWorker
     private readonly TelemetryClient? _telemetryClient;
     private readonly IEventHubClient? _eventHubClient;
     private IUserPriority _userPriority;
+    private IUserProfile _profiles;
     private string IDstr = "";
     private static int activeWorkers = 0;
     private static int workersWaitingForWork = 0;
     private static bool readyToWork = false;
 
 
-    public ProxyWorker(CancellationToken cancellationToken, int ID, ConcurrentPriQueue<RequestData> requestsQueue, BackendOptions backendOptions, IUserPriority? userPriority, IBackendService? backends, IEventHubClient? eventHubClient, TelemetryClient? telemetryClient)
+    public ProxyWorker(CancellationToken cancellationToken, int ID, ConcurrentPriQueue<RequestData> requestsQueue, BackendOptions backendOptions, IUserPriority? userPriority, IUserProfile? profiles, IBackendService? backends, IEventHubClient? eventHubClient, TelemetryClient? telemetryClient)
     {
         _cancellationToken = cancellationToken;
         _requestsQueue = requestsQueue ?? throw new ArgumentNullException(nameof(requestsQueue));
@@ -43,6 +44,7 @@ public class ProxyWorker
         _telemetryClient = telemetryClient;
         _userPriority = userPriority ?? throw new ArgumentNullException(nameof(userPriority));
         _options = backendOptions ?? throw new ArgumentNullException(nameof(backendOptions));
+        _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
         if (_options.Client == null) throw new ArgumentNullException(nameof(_options.Client));
         IDstr = ID.ToString();
     }
@@ -50,6 +52,8 @@ public class ProxyWorker
     public async Task TaskRunner()
     {
         bool doUserconfig = _options.UseProfiles;
+        
+        if (doUserconfig && _profiles == null) throw new ArgumentNullException(nameof(_profiles));
         if (_requestsQueue == null) throw new ArgumentNullException(nameof(_requestsQueue));
 
         CancellationTokenSource workerCancelTokenSource = new CancellationTokenSource();
@@ -88,26 +92,12 @@ public class ProxyWorker
                 var lcontext = incomingRequest?.Context;
                 bool isExpired = false;
 
-                Dictionary<string, string> eventData = new Dictionary<string, string>();
-                eventData["ProxyHost"] = _options.HostName;
-                eventData["Date"] = incomingRequest?.DequeueTime.ToString("o") ?? DateTime.UtcNow.ToString("o");
-                eventData["Path"] = incomingRequest?.Path ?? "N/A";
-                eventData["x-RequestPriority"] = incomingRequest?.Priority.ToString() ?? "N/A";
-                eventData["x-RequestMethod"] = incomingRequest?.Method ?? "N/A";
-                eventData["x-RequestPath"] = incomingRequest?.Path ?? "N/A";
-                eventData["x-RequestHost"] = incomingRequest?.Headers["Host"] ?? "N/A";
-                eventData["x-RequestUserAgent"] = incomingRequest?.Headers["User-Agent"] ?? "N/A";
-                eventData["x-RequestContentType"] = incomingRequest?.Headers["Content-Type"] ?? "N/A";
-                eventData["x-RequestContentLength"] = incomingRequest?.Headers["Content-Length"] ?? "N/A";
-                eventData["x-RequestWorker"] = IDstr;
-
-
                 if (lcontext == null || incomingRequest == null)
                 {
-                    //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
                     continue;
                 }
 
+                Dictionary<string, string> eventData = new Dictionary<string, string>();
                 try
                 {
                     if (Constants.probes.Contains(incomingRequest.Path))
@@ -126,6 +116,18 @@ public class ProxyWorker
                         continue;
                     }
 
+                    eventData["ProxyHost"] = _options.HostName;
+                    eventData["Date"] = incomingRequest?.DequeueTime.ToString("o") ?? DateTime.UtcNow.ToString("o");
+                    eventData["Path"] = incomingRequest?.Path ?? "N/A";
+                    eventData["x-RequestPriority"] = incomingRequest?.Priority.ToString() ?? "N/A";
+                    eventData["x-RequestMethod"] = incomingRequest?.Method ?? "N/A";
+                    eventData["x-RequestPath"] = incomingRequest?.Path ?? "N/A";
+                    eventData["x-RequestHost"] = incomingRequest?.Headers["Host"] ?? "N/A";
+                    eventData["x-RequestUserAgent"] = incomingRequest?.Headers["User-Agent"] ?? "N/A";
+                    eventData["x-RequestContentType"] = incomingRequest?.Headers["Content-Type"] ?? "N/A";
+                    eventData["x-RequestContentLength"] = incomingRequest?.Headers["Content-Length"] ?? "N/A";
+                    eventData["x-RequestWorker"] = IDstr;
+                    
                     incomingRequest.Headers["x-Request-Queue-Duration"] = (incomingRequest.DequeueTime - incomingRequest.EnqueueTime).TotalMilliseconds.ToString();
                     incomingRequest.Headers["x-Request-Process-Duration"] = (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString();
                     incomingRequest.Headers["x-Request-Worker"] = IDstr;
