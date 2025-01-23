@@ -22,7 +22,7 @@ public class ProxyWorker
     private static bool _debug = false;
     private CancellationToken _cancellationToken;
     //    private BlockingPriorityQueue<RequestData>? _requestsQueue;
-    private ConcurrentPriQueue<RequestData>? _requestsQueue;
+    private static ConcurrentPriQueue<RequestData>? _requestsQueue;
     private readonly IBackendService _backends;
     private readonly BackendOptions _options;
     private readonly TelemetryClient? _telemetryClient;
@@ -30,11 +30,16 @@ public class ProxyWorker
     private IUserPriority _userPriority;
     private IUserProfile _profiles;
     private string IDstr = "";
-    private static int activeWorkers = 0;
+    public static int activeWorkers = 0;
     private static int workersWaitingForWork = 0;
     private static bool readyToWork = false;
 
+    private static int[] states = [0, 0, 0, 0, 0, 0];
 
+    public static string GetState()
+    {
+        return $"ActiveWorkers: {activeWorkers} - States: {states[0]} {states[1]} {states[2]} {states[3]} {states[4]} - requests: {_requestsQueue?.thrdSafeCount.ToString() ?? "-"}";
+    }
     public ProxyWorker(CancellationToken cancellationToken, int ID, ConcurrentPriQueue<RequestData> requestsQueue, BackendOptions backendOptions, IUserPriority? userPriority, IUserProfile? profiles, IBackendService? backends, IEventHubClient? eventHubClient, TelemetryClient? telemetryClient)
     {
         _cancellationToken = cancellationToken;
@@ -52,7 +57,8 @@ public class ProxyWorker
     public async Task TaskRunner()
     {
         bool doUserconfig = _options.UseProfiles;
-        
+        string workerState = "";
+
         if (doUserconfig && _profiles == null) throw new ArgumentNullException(nameof(_profiles));
         if (_requestsQueue == null) throw new ArgumentNullException(nameof(_requestsQueue));
 
@@ -61,7 +67,8 @@ public class ProxyWorker
 
         // increment the active workers count
         Interlocked.Increment(ref activeWorkers);
-        if (_options.Workers == activeWorkers) {
+        if (_options.Workers == activeWorkers)
+        {
             readyToWork = true;
             Console.WriteLine("All workers ready to work");
         }
@@ -73,6 +80,8 @@ public class ProxyWorker
             try
             {
                 Interlocked.Increment(ref workersWaitingForWork);
+                Interlocked.Increment(ref states[0]);
+                workerState = "Waiting";
                 incomingRequest = await _requestsQueue.DequeueAsync(IDstr, workerCancelToken); // This will block until an item is available or the token is cancelled
             }
             catch (OperationCanceledException)
@@ -80,8 +89,11 @@ public class ProxyWorker
                 //Console.WriteLine("Operation was cancelled. Stopping the worker.");
                 break; // Exit the loop if the operation is cancelled
             }
-            finally {
+            finally
+            {
                 Interlocked.Decrement(ref workersWaitingForWork);
+                Interlocked.Decrement(ref states[0]);
+                workerState = "Exit - Get Work";
             }
 
             incomingRequest.DequeueTime = DateTime.UtcNow;
@@ -92,12 +104,18 @@ public class ProxyWorker
                 var lcontext = incomingRequest?.Context;
                 bool isExpired = false;
 
+                Interlocked.Increment(ref states[1]);
+                workerState = "Processing";
                 if (lcontext == null || incomingRequest == null)
                 {
+                    Interlocked.Decrement(ref states[1]);
+                    workerState = "Exit - No Context";
                     continue;
                 }
 
                 Dictionary<string, string> eventData = new Dictionary<string, string>();
+                bool dirtyExceptionLog = false;
+                bool requestException = false;
                 try
                 {
                     if (Constants.probes.Contains(incomingRequest.Path))
@@ -113,6 +131,8 @@ public class ProxyWorker
                         lcontext.Response.ContentLength64 = healthMessage.Length;
 
                         await lcontext.Response.OutputStream.WriteAsync(healthMessage, 0, healthMessage.Length).ConfigureAwait(false);
+                        Interlocked.Decrement(ref states[1]);
+                        workerState = "Exit - Probe";
                         continue;
                     }
 
@@ -127,7 +147,7 @@ public class ProxyWorker
                     eventData["x-RequestContentType"] = incomingRequest?.Headers["Content-Type"] ?? "N/A";
                     eventData["x-RequestContentLength"] = incomingRequest?.Headers["Content-Length"] ?? "N/A";
                     eventData["x-RequestWorker"] = IDstr;
-                    
+
                     incomingRequest.Headers["x-Request-Queue-Duration"] = (incomingRequest.DequeueTime - incomingRequest.EnqueueTime).TotalMilliseconds.ToString();
                     incomingRequest.Headers["x-Request-Process-Duration"] = (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString();
                     incomingRequest.Headers["x-Request-Worker"] = IDstr;
@@ -138,7 +158,13 @@ public class ProxyWorker
                     eventData["x-Request-Process-Duration"] = incomingRequest.Headers["x-Request-Process-Duration"] ?? "N/A";
                     eventData["x-S7PID"] = incomingRequest.MID ?? "N/A";
 
+                    Interlocked.Decrement(ref states[1]);
+                    Interlocked.Increment(ref states[2]);
+                    workerState = "Read Proxy";
                     var pr = await ReadProxyAsync(incomingRequest).ConfigureAwait(false);
+                    Interlocked.Decrement(ref states[2]);
+                    Interlocked.Increment(ref states[3]);
+                    workerState = "Write Response";
 
                     //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
 
@@ -158,30 +184,41 @@ public class ProxyWorker
                     }
                     await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);
                     //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
+                    Interlocked.Decrement(ref states[3]);
+                    Interlocked.Increment(ref states[4]);
+                    workerState = "Send Event";
 
                     var conlen = pr.ContentHeaders?["Content-Length"] ?? "N/A";
-                    Console.WriteLine($"Pri: {incomingRequest.Priority} Stat: {(int)pr.StatusCode} Len: {conlen} {pr.FullURL}");
+                    var proxyTime = (DateTime.Now - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
+                    var timeTaken = (DateTime.UtcNow - incomingRequest.EnqueueTime).TotalMilliseconds.ToString("F3");
+                    Console.WriteLine($"Pri: {incomingRequest.Priority} Stat: {(int)pr.StatusCode} Len: {conlen} {pr.FullURL} Deq: {incomingRequest.DequeueTime} Lat: {proxyTime} ms");
+                    workerState = "Send Eventa";
 
                     eventData["Url"] = pr.FullURL;
                     eventData["x-Response-Latency"] = (pr.ResponseDate - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
-                    eventData["x-Total-Latency"] = (DateTime.UtcNow - incomingRequest.EnqueueTime).TotalMilliseconds.ToString("F3");
+                    eventData["x-Total-Latency"] = timeTaken;
                     eventData["x-Backend-Host"] = pr?.BackendHostname ?? "N/A";
                     eventData["x-Backend-Host-Latency"] = pr?.CalculatedHostLatency.ToString("F3") ?? "N/A";
                     eventData["Content-Length"] = lcontext.Response?.ContentLength64.ToString() ?? "N/A";
                     eventData["Content-Type"] = lcontext?.Response?.ContentType ?? "N/A";
+                    workerState = "Send Eventb";
 
                     if (_eventHubClient != null)
                     {
+                        workerState = "Send Eventc";
                         //SendEventData(pr.FullURL, pr.StatusCode, incomingRequest.Timestamp, pr.ResponseDate);
                         eventData["Type"] = isExpired ? "S7P-Expired-Request" : "S7P-ProxyRequest";
-
+                        workerState = "Send Eventd";
                         SendEventData(eventData);
+                        workerState = "Send Evente";
                     }
 
                     // pr.Body = [];
                     // pr.ContentHeaders.Clear();
                     // pr.FullURL = "";
-
+                    Interlocked.Decrement(ref states[4]);
+                    Interlocked.Increment(ref states[5]);
+                    workerState = "Cleanup";
                 }
                 catch (S7PRequeueException e)
                 {
@@ -250,9 +287,16 @@ public class ProxyWorker
 
                         continue;
                     }
+                    requestException = true;
+                    dirtyExceptionLog = true;
                     // Log the exception
                     Console.WriteLine($"Exception: {ex.Message}");
                     Console.WriteLine($"Stack Trace: {ex.StackTrace}");
+                    // Convert the multi-line stack trace to a single line
+                    eventData["x-Stack"] = ex.StackTrace.Replace(Environment.NewLine, " ");
+                    eventData["x-WorkerState"] = workerState;
+                    SendEventData(eventData);
+                    dirtyExceptionLog = false;
 
                     // Set an appropriate status code for the error
                     lcontext.Response.StatusCode = 500;
@@ -270,6 +314,11 @@ public class ProxyWorker
                 finally
                 {
 
+                    if (dirtyExceptionLog)
+                    {
+                        eventData["x-Additional"] = "Failed to log exception";
+                        SendEventData(eventData);
+                    }
                     // Let's not track the request if it was retried.
                     if (!requestWasRetried)
                     {
@@ -277,7 +326,7 @@ public class ProxyWorker
                             _userPriority.removeRequest(incomingRequest.UserID, incomingRequest.Guid);
 
                         // Track the status of the request for circuit breaker
-                        _backends.TrackStatus((int)lcontext.Response.StatusCode);
+                        _backends.TrackStatus((int)lcontext.Response.StatusCode, requestException);
 
                         _telemetryClient?.TrackRequest($"{incomingRequest.Method} {incomingRequest.Path}",
                             DateTimeOffset.UtcNow, new TimeSpan(0, 0, 0), $"{lcontext.Response.StatusCode}", true);
@@ -286,10 +335,13 @@ public class ProxyWorker
                         lcontext?.Response.Close();
                     }
 
+                    Interlocked.Decrement(ref states[5]);
+                    workerState = "Exit - Finally";
                 }
-
             }
         }
+
+        Interlocked.Decrement(ref activeWorkers);
 
         Console.WriteLine($"Worker {IDstr} stopped.");
     }
@@ -346,11 +398,15 @@ public class ProxyWorker
                 break;
 
             case Constants.Liveness:
-                if (activeHosts == 0 || hasFailedHosts)
+                if (activeHosts == 0)
                 {
                     probeStatus = 503;
                     probeMessage = $"Not Lively.  Active Hosts: {activeHosts} Failed Hosts: {hasFailedHosts}";
                 }
+                break;
+
+            case Constants.Shutdown:
+                // Shutdown is a signal to unwedge workers and shut down gracefully
                 break;
         }
     }
@@ -640,14 +696,25 @@ public class ProxyWorker
         // If we get here, then no hosts were able to handle the request
         //Console.WriteLine($"{path}  - {lastStatusCode}");
 
-        return new ProxyData
+        if (activeHosts.Count() == 1)
         {
-            // 502 Bad Gateway or lastStatus depending on # of hosts available
-            StatusCode = (activeHosts.Count() == 1) ?
-                    HttpStatusCode.RequestTimeout : HttpStatusCode.BadGateway,
-            Body = Encoding.UTF8.GetBytes("No active hosts were able to handle the request.")
-        };
+            return new ProxyData
+            {
+                StatusCode = lastStatusCode,
+                Body = Encoding.UTF8.GetBytes("Error processing request.")
+            };
+        }
+        else
+        {
+            return new ProxyData
+            {
+                // 502 Bad Gateway 
+                StatusCode = HttpStatusCode.BadGateway,
+                Body = Encoding.UTF8.GetBytes("No active hosts were able to handle the request.")
+            };
+        }
     }
+
 
 
     // Returns false if the TTL is invalid else returns true
