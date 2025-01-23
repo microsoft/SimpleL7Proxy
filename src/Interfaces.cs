@@ -8,7 +8,7 @@ public interface IBackendService
 
     public Task WaitForStartup(int timeout);
     public string HostStatus();
-    public void TrackStatus(int code);
+    public void TrackStatus(int code, bool wasException);
     public bool CheckFailedStatus();
     public string OAuth2Token();
 }
