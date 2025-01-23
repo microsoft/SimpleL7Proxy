@@ -83,7 +83,7 @@ public class Backends : IBackendService
         return _activeHosts.Count;
     }
 
-    static Dictionary<string, string> logerror = new Dictionary<string, string>() { { "Type", "Track-CircuitBreaker-Error" } };
+    static Dictionary<string, string> logerror = new Dictionary<string, string>() { { "Type", "Track-CircuitBreaker-Error-Event" } };
     public void TrackStatus(int code, bool wasException)
     {
         //Console.WriteLine($"TrackStatus: {code}");
