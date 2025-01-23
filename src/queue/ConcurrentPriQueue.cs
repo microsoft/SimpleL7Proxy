@@ -3,7 +3,8 @@ public class ConcurrentPriQueue<T>
     private readonly PriorityQueue<T> _priorityQueue = new PriorityQueue<T>();
     private readonly SemaphoreSlim _enqueueEvent = new SemaphoreSlim(0);
     private readonly object _lock = new object(); // Lock object for synchronization
-    private TaskSignaler<T> _taskSignaler = new TaskSignaler<T>();
+    //private TaskSignaler<T> _taskSignaler = new TaskSignaler<T>();
+    private ConcurrentSignal<T> _taskSignaler = new ConcurrentSignal<T>();
     private int insertions = 0;
     private int extractions = 0;
 
@@ -86,12 +87,12 @@ public class ConcurrentPriQueue<T>
         while (!cancellationToken.IsCancellationRequested)
         {
 //            sigwrkr_status = "waiting";
-            await _enqueueEvent.WaitAsync(TimeSpan.FromMilliseconds(100), cancellationToken); // Wait for an item to be added
+            await _enqueueEvent.WaitAsync(TimeSpan.FromMilliseconds(40), cancellationToken).ConfigureAwait(false); // Wait for an item to be added
 
 //            sigwrkr_status = "waiting lock";
             lock (_lock)
             {
-                if (_priorityQueue.Count > 0 && _taskSignaler.HasWaitingTasks())
+                while (_priorityQueue.Count > 0 && _taskSignaler.HasWaitingTasks())
                 {
 //                    sigwrkr_status = "waiting lock dequeue";
 
@@ -101,21 +102,21 @@ public class ConcurrentPriQueue<T>
 //                    sigwrkr_status = "waiting lock dequeue signal";
 
                     // Signal a random task or requeue the item if no tasks are waiting
-                    _taskSignaler.SignalRandomTask(queueItem);
+                    _taskSignaler.SignalNextTask(queueItem);
                     shouldwait = false;
                 }
-                else
-                {
-                    shouldwait = true;
-                    //Console.WriteLine("SignalWorker: No tasks waiting");
-                }
+                // else
+                // {
+                //     shouldwait = true;
+                //     //Console.WriteLine("SignalWorker: No tasks waiting");
+                // }
 //                sigwrkr_status = "waiting lock end";
             }
 
-            if (shouldwait) {
-//                sigwrkr_status = "waiting wait";
-                Task.Delay(10).Wait(); // Wait for 10 ms for a Task Worker to be ready
-            }
+//             if (shouldwait) {
+// //                sigwrkr_status = "waiting wait";
+//                 Task.Delay(10).Wait(); // Wait for 10 ms for a Task Worker to be ready
+//             }
             
         }
         Console.WriteLine("SignalWorker: Canceled");
@@ -128,7 +129,7 @@ public class ConcurrentPriQueue<T>
     {
         try
         {
-            var parameter = await _taskSignaler.WaitForSignalAsync(id);
+            var parameter = await _taskSignaler.WaitForSignalAsync(id).ConfigureAwait(false);
             return parameter;
         }
         catch (TaskCanceledException)
