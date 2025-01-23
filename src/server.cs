@@ -23,7 +23,10 @@ public class Server : IServer
     private ConcurrentPriQueue<RequestData> _requestsQueue = new ConcurrentPriQueue<RequestData>();
     private readonly IEventHubClient? _eventHubClient;
 
-
+    // public void enqueueShutdownRequest() {
+    //     var shutdownRequest = new RequestData(Constants.Shutdown);
+    //     _requestsQueue.Enqueue(shutdownRequest, 3, 0, DateTime.UtcNow, true);
+    // }
 
     // Constructor to initialize the server with backend options and telemetry client.
     public Server(IOptions<BackendOptions> backendOptions, IUserPriority userPriority, IUserProfile userProfile, IEventHubClient? eventHubClient, IBackendService backends, TelemetryClient? telemetryClient)
