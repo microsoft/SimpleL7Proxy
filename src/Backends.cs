@@ -55,6 +55,8 @@ public class Backends : IBackendService
         _options = bo;
         _activeHosts = new List<BackendHost>();
         _successRate = bo.SuccessRate / 100.0;
+        FailureThreshold = bo.CircuitBreakerErrorThreshold;
+        FailureTimeFrame = bo.CircuitBreakerTimeslice;
     }
 
     public void Start(CancellationToken cancellationToken)
@@ -70,8 +72,8 @@ public class Backends : IBackendService
 
 
     List<DateTime> hostFailureTimes = new List<DateTime>();
-    private const int FailureThreshold = 5;
-    private const int FailureTimeFrame = 10; // seconds
+    private readonly int FailureThreshold = 5;
+    private readonly int FailureTimeFrame = 10; // seconds
     static int[] allowableCodes = { 200, 401, 403, 408, 410, 412, 417, 400 };
 
     public List<BackendHost> GetActiveHosts()

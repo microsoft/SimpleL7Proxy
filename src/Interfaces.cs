@@ -23,8 +23,11 @@ public interface IEventHubClient
     bool IsRunning { get; set; }
 }
 
-public interface IBackendOptions {
+public interface IBackendOptions
+{
     HttpClient? Client { get; set; }
+    int CircuitBreakerErrorThreshold { get; set; }
+    int CircuitBreakerTimeslice { get; set; }
     int DefaultPriority { get; set; }
     int DefaultTTLSecs { get; set; }
     List<BackendHost>? Hosts { get; set; }
@@ -53,7 +56,8 @@ public interface IUserPriority
 
 }
 
-public interface IUserProfile {
+public interface IUserProfile
+{
     public Dictionary<string, string> GetUserProfile(string userId);
 
 }

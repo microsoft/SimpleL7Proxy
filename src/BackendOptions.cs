@@ -1,6 +1,8 @@
 public class BackendOptions : IBackendOptions
 {
     public HttpClient? Client { get; set; }
+    public int CircuitBreakerErrorThreshold { get; set; }
+    public int CircuitBreakerTimeslice { get; set; }
     public int DefaultPriority { get; set; }
     public int DefaultTTLSecs { get; set; }
     public string HostName { get; set; } = "";

@@ -85,6 +85,8 @@ public class Program
                 services.Configure<BackendOptions>(options =>
                 {
                     options.Client = backendOptions.Client;
+                    options.CircuitBreakerErrorThreshold = backendOptions.CircuitBreakerErrorThreshold;
+                    options.CircuitBreakerTimeslice = backendOptions.CircuitBreakerTimeslice;
                     options.DefaultPriority = backendOptions.DefaultPriority;
                     options.DefaultTTLSecs = backendOptions.DefaultTTLSecs;
                     options.HostName = backendOptions.HostName;
@@ -353,6 +355,8 @@ public class Program
         var backendOptions = new BackendOptions
         {
             Client = _client,
+            CircuitBreakerErrorThreshold = ReadEnvironmentVariableOrDefault("CBErrorThreshold", 50),
+            CircuitBreakerTimeslice = ReadEnvironmentVariableOrDefault("CBTimeslice", 60),
             DefaultPriority = ReadEnvironmentVariableOrDefault("DefaultPriority", 2),
             DefaultTTLSecs = ReadEnvironmentVariableOrDefault("DefaultTTLSecs", 300),
             HostName = ReadEnvironmentVariableOrDefault("Hostname", "Default"),
