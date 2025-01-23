@@ -1,4 +1,4 @@
-﻿
+﻿using System.Runtime.InteropServices;
 using System.Net;
 using System.Text;
 using OS = System;
@@ -34,14 +34,40 @@ public class Program
     static CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
     public string OAuthAudience { get; set; } = "";
 
-
+    static IServer server;
+    static IEventHubClient eventHubClient;
+    static List<Task> allTasks = new List<Task>();
 
     public static async Task Main(string[] args)
     {
         var cancellationToken = cancellationTokenSource.Token;
         var backendOptions = LoadBackendOptions();
-        var runningTasks = new List<Task>();
         Task? eventHubTask = null; ;
+
+        PosixSignalRegistration.Create(PosixSignal.SIGTERM, async (ctx) =>
+        {
+            Console.WriteLine("############## Shutdown signal received. Initiating shutdown. ##############");
+            Console.WriteLine("SIGTERM received. Initiating shutdown...");
+
+            await Shutdown().ConfigureAwait(false);
+        });
+
+        AppDomain.CurrentDomain.ProcessExit += async (s, e) =>
+        {
+            Console.WriteLine("############## ProcessExit signal received. Initiating shutdown. ##############");
+            Console.WriteLine("SIGTERM received. Initiating shutdown...");
+
+            await Shutdown().ConfigureAwait(false);
+        };
+
+        Console.CancelKeyPress += async (sender, e) =>
+        {
+            e.Cancel = true;
+            Console.WriteLine("############## Ctrl+C pressed. Initiating shutdown. ##############");
+            Console.WriteLine("SIGTERM received. Initiating shutdown...");
+
+            await Shutdown().ConfigureAwait(false);
+        };
 
         // Set up logging
         using var loggerFactory = LoggerFactory.Create(builder =>
@@ -52,14 +78,6 @@ public class Program
 
         var logger = loggerFactory.CreateLogger<Program>();
 
-        // Handle SIGTERM
-        AppDomain.CurrentDomain.ProcessExit += (s, e) => cancellationTokenSource.Cancel();
-        Console.CancelKeyPress += (sender, e) =>
-            {
-                Console.WriteLine("############## Shutdown signal received. Initiating shutdown. ##############");
-                e.Cancel = true; // Prevent the process from terminating immediately.
-                cancellationTokenSource.Cancel(); // Signal the application to shut down.
-            };
 
         var hostBuilder = Host.CreateDefaultBuilder(args).ConfigureServices((hostContext, services) =>
             {
@@ -114,22 +132,15 @@ public class Program
 
                 // Initialize User Priority
                 var userPriority = new UserPriority();
-                userPriority.threshold = backendOptions.UserPriorityThreshold; 
+                userPriority.threshold = backendOptions.UserPriorityThreshold;
                 services.AddSingleton<IUserPriority>(userPriority);
 
+                var userProfile = new UserProfile(backendOptions);
+                services.AddSingleton<IUserProfile>(userProfile);
                 // Initialize User Profiles
-                try
+                if (backendOptions.UseProfiles && !string.IsNullOrEmpty(backendOptions.UserConfigUrl))
                 {
-                    if (backendOptions.UseProfiles && !string.IsNullOrEmpty(backendOptions.UserConfigUrl))
-                    {
-                        var userProfile = new UserProfile(backendOptions);
-                        userProfile.StartBackgroundConfigReader(cancellationToken);
-
-                        services.AddSingleton<IUserProfile>(userProfile);
-                    } 
-                } catch (System.Exception err)
-                {
-                    Console.WriteLine(err.Message);
+                    userProfile.StartBackgroundConfigReader(cancellationToken);
                 }
 
                 services.AddSingleton<IBackendService, Backends>();
@@ -137,6 +148,14 @@ public class Program
             });
 
         var frameworkHost = hostBuilder.Build();
+
+        //var lifetime = frameworkHost.Services.GetRequiredService<IHostApplicationLifetime>();
+        // lifetime.ApplicationStopping.Register(() =>
+        // {
+        //     cancellationTokenSource.Cancel();
+        //     Console.WriteLine("Shutting down...");
+        // });
+
         var serviceProvider = frameworkHost.Services;
 
         var backends = serviceProvider.GetRequiredService<IBackendService>();
@@ -154,8 +173,8 @@ public class Program
         // Start backend pollers 
         backends.Start(cancellationToken);
 
-        var server = serviceProvider.GetRequiredService<IServer>();
-        var eventHubClient = serviceProvider.GetRequiredService<IEventHubClient>();
+        server = serviceProvider.GetRequiredService<IServer>();
+        eventHubClient = serviceProvider.GetRequiredService<IEventHubClient>();
         var userProfile = serviceProvider.GetService<IUserProfile>();
         var userPriority = serviceProvider.GetService<IUserPriority>();
         try
@@ -168,7 +187,7 @@ public class Program
             for (int i = 0; i < backendOptions.Workers; i++)
             {
                 var pw = new ProxyWorker(cancellationToken, i, queue, backendOptions, userPriority, userProfile, backends, eventHubClient, telemetryClient);
-                runningTasks.Add(Task.Run(() => pw.TaskRunner(), cancellationToken));
+                allTasks.Add(Task.Run(() => pw.TaskRunner(), cancellationToken));
             }
 
         }
@@ -182,22 +201,8 @@ public class Program
         {
             await server.Run();
 
-            // ######## BEGIN SHUTDOWN SEQUENCE ########
-
-            server.Queue().Stop();
-
-            Console.WriteLine($"Waiting for tasks to complete for maximum {terminationGracePeriodSeconds} seconds");
-            var timeoutTask = Task.Delay(terminationGracePeriodSeconds * 1000);
-            var allTasks = Task.WhenAll(runningTasks);
-            var completedTask = await Task.WhenAny(allTasks, timeoutTask);
-
-            //  Test code to validate the hub gets emptied on shutdown
-            //for (var ii=0; ii< 1000; ii++) {
-            //    eventHubClient.SendData($"Server shutting down - {ii}");
-            //}
-
-            eventHubClient.StopTimer();
             await eventHubTask;
+
         }
         catch (Exception e)
         {
@@ -222,7 +227,31 @@ public class Program
         }
     }
 
-    // Rreads an environment variable and returns its value as an integer.
+    private static async Task Shutdown()
+    {
+        // ######## BEGIN SHUTDOWN SEQUENCE ########
+
+        server.Queue().Stop();
+
+        cancellationTokenSource.Cancel();
+        Console.WriteLine($"Waiting for tasks to complete for maximum {terminationGracePeriodSeconds} seconds");
+
+        eventHubClient.SendData($"Server shutting down:   {ProxyWorker.GetState()}");
+        var timeoutTask = Task.Delay(terminationGracePeriodSeconds * 1000);
+        var allTasksComplete = Task.WhenAll(allTasks);
+        var completedTask = await Task.WhenAny(allTasksComplete, timeoutTask);
+        eventHubClient.SendData($"Workers Stopped:   {ProxyWorker.GetState()}");
+
+        //  Test code to validate the hub gets emptied on shutdown
+        // for (var ii = 0; ii < 1000; ii++)
+        // {
+        //     eventHubClient.SendData($"Server shutting down - {ii}");
+        // }
+
+        eventHubClient.StopTimer();
+    }
+
+    // Reads an environment variable and returns its value as an integer.
     // If the environment variable is not set, it returns the provided default value.
     private static int ReadEnvironmentVariableOrDefault(string variableName, int defaultValue)
     {
@@ -234,7 +263,7 @@ public class Program
         return value;
     }
 
-    // Rreads an environment variable and returns its value as a float.
+    // Reads an environment variable and returns its value as a float.
     // If the environment variable is not set, it returns the provided default value.
     private static float ReadEnvironmentVariableOrDefault(string variableName, float defaultValue)
     {
@@ -245,7 +274,7 @@ public class Program
         }
         return value;
     }
-    // Rreads an environment variable and returns its value as a string.
+    // Reads an environment variable and returns its value as a string.
     // If the environment variable is not set, it returns the provided default value.
     private static string ReadEnvironmentVariableOrDefault(string variableName, string defaultValue)
     {
@@ -256,6 +285,19 @@ public class Program
             return defaultValue;
         }
         return envValue.Trim();
+    }
+
+    // Reads an environment variable and returns its value as a string.
+    // If the environment variable is not set, it returns the provided default value.
+    private static bool ReadEnvironmentVariableOrDefault(string variableName, bool defaultValue)
+    {
+        var envValue = Environment.GetEnvironmentVariable(variableName);
+        if (string.IsNullOrEmpty(envValue))
+        {
+            Console.WriteLine($"Using default: {variableName}: {defaultValue}");
+            return defaultValue;
+        }
+        return envValue.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true ? true : false;
     }
 
     // Converts a comma-separated string to a list of strings.
@@ -326,9 +368,9 @@ public class Program
             PriorityValues = toListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
             SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
             Timeout = ReadEnvironmentVariableOrDefault("Timeout", 3000),
-            UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", "false").Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true,
+            UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", false),
             UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", "X-UserProfile"),
-            UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", "false").Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true,
+            UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", false),
             UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", "file:config.json"),
             UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
             Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
