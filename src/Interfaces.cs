@@ -8,7 +8,7 @@ public interface IBackendService
 
     public Task WaitForStartup(int timeout);
     public string HostStatus();
-    public void TrackStatus(int code);
+    public void TrackStatus(int code, bool wasException);
     public bool CheckFailedStatus();
     public string OAuth2Token();
 }
@@ -23,8 +23,11 @@ public interface IEventHubClient
     bool IsRunning { get; set; }
 }
 
-public interface IBackendOptions {
+public interface IBackendOptions
+{
     HttpClient? Client { get; set; }
+    int CircuitBreakerErrorThreshold { get; set; }
+    int CircuitBreakerTimeslice { get; set; }
     int DefaultPriority { get; set; }
     int DefaultTTLSecs { get; set; }
     List<BackendHost>? Hosts { get; set; }
@@ -38,6 +41,7 @@ public interface IBackendOptions {
     int SuccessRate { get; set; }
     int Timeout { get; set; }
     bool UseProfiles { get; set; }
+    string UserProfileHeader { get; set; }
     string UserConfigUrl { get; set; }
     float UserPriorityThreshold { get; set; }
     int Workers { get; set; }
@@ -52,7 +56,8 @@ public interface IUserPriority
 
 }
 
-public interface IUserProfile {
+public interface IUserProfile
+{
     public Dictionary<string, string> GetUserProfile(string userId);
 
 }

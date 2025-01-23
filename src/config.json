@@ -1,6 +1,7 @@
 [
     {
         "userId": "123456",
+        "S7PPriorityKey": "12345",
         "Header1": "Value1",
         "Header2": "Value2"
     },

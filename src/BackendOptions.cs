@@ -1,6 +1,8 @@
 public class BackendOptions : IBackendOptions
 {
     public HttpClient? Client { get; set; }
+    public int CircuitBreakerErrorThreshold { get; set; }
+    public int CircuitBreakerTimeslice { get; set; }
     public int DefaultPriority { get; set; }
     public int DefaultTTLSecs { get; set; }
     public string HostName { get; set; } = "";
@@ -19,6 +21,7 @@ public class BackendOptions : IBackendOptions
     public bool UseOAuth { get; set; }
     public bool UseUserConfig { get; set; } = false;
     public bool UseProfiles { get; set; } = false;
+    public string UserProfileHeader { get; set; } = "";
     public string UserConfigUrl { get; set; } = "";
     public float UserPriorityThreshold { get; set; }
     public int Workers { get; set; }

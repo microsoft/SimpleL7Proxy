@@ -4,10 +4,11 @@ public static class Constants
     public const string Readiness = "/readiness";
     public const string Startup = "/startup";
     public const string Liveness = "/liveness";
+    public const string Shutdown = "/shutdown"; // Signal to unwedge workers and shut down gracefully
 
     /// <summary>
     /// An array of probe route constants used for health checks and readiness checks.
     /// </summary>
-    public static readonly string[] probes = { Health, Readiness, Startup, Liveness };
+    public static readonly string[] probes = { Health, Readiness, Startup, Liveness, Shutdown };
 
 }

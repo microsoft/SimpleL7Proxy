@@ -67,10 +67,10 @@ public class EventHubClient : IEventHubClient
                 }
 
                 if (!isShuttingDown) {
-                    await Task.Delay(1000, token); // Wait for 1 second
+                    await Task.Delay(500, token); // Wait for 1/2 second
                 }
             }
-            Console.WriteLine("EventHubClient: EventWriter cancelled");
+            Console.WriteLine("EventHubClient: EventWriter exiting");
 
         }
         catch (TaskCanceledException)
@@ -82,7 +82,7 @@ public class EventHubClient : IEventHubClient
 
             while (true)
             {
-                if (GetNextBatch(100) > 0)
+                if (GetNextBatch(99) > 0)
                 {
                     await producerClient.SendAsync(batchData);
                 }
@@ -91,6 +91,10 @@ public class EventHubClient : IEventHubClient
                     break;
                 }
             }
+
+            await Task.Delay(500); // Wait for 1/2 second
+            // make sure event hub client is closed
+            await producerClient.CloseAsync();
         }
     }
 
@@ -128,7 +132,7 @@ public class EventHubClient : IEventHubClient
         isShuttingDown = true;
         while (isRunning && _logBuffer.Count > 0)
         {
-            Task.Delay(1000).Wait();
+            Task.Delay(100).Wait();
         }
 
         cancellationTokenSource.Cancel();
@@ -147,6 +151,7 @@ public class EventHubClient : IEventHubClient
             value = value.Substring(2);
 
         Interlocked.Increment(ref entryCount);
+        //Console.WriteLine($" Enqueued: {value}");
         _logBuffer.Enqueue(value);
     }
 

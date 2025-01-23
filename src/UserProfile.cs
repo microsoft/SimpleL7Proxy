@@ -148,6 +148,8 @@ public class UserProfile : IUserProfile
                     }
                 }
             }
+
+            Console.WriteLine($"User config parsed successfully.  Found {userProfiles.Count} user profiles.");
         }
         catch (Exception ex)
         {
