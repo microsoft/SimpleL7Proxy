@@ -2,6 +2,7 @@
 //using Microsoft.Azure.Amqp.Framing;
 using Microsoft.Extensions.Configuration;
 using System;
+using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -25,15 +26,29 @@ namespace test.generator.generator_one
         private int totalRequests = 0;
 
         private List<PreparedTest> allTests = new List<PreparedTest>();
-        private Dictionary <int, int> testResults = new Dictionary<int, int>();
+        private Dictionary<int, int> testResults = new Dictionary<int, int>();
 
         public Server(ConfigBuilder configBuilder, HttpClient httpClient) : base()
         {
             _configBuilder = configBuilder;
-            _httpClient = httpClient;
+            //            _httpClient = httpClient;
+            _httpClient = CreateHttpClient();
+            _httpClient.Timeout = Timeout.InfiniteTimeSpan;
+
+            // Allow the client to use self signed certs
+            ServicePointManager.ServerCertificateValidationCallback += (sender, cert, chain, sslPolicyErrors) => true;
 
             // Read the config
             InitializeServer();
+        }
+
+        private HttpClient CreateHttpClient()
+        {
+            var handler = new HttpClientHandler
+            {
+                ServerCertificateCustomValidationCallback = (message, cert, chain, sslPolicyErrors) => true
+            };
+            return new HttpClient(handler);
         }
 
         private void InitializeServer()
@@ -96,6 +111,11 @@ namespace test.generator.generator_one
             return token?.Token;
         }
 
+        static int[] stats = new int[6];
+        static int[] responseStats = new int[600];
+        static int receiveTimeout;
+        static int sendTimeout;
+        static int _testNumber = 0;
         public async Task StartAsync(CancellationToken cancellationToken2)
         {
             // Start the server
@@ -106,7 +126,7 @@ namespace test.generator.generator_one
             var duration = ParseTime(_configBuilder.DurationSeconds);
             var delay = ParseTime(_configBuilder.InterrunDelay);
 
-
+            // reset all the stats
             while (true)
             {
 
@@ -120,10 +140,35 @@ namespace test.generator.generator_one
                 var cancellationTokenSource = new CancellationTokenSource();
                 var cancellationToken = cancellationTokenSource.Token;
                 List<Task> tasks = new List<Task>();
+
+                // reset the test number
+                _testNumber = receiveTimeout = sendTimeout = 0;
+                // reset the response stats
+                for (int i = 0; i < 600; i++)
+                {
+                    responseStats[i] = 0;
+                }
+
                 for (int i = 0; i < concurrency; i++)
                 {
                     // Start a new task
                     tasks.Add(Task.Run(() => RunTest(cancellationToken, test_endpoint, delay, endTime)));
+                }
+
+                await Task.Delay(5000);
+
+                while (stats[0] > 0)
+                {
+                    var s = "";
+                    for (int i = 0; i < 600; i++)
+                    {
+                        if (responseStats[i] > 0)
+                        {
+                            s += $"{i}: {responseStats[i]} ";
+                        }
+                    }
+                    Console.WriteLine($"Stats: Test #: {_testNumber}  Active Threads: {stats[0]}  Begin:{stats[1]} Send:{stats[2]} Read: {stats[3]} Dispose:{stats[4]} Sleep:{stats[5]} Rd Tx: {receiveTimeout} Wr Tx: {sendTimeout}  Codes: {s}");
+                    await Task.Delay(1000);
                 }
 
                 await Task.WhenAll(tasks);
@@ -153,16 +198,21 @@ namespace test.generator.generator_one
         private async Task RunTest(CancellationToken cancellationToken, string test_endpoint, int delay, DateTime endTime)
         {
 
-            Dictionary <int, int> localTestResults = new Dictionary<int, int>();
+            Dictionary<int, int> localTestResults = new Dictionary<int, int>();
+
+            // Count that the thread is running
+            Interlocked.Increment(ref stats[0]);
 
             while (!cancellationToken.IsCancellationRequested && DateTime.Now < endTime)
             {
+
                 int currentTestNumber = 0;
                 string line = "";
                 try
                 {
                     if (!string.IsNullOrEmpty(test_endpoint))
                     {
+                        Interlocked.Increment(ref stats[1]);
                         //Console.WriteLine("Sending request ...");
                         foreach (var test in allTests)
                         {
@@ -175,30 +225,55 @@ namespace test.generator.generator_one
                                 line = $"Test #{currentTestNumber} > {test.Name} {test.Path} {test.Method}";
                                 m.Headers.Add("x-Request-Sequence", _requestCount.ToString());
                             }
+                            Interlocked.Increment(ref _testNumber);
 
-                            Console.WriteLine(line);
+                            //Console.WriteLine(line);
 
                             try
                             {
+                                // Request has been created
+
+                                Interlocked.Increment(ref stats[2]);
                                 // Send the request
                                 using (var response = await SendRequestAsync(m, cancellationToken, test.timeout).ConfigureAwait(false))
                                 {
-                                    // Read the response
-                                    var content = await response?.Content?.ReadAsStringAsync() ?? "N/A";
-                                    Console.WriteLine($"{response.StatusCode} Content-Length: {response.Content.Headers.ContentLength} <: {test.Name} {test.Path} {test.Method} ");
+                                    // Waiting to read response
 
-                                    int code= (int)response.StatusCode;
+                                    // Read the response
+                                    Interlocked.Increment(ref stats[3]);
+
+                                    // timeout after test.timeout
+                                    using (var cts = new CancellationTokenSource(test.timeout.Value ))
+                                    {
+                                        try {
+                                            var content = await Task.Run(() => response?.Content?.ReadAsStringAsync(cts.Token), cts.Token).ConfigureAwait(false) ?? "N/A";
+                                        } catch (TaskCanceledException e) {
+                                            Interlocked.Increment(ref receiveTimeout);
+                                        }
+                                    }
+                                    
+                                    Interlocked.Decrement(ref stats[3]);
+
+                                    int code = (int)response.StatusCode;
+
+                                    Interlocked.Increment(ref responseStats[code]);
                                     // Add the test result
                                     localTestResults[code] = localTestResults.ContainsKey(code) ? localTestResults[code] + 1 : 1;
 
+                                    // Disposing
+                                    Interlocked.Increment(ref stats[4]);
                                     response?.Dispose();
+                                    Interlocked.Decrement(ref stats[4]);
 
                                 }
+
+                                Interlocked.Decrement(ref stats[2]);
                             }
                             catch (TaskCanceledException e)
                             {
-                                localTestResults[408] = localTestResults.ContainsKey(408) ? localTestResults[408] + 1 : 1;
-                                Console.WriteLine($"Test #{currentTestNumber} TaskCanceledException: {test.Name} {e.Message}");
+                                Interlocked.Increment(ref sendTimeout);
+                                //localTestResults[408] = localTestResults.ContainsKey(408) ? localTestResults[408] + 1 : 1;
+                                //Console.WriteLine($"Test #{currentTestNumber} TaskCanceledException: {test.Name} {e.Message}");
                             }
                             catch (HttpRequestException httpEx)
                             {
@@ -216,10 +291,14 @@ namespace test.generator.generator_one
                                 m.Dispose();
                             }
 
+                            // Sleeping
+                            Interlocked.Increment(ref stats[5]);
                             // sleep delay ms
                             await Task.Delay(delay).ConfigureAwait(false);
+                            Interlocked.Decrement(ref stats[5]);
 
                         }
+                        Interlocked.Decrement(ref stats[1]);
                     }
 
                 }
@@ -229,6 +308,10 @@ namespace test.generator.generator_one
                     await Task.Delay(delay, cancellationToken);
                 }
             }
+
+            // Thread existing
+            Interlocked.Decrement(ref stats[0]);
+
 
             lock (_lock)
             {

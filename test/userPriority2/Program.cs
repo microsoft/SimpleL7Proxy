@@ -45,7 +45,7 @@ public class Program
 
     private static async Task MainAsync()
     {
-        bool perfMode = true;
+        bool perfMode = false;
         _requestsQueue.MaxQueueLength = 1000;
 //        _requestsQueue.startSignaler(CancellationToken.None);
         // _requestsQueue.startCoordination(CancellationToken.None);
