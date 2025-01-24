@@ -30,13 +30,19 @@ public class Program
     private static HttpClient hc = new HttpClient();
     public static TelemetryClient? telemetryClient;
     public static int terminationGracePeriodSeconds = 30;
+    private static bool shutdownInitiated = false;
 
     static CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
     public string OAuthAudience { get; set; } = "";
 
     static IServer server;
-    static IEventHubClient eventHubClient;
+    static IEventHubClient? eventHubClient;
     static List<Task> allTasks = new List<Task>();
+    static Task? ListenerTask;
+    static Task? backendPollerTask;
+
+    static IBackendService? backends;
+
 
     public static async Task Main(string[] args)
     {
@@ -44,30 +50,8 @@ public class Program
         var backendOptions = LoadBackendOptions();
         Task? eventHubTask = null; ;
 
-        PosixSignalRegistration.Create(PosixSignal.SIGTERM, async (ctx) =>
-        {
-            Console.WriteLine("############## Shutdown signal received. Initiating shutdown. ##############");
-            Console.WriteLine("SIGTERM received. Initiating shutdown...");
 
-            await Shutdown().ConfigureAwait(false);
-        });
-
-        AppDomain.CurrentDomain.ProcessExit += async (s, e) =>
-        {
-            Console.WriteLine("############## ProcessExit signal received. Initiating shutdown. ##############");
-            Console.WriteLine("SIGTERM received. Initiating shutdown...");
-
-            await Shutdown().ConfigureAwait(false);
-        };
-
-        Console.CancelKeyPress += async (sender, e) =>
-        {
-            e.Cancel = true;
-            Console.WriteLine("############## Ctrl+C pressed. Initiating shutdown. ##############");
-            Console.WriteLine("SIGTERM received. Initiating shutdown...");
-
-            await Shutdown().ConfigureAwait(false);
-        };
+       RegisterShutdownHandlers();
 
         // Set up logging
         using var loggerFactory = LoggerFactory.Create(builder =>
@@ -84,6 +68,7 @@ public class Program
                 // Register the configured BackendOptions instance with DI
                 services.Configure<BackendOptions>(options =>
                 {
+                    options.AcceptableStatusCodes = backendOptions.AcceptableStatusCodes;
                     options.Client = backendOptions.Client;
                     options.CircuitBreakerErrorThreshold = backendOptions.CircuitBreakerErrorThreshold;
                     options.CircuitBreakerTimeslice = backendOptions.CircuitBreakerTimeslice;
@@ -107,6 +92,7 @@ public class Program
                     options.UseProfiles = backendOptions.UseProfiles;
                     options.UserConfigUrl = backendOptions.UserConfigUrl;
                     options.UserPriorityThreshold = backendOptions.UserPriorityThreshold;
+                    options.PriorityWorkers = backendOptions.PriorityWorkers;
                     options.Workers = backendOptions.Workers;
                 });
 
@@ -160,7 +146,7 @@ public class Program
 
         var serviceProvider = frameworkHost.Services;
 
-        var backends = serviceProvider.GetRequiredService<IBackendService>();
+        backends = serviceProvider.GetRequiredService<IBackendService>();
         //ILogger<Program> logger = serviceProvider.GetRequiredService<ILogger<Program>>();
         try
         {
@@ -173,7 +159,7 @@ public class Program
         }
 
         // Start backend pollers 
-        backends.Start(cancellationToken);
+        backendPollerTask = backends.Start();
 
         server = serviceProvider.GetRequiredService<IServer>();
         eventHubClient = serviceProvider.GetRequiredService<IEventHubClient>();
@@ -185,10 +171,31 @@ public class Program
             var queue = server.Start(cancellationToken);
             queue.StartSignaler(cancellationToken);
 
+            var workerPriorities = new Dictionary<int, int>();
+            int workerPriority = Constants.AnyPriority;
+
+            foreach (var kvp in backendOptions.PriorityWorkers)
+            {
+                workerPriorities.Add(kvp.Key, kvp.Value);
+            }
+
             // startup Worker # of tasks
             for (int i = 0; i < backendOptions.Workers; i++)
             {
-                var pw = new ProxyWorker(cancellationToken, i, queue, backendOptions, userPriority, userProfile, backends, eventHubClient, telemetryClient);
+                // get the priority for this worker
+                workerPriority = Constants.AnyPriority;
+
+                foreach (var kvp in workerPriorities)
+                {
+                    if (kvp.Value > 0)
+                    {
+                        workerPriority = kvp.Key;
+                        workerPriorities[kvp.Key] = kvp.Value - 1;
+                        break;
+                    }
+                }
+
+                var pw = new ProxyWorker(cancellationToken, i, workerPriority, queue, backendOptions, userPriority, userProfile, backends, eventHubClient, telemetryClient);
                 allTasks.Add(Task.Run(() => pw.TaskRunner(), cancellationToken));
             }
 
@@ -201,9 +208,12 @@ public class Program
 
         try
         {
-            await server.Run();
+            ListenerTask = server.Run();
 
-            await eventHubTask;
+            // Shutdown() will call Stop on the eventHubClient
+            if (eventHubTask != null) {
+                await eventHubTask.ConfigureAwait(false);
+            }
 
         }
         catch (Exception e)
@@ -229,19 +239,61 @@ public class Program
         }
     }
 
+    static void RegisterShutdownHandlers()
+    {
+        async Task HandleShutdown()
+        {
+            if (shutdownInitiated)
+            {
+                return;
+            }
+
+            shutdownInitiated = true;
+            Console.WriteLine("############## Shutdown signal received. Initiating shutdown. ##############");
+            Console.WriteLine("SIGTERM received. Initiating shutdown...");
+            await Shutdown().ConfigureAwait(false);
+        }
+
+        PosixSignalRegistration.Create(PosixSignal.SIGTERM, async (ctx) => await HandleShutdown());
+
+        AppDomain.CurrentDomain.ProcessExit += async (s, e) => await HandleShutdown();
+
+        Console.CancelKeyPress += async (sender, e) =>
+        {
+            e.Cancel = true;
+            await HandleShutdown();
+        };
+    }
+    
     private static async Task Shutdown()
     {
         // ######## BEGIN SHUTDOWN SEQUENCE ########
+        cancellationTokenSource.Cancel();
+        // Wait for the listener to stop before shutting down the workers:
+        if (ListenerTask != null)
+        {
+            await ListenerTask.ConfigureAwait(false);
+        }
+        Console.WriteLine($"Waiting for tasks to complete for maximum {terminationGracePeriodSeconds} seconds");
+        eventHubClient.SendData($"Server shutting down:   {ProxyWorker.GetState()}");
 
         server.Queue().Stop();
-
-        cancellationTokenSource.Cancel();
-        Console.WriteLine($"Waiting for tasks to complete for maximum {terminationGracePeriodSeconds} seconds");
-
-        eventHubClient.SendData($"Server shutting down:   {ProxyWorker.GetState()}");
         var timeoutTask = Task.Delay(terminationGracePeriodSeconds * 1000);
         var allTasksComplete = Task.WhenAll(allTasks);
         var completedTask = await Task.WhenAny(allTasksComplete, timeoutTask);
+        if (completedTask == timeoutTask)
+        {
+            Console.WriteLine($"Tasks did not complete within {terminationGracePeriodSeconds} seconds. Forcing shutdown.");
+        }
+        else
+        {
+            Console.WriteLine("All tasks completed.");
+        }
+
+        backends?.Stop(); // Stop the backend pollers
+        if (backendPollerTask != null) {
+            await backendPollerTask.ConfigureAwait(false);
+        }
         eventHubClient.SendData($"Workers Stopped:   {ProxyWorker.GetState()}");
 
         //  Test code to validate the hub gets emptied on shutdown
@@ -263,6 +315,24 @@ public class Program
             return defaultValue;
         }
         return value;
+    }
+
+    // Reads an environment variable and returns its value as an integer[].
+    // If the environment variable is not set, it returns the provided default value.
+    private static int[] ReadEnvironmentVariableOrDefault(string variableName, int[] defaultValues)
+    {
+        string s = ReadEnvironmentVariableOrDefault(variableName, "");
+        if (string.IsNullOrEmpty(s))
+        {
+            Console.WriteLine($"Using default: {variableName}: {string.Join(",", defaultValues)}");
+            return defaultValues;
+        }
+        try {
+            return s.Split(',').Select(int.Parse).ToArray();
+        } catch (Exception e) {
+            Console.WriteLine($"Could not parse {variableName} as an integer array, using default: {string.Join(",", defaultValues)}");
+            return defaultValues;
+        }
     }
 
     // Reads an environment variable and returns its value as a float.
@@ -300,6 +370,26 @@ public class Program
             return defaultValue;
         }
         return envValue.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true ? true : false;
+    }
+
+    // Converts a List<string> to a dictionary of integers.
+    private static Dictionary<int, int> KVPairs(List<string> list)
+    {
+        Dictionary<int, int> keyValuePairs = new Dictionary<int, int>();
+        foreach (var item in list)
+        {
+            var kvp = item.Split(':');
+            if (int.TryParse(kvp[0], out int key) && int.TryParse(kvp[1], out int value))
+            {
+                keyValuePairs.Add(key, value);
+            }
+            else
+            {
+                Console.WriteLine($"Could not parse {item} as a key-value pair, ignoring");
+            }
+        }
+
+        return keyValuePairs;
     }
 
     // Converts a comma-separated string to a list of strings.
@@ -354,6 +444,7 @@ public class Program
         // Create and return a BackendOptions object populated with values from environment variables or default values.
         var backendOptions = new BackendOptions
         {
+            AcceptableStatusCodes = ReadEnvironmentVariableOrDefault("AcceptableStatusCodes", new int[] { 200, 401, 403, 404, 408, 410, 412, 417, 400 }),
             Client = _client,
             CircuitBreakerErrorThreshold = ReadEnvironmentVariableOrDefault("CBErrorThreshold", 50),
             CircuitBreakerTimeslice = ReadEnvironmentVariableOrDefault("CBTimeslice", 60),
@@ -377,6 +468,7 @@ public class Program
             UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", false),
             UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", "file:config.json"),
             UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
+            PriorityWorkers = KVPairs(toListOfString(ReadEnvironmentVariableOrDefault("PriorityWorkers", "2:1,3:1"))),
             Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
         };
 
@@ -428,6 +520,24 @@ public class Program
             backendOptions.PriorityValues = Enumerable.Repeat(5, backendOptions.PriorityKeys.Count).ToList();
         }
 
+        // confirm that the PriorityWorkers Key's have a corresponding priority keys
+        int workerAllocation=0;
+        foreach (var key in backendOptions.PriorityWorkers.Keys)
+        {
+            if (!(backendOptions.PriorityValues.Contains(key) || key == backendOptions.DefaultPriority))
+            {
+                Console.WriteLine($"WARNING: PriorityWorkers Key {key} does not have a corresponding PriorityKey");
+            }
+            workerAllocation += backendOptions.PriorityWorkers[key];
+        }
+        
+        if (workerAllocation > backendOptions.Workers)
+        {
+            Console.WriteLine($"WARNING: Worker allocation exceeds total number of workers:{workerAllocation} > {backendOptions.Workers}");
+            Console.WriteLine($"Adjusting total number of workers to {workerAllocation}. Fix PriorityWorkers if it isn't what you want.");
+            backendOptions.Workers = workerAllocation;
+        }    
+
         Console.WriteLine("=======================================================================================");
         Console.WriteLine(" #####                                 #       ####### ");
         Console.WriteLine("#     #  # #    # #####  #      ###### #       #    #  #####  #####   ####  #    # #   #");
@@ -437,8 +547,9 @@ public class Program
         Console.WriteLine("#     #  # #    # #      #      #      #         #     #      #   #  #    #  #  #    #");
         Console.WriteLine(" #####   # #    # #      ###### ###### #######   #     #      #    #  ####  #    #   #");
         Console.WriteLine("=======================================================================================");
-        Console.WriteLine("Version: 2.1.4");
+        Console.WriteLine("Version: 2.1.5");
 
         return backendOptions;
     }
+
 }
