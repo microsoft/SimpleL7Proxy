@@ -35,7 +35,7 @@ public class Backends : IBackendService
     private Azure.Core.AccessToken? AuthToken { get; set; }
     private object lockObj = new object();
     private readonly IEventHubClient? _eventHubClient;
-
+    CancellationTokenSource workerCancelTokenSource = new CancellationTokenSource();
 
 
     //public Backends(List<BackendHost> hosts, HttpClient client, int interval, int successRate)
@@ -57,19 +57,27 @@ public class Backends : IBackendService
         _successRate = bo.SuccessRate / 100.0;
         FailureThreshold = bo.CircuitBreakerErrorThreshold;
         FailureTimeFrame = bo.CircuitBreakerTimeslice;
+        allowableCodes = bo.AcceptableStatusCodes;
     }
 
-    public void Start(CancellationToken cancellationToken)
+    public Task Start()
     {
-        _cancellationToken = cancellationToken;
-        Task.Run(() => Run());
+        _cancellationToken = workerCancelTokenSource.Token;
+
+        var T = Task.Run(() => Run());
 
         if (_options.UseOAuth)
         {
             GetToken();
         }
+
+        return T;
     }
 
+    public void Stop()
+    {
+        workerCancelTokenSource.Cancel();
+    }
 
     List<DateTime> hostFailureTimes = new List<DateTime>();
     private readonly int FailureThreshold = 5;
