@@ -3,7 +3,6 @@ public class ConcurrentPriQueue<T>
     private readonly PriorityQueue<T> _priorityQueue = new PriorityQueue<T>();
     private readonly SemaphoreSlim _enqueueEvent = new SemaphoreSlim(0);
     private readonly object _lock = new object(); // Lock object for synchronization
-    //private TaskSignaler<T> _taskSignaler = new TaskSignaler<T>();
     private ConcurrentSignal<T> _taskSignaler = new ConcurrentSignal<T>();
     private int insertions = 0;
     private int extractions = 0;
@@ -19,15 +18,6 @@ public class ConcurrentPriQueue<T>
     public void StartSignaler(CancellationToken cancellationToken)
     {
         Task.Run(() => SignalWorker(cancellationToken), cancellationToken);
-    }
-
-    public IEnumerable<PriorityQueueItem<T>> getItems()
-    {
-        lock (_lock)
-        {
-            // Return a snapshot to prevent external modification
-            return new List<PriorityQueueItem<T>>(_priorityQueue._items);
-        }
     }
 
     // Thread-safe Count property
@@ -83,40 +73,28 @@ public class ConcurrentPriQueue<T>
     private string sigwrkr_status = "Not started";
     public async Task SignalWorker(CancellationToken cancellationToken)
     {
-        bool shouldwait = false;
         while (!cancellationToken.IsCancellationRequested)
         {
-//            sigwrkr_status = "waiting";
             await _enqueueEvent.WaitAsync(TimeSpan.FromMilliseconds(40), cancellationToken).ConfigureAwait(false); // Wait for an item to be added
 
-//            sigwrkr_status = "waiting lock";
             lock (_lock)
             {
                 while (_priorityQueue.Count > 0 && _taskSignaler.HasWaitingTasks())
                 {
-//                    sigwrkr_status = "waiting lock dequeue";
-
-                    var queueItem = _priorityQueue.Dequeue();
+                    //Console.WriteLine("SignalWorker: Woke up .. getting task");
+                    var nextWorker = _taskSignaler.GetNextTask();
+                    if (nextWorker == null)
+                    {
+                        continue;
+                    }
+//Console.WriteLine("SignalWorker: Getting item from queue ... Task priority is " + nextWorker.Priority);
+                    var queueItem = _priorityQueue.Dequeue(nextWorker.Priority);
                     Interlocked.Increment(ref extractions);
 
-//                    sigwrkr_status = "waiting lock dequeue signal";
-
-                    // Signal a random task or requeue the item if no tasks are waiting
-                    _taskSignaler.SignalNextTask(queueItem);
-                    shouldwait = false;
+                    nextWorker.TaskCompletionSource.SetResult(queueItem);
+                    //_taskSignaler.SignalNextTask(queueItem);
                 }
-                // else
-                // {
-                //     shouldwait = true;
-                //     //Console.WriteLine("SignalWorker: No tasks waiting");
-                // }
-//                sigwrkr_status = "waiting lock end";
             }
-
-//             if (shouldwait) {
-// //                sigwrkr_status = "waiting wait";
-//                 Task.Delay(10).Wait(); // Wait for 10 ms for a Task Worker to be ready
-//             }
             
         }
         Console.WriteLine("SignalWorker: Canceled");
@@ -125,51 +103,18 @@ public class ConcurrentPriQueue<T>
         _taskSignaler.CancelAllTasks();
     }
 
-    public async Task<T> DequeueAsync(string id, CancellationToken cancellationToken)
+    public async Task<T> DequeueAsync(int preferredPriority)
     {
         try
         {
-            var parameter = await _taskSignaler.WaitForSignalAsync(id).ConfigureAwait(false);
+            //Console.WriteLine("DequeueAsync: waiting for signal with priority " + preferredPriority);
+            var parameter = await _taskSignaler.WaitForSignalAsync(preferredPriority).ConfigureAwait(false);
             return parameter;
         }
         catch (TaskCanceledException)
         {
             throw;
         }
-    }
-
-    public async Task<T> dequeueAsync2(string id, CancellationToken cancellationToken)
-    {
-
-        while (true)
-        {
-
-            // Return an item if available
-            lock (_lock)
-            {
-                if (_priorityQueue.Count > 0)
-                {
-                    return _priorityQueue.Dequeue();
-                }
-            }
-
-            // Wait for either:
-            // 1. An enqueue event (with cancellation support)
-            // 2. A 1-second timeout
-            try
-            {
-                await _enqueueEvent.WaitAsync(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                // Handle cancellation gracefully
-                Console.WriteLine($"Dequeue operation canceled for consumer {id}.");
-                throw;
-            }
-
-            //            await _enqueueEvent.WaitAsync(cancellationToken); // Wait for an item to be added
-        }
-
     }
 
     public string Counters => $"Ins: {insertions} Ext: {extractions}";
