@@ -15,7 +15,7 @@ public class PriorityQueue<T>
         _items.Insert(index, queueItem);
 
         Interlocked.Increment(ref itemCounter);
-        //Console.WriteLine($"Enqueue:  Priority: {priority}  length: {_items.Count}  index: {index} : {GetItemsAsCommaSeparatedString()}");
+        //Console.WriteLine($"Enqueue:  Priority: {queueItem.Priority}-{queueItem.Priority2}   length: {_items.Count}  index: {index} : {GetItemsAsCommaSeparatedString()}");
     }
 
     public string GetItemsAsCommaSeparatedString()
@@ -23,15 +23,32 @@ public class PriorityQueue<T>
         return string.Join(", ", _items.Select(i => $"{i.Priority} "));
     }
 
-    public T Dequeue()
+    public T Dequeue(int priority)
     {
         if (_items.Count == 0)
             throw new InvalidOperationException("The queue is empty.");
 
-        // var item = _items[_items.Count - 1]; // Get the last item
-        // _items.RemoveAt(_items.Count - 1); // Remove the last item
-        var item = _items[0]; // Get the first item
-        _items.RemoveAt(0); // Remove the first item
+        int index=0;
+
+        if (priority != Constants.AnyPriority)
+        {
+            //Console.WriteLine($" Looking for a specific priority: {priority}");
+            // Use binary search to find the smallest item with the specified priority
+            var itm = new PriorityQueueItem<T>(default(T), priority, 1, DateTime.MinValue );
+            index = _items.BinarySearch(itm);
+
+            if (index < 0)
+            {
+                // If no exact match is found, BinarySearch returns a negative number that is the bitwise complement of the index of the next element that is larger.
+                index = 0;
+            } 
+        }
+
+        // Get the item at the found index
+        var item = _items[index];
+
+        // Remove the item from the list
+        _items.RemoveAt(index);
 
         Interlocked.Decrement(ref itemCounter);
 
