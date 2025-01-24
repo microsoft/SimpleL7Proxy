@@ -2,40 +2,45 @@ using System.Collections.Concurrent;
 
 public class ConcurrentSignal<T>
 {
-    private readonly ConcurrentQueue<TaskCompletionSource<T>> _taskCompletionSources = new ConcurrentQueue<TaskCompletionSource<T>>();
+//    private readonly ConcurrentQueue<TaskCompletionSource<T>> _taskCompletionSources = new ConcurrentQueue<TaskCompletionSource<T>>();
+    private readonly ConcurrentQueue<WorkerTask<T>> _taskCompletionSources = new ConcurrentQueue<WorkerTask<T>>();
 
-    public Task<T> WaitForSignalAsync(string taskId)
+    public Task<T> WaitForSignalAsync(int priority)
     {
         var tcs = new TaskCompletionSource<T>();
-        _taskCompletionSources.Enqueue(tcs);
+        var workerTask = new WorkerTask<T>(tcs, priority);
+        _taskCompletionSources.Enqueue(workerTask);
         return tcs.Task;
     }
 
-    // public void SignalTask(string taskId, T parameter)
-    // {
-    //     if (_taskCompletionSources.TryRemove(taskId, out var tcs))
-    //     {
-    //         tcs.SetResult(parameter);
-    //     }
-    // }
-
     public bool SignalNextTask(T parameter)
     {
-        var taskIds = _taskCompletionSources.TryDequeue(out var tcs);
-        if (tcs != null)
+        _taskCompletionSources.TryDequeue(out var workerTask);
+        if (workerTask != null)
         {
-            tcs.SetResult(parameter);
+            workerTask.TaskCompletionSource.SetResult(parameter);
             return true;
         }
         
         return false;
     }
 
+
+    public WorkerTask<T>? GetNextTask()
+    {
+        _taskCompletionSources.TryDequeue(out var workerTask);
+        if (workerTask != null)
+        {
+            return workerTask;
+        }
+        
+        return null;
+    }
     public void CancelAllTasks()
     {
-        while (_taskCompletionSources.TryDequeue(out var tcs))
+        while (_taskCompletionSources.TryDequeue(out var wt))
         {
-            tcs.TrySetCanceled();
+            wt.TaskCompletionSource.TrySetCanceled();
         }
     }
 
