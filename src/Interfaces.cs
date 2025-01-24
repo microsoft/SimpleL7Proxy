@@ -1,6 +1,8 @@
 public interface IBackendService
 {
-    void Start(CancellationToken cancellationToken);
+    public Task Start();
+    public void Stop();
+
     public List<BackendHost> _hosts { get; set; }
     public List<BackendHost> GetActiveHosts();
 
@@ -25,6 +27,7 @@ public interface IEventHubClient
 
 public interface IBackendOptions
 {
+    int[] AcceptableStatusCodes { get; set; }
     HttpClient? Client { get; set; }
     int CircuitBreakerErrorThreshold { get; set; }
     int CircuitBreakerTimeslice { get; set; }
@@ -38,6 +41,7 @@ public interface IBackendOptions
     int PollTimeout { get; set; }
     List<string> PriorityKeys { get; set; }
     List<int> PriorityValues { get; set; }
+    Dictionary<int, int> PriorityWorkers { get; set; }
     int SuccessRate { get; set; }
     int Timeout { get; set; }
     bool UseProfiles { get; set; }
