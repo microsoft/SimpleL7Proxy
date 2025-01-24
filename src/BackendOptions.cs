@@ -1,5 +1,6 @@
 public class BackendOptions : IBackendOptions
 {
+    public int[] AcceptableStatusCodes { get; set; } =[];
     public HttpClient? Client { get; set; }
     public int CircuitBreakerErrorThreshold { get; set; }
     public int CircuitBreakerTimeslice { get; set; }
@@ -16,6 +17,7 @@ public class BackendOptions : IBackendOptions
     public int PollTimeout { get; set; }
     public List<string> PriorityKeys { get; set; } = new List<string>();
     public List<int> PriorityValues { get; set; } = new List<int>();
+    public Dictionary<int, int> PriorityWorkers { get; set; } = new Dictionary<int, int>();
     public int SuccessRate { get; set; }
     public int Timeout { get; set; }
     public bool UseOAuth { get; set; }
