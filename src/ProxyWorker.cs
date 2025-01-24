@@ -19,9 +19,9 @@ using Microsoft.ApplicationInsights.DataContracts;
 public class ProxyWorker
 {
 
-    private static bool _debug = false;
+    private int PreferredPriority;
     private CancellationToken _cancellationToken;
-    //    private BlockingPriorityQueue<RequestData>? _requestsQueue;
+    private static bool _debug = false;
     private static ConcurrentPriQueue<RequestData>? _requestsQueue;
     private readonly IBackendService _backends;
     private readonly BackendOptions _options;
@@ -40,7 +40,7 @@ public class ProxyWorker
     {
         return $"ActiveWorkers: {activeWorkers} - States: {states[0]} {states[1]} {states[2]} {states[3]} {states[4]} - requests: {_requestsQueue?.thrdSafeCount.ToString() ?? "-"}";
     }
-    public ProxyWorker(CancellationToken cancellationToken, int ID, ConcurrentPriQueue<RequestData> requestsQueue, BackendOptions backendOptions, IUserPriority? userPriority, IUserProfile? profiles, IBackendService? backends, IEventHubClient? eventHubClient, TelemetryClient? telemetryClient)
+    public ProxyWorker(CancellationToken cancellationToken, int ID, int priority, ConcurrentPriQueue<RequestData> requestsQueue, BackendOptions backendOptions, IUserPriority? userPriority, IUserProfile? profiles, IBackendService? backends, IEventHubClient? eventHubClient, TelemetryClient? telemetryClient)
     {
         _cancellationToken = cancellationToken;
         _requestsQueue = requestsQueue ?? throw new ArgumentNullException(nameof(requestsQueue));
@@ -52,6 +52,7 @@ public class ProxyWorker
         _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
         if (_options.Client == null) throw new ArgumentNullException(nameof(_options.Client));
         IDstr = ID.ToString();
+        PreferredPriority = priority;
     }
 
     public async Task TaskRunner()
@@ -82,7 +83,7 @@ public class ProxyWorker
                 Interlocked.Increment(ref workersWaitingForWork);
                 Interlocked.Increment(ref states[0]);
                 workerState = "Waiting";
-                incomingRequest = await _requestsQueue.DequeueAsync(IDstr, workerCancelToken); // This will block until an item is available or the token is cancelled
+                incomingRequest = await _requestsQueue.DequeueAsync(PreferredPriority); // This will block until an item is available or the token is cancelled
             }
             catch (OperationCanceledException)
             {
@@ -189,7 +190,7 @@ public class ProxyWorker
                     workerState = "Send Event";
 
                     var conlen = pr.ContentHeaders?["Content-Length"] ?? "N/A";
-                    var proxyTime = (DateTime.Now - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
+                    var proxyTime = (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
                     var timeTaken = (DateTime.UtcNow - incomingRequest.EnqueueTime).TotalMilliseconds.ToString("F3");
                     Console.WriteLine($"Pri: {incomingRequest.Priority} Stat: {(int)pr.StatusCode} Len: {conlen} {pr.FullURL} Deq: {incomingRequest.DequeueTime} Lat: {proxyTime} ms");
                     workerState = "Send Eventa";
@@ -369,7 +370,7 @@ public class ProxyWorker
                 if (activeHosts == 0 || hasFailedHosts)
                 {
                     probeStatus = 503;
-                    probeMessage = $"Not Healthy.  Active Hosts: {activeHosts} Failed Hosts: {hasFailedHosts}";
+                    probeMessage = $"Not Healthy.  Active Hosts: {activeHosts} Failed Hosts: {hasFailedHosts}\n";
                 }
                 else
                 {
@@ -385,6 +386,8 @@ public class ProxyWorker
                     {
                         probeMessage += "No Hosts\n";
                     }
+
+                    probeMessage += $" Health Probe: {GetState()} Active Hosts: {activeHosts} Failed Hosts: {hasFailedHosts}\n";
                 }
                 break;
 

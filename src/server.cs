@@ -250,10 +250,8 @@ public class Server : IServer
                             ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
                             ed["Priority"] = priority.ToString();
 
-                            WriteOutput($"Enqueued request.  Pri: {priority} Queue Length: {_requestsQueue.Count} Status: {_backends.CheckFailedStatus()} Active Hosts: {_backends.ActiveHostCount()}", ed);
+                            WriteOutput($"E Enque Pri: {priority} Queue: {_requestsQueue.Count} CB: {_backends.CheckFailedStatus()} Hosts: {_backends.ActiveHostCount()} Workers: {ProxyWorker.activeWorkers}", ed);
                         }
-
-
                     }
                     else
                     {

@@ -3,6 +3,8 @@ public class PriorityQueueItem<T> : IComparable<PriorityQueueItem<T>>
     public T Item { get; }
     public int Priority { get; }
     public int Priority2 { get; }
+
+    public static int ANYPRIORITY = -1;
     public DateTime Timestamp { get; }
 
     public PriorityQueueItem(T item, int priority, int priority2, DateTime timestamp)
