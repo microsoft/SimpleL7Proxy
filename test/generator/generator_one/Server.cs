@@ -154,9 +154,12 @@ namespace test.generator.generator_one
                     // Start a new task
                     tasks.Add(Task.Run(() => RunTest(cancellationToken, test_endpoint, delay, endTime)));
                 }
-
+                int prevCompletes =0;
+                int reqsPerSec=0;
+                // Wait for the threads to startup... This can be improved
                 await Task.Delay(5000);
 
+                // Do this while there are active threads.  Each thread exits after the duration has expired
                 while (stats[0] > 0)
                 {
                     var s = "";
@@ -167,7 +170,12 @@ namespace test.generator.generator_one
                             s += $"{i}: {responseStats[i]} ";
                         }
                     }
-                    Console.WriteLine($"Stats: Test #: {_testNumber}  Active Threads: {stats[0]}  Begin:{stats[1]} Send:{stats[2]} Read: {stats[3]} Dispose:{stats[4]} Sleep:{stats[5]} Rd Tx: {receiveTimeout} Wr Tx: {sendTimeout}  Codes: {s}");
+                    
+                    var completes = responseStats[200];
+                    reqsPerSec = completes - prevCompletes;
+                    prevCompletes = completes;
+                    
+                    Console.WriteLine($"{DateTime.Now} Stats: Test #: {_testNumber}  Reqs/Sec: {reqsPerSec} Active Threads: {stats[0]}  Begin:{stats[1]} Send:{stats[2]} Read: {stats[3]} Dispose:{stats[4]} Sleep:{stats[5]} Rd Tx: {receiveTimeout} Wr Tx: {sendTimeout}  Codes: {s}");
                     await Task.Delay(1000);
                 }
 
