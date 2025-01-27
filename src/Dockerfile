@@ -11,6 +11,9 @@ RUN dotnet restore
 # Copy the rest of the working directory contents into the container at /app.
 COPY . ./
 
+# Ensure /app/out is a directory
+RUN rm -f /app/out && mkdir -p /app/out
+
 # Build the application.
 RUN dotnet publish -c Release -o out
 
