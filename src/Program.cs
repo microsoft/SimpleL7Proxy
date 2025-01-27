@@ -35,7 +35,7 @@ public class Program
     static CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
     public string OAuthAudience { get; set; } = "";
 
-    static IServer server;
+    static IServer? server;
     static IEventHubClient? eventHubClient;
     static List<Task> allTasks = new List<Task>();
     static Task? ListenerTask;
@@ -275,9 +275,11 @@ public class Program
             await ListenerTask.ConfigureAwait(false);
         }
         Console.WriteLine($"Waiting for tasks to complete for maximum {terminationGracePeriodSeconds} seconds");
-        eventHubClient.SendData($"Server shutting down:   {ProxyWorker.GetState()}");
+        eventHubClient?.SendData($"Server shutting down:   {ProxyWorker.GetState()}");
 
-        server.Queue().Stop();
+        if (server != null)
+            server.Queue().Stop();
+            
         var timeoutTask = Task.Delay(terminationGracePeriodSeconds * 1000);
         var allTasksComplete = Task.WhenAll(allTasks);
         var completedTask = await Task.WhenAny(allTasksComplete, timeoutTask);
@@ -294,7 +296,7 @@ public class Program
         if (backendPollerTask != null) {
             await backendPollerTask.ConfigureAwait(false);
         }
-        eventHubClient.SendData($"Workers Stopped:   {ProxyWorker.GetState()}");
+        eventHubClient?.SendData($"Workers Stopped:   {ProxyWorker.GetState()}");
 
         //  Test code to validate the hub gets emptied on shutdown
         // for (var ii = 0; ii < 1000; ii++)
@@ -302,7 +304,7 @@ public class Program
         //     eventHubClient.SendData($"Server shutting down - {ii}");
         // }
 
-        eventHubClient.StopTimer();
+        eventHubClient?.StopTimer();
     }
 
     // Reads an environment variable and returns its value as an integer.
@@ -329,7 +331,7 @@ public class Program
         }
         try {
             return s.Split(',').Select(int.Parse).ToArray();
-        } catch (Exception e) {
+        } catch (Exception ) {
             Console.WriteLine($"Could not parse {variableName} as an integer array, using default: {string.Join(",", defaultValues)}");
             return defaultValues;
         }
@@ -547,7 +549,7 @@ public class Program
         Console.WriteLine("#     #  # #    # #      #      #      #         #     #      #   #  #    #  #  #    #");
         Console.WriteLine(" #####   # #    # #      ###### ###### #######   #     #      #    #  ####  #    #   #");
         Console.WriteLine("=======================================================================================");
-        Console.WriteLine("Version: 2.1.5");
+        Console.WriteLine("Version: 2.1.6");
 
         return backendOptions;
     }
