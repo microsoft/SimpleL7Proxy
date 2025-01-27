@@ -133,7 +133,7 @@ public class UserProfile : IUserProfile
             {
                 if (profile.TryGetProperty("userId", out JsonElement userIdElement))
                 {
-                    string userId = userIdElement.GetString();
+                    string userId = userIdElement.GetString() ?? string.Empty;
                     if (!string.IsNullOrEmpty(userId))
                     {
                         Dictionary<string, string> kvPairs = new Dictionary<string, string>();
@@ -145,6 +145,8 @@ public class UserProfile : IUserProfile
                             }
                         }
                         userProfiles[userId] = kvPairs;
+                    } else {
+                        Console.WriteLine("User profile missing userId. Skipping...");
                     }
                 }
             }
