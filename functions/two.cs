@@ -21,16 +21,17 @@ namespace Company.Function
             {
                 new
                 {
-                    userId = "123456",
-                    S7PPriorityKey = "12345",
-                    Header1 = "Value1",
-                    Header2 = "Value2"
+                    userId = "lowpriority",
+                    S7PPriorityKey = "234",
+                    Header1 = "low priority value 1",
+                    Header2 = "low priority value 2"
                 },
                 new
                 {
-                    userId = "123457",
-                    Header1 = "Value-1",
-                    Header2 = "Value-2"
+                    userId = "highpriority",
+                    S7PPriorityKey = "12345",
+                    Header1 = "High priority value 1",
+                    Header2 = "high priority value 2"
                 }
             };
 
