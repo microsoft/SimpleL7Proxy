@@ -34,7 +34,8 @@ public class PriorityQueue<T>
         {
             //Console.WriteLine($" Looking for a specific priority: {priority}");
             // Use binary search to find the smallest item with the specified priority
-            var itm = new PriorityQueueItem<T>(default(T), priority, 1, DateTime.MinValue );
+            // This is an item only used for searching in the list.  It's okey if item is null.
+            var itm = new PriorityQueueItem<T>(default!, priority, 1, DateTime.MinValue );
             index = _items.BinarySearch(itm);
 
             if (index < 0)
