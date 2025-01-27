@@ -138,18 +138,18 @@ public class ProxyWorker
                     }
 
                     eventData["ProxyHost"] = _options.HostName;
-                    eventData["Date"] = incomingRequest?.DequeueTime.ToString("o") ?? DateTime.UtcNow.ToString("o");
-                    eventData["Path"] = incomingRequest?.Path ?? "N/A";
-                    eventData["x-RequestPriority"] = incomingRequest?.Priority.ToString() ?? "N/A";
-                    eventData["x-RequestMethod"] = incomingRequest?.Method ?? "N/A";
-                    eventData["x-RequestPath"] = incomingRequest?.Path ?? "N/A";
-                    eventData["x-RequestHost"] = incomingRequest?.Headers["Host"] ?? "N/A";
-                    eventData["x-RequestUserAgent"] = incomingRequest?.Headers["User-Agent"] ?? "N/A";
-                    eventData["x-RequestContentType"] = incomingRequest?.Headers["Content-Type"] ?? "N/A";
-                    eventData["x-RequestContentLength"] = incomingRequest?.Headers["Content-Length"] ?? "N/A";
+                    eventData["Date"] = incomingRequest.DequeueTime.ToString("o") ?? DateTime.UtcNow.ToString("o");
+                    eventData["Path"] = incomingRequest.Path ?? "N/A";
+                    eventData["x-RequestPriority"] = incomingRequest.Priority.ToString() ?? "N/A";
+                    eventData["x-RequestMethod"] = incomingRequest.Method ?? "N/A";
+                    eventData["x-RequestPath"] = incomingRequest.Path ?? "N/A";
+                    eventData["x-RequestHost"] = incomingRequest.Headers["Host"] ?? "N/A";
+                    eventData["x-RequestUserAgent"] = incomingRequest.Headers["User-Agent"] ?? "N/A";
+                    eventData["x-RequestContentType"] = incomingRequest.Headers["Content-Type"] ?? "N/A";
+                    eventData["x-RequestContentLength"] = incomingRequest.Headers["Content-Length"] ?? "N/A";
                     eventData["x-RequestWorker"] = IDstr;
 
-                    incomingRequest.Headers["x-Request-Queue-Duration"] = (incomingRequest.DequeueTime - incomingRequest.EnqueueTime).TotalMilliseconds.ToString();
+                    incomingRequest.Headers["x-Request-Queue-Duration"] = (incomingRequest.DequeueTime! - incomingRequest.EnqueueTime!).TotalMilliseconds.ToString();
                     incomingRequest.Headers["x-Request-Process-Duration"] = (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString();
                     incomingRequest.Headers["x-Request-Worker"] = IDstr;
                     incomingRequest.Headers["x-S7PID"] = incomingRequest.MID ?? "N/A";
@@ -174,7 +174,7 @@ public class ProxyWorker
                     {
                         foreach (var header in _options.LogHeaders)
                         {
-                            eventData[header] = pr?.Headers[header] ?? "N/A";
+                            eventData[header] = pr.Headers[header] ?? "N/A";
                         }
                     }
 
@@ -294,7 +294,7 @@ public class ProxyWorker
                     Console.WriteLine($"Exception: {ex.Message}");
                     Console.WriteLine($"Stack Trace: {ex.StackTrace}");
                     // Convert the multi-line stack trace to a single line
-                    eventData["x-Stack"] = ex.StackTrace.Replace(Environment.NewLine, " ");
+                    eventData["x-Stack"] = ex.StackTrace?.Replace(Environment.NewLine, " ") ?? "N/A";
                     eventData["x-WorkerState"] = workerState;
                     SendEventData(eventData);
                     dirtyExceptionLog = false;
@@ -586,7 +586,7 @@ public class ProxyWorker
 
                     // Send the request and get the response
                     var ProxyStartDate = DateTime.UtcNow;
-                    using (var proxyResponse = await _options.Client.SendAsync(
+                    using (var proxyResponse = await _options.Client!.SendAsync(
                         proxyRequest, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false))
                     {
                         var responseDate = DateTime.UtcNow;
@@ -772,6 +772,8 @@ public class ProxyWorker
 
             // Copy across all the response headers to the client
             CopyHeaders(proxyResponse, pr.Headers, pr.ContentHeaders);
+            pr.Headers.Add("S7P-Backend", pr.BackendHostname);
+            pr.Headers.Add("S7P-ID", request.MID ?? "N/A");
 
             // Determine the encoding from the Content-Type header
             MediaTypeHeaderValue? contentType = proxyResponse.Content.Headers.ContentType;
