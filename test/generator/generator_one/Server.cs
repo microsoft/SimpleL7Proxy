@@ -162,20 +162,29 @@ namespace test.generator.generator_one
                 // Do this while there are active threads.  Each thread exits after the duration has expired
                 while (stats[0] > 0)
                 {
-                    var s = "";
+                    var statusCodes = "";
                     for (int i = 0; i < 600; i++)
                     {
                         if (responseStats[i] > 0)
                         {
-                            s += $"{i}: {responseStats[i]} ";
+                            statusCodes += $"{i}-{responseStats[i]}, ";
                         }
                     }
-                    
+                    statusCodes = statusCodes.TrimEnd(',', ' ');
+    
+                    // Ensure the statusCodes string is at least 40 characters long
+                    if (statusCodes.Length < 40)
+                    {
+                        statusCodes = statusCodes.PadRight(40);
+                    }
+
                     var completes = responseStats[200];
                     reqsPerSec = completes - prevCompletes;
                     prevCompletes = completes;
-                    
-                    Console.WriteLine($"{DateTime.Now} Stats: Test #: {_testNumber}  Reqs/Sec: {reqsPerSec} Active Threads: {stats[0]}  Begin:{stats[1]} Send:{stats[2]} Read: {stats[3]} Dispose:{stats[4]} Sleep:{stats[5]} Rd Tx: {receiveTimeout} Wr Tx: {sendTimeout}  Codes: {s}");
+
+
+                    Console.WriteLine($"{DateTime.Now:HH:mm:ss} #{_testNumber}- {reqsPerSec} Reqs/Sec  Status: {statusCodes}  Timeouts: R-{receiveTimeout}, W-{sendTimeout}  Active: {stats[0]}  Snd-{stats[2]} Rx-{stats[3]}");    
+                    //Console.WriteLine($"{DateTime.Now} Stats: Test #: {_testNumber}  Reqs/Sec: {reqsPerSec} Active Threads: {stats[0]}  Begin:{stats[1]} Send:{stats[2]} Read: {stats[3]} Dispose:{stats[4]} Sleep:{stats[5]} Rd Tx: {receiveTimeout} Wr Tx: {sendTimeout}  Codes: {s}");
                     await Task.Delay(1000);
                 }
 
@@ -185,10 +194,14 @@ namespace test.generator.generator_one
 
                 // Summarize the results
                 Console.WriteLine("Results:");
-                foreach (var key in testResults.Keys)
+                for (int i = 0; i < 600; i++)
                 {
-                    Console.WriteLine($"{key} : {testResults[key]}");
+                    if (responseStats[i] > 0)
+                    {
+                        Console.WriteLine($"{i} : {responseStats[i]}");
+                    }
                 }
+                
 
                 // Wait for a key press to cancel
                 Console.WriteLine("\n\nPress q to exit, any other key to repeat: ");
@@ -205,8 +218,6 @@ namespace test.generator.generator_one
 
         private async Task RunTest(CancellationToken cancellationToken, string test_endpoint, int delay, DateTime endTime)
         {
-
-            Dictionary<int, int> localTestResults = new Dictionary<int, int>();
 
             // Count that the thread is running
             Interlocked.Increment(ref stats[0]);
@@ -263,10 +274,14 @@ namespace test.generator.generator_one
                                     Interlocked.Decrement(ref stats[3]);
 
                                     int code = (int)response.StatusCode;
+                                    code = code < 600 ? code : 599;
 
+                                    // testing... make the code some random number:  one of:  400,408,412,417,429,500,502,503,504,599
+                                   // code = new int[] { 400, 408, 412, 417, 429, 500, 502, 503, 504, 599 }[new Random().Next(0, 10)];
+
+                                    // Increment the response stats for the code
                                     Interlocked.Increment(ref responseStats[code]);
                                     // Add the test result
-                                    localTestResults[code] = localTestResults.ContainsKey(code) ? localTestResults[code] + 1 : 1;
 
                                     // Disposing
                                     Interlocked.Increment(ref stats[4]);
@@ -280,17 +295,16 @@ namespace test.generator.generator_one
                             catch (TaskCanceledException e)
                             {
                                 Interlocked.Increment(ref sendTimeout);
-                                //localTestResults[408] = localTestResults.ContainsKey(408) ? localTestResults[408] + 1 : 1;
                                 //Console.WriteLine($"Test #{currentTestNumber} TaskCanceledException: {test.Name} {e.Message}");
                             }
                             catch (HttpRequestException httpEx)
                             {
-                                localTestResults[500] = localTestResults.ContainsKey(500) ? localTestResults[500] + 1 : 1;
+                                Interlocked.Increment(ref responseStats[500]);
                                 Console.WriteLine($"HttpRequestException: {httpEx.Message}");
                             }
                             catch (Exception ex)
                             {
-                                localTestResults[500] = localTestResults.ContainsKey(500) ? localTestResults[500] + 1 : 1;
+                                Interlocked.Increment(ref responseStats[500]);
                                 Console.WriteLine($"Test #{currentTestNumber} Exception: {ex.Message}");
                                 Console.WriteLine($"Test #{currentTestNumber} {ex.StackTrace}");
                             }
@@ -319,15 +333,6 @@ namespace test.generator.generator_one
 
             // Thread existing
             Interlocked.Decrement(ref stats[0]);
-
-
-            lock (_lock)
-            {
-                foreach (var key in localTestResults.Keys)
-                {
-                    testResults[key] = testResults.ContainsKey(key) ? testResults[key] + localTestResults[key] : localTestResults[key];
-                }
-            }
         }
 
         private void prepareTests(string test_endpoint)
