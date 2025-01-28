@@ -250,7 +250,7 @@ public class Server : IServer
                             ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
                             ed["Priority"] = priority.ToString();
 
-                            WriteOutput($"E Enque Pri: {priority} Queue: {_requestsQueue.Count} CB: {_backends.CheckFailedStatus()} Hosts: {_backends.ActiveHostCount()} Workers: {ProxyWorker.activeWorkers}", ed);
+                            WriteOutput($"E Enque Pri: {priority} Queue: {_requestsQueue.Count} CB: {_backends.CheckFailedStatus()} Hosts: {_backends.ActiveHostCount()} ", ed);
                         }
                     }
                     else
