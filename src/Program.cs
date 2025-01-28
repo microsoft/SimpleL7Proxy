@@ -194,7 +194,6 @@ public class Program
                         break;
                     }
                 }
-
                 var pw = new ProxyWorker(cancellationToken, i, workerPriority, queue, backendOptions, userPriority, userProfile, backends, eventHubClient, telemetryClient);
                 allTasks.Add(Task.Run(() => pw.TaskRunner(), cancellationToken));
             }
@@ -549,7 +548,7 @@ public class Program
         Console.WriteLine("#     #  # #    # #      #      #      #         #     #      #   #  #    #  #  #    #");
         Console.WriteLine(" #####   # #    # #      ###### ###### #######   #     #      #    #  ####  #    #   #");
         Console.WriteLine("=======================================================================================");
-        Console.WriteLine("Version: 2.1.6");
+        Console.WriteLine("Version: 2.1.7");
 
         return backendOptions;
     }
