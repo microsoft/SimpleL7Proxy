@@ -1,10 +1,13 @@
 
+using System.Data.Common;
+
 public class PriorityQueue<T>
 {
     public readonly List<PriorityQueueItem<T>> _items = new List<PriorityQueueItem<T>>();
     //private static readonly PriorityQueueItemComparer<T> Comparer = new PriorityQueueItemComparer<T>();
 
-    public int Count => _items.Count;
+    //public int Count => _items.Count;
+    public int Count => itemCounter;
 
     public static int itemCounter =0; 
 
@@ -23,6 +26,7 @@ public class PriorityQueue<T>
         return string.Join(", ", _items.Select(i => $"{i.Priority} "));
     }
 
+    static PriorityQueueItem<T> refItem = new PriorityQueueItem<T>(default!, 0, 1, DateTime.MinValue );
     public T Dequeue(int priority)
     {
         if (_items.Count == 0)
@@ -32,16 +36,19 @@ public class PriorityQueue<T>
 
         if (priority != Constants.AnyPriority)
         {
-            //Console.WriteLine($" Looking for a specific priority: {priority}");
             // Use binary search to find the smallest item with the specified priority
             // This is an item only used for searching in the list.  It's okey if item is null.
-            var itm = new PriorityQueueItem<T>(default!, priority, 1, DateTime.MinValue );
-            index = _items.BinarySearch(itm);
+            refItem.UpdateForLookup( priority ); // Important, only set this value for searching.
+            index = _items.BinarySearch(refItem);
 
             if (index < 0)
             {
                 // If no exact match is found, BinarySearch returns a negative number that is the bitwise complement of the index of the next element that is larger.
-                index = 0;
+                index = ~index; // If not found, BinarySearch returns the bitwise complement of the index of the next element that is larger.
+                if (index >= _items.Count)
+                {
+                    index = _items.Count - 1;
+                }
             } 
         }
 
