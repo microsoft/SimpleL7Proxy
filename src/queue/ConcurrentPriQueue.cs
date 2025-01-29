@@ -27,10 +27,11 @@ public class ConcurrentPriQueue<T>
     {
         get
         {
-            lock (_lock)
-            {
-                return _priorityQueue.Count;
-            }
+            return _priorityQueue.Count;
+            //lock (_lock)
+            //{
+            //    return _priorityQueue.Count;
+            // }
         }
     }
 
@@ -39,30 +40,20 @@ public class ConcurrentPriQueue<T>
     public bool Enqueue(T item, int priority, int priority2, DateTime timestamp, bool allowOverflow = false)
     {
         var queueItem = new PriorityQueueItem<T>(item, priority, priority2, timestamp);
-        bool enqueued = false;
 
-//        enqueue_status = "waiting lock";
+        if (!allowOverflow && _priorityQueue.Count >= MaxQueueLength)
+        {
+            return false;
+        }
+
         lock (_lock)
         {
-            if (!allowOverflow && _priorityQueue.Count >= MaxQueueLength)
-            {
-//                enqueue_status = "waiting lock overflow";
-                return false;
-            }
-            
-            Interlocked.Increment(ref insertions);
-//            enqueue_status = "waiting lock overflow enqueue";
             _priorityQueue.Enqueue(queueItem);
-            enqueued = true;
-//            enqueue_status = "waiting lock overflow enqueue lock end";
         }
+        Interlocked.Increment(ref insertions);
+        _enqueueEvent.Release(); // Signal that an item has been added
 
-        if (enqueued) {
-//            enqueue_status = "waiting lock signal";
-            _enqueueEvent.Release(); // Signal that an item has been added
-        }
-//        enqueue_status = "completed";
-        return enqueued;
+        return true;
     }
 
     public bool Requeue(T item, int priority, int priority2, DateTime timestamp)
@@ -77,25 +68,21 @@ public class ConcurrentPriQueue<T>
         {
             await _enqueueEvent.WaitAsync(TimeSpan.FromMilliseconds(40), cancellationToken).ConfigureAwait(false); // Wait for an item to be added
 
-            lock (_lock)
+            while (_priorityQueue.Count > 0 && _taskSignaler.HasWaitingTasks())
             {
-                while (_priorityQueue.Count > 0 && _taskSignaler.HasWaitingTasks())
+                //Console.WriteLine("SignalWorker: Woke up .. getting task");
+                var nextWorker = _taskSignaler.GetNextTask();
+                if (nextWorker == null)
                 {
-                    //Console.WriteLine("SignalWorker: Woke up .. getting task");
-                    var nextWorker = _taskSignaler.GetNextTask();
-                    if (nextWorker == null)
-                    {
-                        continue;
-                    }
-//Console.WriteLine("SignalWorker: Getting item from queue ... Task priority is " + nextWorker.Priority);
-                    var queueItem = _priorityQueue.Dequeue(nextWorker.Priority);
-                    Interlocked.Increment(ref extractions);
-
-                    nextWorker.TaskCompletionSource.SetResult(queueItem);
-                    //_taskSignaler.SignalNextTask(queueItem);
+                    continue;
                 }
+                lock (_lock)
+                {
+                    nextWorker.TaskCompletionSource.SetResult( _priorityQueue.Dequeue(nextWorker.Priority) );                    
+                }
+                Interlocked.Increment(ref extractions);
             }
-            
+
         }
         Console.WriteLine("SignalWorker: Canceled");
 

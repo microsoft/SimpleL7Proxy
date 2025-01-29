@@ -34,11 +34,11 @@ public class ProxyWorker
     private static int workersWaitingForWork = 0;
     private static bool readyToWork = false;
 
-    private static int[] states = [0, 0, 0, 0, 0, 0];
+    private static int[] states = [0, 0, 0, 0, 0, 0, 0, 0];
 
     public static string GetState()
     {
-        return $"ActiveWorkers: {activeWorkers} - States: {states[0]} {states[1]} {states[2]} {states[3]} {states[4]} - requests: {_requestsQueue?.thrdSafeCount.ToString() ?? "-"}";
+        return $"ActiveWorkers: {activeWorkers} - States[ deq-{states[0]} pre-{states[1]} prxy-{states[2]} -[snd-{states[3]} rcv-{states[4]}]-  wr-{states[5]} rpt-{states[6]} cln-{states[7]} ] - Q-len: {_requestsQueue?.thrdSafeCount.ToString() ?? "-"}";
     }
     public ProxyWorker(CancellationToken cancellationToken, int ID, int priority, ConcurrentPriQueue<RequestData> requestsQueue, BackendOptions backendOptions, IUserPriority? userPriority, IUserProfile? profiles, IBackendService? backends, IEventHubClient? eventHubClient, TelemetryClient? telemetryClient)
     {
@@ -111,6 +111,7 @@ public class ProxyWorker
                 {
                     Interlocked.Decrement(ref states[1]);
                     workerState = "Exit - No Context";
+                    Interlocked.Increment(ref states[7]);
                     continue;
                 }
 
@@ -134,6 +135,7 @@ public class ProxyWorker
                         await lcontext.Response.OutputStream.WriteAsync(healthMessage, 0, healthMessage.Length).ConfigureAwait(false);
                         Interlocked.Decrement(ref states[1]);
                         workerState = "Exit - Probe";
+                        Interlocked.Increment(ref states[7]);
                         continue;
                     }
 
@@ -164,7 +166,7 @@ public class ProxyWorker
                     workerState = "Read Proxy";
                     var pr = await ReadProxyAsync(incomingRequest).ConfigureAwait(false);
                     Interlocked.Decrement(ref states[2]);
-                    Interlocked.Increment(ref states[3]);
+                    Interlocked.Increment(ref states[5]);
                     workerState = "Write Response";
 
                     //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
@@ -185,8 +187,8 @@ public class ProxyWorker
                     }
                     await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);
                     //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
-                    Interlocked.Decrement(ref states[3]);
-                    Interlocked.Increment(ref states[4]);
+                    Interlocked.Decrement(ref states[5]);
+                    Interlocked.Increment(ref states[6]);
                     workerState = "Send Event";
 
                     var conlen = pr.ContentHeaders?["Content-Length"] ?? "N/A";
@@ -217,8 +219,8 @@ public class ProxyWorker
                     // pr.Body = [];
                     // pr.ContentHeaders.Clear();
                     // pr.FullURL = "";
-                    Interlocked.Decrement(ref states[4]);
-                    Interlocked.Increment(ref states[5]);
+                    Interlocked.Decrement(ref states[6]);
+                    Interlocked.Increment(ref states[7]);
                     workerState = "Cleanup";
                 }
                 catch (S7PRequeueException e)
@@ -314,6 +316,7 @@ public class ProxyWorker
                 }
                 finally
                 {
+                    try {
 
                     if (dirtyExceptionLog)
                     {
@@ -334,9 +337,14 @@ public class ProxyWorker
                         _telemetryClient?.TrackEvent("ProxyRequest", eventData);
 
                         lcontext?.Response.Close();
+                    } 
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine($"Error in finally: {e.Message}");
                     }
 
-                    Interlocked.Decrement(ref states[5]);
+                    Interlocked.Decrement(ref states[7]);
                     workerState = "Exit - Finally";
                 }
             }
@@ -586,9 +594,12 @@ public class ProxyWorker
 
                     // Send the request and get the response
                     var ProxyStartDate = DateTime.UtcNow;
+                    Interlocked.Increment(ref states[3]);
+                    try {
                     using (var proxyResponse = await _options.Client!.SendAsync(
                         proxyRequest, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false))
                     {
+
                         var responseDate = DateTime.UtcNow;
                         lastStatusCode = proxyResponse.StatusCode;
 
@@ -634,8 +645,11 @@ public class ProxyWorker
                         };
                         bodyBytes = [];
 
+                        Interlocked.Increment(ref states[4]);
+
                         // Read the response
                         await GetProxyResponseAsync(proxyResponse, request, pr).ConfigureAwait(false);
+                        Interlocked.Decrement(ref states[4]);
 
                         if ((int)proxyResponse.StatusCode == 429 && proxyResponse.Headers.TryGetValues("S7PREQUEUE", out var values))
                         {
@@ -659,6 +673,10 @@ public class ProxyWorker
                             Console.WriteLine($"Got: {pr.StatusCode} {pr.FullURL} {pr.ContentHeaders["Content-Length"]} Body: {pr?.Body?.Length} bytes");
                         }
                         return pr ?? throw new ArgumentNullException(nameof(pr));
+                    }
+                    } finally {
+                        Interlocked.Decrement(ref states[3]);
+
                     }
                 }
             }
@@ -772,8 +790,11 @@ public class ProxyWorker
 
             // Copy across all the response headers to the client
             CopyHeaders(proxyResponse, pr.Headers, pr.ContentHeaders);
-            pr.Headers.Add("S7P-Backend", pr.BackendHostname);
+            pr.Headers.Add("S7P-BackendHost", pr.BackendHostname);
             pr.Headers.Add("S7P-ID", request.MID ?? "N/A");
+            pr.Headers.Add("S7P-Priority", request.Priority.ToString() ?? "N/A");
+            pr.Headers.Add("S7P-Request-Queue-Duration", request.Headers["x-Request-Queue-Duration"] ?? "N/A");
+            pr.Headers.Add("S7P-Request-Process-Duration", request.Headers["x-Request-Process-Duration"] ?? "N/A");
 
             // Determine the encoding from the Content-Type header
             MediaTypeHeaderValue? contentType = proxyResponse.Content.Headers.ContentType;
