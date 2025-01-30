@@ -62,12 +62,12 @@ public class EventHubClient : IEventHubClient
             {
                 if (GetNextBatch(99) > 0)
                 {
-                    await producerClient.SendAsync(batchData);
-                    batchData = await producerClient.CreateBatchAsync();
+                    await producerClient.SendAsync(batchData).ConfigureAwait(false);
+                    batchData = await producerClient.CreateBatchAsync().ConfigureAwait(false);
                 }
 
                 if (!isShuttingDown) {
-                    await Task.Delay(500, token); // Wait for 1/2 second
+                    await Task.Delay(500, token).ConfigureAwait(false); // Wait for 1/2 second
                 }
             }
             Console.WriteLine("EventHubClient: EventWriter exiting");
@@ -84,7 +84,7 @@ public class EventHubClient : IEventHubClient
             {
                 if (GetNextBatch(99) > 0)
                 {
-                    await producerClient.SendAsync(batchData);
+                    await producerClient.SendAsync(batchData).ConfigureAwait(false);
                 }
                 else
                 {
@@ -92,9 +92,9 @@ public class EventHubClient : IEventHubClient
                 }
             }
 
-            await Task.Delay(500); // Wait for 1/2 second
+            await Task.Delay(500).ConfigureAwait(false); // Wait for 1/2 second
             // make sure event hub client is closed
-            await producerClient.CloseAsync();
+            await producerClient.CloseAsync().ConfigureAwait(false);
         }
     }
 
@@ -157,7 +157,7 @@ public class EventHubClient : IEventHubClient
 
     public void SendData(Dictionary<string, string> eventData)
     {
-        if (!isRunning) return;
+        if (!isRunning || isShuttingDown) return;
 
         string jsonData = JsonSerializer.Serialize(eventData);
         SendData(jsonData);
