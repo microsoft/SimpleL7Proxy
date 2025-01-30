@@ -35,6 +35,8 @@ public interface IBackendOptions
     int DefaultTTLSecs { get; set; }
     List<BackendHost>? Hosts { get; set; }
     string IDStr { get; set; }
+    List<string> LogHeaders { get; set; } 
+    bool LogProbes { get; set; }
     int MaxQueueLength { get; set; }
     int Port { get; set; }
     int PollInterval { get; set; }
@@ -53,6 +55,7 @@ public interface IBackendOptions
 
 public interface IUserPriority
 {
+    string GetState();
     Guid addRequest(string userId);
     bool removeRequest(string userId, Guid requestId);
     public bool boostIndicator(string userId, out float boostValue);
