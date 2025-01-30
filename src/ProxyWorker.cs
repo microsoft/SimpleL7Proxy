@@ -38,7 +38,7 @@ public class ProxyWorker
 
     public static string GetState()
     {
-        return $"ActiveWorkers: {activeWorkers} - States[ deq-{states[0]} pre-{states[1]} prxy-{states[2]} -[snd-{states[3]} rcv-{states[4]}]-  wr-{states[5]} rpt-{states[6]} cln-{states[7]} ] - Q-len: {_requestsQueue?.thrdSafeCount.ToString() ?? "-"}";
+        return $"Count: {activeWorkers} QLen: {_requestsQueue?.thrdSafeCount.ToString() ?? "-"} States: [ deq-{states[0]} pre-{states[1]} prxy-{states[2]} -[snd-{states[3]} rcv-{states[4]}]-  wr-{states[5]} rpt-{states[6]} cln-{states[7]} ]";
     }
     public ProxyWorker(CancellationToken cancellationToken, int ID, int priority, ConcurrentPriQueue<RequestData> requestsQueue, BackendOptions backendOptions, IUserPriority? userPriority, IUserProfile? profiles, IBackendService? backends, IEventHubClient? eventHubClient, TelemetryClient? telemetryClient)
     {
@@ -83,7 +83,9 @@ public class ProxyWorker
                 Interlocked.Increment(ref workersWaitingForWork);
                 Interlocked.Increment(ref states[0]);
                 workerState = "Waiting";
-                incomingRequest = await _requestsQueue.DequeueAsync(PreferredPriority); // This will block until an item is available or the token is cancelled
+
+                // This will block until an item is available or the token is cancelled
+                incomingRequest = await _requestsQueue.DequeueAsync(PreferredPriority).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -136,6 +138,15 @@ public class ProxyWorker
                         Interlocked.Decrement(ref states[1]);
                         workerState = "Exit - Probe";
                         Interlocked.Increment(ref states[7]);
+
+                        if (_options.LogProbes)
+                        {
+                            eventData["Probe"] = incomingRequest.Path;
+                            eventData["ProbeStatus"] = probeStatus.ToString();
+                            eventData["ProbeMessage"] = probeMessage;
+                            SendEventData(eventData);
+                            Console.WriteLine($"Probe: {incomingRequest.Path} Status: {probeStatus} Message: {probeMessage}");
+                        }
                         continue;
                     }
 
@@ -382,12 +393,12 @@ public class ProxyWorker
                 }
                 else
                 {
-                    probeMessage = "Backend Hosts:\n";
+                    probeMessage = $"Backend Hosts:\n Active Hosts: {activeHosts}  -  {(hasFailedHosts ? "FAILED HOSTS" : "All Hosts Operational")}\n";
                     if (_backends._hosts.Count > 0)
                     {
                         foreach (var host in _backends._hosts)
                         {
-                            probeMessage += $"Name: {host.host}  Status: {host.GetStatus(out int calls, out int errorCalls, out double average)}\n";
+                            probeMessage += $" Name: {host.host}  Status: {host.GetStatus(out int calls, out int errorCalls, out double average)}\n";
                         }
                     }
                     else
@@ -395,7 +406,8 @@ public class ProxyWorker
                         probeMessage += "No Hosts\n";
                     }
 
-                    probeMessage += $" Health Probe: {GetState()} Active Hosts: {activeHosts} Failed Hosts: {hasFailedHosts}\n";
+                    probeMessage += $"Worker Statistics:\n {GetState()}\n";
+                    probeMessage += $"User Priority Queue: {_userPriority?.GetState() ?? "N/A"}\n";
                 }
                 break;
 
@@ -868,12 +880,7 @@ public class ProxyWorker
 
     private void SendEventData(Dictionary<string, string> eventData)//string urlWithPath, HttpStatusCode statusCode, DateTime requestDate, DateTime responseDate)
     {
-        // string date = responseDate.ToString("o");
-        // var delta = (responseDate - requestDate).ToString(@"ss\:fff");
-        // _eventHubClient?.SendData($"{{\"Date\":\"{date}\", \"Url\":\"{urlWithPath}\", \"Status\":\"{statusCode}\", \"Latency\":\"{delta}\"}}");
-
-        string jsonData = JsonSerializer.Serialize(eventData);
-        _eventHubClient?.SendData(jsonData);
+        _eventHubClient?.SendData(eventData);
     }
 
     private void LogHeaders(IEnumerable<KeyValuePair<string, IEnumerable<string>>> headers, string prefix)
