@@ -1,5 +1,6 @@
 using OS = System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 
 
 public class BackendHost
@@ -21,9 +22,8 @@ public class BackendHost
     private readonly Queue<bool> callSuccess = new Queue<bool>();
     public double calculatedAverageLatency { get; set; }
 
-    private Queue<double> PxLatency = new Queue<double>();
+    private ConcurrentQueue<double> PxLatency = new ConcurrentQueue<double>();
     private int errors = 0;
-    private object lockObj = new object();
 
     public BackendHost(string hostname, string? probepath, string? ipaddress)
     {
@@ -74,18 +74,12 @@ public class BackendHost
 
     public void AddPxLatency(double latency)
     {
-        lock (lockObj)
-        {
-            PxLatency.Enqueue(latency);
-        }
+        PxLatency.Enqueue(latency);
     }
 
     public void AddError()
     {
-        lock (lockObj)
-        {
-            errors++;
-        }
+        Interlocked.Increment(ref errors);
     }
 
     public string GetStatus(out int calls, out int errorCalls, out double average)
@@ -113,12 +107,12 @@ public class BackendHost
 
     public void ResetStatus()
     {
-        lock (lockObj)
-        {
+
             // Reset the counts
-            PxLatency = new Queue<double>();
-            errors = 0;
-        }
+            PxLatency = new();// ConcurrentQueue<double>();
+            Interlocked.Exchange(ref errors, 0);
+
+
     }
 
     // Method to add a new latency
