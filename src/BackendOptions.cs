@@ -10,6 +10,7 @@ public class BackendOptions : IBackendOptions
     public List<BackendHost>? Hosts { get; set; }
     public string IDStr { get; set; } = "S7P";
     public List<string> LogHeaders { get; set; } = new List<string>();
+    public bool LogProbes { get; set; }
     public int MaxQueueLength { get; set; }
     public string OAuthAudience { get; set; } = "";
     public int Port { get; set; }
