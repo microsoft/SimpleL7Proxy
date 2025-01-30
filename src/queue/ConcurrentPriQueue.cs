@@ -4,8 +4,9 @@ public class ConcurrentPriQueue<T>
     private readonly SemaphoreSlim _enqueueEvent = new SemaphoreSlim(0);
     private readonly object _lock = new object(); // Lock object for synchronization
     private ConcurrentSignal<T> _taskSignaler = new ConcurrentSignal<T>();
-    private int insertions = 0;
-    private int extractions = 0;
+    //private int insertions = 0;
+    //private int extractions = 0;
+  
 
     public int MaxQueueLength { get; set; }
 
@@ -28,10 +29,6 @@ public class ConcurrentPriQueue<T>
         get
         {
             return _priorityQueue.Count;
-            //lock (_lock)
-            //{
-            //    return _priorityQueue.Count;
-            // }
         }
     }
 
@@ -50,12 +47,12 @@ public class ConcurrentPriQueue<T>
         {
             _priorityQueue.Enqueue(queueItem);
         }
-        Interlocked.Increment(ref insertions);
+
+        //Interlocked.Increment(ref insertions);
         _enqueueEvent.Release(); // Signal that an item has been added
 
         return true;
     }
-
     public bool Requeue(T item, int priority, int priority2, DateTime timestamp)
     {
         return Enqueue(item, priority, priority2, timestamp, true);
@@ -66,6 +63,7 @@ public class ConcurrentPriQueue<T>
     {
         while (!cancellationToken.IsCancellationRequested)
         {
+            // 40 seems good,  no timeout or 80ms gives reduced performance
             await _enqueueEvent.WaitAsync(TimeSpan.FromMilliseconds(40), cancellationToken).ConfigureAwait(false); // Wait for an item to be added
 
             while (_priorityQueue.Count > 0 && _taskSignaler.HasWaitingTasks())
@@ -80,10 +78,9 @@ public class ConcurrentPriQueue<T>
                 {
                     nextWorker.TaskCompletionSource.SetResult( _priorityQueue.Dequeue(nextWorker.Priority) );                    
                 }
-                Interlocked.Increment(ref extractions);
             }
-
         }
+
         Console.WriteLine("SignalWorker: Canceled");
 
         // Shutdown
@@ -104,7 +101,7 @@ public class ConcurrentPriQueue<T>
         }
     }
 
-    public string Counters => $"Ins: {insertions} Ext: {extractions}";
+    //public string Counters => $"Ins: {insertions} Ext: {extractions}";
     public string EnqueueStatus => enqueue_status;
     public string SignalWorkerStatus => sigwrkr_status;
 

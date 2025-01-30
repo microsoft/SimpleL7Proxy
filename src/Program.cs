@@ -78,6 +78,7 @@ public class Program
                     options.Hosts = backendOptions.Hosts;
                     options.IDStr = backendOptions.IDStr;
                     options.LogHeaders = backendOptions.LogHeaders;
+                    options.LogProbes = backendOptions.LogProbes;
                     options.MaxQueueLength = backendOptions.MaxQueueLength;
                     options.OAuthAudience = backendOptions.OAuthAudience;
                     options.PriorityKeys = backendOptions.PriorityKeys;
@@ -455,6 +456,7 @@ public class Program
             Hosts = new List<BackendHost>(),
             IDStr = ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P") + "-" + replicaID + "-",
             LogHeaders = ReadEnvironmentVariableOrDefault("LogHeaders", "").Split(',').Select(x => x.Trim()).ToList(),
+            LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", false),
             MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
             OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
             Port = ReadEnvironmentVariableOrDefault("Port", 443),
