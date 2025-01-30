@@ -19,7 +19,6 @@ public class Server : IServer
     private IUserPriority _userPriority;
     private IUserProfile _userProfile;
     private CancellationToken _cancellationToken;
-    //private BlockingCollection<RequestData> _requestsQueue = new BlockingCollection<RequestData>();
     private ConcurrentPriQueue<RequestData> _requestsQueue = new ConcurrentPriQueue<RequestData>();
     private readonly IEventHubClient? _eventHubClient;
 
@@ -113,25 +112,23 @@ public class Server : IServer
                     if (completedTask == getContextTask)
                     {
                         int priority = _options.DefaultPriority;
-                        int priority2 = 0;
-                        var mid="";
+                        int userPriorityBoost = 0;
 
-                        Interlocked.Increment(ref counter);
-                        mid = _options.IDStr + counter.ToString();
+                        counter++;
+                        var requestId = _options.IDStr + counter.ToString();
  
                         delayCts.Cancel();
-                       // _requestsQueue.Add(new RequestData(await getContextTask.ConfigureAwait(false)));
-                        var rd = new RequestData(await getContextTask.ConfigureAwait(false),  mid);
+                        var rd = new RequestData(await getContextTask.ConfigureAwait(false),  requestId);
 
                         // readiness probes:
                         // if it's a probe, then bypass all the below checks and enqueue the request 
                         if (Constants.probes.Contains(rd.Path)) {
 
                             // /startup runs a priority of 0,   otherwise run at highest priority ( lower is more urgent )
-                            priority = (rd.Path == Constants.Liveness || rd.Path == Constants.Health) ? livenessPriority : 0;
+                            priority = 0;//(rd.Path == Constants.Liveness || rd.Path == Constants.Health) ? livenessPriority : 0;
 
                             // bypass all the below checks and enqueue the request
-                            _requestsQueue.Enqueue(rd, priority, priority2, rd.EnqueueTime, true);
+                            _requestsQueue.Enqueue(rd, priority, userPriorityBoost, rd.EnqueueTime, true);
                             continue;
                         } 
                         // Determine priority boost based on the userid
@@ -154,7 +151,7 @@ public class Server : IServer
 
                             rd.Guid=_userPriority.addRequest(rd.UserID);
                             bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
-                            priority2 = shouldBoost ? 1 : 0;
+                            userPriorityBoost = shouldBoost ? 1 : 0;
                         }
 
                         var priorityKey = rd.Headers.Get("S7PPriorityKey");
@@ -167,73 +164,61 @@ public class Server : IServer
                             }
                         }
                         rd.Priority = priority;
-                        rd.Priority2 = priority2;
+                        rd.Priority2 = userPriorityBoost;
                         rd.EnqueueTime = DateTime.UtcNow;
                         
                         var return429 = false;
                         var retrymsg = "";
+                        var logmsg = "";
 
                         var ed = new Dictionary<string, string>();
+                        ed["S7P-Hostname"] = _options.IDStr;
                         // Check circuit breaker status and enqueue the request
                         if (  _backends.CheckFailedStatus() ) {
                             return429 = true;
 
-                            ed["Type"] = "S7P-CircuitBreaker";
                             ed["Message"] = "Circuit breaker on - 429";
-                            ed["QueueLength"] = _requestsQueue.Count.ToString();
-                            ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
-                            retrymsg = "Too many failures in last 10 seconds";
-
-                            WriteOutput($"Circuit breaker on => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}", ed);
+                            retrymsg = $"Too many failures in last {_options.CircuitBreakerTimeslice} seconds";
+                            logmsg = "Circuit breaker on  => 429:";
                         }
                         else if (_requestsQueue.Count >= _options.MaxQueueLength) {
                             return429 = true;
 
-                            ed["Type"] = "S7P-QueueFull";
-                            ed["Message"] = "Queue is full";
-                            ed["QueueLength"] = _requestsQueue.Count.ToString();
-                            ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
-                            retrymsg = "Queue is full";
-
-                            WriteOutput($"Queue is full  => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}", ed);
+                            retrymsg = ed["Message"] = "Queue is full";
+                            logmsg = "Queue is full  => 429:";
                         }
                         else if (_backends.ActiveHostCount() == 0) {
                             return429 = true;
 
-                            ed["Type"] = "S7P-NoActiveHosts";
-                            ed["Message"] = "No active hosts";
-                            ed["QueueLength"] = _requestsQueue.Count.ToString();
-                            ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
-                            retrymsg = "No active hosts";
-
-                            WriteOutput($"No active hosts => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}", ed);
+                            retrymsg = ed["Message"] = "No active hosts";
+                            logmsg = "No active hosts  => 429:";
                         }
 
                         // Enqueue the request
 
-                        else if (!_requestsQueue.Enqueue(rd, priority, priority2, rd.EnqueueTime)) {
+                        else if (!_requestsQueue.Enqueue(rd, priority, userPriorityBoost, rd.EnqueueTime)) {
                             return429 = true;
 
-                            ed["Type"] = "S7P-EnqueueFailed";
-                            ed["Message"] = "Failed to enqueue request";
-                            ed["QueueLength"] = _requestsQueue.Count.ToString();
-                            ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
-                            retrymsg = "Failed to enqueue request";
-
-                            WriteOutput($"Failed to enqueue request => 429: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}", ed);
+                            retrymsg = ed["Message"] = "Failed to enqueue request";
+                            logmsg = "Failed to enqueue request  => 429:";
                         }
 
                         if (return429) {
 
                             if (rd.Context is not null) 
                             {
+                                ed["Type"] = "S7P-EnqueueFailed";
+                                ed["QueueLength"] = _requestsQueue.Count.ToString();
+                                ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
+                                WriteOutput($"{logmsg}: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}", ed);
+
                                 // send a 429 response to client in the number of milliseconds specified in Retry-After header
                                 rd.Context.Response.StatusCode = 429;
                                 rd.Context.Response.Headers["Retry-After"]=(_backends.ActiveHostCount()==0) ? _options.PollInterval.ToString() : "500";
 
                                 using (var writer = new System.IO.StreamWriter(rd.Context.Response.OutputStream))
                                 {
-                                    await writer.WriteAsync(retrymsg);
+                                    await writer.WriteAsync(retrymsg).ConfigureAwait(false);
                                 }
                                 rd.Context.Response.Close();
                                 WriteOutput($"Pri: {priority} Stat: 429 Path: {rd.Path}");
