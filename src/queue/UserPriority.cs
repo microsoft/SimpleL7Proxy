@@ -10,6 +10,11 @@ public class UserPriority : IUserPriority
 
     public float threshold { get; set; }
 
+    public string GetState()
+    {
+        return $"Users: {userRequests.Count} Total Requests: {getTotalRequests()} ";
+    }
+
     public UserPriority()
     {
     }
