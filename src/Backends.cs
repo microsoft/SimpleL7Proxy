@@ -11,6 +11,7 @@ using Azure.Identity;
 using Azure.Core;
 using System.Security.AccessControl;
 using System.Text.Json;
+using System.Collections.Concurrent;
 
 
 
@@ -33,7 +34,6 @@ public class Backends : IBackendService
     private CancellationToken _cancellationToken;
 
     private Azure.Core.AccessToken? AuthToken { get; set; }
-    private object lockObj = new object();
     private readonly IEventHubClient? _eventHubClient;
     CancellationTokenSource workerCancelTokenSource = new CancellationTokenSource();
 
@@ -80,6 +80,7 @@ public class Backends : IBackendService
     }
 
     List<DateTime> hostFailureTimes = new List<DateTime>();
+    ConcurrentQueue<DateTime> hostFailureTimes2 = new ConcurrentQueue<DateTime>();
     private readonly int FailureThreshold = 5;
     private readonly int FailureTimeFrame = 10; // seconds
     static int[] allowableCodes = { 200, 401, 403, 408, 410, 412, 417, 400 };
@@ -93,36 +94,45 @@ public class Backends : IBackendService
         return _activeHosts.Count;
     }
 
-    static Dictionary<string, string> logerror = new Dictionary<string, string>() { { "Type", "Track-CircuitBreaker-Error-Event" } };
+    static Dictionary<string, string> logerror = new Dictionary<string, string>() { { "Type", "CircuitBreaker-Error-Event" } };
     public void TrackStatus(int code, bool wasException)
     {
-        //Console.WriteLine($"TrackStatus: {code}");
         if (allowableCodes.Contains(code) && !wasException)
         {
             return;
         }
 
         DateTime now = DateTime.UtcNow;
-        lock (lockObj)
+
+        // truncate older entries
+        while (hostFailureTimes2.TryPeek(out var t) && (now - t).TotalSeconds >= FailureTimeFrame)
         {
-            hostFailureTimes.Add(now);
-            // truncate older entries
-            hostFailureTimes.RemoveAll(t => (now - t).TotalSeconds >= FailureTimeFrame);
+            hostFailureTimes2.TryDequeue(out var _);
         }
+
+        hostFailureTimes2.Enqueue(now);
         logerror["Code"] = code.ToString();
         logerror["Time"] = now.ToString();
+        logerror["WasException"] = wasException.ToString();
+        logerror["Count"] = hostFailureTimes2.Count.ToString();
+
         SendEventData(logerror);
-        
     }
 
     // returns true if the service is in failure state
     public bool CheckFailedStatus()
     {
-        lock (lockObj)
+        if (hostFailureTimes2.Count < FailureThreshold)
         {
-            hostFailureTimes.RemoveAll(t => (DateTime.UtcNow - t).TotalSeconds >= FailureTimeFrame);
-            return hostFailureTimes.Count >= FailureThreshold;
+            return false;
         }
+
+        DateTime now = DateTime.UtcNow;
+        while (hostFailureTimes2.TryPeek(out var t) && (now - t).TotalSeconds >= FailureTimeFrame)
+        {
+            hostFailureTimes2.TryDequeue(out var _);
+        }
+        return hostFailureTimes2.Count >= FailureThreshold;
 
     }
 
