@@ -8,14 +8,14 @@ using System.Collections.Concurrent;
 
 public class Program
 {
-    static ConcurrentPriQueue<testData> _requestsQueue = new ConcurrentPriQueue<testData>();
+    private static ConcurrentPriQueue<testData> _requestsQueue = new ConcurrentPriQueue<testData>();
     private static testData? _lastEnqueuedItem; // Made nullable to address the warning
 
 
     static CancellationTokenSource cts = new CancellationTokenSource();
     static CancellationToken token = cts.Token;
 
-    static UserPriority up = new UserPriority(){threshold = 0.5f};
+    static UserPriority up = new UserPriority() { threshold = 0.5f };
 
 
     public static async Task Main(string[] args)
@@ -25,8 +25,8 @@ public class Program
         TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
 
         _requestsQueue.MaxQueueLength = 100;
-        _requestsQueue.startSignaler(CancellationToken.None);
-//        _requestsQueue.startCoordination(CancellationToken.None);
+        _requestsQueue.StartSignaler(CancellationToken.None);
+        //        _requestsQueue.startCoordination(CancellationToken.None);
         await MainAsync();
     }
 
@@ -47,7 +47,7 @@ public class Program
     {
         bool perfMode = false;
         _requestsQueue.MaxQueueLength = 1000;
-//        _requestsQueue.startSignaler(CancellationToken.None);
+        //        _requestsQueue.startSignaler(CancellationToken.None);
         // _requestsQueue.startCoordination(CancellationToken.None);
         CancellationTokenSource cts = new CancellationTokenSource();
         CancellationToken token = cts.Token;
@@ -59,18 +59,71 @@ public class Program
         }
         else
         {
+            bool smoketest = true;
 
-            Task inputTask = Task.Run(() => HandleInput());
-            while (true)
+            if (smoketest)
             {
-                Thread.Sleep(1000);
-                var itm = await _requestsQueue.dequeueAsync("main", token);
-                if (itm != null)
+                // Smoke test
+
+                Random rand = new Random();
+                for (int i = 0; i < 20; i++)
                 {
-                    up.removeRequest(itm.userId, itm.guid);
-                    Console.WriteLine($"<< User: {itm.userId},  Request ID: {itm.guid} >>");
+                    string userId = "user" + i;
+                    var guid = up.addRequest(userId);
+                    var item = new testData(guid) { userId = userId };
+                    bool isBoosted = up.boostIndicator(userId, out float boostValue);
+                    int priority2 = (isBoosted) ? 1 : 0;
+
+                    // randomly pick a priority : 1,2,3
+                    int pri1 = rand.Next(1, 4);
+
+                    //var status= _requestsQueue.Enqueue(rd, priority, userPriorityBoost, rd.EnqueueTime, true);
+
+                    var status = _requestsQueue.Enqueue(item, priority: pri1, priority2: priority2, DateTime.Now);
+                    Console.WriteLine($" Enqueued item: status = {status} boostValue = {boostValue}");
                 }
-                DisplayQueue();
+
+                while ( _requestsQueue.Count > 0)
+                {
+                    DisplayQueue(false);
+
+                    // Dequeue a random item
+
+                    int dequeuePriority = rand.Next(0, 4);
+                    if (dequeuePriority == 0 ) dequeuePriority = Constants.AnyPriority;
+                    var priStr = (dequeuePriority == Constants.AnyPriority) ? "Any" : dequeuePriority.ToString();
+                    
+                    Console.WriteLine($"Dequeue priority: {priStr}");
+                    // time the dequeue operation
+                    Stopwatch sw = Stopwatch.StartNew();
+                    var itm = await _requestsQueue.DequeueAsync(dequeuePriority);
+                    sw.Stop();
+                    if (itm != null)
+                    {
+                        long dequeueTimeMicroseconds = sw.ElapsedTicks * 1_000_000 / Stopwatch.Frequency;
+                        up.removeRequest(itm.userId, itm.guid);
+                        Console.WriteLine($"<< User: {itm.userId},  GUID: {itm.guid} >>  Dequeue time: {dequeueTimeMicroseconds} µs");
+                    }
+                    Console.WriteLine ("\n\n");
+                }
+
+            }
+            else
+            {
+                // Start the input task
+
+                Task inputTask = Task.Run(() => HandleInput());
+                while (true)
+                {
+                    Thread.Sleep(1000);
+                    var itm = await _requestsQueue.DequeueAsync(Constants.AnyPriority);
+                    if (itm != null)
+                    {
+                        up.removeRequest(itm.userId, itm.guid);
+                        Console.WriteLine($"<< User: {itm.userId},  Request ID: {itm.guid} >>");
+                    }
+                    DisplayQueue();
+                }
             }
         }
     }
@@ -86,7 +139,7 @@ public class Program
         // Start Consumers
         Task[] consumers = new Task[consumerCount];
         Random _random = new Random();
-        
+
         string[] status = new string[consumerCount];
         for (int i = 0; i < consumerCount; i++)
         {
@@ -102,20 +155,20 @@ public class Program
                     {
                         try
                         {
-//                            status[taskId] = "dequeue";
-                            var item = await _requestsQueue.dequeueAsync(tid, token).ConfigureAwait(false);
+                            //                            status[taskId] = "dequeue";
+                            var item = await _requestsQueue.DequeueAsync(Constants.AnyPriority).ConfigureAwait(false);
                             if (item != null)
                             {
                                 // Process the item
                                 //Console.WriteLine($"Consumer {tid} got item {item.userId}");
-//                                status[taskId] = "dequeue delay";
-                                await Task.Delay( _random.Next(500)).ConfigureAwait(false); // Simulate processing time
-//                                status[taskId] = "dequeue delay increment";
+                                //                                status[taskId] = "dequeue delay";
+                                await Task.Delay(_random.Next(500)).ConfigureAwait(false); // Simulate processing time
+                                                                                           //                                status[taskId] = "dequeue delay increment";
                                 Interlocked.Increment(ref completedConsumers);
                                 //Console.WriteLine($"Consumer {tid} got item {item.userId} - removing request");
-//                                status[taskId] = "dequeue delay increment remove";
+                                //                                status[taskId] = "dequeue delay increment remove";
                                 up.removeRequest(item.userId, item.guid);
-//                                status[taskId] = "dequeue delay increment remove yield";
+                                //                                status[taskId] = "dequeue delay increment remove yield";
                                 await Task.Yield();
                             }
                             else
@@ -128,7 +181,7 @@ public class Program
                             Console.WriteLine($"Error in consumer {tid}: {ex.Message}");
                         }
                     }
-                status[taskId] = "dequeue delay increment remove exit";
+                    status[taskId] = "dequeue delay increment remove exit";
 
                 }
                 catch (Exception ex)
@@ -147,10 +200,10 @@ public class Program
             DateTime lastReportTime = DateTime.Now;
             while (Interlocked.CompareExchange(ref completedConsumers, 0, 0) < totalOperations)
             {
-                Console.WriteLine($"{DateTime.Now} Completed Consumers: {completedConsumers} / {totalOperations} - {100.0 * completedConsumers / totalOperations:F2}% : {completedConsumers / stopwatch.Elapsed.TotalSeconds:F2} ops/sec {_requestsQueue.Counters}");
-                for (int i=0; i< consumerCount; i++)
+                Console.WriteLine($"{DateTime.Now} Completed Consumers: {completedConsumers} / {totalOperations} - {100.0 * completedConsumers / totalOperations:F2}% : {completedConsumers / stopwatch.Elapsed.TotalSeconds:F2} ops/sec ");
+                for (int i = 0; i < consumerCount; i++)
                 {
-                   // Console.WriteLine($"Consumer[{i}]: {status[i]}");
+                    // Console.WriteLine($"Consumer[{i}]: {status[i]}");
                 }
                 //Console.WriteLine("Enqueue: " + _requestsQueue.EnqueueStatus); 
                 //Console.WriteLine("SignalWorker: " + _requestsQueue.SignalWorkerStatus);
@@ -164,22 +217,23 @@ public class Program
 
             Random _random = new Random();
 
-            for (int i = 0; i <= totalOperations+consumerCount; i++)
+            for (int i = 0; i <= totalOperations + consumerCount; i++)
             {
                 int usernum = _random.Next(100);
                 string _userId = "user" + usernum;
-                var guid=up.addRequest(_userId);
+                var guid = up.addRequest(_userId);
                 var item = new testData(guid) { userId = _userId };
                 bool isBoosted = up.boostIndicator(_userId, out float boostValue);
                 int priority2 = (isBoosted) ? 1 : 0;
 
-                while ( !_requestsQueue.enqueue(item, priority: 1, priority2: priority2, DateTime.Now) ) {
+                while (!_requestsQueue.Enqueue(item, priority: 1, priority2: priority2, DateTime.Now))
+                {
                     await Task.Delay(10).ConfigureAwait(false); // Wait for 10 ms for the queue to have space
                 }
                 //Console.WriteLine($"Producer >>> Enqueued item #{i}");
             }
 
-            Console.WriteLine ("Producer finished =================================================================");
+            Console.WriteLine("Producer finished =================================================================");
         });
 
         await Task.WhenAll(producer);
@@ -215,7 +269,7 @@ public class Program
                     int priority2 = isBoosted ? 1 : 0;
 
                     var item = new testData(guid) { userId = userId /*, maybe store boostValue here if needed */ };
-                    var status = _requestsQueue.enqueue(item, priority, priority2, DateTime.Now);
+                    var status = _requestsQueue.Enqueue(item, priority, priority2, DateTime.Now);
 
                     _lastEnqueuedItem = item; // Track recently enqueued item
 
@@ -226,7 +280,7 @@ public class Program
 
                 if (key == 'd')
                 {
-                    var itm = await _requestsQueue.dequeueAsync("main", token);
+                    var itm = await _requestsQueue.DequeueAsync(Constants.AnyPriority);
 
                     DisplayQueue();
                 }
@@ -234,16 +288,17 @@ public class Program
         }
     }
 
-    private static void DisplayQueue()
+    private static void DisplayQueue(bool clear=true)
     {
-        Console.Clear();
+        if (clear)
+            Console.Clear();
         var items = _requestsQueue.getItems();
         Console.WriteLine("=== Queue Contents ===");
         foreach (var i in items)
         {
             // Highlight the last enqueued item
             string highlight = (i.Item == _lastEnqueuedItem) ? " <---" : "";
-            Console.WriteLine($"Item: {i.Item.userId}, Priority: {i.Priority}, Priority2: {i.Priority2} {highlight}");
+            Console.WriteLine($"Item: {i.Item.userId}, guid: {i.Item.guid}  Priority: {i.Priority}, Priority2: {i.Priority2} {highlight}");
         }
         Console.WriteLine("======================");
 

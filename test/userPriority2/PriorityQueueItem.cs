@@ -1,8 +1,10 @@
 public class PriorityQueueItem<T> : IComparable<PriorityQueueItem<T>>
 {
     public T Item { get; }
-    public int Priority { get; }
+    public int Priority { get; private set; }
     public int Priority2 { get; }
+    public bool ignorePriority2 { get; set; }
+
     public DateTime Timestamp { get; }
 
     public PriorityQueueItem(T item, int priority, int priority2, DateTime timestamp)
@@ -11,6 +13,13 @@ public class PriorityQueueItem<T> : IComparable<PriorityQueueItem<T>>
         Priority = priority;
         Priority2 = priority2;
         Timestamp = timestamp;
+        ignorePriority2 = false;
+    }
+
+    public void UpdateForLookup(int priority)
+    {
+        Priority = priority;
+        ignorePriority2 = true;
     }
 
     public int CompareTo(PriorityQueueItem<T>? other)
@@ -21,6 +30,11 @@ public class PriorityQueueItem<T> : IComparable<PriorityQueueItem<T>>
         // Compare Priority first
         int priorityResult = Priority.CompareTo(other.Priority);
         if (priorityResult != 0) return priorityResult;
+
+        if (ignorePriority2 || other.ignorePriority2)
+        {
+            return Timestamp.CompareTo(other.Timestamp);
+        }
 
         // If Priority is equal, compare Priority2 (1 is more important)
         int priority2Result = other.Priority2.CompareTo(Priority2);

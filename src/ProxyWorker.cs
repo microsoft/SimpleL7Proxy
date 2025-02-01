@@ -31,7 +31,6 @@ public class ProxyWorker
     private IUserProfile _profiles;
     private string IDstr = "";
     public static int activeWorkers = 0;
-    private static int workersWaitingForWork = 0;
     private static bool readyToWork = false;
 
     private static int[] states = [0, 0, 0, 0, 0, 0, 0, 0];
@@ -80,7 +79,6 @@ public class ProxyWorker
             RequestData incomingRequest;
             try
             {
-                Interlocked.Increment(ref workersWaitingForWork);
                 Interlocked.Increment(ref states[0]);
                 workerState = "Waiting";
 
@@ -94,7 +92,6 @@ public class ProxyWorker
             }
             finally
             {
-                Interlocked.Decrement(ref workersWaitingForWork);
                 Interlocked.Decrement(ref states[0]);
                 workerState = "Exit - Get Work";
             }
@@ -393,7 +390,7 @@ public class ProxyWorker
                 }
                 else
                 {
-                    probeMessage = $"Backend Hosts:\n Active Hosts: {activeHosts}  -  {(hasFailedHosts ? "FAILED HOSTS" : "All Hosts Operational")}\n";
+                    probeMessage = $"Backend Hosts: {"".PadRight(30)} SimpleL7Proxy: {Constants.VERSION}\n Active Hosts: {activeHosts}  -  {(hasFailedHosts ? "FAILED HOSTS" : "All Hosts Operational")}\n";
                     if (_backends._hosts.Count > 0)
                     {
                         foreach (var host in _backends._hosts)

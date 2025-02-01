@@ -550,7 +550,7 @@ public class Program
         Console.WriteLine("#     #  # #    # #      #      #      #         #     #      #   #  #    #  #  #    #");
         Console.WriteLine(" #####   # #    # #      ###### ###### #######   #     #      #    #  ####  #    #   #");
         Console.WriteLine("=======================================================================================");
-        Console.WriteLine("Version: 2.1.7");
+        Console.WriteLine($"Version: {Constants.VERSION}");
 
         return backendOptions;
     }
