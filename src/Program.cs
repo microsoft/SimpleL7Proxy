@@ -180,11 +180,15 @@ public class Program
                 workerPriorities.Add(kvp.Key, kvp.Value);
             }
 
+            // Startup a probe worker: worker ID 0
             // startup Worker # of tasks
-            for (int i = 0; i < backendOptions.Workers; i++)
+            for (int wrkrNum = 0; wrkrNum <= backendOptions.Workers; wrkrNum++)
             {
                 // get the priority for this worker
-                workerPriority = Constants.AnyPriority;
+                if ( wrkrNum == 0 )
+                    workerPriority = 0;
+                else 
+                  workerPriority = Constants.AnyPriority;
 
                 foreach (var kvp in workerPriorities)
                 {
@@ -195,7 +199,8 @@ public class Program
                         break;
                     }
                 }
-                var pw = new ProxyWorker(cancellationToken, i, workerPriority, queue, backendOptions, userPriority, userProfile, backends, eventHubClient, telemetryClient);
+                var pw = new ProxyWorker(cancellationToken, wrkrNum, workerPriority, queue, backendOptions, 
+                                         userPriority, userProfile, backends, eventHubClient, telemetryClient);
                 allTasks.Add(Task.Run(() => pw.TaskRunner(), cancellationToken));
             }
 
