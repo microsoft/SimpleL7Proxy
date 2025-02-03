@@ -4,6 +4,8 @@ public class ConcurrentSignal<T>
 {
 //    private readonly ConcurrentQueue<TaskCompletionSource<T>> _taskCompletionSources = new ConcurrentQueue<TaskCompletionSource<T>>();
     private readonly ConcurrentQueue<WorkerTask<T>> _taskCompletionSources = new ConcurrentQueue<WorkerTask<T>>();
+    private WorkerTask<T> _probeWorkerTask;
+    private bool _probeWorkerTaskSet;
 
     public Task<T> WaitForSignalAsync(int priority)
     {
@@ -26,8 +28,13 @@ public class ConcurrentSignal<T>
     }
 
 
-    public WorkerTask<T>? GetNextTask()
+    public WorkerTask<T>? GetNextTask(bool getProbeWorker = false)
     {
+        if (getProbeWorker)
+        {
+            return _probeWorkerTask;
+        }   
+
         _taskCompletionSources.TryDequeue(out var workerTask);
         if (workerTask != null)
         {
