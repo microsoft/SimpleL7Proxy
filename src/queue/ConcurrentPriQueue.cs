@@ -36,8 +36,17 @@ public class ConcurrentPriQueue<T>
 
     public bool Enqueue(T item, int priority, int priority2, DateTime timestamp, bool allowOverflow = false)
     {
-        var queueItem = new PriorityQueueItem<T>(item, priority, priority2, timestamp);
+        // Priority 0 is reserved for the probe requests, get the probe worker.  If not available, enqueue the request.
+        if (priority == 0) {
+            var t = _taskSignaler.GetNextProbeTask();
+            if (t != null)
+            {
+                t.TaskCompletionSource.SetResult(item);
+                return true;
+            }
+        }
 
+        var queueItem = new PriorityQueueItem<T>(item, priority, priority2, timestamp);
         if (!allowOverflow && _priorityQueue.Count >= MaxQueueLength)
         {
             return false;

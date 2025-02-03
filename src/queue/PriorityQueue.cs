@@ -21,10 +21,10 @@ public class PriorityQueue<T>
         //Console.WriteLine($"Enqueue:  Priority: {queueItem.Priority}-{queueItem.Priority2}   length: {_items.Count}  index: {index} : {GetItemsAsCommaSeparatedString()}");
     }
 
-    public string GetItemsAsCommaSeparatedString()
-    {
-        return string.Join(", ", _items.Select(i => $"{i.Priority} "));
-    }
+    // public string GetItemsAsCommaSeparatedString()
+    // {
+    //     return string.Join(", ", _items.Select(i => $"{i.Priority} "));
+    // }
 
     static PriorityQueueItem<T> refItem = new PriorityQueueItem<T>(default!, 0, 1, DateTime.MinValue );
     public T Dequeue(int priority)

@@ -3,7 +3,8 @@
 # filepath: /c:/Users/nmishr/OneDrive - Microsoft/repos/microsoft/SimpleL7Proxy/extract_version.sh
 
 # Extract the version from Program.cs
-ver=$(grep -oP 'Version: \K\d+\.\d+\.\d+' Program.cs)
+#ver=$(grep -oP 'Version: \K\d+\.\d+\.\d+' Program.cs)
+ver=$(grep -oP 'VERSION = "\K[^"]+' Constants.cs)
 
 # add v if it doesnt start with it already
 if [[ ! $ver == v* ]]; then

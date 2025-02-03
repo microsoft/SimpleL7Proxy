@@ -1,11 +1,11 @@
 public class PriorityQueueItem<T> : IComparable<PriorityQueueItem<T>>
 {
     public T Item { get; }
-    public int Priority { get; private set; }
-    public int Priority2 { get; }
-    public bool ignorePriority2 { get; set; }
+    private int Priority { get; set; }
+    private int Priority2 { get; }
+    private bool ignorePriority2 { get; set; }
 
-    public DateTime Timestamp { get; }
+    private DateTime Timestamp { get; }
 
     public PriorityQueueItem(T item, int priority, int priority2, DateTime timestamp)
     {
