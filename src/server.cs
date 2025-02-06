@@ -99,11 +99,12 @@ public class Server : IServer
             {
                 // Use the CancellationToken to asynchronously wait for an HTTP request.
                 var getContextTask = httpListener.GetContextAsync();
-                using (var delayCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationToken))
-                {
-                    var delayTask = Task.Delay(Timeout.Infinite, delayCts.Token);
+                //using (var delayCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationToken))
+                //{
+                    //var delayTask = Task.Delay(Timeout.Infinite, delayCts.Token);
 
-                    var completedTask = await Task.WhenAny(getContextTask, delayTask).ConfigureAwait(false);
+                    //var completedTask = await Task.WhenAny(getContextTask, delayTask).ConfigureAwait(false);
+                    var completedTask = await Task.WhenAny(getContextTask, Task.Delay(Timeout.Infinite, _cancellationToken)).ConfigureAwait(false);
 
                     //  control to allow other tasks to run .. doesn't make sense here
                     // await Task.Yield();
@@ -117,7 +118,7 @@ public class Server : IServer
                         counter++;
                         var requestId = _options.IDStr + counter.ToString();
  
-                        delayCts.Cancel();
+                        //delayCts.Cancel();
                         var rd = new RequestData(await getContextTask.ConfigureAwait(false),  requestId);
 
                         // readiness probes:
@@ -242,7 +243,7 @@ public class Server : IServer
                     {
                         _cancellationToken.ThrowIfCancellationRequested(); // This will throw if the token is cancelled while waiting for a request.
                     }
-                }
+                //}
             }
             catch (IOException ioEx) {
                 WriteOutput($"An IO exception occurred: {ioEx.Message}");
