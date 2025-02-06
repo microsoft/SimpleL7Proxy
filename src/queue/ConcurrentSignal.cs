@@ -61,6 +61,12 @@ public class ConcurrentSignal<T>
         {
             wt.TaskCompletionSource.TrySetCanceled();
         }
+
+        if (_probeWorkerTaskSet)
+        {
+            _probeWorkerTaskSet = false;
+            _probeWorkerTask?.TaskCompletionSource.TrySetCanceled();
+        }
     }
 
     public bool HasWaitingTasks()
