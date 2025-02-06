@@ -62,8 +62,8 @@ public class ProxyWorker
         if (doUserconfig && _profiles == null) throw new ArgumentNullException(nameof(_profiles));
         if (_requestsQueue == null) throw new ArgumentNullException(nameof(_requestsQueue));
 
-        CancellationTokenSource workerCancelTokenSource = new CancellationTokenSource();
-        var workerCancelToken = workerCancelTokenSource.Token;
+        // CancellationTokenSource workerCancelTokenSource = new CancellationTokenSource();
+        // var workerCancelToken = workerCancelTokenSource.Token;
 
         // increment the active workers count
         Interlocked.Increment(ref activeWorkers);
@@ -203,7 +203,6 @@ public class ProxyWorker
                     var proxyTime = (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
                     var timeTaken = (DateTime.UtcNow - incomingRequest.EnqueueTime).TotalMilliseconds.ToString("F3");
                     Console.WriteLine($"Pri: {incomingRequest.Priority} Stat: {(int)pr.StatusCode} Len: {conlen} {pr.FullURL} Deq: {incomingRequest.DequeueTime} Lat: {proxyTime} ms");
-                    workerState = "Send Eventa";
 
                     eventData["Url"] = pr.FullURL;
                     eventData["x-Response-Latency"] = (pr.ResponseDate - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
@@ -212,16 +211,13 @@ public class ProxyWorker
                     eventData["x-Backend-Host-Latency"] = pr?.CalculatedHostLatency.ToString("F3") ?? "N/A";
                     eventData["Content-Length"] = lcontext.Response?.ContentLength64.ToString() ?? "N/A";
                     eventData["Content-Type"] = lcontext?.Response?.ContentType ?? "N/A";
-                    workerState = "Send Eventb";
+                    workerState = "Send Event";
 
                     if (_eventHubClient != null)
                     {
-                        workerState = "Send Eventc";
                         //SendEventData(pr.FullURL, pr.StatusCode, incomingRequest.Timestamp, pr.ResponseDate);
                         eventData["Type"] = isExpired ? "S7P-Expired-Request" : "S7P-ProxyRequest";
-                        workerState = "Send Eventd";
                         SendEventData(eventData);
-                        workerState = "Send Evente";
                     }
 
                     // pr.Body = [];
