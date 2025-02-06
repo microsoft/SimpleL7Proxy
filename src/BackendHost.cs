@@ -1,5 +1,6 @@
 using OS = System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 
 
 public class BackendHost
@@ -14,16 +15,15 @@ public class BackendHost
     string? _probeurl = null;
     public string url => _url ??= new UriBuilder(protocol, ipaddr ?? host, port).Uri.AbsoluteUri;
 
-    public string probeurl => _probeurl ??= System.Net.WebUtility.UrlDecode( new UriBuilder(protocol, ipaddr ?? host, port, probe_path).Uri.AbsoluteUri );
+    public string probeurl => _probeurl ??= System.Net.WebUtility.UrlDecode(new UriBuilder(protocol, ipaddr ?? host, port, probe_path).Uri.AbsoluteUri);
 
     private const int MaxData = 50;
     private readonly Queue<double> latencies = new Queue<double>();
     private readonly Queue<bool> callSuccess = new Queue<bool>();
-    public double calculatedAverageLatency { get;  set; }    
+    public double calculatedAverageLatency { get; set; }
 
-    private Queue<double> PxLatency = new Queue<double>();
-    private int errors=0;
-    private object lockObj = new object();
+    private ConcurrentQueue<double> PxLatency = new ConcurrentQueue<double>();
+    private int errors = 0;
 
     public BackendHost(string hostname, string? probepath, string? ipaddress)
     {
@@ -74,15 +74,12 @@ public class BackendHost
 
     public void AddPxLatency(double latency)
     {
-        lock(lockObj) {
-            PxLatency.Enqueue(latency);
-        }
+        PxLatency.Enqueue(latency);
     }
 
-    public void AddError() {
-        lock(lockObj) {
-            errors++;
-        }
+    public void AddError()
+    {
+        Interlocked.Increment(ref errors);
     }
 
     public string GetStatus(out int calls, out int errorCalls, out double average)
@@ -99,19 +96,23 @@ public class BackendHost
             return " - ";
         }
 
-        var status=PxLatency;
-        errorCalls=errors;
-        lock (lockObj)
-        {
-            // Reset the counts
-            PxLatency = new Queue<double>();
-            errors = 0;
-        }
+        var status = PxLatency;
+        errorCalls = errors;
 
         average = Math.Round(status.Average(), 3);
         calls = status.Count;
 
         return $" Calls: {status.Count} Err: {errorCalls} Avg: {Math.Round(status.Average(), 3)}ms";
+    }
+
+    public void ResetStatus()
+    {
+
+            // Reset the counts
+            PxLatency = new();// ConcurrentQueue<double>();
+            Interlocked.Exchange(ref errors, 0);
+
+
     }
 
     // Method to add a new latency

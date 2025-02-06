@@ -57,6 +57,7 @@ def handle_client(client_socket):
 
         # Send a response
         client_socket.send(response.encode('utf-8'))
+        client_socket.flush()
     finally:
         # Close the connection
         client_socket.close()

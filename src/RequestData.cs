@@ -19,9 +19,12 @@ public class RequestData : IDisposable, IAsyncDisposable
 
     public byte[]? BodyBytes { get; set; }=null;
     public int Priority { get; set; }
+    public int Priority2 { get; set; }
     public DateTime EnqueueTime { get; set; }
     public DateTime DequeueTime { get; set; }
     public string MID { get; set; } = "";
+    public Guid Guid { get; set; }
+    public string UserID { get; set; } = "";
 
     public string TTL="";
     public long TTLSeconds = 0;
