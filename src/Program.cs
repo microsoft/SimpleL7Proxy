@@ -137,14 +137,6 @@ public class Program
             });
 
         var frameworkHost = hostBuilder.Build();
-
-        //var lifetime = frameworkHost.Services.GetRequiredService<IHostApplicationLifetime>();
-        // lifetime.ApplicationStopping.Register(() =>
-        // {
-        //     cancellationTokenSource.Cancel();
-        //     Console.WriteLine("Shutting down...");
-        // });
-
         var serviceProvider = frameworkHost.Services;
 
         backends = serviceProvider.GetRequiredService<IBackendService>();
@@ -172,31 +164,31 @@ public class Program
             var queue = server.Start(cancellationToken);
             queue.StartSignaler(cancellationToken);
 
-            var workerPriorities = new Dictionary<int, int>();
-            int workerPriority = Constants.AnyPriority;
+            var workerPriorities = new Dictionary<int, int>(backendOptions.PriorityWorkers);
+            int workerPriority;
+            Console.WriteLine($"Worker Priorities: {string.Join(",", workerPriorities)}");
 
-            foreach (var kvp in backendOptions.PriorityWorkers)
-            {
-                workerPriorities.Add(kvp.Key, kvp.Value);
-            }
-
-            // Startup a probe worker: worker ID 0
-            // startup Worker # of tasks
+            // The loop creates a number of workers based on backendOptions.Workers.
+            // The first worker (wrkrNum == 0) is always a probe worker with priority 0.
+            // Subsequent workers are assigned priorities based on the available counts in workerPriorities.
+            // If no specific priority is available, the worker is assigned a fallback priority (Constants.AnyPriority).
             for (int wrkrNum = 0; wrkrNum <= backendOptions.Workers; wrkrNum++)
             {
-                // get the priority for this worker
-                if ( wrkrNum == 0 )
-                    workerPriority = 0;
-                else 
-                  workerPriority = Constants.AnyPriority;
-
-                foreach (var kvp in workerPriorities)
+                // Determine the priority for this worker
+                if (wrkrNum == 0)
                 {
-                    if (kvp.Value > 0)
+                    workerPriority = 0; // Probe worker
+                }
+                else
+                {
+                    workerPriority = workerPriorities.FirstOrDefault(kvp => kvp.Value > 0).Key;
+                    if (workerPriority != 0)
                     {
-                        workerPriority = kvp.Key;
-                        workerPriorities[kvp.Key] = kvp.Value - 1;
-                        break;
+                        workerPriorities[workerPriority]--;
+                    }
+                    else
+                    {
+                        workerPriority = Constants.AnyPriority;
                     }
                 }
                 var pw = new ProxyWorker(cancellationToken, wrkrNum, workerPriority, queue, backendOptions, 
@@ -302,13 +294,6 @@ public class Program
             await backendPollerTask.ConfigureAwait(false);
         }
         eventHubClient?.SendData($"Workers Stopped:   {ProxyWorker.GetState()}");
-
-        //  Test code to validate the hub gets emptied on shutdown
-        // for (var ii = 0; ii < 1000; ii++)
-        // {
-        //     eventHubClient.SendData($"Server shutting down - {ii}");
-        // }
-
         eventHubClient?.StopTimer();
     }
 
@@ -316,7 +301,8 @@ public class Program
     // If the environment variable is not set, it returns the provided default value.
     private static int ReadEnvironmentVariableOrDefault(string variableName, int defaultValue)
     {
-        if (!int.TryParse(OS.Environment.GetEnvironmentVariable(variableName), out var value))
+        var envValue = Environment.GetEnvironmentVariable(variableName);
+        if (!int.TryParse(envValue, out var value))
         {
             Console.WriteLine($"Using default: {variableName}: {defaultValue}");
             return defaultValue;
@@ -328,15 +314,18 @@ public class Program
     // If the environment variable is not set, it returns the provided default value.
     private static int[] ReadEnvironmentVariableOrDefault(string variableName, int[] defaultValues)
     {
-        string s = ReadEnvironmentVariableOrDefault(variableName, "");
-        if (string.IsNullOrEmpty(s))
+        var envValue = Environment.GetEnvironmentVariable(variableName);
+        if (string.IsNullOrEmpty(envValue))
         {
             Console.WriteLine($"Using default: {variableName}: {string.Join(",", defaultValues)}");
             return defaultValues;
         }
-        try {
-            return s.Split(',').Select(int.Parse).ToArray();
-        } catch (Exception ) {
+        try
+        {
+            return envValue.Split(',').Select(int.Parse).ToArray();
+        }
+        catch (Exception)
+        {
             Console.WriteLine($"Could not parse {variableName} as an integer array, using default: {string.Join(",", defaultValues)}");
             return defaultValues;
         }
@@ -346,7 +335,8 @@ public class Program
     // If the environment variable is not set, it returns the provided default value.
     private static float ReadEnvironmentVariableOrDefault(string variableName, float defaultValue)
     {
-        if (!float.TryParse(OS.Environment.GetEnvironmentVariable(variableName), out var value))
+        var envValue = Environment.GetEnvironmentVariable(variableName);
+        if (!float.TryParse(envValue, out var value))
         {
             Console.WriteLine($"Using default: {variableName}: {defaultValue}");
             return defaultValue;
@@ -376,7 +366,7 @@ public class Program
             Console.WriteLine($"Using default: {variableName}: {defaultValue}");
             return defaultValue;
         }
-        return envValue.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true ? true : false;
+        return envValue.Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
     }
 
     // Converts a List<string> to a dictionary of integers.
@@ -439,7 +429,7 @@ public class Program
 
         // Initialize HttpClient and configure it to ignore SSL certificate errors if specified in environment variables.
         HttpClient _client = new HttpClient();
-        if (Environment.GetEnvironmentVariable("IgnoreSSLCert")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true)
+        if (ReadEnvironmentVariableOrDefault("IgnoreSSLCert", false))
         {
             var handler = new HttpClientHandler();
             handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
@@ -459,12 +449,12 @@ public class Program
             DefaultTTLSecs = ReadEnvironmentVariableOrDefault("DefaultTTLSecs", 300),
             HostName = ReadEnvironmentVariableOrDefault("Hostname", "Default"),
             Hosts = new List<BackendHost>(),
-            IDStr = ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P") + "-" + replicaID + "-",
+            IDStr = $"{ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P")}-{replicaID}-",
             LogHeaders = ReadEnvironmentVariableOrDefault("LogHeaders", "").Split(',').Select(x => x.Trim()).ToList(),
             LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", false),
             MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
             OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
-            Port = ReadEnvironmentVariableOrDefault("Port", 443),
+            Port = ReadEnvironmentVariableOrDefault("Port", 80),
             PollInterval = ReadEnvironmentVariableOrDefault("PollInterval", 15000),
             PollTimeout = ReadEnvironmentVariableOrDefault("PollTimeout", 3000),
             PriorityKeys = toListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
