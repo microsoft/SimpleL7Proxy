@@ -8,6 +8,8 @@ namespace SimpleL7Proxy;
 
 public static class Banner
 {
+  public const string VERSION = "2.0.0d";
+
   public static void Display()
   {
     Console.WriteLine("=======================================================================================");
@@ -19,7 +21,7 @@ public static class Banner
     Console.WriteLine("#     #  # #    # #      #      #      #         #     #      #   #  #    #  #  #    #");
     Console.WriteLine(" #####   # #    # #      ###### ###### #######   #     #      #    #  ####  #    #   #");
     Console.WriteLine("=======================================================================================");
-    Console.WriteLine("Version: 2.0.0");
+    Console.WriteLine($"Version: {VERSION}");
 
   }
 }
