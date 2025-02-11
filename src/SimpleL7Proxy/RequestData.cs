@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using System.Net;
 
 // This class represents the request received from the upstream client.
@@ -15,9 +17,12 @@ public class RequestData : IDisposable, IAsyncDisposable
 
     public byte[]? BodyBytes { get; set; }=null;
     public int Priority { get; set; }
+    public int Priority2 { get; set; }
     public DateTime EnqueueTime { get; set; }
     public DateTime DequeueTime { get; set; }
     public string MID { get; set; } = "";
+    public Guid Guid { get; set; }
+    public string UserID { get; set; } = "";
 
     public string TTL="";
     public long TTLSeconds = 0;
@@ -57,15 +62,19 @@ public class RequestData : IDisposable, IAsyncDisposable
         }
 
         // Read the body stream once and reuse it
-        using MemoryStream ms = new();
-        await Body.CopyToAsync(ms);
-        BodyBytes = ms.ToArray();
+        using (MemoryStream ms = new())
+        {
+            await Body.CopyToAsync(ms);
+            BodyBytes = ms.ToArray();
+        }
+
         return BodyBytes;
     }
 
     // Implement IDisposable
     public void Dispose()
     {
+
         if (SkipDispose)
         {
             return;
@@ -73,6 +82,7 @@ public class RequestData : IDisposable, IAsyncDisposable
 
         Dispose(true);
         GC.SuppressFinalize(this);
+    
     }
 
     protected virtual void Dispose(bool disposing)
@@ -112,6 +122,8 @@ public class RequestData : IDisposable, IAsyncDisposable
 
     protected virtual async ValueTask DisposeAsyncCore()
     {
+
+
         if (SkipDispose)
         {
             return;

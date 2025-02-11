@@ -3,28 +3,53 @@ using System.IO;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Options;
 using SimpleL7Proxy.Backend;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace SimpleL7Proxy.User;
 
-
-public class UserProfile : IUserProfileService
+public class UserProfile : BackgroundService, IUserProfileService
 {
 
-    private BackendOptions options;
+    private readonly BackendOptions _options;
+    private readonly ILogger<Server> _logger;
 
     private Dictionary<string, Dictionary<string, string>> userProfiles = new Dictionary<string, Dictionary<string, string>>();
-    public UserProfile(BackendOptions options)
+    public UserProfile(IOptions<BackendOptions> options, ILogger<Server> logger)
     {
-        this.options = options;
+        _options = options.Value;
+        _logger = logger;
     }
 
-    public void StartBackgroundConfigReader(CancellationToken cancellationToken)
+    private void OnApplicationStopping()
     {
+        _cancellationTokenSource?.Cancel();
+    }
 
-        // create a new task that reads the user config every hour
-        Task.Run(() => ConfigReader(cancellationToken), cancellationToken);
+    CancellationTokenSource? _cancellationTokenSource;
 
+    // Method to start the server and begin processing requests.
+    protected override Task ExecuteAsync(CancellationToken cancellationToken)
+    {
+        _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _cancellationTokenSource.Token.Register(() =>
+        {
+            _logger.LogInformation("User Profile Reader stopping.");
+        });
+
+        // Initialize User Profiles
+        if (_options.UseProfiles && !string.IsNullOrEmpty(_options.UserConfigUrl))
+        {
+            //StartBackgroundConfigReader(cancellationToken);
+    
+
+            // create a new task that reads the user config every hour
+            return Task.Run(() => ConfigReader(cancellationToken), cancellationToken);
+        }
+
+        return Task.CompletedTask;
     }
 
     public async Task ConfigReader(CancellationToken cancellationToken)
@@ -47,7 +72,7 @@ public class UserProfile : IUserProfileService
 
     public async Task ReadUserConfigAsync()
     {
-        if (string.IsNullOrEmpty(options.UserConfigUrl))
+        if (string.IsNullOrEmpty(_options.UserConfigUrl))
         {
             Console.WriteLine("UserConfigUrl is not set.");
             return;
@@ -55,7 +80,7 @@ public class UserProfile : IUserProfileService
         // Read user config from URL
 
         string fileContent = string.Empty;
-        string location = options.UserConfigUrl;
+        string location = _options.UserConfigUrl;
 
         if (location.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
         {

@@ -2,6 +2,8 @@
 
 public interface IEventClient
 {
+  public void StopTimer();
+
   void SendData(string? value);
   void SendData(ProxyEvent eventData);
 }

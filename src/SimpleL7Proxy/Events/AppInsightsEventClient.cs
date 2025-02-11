@@ -5,6 +5,8 @@ namespace SimpleL7Proxy.Events;
 public class AppInsightsEventClient(TelemetryClient telemetryClient)
   : IEventClient
 {
+
+  public void StopTimer() { }
   public void SendData(string? value) => telemetryClient.TrackEvent(value);
 
   public void SendData(ProxyEvent proxyEvent)

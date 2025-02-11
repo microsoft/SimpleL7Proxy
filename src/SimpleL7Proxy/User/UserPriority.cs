@@ -1,24 +1,34 @@
 using System;
 using System.Collections.Concurrent;
 using System.Threading;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using SimpleL7Proxy.Backend;
 
 namespace SimpleL7Proxy.User;
 public class UserPriority : IUserPriorityService
 {
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<Guid, byte>> userRequests = 
         new ConcurrentDictionary<string, ConcurrentDictionary<Guid, byte>>();
+    private readonly BackendOptions _options;
+    private readonly ILogger<Server> _logger;
     private int total = 0;
 
     public float threshold { get; set; }
+    
+    public UserPriority(IOptions<BackendOptions> options, ILogger<Server> logger)
+    {
+        _options = options.Value;
+        _logger = logger;
+        threshold = _options.UserPriorityThreshold;
+    }
 
     public string GetState()
     {
         return $"Users: {userRequests.Count} Total Requests: {getTotalRequests()} ";
     }
 
-    public UserPriority()
-    {
-    }
 
     /// <summary>
     /// Adds a new request for the specified user.

@@ -4,10 +4,13 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Console;
 using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Queue;
+using SimpleL7Proxy.User;
+
 using System.Net;
 using System.Text;
 
@@ -33,38 +36,52 @@ public class Program
 
         var startupLoggerFactory = LoggerFactory.Create(builder =>
         {
-          builder.AddConsole();
+            builder.AddConsole(options =>
+            {
+                options.FormatterName = "custom";
+            });
+            builder.AddConsoleFormatter<CustomConsoleFormatter, SimpleConsoleFormatterOptions>();
         });
 
         var startupLogger = startupLoggerFactory.CreateLogger<Program>();
 
-        var hostBuilder = Host.CreateDefaultBuilder(args).ConfigureServices((hostContext, services) =>
+        var hostBuilder = Host.CreateDefaultBuilder(args)
+            .ConfigureLogging(logging =>
             {
-            // Register the configured BackendOptions instance with DI
+                logging.ClearProviders();
+                logging.AddConsole(options =>
+                {
+                    options.FormatterName = "custom";
+                });
+                logging.AddConsoleFormatter<CustomConsoleFormatter, SimpleConsoleFormatterOptions>();
+            })
+            .ConfigureServices((hostContext, services) =>
+            {
+                // Register the configured BackendOptions instance with DI
 
                 var aiConnectionString = Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING") ?? "";
 
                 services.AddLogging(
-          loggingBuilder =>
-                {
-                    if (!string.IsNullOrEmpty(aiConnectionString))
-                    {
-                        loggingBuilder.AddApplicationInsights(
-                  configureTelemetryConfiguration: (config) => config.ConnectionString = aiConnectionString,
-                  configureApplicationInsightsLoggerOptions: (options) => { }
-                );
-                    }
-                    loggingBuilder.AddConsole();
-                });
+                    loggingBuilder =>
+                            {
+                                if (!string.IsNullOrEmpty(aiConnectionString))
+                                {
+                                    loggingBuilder.AddApplicationInsights(
+                            configureTelemetryConfiguration: (config) => config.ConnectionString = aiConnectionString,
+                            configureApplicationInsightsLoggerOptions: (options) => { }
+                            );
+                                }
+                                loggingBuilder.AddConsole();
+                            });
 
                 if (aiConnectionString != null)
                 {
                     services.AddApplicationInsightsTelemetryWorkerService(
-              (options) => options.ConnectionString = aiConnectionString);
+                        (options) => options.ConnectionString = aiConnectionString);
                     services.AddApplicationInsightsTelemetry(options =>
-                {
-                    options.EnableRequestTrackingTelemetryModule = true;
-                });
+                        {
+                            options.EnableRequestTrackingTelemetryModule = true;
+                        });
                     Console.WriteLine("AppInsights initialized");
                 }
 
@@ -72,21 +89,27 @@ public class Program
                 var eventHubConnectionString = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING");
                 var eventHubName = Environment.GetEnvironmentVariable("EVENTHUB_NAME");
                 services.AddProxyEventClient(eventHubConnectionString, eventHubName, aiConnectionString);
+                //var pq = new ConcurrentPriQueue<RequestData>();
 
                 // Add the backend options
                 services.AddBackendHostConfiguration(startupLogger);
+
+                services.AddSingleton<IUserPriorityService, UserPriority>();
+                services.AddSingleton<IUserProfileService, UserProfile>();
                 services.AddSingleton<IBackendService, Backends>();
-
-                services.AddHostedService<Server>();
-                services.AddHostedService<ProxyWorkerCollection>();
-
-                services.AddSingleton<TaskSignaler<RequestData>>();
-                services.AddSingleton<PriorityQueue<RequestData>>();
-                services.AddSingleton<IBlockingPriorityQueue<RequestData>, BlockingPriorityQueue<RequestData>>();
+                services.AddSingleton<Server>();
+                services.AddSingleton<ConcurrentSignal<RequestData>>();
+                services.AddSingleton<IConcurrentPriQueue<RequestData>, ConcurrentPriQueue<RequestData>>();
                 services.AddSingleton<ProxyStreamWriter>();
                 services.AddSingleton<IBackendHostHealthCollection, BackendHostHealthCollection>();
+                services.AddHostedService<Server>(provider => provider.GetRequiredService<Server>());
 
+//                services.AddHostedService<Server>();
+                services.AddHostedService<ProxyWorkerCollection>();
                 services.AddTransient(source => new CancellationTokenSource());
+
+                // register the shutdown service
+                services.AddHostedService<CoordinatedShutdownService>();
             });
 
         var frameworkHost = hostBuilder.Build();

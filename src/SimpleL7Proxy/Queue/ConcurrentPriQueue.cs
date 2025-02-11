@@ -1,3 +1,7 @@
+using Microsoft.Extensions.Options;
+
+using SimpleL7Proxy.Backend;
+
 namespace SimpleL7Proxy.Queue;
 public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
 {
@@ -7,12 +11,28 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
     private ConcurrentSignal<T> _taskSignaler = new ConcurrentSignal<T>();
     //private int insertions = 0;
     //private int extractions = 0;
+
+    private readonly BackendOptions _options;
+
   
+    public ConcurrentPriQueue(IOptions<BackendOptions> backendOptions)
+    {
+        ArgumentNullException.ThrowIfNull(backendOptions);
+        _options = backendOptions.Value;
+
+        MaxQueueLength = _options.MaxQueueLength;
+    }
 
     public int MaxQueueLength { get;  }
 
-    public void Stop()
+    // wait till the queue empties then tell all the workers to stop
+    public async Task StopAsync()
     {
+        while (_priorityQueue.Count > 0)
+        {
+            await Task.Delay(100);
+        }
+
         // Shutdown
         _taskSignaler.CancelAllTasks();
     }

@@ -19,13 +19,13 @@ namespace SimpleL7Proxy.Proxy;
 // 4. Return a 502 Bad Gateway if all backends fail.
 // 5. Return a 200 OK with backend server stats if the request is for /health.
 // 6. Log telemetry data for each request.
-public class ProxyWorker
+public class ProxyWorker 
 {
 
     private int PreferredPriority;
     private readonly CancellationToken _cancellationToken;
     private static bool _debug = false;
-    private static ConcurrentPriQueue<RequestData>? _requestsQueue;
+    private static IConcurrentPriQueue<RequestData>? _requestsQueue;
     private readonly IBackendService _backends;
     private readonly BackendOptions _options;
     private readonly TelemetryClient? _telemetryClient;
@@ -48,10 +48,11 @@ public class ProxyWorker
     public ProxyWorker(
         int ID,
         int priority,
-        ConcurrentPriQueue<RequestData> requestsQueue, 
+        IConcurrentPriQueue<RequestData> requestsQueue, 
         BackendOptions backendOptions, 
         IBackendService? backends, 
         IUserProfileService? profiles,
+        IUserPriorityService? userPriority,
         IEventClient eventClient, 
         TelemetryClient? telemetryClient,
         ILogger<ProxyWorker> logger,
@@ -79,9 +80,13 @@ public class ProxyWorker
         bool doUserconfig = _options.UseProfiles;
         string workerState = "";
 
+
         if (doUserconfig && _profiles == null) throw new ArgumentNullException(nameof(_profiles));
         if (_requestsQueue == null) throw new ArgumentNullException(nameof(_requestsQueue));
 
+        // Only for use during shutdown after graceseconds have expired
+        CancellationTokenSource cts = new CancellationTokenSource();
+        CancellationToken token = cts.Token;
         // CancellationTokenSource workerCancelTokenSource = new CancellationTokenSource();
         // var workerCancelToken = workerCancelTokenSource.Token;
 
@@ -104,6 +109,10 @@ public class ProxyWorker
 
                 // This will block until an item is available or the token is cancelled
                 incomingRequest = await _requestsQueue.DequeueAsync(PreferredPriority).ConfigureAwait(false);
+                if (incomingRequest == null)
+                {
+                    continue;
+                }
             }
             catch (OperationCanceledException)
             {
@@ -128,9 +137,9 @@ public class ProxyWorker
 
                 ProxyEvent proxyEvent = new()
                 {
-                    proxyEventData = {
+                    EventData = {
                         ["PoxyHost"] = _options.HostName,
-                        ["Date"] = incomingRequest.DequeueTime.ToString("o") ?? DateTime.UtcNow.ToString("o"),
+                        ["Date"] = incomingRequest!.DequeueTime.ToString("o") ?? DateTime.UtcNow.ToString("o"),
                         ["Path"] = incomingRequest.Path ?? "N/A",
                         ["x-RequestPriority"] = incomingRequest.Priority.ToString() ?? "N/A",
                         ["x-RequestMethod"] = incomingRequest.Method ?? "N/A",
@@ -142,7 +151,7 @@ public class ProxyWorker
                         ["x-RequestWorker"] = IDstr
                     }
                 };
-                var proxyEventData = proxyEvent.proxyEventData;
+                var proxyEventData = proxyEvent.EventData;
 
                 if (lcontext == null || incomingRequest == null)
                 {
@@ -160,7 +169,7 @@ public class ProxyWorker
                 {
                     if (Constants.probes.Contains(incomingRequest.Path))
                     {
-                        ProbeResponse(incomingRequest.Path, out int probeStatus, out string probeMessage);
+                        ProbeResponse(incomingRequest.Path!, out int probeStatus, out string probeMessage);
 
                         lcontext.Response.StatusCode = probeStatus;
                         lcontext.Response.ContentType = "text/plain";
@@ -181,10 +190,10 @@ public class ProxyWorker
 
                         if (_options.LogProbes)
                         {
-                            proxyEventData["Probe"] = incomingRequest.Path;
+                            proxyEventData["Probe"] = incomingRequest.Path!;
                             proxyEventData["ProbeStatus"] = probeStatus.ToString();
                             proxyEventData["ProbeMessage"] = probeMessage;
-                            SendproxyEventData(proxyEventData);
+                            _eventClient?.SendData(proxyEvent);
                             _logger.LogInformation($"Probe: {incomingRequest.Path} Status: {probeStatus} Message: {probeMessage}");
                         }
                         continue;
@@ -205,7 +214,7 @@ public class ProxyWorker
                     Interlocked.Decrement(ref states[1]);
                     Interlocked.Increment(ref states[2]);
                     workerState = "Read Proxy";
-                    var pr = await ReadProxyAsync(incomingRequest).ConfigureAwait(false);
+                    var pr = await ReadProxyAsync(incomingRequest, token).ConfigureAwait(false);
                     Interlocked.Decrement(ref states[2]);
                     Interlocked.Increment(ref states[5]);
                     workerState = "Write Response";
@@ -226,7 +235,7 @@ public class ProxyWorker
                         // Request has expired
                         isExpired = true;
                     }
-                    await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);
+                    await WriteResponseDataAsync(lcontext, pr, token).ConfigureAwait(false);
                     //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
                     Interlocked.Decrement(ref states[5]);
                     Interlocked.Increment(ref states[6]);
@@ -263,7 +272,7 @@ public class ProxyWorker
                 {
                     // Requeue the request 
                     _requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.Priority2, incomingRequest.EnqueueTime);
-                    _logger.LogInformation($"Requeued request.  Pri: {incomingRequest.Priority} Queue Length: {_requestsQueue.Count} Status: {_backends.CheckFailedStatus()} Active Hosts: {_backends.ActiveHostCount()}");
+                    _logger.LogInformation($"Requeued request.  Pri: {incomingRequest.Priority} Queue Length: {_requestsQueue.thrdSafeCount} Status: {_backends.CheckFailedStatus()} Active Hosts: {_backends.ActiveHostCount()}");
                     requestWasRetried = true;
                     incomingRequest.SkipDispose = true;
                     proxyEventData["Url"] = e.pr.FullURL;
@@ -337,7 +346,8 @@ public class ProxyWorker
                     // Convert the multi-line stack trace to a single line
                     proxyEventData["x-Stack"] = ex.StackTrace?.Replace(Environment.NewLine, " ") ?? "N/A";
                     proxyEventData["x-WorkerState"] = workerState;
-                    SendproxyEventData(proxyEventData);
+
+                    _eventClient.SendData(proxyEvent);
                     dirtyExceptionLog = false;
 
                     // Set an appropriate status code for the error
@@ -362,7 +372,7 @@ public class ProxyWorker
                         if (dirtyExceptionLog)
                         {
                             proxyEventData["x-Additional"] = "Failed to log exception";
-                            SendproxyEventData(proxyEventData);
+                            _eventClient.SendData(proxyEvent);
                         }
                         // Let's not track the request if it was retried.
                         if (!requestWasRetried)
@@ -410,10 +420,11 @@ public class ProxyWorker
     }
 
     private async Task WriteResponseDataAsync(HttpListenerContext context, 
-                                          ProxyData pr)
+                                              ProxyData pr,
+                                              CancellationToken token)
     {
         HttpListenerResponseWrapper listener = new(context.Response);
-        return _proxyStreamWriter.WriteResponseDataAsync(listener, pr);//, token);
+        await _proxyStreamWriter.WriteResponseDataAsync(listener, pr, token);
         // // Set the response status code
         // context.Response.StatusCode = (int)pr.StatusCode;
 
@@ -468,7 +479,9 @@ public class ProxyWorker
         // }
     }
 
-    public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requestDate, string method, string path, WebHeaderCollection headers, Stream body)//HttpListenerResponse downStreamResponse)
+     //DateTime requestDate, string method, string path, WebHeaderCollection headers, Stream body)//HttpListenerResponse downStreamResponse)
+    public async Task<ProxyData> ReadProxyAsync(RequestData request,
+                                                CancellationToken token)
     {
         if (request == null) throw new ArgumentNullException(nameof(request), "Request cannot be null.");
         if (request.Body == null) throw new ArgumentNullException(nameof(request.Body), "Request body cannot be null.");
@@ -477,7 +490,7 @@ public class ProxyWorker
 
         var activeHosts = _backends.GetActiveHosts();
         request.Debug = _debug || (request.Headers["S7PDEBUG"] != null && string.Equals(request.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase));
-        byte[] bodyBytes = await request.CachBodyAsync().ConfigureAwait(false);
+        byte[] bodyBytes = await request.CacheBodyAsync().ConfigureAwait(false);
         HttpStatusCode lastStatusCode = HttpStatusCode.ServiceUnavailable;
 
         async Task<ProxyData> WriteProxyDataAsync(ProxyData data)
@@ -487,7 +500,7 @@ public class ProxyWorker
 
             data.ResponseMessage = new HttpResponseMessage(HttpStatusCode.InternalServerError);
 
-            await WriteResponseDataAsync(context, data);//, token);
+            await WriteResponseDataAsync(context, data, token);
             return data;
         }
         // Convert S7PTTL to DateTime
@@ -524,13 +537,13 @@ public class ProxyWorker
         if (_options.UseOAuth)
         {
             // Get a token
-            var token = _backends.OAuth2Token();
+            var OAToken = _backends.OAuth2Token();
             if (request.Debug)
             {
-                _logger.LogDebug("Token: " + token);
+                _logger.LogDebug("Token: " + OAToken);
             }
             // Set the token in the headers
-            request.Headers.Set("Authorization", $"Bearer {token}");
+            request.Headers.Set("Authorization", $"Bearer {OAToken}");
         }
 
         foreach (var host in activeHosts)
@@ -664,7 +677,7 @@ public class ProxyWorker
 
 
                             // TODO: Move to caller to handle writing errors?
-                            await WriteResponseDataAsync(request.Context!, pr);
+                            await WriteResponseDataAsync(request.Context!, pr, token).ConfigureAwait(false);
                             // Log the response if debugging is enabled
                             if (request.Debug)
                             {
@@ -720,7 +733,7 @@ public class ProxyWorker
             pd = new ProxyData
             {
                 StatusCode = lastStatusCode,
-                ResponseMessage = new(HttpStatusCode.lastStatusCode)
+                ResponseMessage = new HttpResponseMessage(lastStatusCode)
                  {
                      Content = new StringContent("Error processing request.", Encoding.UTF8)
                  }
@@ -868,12 +881,13 @@ public class ProxyWorker
                 }
                 else
                 {
+                    var hosts = _backends.GetHosts();
                     probeMessage = $"Backend Hosts: {"".PadRight(30)} SimpleL7Proxy: {Constants.VERSION}\n Active Hosts: {activeHosts}  -  {(hasFailedHosts ? "FAILED HOSTS" : "All Hosts Operational")}\n";
-                    if (_backends._hosts.Count > 0)
+                    if (hosts.Count > 0)
                     {
-                        foreach (var host in _backends._hosts)
+                        foreach (var host in hosts)
                         {
-                            probeMessage += $" Name: {host.host}  Status: {host.GetStatus(out int calls, out int errorCalls, out double average)}\n";
+                            probeMessage += $" Name: {host.Host}  Status: {host.GetStatus(out int calls, out int errorCalls, out double average)}\n";
                         }
                     }
                     else

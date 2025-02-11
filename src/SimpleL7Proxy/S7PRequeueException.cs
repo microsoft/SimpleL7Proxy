@@ -2,11 +2,18 @@ namespace SimpleL7Proxy;
 using Proxy;
 
 // This class represents the request received from the upstream client.
-public class S7PRequeueException(string message, ProxyData pd)
-    : Exception(message), IDisposable
+public class S7PRequeueException: Exception, IDisposable
 {
-    public ProxyData Pr { get; set; } = pd;
+    public ProxyData pr { get; set; }
+    public S7PRequeueException(string message, ProxyData pd) : base(message)
+    {
+        pr = pd;
+    }
 
+    public void Dispose()
+    {
+        // Dispose of unmanaged resources here
+    }
     void IDisposable.Dispose()
     {
         // TODO: Dispose of unmanaged resources here

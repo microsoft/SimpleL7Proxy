@@ -3,7 +3,7 @@ public interface IConcurrentPriQueue<T>
 {
     int MaxQueueLength { get; }
 
-    public void Stop();
+    public Task StopAsync();
 
     public void StartSignaler(CancellationToken cancellationToken);
 

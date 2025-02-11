@@ -14,34 +14,53 @@ namespace SimpleL7Proxy.Backend
     public readonly string ProbePath;
     public readonly string Protocol;
     public readonly int Port;
+    public readonly string? IpAddr;
+  //  public string Url => new UriBuilder(Protocol, Host, Port).Uri.AbsoluteUri;
+    public string Url => new UriBuilder(Protocol, IpAddr ?? Host, Port).Uri.AbsoluteUri;
+    public string ProbeUrl => WebUtility.UrlDecode(new UriBuilder(Protocol, IpAddr ?? Host, Port, ProbePath).Uri.AbsoluteUri);
 
-    public string Url => new UriBuilder(Protocol, Host, Port).Uri.AbsoluteUri;
 
-    public string ProbeUrl => WebUtility.UrlDecode(Path.Combine(Url, ProbePath));
-
-
-    public BackendHostConfig(string host, string? probepath)
+    public BackendHostConfig(string hostname, string? probepath)
     {
-      Host = host;
       ProbePath = probepath?.TrimStart('/') ?? "echo/resource?param1=sample";
-
+      
       // If host does not have a protocol, add one
-      if (!Host.StartsWith("http://") && !Host.StartsWith("https://"))
+      if (!hostname.StartsWith("http://") && !hostname.StartsWith("https://"))
       {
-        Host = "https://" + Host;
+        hostname = "https://" + hostname;
       }
 
       // if host ends with a slash, remove it
-      if (Host.EndsWith('/'))
+      if (hostname.EndsWith("/"))
       {
-        Host = Host[..^1];
+        hostname = hostname.Substring(0, hostname.Length - 1);
       }
 
       // parse the host, prototol and port
-      Uri uri = new(Host);
+      Uri uri = new Uri(hostname);
       Protocol = uri.Scheme;
       Port = uri.Port;
       Host = uri.Host;
+
+      // ProbePath = probepath ?? "echo/resource?param1=sample";
+      // if (ProbePath.StartsWith("/"))
+      // {
+      //     ProbePath = ProbePath.Substring(1);
+      // }
+
+      // Uncomment UNTIL sslStream is implemented
+      // if (ipaddress != null)
+      // {
+      //     // Valudate that the address is in the right format
+      //     if (!System.Net.IPAddress.TryParse(ipaddress, out _))
+      //     {
+      //         throw new System.UriFormatException($"Invalid IP address: {ipaddress}");
+      //     }
+      //     ipaddr = ipaddress;
+      // }
+
+
+      Console.WriteLine($"Adding backend host: {this.Host}  probe path: {this.ProbePath}");
     }
   }
 }

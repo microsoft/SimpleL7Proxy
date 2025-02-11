@@ -6,6 +6,7 @@ using Microsoft.IdentityModel.Abstractions;
 using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Queue;
+using SimpleL7Proxy.User;
 using System.Threading;
 
 namespace SimpleL7Proxy.Proxy;
@@ -15,18 +16,22 @@ public class ProxyWorkerCollection : BackgroundService
   private readonly BackendOptions _backendOptions;
   private readonly IConcurrentPriQueue<RequestData> _queue;
   private readonly IBackendService _backends;
+  private readonly IUserPriorityService _userPriorityService;
+  private readonly IUserProfileService _userProfileService;
   private readonly IEventClient _eventClient;
   private readonly TelemetryClient _telemetryClient;
   private readonly ILogger<ProxyWorker> _logger;
   private readonly ProxyStreamWriter _proxyStreamWriter;
 
   private readonly List<ProxyWorker> _workers;
-  private readonly List<Task> _tasks;
+  private static readonly List<Task> _tasks = [];
 
   public ProxyWorkerCollection(
     IOptions<BackendOptions> backendOptions, 
     IConcurrentPriQueue<RequestData> queue, 
     IBackendService backends,
+    IUserPriorityService userPriorityService,
+    IUserProfileService userProfileService,
     IEventClient eventClient,
     TelemetryClient telemetryClient,
     ILogger<ProxyWorker> logger,
@@ -39,22 +44,23 @@ public class ProxyWorkerCollection : BackgroundService
     _telemetryClient = telemetryClient;
     _logger = logger;
     _proxyStreamWriter = proxyStreamWriter;
+    _userPriorityService = userPriorityService;
+    _userProfileService = userProfileService;
 
     _workers = [];
-    _tasks = [];    
   }
 
   protected override Task ExecuteAsync(CancellationToken cancellationToken)
   {
 
-    var workerPriorities = new Dictionary<int, int>(backendOptions.PriorityWorkers);
+    var workerPriorities = new Dictionary<int, int>(_backendOptions.PriorityWorkers);
     Console.WriteLine($"Worker Priorities: {string.Join(",", workerPriorities)}");
 
     // The loop creates a number of workers based on backendOptions.Workers.
     // The first worker (wrkrNum == 0) is always a probe worker with priority 0.
     // Subsequent workers are assigned priorities based on the available counts in workerPriorities.
     // If no specific priority is available, the worker is assigned a fallback priority (Constants.AnyPriority).
-    for (int wrkrNum = 0; wrkrNum <= backendOptions.Workers; wrkrNum++)
+    for (int wrkrNum = 0; wrkrNum <= _backendOptions.Workers; wrkrNum++)
     {
       int workerPriority;
 
@@ -82,6 +88,8 @@ public class ProxyWorkerCollection : BackgroundService
         _queue,
         _backendOptions,
         _backends,
+        _userProfileService,
+        _userPriorityService,
         _eventClient,
         _telemetryClient,
         _logger,
@@ -93,5 +101,10 @@ public class ProxyWorkerCollection : BackgroundService
       _tasks.Add(Task.Run(() => pw.TaskRunner(), cancellationToken));
 
     return Task.WhenAll(_tasks);
+  }
+
+  public static List<Task>  GetAllTasks()
+  {
+    return _tasks;
   }
 }
