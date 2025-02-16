@@ -29,7 +29,7 @@ public class ProxyStreamWriter
         }
     }
 
-    public async Task WriteResponseDataAsync(
+    public async Task WriteDataToStreamAsync(
         IHttpListenerResponse response,
         ProxyData proxyData,
         CancellationToken token)
@@ -41,9 +41,15 @@ public class ProxyStreamWriter
         var content = responseMessage.Content;
         if (content != null)
         {
+            try {
             await using var responseStream = await content.ReadAsStreamAsync(token).ConfigureAwait(false);
             await responseStream.CopyToAsync(outputStream, token).ConfigureAwait(false);
             await outputStream.FlushAsync(token).ConfigureAwait(false);
+            } catch (Exception ex)
+            {
+                Console.WriteLine(ex);
+                Console.WriteLine(ex.StackTrace);
+            }
         }
     }
 }
