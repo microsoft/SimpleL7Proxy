@@ -337,6 +337,7 @@ public class ProxyWorker
 
                     _logger.LogError($"An IO exception occurred: {ioEx.Message}");
                     lcontext.Response.StatusCode = 408;
+Console.WriteLine("Got an IOExcption");
                     var errorMessage = Encoding.UTF8.GetBytes($"Broken Pipe: {ioEx.Message}");
                     try 
                     {
@@ -530,6 +531,8 @@ public class ProxyWorker
         request.Debug = _debug || (request.Headers["S7PDEBUG"] != null && string.Equals(request.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase));
         byte[] bodyBytes = await request.CacheBodyAsync().ConfigureAwait(false);
         HttpStatusCode lastStatusCode = HttpStatusCode.ServiceUnavailable;
+        string lastStatusError="";
+        Exception? lastErrorException= null;
 
         // async Task<ProxyData> WriteProxyDataAsync(ProxyData data)
         // {
@@ -768,7 +771,9 @@ public class ProxyWorker
             catch (TaskCanceledException)
             {
                 // 408 Request Timeout
-                lastStatusCode = HandleProxyRequestError(host, null, request.Timestamp, request.FullURL, HttpStatusCode.RequestTimeout, "Request to " + host.Url + " timed out");
+                lastStatusError = "TIMEOUT: " + host.Url;
+                lastErrorException = null;
+                lastStatusCode = HttpStatusCode.RequestTimeout;
                 // log the stack trace 
                 //Console.WriteLine($"Error: {e.StackTrace}");
                 continue;
@@ -776,22 +781,30 @@ public class ProxyWorker
             catch (OperationCanceledException e)
             {
                 // 502 Bad Gateway
-                lastStatusCode = HandleProxyRequestError(host, e, request.Timestamp, request.FullURL, HttpStatusCode.BadGateway, "Request to " + host.Url + " was cancelled");
+                lastStatusError = "CANCELLED: " + host.Url;
+                lastErrorException = e;
+                lastStatusCode = HttpStatusCode.BadGateway;
                 continue;
             }
             catch (HttpRequestException e)
             {
                 // 400 Bad Request
-                lastStatusCode = HandleProxyRequestError(host, e, request.Timestamp, request.FullURL, HttpStatusCode.BadRequest);
+                lastStatusError = "BAD REQUEST: " + host.Url;
+                lastErrorException = e;
+                lastStatusCode = HttpStatusCode.BadRequest;
                 continue;
             }
             catch (Exception e)
             {
                 // 500 Internal Server Error
+                lastStatusError = "EXCEPTION: " + e.Message;
+                lastErrorException = e;
+                lastStatusCode = HttpStatusCode.InternalServerError;
                 _logger.LogError($"Error: {e.StackTrace}");
                 _logger.LogError($"Error: {e.Message}");
-                lastStatusCode = HandleProxyRequestError(host, e, request.Timestamp, request.FullURL, HttpStatusCode.InternalServerError);
             }
+
+            HandleProxyRequestError(host, lastErrorException, request.Timestamp, request.FullURL, lastStatusCode, lastStatusError);
 
         }
 
@@ -800,8 +813,8 @@ public class ProxyWorker
         if (activeHosts.Count() == 1)
         {
             throw new ProxyErrorException(ProxyErrorException.ErrorType.NotProcessed, 
-                                          lastStatusCode, 
-                                          "Error processing request.");
+                                          lastStatusCode,
+                                          lastStatusError); 
             // pd = new ProxyData
             // {
             //     StatusCode = lastStatusCode,
