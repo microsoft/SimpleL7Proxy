@@ -307,7 +307,6 @@ public static class BackendHostConfigurationExtensions
       Console.WriteLine($"Adjusting total number of workers to {workerAllocation}. Fix PriorityWorkers if it isn't what you want.");
       backendOptions.Workers = workerAllocation;
     }
-
     return backendOptions;
   }
 

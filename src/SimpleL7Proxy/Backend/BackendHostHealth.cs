@@ -36,8 +36,6 @@ public class BackendHostHealth
   {
     HostConfig = hostConfig;
 
-
-
     // Uncomment UNTIL sslStream is implemented
     // if (ipaddress != null)
     // {
