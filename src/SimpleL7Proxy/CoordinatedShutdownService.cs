@@ -43,16 +43,10 @@ public class CoordinatedShutdownService : IHostedService
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Coordinated shutdown initiated...");
-        await _server.StopAsync(cancellationToken);
         _logger.LogInformation($"Waiting for tasks to complete for maximum {_options.TerminationGracePeriodSeconds} seconds");
-
-        _eventClient?.SendData($"Server shutting down:   {ProxyWorker.GetState()}");
-
         await _queue.StopAsync();
 
         var timeoutTask = Task.Delay(_options.TerminationGracePeriodSeconds * 1000);
-
-
         var allTasksComplete = Task.WhenAll(ProxyWorkerCollection.GetAllTasks());
         var completedTask = await Task.WhenAny(allTasksComplete, timeoutTask);
         if (completedTask == timeoutTask)
@@ -64,10 +58,12 @@ public class CoordinatedShutdownService : IHostedService
             _logger.LogInformation("All tasks completed.");
         }
 
+        _eventClient?.SendData($"Server shutting down:   {ProxyWorker.GetState()}");
+        await _server.StopListening(cancellationToken);
+
         Task? t = _backends?.Stop();
         if (t != null)
             await t.ConfigureAwait(false); // Stop the backend pollers
-
 
         _eventClient?.SendData($"Workers Stopped:   {ProxyWorker.GetState()}");
         _eventClient?.StopTimer();
