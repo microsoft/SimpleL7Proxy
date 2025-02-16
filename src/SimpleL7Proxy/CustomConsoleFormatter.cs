@@ -16,6 +16,6 @@ public class CustomConsoleFormatter : ConsoleFormatter
         var exception = logEntry.Exception;
         var message = logEntry.Formatter(state, exception);
 
-        textWriter.WriteLine($"{DateTime.Now:yyyy-MM-ddTHH:mm:ss} {message}");
+        textWriter.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {message}");
     }
 }
