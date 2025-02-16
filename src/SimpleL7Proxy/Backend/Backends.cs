@@ -296,12 +296,12 @@ public class Backends : IBackendService
     ProxyEvent probeData = new()
     {
       EventData =
-              {
-                ["ProxyHost"] = _options.HostName,
-                ["Host"] = host.Host,
-                ["Port"] = host.Port.ToString(),
-                ["Path"] = host.ProbePath
-              }
+      {
+        ["ProxyHost"] = _options.HostName,
+        ["Host"] = host.Host,
+        ["Port"] = host.Port.ToString(),
+        ["Path"] = host.ProbePath
+      }
     };
 
     if (_debug)
@@ -313,11 +313,11 @@ public class Backends : IBackendService
       request.Headers.Authorization = new("Bearer", OAuth2Token());
     }
 
-    var stopwatch = Stopwatch.StartNew();
 
     try
     {
 
+      var stopwatch = Stopwatch.StartNew();
       var response = await client.SendAsync(request, _cancellationToken);
       stopwatch.Stop();
       var latency = stopwatch.Elapsed.TotalMilliseconds;
