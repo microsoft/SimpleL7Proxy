@@ -43,6 +43,7 @@ public static class BackendHostConfigurationExtensions
       options.SuccessRate = backendOptions.SuccessRate;
       options.Timeout = backendOptions.Timeout;
       options.TerminationGracePeriodSeconds = backendOptions.TerminationGracePeriodSeconds;
+      options.UniqueUserHeaders = backendOptions.UniqueUserHeaders;
       options.UseOAuth = backendOptions.UseOAuth;
       options.UserProfileHeader = backendOptions.UserProfileHeader;
       options.UseProfiles = backendOptions.UseProfiles;
@@ -240,6 +241,7 @@ public static class BackendHostConfigurationExtensions
       SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
       Timeout = ReadEnvironmentVariableOrDefault("Timeout", 3000),
       TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
+      UniqueUserHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("UniqueUserHeaders", "X-UserID")),
       UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", false),
       UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", "X-UserProfile"),
       UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", false),

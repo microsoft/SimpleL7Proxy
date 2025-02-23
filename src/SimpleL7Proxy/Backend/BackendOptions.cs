@@ -25,6 +25,7 @@ public class BackendOptions
     public int SuccessRate { get; set; }
     public int Timeout { get; set; }
     public int TerminationGracePeriodSeconds { get; set; }
+    public List<string> UniqueUserHeaders { get; set; } = [];
     public bool UseOAuth { get; set; }
     public bool UseUserConfig { get; set; } = false;
     public bool UseProfiles { get; set; } = false;

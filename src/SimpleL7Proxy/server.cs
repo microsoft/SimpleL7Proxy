@@ -3,13 +3,15 @@ using System.Text.Json;
 using Microsoft.ApplicationInsights;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
-using SimpleL7Proxy.Events;
-using SimpleL7Proxy.Queue;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
 using System.Threading;
 using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.User;
+using SimpleL7Proxy.Events;
+using SimpleL7Proxy.Queue;
+using SimpleL7Proxy.Proxy;
+using System.Text;
 
 namespace SimpleL7Proxy;
 // This class represents a server that listens for HTTP requests and processes them.
@@ -174,6 +176,7 @@ public class Server : BackgroundService
                     int notEnquedCode = 0;
                     var retrymsg = "";
                     var logmsg = "";
+                    bool userTracked = false;
                     Dictionary<string, string> ed = [];
 
 
@@ -198,86 +201,115 @@ public class Server : BackgroundService
 
                     if (!_isShuttingDown)
                     {
-
-                        // Determine priority boost based on the userid
-                        if (doUserProfile)
+                        try 
                         {
-
-                            // Lookup the user profile and add the headers to the request
-                            var requestUser = rd.Headers.Get(_options.UserProfileHeader);
-                            if (!string.IsNullOrEmpty(requestUser))
-                            {
-                                var headers = _userProfiles.GetUserProfile(requestUser);
-                                rd.UserID = requestUser;
-
-                                if (headers != null)
+                            // Check for any required headers
+                            if (_options.RequiredHeaders.Count > 0) {
+                                foreach (var header in _options.RequiredHeaders)
                                 {
-                                    foreach (var header in headers)
-                                    {
-                                        rd.Headers.Set(header.Key, header.Value);
-                                    }
+                                    if (String.IsNullOrEmpty(rd.Headers[header])) {
+                                        throw new ProxyErrorException(ProxyErrorException.ErrorType.IncompleteHeaders, 
+                                                                      HttpStatusCode.ExpectationFailed, 
+                                                                      "Required Header missing: " + header );
+                                    }   
                                 }
                             }
-                            else
+
+                            rd.UserID = "";
+
+                            // Determine priority boost based on the userid headers
+                            if (_options.UniqueUserHeaders.Count > 0) {
+                                foreach (var header in _options.UniqueUserHeaders) {
+                                    rd.UserID += rd.Headers[header] ?? "";
+                                }
+                            }
+
+                            if ( String.IsNullOrEmpty( rd.UserID ))
                             {
                                 rd.UserID = "defaultUser";
                             }
+                            Console.WriteLine("USERID : " + rd.UserID);
 
-                            rd.Guid = _userPriority.addRequest(rd.UserID);
-                            bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
-                            userPriorityBoost = shouldBoost ? 1 : 0;
-                        }
-
-                        var priorityKey = rd.Headers.Get("S7PPriorityKey");
-                        if (!string.IsNullOrEmpty(priorityKey) && _options.PriorityKeys.Contains(priorityKey)) //lookup the priority
-                        {
-                            var index = _options.PriorityKeys.IndexOf(priorityKey);
-                            if (index >= 0)
+                            // Lookup the user profile and add the headers to the request
+                            if (doUserProfile)
                             {
-                                priority = _options.PriorityValues[index];
+                                var requestUser = rd.Headers.Get(_options.UserProfileHeader);
+                                if (!string.IsNullOrEmpty(requestUser))
+                                {
+                                    var headers = _userProfiles.GetUserProfile(requestUser);
+
+                                    if (headers != null)
+                                    {
+                                        foreach (var header in headers)
+                                        {
+                                            rd.Headers.Set(header.Key, header.Value);
+                                        }
+                                    }
+                                }
+
+                                rd.Guid = _userPriority.addRequest(rd.UserID);
+                                userTracked = true;
+                                bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
+                                userPriorityBoost = shouldBoost ? 1 : 0;
                             }
-                        }
-                        rd.Priority = priority;
-                        rd.Priority2 = userPriorityBoost;
-                        rd.EnqueueTime = DateTime.UtcNow;
 
-                        ed["S7P-Hostname"] = _options.IDStr;
-                        // Check circuit breaker status and enqueue the request
-                        if (_backends.CheckFailedStatus())
-                        {
+                            var priorityKey = rd.Headers.Get("S7PPriorityKey");
+                            if (!string.IsNullOrEmpty(priorityKey) && _options.PriorityKeys.Contains(priorityKey)) //lookup the priority
+                            {
+                                var index = _options.PriorityKeys.IndexOf(priorityKey);
+                                if (index >= 0)
+                                {
+                                    priority = _options.PriorityValues[index];
+                                }
+                            }
+                            rd.Priority = priority;
+                            rd.Priority2 = userPriorityBoost;
+                            rd.EnqueueTime = DateTime.UtcNow;
+
+                            ed["S7P-Hostname"] = _options.IDStr;
+                            // Check circuit breaker status and enqueue the request
+                            if (_backends.CheckFailedStatus())
+                            {
+                                notEnqued = true;
+                                notEnquedCode = 429;
+
+                                ed["Message"] = "Circuit breaker on - 429";
+                                retrymsg = $"Too many failures in last {_options.CircuitBreakerTimeslice} seconds";
+                                logmsg = "Circuit breaker on  => 429:";
+                            }
+                            else if (_requestsQueue.thrdSafeCount >= _options.MaxQueueLength)
+                            {
+                                notEnqued = true;
+                                notEnquedCode = 429;
+
+                                retrymsg = ed["Message"] = "Queue is full";
+                                logmsg = "Queue is full  => 429:";
+                            }
+                            else if (_backends.ActiveHostCount() == 0)
+                            {
+                                notEnqued = true;
+                                notEnquedCode = 429;
+
+                                retrymsg = ed["Message"] = "No active hosts";
+                                logmsg = "No active hosts  => 429:";
+                            }
+
+                            // Enqueue the request
+
+                            else if (!_requestsQueue.Enqueue(rd, priority, userPriorityBoost, rd.EnqueueTime))
+                            {
+                                notEnqued = true;
+                                notEnquedCode = 429;
+
+                                retrymsg = ed["Message"] = "Failed to enqueue request";
+                                logmsg = "Failed to enqueue request  => 429:";
+                            }
+                        } 
+                        catch (ProxyErrorException e) {
                             notEnqued = true;
-                            notEnquedCode = 429;
+                            notEnquedCode = (int)e.StatusCode;
 
-                            ed["Message"] = "Circuit breaker on - 429";
-                            retrymsg = $"Too many failures in last {_options.CircuitBreakerTimeslice} seconds";
-                            logmsg = "Circuit breaker on  => 429:";
-                        }
-                        else if (_requestsQueue.thrdSafeCount >= _options.MaxQueueLength)
-                        {
-                            notEnqued = true;
-                            notEnquedCode = 429;
-
-                            retrymsg = ed["Message"] = "Queue is full";
-                            logmsg = "Queue is full  => 429:";
-                        }
-                        else if (_backends.ActiveHostCount() == 0)
-                        {
-                            notEnqued = true;
-                            notEnquedCode = 429;
-
-                            retrymsg = ed["Message"] = "No active hosts";
-                            logmsg = "No active hosts  => 429:";
-                        }
-
-                        // Enqueue the request
-
-                        else if (!_requestsQueue.Enqueue(rd, priority, userPriorityBoost, rd.EnqueueTime))
-                        {
-                            notEnqued = true;
-                            notEnquedCode = 429;
-
-                            retrymsg = ed["Message"] = "Failed to enqueue request";
-                            logmsg = "Failed to enqueue request  => 429:";
+                            logmsg = retrymsg = ed["Message"] = e.Message;
                         }
                     }
                     else
@@ -329,7 +361,7 @@ public class Server : BackgroundService
                             _logger.LogError($"Pri: {priority} Stat: {notEnquedCode} Path: {rd.Path}");
                         }
 
-                        if (doUserProfile && !_isShuttingDown)
+                        if (userTracked && !_isShuttingDown)
                             _userPriority.removeRequest(rd.UserID, rd.Guid);
 
                     }

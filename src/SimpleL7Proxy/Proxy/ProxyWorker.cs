@@ -212,20 +212,6 @@ public class ProxyWorker
                     proxyEventData["x-Request-Process-Duration"] = incomingRequest.Headers["x-Request-Process-Duration"] ?? "N/A";
                     proxyEventData["x-S7PID"] = incomingRequest.MID ?? "N/A";
 
-                    // Check for any required headers
-                    if (_options.RequiredHeaders.Count > 0) {
-                        foreach (var header in _options.RequiredHeaders)
-                        {
-                            if (String.IsNullOrEmpty(incomingRequest.Headers[header])) {
-                                Interlocked.Decrement( ref states[1]);
-                                throw new ProxyErrorException( ProxyErrorException.ErrorType.IncompleteHeaders, 
-                                                               HttpStatusCode.ExpectationFailed, 
-                                                               "Required Header missing: " + header );
-                            }   
-                        }
-
-                    }
-
                     Interlocked.Decrement(ref states[1]);
                     Interlocked.Increment(ref states[2]);
                     workerState = "Read Proxy";
