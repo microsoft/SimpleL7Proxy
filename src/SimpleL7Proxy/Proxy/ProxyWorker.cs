@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Collections.Specialized;
+using System.Linq.Expressions;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -217,7 +218,7 @@ public class ProxyWorker
 
                     //  FIND A BACKEND AND SEND THE REQUEST
 
-                    var pr = await ProxyToBackEndAsync(incomingRequest, token).ConfigureAwait(false);
+                    var pr = await ProxyToBackEndAsync(incomingRequest, proxyEventData, token).ConfigureAwait(false);
 
                     // POST PROCESSING ... logging
                     Interlocked.Decrement(ref states[2]);
@@ -280,7 +281,7 @@ public class ProxyWorker
                     if (e.Type == ProxyErrorException.ErrorType.TTLExpired ) {
                         isExpired = true;
                     }
-
+                    
                     lcontext.Response.StatusCode = (int)e.StatusCode;
                     var errorMessage = Encoding.UTF8.GetBytes(e.Message);
                     try
@@ -299,7 +300,7 @@ public class ProxyWorker
                     var ResponseDate = DateTime.UtcNow;
 
                     proxyEventData["Url"] = incomingRequest.FullURL;
-                    proxyEventData["x-Status"] = ((int)503).ToString();
+                    proxyEventData["x-Status"] = ((int)e.StatusCode).ToString();
                     proxyEventData["x-Response-Latency"] = (ResponseDate - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
                     proxyEventData["x-Total-Latency"] = (DateTime.UtcNow - incomingRequest.EnqueueTime).TotalMilliseconds.ToString("F3");
                     proxyEventData["x-Backend-Host"] = "N/A";
@@ -337,7 +338,6 @@ public class ProxyWorker
 
                     _logger.LogError($"An IO exception occurred: {ioEx.Message}");
                     lcontext.Response.StatusCode = 408;
-Console.WriteLine("Got an IOExcption");
                     var errorMessage = Encoding.UTF8.GetBytes($"Broken Pipe: {ioEx.Message}");
                     try 
                     {
@@ -520,7 +520,8 @@ Console.WriteLine("Got an IOExcption");
 
      //DateTime requestDate, string method, string path, WebHeaderCollection headers, Stream body)//HttpListenerResponse downStreamResponse)
     public async Task<ProxyData> ProxyToBackEndAsync(RequestData request,
-                                                CancellationToken token)
+                                                     Dictionary<string, string> eventData,
+                                                     CancellationToken token)
     {
         if (request == null) throw new ArgumentNullException(nameof(request), "Request cannot be null.");
         if (request.Body == null) throw new ArgumentNullException(nameof(request.Body), "Request body cannot be null.");
@@ -652,10 +653,11 @@ Console.WriteLine("Got an IOExcption");
 
                         // SEND THE REQUEST TO THE BACKEND 
 
+
                         using var proxyResponse = await _options.Client!.SendAsync(
                             proxyRequest,
                             HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
-                        {
+//                        {
 
                             var responseDate = DateTime.UtcNow;
                             lastStatusCode = proxyResponse.StatusCode;
@@ -705,6 +707,15 @@ Console.WriteLine("Got an IOExcption");
 
                             Interlocked.Increment(ref states[4]);
 
+                            if (_options.LogHeaders?.Count > 0)
+                            {
+                                var dict=proxyResponse.Headers.ToDictionary();
+                                foreach (var header in _options.LogHeaders)
+                                {
+                                    eventData[header] = String.Join(", " , dict[header]) ?? "N/A";
+                                }
+                            }
+
                             // Read the response
                             //await GetProxyResponseAsync(proxyResponse, request, pr).ConfigureAwait(false);
                             Interlocked.Decrement(ref states[4]);
@@ -738,7 +749,13 @@ Console.WriteLine("Got an IOExcption");
 
                             // Stream response from the backend to the client
 
-                            await proxyResponse.Content.CopyToAsync(request.Context!.Response.OutputStream).ConfigureAwait(false);
+                            try {
+                                await proxyResponse.Content.CopyToAsync(request.Context!.Response.OutputStream).ConfigureAwait(false);
+                            } catch (Exception e) {
+                                throw new ProxyErrorException(ProxyErrorException.ErrorType.ClientDisconnected, 
+                                                              HttpStatusCode.InternalServerError, e.Message);
+                            }
+
                             //awaitrequest.Context.Response.flush();
 
 
@@ -752,8 +769,17 @@ Console.WriteLine("Got an IOExcption");
                                 Console.WriteLine($"Got: {pr.StatusCode} {pr.FullURL}");
                             }
                             return pr ?? throw new ArgumentNullException(nameof(pr));
-                        }
-                    } finally {
+ //                       }
+                    }
+                    catch (HttpRequestException e)
+                    {
+                        // 502 Bad Request
+                        lastStatusError = "BACKEND ERROR: " + host.Url;
+                        lastErrorException = e;
+                        lastStatusCode = HttpStatusCode.BadGateway;
+                        continue;
+                    }
+                    finally {
                         Interlocked.Decrement(ref states[3]);
 
                     }
@@ -784,14 +810,6 @@ Console.WriteLine("Got an IOExcption");
                 lastStatusError = "CANCELLED: " + host.Url;
                 lastErrorException = e;
                 lastStatusCode = HttpStatusCode.BadGateway;
-                continue;
-            }
-            catch (HttpRequestException e)
-            {
-                // 400 Bad Request
-                lastStatusError = "BAD REQUEST: " + host.Url;
-                lastErrorException = e;
-                lastStatusCode = HttpStatusCode.BadRequest;
                 continue;
             }
             catch (Exception e)
