@@ -10,7 +10,8 @@ public class ProxyErrorException(ProxyErrorException.ErrorType type, HttpStatusC
         TTLExpired,
         NotProcessed,
         ClientDisconnected,
-        BackendDisconnected
+        BackendDisconnected,
+        IncompleteHeaders
     }
     public ErrorType Type { get; set; } = type;
     public HttpStatusCode StatusCode { get; set; } = statusCode;

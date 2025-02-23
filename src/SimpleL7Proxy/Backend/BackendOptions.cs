@@ -18,9 +18,10 @@ public class BackendOptions
     public int Port { get; set; }
     public int PollInterval { get; set; }
     public int PollTimeout { get; set; }
-    public List<string> PriorityKeys { get; set; } = new List<string>();
-    public List<int> PriorityValues { get; set; } = new List<int>();
+    public List<string> PriorityKeys { get; set; } = [];
+    public List<int> PriorityValues { get; set; } = [];
     public Dictionary<int, int> PriorityWorkers { get; set; } = new Dictionary<int, int>();
+    public List<string> RequiredHeaders { get; set; } = [];
     public int SuccessRate { get; set; }
     public int Timeout { get; set; }
     public int TerminationGracePeriodSeconds { get; set; }

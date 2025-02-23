@@ -212,6 +212,20 @@ public class ProxyWorker
                     proxyEventData["x-Request-Process-Duration"] = incomingRequest.Headers["x-Request-Process-Duration"] ?? "N/A";
                     proxyEventData["x-S7PID"] = incomingRequest.MID ?? "N/A";
 
+                    // Check for any required headers
+                    if (_options.RequiredHeaders.Count > 0) {
+                        foreach (var header in _options.RequiredHeaders)
+                        {
+                            if (String.IsNullOrEmpty(incomingRequest.Headers[header])) {
+                                Interlocked.Decrement( ref states[1]);
+                                throw new ProxyErrorException( ProxyErrorException.ErrorType.IncompleteHeaders, 
+                                                               HttpStatusCode.ExpectationFailed, 
+                                                               "Required Header missing: " + header );
+                            }   
+                        }
+
+                    }
+
                     Interlocked.Decrement(ref states[1]);
                     Interlocked.Increment(ref states[2]);
                     workerState = "Read Proxy";
@@ -228,7 +242,7 @@ public class ProxyWorker
                     //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
 
                     proxyEventData["x-Status"] = ((int)pr.StatusCode).ToString();
-                    if (_options.LogHeaders?.Count > 0)
+                    if (_options.LogHeaders.Count > 0)
                     {
                         foreach (var header in _options.LogHeaders)
                         {
@@ -306,6 +320,7 @@ public class ProxyWorker
                     proxyEventData["x-Backend-Host"] = "N/A";
                     proxyEventData["x-Backend-Host-Latency"] = "N/A";
                     proxyEventData["Type"] = "S7P-Not-Processed";
+                    proxyEventData["Error"] = e.Message;
                     _eventClient.SendData(proxyEvent);
                 }
                 catch (S7PRequeueException e)

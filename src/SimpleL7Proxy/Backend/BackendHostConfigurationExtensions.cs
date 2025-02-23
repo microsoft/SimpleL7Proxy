@@ -39,6 +39,7 @@ public static class BackendHostConfigurationExtensions
       options.Port = backendOptions.Port;
       options.PollInterval = backendOptions.PollInterval;
       options.PollTimeout = backendOptions.PollTimeout;
+      options.RequiredHeaders = backendOptions.RequiredHeaders;
       options.SuccessRate = backendOptions.SuccessRate;
       options.Timeout = backendOptions.Timeout;
       options.TerminationGracePeriodSeconds = backendOptions.TerminationGracePeriodSeconds;
@@ -235,6 +236,7 @@ public static class BackendHostConfigurationExtensions
       PollTimeout = ReadEnvironmentVariableOrDefault("PollTimeout", 3000),
       PriorityKeys = ToListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
       PriorityValues = ToListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
+      RequiredHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("RequiredHeaders", "")),
       SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
       Timeout = ReadEnvironmentVariableOrDefault("Timeout", 3000),
       TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
