@@ -149,7 +149,10 @@ public static class BackendHostConfigurationExtensions
   // Converts a comma-separated string to a list of strings.
   private static List<string> ToListOfString(string s)
   {
-    return s.Split(',').Select(p => p.Trim()).ToList();
+    if (String.IsNullOrEmpty(s))
+      return [];
+
+    return [.. s.Split(',').Select(p => p.Trim())];
   }
 
   // Converts a comma-separated string to a list of integers.
@@ -223,7 +226,7 @@ public static class BackendHostConfigurationExtensions
       HostName = ReadEnvironmentVariableOrDefault("Hostname", "Default"),
       Hosts = new List<BackendHostConfig>(),
       IDStr = $"{ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P")}-{replicaID}-",
-      LogHeaders = ReadEnvironmentVariableOrDefault("LogHeaders", "").Split(',').Select(x => x.Trim()).ToList(),
+      LogHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
       LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", false),
       MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
       OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
