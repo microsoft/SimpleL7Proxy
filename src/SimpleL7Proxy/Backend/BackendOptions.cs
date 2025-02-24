@@ -8,6 +8,7 @@ public class BackendOptions
     public int CircuitBreakerTimeslice { get; set; }
     public int DefaultPriority { get; set; }
     public int DefaultTTLSecs { get; set; }
+    public List<string> DisallowedHeaders { get; set; } = [];
     public string HostName { get; set; } = "";
     public List<BackendHostConfig> Hosts { get; set; } = [];
     public string IDStr { get; set; } = "S7P";
@@ -20,7 +21,7 @@ public class BackendOptions
     public int PollTimeout { get; set; }
     public List<string> PriorityKeys { get; set; } = [];
     public List<int> PriorityValues { get; set; } = [];
-    public Dictionary<int, int> PriorityWorkers { get; set; } = new Dictionary<int, int>();
+    public Dictionary<int, int> PriorityWorkers { get; set; } = [];
     public List<string> RequiredHeaders { get; set; } = [];
     public int SuccessRate { get; set; }
     public int Timeout { get; set; }
@@ -32,6 +33,7 @@ public class BackendOptions
     public string UserProfileHeader { get; set; } = "";
     public string UserConfigUrl { get; set; } = "";
     public float UserPriorityThreshold { get; set; }
+    public Dictionary<string, string> ValidateHeaders { get; set; } = [];
     public int Workers { get; set; }
 
 }
