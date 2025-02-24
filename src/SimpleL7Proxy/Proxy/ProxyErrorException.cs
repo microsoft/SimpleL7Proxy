@@ -11,8 +11,8 @@ public class ProxyErrorException(ProxyErrorException.ErrorType type, HttpStatusC
         NotProcessed,
         ClientDisconnected,
         BackendDisconnected,
-        IncompleteHeaders
-    }
+        IncompleteHeaders,
+        InvalidHeader    }
     public ErrorType Type { get; set; } = type;
     public HttpStatusCode StatusCode { get; set; } = statusCode;
 
