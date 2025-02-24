@@ -6,7 +6,7 @@ import random
 import http.server
 import socketserver
 from urllib.parse import urlparse, parse_qs
-from concurrent.futures import ThreadPoolExecutor
+from socketserver import ThreadingMixIn
 
 class MyHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
@@ -41,7 +41,7 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         s7pid = self.headers.get('x-S7PID', 'N/A')
 
         # Sleep for a random number from 4 to 5 seconds
-        sleep_time = random.uniform(0.2, 1)  # Random float between 0 and 0.2 seconds
+        sleep_time = random.uniform(0.1, 1.5)  # Random float between 0 and 0.2 seconds
         time.sleep(sleep_time)
 
         print(f"Request: {parsed_path.path}  Sequence: {request_sequence} QueueTime: {queue_time} ProcessTime: {process_time} ID: {s7pid}")
@@ -61,11 +61,20 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(response.encode('utf-8'))
 
-def main():
+class ThreadedTCPServer(ThreadingMixIn, socketserver.TCPServer):
+    pass
+
+def mt_main():
+    # Listen on port 3000
+    with ThreadedTCPServer(("localhost", 3000), MyHandler) as httpd:
+        print("Server started on port 3000...")
+        httpd.serve_forever()
+        
+def single_main():
     # Listen on port 3000
     with socketserver.TCPServer(("localhost", 3000), MyHandler) as httpd:
         print("Server started on port 3000...")
         httpd.serve_forever()
 
 if __name__ == '__main__':
-    main()
+    mt_main()
