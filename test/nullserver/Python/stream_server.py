@@ -3,6 +3,7 @@
 
 import time
 import random
+import json
 import http.server
 import socketserver
 from urllib.parse import urlparse, parse_qs
@@ -47,19 +48,37 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         print(f"Request: {parsed_path.path}  Sequence: {request_sequence} QueueTime: {queue_time} ProcessTime: {process_time} ID: {s7pid}")
 
         # Send response
-        response = "Hello, world!"
         self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
-        self.send_header("Content-Length", str(len(response)))
         self.send_header("x-Request-Sequence", request_sequence)
         self.send_header("x-Request-Queue-Duration", queue_time)
         self.send_header("x-Request-Process-Duration", process_time)
         self.send_header("x-S7PID", s7pid)
         self.send_header("Random-Header", "Random-Value")
         self.send_header("x-Random-Header", "Random-Value")
-
+        self.send_header('Content-Type', 'text/event-stream')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Transfer-Encoding', 'chunked')
         self.end_headers()
-        self.wfile.write(response.encode('utf-8'))
+
+        # Initialize repeat_count attribute
+        self.repeat_count = 1  # Set to desired repeat count
+
+        # Stream file contents line by line with a 1-second delay
+        file_path = 'stream_data.txt'
+        with open(file_path, 'r') as file:
+            for line in file:
+                response_message = json.dumps({"choices": [{"delta": {"content": line.strip()}}]})
+                chunk = f"data: {response_message}\n\n".encode('utf-8')
+                chunk_length = f"{len(chunk):X}\r\n".encode('utf-8')
+                self.wfile.write(chunk_length)
+                self.wfile.write(chunk)
+                self.wfile.write(b"\r\n")
+                self.wfile.flush()
+                time.sleep(1)
+
+        # Send the zero-length chunk to indicate the end of the response
+        self.wfile.write(b"0\r\n\r\n")
+        self.wfile.flush()
 
 class ThreadedTCPServer(ThreadingMixIn, socketserver.TCPServer):
     pass

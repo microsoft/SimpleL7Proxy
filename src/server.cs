@@ -21,6 +21,7 @@ public class Server : IServer
     private CancellationToken _cancellationToken;
     private ConcurrentPriQueue<RequestData> _requestsQueue = new ConcurrentPriQueue<RequestData>();
     private readonly IEventHubClient? _eventHubClient;
+    private static bool _isShuttingDown = false;
 
     // public void enqueueShutdownRequest() {
     //     var shutdownRequest = new RequestData(Constants.Shutdown);
@@ -50,7 +51,8 @@ public class Server : IServer
         WriteOutput($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
     }
 
-    public ConcurrentPriQueue<RequestData> Queue() {
+    public ConcurrentPriQueue<RequestData> Queue()
+    {
         return _requestsQueue;
     }
 
@@ -89,7 +91,7 @@ public class Server : IServer
     {
         if (_options == null) throw new ArgumentNullException(nameof(_options));
 
-        long counter=0;
+        long counter = 0;
         int livenessPriority = _options.PriorityValues.Min();
         bool doUserProfile = _options.UseProfiles;
 
@@ -101,151 +103,220 @@ public class Server : IServer
                 var getContextTask = httpListener.GetContextAsync();
                 //using (var delayCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationToken))
                 //{
-                    //var delayTask = Task.Delay(Timeout.Infinite, delayCts.Token);
+                //var delayTask = Task.Delay(Timeout.Infinite, delayCts.Token);
 
-                    //var completedTask = await Task.WhenAny(getContextTask, delayTask).ConfigureAwait(false);
-                    var completedTask = await Task.WhenAny(getContextTask, Task.Delay(Timeout.Infinite, _cancellationToken)).ConfigureAwait(false);
+                //var completedTask = await Task.WhenAny(getContextTask, delayTask).ConfigureAwait(false);
+                var completedTask = await Task.WhenAny(getContextTask, Task.Delay(Timeout.Infinite, _cancellationToken)).ConfigureAwait(false);
 
-                    //  control to allow other tasks to run .. doesn't make sense here
-                    // await Task.Yield();
+                //  control to allow other tasks to run .. doesn't make sense here
+                // await Task.Yield();
 
-                    // Cancel the delay task immedietly if the getContextTask completes first
-                    if (completedTask == getContextTask)
+                // Cancel the delay task immedietly if the getContextTask completes first
+                if (completedTask == getContextTask)
+                {
+                    int priority = _options.DefaultPriority;
+                    int userPriorityBoost = 0;
+                    var notEnqued = false;
+                    int notEnquedCode = 0;
+                    var retrymsg = "";
+                    var logmsg = "";
+                    Dictionary<string, string> ed = [];
+
+                    Interlocked.Increment(ref counter);
+                    var requestId = _options.IDStr + counter.ToString();
+
+                    //delayCts.Cancel();
+                    var rd = new RequestData(await getContextTask.ConfigureAwait(false), requestId);
+
+                    // readiness probes:
+                    // if it's a probe, then bypass all the below checks and enqueue the request 
+                    if (Constants.probes.Contains(rd.Path))
                     {
-                        int priority = _options.DefaultPriority;
-                        int userPriorityBoost = 0;
 
-                        counter++;
-                        var requestId = _options.IDStr + counter.ToString();
- 
-                        //delayCts.Cancel();
-                        var rd = new RequestData(await getContextTask.ConfigureAwait(false),  requestId);
+                        // /startup runs a priority of 0,   otherwise run at highest priority ( lower is more urgent )
+                        priority = 0;//(rd.Path == Constants.Liveness || rd.Path == Constants.Health) ? livenessPriority : 0;
 
-                        // readiness probes:
-                        // if it's a probe, then bypass all the below checks and enqueue the request 
-                        if (Constants.probes.Contains(rd.Path)) {
+                        // bypass all the below checks and enqueue the request
+                        _requestsQueue.Enqueue(rd, priority, userPriorityBoost, rd.EnqueueTime, true);
+                        continue;
+                    }
 
-                            // /startup runs a priority of 0,   otherwise run at highest priority ( lower is more urgent )
-                            priority = 0;//(rd.Path == Constants.Liveness || rd.Path == Constants.Health) ? livenessPriority : 0;
-
-                            // bypass all the below checks and enqueue the request
-                            _requestsQueue.Enqueue(rd, priority, userPriorityBoost, rd.EnqueueTime, true);
-                            continue;
-                        } 
-                        // Determine priority boost based on the userid
-                        if (doUserProfile) {
-
-                            // Lookup the user profile and add the headers to the request
-                            var requestUser = rd.Headers.Get(_options.UserProfileHeader);
-                            if (!string.IsNullOrEmpty(requestUser)) {
-                                var headers= _userProfile.GetUserProfile(requestUser);
-                                rd.UserID = requestUser;
-
-                                if (headers != null) {
-                                    foreach (var header in headers) {
-                                        rd.Headers.Add(header.Key, header.Value);
-                                    }
+                    if (!_isShuttingDown)
+                    {
+                        try
+                        {
+                            // Check for any required headers
+                            if (_options.RequiredHeaders.Count > 0)
+                            {
+                                var missing = _options.RequiredHeaders.FirstOrDefault(x => string.IsNullOrEmpty(rd.Headers[x]));
+                                if (!string.IsNullOrEmpty(missing)) {
+                                    throw new ProxyErrorException(
+                                        ProxyErrorException.ErrorType.IncompleteHeaders,
+                                        HttpStatusCode.ExpectationFailed,
+                                        "Required header is missing: " + missing
+                                    );
                                 }
-                            } else {
+                            }
+
+                            // Remove any disallowed headers
+                            foreach (var header in _options.DisallowedHeaders)
+                            {
+                                rd.Headers.Remove(header);   
+                            }
+                            
+                            rd.UserID = "";
+
+                            // Determine priority boost based on the userid headers
+                            if (_options.UniqueUserHeaders.Count > 0)
+                            {
+                                foreach (var header in _options.UniqueUserHeaders)
+                                {
+                                    rd.UserID += rd.Headers[header] ?? "";
+                                }
+                            }
+
+                            if (String.IsNullOrEmpty(rd.UserID))
+                            {
                                 rd.UserID = "defaultUser";
                             }
 
-                            rd.Guid=_userPriority.addRequest(rd.UserID);
-                            bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
-                            userPriorityBoost = shouldBoost ? 1 : 0;
-                        }
-
-                        var priorityKey = rd.Headers.Get("S7PPriorityKey");
-                        if (!string.IsNullOrEmpty(priorityKey) && _options.PriorityKeys.Contains(priorityKey)) //lookup the priority
-                        {
-                            var index = _options.PriorityKeys.IndexOf(priorityKey);
-                            if (index >= 0)
-                            {
-                                priority = _options.PriorityValues[index];
-                            }
-                        }
-                        rd.Priority = priority;
-                        rd.Priority2 = userPriorityBoost;
-                        rd.EnqueueTime = DateTime.UtcNow;
-                        
-                        var return429 = false;
-                        var retrymsg = "";
-                        var logmsg = "";
-
-                        var ed = new Dictionary<string, string>();
-                        ed["S7P-Hostname"] = _options.IDStr;
-                        // Check circuit breaker status and enqueue the request
-                        if (  _backends.CheckFailedStatus() ) {
-                            return429 = true;
-
-                            ed["Message"] = "Circuit breaker on - 429";
-                            retrymsg = $"Too many failures in last {_options.CircuitBreakerTimeslice} seconds";
-                            logmsg = "Circuit breaker on  => 429:";
-                        }
-                        else if (_requestsQueue.Count >= _options.MaxQueueLength) {
-                            return429 = true;
-
-                            retrymsg = ed["Message"] = "Queue is full";
-                            logmsg = "Queue is full  => 429:";
-                        }
-                        else if (_backends.ActiveHostCount() == 0) {
-                            return429 = true;
-
-                            retrymsg = ed["Message"] = "No active hosts";
-                            logmsg = "No active hosts  => 429:";
-                        }
-
-                        // Enqueue the request
-
-                        else if (!_requestsQueue.Enqueue(rd, priority, userPriorityBoost, rd.EnqueueTime)) {
-                            return429 = true;
-
-                            retrymsg = ed["Message"] = "Failed to enqueue request";
-                            logmsg = "Failed to enqueue request  => 429:";
-                        }
-
-                        if (return429) {
-
-                            if (rd.Context is not null) 
-                            {
-                                ed["Type"] = "S7P-EnqueueFailed";
-                                ed["QueueLength"] = _requestsQueue.Count.ToString();
-                                ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
-                                WriteOutput($"{logmsg}: Queue Length: {_requestsQueue.Count}, Active Hosts: {_backends.ActiveHostCount()}", ed);
-
-                                // send a 429 response to client in the number of milliseconds specified in Retry-After header
-                                rd.Context.Response.StatusCode = 429;
-                                rd.Context.Response.Headers["Retry-After"]=(_backends.ActiveHostCount()==0) ? _options.PollInterval.ToString() : "500";
-
-                                using (var writer = new System.IO.StreamWriter(rd.Context.Response.OutputStream))
-                                {
-                                    await writer.WriteAsync(retrymsg).ConfigureAwait(false);
-                                }
-                                rd.Context.Response.Close();
-                                WriteOutput($"Pri: {priority} Stat: 429 Path: {rd.Path}");
-                            }
-
+                            // Lookup the user profile and add the headers to the request
                             if (doUserProfile)
-                                _userPriority.removeRequest(rd.UserID, rd.Guid);
+                            {
+                                var requestUser = rd.Headers.Get(_options.UserProfileHeader);
+                                if (!string.IsNullOrEmpty(requestUser))
+                                {
+                                    var headers = _userProfile.GetUserProfile(requestUser);
 
+                                    if (headers != null)
+                                    {
+                                        foreach (var header in headers)
+                                        {
+                                            rd.Headers.Set(header.Key, header.Value);
+                                        }
+                                    }
+                                }
+
+                                rd.Guid = _userPriority.addRequest(rd.UserID);
+                                bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
+                                userPriorityBoost = shouldBoost ? 1 : 0;
+                            }
+
+                            var priorityKey = rd.Headers.Get("S7PPriorityKey");
+                            if (!string.IsNullOrEmpty(priorityKey) && _options.PriorityKeys.Contains(priorityKey)) //lookup the priority
+                            {
+                                var index = _options.PriorityKeys.IndexOf(priorityKey);
+                                if (index >= 0)
+                                {
+                                    priority = _options.PriorityValues[index];
+                                }
+                            }
+                            rd.Priority = priority;
+                            rd.Priority2 = userPriorityBoost;
+                            rd.EnqueueTime = DateTime.UtcNow;
+
+                            ed["S7P-Hostname"] = _options.IDStr;
+                            // Check circuit breaker status and enqueue the request
+                            if (_backends.CheckFailedStatus())
+                            {
+                                notEnqued = true;
+                                notEnquedCode = 429;
+
+                                ed["Message"] = "Circuit breaker on - 429";
+                                retrymsg = $"Too many failures in last {_options.CircuitBreakerTimeslice} seconds";
+                                logmsg = "Circuit breaker on  => 429:";
+                            }
+                            else if (_requestsQueue.thrdSafeCount >= _options.MaxQueueLength)
+                            {
+                                notEnqued = true;
+                                notEnquedCode = 429;
+
+                                retrymsg = ed["Message"] = "Queue is full";
+                                logmsg = "Queue is full  => 429:";
+                            }
+                            else if (_backends.ActiveHostCount() == 0)
+                            {
+                                notEnqued = true;
+                                notEnquedCode = 429;
+
+                                retrymsg = ed["Message"] = "No active hosts";
+                                logmsg = "No active hosts  => 429:";
+                            }
+
+                            // Enqueue the request
+
+                            else if (!_requestsQueue.Enqueue(rd, priority, userPriorityBoost, rd.EnqueueTime))
+                            {
+                                notEnqued = true;
+                                notEnquedCode = 429;
+
+                                retrymsg = ed["Message"] = "Failed to enqueue request";
+                                logmsg = "Failed to enqueue request  => 429:";
+                            }
                         }
-                        else {
-                            ed["Type"] = "S7P-Enqueue";
-                            ed["Message"] = "Enqueued request";
-                            ed["QueueLength"] = _requestsQueue.Count.ToString();
-                            ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
-                            ed["Priority"] = priority.ToString();
+                        catch (ProxyErrorException e)
+                        {
+                            notEnqued = true;
+                            notEnquedCode = (int)e.StatusCode;
 
-                            WriteOutput($"Enque Pri: {priority} Queue: {_requestsQueue.Count} CB: {_backends.CheckFailedStatus()} Hosts: {_backends.ActiveHostCount()} ", ed);
+                            logmsg = retrymsg = ed["Message"] = e.Message;
                         }
                     }
                     else
                     {
-                        _cancellationToken.ThrowIfCancellationRequested(); // This will throw if the token is cancelled while waiting for a request.
+                        if (rd.Context is not null)
+                        {
+                            notEnqued = true;
+                            notEnquedCode = 503;
+
+                            retrymsg = ed["Message"] = "Server is shutting down.";
+                            logmsg = "Connection rejected, Server is shutting down";
+                            rd.Context.Response.Headers["Retry-After"] = "120"; // Retry after 120 seconds (adjust as needed)
+
+                        }
                     }
+
+                    if (notEnqued)
+                    {
+
+                        if (rd.Context is not null)
+                        {
+                            ed["Type"] = "S7P-EnqueueFailed";
+                            ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
+                            ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
+                            WriteOutput($"{logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}", ed);
+
+                            rd.Context.Response.StatusCode = notEnquedCode;
+                            rd.Context.Response.Headers["Retry-After"] = (_backends.ActiveHostCount() == 0) ? _options.PollInterval.ToString() : "500";
+                            using (var writer = new System.IO.StreamWriter(rd.Context.Response.OutputStream))
+                            {
+                                await writer.WriteAsync(retrymsg).ConfigureAwait(false);
+                            }
+                            rd.Context.Response.Close();
+                            WriteOutput($"Pri: {priority} Stat: 429 Path: {rd.Path}");
+                        }
+
+                        _userPriority.removeRequest(rd.UserID, rd.Guid);
+                    }
+                    else
+                    {
+                        ed["Type"] = "S7P-Enqueue";
+                        ed["Message"] = "Enqueued request";
+                        ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
+                        ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
+                        ed["Priority"] = priority.ToString();
+
+                        WriteOutput($"Enque Pri: {priority}, User: {rd.UserID}, Queue: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ", ed);
+                    }
+                }
+                else
+                {
+                    _cancellationToken.ThrowIfCancellationRequested(); // This will throw if the token is cancelled while waiting for a request.
+                }
                 //}
             }
-            catch (IOException ioEx) {
+            catch (IOException ioEx)
+            {
                 WriteOutput($"An IO exception occurred: {ioEx.Message}");
             }
             catch (OperationCanceledException)
@@ -264,7 +335,7 @@ public class Server : IServer
         WriteOutput("Listener task stopped.");
     }
 
-    private void WriteOutput(string data="", Dictionary<string, string>? eventData=null)
+    private void WriteOutput(string data = "", Dictionary<string, string>? eventData = null)
     {
 
         // Log the data to the console
@@ -273,12 +344,13 @@ public class Server : IServer
             Console.WriteLine(data);
 
             // if eventData is null, create a new dictionary and add the message to it
-            if (eventData == null) {
+            if (eventData == null)
+            {
                 eventData = new Dictionary<string, string>();
                 eventData.Add("Message", data);
             }
         }
-        
+
         if (eventData == null)
             eventData = new Dictionary<string, string>();
 
