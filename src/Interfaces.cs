@@ -33,19 +33,27 @@ public interface IBackendOptions
     int CircuitBreakerTimeslice { get; set; }
     int DefaultPriority { get; set; }
     int DefaultTTLSecs { get; set; }
+    List<string> DisallowedHeaders { get; set; }
+    string HostName { get; set; }
     List<BackendHost>? Hosts { get; set; }
     string IDStr { get; set; }
-    List<string> LogHeaders { get; set; } 
+    List<string> LogHeaders { get; set; }
     bool LogProbes { get; set; }
     int MaxQueueLength { get; set; }
+    string OAuthAudience { get; set; }
     int Port { get; set; }
     int PollInterval { get; set; }
     int PollTimeout { get; set; }
     List<string> PriorityKeys { get; set; }
     List<int> PriorityValues { get; set; }
     Dictionary<int, int> PriorityWorkers { get; set; }
+    List<string> RequiredHeaders { get; set; }
     int SuccessRate { get; set; }
     int Timeout { get; set; }
+    int TerminationGracePeriodSeconds { get; set; }
+    List<string> UniqueUserHeaders { get; set; }
+    bool UseOAuth { get; set; }
+    bool UseUserConfig { get; set; }
     bool UseProfiles { get; set; }
     string UserProfileHeader { get; set; }
     string UserConfigUrl { get; set; }
