@@ -420,7 +420,7 @@ public class Program
     }
 
     // Converts a comma-separated string to a list of strings.
-    private static List<string> toListOfString(string s)
+    private static List<string> ToListOfString(string s)
     {
         if (String.IsNullOrEmpty(s))
             return [];
@@ -429,7 +429,7 @@ public class Program
     }
 
     // Converts a comma-separated string to a list of integers.
-    private static List<int> toListOfInt(string s)
+    private static List<int> ToListOfInt(string s)
     {
 
         // parse each value in the list
@@ -480,31 +480,31 @@ public class Program
             CircuitBreakerTimeslice = ReadEnvironmentVariableOrDefault("CBTimeslice", 60),
             DefaultPriority = ReadEnvironmentVariableOrDefault("DefaultPriority", 2),
             DefaultTTLSecs = ReadEnvironmentVariableOrDefault("DefaultTTLSecs", 300),
-            DisallowedHeaders = toListOfString(ReadEnvironmentVariableOrDefault("DisallowedHeaders", "")),
+            DisallowedHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("DisallowedHeaders", "")),
             HostName = ReadEnvironmentVariableOrDefault("Hostname", "Default"),
             Hosts = new List<BackendHost>(),
             IDStr = $"{ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P")}-{replicaID}-",
-            LogHeaders = toListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
+            LogHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
             LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", false),
             MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
             OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
             Port = ReadEnvironmentVariableOrDefault("Port", 80),
             PollInterval = ReadEnvironmentVariableOrDefault("PollInterval", 15000),
             PollTimeout = ReadEnvironmentVariableOrDefault("PollTimeout", 3000),
-            PriorityKeys = toListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
-            PriorityValues = toListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
-            RequiredHeaders = toListOfString(ReadEnvironmentVariableOrDefault("RequiredHeaders", "")),
+            PriorityKeys = ToListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
+            PriorityValues = ToListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
+            RequiredHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("RequiredHeaders", "")),
             SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
             Timeout = ReadEnvironmentVariableOrDefault("Timeout", 3000),
             TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
-            UniqueUserHeaders = toListOfString(ReadEnvironmentVariableOrDefault("UniqueUserHeaders", "X-UserID")),
+            UniqueUserHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("UniqueUserHeaders", "X-UserID")),
             UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", false),
             UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", "X-UserProfile"),
             UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", false),
             UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", "file:config.json"),
             UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
-            PriorityWorkers = KVIntPairs(toListOfString(ReadEnvironmentVariableOrDefault("PriorityWorkers", "2:1,3:1"))),
-            ValidateHeaders = KVStringPairs(toListOfString(ReadEnvironmentVariableOrDefault("ValidateHeaders", ""))),
+            PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault("PriorityWorkers", "2:1,3:1"))),
+            ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault("ValidateHeaders", ""))),
             Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
         };
 
