@@ -12,15 +12,30 @@ public static class ProxyEventServiceCollectionExtensions
     string? aiConnectionString)
   {
 
-    if (!(string.IsNullOrEmpty(eventHubConnectionString) || string.IsNullOrEmpty(eventHubName)))
-    {
-      services.AddSingleton(svc => new EventHubClient(eventHubConnectionString, eventHubName));
-    }
-
     if (!string.IsNullOrEmpty(aiConnectionString))
     {
-      services.AddSingleton<AppInsightsEventClient>();
+      try
+      {  
+        services.AddSingleton<AppInsightsEventClient>();
+      }
+      catch (Exception ex)
+      {
+        Console.WriteLine("Failed to create AppInsightsEventClient: " + ex.Message);
+      }
     }
+    
+    if (!(string.IsNullOrEmpty(eventHubConnectionString) || string.IsNullOrEmpty(eventHubName)))
+    {
+      try
+      {
+        services.AddSingleton(svc => new EventHubClient(eventHubConnectionString, eventHubName));
+      }
+      catch (Exception ex)
+      {
+        Console.WriteLine("Failed to create EventHubClient: " + ex.Message);
+      }
+    }
+
 
     services.AddSingleton<IEventClient, CompositeEventClient>(svc =>
     {
