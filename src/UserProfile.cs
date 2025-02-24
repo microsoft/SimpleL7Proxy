@@ -129,25 +129,37 @@ public class UserProfile : IUserProfile
                 return;
             }
 
-            foreach (var profile in userConfig.EnumerateArray())
-            {
-                if (profile.TryGetProperty("userId", out JsonElement userIdElement))
-                {
+            var newUserProfiles = new Dictionary<string, Dictionary<string, string>>();
+            var newUserIds = new HashSet<string>();
+
+            foreach (var profile in userConfig.EnumerateArray()) {
+                if (profile.TryGetProperty("userId", out JsonElement userIdElement)) {
                     string userId = userIdElement.GetString() ?? string.Empty;
-                    if (!string.IsNullOrEmpty(userId))
-                    {
+                    if (!string.IsNullOrEmpty(userId)) {
                         Dictionary<string, string> kvPairs = new Dictionary<string, string>();
-                        foreach (var property in profile.EnumerateObject())
-                        {
-                            if (!property.Name.Equals("userId", StringComparison.OrdinalIgnoreCase))
-                            {
-                                kvPairs[property.Name] = property.Value.ToString();
+                        foreach (var property in profile.EnumerateObject()) {
+                            if (!property.Name.Equals("userId", StringComparison.OrdinalIgnoreCase)) {
+                                kvPairs[property.Name] = property.Value.ToString().Trim();
                             }
                         }
-                        userProfiles[userId] = kvPairs;
+                        newUserProfiles[userId] = kvPairs;
+                        newUserIds.Add(userId);
                     } else {
                         Console.WriteLine("User profile missing userId. Skipping...");
                     }
+                }
+            }
+
+            // Update existing profiles and add new ones
+            foreach (var kvp in newUserProfiles) {
+                userProfiles[kvp.Key] = kvp.Value;
+            }
+
+            // Remove profiles that are not in the new configuration
+            var existingUserIds = new List<string>(userProfiles.Keys);
+            foreach (var userId in existingUserIds) {
+                if (!newUserIds.Contains(userId)) {
+                    userProfiles.Remove(userId);
                 }
             }
 
