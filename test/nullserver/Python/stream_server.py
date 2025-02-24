@@ -57,39 +57,28 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("x-Random-Header", "Random-Value")
         self.send_header('Content-Type', 'text/event-stream')
         self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Transfer-Encoding', 'chunked')
         self.end_headers()
+
+        # Initialize repeat_count attribute
+        self.repeat_count = 1  # Set to desired repeat count
 
         # Stream file contents line by line with a 1-second delay
         file_path = 'stream_data.txt'
-        # Read the file into memory 
-        fd = open(file_path, 'r')
-        self.message = fd.read()
-        fd.close()
-        self.words_per_second = 20
-        self.stream_duration = 10
-
-        words = self.message.split()  # Split message into individual words
-        interval = 1 / self.words_per_second  # Calculate interval between words
-
-        start_time = time.time()  # Track when streaming starts
-        total_duration = self.stream_duration if self.stream_duration else (self.repeat_count * len(words) * interval)
-
-        # Stream each word at specified interval
-        while True:
-            for word in words:
-                # Stop if duration is exceeded
-                if self.stream_duration and (time.time() - start_time >= self.stream_duration):
-                    return
-                response_message = json.dumps({"choices": [{"delta": {"content": f"{word} "}}]})
-                self.wfile.write(f"data: {response_message}\n\n".encode('utf-8'))
+        with open(file_path, 'r') as file:
+            for line in file:
+                response_message = json.dumps({"choices": [{"delta": {"content": line.strip()}}]})
+                chunk = f"data: {response_message}\n\n".encode('utf-8')
+                chunk_length = f"{len(chunk):X}\r\n".encode('utf-8')
+                self.wfile.write(chunk_length)
+                self.wfile.write(chunk)
+                self.wfile.write(b"\r\n")
                 self.wfile.flush()
-                time.sleep(interval)
+                time.sleep(1)
 
-            # Handle message repetition logic
-            if self.repeat_count > 0:
-                self.repeat_count -= 1
-                if self.repeat_count == 0 and not self.stream_duration:
-                    break  # Stop if repeat count is exhausted and no duration set
+        # Send the zero-length chunk to indicate the end of the response
+        self.wfile.write(b"0\r\n\r\n")
+        self.wfile.flush()
 
 class ThreadedTCPServer(ThreadingMixIn, socketserver.TCPServer):
     pass
