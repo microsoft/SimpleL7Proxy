@@ -98,6 +98,7 @@ public class Program
                     options.UseProfiles = backendOptions.UseProfiles;
                     options.UserConfigUrl = backendOptions.UserConfigUrl;
                     options.UserPriorityThreshold = backendOptions.UserPriorityThreshold;
+                    options.ValidateHeaders = backendOptions.ValidateHeaders;
                     options.PriorityWorkers = backendOptions.PriorityWorkers;
                     options.Workers = backendOptions.Workers;
                 });
@@ -385,18 +386,32 @@ public class Program
     }
 
     // Converts a List<string> to a dictionary of integers.
-    private static Dictionary<int, int> KVPairs(List<string> list)
+    private static Dictionary<int, int> KVIntPairs(List<string> list)
     {
-        Dictionary<int, int> keyValuePairs = new Dictionary<int, int>();
-        foreach (var item in list)
-        {
+        Dictionary<int, int> keyValuePairs = [];
+
+        foreach (var item in list) {
             var kvp = item.Split(':');
-            if (int.TryParse(kvp[0], out int key) && int.TryParse(kvp[1], out int value))
-            {
+            if (int.TryParse(kvp[0], out int key) && int.TryParse(kvp[1], out int value)) {
                 keyValuePairs.Add(key, value);
+            } else {
+                Console.WriteLine($"Could not parse {item} as a key-value pair, ignoring");
             }
-            else
-            {
+        }
+
+        return keyValuePairs;
+    }
+
+        // Converts a List<string> to a dictionary of strings.
+    private static Dictionary<string, string> KVStringPairs(List<string> list)
+    {
+        Dictionary<string, string> keyValuePairs = [];
+
+        foreach (var item in list) {
+            var kvp = item.Split(':');
+            if (kvp.Length == 2) {
+                keyValuePairs.Add(kvp[0].Trim(), kvp[1].Trim());
+            } else{
                 Console.WriteLine($"Could not parse {item} as a key-value pair, ignoring");
             }
         }
@@ -488,7 +503,8 @@ public class Program
             UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", false),
             UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", "file:config.json"),
             UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
-            PriorityWorkers = KVPairs(toListOfString(ReadEnvironmentVariableOrDefault("PriorityWorkers", "2:1,3:1"))),
+            PriorityWorkers = KVIntPairs(toListOfString(ReadEnvironmentVariableOrDefault("PriorityWorkers", "2:1,3:1"))),
+            ValidateHeaders = KVStringPairs(toListOfString(ReadEnvironmentVariableOrDefault("ValidateHeaders", ""))),
             Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
         };
 
@@ -570,6 +586,27 @@ public class Program
                 }
             }
         }
+
+        // If validate headers are set, make sure they are also in the required headers and disallowed headers
+        if (backendOptions.ValidateHeaders.Count > 0)
+        {
+            foreach (var (key, value)  in backendOptions.ValidateHeaders) {
+                Console.WriteLine($"Validating {key} against {value}");
+                if (!backendOptions.RequiredHeaders.Contains(key)) {
+                    Console.WriteLine($"Adding {key} to RequiredHeaders");
+                    backendOptions.RequiredHeaders.Add(key);
+                }
+                if (!backendOptions.RequiredHeaders.Contains(value)) {
+                    Console.WriteLine($"Adding {value} to RequiredHeaders");
+                    backendOptions.RequiredHeaders.Add(value);
+                }
+                if (!backendOptions.DisallowedHeaders.Contains(value)) {
+                    Console.WriteLine($"Adding {value} to DisallowedHeaders");
+                    backendOptions.DisallowedHeaders.Add(value);
+                }
+            }
+        }
+
 
         Console.WriteLine("=======================================================================================");
         Console.WriteLine(" #####                                 #       ####### ");
