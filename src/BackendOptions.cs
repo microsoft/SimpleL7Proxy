@@ -19,7 +19,7 @@ public int[] AcceptableStatusCodes { get; set; } =[];
     public int PollTimeout { get; set; }
     public List<string> PriorityKeys { get; set; } = [];
     public List<int> PriorityValues { get; set; } = [];
-    public Dictionary<int, int> PriorityWorkers { get; set; } = new Dictionary<int, int>();
+    public Dictionary<int, int> PriorityWorkers { get; set; } = [];
     public List<string> RequiredHeaders { get; set; } = [];
     public int SuccessRate { get; set; }
     public int Timeout { get; set; }
@@ -31,5 +31,6 @@ public int[] AcceptableStatusCodes { get; set; } =[];
     public string UserProfileHeader { get; set; } = "";
     public string UserConfigUrl { get; set; } = "";
     public float UserPriorityThreshold { get; set; }
+    public Dictionary<string, string> ValidateHeaders { get; set; } = [];
     public int Workers { get; set; }
 }
