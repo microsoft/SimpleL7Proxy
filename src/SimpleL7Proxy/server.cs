@@ -176,7 +176,6 @@ public class Server : BackgroundService
                     int notEnquedCode = 0;
                     var retrymsg = "";
                     var logmsg = "";
-                    bool userTracked = false;
                     Dictionary<string, string> ed = [];
 
 
@@ -228,7 +227,6 @@ public class Server : BackgroundService
                             {
                                 rd.UserID = "defaultUser";
                             }
-                            Console.WriteLine("USERID : " + rd.UserID);
 
                             // Lookup the user profile and add the headers to the request
                             if (doUserProfile)
@@ -246,12 +244,11 @@ public class Server : BackgroundService
                                         }
                                     }
                                 }
-
-                                rd.Guid = _userPriority.addRequest(rd.UserID);
-                                userTracked = true;
-                                bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
-                                userPriorityBoost = shouldBoost ? 1 : 0;
                             }
+
+                            rd.Guid = _userPriority.addRequest(rd.UserID);
+                            bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
+                            userPriorityBoost = shouldBoost ? 1 : 0;
 
                             var priorityKey = rd.Headers.Get("S7PPriorityKey");
                             if (!string.IsNullOrEmpty(priorityKey) && _options.PriorityKeys.Contains(priorityKey)) //lookup the priority
@@ -361,8 +358,7 @@ public class Server : BackgroundService
                             _logger.LogError($"Pri: {priority} Stat: {notEnquedCode} Path: {rd.Path}");
                         }
 
-                        if (userTracked && !_isShuttingDown)
-                            _userPriority.removeRequest(rd.UserID, rd.Guid);
+                        _userPriority.removeRequest(rd.UserID, rd.Guid);
 
                     }
                     else
