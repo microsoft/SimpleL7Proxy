@@ -32,10 +32,22 @@ public class EventHubClient : IEventClient
             return;
         }
 
-        _producerClient = new EventHubProducerClient(connectionString, eventHubName);
-        _batchData = _producerClient.CreateBatchAsync().Result;
-        workerCancelToken = cancellationTokenSource.Token;
-        isRunning = true;
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        try
+        {
+            _producerClient = new EventHubProducerClient(connectionString, eventHubName);
+            _batchData = _producerClient.CreateBatchAsync(cts.Token).Result;
+            workerCancelToken = cancellationTokenSource.Token;
+            isRunning = true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw new TimeoutException("EventHubClient setup timed out.");
+        }
+        catch (Exception ex)
+        {
+            throw new Exception("Failed to setup EventHubClient.", ex);
+        }
     }
 
     public Task StartTimer()
