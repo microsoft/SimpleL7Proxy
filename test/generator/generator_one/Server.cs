@@ -2,6 +2,7 @@
 //using Microsoft.Azure.Amqp.Framing;
 using Microsoft.Extensions.Configuration;
 using System;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
 using System.Threading;
@@ -77,7 +78,7 @@ namespace test.generator.generator_one
             }
         }
 
-        private string GetToken()
+        private string? GetToken()
         {
             if (!string.IsNullOrEmpty(tokenStr))
             {
@@ -156,18 +157,24 @@ namespace test.generator.generator_one
                 }
                 int prevCompletes =0;
                 int reqsPerSec=0;
-                // Wait for the threads to startup... This can be improved
-                await Task.Delay(5000);
+                int[] responseStatsCopy = new int[600];
+                int[] oldResponseStats = new int[600];
+
+                // Wait for the tests to start
+                await WaitForStartup();
 
                 // Do this while there are active threads.  Each thread exits after the duration has expired
                 while (stats[0] > 0)
                 {
+                    // Make a snapshot of the response stats    
+                    Array.Copy(responseStats, responseStatsCopy, 600);
+
                     var statusCodes = "";
                     for (int i = 0; i < 600; i++)
                     {
-                        if (responseStats[i] > 0)
+                        if (responseStatsCopy[i] > 0)
                         {
-                            statusCodes += $"{i}-{responseStats[i]}, ";
+                            statusCodes += $"{i}-{responseStatsCopy[i] - oldResponseStats[i]}, ";
                         }
                     }
                     statusCodes = statusCodes.TrimEnd(',', ' ');
@@ -182,9 +189,10 @@ namespace test.generator.generator_one
                     reqsPerSec = completes - prevCompletes;
                     prevCompletes = completes;
 
-
-                    Console.WriteLine($"{DateTime.Now:HH:mm:ss} #{_testNumber}- {reqsPerSec} Reqs/Sec  Status: {statusCodes}  Timeouts: R-{receiveTimeout}, W-{sendTimeout}  Active: {stats[0]}  Snd-{stats[2]} Rx-{stats[3]}");    
+                    Console.WriteLine($"{DateTime.Now:HH:mm:ss} #{_testNumber}- {reqsPerSec} Reqs/Sec  Status: {statusCodes}  Timeouts: R-{receiveTimeout}, W-{sendTimeout}  Conns: {stats[0]} [ Snd-{stats[2]} Rx-{stats[3]} ]");    
                     //Console.WriteLine($"{DateTime.Now} Stats: Test #: {_testNumber}  Reqs/Sec: {reqsPerSec} Active Threads: {stats[0]}  Begin:{stats[1]} Send:{stats[2]} Read: {stats[3]} Dispose:{stats[4]} Sleep:{stats[5]} Rd Tx: {receiveTimeout} Wr Tx: {sendTimeout}  Codes: {s}");
+
+                    Array.Copy(responseStatsCopy, oldResponseStats, 600);
                     await Task.Delay(1000);
                 }
 
@@ -201,7 +209,17 @@ namespace test.generator.generator_one
                         Console.WriteLine($"{i} : {responseStats[i]}");
                     }
                 }
+                var successP = responseStats[200] / _testNumber;
+                reqsPerSec = _testNumber / duration;
+                var latency = latencies.Count > 0 ? latencies.Average() : 0;
+
+                // if duration is in the seconds, then display it in seconds rather than ms
+                var durationStr = duration < 1000 ? $"{duration} ms" : $"{duration / 1000} s";
                 
+                // trim the latency to seconds and 3 decimal places
+                var latencyFlt = (float)Math.Round(latency / 1000, 3);
+
+                Console.WriteLine($"{DateTime.Now:HH:mm:ss} Total Requests: {totalRequests}  Success % {successP}  {reqsPerSec} Reqs/Sec   Avg Latency: {latencyFlt} ms Total Time: {durationStr}");
 
                 // Wait for a key press to cancel
                 Console.WriteLine("\n\nPress q to exit, any other key to repeat: ");
@@ -214,6 +232,20 @@ namespace test.generator.generator_one
             }
         }
 
+        TaskCompletionSource testsStartup = new TaskCompletionSource();
+        List<float> latencies = new List<float>();
+
+        public Task WaitForStartup()
+        {
+            testsStartup = new TaskCompletionSource();
+            
+            return testsStartup.Task;
+        }
+
+        public void SignalStart() {
+            testsStartup.SetResult();
+        }
+
         private Dictionary<string, byte[]> _dataCache = new Dictionary<string, byte[]>();
 
         private async Task RunTest(CancellationToken cancellationToken, string test_endpoint, int delay, DateTime endTime)
@@ -221,6 +253,19 @@ namespace test.generator.generator_one
 
             // Count that the thread is running
             Interlocked.Increment(ref stats[0]);
+
+            // The last task to start will signal the start of testing.
+            if (stats[0] == _configBuilder.Concurrency)
+            {
+                latencies.Clear();
+                SignalStart();
+            }
+
+            while ( stats[0] < _configBuilder.Concurrency) {
+                await Task.Delay(100);
+            }
+
+            Stopwatch sw = new Stopwatch();
 
             while (!cancellationToken.IsCancellationRequested && DateTime.Now < endTime)
             {
@@ -253,6 +298,7 @@ namespace test.generator.generator_one
                                 // Request has been created
 
                                 Interlocked.Increment(ref stats[2]);
+                                sw.Restart();
                                 // Send the request
                                 using (var response = await SendRequestAsync(m, cancellationToken, test.timeout).ConfigureAwait(false))
                                 {
@@ -262,15 +308,32 @@ namespace test.generator.generator_one
                                     Interlocked.Increment(ref stats[3]);
 
                                     // timeout after test.timeout
-                                    using (var cts = new CancellationTokenSource(test.timeout.Value ))
+                                    if (test.timeout.HasValue)
                                     {
-                                        try {
-                                            var content = await Task.Run(() => response?.Content?.ReadAsStringAsync(cts.Token), cts.Token).ConfigureAwait(false) ?? "N/A";
-                                        } catch (TaskCanceledException e) {
+                                        using (var cts = new CancellationTokenSource(test.timeout.Value))
+                                        {
+                                            try
+                                            {
+                                                var content = await Task.Run(() => response?.Content?.ReadAsStringAsync(cts.Token), cts.Token).ConfigureAwait(false) ?? "N/A";
+                                            }
+                                            catch (TaskCanceledException)
+                                            {
+                                                Interlocked.Increment(ref receiveTimeout);
+                                            }
+                                        }
+                                    }
+                                    else
+                                    {
+                                        try
+                                        {
+                                            var content = await Task.Run(() => response?.Content?.ReadAsStringAsync(), cancellationToken).ConfigureAwait(false) ?? "N/A";
+                                        }
+                                        catch (TaskCanceledException)
+                                        {
                                             Interlocked.Increment(ref receiveTimeout);
                                         }
                                     }
-                                    
+
                                     Interlocked.Decrement(ref stats[3]);
 
                                     int code = (int)response.StatusCode;
@@ -289,10 +352,12 @@ namespace test.generator.generator_one
                                     Interlocked.Decrement(ref stats[4]);
 
                                 }
+                                sw.Stop();
+                                latencies.Add(sw.ElapsedMilliseconds);
 
                                 Interlocked.Decrement(ref stats[2]);
                             }
-                            catch (TaskCanceledException e)
+                            catch (TaskCanceledException)
                             {
                                 Interlocked.Increment(ref sendTimeout);
                                 //Console.WriteLine($"Test #{currentTestNumber} TaskCanceledException: {test.Name} {e.Message}");
@@ -466,10 +531,11 @@ namespace test.generator.generator_one
                 clone.Headers.TryAddWithoutValidation(header.Key, header.Value);
             }
 
-            // Copy the properties
-            foreach (var property in request.Properties)
+            // Copy the options
+            foreach (var option in request.Options)
             {
-                clone.Properties.Add(property);
+                var key = new HttpRequestOptionsKey<object>(option.Key);
+                clone.Options.Set(key, option.Value);
             }
         }
 
@@ -490,13 +556,10 @@ namespace test.generator.generator_one
             {
                 throw;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 throw;
             }
-
-            return null;
-
         }
 
         private int ParseTime(string time)

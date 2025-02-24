@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using System.Threading.Tasks;
 using Azure.Identity;
 using Azure.Core;
+using System.Linq.Expressions;
 
 
 // This code serves as the entry point for the .NET application.
@@ -51,7 +52,7 @@ public class Program
         Task? eventHubTask = null; ;
 
 
-       RegisterShutdownHandlers();
+        RegisterShutdownHandlers();
 
         // Set up logging
         using var loggerFactory = LoggerFactory.Create(builder =>
@@ -74,6 +75,7 @@ public class Program
                     options.CircuitBreakerTimeslice = backendOptions.CircuitBreakerTimeslice;
                     options.DefaultPriority = backendOptions.DefaultPriority;
                     options.DefaultTTLSecs = backendOptions.DefaultTTLSecs;
+                    options.DisallowedHeaders = backendOptions.DisallowedHeaders;
                     options.HostName = backendOptions.HostName;
                     options.Hosts = backendOptions.Hosts;
                     options.IDStr = backendOptions.IDStr;
@@ -86,8 +88,11 @@ public class Program
                     options.Port = backendOptions.Port;
                     options.PollInterval = backendOptions.PollInterval;
                     options.PollTimeout = backendOptions.PollTimeout;
+                    options.RequiredHeaders = backendOptions.RequiredHeaders;
                     options.SuccessRate = backendOptions.SuccessRate;
                     options.Timeout = backendOptions.Timeout;
+                    options.TerminationGracePeriodSeconds = backendOptions.TerminationGracePeriodSeconds;
+                    options.UniqueUserHeaders = backendOptions.UniqueUserHeaders;
                     options.UseOAuth = backendOptions.UseOAuth;
                     options.UserProfileHeader = backendOptions.UserProfileHeader;
                     options.UseProfiles = backendOptions.UseProfiles;
@@ -110,10 +115,18 @@ public class Program
                         Console.WriteLine("AppInsights initialized");
                 }
 
-                var eventHubConnectionString = OS.Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING") ?? "";
-                var eventHubName = OS.Environment.GetEnvironmentVariable("EVENTHUB_NAME") ?? "";
-                var eventHubClient = new EventHubClient(eventHubConnectionString, eventHubName);
-                eventHubTask = eventHubClient.StartTimer();   // Must shutdown after worker threads are done
+                EventHubClient? eventHubClient = null;
+                try 
+                {
+                    var eventHubConnectionString = OS.Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING") ?? "";
+                    var eventHubName = OS.Environment.GetEnvironmentVariable("EVENTHUB_NAME") ?? "";
+                    eventHubClient= new EventHubClient(eventHubConnectionString, eventHubName);
+                    eventHubTask = eventHubClient.StartTimer();   // Must shutdown after worker threads are done
+                }
+                catch(Exception ex) {
+                    Console.WriteLine($"Failed to initialize EventHubClient: {ex.Message}");
+                    System.Environment.Exit(1);
+                }
 
                 services.AddSingleton<IEventHubClient>(provider => eventHubClient);
                 //services.AddHttpLogging(o => { });
@@ -137,14 +150,6 @@ public class Program
             });
 
         var frameworkHost = hostBuilder.Build();
-
-        //var lifetime = frameworkHost.Services.GetRequiredService<IHostApplicationLifetime>();
-        // lifetime.ApplicationStopping.Register(() =>
-        // {
-        //     cancellationTokenSource.Cancel();
-        //     Console.WriteLine("Shutting down...");
-        // });
-
         var serviceProvider = frameworkHost.Services;
 
         backends = serviceProvider.GetRequiredService<IBackendService>();
@@ -172,34 +177,34 @@ public class Program
             var queue = server.Start(cancellationToken);
             queue.StartSignaler(cancellationToken);
 
-            var workerPriorities = new Dictionary<int, int>();
-            int workerPriority = Constants.AnyPriority;
+            var workerPriorities = new Dictionary<int, int>(backendOptions.PriorityWorkers);
+            int workerPriority;
+            Console.WriteLine($"Worker Priorities: {string.Join(",", workerPriorities)}");
 
-            foreach (var kvp in backendOptions.PriorityWorkers)
-            {
-                workerPriorities.Add(kvp.Key, kvp.Value);
-            }
-
-            // Startup a probe worker: worker ID 0
-            // startup Worker # of tasks
+            // The loop creates a number of workers based on backendOptions.Workers.
+            // The first worker (wrkrNum == 0) is always a probe worker with priority 0.
+            // Subsequent workers are assigned priorities based on the available counts in workerPriorities.
+            // If no specific priority is available, the worker is assigned a fallback priority (Constants.AnyPriority).
             for (int wrkrNum = 0; wrkrNum <= backendOptions.Workers; wrkrNum++)
             {
-                // get the priority for this worker
-                if ( wrkrNum == 0 )
-                    workerPriority = 0;
-                else 
-                  workerPriority = Constants.AnyPriority;
-
-                foreach (var kvp in workerPriorities)
+                // Determine the priority for this worker
+                if (wrkrNum == 0)
                 {
-                    if (kvp.Value > 0)
+                    workerPriority = 0; // Probe worker
+                }
+                else
+                {
+                    workerPriority = workerPriorities.FirstOrDefault(kvp => kvp.Value > 0).Key;
+                    if (workerPriority != 0)
                     {
-                        workerPriority = kvp.Key;
-                        workerPriorities[kvp.Key] = kvp.Value - 1;
-                        break;
+                        workerPriorities[workerPriority]--;
+                    }
+                    else
+                    {
+                        workerPriority = Constants.AnyPriority;
                     }
                 }
-                var pw = new ProxyWorker(cancellationToken, wrkrNum, workerPriority, queue, backendOptions, 
+                var pw = new ProxyWorker(cancellationToken, wrkrNum, workerPriority, queue, backendOptions,
                                          userPriority, userProfile, backends, eventHubClient, telemetryClient);
                 allTasks.Add(Task.Run(() => pw.TaskRunner(), cancellationToken));
             }
@@ -216,7 +221,8 @@ public class Program
             ListenerTask = server.Run();
 
             // Shutdown() will call Stop on the eventHubClient
-            if (eventHubTask != null) {
+            if (eventHubTask != null)
+            {
                 await eventHubTask.ConfigureAwait(false);
             }
 
@@ -269,7 +275,7 @@ public class Program
             await HandleShutdown();
         };
     }
-    
+
     private static async Task Shutdown()
     {
         // ######## BEGIN SHUTDOWN SEQUENCE ########
@@ -284,7 +290,7 @@ public class Program
 
         if (server != null)
             server.Queue().Stop();
-            
+
         var timeoutTask = Task.Delay(terminationGracePeriodSeconds * 1000);
         var allTasksComplete = Task.WhenAll(allTasks);
         var completedTask = await Task.WhenAny(allTasksComplete, timeoutTask);
@@ -298,17 +304,11 @@ public class Program
         }
 
         backends?.Stop(); // Stop the backend pollers
-        if (backendPollerTask != null) {
+        if (backendPollerTask != null)
+        {
             await backendPollerTask.ConfigureAwait(false);
         }
         eventHubClient?.SendData($"Workers Stopped:   {ProxyWorker.GetState()}");
-
-        //  Test code to validate the hub gets emptied on shutdown
-        // for (var ii = 0; ii < 1000; ii++)
-        // {
-        //     eventHubClient.SendData($"Server shutting down - {ii}");
-        // }
-
         eventHubClient?.StopTimer();
     }
 
@@ -316,7 +316,8 @@ public class Program
     // If the environment variable is not set, it returns the provided default value.
     private static int ReadEnvironmentVariableOrDefault(string variableName, int defaultValue)
     {
-        if (!int.TryParse(OS.Environment.GetEnvironmentVariable(variableName), out var value))
+        var envValue = Environment.GetEnvironmentVariable(variableName);
+        if (!int.TryParse(envValue, out var value))
         {
             Console.WriteLine($"Using default: {variableName}: {defaultValue}");
             return defaultValue;
@@ -328,15 +329,18 @@ public class Program
     // If the environment variable is not set, it returns the provided default value.
     private static int[] ReadEnvironmentVariableOrDefault(string variableName, int[] defaultValues)
     {
-        string s = ReadEnvironmentVariableOrDefault(variableName, "");
-        if (string.IsNullOrEmpty(s))
+        var envValue = Environment.GetEnvironmentVariable(variableName);
+        if (string.IsNullOrEmpty(envValue))
         {
             Console.WriteLine($"Using default: {variableName}: {string.Join(",", defaultValues)}");
             return defaultValues;
         }
-        try {
-            return s.Split(',').Select(int.Parse).ToArray();
-        } catch (Exception ) {
+        try
+        {
+            return envValue.Split(',').Select(int.Parse).ToArray();
+        }
+        catch (Exception)
+        {
             Console.WriteLine($"Could not parse {variableName} as an integer array, using default: {string.Join(",", defaultValues)}");
             return defaultValues;
         }
@@ -346,7 +350,8 @@ public class Program
     // If the environment variable is not set, it returns the provided default value.
     private static float ReadEnvironmentVariableOrDefault(string variableName, float defaultValue)
     {
-        if (!float.TryParse(OS.Environment.GetEnvironmentVariable(variableName), out var value))
+        var envValue = Environment.GetEnvironmentVariable(variableName);
+        if (!float.TryParse(envValue, out var value))
         {
             Console.WriteLine($"Using default: {variableName}: {defaultValue}");
             return defaultValue;
@@ -376,7 +381,7 @@ public class Program
             Console.WriteLine($"Using default: {variableName}: {defaultValue}");
             return defaultValue;
         }
-        return envValue.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true ? true : false;
+        return envValue.Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
     }
 
     // Converts a List<string> to a dictionary of integers.
@@ -402,7 +407,10 @@ public class Program
     // Converts a comma-separated string to a list of strings.
     private static List<string> toListOfString(string s)
     {
-        return s.Split(',').Select(p => p.Trim()).ToList();
+        if (String.IsNullOrEmpty(s))
+            return [];
+
+        return [.. s.Split(',').Select(p => p.Trim())];
     }
 
     // Converts a comma-separated string to a list of integers.
@@ -439,7 +447,7 @@ public class Program
 
         // Initialize HttpClient and configure it to ignore SSL certificate errors if specified in environment variables.
         HttpClient _client = new HttpClient();
-        if (Environment.GetEnvironmentVariable("IgnoreSSLCert")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true)
+        if (ReadEnvironmentVariableOrDefault("IgnoreSSLCert", false))
         {
             var handler = new HttpClientHandler();
             handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
@@ -457,20 +465,24 @@ public class Program
             CircuitBreakerTimeslice = ReadEnvironmentVariableOrDefault("CBTimeslice", 60),
             DefaultPriority = ReadEnvironmentVariableOrDefault("DefaultPriority", 2),
             DefaultTTLSecs = ReadEnvironmentVariableOrDefault("DefaultTTLSecs", 300),
+            DisallowedHeaders = toListOfString(ReadEnvironmentVariableOrDefault("DisallowedHeaders", "")),
             HostName = ReadEnvironmentVariableOrDefault("Hostname", "Default"),
             Hosts = new List<BackendHost>(),
-            IDStr = ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P") + "-" + replicaID + "-",
-            LogHeaders = ReadEnvironmentVariableOrDefault("LogHeaders", "").Split(',').Select(x => x.Trim()).ToList(),
+            IDStr = $"{ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P")}-{replicaID}-",
+            LogHeaders = toListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
             LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", false),
             MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
             OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
-            Port = ReadEnvironmentVariableOrDefault("Port", 443),
+            Port = ReadEnvironmentVariableOrDefault("Port", 80),
             PollInterval = ReadEnvironmentVariableOrDefault("PollInterval", 15000),
             PollTimeout = ReadEnvironmentVariableOrDefault("PollTimeout", 3000),
             PriorityKeys = toListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
             PriorityValues = toListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
+            RequiredHeaders = toListOfString(ReadEnvironmentVariableOrDefault("RequiredHeaders", "")),
             SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
             Timeout = ReadEnvironmentVariableOrDefault("Timeout", 3000),
+            TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
+            UniqueUserHeaders = toListOfString(ReadEnvironmentVariableOrDefault("UniqueUserHeaders", "X-UserID")),
             UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", false),
             UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", "X-UserProfile"),
             UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", false),
@@ -529,7 +541,7 @@ public class Program
         }
 
         // confirm that the PriorityWorkers Key's have a corresponding priority keys
-        int workerAllocation=0;
+        int workerAllocation = 0;
         foreach (var key in backendOptions.PriorityWorkers.Keys)
         {
             if (!(backendOptions.PriorityValues.Contains(key) || key == backendOptions.DefaultPriority))
@@ -538,13 +550,26 @@ public class Program
             }
             workerAllocation += backendOptions.PriorityWorkers[key];
         }
-        
+
         if (workerAllocation > backendOptions.Workers)
         {
             Console.WriteLine($"WARNING: Worker allocation exceeds total number of workers:{workerAllocation} > {backendOptions.Workers}");
             Console.WriteLine($"Adjusting total number of workers to {workerAllocation}. Fix PriorityWorkers if it isn't what you want.");
             backendOptions.Workers = workerAllocation;
-        }    
+        }
+
+        if (backendOptions.UniqueUserHeaders.Count > 0)
+        {
+            // Make sure that uniqueUserHeaders are also in the required headers
+            foreach (var header in backendOptions.UniqueUserHeaders)
+            {
+                if (!backendOptions.RequiredHeaders.Contains(header))
+                {
+                    Console.WriteLine($"Adding {header} to RequiredHeaders");
+                    backendOptions.RequiredHeaders.Add(header);
+                }
+            }
+        }
 
         Console.WriteLine("=======================================================================================");
         Console.WriteLine(" #####                                 #       ####### ");

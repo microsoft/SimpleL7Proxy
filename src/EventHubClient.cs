@@ -8,8 +8,8 @@ using System.Text.Json;
 public class EventHubClient : IEventHubClient
 {
 
-    private EventHubProducerClient? producerClient;
-    private EventDataBatch? batchData;
+    private EventHubProducerClient? _producerClient;
+    private EventDataBatch? _batchData;
     private CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
     private CancellationToken workerCancelToken;
     private bool isRunning = false;
@@ -26,21 +26,34 @@ public class EventHubClient : IEventHubClient
         if (string.IsNullOrEmpty(connectionString) || string.IsNullOrEmpty(eventHubName))
         {
             isRunning = false;
-            producerClient = null;
-            batchData = null;
+            _producerClient = null;
+            _batchData = null;
             return;
         }
 
-        producerClient = new EventHubProducerClient(connectionString, eventHubName);
-        batchData = producerClient.CreateBatchAsync().Result;
-        workerCancelToken = cancellationTokenSource.Token;
-        isRunning = true;
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        try
+        {
+            _producerClient = new EventHubProducerClient(connectionString, eventHubName);
+            _batchData = _producerClient.CreateBatchAsync(cts.Token).Result;
+            workerCancelToken = cancellationTokenSource.Token;
+            isRunning = true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw new TimeoutException("EventHubClient setup timed out.");
+        }
+        catch (Exception ex)
+        {
+            throw new Exception("Failed to setup EventHubClient.", ex);
+        }
+
     }
 
     public Task StartTimer()
     {
 
-        if (isRunning && producerClient is not null && batchData is not null)
+        if (isRunning && _producerClient is not null && _batchData is not null)
         {
             writerTask = Task.Run(() => EventWriter(workerCancelToken));
             return writerTask;
@@ -51,7 +64,7 @@ public class EventHubClient : IEventHubClient
 
     public async Task EventWriter(CancellationToken token)
     {
-        if (batchData is null || producerClient is null)
+        if (_batchData is null || _producerClient is null)
             return;
 
 
@@ -62,8 +75,8 @@ public class EventHubClient : IEventHubClient
             {
                 if (GetNextBatch(99) > 0)
                 {
-                    await producerClient.SendAsync(batchData).ConfigureAwait(false);
-                    batchData = await producerClient.CreateBatchAsync().ConfigureAwait(false);
+                    await _producerClient.SendAsync(_batchData).ConfigureAwait(false);
+                    _batchData = await _producerClient.CreateBatchAsync().ConfigureAwait(false);
                 }
 
                 if (!isShuttingDown) {
@@ -84,7 +97,7 @@ public class EventHubClient : IEventHubClient
             {
                 if (GetNextBatch(99) > 0)
                 {
-                    await producerClient.SendAsync(batchData).ConfigureAwait(false);
+                    await _producerClient.SendAsync(_batchData).ConfigureAwait(false);
                 }
                 else
                 {
@@ -94,14 +107,14 @@ public class EventHubClient : IEventHubClient
 
             await Task.Delay(500).ConfigureAwait(false); // Wait for 1/2 second
             // make sure event hub client is closed
-            await producerClient.CloseAsync().ConfigureAwait(false);
+            await _producerClient.CloseAsync().ConfigureAwait(false);
         }
     }
 
     // Add the log to the batch up to count number at a time
     private int GetNextBatch(int count)
     {
-        if (batchData is null)
+        if (_batchData is null)
             return 0;
 
         int initialCount = count;
@@ -113,7 +126,7 @@ public class EventHubClient : IEventHubClient
                 break;
             }
 
-            if (batchData.TryAdd(new EventData(Encoding.UTF8.GetBytes(log))))
+            if (_batchData.TryAdd(new EventData(Encoding.UTF8.GetBytes(log))))
             {
                 Interlocked.Decrement(ref entryCount);
             }
@@ -124,7 +137,7 @@ public class EventHubClient : IEventHubClient
             }
         }
 
-        return batchData.Count;
+        return _batchData.Count;
     }
 
     public void StopTimer()

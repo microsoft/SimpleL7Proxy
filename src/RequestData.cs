@@ -50,18 +50,6 @@ public class RequestData : IDisposable, IAsyncDisposable
         Debug = false;
         MID = mid;
     }
-    public RequestData (string path) {
-        Path = path;
-        Method = "GET";
-        Headers = new WebHeaderCollection();
-        Body = null;
-        Context = null;
-        Timestamp = DateTime.UtcNow;
-        EnqueueTime = DateTime.UtcNow;
-        FullURL = "";
-        Debug = false;
-        MID = "";
-    }
 
     public async Task<byte[]> CachBodyAsync() {
 
