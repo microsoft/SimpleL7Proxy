@@ -95,7 +95,9 @@ public class Program
                 services.AddBackendHostConfiguration(startupLogger);
 
                 services.AddSingleton<IUserPriorityService, UserPriority>();
-                services.AddSingleton<IUserProfileService, UserProfile>();
+                services.AddSingleton<UserProfile>();
+                services.AddSingleton<IUserProfileService>(provider => provider.GetRequiredService<UserProfile>());
+
                 services.AddSingleton<IBackendService, Backends>();
                 services.AddSingleton<Server>();
                 services.AddSingleton<ConcurrentSignal<RequestData>>();
@@ -107,9 +109,13 @@ public class Program
 //                services.AddHostedService<Server>();
                 services.AddHostedService<ProxyWorkerCollection>();
                 services.AddTransient(source => new CancellationTokenSource());
-
                 // register the shutdown service
                 services.AddHostedService<CoordinatedShutdownService>();
+
+                // Initialize User Profiles
+                services.AddHostedService<UserProfile>(provider => provider.GetRequiredService<UserProfile>());
+//                services.AddHostedService<UserProfile>(provider => provider.GetRequiredService<UserProfile>());
+
             });
 
         var frameworkHost = hostBuilder.Build();
