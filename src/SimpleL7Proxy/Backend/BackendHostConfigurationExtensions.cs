@@ -49,6 +49,7 @@ public static class BackendHostConfigurationExtensions
       options.UseProfiles = backendOptions.UseProfiles;
       options.UserConfigUrl = backendOptions.UserConfigUrl;
       options.UserPriorityThreshold = backendOptions.UserPriorityThreshold;
+      options.ValidateHeaders = backendOptions.ValidateHeaders;
       options.PriorityWorkers = backendOptions.PriorityWorkers;
       options.Workers = backendOptions.Workers;
     });
@@ -129,24 +130,38 @@ public static class BackendHostConfigurationExtensions
   }
 
   // Converts a List<string> to a dictionary of integers.
-  private static Dictionary<int, int> KVPairs(List<string> list)
-  {
-    Dictionary<int, int> keyValuePairs = new Dictionary<int, int>();
-    foreach (var item in list)
+    private static Dictionary<int, int> KVIntPairs(List<string> list)
     {
-      var kvp = item.Split(':');
-      if (int.TryParse(kvp[0], out int key) && int.TryParse(kvp[1], out int value))
-      {
-        keyValuePairs.Add(key, value);
-      }
-      else
-      {
-        _logger?.LogWarning($"Could not parse {item} as a key-value pair, ignoring");
-      }
+        Dictionary<int, int> keyValuePairs = [];
+
+        foreach (var item in list) {
+            var kvp = item.Split(':');
+            if (int.TryParse(kvp[0], out int key) && int.TryParse(kvp[1], out int value)) {
+                keyValuePairs.Add(key, value);
+            } else {
+                Console.WriteLine($"Could not parse {item} as a key-value pair, ignoring");
+            }
+        }
+
+        return keyValuePairs;
     }
 
-    return keyValuePairs;
-  }
+    // Converts a List<string> to a dictionary of stgrings.
+    private static Dictionary<string, string> KVStringPairs(List<string> list)
+    {
+        Dictionary<string, string> keyValuePairs = [];
+
+        foreach (var item in list) {
+            var kvp = item.Split(':');
+            if (kvp.Length == 2) {
+                keyValuePairs.Add(kvp[0].Trim(), kvp[1].Trim());
+            } else{
+                Console.WriteLine($"Could not parse {item} as a key-value pair, ignoring");
+            }
+        }
+
+        return keyValuePairs;
+    }
 
   // Converts a comma-separated string to a list of strings.
   private static List<string> ToListOfString(string s)
@@ -247,7 +262,8 @@ public static class BackendHostConfigurationExtensions
       UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", false),
       UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", "file:config.json"),
       UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
-      PriorityWorkers = KVPairs(ToListOfString(ReadEnvironmentVariableOrDefault("PriorityWorkers", "2:1,3:1"))),
+      PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault("PriorityWorkers", "2:1,3:1"))),
+      ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault("ValidateHeaders", ""))),
       Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
     };
 
@@ -314,6 +330,42 @@ public static class BackendHostConfigurationExtensions
       Console.WriteLine($"Adjusting total number of workers to {workerAllocation}. Fix PriorityWorkers if it isn't what you want.");
       backendOptions.Workers = workerAllocation;
     }
+
+    if (backendOptions.UniqueUserHeaders.Count > 0)
+    {
+      // Make sure that uniqueUserHeaders are also in the required headers
+      foreach (var header in backendOptions.UniqueUserHeaders)
+      {
+        if (!backendOptions.RequiredHeaders.Contains(header))
+        {
+          Console.WriteLine($"Adding {header} to RequiredHeaders");
+          backendOptions.RequiredHeaders.Add(header);
+        }
+      }
+    }
+    
+    // If validate headers are set, make sure they are also in the required headers and disallowed headers
+    if (backendOptions.ValidateHeaders.Count > 0)
+    {
+        foreach (var (key, value)  in backendOptions.ValidateHeaders) {
+            Console.WriteLine($"Validating {key} against {value}");
+            if (!backendOptions.RequiredHeaders.Contains(key)) {
+                Console.WriteLine($"Adding {key} to RequiredHeaders");
+                backendOptions.RequiredHeaders.Add(key);
+            }
+            if (!backendOptions.RequiredHeaders.Contains(value)) {
+                Console.WriteLine($"Adding {value} to RequiredHeaders");
+                backendOptions.RequiredHeaders.Add(value);
+            }
+            if (!backendOptions.DisallowedHeaders.Contains(value)) {
+                Console.WriteLine($"Adding {value} to DisallowedHeaders");
+                backendOptions.DisallowedHeaders.Add(value);
+            }
+        }
+    }
+
+
+
     return backendOptions;
   }
 
