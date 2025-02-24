@@ -20,7 +20,6 @@ Collecting workspace information
    - Use PascalCase for class names, method names, and properties.
    - Use camelCase for local variables and method parameters.
    - Prefix private fields with an underscore (`_`).
-   - use greek mythology themed variable names
 
 2. **Braces and Indentation:**
    - Use K&R style braces (opening brace on the same line as the statement).
