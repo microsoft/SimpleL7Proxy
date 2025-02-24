@@ -58,6 +58,7 @@ public interface IBackendOptions
     string UserProfileHeader { get; set; }
     string UserConfigUrl { get; set; }
     float UserPriorityThreshold { get; set; }
+    Dictionary<string, string> ValidateHeaders { get; set; }
     int Workers { get; set; }
 }
 
