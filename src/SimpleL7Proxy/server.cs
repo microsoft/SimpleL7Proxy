@@ -202,36 +202,18 @@ public class Server : BackgroundService
                     {
                         try 
                         {
-                            // Check for any required headers
-                            if (_options.RequiredHeaders.Count > 0) {
-                                foreach (var header in _options.RequiredHeaders)
-                                {
-                                    if (String.IsNullOrEmpty(rd.Headers[header])) {
-                                        throw new ProxyErrorException(ProxyErrorException.ErrorType.IncompleteHeaders, 
-                                                                      HttpStatusCode.ExpectationFailed, 
-                                                                      "Required Header missing: " + header );
-                                    }   
-                                }
-                            }
-
-                            rd.UserID = "";
-
-                            // Determine priority boost based on the userid headers
-                            if (_options.UniqueUserHeaders.Count > 0) {
-                                foreach (var header in _options.UniqueUserHeaders) {
-                                    rd.UserID += rd.Headers[header] ?? "";
-                                }
-                            }
-
-                            if ( String.IsNullOrEmpty( rd.UserID ))
+                            // Remove any disallowed headers
+                            foreach (var header in _options.DisallowedHeaders)
                             {
-                                rd.UserID = "defaultUser";
+                                rd.Headers.Remove(header);   
                             }
+                            
+                            rd.UserID = "";
 
                             // Lookup the user profile and add the headers to the request
                             if (doUserProfile)
                             {
-                                var requestUser = rd.Headers.Get(_options.UserProfileHeader);
+                                var requestUser = rd.Headers[_options.UserProfileHeader];
                                 if (!string.IsNullOrEmpty(requestUser))
                                 {
                                     var headers = _userProfiles.GetUserProfile(requestUser);
@@ -241,11 +223,59 @@ public class Server : BackgroundService
                                         foreach (var header in headers)
                                         {
                                             rd.Headers.Set(header.Key, header.Value);
+                                            //Console.WriteLine($"User profile header {header.Key} = {header.Value} added to request.");
                                         }
                                     }
                                 }
                             }
 
+                            // Check for any required headers
+                            if (_options.RequiredHeaders.Count > 0)
+                            {
+                                var missing = _options.RequiredHeaders.FirstOrDefault(x => string.IsNullOrEmpty(rd.Headers[x]));
+                                if (!string.IsNullOrEmpty(missing)) {
+                                    throw new ProxyErrorException(
+                                        ProxyErrorException.ErrorType.IncompleteHeaders,
+                                        HttpStatusCode.ExpectationFailed,
+                                        "Required header is missing: " + missing
+                                    );
+                                }
+                            }
+
+                            // Check for any validate headers  ( both fields have been checked for existance )
+                            if (_options.ValidateHeaders.Count > 0)
+                            {
+                                foreach (var header in _options.ValidateHeaders)
+                                {
+                                    // Check that the header exists in the destination header
+                                    var lookup = rd.Headers[header.Key]!.Trim();
+                                    List<string> values = [.. rd.Headers[header.Value]!.Split(',')];
+                                    if (!values.Contains(lookup))
+                                    {
+                                        throw new ProxyErrorException(
+                                            ProxyErrorException.ErrorType.InvalidHeader,
+                                            HttpStatusCode.ExpectationFailed,
+                                            "Validation check failed for header: " + header.Key
+                                        );
+                                    }
+                                }
+                            }
+
+                            // Determine priority boost based on the UserID 
+                            if (_options.UniqueUserHeaders.Count > 0)
+                            {
+                                foreach (var header in _options.UniqueUserHeaders)
+                                {
+                                    rd.UserID += rd.Headers[header] ?? "";
+                                }
+                            }
+
+                            if (String.IsNullOrEmpty(rd.UserID))
+                            {
+                                rd.UserID = "defaultUser";
+                            }
+
+                            // Determine priority boost based on the UserID
                             rd.Guid = _userPriority.addRequest(rd.UserID);
                             bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
                             userPriorityBoost = shouldBoost ? 1 : 0;
@@ -369,7 +399,7 @@ public class Server : BackgroundService
                         ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
                         ed["Priority"] = priority.ToString();
 
-                        _logger.LogInformation($"Enque Pri: {priority} Queue: {_requestsQueue.thrdSafeCount} CB: {_backends.CheckFailedStatus()} Hosts: {_backends.ActiveHostCount()} ", ed);
+                        _logger.LogInformation($"Enque Pri: {priority}, User: {rd.UserID}, Queue: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ", ed);
                     }
                 }
                 else
