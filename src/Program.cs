@@ -98,6 +98,7 @@ public class Program
                     options.UseProfiles = backendOptions.UseProfiles;
                     options.UserConfigUrl = backendOptions.UserConfigUrl;
                     options.UserPriorityThreshold = backendOptions.UserPriorityThreshold;
+                    options.ValidateHeaders = backendOptions.ValidateHeaders;
                     options.PriorityWorkers = backendOptions.PriorityWorkers;
                     options.Workers = backendOptions.Workers;
                 });
@@ -385,18 +386,32 @@ public class Program
     }
 
     // Converts a List<string> to a dictionary of integers.
-    private static Dictionary<int, int> KVPairs(List<string> list)
+    private static Dictionary<int, int> KVIntPairs(List<string> list)
     {
-        Dictionary<int, int> keyValuePairs = new Dictionary<int, int>();
-        foreach (var item in list)
-        {
+        Dictionary<int, int> keyValuePairs = [];
+
+        foreach (var item in list) {
             var kvp = item.Split(':');
-            if (int.TryParse(kvp[0], out int key) && int.TryParse(kvp[1], out int value))
-            {
+            if (int.TryParse(kvp[0], out int key) && int.TryParse(kvp[1], out int value)) {
                 keyValuePairs.Add(key, value);
+            } else {
+                Console.WriteLine($"Could not parse {item} as a key-value pair, ignoring");
             }
-            else
-            {
+        }
+
+        return keyValuePairs;
+    }
+
+    // Converts a List<string> to a dictionary of stgrings.
+    private static Dictionary<string, string> KVStringPairs(List<string> list)
+    {
+        Dictionary<string, string> keyValuePairs = [];
+
+        foreach (var item in list) {
+            var kvp = item.Split(':');
+            if (kvp.Length == 2) {
+                keyValuePairs.Add(kvp[0].Trim(), kvp[1].Trim());
+            } else{
                 Console.WriteLine($"Could not parse {item} as a key-value pair, ignoring");
             }
         }
@@ -405,7 +420,7 @@ public class Program
     }
 
     // Converts a comma-separated string to a list of strings.
-    private static List<string> toListOfString(string s)
+    private static List<string> ToListOfString(string s)
     {
         if (String.IsNullOrEmpty(s))
             return [];
@@ -414,7 +429,7 @@ public class Program
     }
 
     // Converts a comma-separated string to a list of integers.
-    private static List<int> toListOfInt(string s)
+    private static List<int> ToListOfInt(string s)
     {
 
         // parse each value in the list
@@ -465,30 +480,31 @@ public class Program
             CircuitBreakerTimeslice = ReadEnvironmentVariableOrDefault("CBTimeslice", 60),
             DefaultPriority = ReadEnvironmentVariableOrDefault("DefaultPriority", 2),
             DefaultTTLSecs = ReadEnvironmentVariableOrDefault("DefaultTTLSecs", 300),
-            DisallowedHeaders = toListOfString(ReadEnvironmentVariableOrDefault("DisallowedHeaders", "")),
+            DisallowedHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("DisallowedHeaders", "")),
             HostName = ReadEnvironmentVariableOrDefault("Hostname", "Default"),
             Hosts = new List<BackendHost>(),
             IDStr = $"{ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P")}-{replicaID}-",
-            LogHeaders = toListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
+            LogHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
             LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", false),
             MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
             OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
             Port = ReadEnvironmentVariableOrDefault("Port", 80),
             PollInterval = ReadEnvironmentVariableOrDefault("PollInterval", 15000),
             PollTimeout = ReadEnvironmentVariableOrDefault("PollTimeout", 3000),
-            PriorityKeys = toListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
-            PriorityValues = toListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
-            RequiredHeaders = toListOfString(ReadEnvironmentVariableOrDefault("RequiredHeaders", "")),
+            PriorityKeys = ToListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
+            PriorityValues = ToListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
+            RequiredHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("RequiredHeaders", "")),
             SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
             Timeout = ReadEnvironmentVariableOrDefault("Timeout", 3000),
             TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
-            UniqueUserHeaders = toListOfString(ReadEnvironmentVariableOrDefault("UniqueUserHeaders", "X-UserID")),
+            UniqueUserHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("UniqueUserHeaders", "X-UserID")),
             UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", false),
             UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", "X-UserProfile"),
             UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", false),
             UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", "file:config.json"),
             UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
-            PriorityWorkers = KVPairs(toListOfString(ReadEnvironmentVariableOrDefault("PriorityWorkers", "2:1,3:1"))),
+            PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault("PriorityWorkers", "2:1,3:1"))),
+            ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault("ValidateHeaders", ""))),
             Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
         };
 
@@ -560,13 +576,33 @@ public class Program
 
         if (backendOptions.UniqueUserHeaders.Count > 0)
         {
-            // Make sure that uniqueUserHeaders are also in the required headers
-            foreach (var header in backendOptions.UniqueUserHeaders)
+        // Make sure that uniqueUserHeaders are also in the required headers
+        foreach (var header in backendOptions.UniqueUserHeaders)
+        {
+            if (!backendOptions.RequiredHeaders.Contains(header))
             {
-                if (!backendOptions.RequiredHeaders.Contains(header))
-                {
-                    Console.WriteLine($"Adding {header} to RequiredHeaders");
-                    backendOptions.RequiredHeaders.Add(header);
+            Console.WriteLine($"Adding {header} to RequiredHeaders");
+            backendOptions.RequiredHeaders.Add(header);
+            }
+        }
+        }
+
+        // If validate headers are set, make sure they are also in the required headers and disallowed headers
+        if (backendOptions.ValidateHeaders.Count > 0)
+        {
+            foreach (var (key, value)  in backendOptions.ValidateHeaders) {
+                Console.WriteLine($"Validating {key} against {value}");
+                if (!backendOptions.RequiredHeaders.Contains(key)) {
+                    Console.WriteLine($"Adding {key} to RequiredHeaders");
+                    backendOptions.RequiredHeaders.Add(key);
+                }
+                if (!backendOptions.RequiredHeaders.Contains(value)) {
+                    Console.WriteLine($"Adding {value} to RequiredHeaders");
+                    backendOptions.RequiredHeaders.Add(value);
+                }
+                if (!backendOptions.DisallowedHeaders.Contains(value)) {
+                    Console.WriteLine($"Adding {value} to DisallowedHeaders");
+                    backendOptions.DisallowedHeaders.Add(value);
                 }
             }
         }

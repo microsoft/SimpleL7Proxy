@@ -145,6 +145,33 @@ public class Server : IServer
                     {
                         try
                         {
+                            // Remove any disallowed headers
+                            foreach (var header in _options.DisallowedHeaders)
+                            {
+                                rd.Headers.Remove(header);   
+                            }
+                            
+                            rd.UserID = "";
+
+                            // Lookup the user profile and add the headers to the request
+                            if (doUserProfile)
+                            {
+                                var requestUser = rd.Headers[_options.UserProfileHeader];
+                                if (!string.IsNullOrEmpty(requestUser))
+                                {
+                                    var headers = _userProfile.GetUserProfile(requestUser);
+
+                                    if (headers != null)
+                                    {
+                                        foreach (var header in headers)
+                                        {
+                                            rd.Headers.Set(header.Key, header.Value);
+                                            //Console.WriteLine($"User profile header {header.Key} = {header.Value} added to request.");
+                                        }
+                                    }
+                                }
+                            }
+
                             // Check for any required headers
                             if (_options.RequiredHeaders.Count > 0)
                             {
@@ -158,15 +185,26 @@ public class Server : IServer
                                 }
                             }
 
-                            // Remove any disallowed headers
-                            foreach (var header in _options.DisallowedHeaders)
+                            // Check for any validate headers  ( both fields have been checked for existance )
+                            if (_options.ValidateHeaders.Count > 0)
                             {
-                                rd.Headers.Remove(header);   
+                                foreach (var header in _options.ValidateHeaders)
+                                {
+                                    // Check that the header exists in the destination header
+                                    var lookup = rd.Headers[header.Key]!.Trim();
+                                    List<string> values = [.. rd.Headers[header.Value]!.Split(',')];
+                                    if (!values.Contains(lookup))
+                                    {
+                                        throw new ProxyErrorException(
+                                            ProxyErrorException.ErrorType.InvalidHeader,
+                                            HttpStatusCode.ExpectationFailed,
+                                            "Validation check failed for header: " + header.Key
+                                        );
+                                    }
+                                }
                             }
-                            
-                            rd.UserID = "";
 
-                            // Determine priority boost based on the userid headers
+                            // Determine priority boost based on the UserID 
                             if (_options.UniqueUserHeaders.Count > 0)
                             {
                                 foreach (var header in _options.UniqueUserHeaders)
@@ -180,27 +218,10 @@ public class Server : IServer
                                 rd.UserID = "defaultUser";
                             }
 
-                            // Lookup the user profile and add the headers to the request
-                            if (doUserProfile)
-                            {
-                                var requestUser = rd.Headers.Get(_options.UserProfileHeader);
-                                if (!string.IsNullOrEmpty(requestUser))
-                                {
-                                    var headers = _userProfile.GetUserProfile(requestUser);
-
-                                    if (headers != null)
-                                    {
-                                        foreach (var header in headers)
-                                        {
-                                            rd.Headers.Set(header.Key, header.Value);
-                                        }
-                                    }
-                                }
-
-                                rd.Guid = _userPriority.addRequest(rd.UserID);
-                                bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
-                                userPriorityBoost = shouldBoost ? 1 : 0;
-                            }
+                            // Determine priority boost based on the UserID
+                            rd.Guid = _userPriority.addRequest(rd.UserID);
+                            bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
+                            userPriorityBoost = shouldBoost ? 1 : 0;
 
                             var priorityKey = rd.Headers.Get("S7PPriorityKey");
                             if (!string.IsNullOrEmpty(priorityKey) && _options.PriorityKeys.Contains(priorityKey)) //lookup the priority
