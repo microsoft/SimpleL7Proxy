@@ -11,7 +11,7 @@ public class BackendOptions
     public string HostName { get; set; } = "";
     public List<BackendHostConfig> Hosts { get; set; } = [];
     public string IDStr { get; set; } = "S7P";
-    public List<string> LogHeaders { get; set; } = new List<string>();
+    public List<string> LogHeaders { get; set; } = [];
     public bool LogProbes { get; set; }
     public int MaxQueueLength { get; set; }
     public string OAuthAudience { get; set; } = "";
