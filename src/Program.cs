@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using System.Threading.Tasks;
 using Azure.Identity;
 using Azure.Core;
+using System.Linq.Expressions;
 
 
 // This code serves as the entry point for the .NET application.
@@ -51,7 +52,7 @@ public class Program
         Task? eventHubTask = null; ;
 
 
-       RegisterShutdownHandlers();
+        RegisterShutdownHandlers();
 
         // Set up logging
         using var loggerFactory = LoggerFactory.Create(builder =>
@@ -74,6 +75,7 @@ public class Program
                     options.CircuitBreakerTimeslice = backendOptions.CircuitBreakerTimeslice;
                     options.DefaultPriority = backendOptions.DefaultPriority;
                     options.DefaultTTLSecs = backendOptions.DefaultTTLSecs;
+                    options.DisallowedHeaders = backendOptions.DisallowedHeaders;
                     options.HostName = backendOptions.HostName;
                     options.Hosts = backendOptions.Hosts;
                     options.IDStr = backendOptions.IDStr;
@@ -86,8 +88,11 @@ public class Program
                     options.Port = backendOptions.Port;
                     options.PollInterval = backendOptions.PollInterval;
                     options.PollTimeout = backendOptions.PollTimeout;
+                    options.RequiredHeaders = backendOptions.RequiredHeaders;
                     options.SuccessRate = backendOptions.SuccessRate;
                     options.Timeout = backendOptions.Timeout;
+                    options.TerminationGracePeriodSeconds = backendOptions.TerminationGracePeriodSeconds;
+                    options.UniqueUserHeaders = backendOptions.UniqueUserHeaders;
                     options.UseOAuth = backendOptions.UseOAuth;
                     options.UserProfileHeader = backendOptions.UserProfileHeader;
                     options.UseProfiles = backendOptions.UseProfiles;
@@ -110,10 +115,18 @@ public class Program
                         Console.WriteLine("AppInsights initialized");
                 }
 
-                var eventHubConnectionString = OS.Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING") ?? "";
-                var eventHubName = OS.Environment.GetEnvironmentVariable("EVENTHUB_NAME") ?? "";
-                var eventHubClient = new EventHubClient(eventHubConnectionString, eventHubName);
-                eventHubTask = eventHubClient.StartTimer();   // Must shutdown after worker threads are done
+                EventHubClient? eventHubClient = null;
+                try 
+                {
+                    var eventHubConnectionString = OS.Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING") ?? "";
+                    var eventHubName = OS.Environment.GetEnvironmentVariable("EVENTHUB_NAME") ?? "";
+                    eventHubClient= new EventHubClient(eventHubConnectionString, eventHubName);
+                    eventHubTask = eventHubClient.StartTimer();   // Must shutdown after worker threads are done
+                }
+                catch(Exception ex) {
+                    Console.WriteLine($"Failed to initialize EventHubClient: {ex.Message}");
+                    System.Environment.Exit(1);
+                }
 
                 services.AddSingleton<IEventHubClient>(provider => eventHubClient);
                 //services.AddHttpLogging(o => { });
@@ -191,7 +204,7 @@ public class Program
                         workerPriority = Constants.AnyPriority;
                     }
                 }
-                var pw = new ProxyWorker(cancellationToken, wrkrNum, workerPriority, queue, backendOptions, 
+                var pw = new ProxyWorker(cancellationToken, wrkrNum, workerPriority, queue, backendOptions,
                                          userPriority, userProfile, backends, eventHubClient, telemetryClient);
                 allTasks.Add(Task.Run(() => pw.TaskRunner(), cancellationToken));
             }
@@ -208,7 +221,8 @@ public class Program
             ListenerTask = server.Run();
 
             // Shutdown() will call Stop on the eventHubClient
-            if (eventHubTask != null) {
+            if (eventHubTask != null)
+            {
                 await eventHubTask.ConfigureAwait(false);
             }
 
@@ -261,7 +275,7 @@ public class Program
             await HandleShutdown();
         };
     }
-    
+
     private static async Task Shutdown()
     {
         // ######## BEGIN SHUTDOWN SEQUENCE ########
@@ -276,7 +290,7 @@ public class Program
 
         if (server != null)
             server.Queue().Stop();
-            
+
         var timeoutTask = Task.Delay(terminationGracePeriodSeconds * 1000);
         var allTasksComplete = Task.WhenAll(allTasks);
         var completedTask = await Task.WhenAny(allTasksComplete, timeoutTask);
@@ -290,7 +304,8 @@ public class Program
         }
 
         backends?.Stop(); // Stop the backend pollers
-        if (backendPollerTask != null) {
+        if (backendPollerTask != null)
+        {
             await backendPollerTask.ConfigureAwait(false);
         }
         eventHubClient?.SendData($"Workers Stopped:   {ProxyWorker.GetState()}");
@@ -392,7 +407,10 @@ public class Program
     // Converts a comma-separated string to a list of strings.
     private static List<string> toListOfString(string s)
     {
-        return s.Split(',').Select(p => p.Trim()).ToList();
+        if (String.IsNullOrEmpty(s))
+            return [];
+
+        return [.. s.Split(',').Select(p => p.Trim())];
     }
 
     // Converts a comma-separated string to a list of integers.
@@ -447,10 +465,11 @@ public class Program
             CircuitBreakerTimeslice = ReadEnvironmentVariableOrDefault("CBTimeslice", 60),
             DefaultPriority = ReadEnvironmentVariableOrDefault("DefaultPriority", 2),
             DefaultTTLSecs = ReadEnvironmentVariableOrDefault("DefaultTTLSecs", 300),
+            DisallowedHeaders = toListOfString(ReadEnvironmentVariableOrDefault("DisallowedHeaders", "")),
             HostName = ReadEnvironmentVariableOrDefault("Hostname", "Default"),
             Hosts = new List<BackendHost>(),
             IDStr = $"{ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P")}-{replicaID}-",
-            LogHeaders = ReadEnvironmentVariableOrDefault("LogHeaders", "").Split(',').Select(x => x.Trim()).ToList(),
+            LogHeaders = toListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
             LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", false),
             MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
             OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
@@ -459,8 +478,11 @@ public class Program
             PollTimeout = ReadEnvironmentVariableOrDefault("PollTimeout", 3000),
             PriorityKeys = toListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
             PriorityValues = toListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
+            RequiredHeaders = toListOfString(ReadEnvironmentVariableOrDefault("RequiredHeaders", "")),
             SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
             Timeout = ReadEnvironmentVariableOrDefault("Timeout", 3000),
+            TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
+            UniqueUserHeaders = toListOfString(ReadEnvironmentVariableOrDefault("UniqueUserHeaders", "X-UserID")),
             UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", false),
             UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", "X-UserProfile"),
             UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", false),
@@ -519,7 +541,7 @@ public class Program
         }
 
         // confirm that the PriorityWorkers Key's have a corresponding priority keys
-        int workerAllocation=0;
+        int workerAllocation = 0;
         foreach (var key in backendOptions.PriorityWorkers.Keys)
         {
             if (!(backendOptions.PriorityValues.Contains(key) || key == backendOptions.DefaultPriority))
@@ -528,13 +550,26 @@ public class Program
             }
             workerAllocation += backendOptions.PriorityWorkers[key];
         }
-        
+
         if (workerAllocation > backendOptions.Workers)
         {
             Console.WriteLine($"WARNING: Worker allocation exceeds total number of workers:{workerAllocation} > {backendOptions.Workers}");
             Console.WriteLine($"Adjusting total number of workers to {workerAllocation}. Fix PriorityWorkers if it isn't what you want.");
             backendOptions.Workers = workerAllocation;
-        }    
+        }
+
+        if (backendOptions.UniqueUserHeaders.Count > 0)
+        {
+            // Make sure that uniqueUserHeaders are also in the required headers
+            foreach (var header in backendOptions.UniqueUserHeaders)
+            {
+                if (!backendOptions.RequiredHeaders.Contains(header))
+                {
+                    Console.WriteLine($"Adding {header} to RequiredHeaders");
+                    backendOptions.RequiredHeaders.Add(header);
+                }
+            }
+        }
 
         Console.WriteLine("=======================================================================================");
         Console.WriteLine(" #####                                 #       ####### ");
