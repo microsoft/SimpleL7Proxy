@@ -25,43 +25,83 @@ SimpleL7Proxy can be run standalone on the commandline or it can be deployed as 
 
 | Variable | Description | Default |
 | -------- | ----------- | ------- |
-|**APPENDHOSTSFILE** | When running as a container and DNS does not resolve you can have the service append to the hosts file. You will need to specify Host1, IP1 as the host and ip combination.  When the container starts up, this will add an entry to the hosts file for each combination specified. |
+| **AcceptableStatusCodes** | 	The list of HTTP status codes considered successful. If a host returns a code not in this list, it's deemed a failure.	 | 200, 401, 403, 404, 408, 410, 412, 417, 400 |
 | |
-|**APPINSIGHTS_CONNECTIONSTRING** | This variable is used to specify the connection string for Azure Application Insights. If it's set, the application will send logs to the application insights instance. |  None |
+| **APPENDHOSTSFILE** | 	When running in a container and DNS does not resolve, this option can append entries to the hosts file, using pairs like Host1 and IP1.	 | None |
 | |
-| **DnsRefreshTimeout** | The number of ms to force a dns refresh.  Useful to have a small value when testing failover. | 120000 |
+| **APPINSIGHTS_CONNECTIONSTRING** | 	Specifies the connection string for Azure Application Insights. If set, the service sends logs to the configured Application Insights instance.	 | None |
 | |
-|**EVENTHUB_CONNECTIONSTRING** | The connection for the eventhub to log into. Both the connection string and namespace are needed for logging to work.  | None |
+| **CBErrorThreshold** | 	The error threshold percentage for the circuit breaker. If the error rate surpasses this, the circuit breaks.	 | 50 |
 | |
-|**EVENTHUB_NAME** | The eventhub namesapce.  Both the connection string and namespace are needed for logging to work. | None |
+| **CBTimeslice** | 	The duration (in seconds) of the sampling window for the circuit breaker’s error rate.	 | 60 |
 | |
-|**Host1, Host2, ...** | The hostnames of the backend servers. Up to 9 backend hosts can be specified. If a hostname is provided, the application creates a new BackendHost instance and adds it to the hosts list.  The hostname should be in the form http(s)://fqdnhostname and DNS should resolve these to an IP address.  | None |
+| **DefaultPriority** | 	The default request priority when none other is specified.	 | 2 |
 | |
-| **IgnoreSSLCert** | Toggles if the server should validate certificates.  If your hosts are using self-signed certs, set this value to true. |  false | 
+| **DefaultTTLSecs** | 	The default time-to-live for a request in seconds.	 | 300 |
 | |
-| **IP1, IP2, ...** | Used to specify the IP address of hosts if DNS is unavailable.  Must define Host, IP and APPENDHOSTSFILE and run as container for this to work. |
+| **DisallowedHeaders** | 	A comma-separated list of headers that should be removed or disallowed when forwarding requests.	 | None |
 | |
-|**OAuthAudience** | The audience to fetch the Oauth token for.  Used in combination with UseOauth.  | |
+| **DnsRefreshTimeout** | 	The number of milliseconds to force a DNS refresh, useful for making services fail over more quickly.	 | 120000 |
 | |
-|**PollInterval** | This variable is used to specify the interval (in milliseconds) at which the application will poll the backend servers. | 15000 |
+| **EVENTHUB_CONNECTIONSTRING** | 	The connection string for EventHub logging. Must also set EVENTHUB_NAME.	 | None |
 | |
-|**Port** | Specifies the port number that the server will listen on. | 443 |
+| **EVENTHUB_NAME** | 	The EventHub namespace for logging. Must also set EVENTHUB_CONNECTIONSTRING.	 | None |
 | |
-|**PriorityKeys** | If the incoming request has the header 'S7PPriorityKey' set to one of these values,  use the value of PriorityValues as the priority. The contents should be a comma delimited list of keys. | |
+| **Host1, Host2, ...** | 	Up to 9 backend servers can be specified. Each Host should be in the form “http(s)://fqdnhostname” for proper DNS resolution.	 | None |
 | |
-|**PriorityValues** | This is the list of priority values to use.  If the incoming request has the header 'S7PPriorityKey' matches PriorityKeys, the corresponding value from this list will be used as the message priority. In the case this list is not specified or parsable, the default priority is used. | 5 |
+| **HostName** | 	The logical name part of the backend host, used for logging and identification.	 | Default |
 | |
-|**Probe_path1, Probe_path2, ...** | Specifies the probe paths for the corresponding backend hosts. If a Host variable is set, the application will attempt to read the corresponding Probe_path variable when creating the BackendHost instance. Depending on the tier for your APIM, you can also try: status-0123456789abcdef or internal-status-0123456789abcdef | echo/resource?param1=sample |
-| **RequestIDPrefix** | the set of characters to prefix to the unique request ID |
+| **IgnoreSSLCert** | 	Toggles SSL certificate validation. If true, accepts self-signed certificates.	 | false |
 | |
-|**Success-rate** | The percentage success rate required to be used for proxying.  Any host whose success rate is lower will not be in rotation. | 80 |
+| **IP1, IP2, ...** | 	IP addresses corresponding to the Host entries if DNS is unavailable. Must define Host, IP, and APPENDHOSTSFILE.	 | None |
 | |
-|**Timeout** | The connection timeout for each backend.  If the proxy times out, it will try the next host. | 3000 |
+| **LogHeaders** | 	A comma-separated list of headers to log for debugging.	 | None |
 | |
-|**UseOauth** | Enable the Oauth token fetch.  Should be used in combination with OAuthAudience. | false |
+| **LogProbes** | 	When true, adds additional logging for backend health checks.	 | false |
 | |
-|**Workers** | The number of proxy worker threads. | 10 |
+| **MaxQueueLength** | 	Sets the maximum number of requests that can be queued.	 | 10 |
 | |
+| **OAuthAudience** | 	The audience to request when fetching OAuth tokens. Requires UseOAuth.	 | None |
+| |
+| **PollInterval** | 	The polling interval (in milliseconds) for backend servers.	 | 15000 |
+| |
+| **PollTimeout** | 	The timeout (in milliseconds) for each poll request.	 | 3000 |
+| |
+| **Port** | 	The port number the server listens on.	 | 80 |
+| |
+| **PriorityKeys** | 	Comma-separated keys matching the header 'S7PPriorityKey'. If matched, the service uses the corresponding PriorityValues.	 | 12345,234 |
+| |
+| **PriorityValues** | 	A comma-separated list of priorities that correspond to PriorityKeys.	 | 1,3 |
+| |
+| **PriorityWorkers** | 	A comma-separated list (e.g., “2:1,3:1”) specifying the number of workers for each priority.	 | 2:1,3:1 |
+| |
+| **Probe_path1, Probe_path2, ...** | 	Probe paths for corresponding hosts. Each path is checked when the host is first created.	 | echo/resource?param1=sample |
+| |
+| **RequestIDPrefix** | 	The prefix appended to every request ID.	 | S7P |
+| |
+| **RequiredHeaders** | 	A comma-separated list of headers that are required for incoming requests.	 | None |
+| |
+| **SuccessRate** | 	The minimum success rate (in percent) required for hosts to remain in rotation.	 | 80 |
+| |
+| **TERMINATION_GRACE_PERIOD_SECONDS** | 	Number of seconds the service waits before forcing shutdown.	 | 30 |
+| |
+| **Timeout** | 	The connection timeout (in milliseconds) for backend requests. If exceeded, the proxy tries the next host.	 | 3000 |
+| |
+| **UniqueUserHeaders** | 	A list of header names that uniquely identify the caller or user.	 | X-UserID |
+| |
+| **UseOAuth** | 	Enables or disables OAuth token fetching for requests.	 | false |
+| |
+| **UseProfiles** | 	Enables or disables additional user profile processing (e.g., reading from UserConfigUrl).	 | false |
+| |
+| **UserConfigUrl** | 	The path or URL for a user configuration file, if profiles are in use.	 | file:config.json |
+| |
+| **UserPriorityThreshold** | 	Threshold for elevating user priority.	 | 0.1f |
+| |
+| **ValidateHeaders** | 	A comma-separated list of key: value pairs for validating incoming headers.	 | None |
+| |
+| **Workers** | 	The total number of worker threads handling proxy requests.	 | 10 |
+| |
+
 
 ### Proxy response codes:
 
