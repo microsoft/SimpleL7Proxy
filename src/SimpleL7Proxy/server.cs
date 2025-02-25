@@ -31,8 +31,8 @@ public class Server : BackgroundService
     private CancellationTokenSource? _cancellationTokenSource;
     private readonly IConcurrentPriQueue<RequestData> _requestsQueue;// = new ConcurrentPriQueue<RequestData>();
     private readonly ILogger<Server> _logger;
-
     private static bool _isShuttingDown = false;
+    private readonly string _priorityHeaderName;
 
     //private readonly IEventHubClient? _eventHubClient;
 
@@ -72,6 +72,7 @@ public class Server : BackgroundService
         _userProfiles = userProfile;
         _logger = logger;
         _requestsQueue = requestsQueue;
+        _priorityHeaderName = _options.PriorityKeyHeader;
 
         //appLifetime.ApplicationStopping.Register(OnApplicationStopping);
 
@@ -280,7 +281,7 @@ public class Server : BackgroundService
                             bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
                             userPriorityBoost = shouldBoost ? 1 : 0;
 
-                            var priorityKey = rd.Headers.Get("S7PPriorityKey");
+                            var priorityKey = rd.Headers[_priorityHeaderName];
                             if (!string.IsNullOrEmpty(priorityKey) && _options.PriorityKeys.Contains(priorityKey)) //lookup the priority
                             {
                                 var index = _options.PriorityKeys.IndexOf(priorityKey);

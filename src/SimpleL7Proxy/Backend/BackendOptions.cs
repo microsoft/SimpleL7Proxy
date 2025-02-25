@@ -14,11 +14,13 @@ public class BackendOptions
     public string IDStr { get; set; } = "S7P";
     public List<string> LogHeaders { get; set; } = [];
     public bool LogProbes { get; set; }
+    public string LookupHeaderName { get; set; } = "";
     public int MaxQueueLength { get; set; }
     public string OAuthAudience { get; set; } = "";
     public int Port { get; set; }
     public int PollInterval { get; set; }
     public int PollTimeout { get; set; }
+    public string PriorityKeyHeader { get; set; } = "";
     public List<string> PriorityKeys { get; set; } = [];
     public List<int> PriorityValues { get; set; } = [];
     public Dictionary<int, int> PriorityWorkers { get; set; } = [];

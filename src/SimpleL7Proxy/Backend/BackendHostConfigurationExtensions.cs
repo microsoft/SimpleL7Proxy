@@ -27,13 +27,16 @@ public static class BackendHostConfigurationExtensions
       options.CircuitBreakerTimeslice = backendOptions.CircuitBreakerTimeslice;
       options.DefaultPriority = backendOptions.DefaultPriority;
       options.DefaultTTLSecs = backendOptions.DefaultTTLSecs;
+      options.DisallowedHeaders = backendOptions.DisallowedHeaders;
       options.HostName = backendOptions.HostName;
       options.Hosts = backendOptions.Hosts;
       options.IDStr = backendOptions.IDStr;
       options.LogHeaders = backendOptions.LogHeaders;
       options.LogProbes = backendOptions.LogProbes;
+      options.LookupHeaderName = backendOptions.LookupHeaderName;
       options.MaxQueueLength = backendOptions.MaxQueueLength;
       options.OAuthAudience = backendOptions.OAuthAudience;
+      options.PriorityKeyHeader = backendOptions.PriorityKeyHeader;
       options.PriorityKeys = backendOptions.PriorityKeys;
       options.PriorityValues = backendOptions.PriorityValues;
       options.Port = backendOptions.Port;
@@ -130,38 +133,38 @@ public static class BackendHostConfigurationExtensions
   }
 
   // Converts a List<string> to a dictionary of integers.
-    private static Dictionary<int, int> KVIntPairs(List<string> list)
-    {
-        Dictionary<int, int> keyValuePairs = [];
+  private static Dictionary<int, int> KVIntPairs(List<string> list)
+  {
+      Dictionary<int, int> keyValuePairs = [];
 
-        foreach (var item in list) {
-            var kvp = item.Split(':');
-            if (int.TryParse(kvp[0], out int key) && int.TryParse(kvp[1], out int value)) {
-                keyValuePairs.Add(key, value);
-            } else {
-                Console.WriteLine($"Could not parse {item} as a key-value pair, ignoring");
-            }
-        }
+      foreach (var item in list) {
+          var kvp = item.Split(':');
+          if (int.TryParse(kvp[0], out int key) && int.TryParse(kvp[1], out int value)) {
+              keyValuePairs.Add(key, value);
+          } else {
+              Console.WriteLine($"Could not parse {item} as a key-value pair, ignoring");
+          }
+      }
 
-        return keyValuePairs;
-    }
+      return keyValuePairs;
+  }
 
-    // Converts a List<string> to a dictionary of stgrings.
-    private static Dictionary<string, string> KVStringPairs(List<string> list)
-    {
-        Dictionary<string, string> keyValuePairs = [];
+  // Converts a List<string> to a dictionary of stgrings.
+  private static Dictionary<string, string> KVStringPairs(List<string> list)
+  {
+      Dictionary<string, string> keyValuePairs = [];
 
-        foreach (var item in list) {
-            var kvp = item.Split(':');
-            if (kvp.Length == 2) {
-                keyValuePairs.Add(kvp[0].Trim(), kvp[1].Trim());
-            } else{
-                Console.WriteLine($"Could not parse {item} as a key-value pair, ignoring");
-            }
-        }
+      foreach (var item in list) {
+          var kvp = item.Split(':');
+          if (kvp.Length == 2) {
+              keyValuePairs.Add(kvp[0].Trim(), kvp[1].Trim());
+          } else{
+              Console.WriteLine($"Could not parse {item} as a key-value pair, ignoring");
+          }
+      }
 
-        return keyValuePairs;
-    }
+      return keyValuePairs;
+  }
 
   // Converts a comma-separated string to a list of strings.
   private static List<string> ToListOfString(string s)
@@ -240,16 +243,19 @@ public static class BackendHostConfigurationExtensions
       CircuitBreakerTimeslice = ReadEnvironmentVariableOrDefault("CBTimeslice", 60),
       DefaultPriority = ReadEnvironmentVariableOrDefault("DefaultPriority", 2),
       DefaultTTLSecs = ReadEnvironmentVariableOrDefault("DefaultTTLSecs", 300),
+      DisallowedHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("DisallowedHeaders", "")),
       HostName = ReadEnvironmentVariableOrDefault("Hostname", "Default"),
       Hosts = new List<BackendHostConfig>(),
       IDStr = $"{ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P")}-{replicaID}-",
       LogHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
       LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", false),
+      LookupHeaderName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "userId"),
       MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
       OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
       Port = ReadEnvironmentVariableOrDefault("Port", 80),
       PollInterval = ReadEnvironmentVariableOrDefault("PollInterval", 15000),
       PollTimeout = ReadEnvironmentVariableOrDefault("PollTimeout", 3000),
+      PriorityKeyHeader = ReadEnvironmentVariableOrDefault("PriorityKeyHeader", "S7PPriorityKey"),
       PriorityKeys = ToListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
       PriorityValues = ToListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
       RequiredHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("RequiredHeaders", "")),
@@ -331,18 +337,18 @@ public static class BackendHostConfigurationExtensions
       backendOptions.Workers = workerAllocation;
     }
 
-    if (backendOptions.UniqueUserHeaders.Count > 0)
-    {
-      // Make sure that uniqueUserHeaders are also in the required headers
-      foreach (var header in backendOptions.UniqueUserHeaders)
-      {
-        if (!backendOptions.RequiredHeaders.Contains(header))
-        {
-          Console.WriteLine($"Adding {header} to RequiredHeaders");
-          backendOptions.RequiredHeaders.Add(header);
-        }
-      }
-    }
+    // if (backendOptions.UniqueUserHeaders.Count > 0)
+    // {
+    //   // Make sure that uniqueUserHeaders are also in the required headers
+    //   foreach (var header in backendOptions.UniqueUserHeaders)
+    //   {
+    //     if (!backendOptions.RequiredHeaders.Contains(header))
+    //     {
+    //       Console.WriteLine($"Adding {header} to RequiredHeaders");
+    //       backendOptions.RequiredHeaders.Add(header);
+    //     }
+    //   }
+    // }
     
     // If validate headers are set, make sure they are also in the required headers and disallowed headers
     if (backendOptions.ValidateHeaders.Count > 0)
