@@ -5,13 +5,14 @@ using System.Text.Json;
 using System.Threading.Tasks;
 public class UserProfile : IUserProfile
 {
-
+    private readonly string lookupHeaderName;
     private IBackendOptions options;
 
     private Dictionary<string, Dictionary<string, string>> userProfiles = new Dictionary<string, Dictionary<string, string>>();
     public UserProfile(IBackendOptions options)
     {
         this.options = options;
+        lookupHeaderName = options.LookupHeaderName;
     }
 
     public void StartBackgroundConfigReader(CancellationToken cancellationToken)
@@ -131,7 +132,8 @@ public class UserProfile : IUserProfile
 
             foreach (var profile in userConfig.EnumerateArray())
             {
-                if (profile.TryGetProperty("userId", out JsonElement userIdElement))
+                // NOTE: This assumes that the userId is always present in the profile.  lookupHeaderName which defaults to userId can be overridden
+                if (profile.TryGetProperty(lookupHeaderName, out JsonElement userIdElement))
                 {
                     string userId = userIdElement.GetString() ?? string.Empty;
                     if (!string.IsNullOrEmpty(userId))
@@ -139,14 +141,14 @@ public class UserProfile : IUserProfile
                         Dictionary<string, string> kvPairs = new Dictionary<string, string>();
                         foreach (var property in profile.EnumerateObject())
                         {
-                            if (!property.Name.Equals("userId", StringComparison.OrdinalIgnoreCase))
+                            if (!property.Name.Equals(lookupHeaderName, StringComparison.OrdinalIgnoreCase))
                             {
                                 kvPairs[property.Name] = property.Value.ToString();
                             }
                         }
                         userProfiles[userId] = kvPairs;
                     } else {
-                        Console.WriteLine("User profile missing userId. Skipping...");
+                        Console.WriteLine($"User profile missing {lookupHeaderName}. Skipping...");
                     }
                 }
             }
