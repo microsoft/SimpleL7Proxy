@@ -574,18 +574,18 @@ public class Program
             backendOptions.Workers = workerAllocation;
         }
 
-        if (backendOptions.UniqueUserHeaders.Count > 0)
-        {
-        // Make sure that uniqueUserHeaders are also in the required headers
-        foreach (var header in backendOptions.UniqueUserHeaders)
-        {
-            if (!backendOptions.RequiredHeaders.Contains(header))
-            {
-            Console.WriteLine($"Adding {header} to RequiredHeaders");
-            backendOptions.RequiredHeaders.Add(header);
-            }
-        }
-        }
+        // if (backendOptions.UniqueUserHeaders.Count > 0)
+        // {
+        // // Make sure that uniqueUserHeaders are also in the required headers
+        // foreach (var header in backendOptions.UniqueUserHeaders)
+        // {
+        //     if (!backendOptions.RequiredHeaders.Contains(header))
+        //     {
+        //     Console.WriteLine($"Adding {header} to RequiredHeaders");
+        //     backendOptions.RequiredHeaders.Add(header);
+        //     }
+        // }
+        // }
 
         // If validate headers are set, make sure they are also in the required headers and disallowed headers
         if (backendOptions.ValidateHeaders.Count > 0)
