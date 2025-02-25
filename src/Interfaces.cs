@@ -39,11 +39,13 @@ public interface IBackendOptions
     string IDStr { get; set; }
     List<string> LogHeaders { get; set; }
     bool LogProbes { get; set; }
+    string LookupHeaderName { get; set; }
     int MaxQueueLength { get; set; }
     string OAuthAudience { get; set; }
     int Port { get; set; }
     int PollInterval { get; set; }
     int PollTimeout { get; set; }
+    string PriorityKeyHeader { get; set; }
     List<string> PriorityKeys { get; set; }
     List<int> PriorityValues { get; set; }
     Dictionary<int, int> PriorityWorkers { get; set; }

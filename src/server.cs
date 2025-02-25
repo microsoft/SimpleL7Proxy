@@ -22,6 +22,7 @@ public class Server : IServer
     private ConcurrentPriQueue<RequestData> _requestsQueue = new ConcurrentPriQueue<RequestData>();
     private readonly IEventHubClient? _eventHubClient;
     private static bool _isShuttingDown = false;
+    private readonly string _priorityHeaderName;
 
     // public void enqueueShutdownRequest() {
     //     var shutdownRequest = new RequestData(Constants.Shutdown);
@@ -41,6 +42,7 @@ public class Server : IServer
         _requestsQueue.MaxQueueLength = _options.MaxQueueLength;
         _userPriority = userPriority;
         _userProfile = userProfile;
+        _priorityHeaderName = _options.PriorityKeyHeader;
 
         var _listeningUrl = $"http://+:{_options.Port}/";
 
@@ -223,7 +225,7 @@ public class Server : IServer
                             bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
                             userPriorityBoost = shouldBoost ? 1 : 0;
 
-                            var priorityKey = rd.Headers.Get("S7PPriorityKey");
+                            var priorityKey = rd.Headers[_priorityHeaderName];
                             if (!string.IsNullOrEmpty(priorityKey) && _options.PriorityKeys.Contains(priorityKey)) //lookup the priority
                             {
                                 var index = _options.PriorityKeys.IndexOf(priorityKey);

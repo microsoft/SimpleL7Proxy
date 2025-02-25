@@ -81,8 +81,10 @@ public class Program
                     options.IDStr = backendOptions.IDStr;
                     options.LogHeaders = backendOptions.LogHeaders;
                     options.LogProbes = backendOptions.LogProbes;
+                    options.LookupHeaderName = backendOptions.LookupHeaderName;
                     options.MaxQueueLength = backendOptions.MaxQueueLength;
                     options.OAuthAudience = backendOptions.OAuthAudience;
+                    options.PriorityKeyHeader = backendOptions.PriorityKeyHeader;
                     options.PriorityKeys = backendOptions.PriorityKeys;
                     options.PriorityValues = backendOptions.PriorityValues;
                     options.Port = backendOptions.Port;
@@ -486,11 +488,13 @@ public class Program
             IDStr = $"{ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P")}-{replicaID}-",
             LogHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
             LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", false),
+            LookupHeaderName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "userId"),
             MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
             OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
             Port = ReadEnvironmentVariableOrDefault("Port", 80),
             PollInterval = ReadEnvironmentVariableOrDefault("PollInterval", 15000),
             PollTimeout = ReadEnvironmentVariableOrDefault("PollTimeout", 3000),
+            PriorityKeyHeader = ReadEnvironmentVariableOrDefault("PriorityKeyHeader", "S7PPriorityKey"),
             PriorityKeys = ToListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
             PriorityValues = ToListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
             RequiredHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("RequiredHeaders", "")),
