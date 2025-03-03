@@ -268,44 +268,54 @@ public class Backends : IBackendService
     private async Task<bool> GetHostStatus(BackendHost host, HttpClient client)
     {
         Dictionary<string, string> probeData = new Dictionary<string, string>();
-        probeData["ProxyHost"] = _options.HostName;
-        probeData["Host"] = host.host;
-        probeData["Port"] = host.port.ToString();
-        probeData["Path"] = host.probe_path;
+        double latency = 0;
+        try {
+            probeData["ProxyHost"] = _options.HostName;
+            probeData["Backend-Host"] = host.host;
+            probeData["Port"] = host.port.ToString();
+            probeData["Path"] = host.probe_path;
 
-        if (_debug)
-            WriteOutput($"Checking host {host.url + host.probe_path}");
+            if (_debug)
+                WriteOutput($"Checking host {host.url + host.probe_path}");
 
 
-        var request = new HttpRequestMessage(HttpMethod.Get, host.probeurl);
-        if (_options.UseOAuth)
-        {
-            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", OAuth2Token());
-        }
+            var request = new HttpRequestMessage(HttpMethod.Get, host.probeurl);
+            if (_options.UseOAuth) {
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", OAuth2Token());
+            }
 
-        var stopwatch = Stopwatch.StartNew();
+            var stopwatch = Stopwatch.StartNew();
 
-        try
-        {
-            var response = await client.SendAsync(request, _cancellationToken);
-            stopwatch.Stop();
-            var latency = stopwatch.Elapsed.TotalMilliseconds;
+            try {
+                // send and read the entire response
+                var response = await client.SendAsync(request, _cancellationToken);
+                var responseBody = await response.Content.ReadAsStringAsync(_cancellationToken);
+                
+                stopwatch.Stop();
 
-            // Update the host with the new latency
-            host.AddLatency(latency);
+                latency = stopwatch.Elapsed.TotalMilliseconds;
 
-            probeData["Latency"] = latency.ToString();
-            probeData["Code"] = response.StatusCode.ToString();
-            probeData["Type"] = "Poller";
-            probeData["Host"] = host.host;
-            probeData["ID"] = _options.IDStr;
+                // Update the host with the new latency
+                host.AddLatency(latency);
 
-            response.EnsureSuccessStatusCode();
+                probeData["Latency"] = latency.ToString() + " ms";
+                probeData["Code"] = response.StatusCode.ToString();
+                probeData["Type"] = "Poller";
+                probeData["ID"] = _options.IDStr;
 
-            _isRunning = true;
+                response.EnsureSuccessStatusCode();
 
-            // If the response is successful, add the host to the active hosts
-            return response.IsSuccessStatusCode;
+                _isRunning = true;
+
+                // If the response is successful, add the host to the active hosts
+                return response.IsSuccessStatusCode;
+            }
+            finally {
+                stopwatch.Stop();
+                latency = stopwatch.Elapsed.TotalMilliseconds;
+
+                probeData["Latency"] = latency.ToString() + " ms";
+            }
         }
         catch (UriFormatException e)
         {
@@ -319,6 +329,7 @@ public class Backends : IBackendService
             WriteOutput($"Poller: Host Timeout: {host.host}");
             probeData["Type"] = "TaskCanceledException";
             probeData["Code"] = "-";
+            probeData["Timeout"] = client.Timeout.TotalMilliseconds.ToString();
         }
         catch (HttpRequestException e)
         {
