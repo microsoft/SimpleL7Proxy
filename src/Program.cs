@@ -79,6 +79,8 @@ public class Program
                     options.HostName = backendOptions.HostName;
                     options.Hosts = backendOptions.Hosts;
                     options.IDStr = backendOptions.IDStr;
+                    options.LogAllRequestHeaders = backendOptions.LogAllRequestHeaders;
+                    options.LogAllResponseHeaders = backendOptions.LogAllResponseHeaders;
                     options.LogHeaders = backendOptions.LogHeaders;
                     options.LogProbes = backendOptions.LogProbes;
                     options.LookupHeaderName = backendOptions.LookupHeaderName;
@@ -483,9 +485,11 @@ public class Program
             DefaultPriority = ReadEnvironmentVariableOrDefault("DefaultPriority", 2),
             DefaultTTLSecs = ReadEnvironmentVariableOrDefault("DefaultTTLSecs", 300),
             DisallowedHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("DisallowedHeaders", "")),
-            HostName = ReadEnvironmentVariableOrDefault("Hostname", "Default"),
+            HostName = ReadEnvironmentVariableOrDefault("Hostname", replicaID),
             Hosts = new List<BackendHost>(),
             IDStr = $"{ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P")}-{replicaID}-",
+            LogAllRequestHeaders = ReadEnvironmentVariableOrDefault("LogAllRequestHeaders", false),
+            LogAllResponseHeaders = ReadEnvironmentVariableOrDefault("LogAllResponseHeaders", false),
             LogHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
             LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", false),
             LookupHeaderName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "userId"),
