@@ -180,6 +180,20 @@ public class ProxyWorker
                     //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
 
                     eventData["x-Status"] = ((int)pr.StatusCode).ToString();
+                    if (_options.LogAllRequestHeaders)
+                    {
+                        foreach (var header in incomingRequest.Headers.AllKeys)
+                        {
+                            eventData["Request-"+header] = incomingRequest.Headers[header] ?? "N/A";
+                        }
+                    }
+                    if (_options.LogAllResponseHeaders)
+                    {
+                        foreach (var header in pr.Headers.AllKeys)
+                        {
+                            eventData["Response-"+header] = pr.Headers[header] ?? "N/A";
+                        }
+                    }
                     if (_options.LogHeaders?.Count > 0)
                     {
                         foreach (var header in _options.LogHeaders)
@@ -243,7 +257,27 @@ public class ProxyWorker
                     eventData["Type"] = "S7P-Requeue-Request";
 
                     SendEventData(eventData);
+                }
+                catch (ProxyErrorException e) {
+                    // Handle proxy error
+                    eventData["x-Status"] = ((int)e.StatusCode).ToString();
+                    eventData["x-Message"] = e.Message;
+                    eventData["Type"] = "S7P-ProxyError";
+                    Console.WriteLine($"Proxy error: {e.Message}");
+                    lcontext.Response.StatusCode = (int)e.StatusCode;
+                    var errorMessage = Encoding.UTF8.GetBytes(e.Message);
+                    try
+                    {
+                        await lcontext.Response.OutputStream.WriteAsync(errorMessage, 0, errorMessage.Length).ConfigureAwait(false);
+                    }
+                    catch (Exception writeEx)
+                    {
+                        Console.WriteLine($"Failed to write error message: {writeEx.Message}");
+                        eventData["x-Status"] = "Network Error";
+                        SendEventData(eventData);
+                    }
 
+                    SendEventData(eventData);
                 }
                 catch (IOException ioEx)
                 {
@@ -712,6 +746,10 @@ public class ProxyWorker
             }
             catch (Exception e)
             {
+                if (e.Message.StartsWith("The format of value")) 
+                {
+                    throw new ProxyErrorException(ProxyErrorException.ErrorType.InvalidHeader, HttpStatusCode.BadRequest, "Bad header: " + e.Message);
+                }
                 // 500 Internal Server Error
                 Console.WriteLine($"Error: {e.StackTrace}");
                 Console.WriteLine($"Error: {e.Message}");
@@ -800,6 +838,7 @@ public class ProxyWorker
             pr.Headers.Add("S7P-Priority", request.Priority.ToString() ?? "N/A");
             pr.Headers.Add("S7P-Request-Queue-Duration", request.Headers["x-Request-Queue-Duration"] ?? "N/A");
             pr.Headers.Add("S7P-Request-Process-Duration", request.Headers["x-Request-Process-Duration"] ?? "N/A");
+            pr.Headers.Add("S7P-Total-Latency", (pr.ResponseDate - request.EnqueueTime).TotalMilliseconds.ToString("F3"));
 
             // Determine the encoding from the Content-Type header
             MediaTypeHeaderValue? contentType = proxyResponse.Content.Headers.ContentType;
