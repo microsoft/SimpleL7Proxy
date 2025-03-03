@@ -30,6 +30,7 @@ public class BackendOptions : IBackendOptions
     public int TerminationGracePeriodSeconds { get; set; }
     public List<string> UniqueUserHeaders { get; set; } = [];
     public bool UseOAuth { get; set; }
+    public bool UseOAuthGov { get; set; } = false;
     public bool UseUserConfig { get; set; } = false;
     public bool UseProfiles { get; set; } = false;
     public string UserProfileHeader { get; set; } = "";

@@ -498,11 +498,26 @@ public class Backends : IBackendService
     {
         try
         {
-            var credential = new DefaultAzureCredential();
-            var context = new TokenRequestContext(new[] { _options.OAuthAudience });
-            var token = await credential.GetTokenAsync(context);
 
-            return token;
+            if (_options.UseOAuthGov == true) {
+//                var environment = AzureEnvironment.AzureGov;
+//                var credential = new DefaultAzureCredential(new DefaultAzureCredentialOptions{AuthorityHost = environment.ActiveDirectoryEndpoint});
+                var credential = new DefaultAzureCredential(
+                    new DefaultAzureCredentialOptions { AuthorityHost = AzureAuthorityHosts.AzureGovernment });
+                var context = new TokenRequestContext(new[] { _options.OAuthAudience });
+                var token = await credential.GetTokenAsync(context);
+
+                return token;
+            } 
+            else {
+                var credential = new DefaultAzureCredential();
+                var context = new TokenRequestContext(new[] { _options.OAuthAudience });
+                var token = await credential.GetTokenAsync(context);
+
+                return token;
+            }
+
+ 
         }
         catch (AuthenticationFailedException ex)
         {

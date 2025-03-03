@@ -57,6 +57,7 @@ public interface IBackendOptions
     int TerminationGracePeriodSeconds { get; set; }
     List<string> UniqueUserHeaders { get; set; }
     bool UseOAuth { get; set; }
+    bool UseOAuthGov { get; set; }
     bool UseUserConfig { get; set; }
     bool UseProfiles { get; set; }
     string UserProfileHeader { get; set; }
