@@ -38,6 +38,8 @@ public interface IBackendOptions
     List<BackendHost>? Hosts { get; set; }
     string IDStr { get; set; }
     List<string> LogHeaders { get; set; }
+    bool LogAllRequestHeaders { get; set; }
+    bool LogAllResponseHeaders { get; set; }
     bool LogProbes { get; set; }
     string LookupHeaderName { get; set; }
     int MaxQueueLength { get; set; }
