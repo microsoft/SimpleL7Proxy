@@ -147,9 +147,13 @@ public class Server : IServer
                     {
                         try
                         {
+                            rd.Debug = rd.Headers["S7PDEBUG"] != null && string.Equals(rd.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase);
+
                             // Remove any disallowed headers
                             foreach (var header in _options.DisallowedHeaders)
                             {
+                                if (rd.Debug && !String.IsNullOrEmpty(rd.Headers.Get(header)))
+                                    Console.WriteLine($"Disallowed header {header} removed from request.");
                                 rd.Headers.Remove(header);   
                             }
                             
@@ -168,7 +172,8 @@ public class Server : IServer
                                         foreach (var header in headers)
                                         {
                                             rd.Headers.Set(header.Key, header.Value);
-                                            //Console.WriteLine($"User profile header {header.Key} = {header.Value} added to request.");
+                                            if (rd.Debug)
+                                                Console.WriteLine($"Add Header: {header.Key} = {header.Value}");
                                         }
                                     }
                                 }
@@ -179,10 +184,13 @@ public class Server : IServer
                             {
                                 var missing = _options.RequiredHeaders.FirstOrDefault(x => string.IsNullOrEmpty(rd.Headers[x]));
                                 if (!string.IsNullOrEmpty(missing)) {
+                                    if (rd.Debug)
+                                        Console.WriteLine($"Required header {missing} is missing from request.");
+
                                     throw new ProxyErrorException(
                                         ProxyErrorException.ErrorType.IncompleteHeaders,
                                         HttpStatusCode.ExpectationFailed,
-                                        "Required header is missing: " + missing
+                                        "Required header is missing: " + missing + "\n"
                                     );
                                 }
                             }
@@ -197,13 +205,17 @@ public class Server : IServer
                                     List<string> values = [.. rd.Headers[header.Value]!.Split(',')];
                                     if (!values.Contains(lookup))
                                     {
+                                        if (rd.Debug)
+                                            Console.WriteLine($"Validation check failed for header: {header.Key} = {lookup}");
                                         throw new ProxyErrorException(
                                             ProxyErrorException.ErrorType.InvalidHeader,
                                             HttpStatusCode.ExpectationFailed,
-                                            "Validation check failed for header: " + header.Key
+                                            "Validation check failed for header: " + header.Key + "\n"
                                         );
                                     }
                                 }
+                                if (rd.Debug)
+                                    Console.WriteLine($"Validation check passed for all headers."); 
                             }
 
                             // Determine priority boost based on the UserID 
@@ -220,6 +232,9 @@ public class Server : IServer
                                 rd.UserID = "defaultUser";
                             }
 
+                            if (rd.Debug)
+                                Console.WriteLine($"UserID: {rd.UserID}");
+                                
                             // Determine priority boost based on the UserID
                             rd.Guid = _userPriority.addRequest(rd.UserID);
                             bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
