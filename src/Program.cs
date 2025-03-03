@@ -98,6 +98,7 @@ public class Program
                     options.TerminationGracePeriodSeconds = backendOptions.TerminationGracePeriodSeconds;
                     options.UniqueUserHeaders = backendOptions.UniqueUserHeaders;
                     options.UseOAuth = backendOptions.UseOAuth;
+                    options.UseOAuthGov = backendOptions.UseOAuthGov;
                     options.UserProfileHeader = backendOptions.UserProfileHeader;
                     options.UseProfiles = backendOptions.UseProfiles;
                     options.UserConfigUrl = backendOptions.UserConfigUrl;
@@ -507,6 +508,7 @@ public class Program
             TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
             UniqueUserHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("UniqueUserHeaders", "X-UserID")),
             UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", false),
+            UseOAuthGov = ReadEnvironmentVariableOrDefault("UseOAuthGov", false),
             UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", "X-UserProfile"),
             UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", false),
             UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", "file:config.json"),
