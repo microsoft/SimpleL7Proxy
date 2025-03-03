@@ -12,6 +12,8 @@ public class BackendOptions : IBackendOptions
     public string IDStr { get; set; } = "S7P";
     public List<string> LogHeaders { get; set; } = [];
     public bool LogProbes { get; set; }
+    public bool LogAllRequestHeaders { get; set; } = false;
+    public bool LogAllResponseHeaders { get; set; } = false;
     public string LookupHeaderName { get; set; } = "";
     public int MaxQueueLength { get; set; }
     public string OAuthAudience { get; set; } = "";
