@@ -539,6 +539,7 @@ public class ProxyWorker
 
         request.Debug = _debug || (request.Headers["S7PDEBUG"] != null && string.Equals(request.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase));
         HttpStatusCode lastStatusCode = HttpStatusCode.ServiceUnavailable;
+        List<Dictionary<string, string>> incompleteRequests = new();
 
         // Read the body stream once and reuse it
         byte[] bodyBytes = await request.CachBodyAsync().ConfigureAwait(false);
@@ -668,6 +669,11 @@ public class ProxyWorker
 
                                 Console.WriteLine($"Trying next host: Response: {proxyResponse.StatusCode}");
                             }
+                            Dictionary<string, string> requestSummary = new();
+                            requestSummary["Status"] = ((int)lastStatusCode).ToString();
+                            requestSummary["Host"] = host.host;
+                            incompleteRequests.Add(requestSummary);
+
                             continue;
                         }
 
@@ -730,18 +736,38 @@ public class ProxyWorker
                 lastStatusCode = HandleProxyRequestError(host, null, request.Timestamp, request.FullURL, HttpStatusCode.RequestTimeout, "Request to " + host.url + " timed out");
                 // log the stack trace 
                 //Console.WriteLine($"Error: {e.StackTrace}");
+
+                Dictionary<string, string> requestSummary = new();
+                requestSummary["status"] = ((int)lastStatusCode).ToString();
+                requestSummary["Host"] = host.host;
+                requestSummary["Error"] = "Request Timeout";
+                incompleteRequests.Add(requestSummary);
+
                 continue;
             }
             catch (OperationCanceledException e)
             {
                 // 502 Bad Gateway
                 lastStatusCode = HandleProxyRequestError(host, e, request.Timestamp, request.FullURL, HttpStatusCode.RequestTimeout, "Request to " + host.url + " was cancelled");
+
+                Dictionary<string, string> requestSummary = new();
+                requestSummary["status"] = ((int)lastStatusCode).ToString();
+                requestSummary["Host"] = host.host;
+                requestSummary["Error"] = "Request Cancelled";
+                incompleteRequests.Add(requestSummary);
+
                 continue;
             }
             catch (HttpRequestException e)
             {
                 // 400 Bad Request
                 lastStatusCode = HandleProxyRequestError(host, e, request.Timestamp, request.FullURL, HttpStatusCode.BadRequest);
+
+                Dictionary<string, string> requestSummary = new();
+                requestSummary["status"] = ((int)lastStatusCode).ToString();
+                requestSummary["Host"] = host.host;
+                requestSummary["Error"] = "Bad Request";
+                incompleteRequests.Add(requestSummary);
                 continue;
             }
             catch (Exception e)
@@ -754,6 +780,12 @@ public class ProxyWorker
                 Console.WriteLine($"Error: {e.StackTrace}");
                 Console.WriteLine($"Error: {e.Message}");
                 lastStatusCode = HandleProxyRequestError(host, e, request.Timestamp, request.FullURL, HttpStatusCode.InternalServerError);
+
+                Dictionary<string, string> requestSummary = new();
+                requestSummary["status"] = ((int)lastStatusCode).ToString();
+                requestSummary["Host"] = host.host;
+                requestSummary["Error"] = "Internal Error: " + e.Message;
+                incompleteRequests.Add(requestSummary);
             }
         }
 
@@ -770,11 +802,24 @@ public class ProxyWorker
         }
         else
         {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("Error processing request.  No active hosts were able to handle the request.");
+            sb.AppendLine("Request Summary:");
+            foreach (var requestSummary in incompleteRequests)
+            {
+                StringBuilder sb2 = new StringBuilder();
+                foreach (var key in requestSummary.Keys)
+                {
+                    sb2.Append($"{key}: {requestSummary[key]} ");
+                }
+                sb.AppendLine(sb2.ToString());
+            }
+
             return new ProxyData
             {
                 // 502 Bad Gateway 
                 StatusCode = HttpStatusCode.BadGateway,
-                Body = Encoding.UTF8.GetBytes("No active hosts were able to handle the request.")
+                Body = Encoding.UTF8.GetBytes(sb.ToString())
             };
         }
     }
