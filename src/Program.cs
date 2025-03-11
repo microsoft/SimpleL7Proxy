@@ -95,7 +95,9 @@ public class Program
                     options.RequiredHeaders = backendOptions.RequiredHeaders;
                     options.SuccessRate = backendOptions.SuccessRate;
                     options.Timeout = backendOptions.Timeout;
+                    options.TimeoutHeader = backendOptions.TimeoutHeader;
                     options.TerminationGracePeriodSeconds = backendOptions.TerminationGracePeriodSeconds;
+                    options.TTLHeader = backendOptions.TTLHeader;
                     options.UniqueUserHeaders = backendOptions.UniqueUserHeaders;
                     options.UseOAuth = backendOptions.UseOAuth;
                     options.UseOAuthGov = backendOptions.UseOAuthGov;
@@ -505,7 +507,9 @@ public class Program
             RequiredHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("RequiredHeaders", "")),
             SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
             Timeout = ReadEnvironmentVariableOrDefault("Timeout", 3000),
+            TimeoutHeader = ReadEnvironmentVariableOrDefault("TimeoutHeader", "S7PTimeout"),
             TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
+            TTLHeader = ReadEnvironmentVariableOrDefault("TTLHeader", "S7PTTL"),
             UniqueUserHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("UniqueUserHeaders", "X-UserID")),
             UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", false),
             UseOAuthGov = ReadEnvironmentVariableOrDefault("UseOAuthGov", false),
@@ -519,7 +523,7 @@ public class Program
         };
 
         terminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30);
-        backendOptions.Client.Timeout = TimeSpan.FromMilliseconds(backendOptions.Timeout);
+        //backendOptions.Client.Timeout = TimeSpan.FromMilliseconds(backendOptions.Timeout);
 
         int i = 1;
         StringBuilder sb = new StringBuilder();

@@ -54,7 +54,9 @@ public interface IBackendOptions
     List<string> RequiredHeaders { get; set; }
     int SuccessRate { get; set; }
     int Timeout { get; set; }
+    string TimeoutHeader { get; set; }
     int TerminationGracePeriodSeconds { get; set; }
+    string TTLHeader { get; set; }
     List<string> UniqueUserHeaders { get; set; }
     bool UseOAuth { get; set; }
     bool UseOAuthGov { get; set; }

@@ -29,6 +29,8 @@ public class ProxyWorker
     private readonly IEventHubClient? _eventHubClient;
     private IUserPriority _userPriority;
     private IUserProfile _profiles;
+    private readonly string _TimeoutHeaderName;
+    private readonly string _TTLHeaderName;
     private string IDstr = "";
     public static int activeWorkers = 0;
     private static bool readyToWork = false;
@@ -49,6 +51,8 @@ public class ProxyWorker
         _userPriority = userPriority ?? throw new ArgumentNullException(nameof(userPriority));
         _options = backendOptions ?? throw new ArgumentNullException(nameof(backendOptions));
         _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
+        _TimeoutHeaderName = _options.TimeoutHeader;
+        _TTLHeaderName = _options.TTLHeader;
         if (_options.Client == null) throw new ArgumentNullException(nameof(_options.Client));
         IDstr = ID.ToString();
         PreferredPriority = priority;
@@ -249,7 +253,7 @@ public class ProxyWorker
                     requestWasRetried = true;
                     incomingRequest.SkipDispose = true;
                     eventData["Url"] = e.pr.FullURL;
-                    eventData["x-Status"] = ((int)503).ToString();
+                    eventData["x-Status"] = ((int)202).ToString();
                     eventData["x-Response-Latency"] = (e.pr.ResponseDate - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
                     eventData["x-Total-Latency"] = (DateTime.UtcNow - incomingRequest.EnqueueTime).TotalMilliseconds.ToString("F3");
                     eventData["x-Backend-Host"] = e.pr?.BackendHostname ?? "N/A";
@@ -544,7 +548,7 @@ public class ProxyWorker
         // Read the body stream once and reuse it
         byte[] bodyBytes = await request.CachBodyAsync().ConfigureAwait(false);
 
-        // Convert S7PTTL to DateTime
+        // Convert _TTLHeaderName to DateTime
         if (request.TTLSeconds == 0)
         {
             if (!CalculateTTL(request))
@@ -552,8 +556,17 @@ public class ProxyWorker
                 return new ProxyData
                 {
                     StatusCode = HttpStatusCode.BadRequest,
-                    Body = Encoding.UTF8.GetBytes("Invalid TTL format: " + request.Headers["S7PTTL"])
+                    Body = Encoding.UTF8.GetBytes("Invalid TTL format: " + request.Headers[_TTLHeaderName])
                 };
+            }
+
+            if (request.Headers[_TimeoutHeaderName] != null && int.TryParse(request.Headers[_TimeoutHeaderName], out var timeout))
+            {
+                request.Timeout = timeout * 1000;  // Convert to milliseconds
+            }
+            else
+            {
+                request.Timeout = _options.Timeout; // Default to whatever is in the options
             }
         }
 
@@ -564,7 +577,7 @@ public class ProxyWorker
             return new ProxyData
             {
                 StatusCode = HttpStatusCode.PreconditionFailed,
-                Body = Encoding.UTF8.GetBytes("Request has expired: " + request.Headers["S7PTTL"])
+                Body = Encoding.UTF8.GetBytes("Request has expired: " + request.Headers[_TTLHeaderName])
             };
         }
 
@@ -593,28 +606,26 @@ public class ProxyWorker
                 using (var proxyRequest = new HttpRequestMessage(new HttpMethod(request.Method), request.FullURL))
                 {
                     proxyRequest.Content = bodyContent;
-
                     CopyHeaders(request.Headers, proxyRequest, true);
-                    if (bodyBytes.Length > 0)
-                    {
+
+                    if (bodyBytes.Length > 0) {
+
                         proxyRequest.Content.Headers.ContentLength = bodyBytes.Length;
 
                         // Preserve the content type if it was provided
-                        string contentType = request.Context?.Request.ContentType ?? "application/octet-stream"; // Default to application/octet-stream if not specified
-                        var mediaTypeHeaderValue = new MediaTypeHeaderValue(contentType);
+                        var contentType = request.Context?.Request.ContentType ?? "application/octet-stream";
+                        MediaTypeHeaderValue mediaTypeHeaderValue;
 
-                        // Preserve the encoding type if it was provided
-                        if (request.Context?.Request.ContentType != null && request.Context.Request.ContentType.Contains("charset"))
-                        {
-                            var charset = request.Context.Request.ContentType.Split(';').LastOrDefault(s => s.Trim().StartsWith("charset"));
-                            if (charset != null)
-                            {
-                                mediaTypeHeaderValue.CharSet = charset.Split('=').Last().Trim();
+                        try {
+                            mediaTypeHeaderValue = MediaTypeHeaderValue.Parse(contentType);
+
+                            if (string.IsNullOrWhiteSpace(mediaTypeHeaderValue.CharSet)) {
+                                mediaTypeHeaderValue.CharSet = "utf-8";
                             }
-                        }
-                        else
-                        {
-                            mediaTypeHeaderValue.CharSet = "utf-8";
+
+                        } catch (Exception e) {
+                            mediaTypeHeaderValue = new MediaTypeHeaderValue("application/octet-stream") { CharSet = "utf-8" };
+                            Console.WriteLine($"Invalid charset provided, defaulting to utf-8: {e.Message}");
                         }
 
                         proxyRequest.Content.Headers.ContentType = mediaTypeHeaderValue;
@@ -636,9 +647,9 @@ public class ProxyWorker
                     var ProxyStartDate = DateTime.UtcNow;
                     Interlocked.Increment(ref states[3]);
                     try {
-                    using (var proxyResponse = await _options.Client!.SendAsync(
-                        proxyRequest, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false))
-                    {
+                        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(request.Timeout));
+                        using var proxyResponse = await _options.Client!.SendAsync(
+                            proxyRequest, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
 
                         var responseDate = DateTime.UtcNow;
                         lastStatusCode = proxyResponse.StatusCode;
@@ -718,7 +729,6 @@ public class ProxyWorker
                             Console.WriteLine($"Got: {pr.StatusCode} {pr.FullURL} {pr.ContentHeaders["Content-Length"]} Body: {pr?.Body?.Length} bytes");
                         }
                         return pr ?? throw new ArgumentNullException(nameof(pr));
-                    }
                     } finally {
                         Interlocked.Decrement(ref states[3]);
 
@@ -740,7 +750,7 @@ public class ProxyWorker
                 Dictionary<string, string> requestSummary = new();
                 requestSummary["status"] = ((int)lastStatusCode).ToString();
                 requestSummary["Host"] = host.host;
-                requestSummary["Error"] = "Request Timeout";
+                requestSummary["Error"] = "Request Timeout after " + request.Timeout + " ms";
                 incompleteRequests.Add(requestSummary);
 
                 continue;
@@ -831,10 +841,10 @@ public class ProxyWorker
     {
         if (request is not null && request.TTLSeconds == 0)
         {
-            if (request.Headers["S7PTTL"] != null)
+            if (request.Headers[_TTLHeaderName] != null)
             {
                 long longSeconds;
-                string ttlString = request.Headers["S7PTTL"] ?? "";
+                string ttlString = request.Headers[_TTLHeaderName] ?? "";
 
                 // TTL can be specified as +300 ( 300 seconds from now ) or as an absolute number of seconds
                 if (ttlString.StartsWith("+") && long.TryParse(ttlString.Substring(1), out longSeconds))
@@ -847,7 +857,7 @@ public class ProxyWorker
                 }
                 else if (!DateTimeOffset.TryParse(ttlString, out var ttlDate))
                 {
-                    HandleProxyRequestError(null, null, request.Timestamp, request.FullURL, HttpStatusCode.BadRequest, "Invalid TTL format: " + request.Headers["S7PTTL"]);
+                    HandleProxyRequestError(null, null, request.Timestamp, request.FullURL, HttpStatusCode.BadRequest, "Invalid TTL format: " + request.Headers[_TTLHeaderName]);
                     return false;
                 }
                 else
@@ -857,7 +867,7 @@ public class ProxyWorker
             }
             else
             {
-                // Define a TTL for the request if the S7PTTL header is empty  
+                // Define a TTL for the request if the _TTLHeaderName header is empty  
                 request.TTLSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + _options.DefaultTTLSecs;
             }
         }

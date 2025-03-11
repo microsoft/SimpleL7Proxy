@@ -501,7 +501,8 @@ public class Backends : IBackendService
             var options = new DefaultAzureCredentialOptions();
 
             if (_options.UseOAuthGov == true) {
-                options = new DefaultAzureCredentialOptions { AuthorityHost = AzureAuthorityHosts.AzureGovernment };
+                options.AuthorityHost =AzureAuthorityHosts.AzureGovernment;
+                //options = new DefaultAzureCredentialOptions { AuthorityHost = AzureAuthorityHosts.AzureGovernment };
             }
 
             var credential = new DefaultAzureCredential(options);

@@ -27,7 +27,9 @@ public class BackendOptions : IBackendOptions
     public List<string> RequiredHeaders { get; set; } = [];
     public int SuccessRate { get; set; }
     public int Timeout { get; set; }
+    public string TimeoutHeader { get; set; } = "";
     public int TerminationGracePeriodSeconds { get; set; }
+    public string TTLHeader { get; set; } = "";
     public List<string> UniqueUserHeaders { get; set; } = [];
     public bool UseOAuth { get; set; }
     public bool UseOAuthGov { get; set; } = false;

@@ -25,6 +25,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     public string MID { get; set; } = "";
     public Guid Guid { get; set; }
     public string UserID { get; set; } = "";
+    public int Timeout {get; set;}
 
     public string TTL="";
     public long TTLSeconds = 0;
