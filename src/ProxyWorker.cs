@@ -188,21 +188,29 @@ public class ProxyWorker
                     {
                         foreach (var header in incomingRequest.Headers.AllKeys)
                         {
-                            eventData["Request-"+header] = incomingRequest.Headers[header] ?? "N/A";
+                            if (_options.LogAllRequestHeadersExcept == null || !_options.LogAllRequestHeadersExcept.Contains(header))
+                            {
+                                eventData["Request-"+header] = incomingRequest.Headers[header] ?? "N/A";
+
+                            }
                         }
                     }
+                    
                     if (_options.LogAllResponseHeaders)
                     {
                         foreach (var header in pr.Headers.AllKeys)
                         {
-                            eventData["Response-"+header] = pr.Headers[header] ?? "N/A";
+                            if (_options.LogAllResponseHeadersExcept == null || !_options.LogAllResponseHeadersExcept.Contains(header))
+                            {
+                                eventData["Response-"+header] = pr.Headers[header] ?? "N/A";
+                            }
                         }
-                    }
-                    if (_options.LogHeaders?.Count > 0)
+                    } 
+                    else if (_options.LogHeaders?.Count > 0)
                     {
                         foreach (var header in _options.LogHeaders)
                         {
-                            eventData[header] = pr.Headers[header] ?? "N/A";
+                            eventData["Response-" + header] = pr.Headers[header] ?? "N/A";
                         }
                     }
 
@@ -424,7 +432,7 @@ public class ProxyWorker
                 }
                 else
                 {
-                    probeMessage = $"Backend Hosts: {"".PadRight(30)} SimpleL7Proxy: {Constants.VERSION}\n Active Hosts: {activeHosts}  -  {(hasFailedHosts ? "FAILED HOSTS" : "All Hosts Operational")}\n";
+                    probeMessage = $"Replica: {_options.HostName} {"".PadRight(30)} SimpleL7Proxy: {Constants.VERSION}\nBackend Hosts:\n  Active Hosts: {activeHosts}  -  {(hasFailedHosts ? "FAILED HOSTS" : "All Hosts Operational")}\n";
                     if (_backends._hosts.Count > 0)
                     {
                         foreach (var host in _backends._hosts)
@@ -437,8 +445,11 @@ public class ProxyWorker
                         probeMessage += "No Hosts\n";
                     }
 
-                    probeMessage += $"Worker Statistics:\n {GetState()}\n";
-                    probeMessage += $"User Priority Queue: {_userPriority?.GetState() ?? "N/A"}\n";
+                    var stats = $"Worker Statistics:\n {GetState()}\n";
+                    var priority = $"User Priority Queue: {_userPriority?.GetState() ?? "N/A"}\n";
+                    var requestQueue = $"Request Queue: {_requestsQueue?.thrdSafeCount.ToString() ?? "N/A"}\n";
+                    var events = $"Event Hub: {(_eventHubClient != null ? $"Enabled  -  {_eventHubClient.Count} Items" : "Disabled")}\n";
+                    probeMessage += stats + priority + requestQueue + events;
                 }
                 break;
 
@@ -749,7 +760,7 @@ public class ProxyWorker
 
                 Dictionary<string, string> requestSummary = new();
                 requestSummary["status"] = ((int)lastStatusCode).ToString();
-                requestSummary["Host"] = host.host;
+                requestSummary["Backend-Host"] = host.host;
                 requestSummary["Error"] = "Request Timeout after " + request.Timeout + " ms";
                 incompleteRequests.Add(requestSummary);
 
@@ -757,12 +768,12 @@ public class ProxyWorker
             }
             catch (OperationCanceledException e)
             {
-                // 502 Bad Gateway
+                // 408 Request Timeout
                 lastStatusCode = HandleProxyRequestError(host, e, request.Timestamp, request.FullURL, HttpStatusCode.RequestTimeout, "Request to " + host.url + " was cancelled");
 
                 Dictionary<string, string> requestSummary = new();
                 requestSummary["status"] = ((int)lastStatusCode).ToString();
-                requestSummary["Host"] = host.host;
+                requestSummary["Backend-Host"] = host.host;
                 requestSummary["Error"] = "Request Cancelled";
                 incompleteRequests.Add(requestSummary);
 
@@ -775,7 +786,7 @@ public class ProxyWorker
 
                 Dictionary<string, string> requestSummary = new();
                 requestSummary["status"] = ((int)lastStatusCode).ToString();
-                requestSummary["Host"] = host.host;
+                requestSummary["Backend-Host"] = host.host;
                 requestSummary["Error"] = "Bad Request";
                 incompleteRequests.Add(requestSummary);
                 continue;
@@ -793,7 +804,7 @@ public class ProxyWorker
 
                 Dictionary<string, string> requestSummary = new();
                 requestSummary["status"] = ((int)lastStatusCode).ToString();
-                requestSummary["Host"] = host.host;
+                requestSummary["Backend-Host"] = host.host;
                 requestSummary["Error"] = "Internal Error: " + e.Message;
                 incompleteRequests.Add(requestSummary);
             }
