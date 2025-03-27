@@ -80,7 +80,9 @@ public class Program
                     options.Hosts = backendOptions.Hosts;
                     options.IDStr = backendOptions.IDStr;
                     options.LogAllRequestHeaders = backendOptions.LogAllRequestHeaders;
+                    options.LogAllRequestHeadersExcept = backendOptions.LogAllRequestHeadersExcept;
                     options.LogAllResponseHeaders = backendOptions.LogAllResponseHeaders;
+                    options.LogAllResponseHeadersExcept = backendOptions.LogAllResponseHeadersExcept;
                     options.LogHeaders = backendOptions.LogHeaders;
                     options.LogProbes = backendOptions.LogProbes;
                     options.LookupHeaderName = backendOptions.LookupHeaderName;
@@ -94,6 +96,7 @@ public class Program
                     options.PollTimeout = backendOptions.PollTimeout;
                     options.RequiredHeaders = backendOptions.RequiredHeaders;
                     options.SuccessRate = backendOptions.SuccessRate;
+                    options.SuspendedUserConfigUrl = backendOptions.SuspendedUserConfigUrl;
                     options.Timeout = backendOptions.Timeout;
                     options.TimeoutHeader = backendOptions.TimeoutHeader;
                     options.TerminationGracePeriodSeconds = backendOptions.TerminationGracePeriodSeconds;
@@ -107,6 +110,10 @@ public class Program
                     options.UserPriorityThreshold = backendOptions.UserPriorityThreshold;
                     options.ValidateHeaders = backendOptions.ValidateHeaders;
                     options.PriorityWorkers = backendOptions.PriorityWorkers;
+                    options.ValidateAuthAppID = backendOptions.ValidateAuthAppID;
+                    options.ValidateAuthAppFieldName = backendOptions.ValidateAuthAppFieldName;
+                    options.ValidateAuthAppIDUrl = backendOptions.ValidateAuthAppIDUrl;
+                    options.ValidateAuthAppIDHeader = backendOptions.ValidateAuthAppIDHeader;
                     options.Workers = backendOptions.Workers;
                 });
 
@@ -492,7 +499,9 @@ public class Program
             Hosts = new List<BackendHost>(),
             IDStr = $"{ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P")}-{replicaID}-",
             LogAllRequestHeaders = ReadEnvironmentVariableOrDefault("LogAllRequestHeaders", false),
+            LogAllRequestHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllRequestHeadersExcept", "Authorization")),
             LogAllResponseHeaders = ReadEnvironmentVariableOrDefault("LogAllResponseHeaders", false),
+            LogAllResponseHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllResponseHeadersExcept", "Api-Key")),
             LogHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
             LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", false),
             LookupHeaderName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "userId"),
@@ -506,6 +515,7 @@ public class Program
             PriorityValues = ToListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
             RequiredHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("RequiredHeaders", "")),
             SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
+            SuspendedUserConfigUrl = ReadEnvironmentVariableOrDefault("SuspendedUserConfigUrl", "file:config.json"),
             Timeout = ReadEnvironmentVariableOrDefault("Timeout", 3000),
             TimeoutHeader = ReadEnvironmentVariableOrDefault("TimeoutHeader", "S7PTimeout"),
             TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
@@ -519,6 +529,10 @@ public class Program
             UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
             PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault("PriorityWorkers", "2:1,3:1"))),
             ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault("ValidateHeaders", ""))),
+            ValidateAuthAppID = ReadEnvironmentVariableOrDefault("ValidateAuthAppID", false),
+            ValidateAuthAppFieldName = ReadEnvironmentVariableOrDefault("ValidateAuthAppFieldName", "authAppID"),
+            ValidateAuthAppIDUrl = ReadEnvironmentVariableOrDefault("ValidateAuthAppIDUrl", "file:auth.json"),
+            ValidateAuthAppIDHeader = ReadEnvironmentVariableOrDefault("ValidateAuthAppIDHeader", "X-MS-CLIENT-PRINCIPAL-ID"),
             Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
         };
 
