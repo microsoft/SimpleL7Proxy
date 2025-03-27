@@ -149,6 +149,28 @@ public class Server : IServer
                         {
                             rd.Debug = rd.Headers["S7PDEBUG"] != null && string.Equals(rd.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase);
 
+
+                            if (_options.ValidateAuthAppID) 
+                            { 
+                                string? authAppID = rd.Headers[_options.ValidateAuthAppIDHeader];
+                                if (!string.IsNullOrEmpty(authAppID) && _userProfile.IsAuthAppIDValid(authAppID))
+                                {
+                                    if (rd.Debug)
+                                        Console.WriteLine($"AuthAppID {rd.Headers[_options.ValidateAuthAppIDHeader]} is valid.");
+                                }
+                                else
+                                {
+                                    if (rd.Debug)
+                                        Console.WriteLine($"AuthAppID {rd.Headers[_options.ValidateAuthAppIDHeader]} is invalid.");
+                                        
+                                    throw new ProxyErrorException(
+                                        ProxyErrorException.ErrorType.DisallowedAppID,
+                                        HttpStatusCode.Forbidden,
+                                        "Invalid AuthAppID: " + rd.Headers[_options.ValidateAuthAppIDHeader] + "\n"
+                                    );
+                                }
+                            }
+
                             // Remove any disallowed headers
                             foreach (var header in _options.DisallowedHeaders)
                             {
@@ -232,6 +254,9 @@ public class Server : IServer
                                 rd.UserID = "defaultUser";
                             }
 
+                            ed["UserID"] = rd.UserID;
+                            ed["x-S7PID"] = rd.MID;
+   
                             if (rd.Debug)
                                 Console.WriteLine($"UserID: {rd.UserID}");
                                 
@@ -254,6 +279,9 @@ public class Server : IServer
                             rd.EnqueueTime = DateTime.UtcNow;
 
                             ed["S7P-Hostname"] = _options.IDStr;
+                            ed["S7P-Priority"] = priority.ToString();
+                            ed["S7P-Priority2"] = userPriorityBoost.ToString();
+
                             // Check circuit breaker status and enqueue the request
                             if (_backends.CheckFailedStatus())
                             {
@@ -314,14 +342,15 @@ public class Server : IServer
                         }
                     }
 
+                    ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
+                    ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
+
                     if (notEnqued)
                     {
 
                         if (rd.Context is not null)
                         {
                             ed["Type"] = "S7P-EnqueueFailed";
-                            ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
-                            ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
                             WriteOutput($"{logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}", ed);
 
                             rd.Context.Response.StatusCode = notEnquedCode;
@@ -340,9 +369,6 @@ public class Server : IServer
                     {
                         ed["Type"] = "S7P-Enqueue";
                         ed["Message"] = "Enqueued request";
-                        ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
-                        ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
-                        ed["Priority"] = priority.ToString();
 
                         WriteOutput($"Enque Pri: {priority}, User: {rd.UserID}, Queue: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ", ed);
                     }
