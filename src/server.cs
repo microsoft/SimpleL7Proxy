@@ -162,7 +162,7 @@ public class Server : IServer
                                 {
                                     if (rd.Debug)
                                         Console.WriteLine($"AuthAppID {rd.Headers[_options.ValidateAuthAppIDHeader]} is invalid.");
-                                        
+
                                     throw new ProxyErrorException(
                                         ProxyErrorException.ErrorType.DisallowedAppID,
                                         HttpStatusCode.Forbidden,
