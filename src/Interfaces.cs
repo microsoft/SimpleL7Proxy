@@ -17,6 +17,7 @@ public interface IBackendService
 
 public interface IEventHubClient
 {
+    int Count { get; }
     Task StartTimer();
     void StopTimer();
     void SendData(string? value);
@@ -39,7 +40,9 @@ public interface IBackendOptions
     string IDStr { get; set; }
     List<string> LogHeaders { get; set; }
     bool LogAllRequestHeaders { get; set; }
+    List<string> LogAllRequestHeadersExcept { get; set; }
     bool LogAllResponseHeaders { get; set; }
+    List<string> LogAllResponseHeadersExcept { get; set; }
     bool LogProbes { get; set; }
     string LookupHeaderName { get; set; }
     int MaxQueueLength { get; set; }
@@ -53,6 +56,7 @@ public interface IBackendOptions
     Dictionary<int, int> PriorityWorkers { get; set; }
     List<string> RequiredHeaders { get; set; }
     int SuccessRate { get; set; }
+    string SuspendedUserConfigUrl { get; set; }
     int Timeout { get; set; }
     string TimeoutHeader { get; set; }
     int TerminationGracePeriodSeconds { get; set; }
@@ -66,6 +70,10 @@ public interface IBackendOptions
     string UserConfigUrl { get; set; }
     float UserPriorityThreshold { get; set; }
     Dictionary<string, string> ValidateHeaders { get; set; }
+    bool ValidateAuthAppID { get; set; }
+    string ValidateAuthAppFieldName { get; set; }
+    string ValidateAuthAppIDUrl { get; set; }
+    string ValidateAuthAppIDHeader { get; set; }
     int Workers { get; set; }
 }
 
@@ -82,5 +90,7 @@ public interface IUserPriority
 public interface IUserProfile
 {
     public Dictionary<string, string> GetUserProfile(string userId);
+    public bool IsUserSuspended(string userId);
+    public bool IsAuthAppIDValid(string authAppId);
 
 }
