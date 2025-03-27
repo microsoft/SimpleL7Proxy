@@ -51,9 +51,3 @@ namespace Company.Function
         }
     }
 }
-
-public class Profile
-{
-    public string id { get; set; }
-    // Define other properties as needed
-}
