@@ -10,7 +10,8 @@ public class ProxyErrorException(ProxyErrorException.ErrorType type, HttpStatusC
         ClientDisconnected,
         BackendDisconnected,
         IncompleteHeaders,
-        InvalidHeader
+        InvalidHeader,
+        DisallowedAppID
     }
     public ErrorType Type { get; set; } = type;
     public HttpStatusCode StatusCode { get; set; } = statusCode;
