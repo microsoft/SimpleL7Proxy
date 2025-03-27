@@ -13,7 +13,9 @@ public class BackendOptions : IBackendOptions
     public List<string> LogHeaders { get; set; } = [];
     public bool LogProbes { get; set; }
     public bool LogAllRequestHeaders { get; set; } = false;
+    public List<string> LogAllRequestHeadersExcept { get; set; } = [];
     public bool LogAllResponseHeaders { get; set; } = false;
+    public List<string> LogAllResponseHeadersExcept { get; set; } = [];
     public string LookupHeaderName { get; set; } = "";
     public int MaxQueueLength { get; set; }
     public string OAuthAudience { get; set; } = "";
@@ -26,6 +28,7 @@ public class BackendOptions : IBackendOptions
     public Dictionary<int, int> PriorityWorkers { get; set; } = [];
     public List<string> RequiredHeaders { get; set; } = [];
     public int SuccessRate { get; set; }
+    public string SuspendedUserConfigUrl { get; set; } = "";
     public int Timeout { get; set; }
     public string TimeoutHeader { get; set; } = "";
     public int TerminationGracePeriodSeconds { get; set; }
@@ -39,5 +42,9 @@ public class BackendOptions : IBackendOptions
     public string UserConfigUrl { get; set; } = "";
     public float UserPriorityThreshold { get; set; }
     public Dictionary<string, string> ValidateHeaders { get; set; } = [];
+    public bool ValidateAuthAppID { get; set; } = false;
+    public string ValidateAuthAppIDUrl { get; set; } = "";
+    public string ValidateAuthAppFieldName { get; set; } = "";
+    public string ValidateAuthAppIDHeader { get; set; } = "";
     public int Workers { get; set; }
 }
