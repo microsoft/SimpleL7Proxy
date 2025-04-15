@@ -270,7 +270,7 @@ public class ProxyWorker
 
                     // Requeue the request 
                     //_requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.Priority2, incomingRequest.EnqueueTime);
-                    Console.WriteLine($"Requeued request,  Pri: {incomingRequest.Priority}, Queue Length: {_requestsQueue.Count}, Status: {_backends.CheckFailedStatus()}, Active Hosts: {_backends.ActiveHostCount()}");
+                    Console.WriteLine($"Requeued request,  Pri: {incomingRequest.Priority}, Retry-after-ms: {e.RetryAfter}, Queue Length: {_requestsQueue.Count}, Status: {_backends.CheckFailedStatus()}, Active Hosts: {_backends.ActiveHostCount()}");
                     requestWasRetried = true;
                     incomingRequest.SkipDispose = true;
                     eventData["Url"] = e.pr.FullURL;
