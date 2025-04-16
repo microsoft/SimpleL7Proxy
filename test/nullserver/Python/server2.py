@@ -31,6 +31,15 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"Hello, world!")
             return
+        
+        if parsed_path.path == '/echo/requeueME':
+            self.send_response(429)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("retry-after-ms", "10000")
+            self.send_header("S7PREQUEUE", "true")
+            self.end_headers()
+            self.wfile.write(b"Hello, world!")
+            return
 
         # Default response
 
