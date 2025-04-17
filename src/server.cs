@@ -282,6 +282,16 @@ public class Server : IServer
                             ed["S7P-Priority"] = priority.ToString();
                             ed["S7P-Priority2"] = userPriorityBoost.ToString();
 
+                            // Calculate expiresAt time based on the timeout header or default TTL
+                            if (rd.Headers[_options.TimeoutHeader] != null && int.TryParse(rd.Headers[_options.TimeoutHeader], out var timeout)) {
+                                rd.ExpiresAt = rd.EnqueueTime.AddSeconds(timeout);
+                            }
+                            else if (_options.DefaultTTLSecs > 0) {
+                                rd.ExpiresAt = rd.EnqueueTime.AddSeconds(_options.DefaultTTLSecs);
+                            }
+
+                            rd.ExpiresAtString = rd.ExpiresAt.ToLocalTime().ToString("HH:MM:ss");
+
                             // Check circuit breaker status and enqueue the request
                             if (_backends.CheckFailedStatus())
                             {
@@ -308,6 +318,7 @@ public class Server : IServer
                                 retrymsg = ed["Message"] = "No active hosts";
                                 logmsg = "No active hosts  => 429:";
                             }
+
 
                             // Enqueue the request
 
@@ -370,7 +381,7 @@ public class Server : IServer
                         ed["Type"] = "S7P-Enqueue";
                         ed["Message"] = "Enqueued request";
 
-                        WriteOutput($"Enque Pri: {priority}, User: {rd.UserID}, Queue: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ", ed);
+                        WriteOutput($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ", ed);
                     }
                 }
                 else

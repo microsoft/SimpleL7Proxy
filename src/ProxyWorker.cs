@@ -270,7 +270,7 @@ public class ProxyWorker
 
                     // Requeue the request 
                     //_requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.Priority2, incomingRequest.EnqueueTime);
-                    Console.WriteLine($"Requeued request,  Pri: {incomingRequest.Priority}, Retry-after-ms: {e.RetryAfter}, Queue Length: {_requestsQueue.Count}, Status: {_backends.CheckFailedStatus()}, Active Hosts: {_backends.ActiveHostCount()}");
+                    Console.WriteLine($"Requeued request, Pri: {incomingRequest.Priority}, Expires-At: {incomingRequest.ExpiresAtString} Retry-after-ms: {e.RetryAfter}, Q-Len: {_requestsQueue.Count}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()}");
                     requestWasRetried = true;
                     incomingRequest.SkipDispose = true;
                     eventData["Url"] = e.pr.FullURL;
@@ -585,12 +585,17 @@ public class ProxyWorker
                 };
             }
 
-            if (request.Headers[_TimeoutHeaderName] != null && int.TryParse(request.Headers[_TimeoutHeaderName], out var timeout))
-            {
-                // how long did it wait in the queue?
-                int queueTime = (int)(DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds;
-                request.Timeout = Math.Min(0, (timeout * 1000) - queueTime);
+            if (request.ExpiresAt != DateTime.MinValue) {
+                var timeLeft = (request.ExpiresAt - DateTime.UtcNow).TotalMilliseconds;
 
+                if (timeLeft > 0)
+                    request.Timeout = (int)timeLeft;
+                else {
+                    return new ProxyData {
+                        StatusCode = HttpStatusCode.PreconditionFailed,
+                        Body = Encoding.UTF8.GetBytes($"Request has expired: {request.ExpiresAtString} ")
+                    };
+                }
             }
             else
             {

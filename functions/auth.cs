@@ -12,9 +12,9 @@ namespace Company.Function
 {
     public class auth
     {
-        private readonly ILogger<three> _logger;
+        private readonly ILogger<auth> _logger;
 
-        public auth(ILogger<three> logger)
+        public auth(ILogger<auth> logger)
         {
             _logger = logger;
         }
