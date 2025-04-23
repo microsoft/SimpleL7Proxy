@@ -570,7 +570,7 @@ public class ProxyWorker
         List<Dictionary<string, string>> incompleteRequests = new();
 
         // Read the body stream once and reuse it
-        byte[] bodyBytes = await request.CachBodyAsync().ConfigureAwait(false);
+        //byte[] bodyBytes = await request.CachBodyAsync().ConfigureAwait(false);
         List<S7PRequeueException> retryAfter = new();
 
         // Convert _TTLHeaderName to DateTime
@@ -634,6 +634,9 @@ public class ProxyWorker
                 request.Headers.Set("Host", host.host);
                 var urlWithPath = new UriBuilder(host.url) { Path = request.Path }.Uri.AbsoluteUri;
                 request.FullURL = System.Net.WebUtility.UrlDecode(urlWithPath);
+
+                // Read the body stream once and reuse it
+                byte[] bodyBytes = await request.CachBodyAsync().ConfigureAwait(false);
 
                 using (var bodyContent = new ByteArrayContent(bodyBytes))
                 using (var proxyRequest = new HttpRequestMessage(new HttpMethod(request.Method), request.FullURL))
