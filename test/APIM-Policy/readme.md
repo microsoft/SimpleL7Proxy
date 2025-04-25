@@ -4,11 +4,13 @@ This document provides a overview of the Priority-with-retry.xml Azure API Manag
 
 When a backend signals that it is throttling, the policy caches this status and ensures that the backend is not retried until its retry-after time has elapsed. Subsequent requests automatically bypass the throttled backend until it becomes available again. Each cache update lasts for 120 seconds, and any updates to the list of backends are incorporated during this period. Additionally, each API maintains its own independent copy of the cache, as different deployments may experience throttling at varying rates.
 
-If no suitable backends are found, the policy responds with a 429 Too Many Requests status and includes a retry-after-ms header. In scenarios where no backends can handle the specified priority level, the policy returns a maximum retry-after value of 120,000 milliseconds.
+If no suitable backends are found, the policy responds with a 429 Too Many Requests status and includes a retry-after-ms header. In scenarios where no backends can handle the specified priority level, the policy returns a maximum retry-after-ms value of 120,000 milliseconds.
 
-Backends can define the list of priorities they support, and the policy dynamically identifies the appropriate backends to use based on this configuration. Furthermore, each priority level can be customized to specify the number of retries to perform and whether a retry-after response should be returned in cases of throttling.
+Backends can define the list of priorities they support, and the policy dynamically identifies the appropriate backends to use based on this configuration. Furthermore, each priority level can be customized to specify the number of retries to perform and whether a retry-after-ms response should be returned in cases of throttling.
 
 This policy has been rigorously tested and successfully benchmarked with two OpenAI pay-as-you-go instances deployed in different regions, achieving a sustained performance of over 10 million tokens per minute over an extended period.
+
+<embed src="https://Release-TR/APIM%20Policy%20Flow.pdf" type="application/pdf" width="100%" height="600px" />
 
 ## Overview ##
 
@@ -16,8 +18,8 @@ The Priority-with-retry.xml policy manages backend requests while adding the fol
 
 * *Priority-Based Backend Selection:* Routes requests to backends based on their priority and availability. Ths incoming request specifies its priority by adding a header.  This policy reads the priority header and only uses backends that accept that priority. 
 * *Retry Mechanism:* Retries requests to backends that fail due to throttling or other errors. The **retry** element is configured to handle specific error codes like 429, 408, and 500. Retry count and interval are customizable.
-* *Requeueing:* Requeues requests when no backends are available, returning a 429 response with a retry-after header. If all backends are throttling, the request is requeued with a 429 response, and the retry-after duration is enforced.
-* *Throttling Management:* Tracks backend throttling status and enforces retry-after durations. A customizable default value is used when the retry-after header is missing from the backend response.
+* *Requeueing:* Requeues requests when no backends are available, returning a 429 response with a retry-after-ms header. If all backends are throttling, the request is requeued with a 429 response, and the retry-after-ms duration is enforced.
+* *Throttling Management:* Tracks backend throttling status and enforces retry-after-ms durations. A customizable default value is used when the retry-after-ms header is missing from the backend response.
 * *Logging:* Captures detailed logs for debugging and monitoring purposes. The backendLog includes backend selection, retries, throttling status, and custom log entries. You can optionally comment these out once you are satisfied.
 
 This policy is particularly helpful in scenarios where requests need to be prioritized and routed efficiently while ensuring high availability.
@@ -33,7 +35,7 @@ The policy is organized into four sections:
 
 ## Key Variables and Their Purpose ##
 
-* *listBackends:* A cached list of backend configurations, including their URLs, priorities, throttling status, and retry-after durations. Backends can be added or removed by modifying the initialization of the listBackends variable in the <inbound> section.
+* *listBackends:* A cached list of backend configurations, including their URLs, priorities, throttling status, and retry-after-ms durations. Backends can be added or removed by modifying the initialization of the listBackends variable in the <inbound> section.
 * *priorityCfg:* Defines retry counts and requeue behavior for each priority level. Customize the priorityCfg variable to define custom retry counts and requeue behavior for each priority.
 * *RequestPriority:* Determines the priority of the current request from the headers. A default priority of 3 is assigned if the incoming request is missing the priority header.
 * *PriBackendIndxs:* A list of backend indices that match the request's priority.
@@ -86,11 +88,11 @@ If multiple backends are available at the same priority level, one is selected r
 
 *Throttling Management:*
 
-Backends that return a 429 response are marked as throttling, and their retryAfter value is updated based on the retry-after header or a default value.
+Backends that return a 429 response are marked as throttling, and their retryAfter value is updated based on the retry-after-ms header or a default value.
 
 *Requeueing:*
 
-If all backends are throttling, the request is requeued by returning a 429 response with a retry-after header.
+If all backends are throttling, the request is requeued by returning a 429 response with a retry-after-ms header.
 
 *Logging:*
 
@@ -166,11 +168,12 @@ To adjust the retry condition or count, modify the <retry> element in the <backe
 <retry condition="@(context.Variables.GetValueOrDefault<bool>("ShouldRetry", true##" count="100" interval="500">
 ```
 
-*condition:* Specifies when retries should occur.
-*count:* Sets the maximum number of retries.
-*interval:* Defines the delay (in milliseconds) between retries.
+* *condition:* Specifies when retries should occur.
+* *count:* Sets the maximum number of retries.
+* *interval:* Defines the delay (in milliseconds) between retries.
 
-*Customizing Logging*
+*Customizing Logging:*
+
 To add custom log entries, update the *backendLog* variable in the <backend> section:
 
 ``` XML
