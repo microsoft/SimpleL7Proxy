@@ -11,6 +11,18 @@ public class CompositeEventClient(IEnumerable<IEventClient> eventClients)
       client.StopTimer();
     }
   }
+  public int Count
+  {
+    get
+    {
+      var count = 0;
+      foreach (var client in eventClients)
+      {
+        count += client.Count;
+      }
+      return count;
+    }
+  }
   public void SendData(string? value)
   {
     foreach (var client in eventClients)

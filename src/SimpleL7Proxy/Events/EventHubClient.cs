@@ -50,6 +50,8 @@ public class EventHubClient : IEventClient
         }
     }
 
+    public int Count => _logBuffer.Count;
+
     public Task StartTimer()
     {
 

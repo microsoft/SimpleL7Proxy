@@ -27,7 +27,7 @@ public class Server : BackgroundService
     private readonly IBackendService _backends;
 
     private readonly IUserPriorityService _userPriority;
-    private readonly IUserProfileService _userProfiles;
+    private readonly IUserProfileService _userProfile;
     private CancellationTokenSource? _cancellationTokenSource;
     private readonly IConcurrentPriQueue<RequestData> _requestsQueue;// = new ConcurrentPriQueue<RequestData>();
     private readonly ILogger<Server> _logger;
@@ -69,7 +69,7 @@ public class Server : BackgroundService
         _telemetryClient = telemetryClient;
         //_requestsQueue.MaxQueueLength = _options.MaxQueueLength;
         _userPriority = userPriority;
-        _userProfiles = userProfile;
+        _userProfile = userProfile;
         _logger = logger;
         _requestsQueue = requestsQueue;
         _priorityHeaderName = _options.PriorityKeyHeader;
@@ -203,9 +203,35 @@ public class Server : BackgroundService
                     {
                         try 
                         {
+                            rd.Debug = rd.Headers["S7PDEBUG"] != null && string.Equals(rd.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase);
+
+
+                            if (_options.ValidateAuthAppID) 
+                            { 
+                                string? authAppID = rd.Headers[_options.ValidateAuthAppIDHeader];
+                                if (!string.IsNullOrEmpty(authAppID) && _userProfile.IsAuthAppIDValid(authAppID))
+                                {
+                                    if (rd.Debug)
+                                        Console.WriteLine($"AuthAppID {rd.Headers[_options.ValidateAuthAppIDHeader]} is valid.");
+                                }
+                                else
+                                {
+                                    if (rd.Debug)
+                                        Console.WriteLine($"AuthAppID {rd.Headers[_options.ValidateAuthAppIDHeader]} is invalid.");
+
+                                    throw new ProxyErrorException(
+                                        ProxyErrorException.ErrorType.DisallowedAppID,
+                                        HttpStatusCode.Forbidden,
+                                        "Invalid AuthAppID: " + rd.Headers[_options.ValidateAuthAppIDHeader] + "\n"
+                                    );
+                                }
+                            }
+
                             // Remove any disallowed headers
                             foreach (var header in _options.DisallowedHeaders)
                             {
+                                if (rd.Debug && !String.IsNullOrEmpty(rd.Headers.Get(header)))
+                                    Console.WriteLine($"Disallowed header {header} removed from request.");
                                 rd.Headers.Remove(header);   
                             }
                             
@@ -217,14 +243,15 @@ public class Server : BackgroundService
                                 var requestUser = rd.Headers[_options.UserProfileHeader];
                                 if (!string.IsNullOrEmpty(requestUser))
                                 {
-                                    var headers = _userProfiles.GetUserProfile(requestUser);
+                                    var headers = _userProfile.GetUserProfile(requestUser);
 
                                     if (headers != null)
                                     {
                                         foreach (var header in headers)
                                         {
                                             rd.Headers.Set(header.Key, header.Value);
-                                            //Console.WriteLine($"User profile header {header.Key} = {header.Value} added to request.");
+                                            if (rd.Debug)
+                                                Console.WriteLine($"Add Header: {header.Key} = {header.Value}");
                                         }
                                     }
                                 }
@@ -235,10 +262,13 @@ public class Server : BackgroundService
                             {
                                 var missing = _options.RequiredHeaders.FirstOrDefault(x => string.IsNullOrEmpty(rd.Headers[x]));
                                 if (!string.IsNullOrEmpty(missing)) {
+                                    if (rd.Debug)
+                                        Console.WriteLine($"Required header {missing} is missing from request.");
+
                                     throw new ProxyErrorException(
                                         ProxyErrorException.ErrorType.IncompleteHeaders,
                                         HttpStatusCode.ExpectationFailed,
-                                        "Required header is missing: " + missing
+                                        "Required header is missing: " + missing + "\n"
                                     );
                                 }
                             }
@@ -253,13 +283,17 @@ public class Server : BackgroundService
                                     List<string> values = [.. rd.Headers[header.Value]!.Split(',')];
                                     if (!values.Contains(lookup))
                                     {
+                                        if (rd.Debug)
+                                            Console.WriteLine($"Validation check failed for header: {header.Key} = {lookup}");
                                         throw new ProxyErrorException(
                                             ProxyErrorException.ErrorType.InvalidHeader,
                                             HttpStatusCode.ExpectationFailed,
-                                            "Validation check failed for header: " + header.Key
+                                            "Validation check failed for header: " + header.Key + "\n"
                                         );
                                     }
                                 }
+                                if (rd.Debug)
+                                    Console.WriteLine($"Validation check passed for all headers."); 
                             }
 
                             // Determine priority boost based on the UserID 
@@ -276,6 +310,12 @@ public class Server : BackgroundService
                                 rd.UserID = "defaultUser";
                             }
 
+                            ed["UserID"] = rd.UserID;
+                            ed["x-S7PID"] = rd.MID;
+   
+                            if (rd.Debug)
+                                Console.WriteLine($"UserID: {rd.UserID}");
+                                
                             // Determine priority boost based on the UserID
                             rd.Guid = _userPriority.addRequest(rd.UserID);
                             bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
@@ -295,6 +335,19 @@ public class Server : BackgroundService
                             rd.EnqueueTime = DateTime.UtcNow;
 
                             ed["S7P-Hostname"] = _options.IDStr;
+                            ed["S7P-Priority"] = priority.ToString();
+                            ed["S7P-Priority2"] = userPriorityBoost.ToString();
+
+                            // Calculate expiresAt time based on the timeout header or default TTL
+                            if (rd.Headers[_options.TimeoutHeader] != null && int.TryParse(rd.Headers[_options.TimeoutHeader], out var timeout)) {
+                                rd.ExpiresAt = rd.EnqueueTime.AddSeconds(timeout);
+                            }
+                            else if (_options.DefaultTTLSecs > 0) {
+                                rd.ExpiresAt = rd.EnqueueTime.AddSeconds(_options.DefaultTTLSecs);
+                            }
+
+                            rd.ExpiresAtString = rd.ExpiresAt.ToLocalTime().ToString("HH:MM:ss");
+
                             // Check circuit breaker status and enqueue the request
                             if (_backends.CheckFailedStatus())
                             {
@@ -321,6 +374,7 @@ public class Server : BackgroundService
                                 retrymsg = ed["Message"] = "No active hosts";
                                 logmsg = "No active hosts  => 429:";
                             }
+
 
                             // Enqueue the request
 
@@ -353,6 +407,9 @@ public class Server : BackgroundService
 
                         }
                     }
+
+                    ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
+                    ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
 
                     if (notEnqued)
                     {
@@ -400,7 +457,7 @@ public class Server : BackgroundService
                         ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
                         ed["Priority"] = priority.ToString();
 
-                        _logger.LogInformation($"Enque Pri: {priority}, User: {rd.UserID}, Queue: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ", ed);
+                        _logger.LogInformation($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ", ed);
                     }
                 }
                 else

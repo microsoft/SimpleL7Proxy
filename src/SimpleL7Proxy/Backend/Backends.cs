@@ -293,50 +293,59 @@ public class Backends : IBackendService
 
   private async Task<bool> GetHostStatus(BackendHostHealth host, HttpClient client)
   {
+    double latency = 0;
+
     ProxyEvent probeData = new()
     {
       EventData =
       {
         ["ProxyHost"] = _options.HostName,
-        ["Host"] = host.Host,
+        ["Backend-Host"] = host.Host,
         ["Port"] = host.Port.ToString(),
         ["Path"] = host.ProbePath
       }
     };
 
-    if (_debug)
-      _logger.LogDebug($"Checking host {host.Url + host.ProbePath}");
+    try {
+      if (_debug)
+        _logger.LogDebug($"Checking host {host.Url + host.ProbePath}");
 
-    HttpRequestMessage request = new(HttpMethod.Get, host.ProbeUrl);
-    if (_options.UseOAuth)
-    {
-      request.Headers.Authorization = new("Bearer", OAuth2Token());
-    }
-
-
-    try
-    {
+      HttpRequestMessage request = new(HttpMethod.Get, host.ProbeUrl);
+      if (_options.UseOAuth) {
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", OAuth2Token());
+      }
 
       var stopwatch = Stopwatch.StartNew();
-      var response = await client.SendAsync(request, _cancellationToken);
-      stopwatch.Stop();
-      var latency = stopwatch.Elapsed.TotalMilliseconds;
 
-      // Update the host with the new latency
-      host.AddLatency(latency);
+      try {
+          // send and read the entire response
+          var response = await client.SendAsync(request, _cancellationToken);
+          var responseBody = await response.Content.ReadAsStringAsync(_cancellationToken);
+                    
+          stopwatch.Stop();
 
-      probeData.EventData["Latency"] = latency.ToString();
-      probeData.EventData["Code"] = response.StatusCode.ToString();
-      probeData.EventData["Type"] = "Poller";
-      probeData.EventData["Host"] = host.Host;
-      probeData.EventData["ID"] = _options.IDStr;
+          latency = stopwatch.Elapsed.TotalMilliseconds;
 
-      response.EnsureSuccessStatusCode();
+          // Update the host with the new latency
+          host.AddLatency(latency);
 
-      _isRunning = true;
+          probeData.EventData["Latency"] = latency.ToString() + " ms";
+          probeData.EventData["Code"] = response.StatusCode.ToString();
+          probeData.EventData["Type"] = "Poller";
+          //probeData.EventData["Host"] = host.Host;
+          probeData.EventData["ID"] = _options.IDStr;
 
-      // If the response is successful, add the host to the active hosts
-      return response.IsSuccessStatusCode;
+          response.EnsureSuccessStatusCode();
+
+          _isRunning = true;
+
+          // If the response is successful, add the host to the active hosts
+          return response.IsSuccessStatusCode;
+        } finally {
+          stopwatch.Stop();
+          latency = stopwatch.Elapsed.TotalMilliseconds;
+          probeData.EventData["Latency"] = latency.ToString() + " ms";
+        }
     }
     catch (UriFormatException e)
     {
@@ -350,6 +359,7 @@ public class Backends : IBackendService
       _logger.LogError($"Poller: Host Timeout: {host.Host}");
       probeData.EventData["Type"] = "TaskCanceledException";
       probeData.EventData["Code"] = "-";
+      probeData.EventData["Timeout"] = client.Timeout.TotalMilliseconds.ToString();
     }
     catch (HttpRequestException e)
     {
@@ -520,7 +530,14 @@ public class Backends : IBackendService
   {
     try
     {
-      DefaultAzureCredential credential = new();
+      var options = new DefaultAzureCredentialOptions();
+
+      if (_options.UseOAuthGov == true) {
+          options.AuthorityHost =AzureAuthorityHosts.AzureGovernment;
+          //options = new DefaultAzureCredentialOptions { AuthorityHost = AzureAuthorityHosts.AzureGovernment };
+      }
+
+      var credential = new DefaultAzureCredential(options);
       TokenRequestContext context = new([_options.OAuthAudience]);
       return await credential.GetTokenAsync(context);
     }

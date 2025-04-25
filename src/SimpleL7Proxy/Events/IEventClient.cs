@@ -2,6 +2,7 @@
 
 public interface IEventClient
 {
+  int Count { get; }
   public void StopTimer();
 
   void SendData(string? value);

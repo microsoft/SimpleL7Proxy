@@ -18,11 +18,20 @@ public class UserProfile : BackgroundService, IUserProfileService
     private readonly ILogger<Server> _logger;
 
     private Dictionary<string, Dictionary<string, string>> userProfiles = new Dictionary<string, Dictionary<string, string>>();
+    private List<string> suspendedUserProfiles = new List<string>();
+    private List<string> authAppIDs = new List<string>();
+    
     public UserProfile(IOptions<BackendOptions> options, ILogger<Server> logger)
     {
         _options = options.Value;
         _logger = logger;
         _lookupHeaderName = _options.LookupHeaderName;
+    }
+    public enum ParsingMode
+    {
+        profileMode,
+        SuspendedUserMode,
+        AuthAppIDMode
     }
 
     private void OnApplicationStopping()
@@ -56,7 +65,9 @@ public class UserProfile : BackgroundService, IUserProfileService
         {
             try
             {
-                await ReadUserConfigAsync().ConfigureAwait(false);
+                await ReadUserConfigAsync(_options.UserConfigUrl, ParsingMode.profileMode).ConfigureAwait(false);
+                await ReadUserConfigAsync(_options.SuspendedUserConfigUrl, ParsingMode.SuspendedUserMode).ConfigureAwait(false);
+                await ReadUserConfigAsync(_options.ValidateAuthAppIDUrl, ParsingMode.AuthAppIDMode).ConfigureAwait(false);
             }
             catch (Exception e)
             {
@@ -68,17 +79,17 @@ public class UserProfile : BackgroundService, IUserProfileService
         }
     }
 
-    public async Task ReadUserConfigAsync()
+    public async Task ReadUserConfigAsync(string config, ParsingMode mode)
     {
         if (string.IsNullOrEmpty(_options.UserConfigUrl))
         {
-            Console.WriteLine("UserConfigUrl is not set.");
+            Console.WriteLine($"{config} is not set.");
             return;
         }
         // Read user config from URL
 
         string fileContent = string.Empty;
-        string location = _options.UserConfigUrl;
+        string location = config;
 
         if (location.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
         {
@@ -98,7 +109,7 @@ public class UserProfile : BackgroundService, IUserProfileService
             }
             else
             {
-                Console.WriteLine($"User config file: {location.Substring(5)} not found or not a JSON file");
+                Console.WriteLine($"{config} file: {location.Substring(5)} not found or not a JSON file");
             }
         }
         else
@@ -119,7 +130,7 @@ public class UserProfile : BackgroundService, IUserProfileService
 
         if (!string.IsNullOrEmpty(fileContent))
         {
-            ParseUserConfig(fileContent);
+            ParseUserConfig(fileContent, mode);
         }
     }
 
@@ -139,8 +150,12 @@ public class UserProfile : BackgroundService, IUserProfileService
     //     }
     // ]
 
-    public void ParseUserConfig(string fileContent)
+    public void ParseUserConfig(string fileContent, ParsingMode mode)
     {
+        Dictionary<string, Dictionary<string, string>> localUserProfiles = new Dictionary<string, Dictionary<string, string>>();
+        List<string> localSuspendedUserProfiles = new List<string>();
+        List<string> localAuthAppIDs = new List<string>();
+
         if (string.IsNullOrWhiteSpace(fileContent))
         {
             Console.WriteLine("No user config provided to parse.");
@@ -157,51 +172,89 @@ public class UserProfile : BackgroundService, IUserProfileService
                 return;
             }
 
-            var newUserProfiles = new Dictionary<string, Dictionary<string, string>>();
-            var newUserIds = new HashSet<string>();
+            string lookupFieldName = "";
+            if (mode == ParsingMode.SuspendedUserMode || mode == ParsingMode.profileMode )
+            {
+                lookupFieldName = _lookupHeaderName;
+            }
+            else if (mode == ParsingMode.AuthAppIDMode)
+            {
+                lookupFieldName = _options.ValidateAuthAppFieldName;
+            }
 
-            foreach (var profile in userConfig.EnumerateArray()) {
-                
-                // NOTE: This assumes that the userId is always present in the profile. 
-                // LookupHeaderName which defaults to userId can be overridden
-
-                if (profile.TryGetProperty(_lookupHeaderName, out JsonElement userIdElement)) {
-                    string userId = userIdElement.GetString() ?? string.Empty;
-                    if (!string.IsNullOrEmpty(userId)) {
-                        Dictionary<string, string> kvPairs = new Dictionary<string, string>();
-                        foreach (var property in profile.EnumerateObject()) {
-                            if (!property.Name.Equals(_lookupHeaderName, StringComparison.OrdinalIgnoreCase)) {
-                                kvPairs[property.Name] = property.Value.ToString().Trim();
-                            }
+            foreach (var profile in userConfig.EnumerateArray())
+            {
+                // Depending on the parsing mode, look up the appropriate field
+                if (profile.TryGetProperty(lookupFieldName, out JsonElement entityElement))
+                {
+                    var entityId = entityElement.GetString() ?? string.Empty;
+                    if (!string.IsNullOrEmpty(entityId))
+                    {
+                        if (mode == ParsingMode.SuspendedUserMode) {
+                            localSuspendedUserProfiles.Add(entityId);
+                            continue;
                         }
-                        newUserProfiles[userId] = kvPairs;
-                        newUserIds.Add(userId);
-                    } else {
-                        Console.WriteLine($"User profile missing {_lookupHeaderName}. Skipping...");
+
+                        if (mode == ParsingMode.AuthAppIDMode) {
+                            if (profile.TryGetProperty(_options.ValidateAuthAppFieldName, out JsonElement authAppIdElement))
+                            {
+                                string authAppId = authAppIdElement.GetString() ?? string.Empty;
+                                if (!string.IsNullOrEmpty(authAppId))
+                                {
+                                    localAuthAppIDs.Add(authAppId);
+                                }
+                            }
+                            continue;
+                        }
+
+                        if (mode == ParsingMode.profileMode) {
+
+                            Dictionary<string, string> kvPairs = new Dictionary<string, string>();
+                            foreach (var property in profile.EnumerateObject())
+                            {
+                                if (!property.Name.Equals(_lookupHeaderName, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    kvPairs[property.Name] = property.Value.ToString();
+                                }
+                            }
+                            localUserProfiles[entityId] = kvPairs;
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Profile field is missing {_lookupHeaderName}. Skipping...");
                     }
                 }
             }
 
-            // Update existing profiles and add new ones
-            foreach (var kvp in newUserProfiles) {
-                userProfiles[kvp.Key] = kvp.Value;
+            string entityName = "";
+            int entityValue = 0;
+
+            if (mode == ParsingMode.SuspendedUserMode)
+            {
+                suspendedUserProfiles = localSuspendedUserProfiles;
+                entityName = "Suspended Users";
+                entityValue = suspendedUserProfiles.Count;
+            }
+            else if (mode == ParsingMode.AuthAppIDMode)
+            {
+                authAppIDs = localAuthAppIDs;
+                entityName = "AuthAppIDs";
+                entityValue = authAppIDs.Count;
+            }
+            else if (mode == ParsingMode.profileMode)
+            {
+                userProfiles = localUserProfiles;
+                entityName = "User Profiles";
+                entityValue = userProfiles.Count;
             }
 
-            // Remove profiles that are not in the new configuration
-            var existingUserIds = new List<string>(userProfiles.Keys);
-            foreach (var userId in existingUserIds) {
-                if (!newUserIds.Contains(userId)) {
-                    userProfiles.Remove(userId);
-                }
-            }
-
-            Console.WriteLine($"User config parsed successfully.  Found {userProfiles.Count} user profiles.");
+            Console.WriteLine($"Successfully parsed {entityName}.  Found {entityValue} user entities.");
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error parsing user config: {ex.Message}");
         }
-
     }
 
     public Dictionary<string, string> GetUserProfile(string userId)
@@ -211,6 +264,21 @@ public class UserProfile : BackgroundService, IUserProfileService
             return userProfiles[userId];
         }
         return new Dictionary<string, string>();
+    }
+
+    public bool IsUserSuspended(string userId)
+    {
+        return suspendedUserProfiles.Contains(userId);
+    }
+    public bool IsAuthAppIDValid(string? authAppId)
+    {
+        if (string.IsNullOrEmpty(authAppId))
+        {
+            return false;
+        }
+
+        // Check if the authAppId is in the list of valid authAppIDs
+        return authAppIDs.Contains(authAppId);
     }
 
 }

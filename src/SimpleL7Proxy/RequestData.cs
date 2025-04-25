@@ -20,9 +20,12 @@ public class RequestData : IDisposable, IAsyncDisposable
     public int Priority2 { get; set; }
     public DateTime EnqueueTime { get; set; }
     public DateTime DequeueTime { get; set; }
+    public DateTime ExpiresAt { get; set; }
+    public string ExpiresAtString { get; set; } = "";
     public string MID { get; set; } = "";
     public Guid Guid { get; set; }
     public string UserID { get; set; } = "";
+    public int Timeout {get; set;}
 
     public string TTL="";
     public long TTLSeconds = 0;
