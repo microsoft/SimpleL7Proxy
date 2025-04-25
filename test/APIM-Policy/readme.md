@@ -1,16 +1,16 @@
 ## README: Priority-with-retry.xml APIM Policy ##
 
-This document provides a overview of the Priority-with-retry.xml Azure API Management (APIM) policy, detailing its purpose, structure, functionality, and customization options. The policy is designed to route requests to specific backends based on their assigned priority, with built-in mechanisms for retrying and requeuing requests when necessary.
+This document provides an overview of the **Priority-with-retry.xml** Azure API Management (APIM) policy, explaining its purpose, structure, functionality, and customization options. The policy is designed to route requests to specific backends based on their assigned priority, with built-in mechanisms for retrying and requeuing requests when necessary.
 
-When a backend signals that it is throttling, the policy caches this status and ensures that the backend is not retried until its retry-after time has elapsed. Subsequent requests automatically bypass the throttled backend until it becomes available again. Each cache update lasts for 120 seconds, and any updates to the list of backends are incorporated during this period. Additionally, each API maintains its own independent copy of the cache, as different deployments may experience throttling at varying rates.
+When a backend indicates that it is throttling, the policy caches this status and ensures that the backend is not retried until its **retry-after** time has elapsed. Subsequent requests automatically bypass the throttled backend until it becomes available again. Each cache update lasts for 120 seconds, and any updates to the list of backends are incorporated during this period. Additionally, each API maintains its own independent copy of the cache, as different deployments may experience throttling at varying rates.
 
-If no suitable backends are found, the policy responds with a 429 Too Many Requests status and includes a retry-after-ms header. In scenarios where no backends can handle the specified priority level, the policy returns a maximum retry-after-ms value of 120,000 milliseconds.
+If no suitable backends are found, the policy responds with a **429 Too Many Requests** status and includes a **retry-after-ms** header. In scenarios where no backends can handle the specified priority level, the policy returns a maximum **retry-after-ms** value of 120,000 milliseconds.
 
-Backends can define the list of priorities they support, and the policy dynamically identifies the appropriate backends to use based on this configuration. Furthermore, each priority level can be customized to specify the number of retries to perform and whether a retry-after-ms response should be returned in cases of throttling.
+Backends can define the list of priorities they support, and the policy dynamically identifies the appropriate backends to use based on this configuration. Furthermore, each priority level can be customized to specify the number of retries to perform and whether a **retry-after-ms** response should be returned in cases of throttling. Each backend can also be configured to use either an API key or Azure Managed Identity.
 
 This policy has been rigorously tested and successfully benchmarked with two OpenAI pay-as-you-go instances deployed in different regions, achieving a sustained performance of over 10 million tokens per minute over an extended period.
 
-<embed src="https://Release-TR/APIM%20Policy%20Flow.pdf" type="application/pdf" width="100%" height="600px" />
+![image](./Flow.pdf)
 
 ## Overview ##
 
@@ -138,6 +138,8 @@ To add new backends, modify the initialization of the listBackends variable in t
     return backends;
 }" />
 ```
+
+To use an API key, paste its value into the designated section. If you prefer to use **Azure Managed Identity**, leave the value blank.
 
 Adjusting Priority Configuration
 To change the retry count or requeue behavior for a specific priority, update the priorityCfg variable:

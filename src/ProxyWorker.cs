@@ -266,7 +266,7 @@ public class ProxyWorker
                         // Requeue the request after the retry-after value
                         await Task.Delay(e.RetryAfter).ConfigureAwait(false);
                         _requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.Priority2, incomingRequest.EnqueueTime);
-                    });;
+                    });
 
                     // Requeue the request 
                     //_requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.Priority2, incomingRequest.EnqueueTime);
@@ -603,17 +603,6 @@ public class ProxyWorker
             }
         }
 
-        // Check ttlSeconds against current time .. keep in mind, client may have disconnected already
-        if (request.TTLSeconds < DateTimeOffset.UtcNow.ToUnixTimeSeconds())
-        {
-            HandleProxyRequestError(null, null, request.Timestamp, request.FullURL, HttpStatusCode.Gone, "Request has expired: " + DateTimeOffset.UtcNow.ToLocalTime());
-            return new ProxyData
-            {
-                StatusCode = HttpStatusCode.PreconditionFailed,
-                Body = Encoding.UTF8.GetBytes("Request has expired: " + request.Headers[_TTLHeaderName])
-            };
-        }
-
         if (_options.UseOAuth)
         {
             // Get a token
@@ -628,6 +617,17 @@ public class ProxyWorker
 
         foreach (var host in activeHosts)
         {
+            // Check ttlSeconds against current time .. keep in mind, client may have disconnected already
+            if (request.TTLSeconds < DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+            {
+                HandleProxyRequestError(null, null, request.Timestamp, request.FullURL, HttpStatusCode.Gone, "Request has expired: " + DateTimeOffset.UtcNow.ToLocalTime());
+                return new ProxyData
+                {
+                    StatusCode = HttpStatusCode.PreconditionFailed,
+                    Body = Encoding.UTF8.GetBytes("Request has expired: " + request.Headers[_TTLHeaderName])
+                };
+            }
+
             // Try the request on each active host, stop if it worked
             try
             {
@@ -859,7 +859,7 @@ public class ProxyWorker
             }
         }   
 
-        if (activeHosts.Count() == 1)
+        if (activeHosts.Count == 1)
         {
             return new ProxyData
             {
