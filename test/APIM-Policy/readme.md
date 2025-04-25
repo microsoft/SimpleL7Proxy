@@ -1,6 +1,12 @@
 ## README: Priority-with-retry.xml APIM Policy ##
 
-This document explains the Priority-with-retry.xml Azure API Management (APIM) policy. It aims to provide clarity on its purpose, structure, and functionality, along with guidance on how to customize it. The policy is designed to handle requests to multiple backends based on priority, with mechanisms to retry and requeue requests when necessary.
+This document provides a comprehensive overview of the Priority-with-retry.xml Azure API Management (APIM) policy, detailing its purpose, structure, functionality, and customization options. The policy is designed to route requests to specific backends based on their assigned priority, with built-in mechanisms for retrying and requeuing requests when necessary.
+
+If a backend signals that it is throttling, the policy caches this status and ensures that the backend is not retried until its retry-after time has elapsed. Subsequent requests automatically bypass the throttled backend until it becomes available again.
+
+If no suitable backends are found, the policy gracefully responds with a 429 Too Many Requests status and includes a retry-after-ms header. In scenarios where no backends can handle the specified priority level, the policy returns a maximum retry-after value of 120,000 milliseconds.
+
+Backends can specify the list of priorities they support, and the policy dynamically identifies the appropriate backends to use based on this configuration. Additionally, each priority level can be customized to define the number of retries to perform and whether a retry-after response should be returned in cases of throttling.
 
 ## Overview ##
 
