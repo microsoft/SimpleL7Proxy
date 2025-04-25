@@ -33,6 +33,11 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             return
         
         if parsed_path.path == '/echo/requeueME':
+
+            # Read the body
+            content_length = int(self.headers.get('Content-Length', 0))  # Get the length of the body
+            request_body = self.rfile.read(content_length).decode('utf-8')  # Read and decode the body
+            print(f"Request: {parsed_path.path}  Body: {request_body}")
             self.send_response(429)
             self.send_header("Content-Type", "text/plain")
             self.send_header("retry-after-ms", "10000")
