@@ -798,7 +798,10 @@ public class ProxyWorker
                                 var dict=proxyResponse.Headers.ToDictionary();
                                 foreach (var header in _options.LogHeaders)
                                 {
-                                    eventData[header] = String.Join(", " , dict[header]) ?? "N/A";
+                                    if (dict.ContainsKey(header))
+                                    {
+                                        eventData[header] = string.Join(", ", dict[header]) ?? "N/A";
+                                    }
                                 }
                             }
 
@@ -949,6 +952,18 @@ public class ProxyWorker
             }
         }
 
+
+        if (retryAfter.Count > 0)
+        {
+            // If we have retry after values, return the smallest one
+            var exc = retryAfter.MinBy(x => x.RetryAfter);
+            if (exc != null)
+            {
+                // NOTE:  this throws an S7PRequeueException which is caught in the main loop
+                throw exc;
+            }
+        } 
+        
         // If we get here, then no hosts were able to handle the request
         //ProxyData pd; 
         if (activeHosts.Count == 1)
