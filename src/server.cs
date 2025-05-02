@@ -290,7 +290,7 @@ public class Server : IServer
                                 rd.ExpiresAt = rd.EnqueueTime.AddSeconds(_options.DefaultTTLSecs);
                             }
 
-                            rd.ExpiresAtString = rd.ExpiresAt.ToLocalTime().ToString("HH:MM:ss");
+                            rd.ExpiresAtString = rd.ExpiresAt.ToLocalTime().ToString("HH:mm:ss");
 
                             // Check circuit breaker status and enqueue the request
                             if (_backends.CheckFailedStatus())
