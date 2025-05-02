@@ -8,7 +8,8 @@
 	<!-- Throttle, authorize, validate, cache, or transform the requests -->
 	<inbound>
 		<base />
-		<rate-limit-by-key calls="1" renewal-period="1" counter-key="@(context.Api.Id)" increment-condition="@(true)" remaining-calls-variable-name="remainingCallsPerIP" retry-after-header-name="foobar" remaining-calls-header-name="fizbar" />
+		<!-- <rate-limit-by-key calls="1" renewal-period="1" counter-key="@(context.Api.Id)" increment-condition="@(true)" 
+        remaining-calls-variable-name="remainingCallsPerIP" retry-after-header-name="foobar" remaining-calls-header-name="fizbar" /> -->
 		<azure-openai-emit-token-metric namespace="AzureOpenAI">
 			<dimension name="User ID" />
 			<dimension name="Client IP" value="foobar" />
@@ -38,6 +39,7 @@
                         { "retryAfter", DateTime.MinValue } ,
                         { "ModelType", "PAYGO" },
                         { "acceptablePriorities", new JArray(3) },
+                        { "LimitConcurrency", false},
                         { "api-key", ""},
                         { "defaultRetryAfter", 10 } // Default retry-after value in seconds
                     });
@@ -49,6 +51,7 @@
                         { "retryAfter", DateTime.MinValue } ,
                         { "ModelType", "PAYGO" },
                         { "acceptablePriorities", new JArray(1,2) },
+                        { "LimitConcurrency", true},
                         { "api-key", "123"},
                         { "defaultRetryAfter", 10 } // Default retry-after value in seconds
                     });
@@ -108,7 +111,17 @@
         }" />
 		<set-variable name="backendLog" value="@{
             int requestPriority = (int)context.Variables["RequestPriority"];
-            string backendLog = " PRIORITY: " + requestPriority +
+            JArray priorityBackendIndxs = (JArray)context.Variables["PriBackendIndxs"];
+            JArray backends = context.Variables.GetValueOrDefault<JArray>("listBackends", new JArray());
+            string backendLog = "BACKENDS: ";
+
+            foreach (int i in priorityBackendIndxs) {
+                JObject backend = (JObject)backends[i];
+                backendLog += "  index=" + i + "  isThrottling=" + backend.Value<bool>("isThrottling") +
+                   " retryAfter=" + backend.Value<DateTime>("retryAfter").ToString("yyyy-MM-ddTHH:mm:ssZ");
+            }
+
+            backendLog += " REQUEST PRIORITY: " + requestPriority +
                 "  REQUEST-HEADERS: " + string.Join(", ", context.Request.Headers.Select(h => $"{h.Key}: {string.Join(", ", h.Value)}"));
             return backendLog;
 
@@ -117,7 +130,7 @@
 	</inbound>
 	<!-- Control if and how the requests are forwarded to services  -->
 	<backend>
-		<retry condition="@(context.Variables.GetValueOrDefault<bool>("ShouldRetry", true))" count="50" interval="0">
+		<retry condition="@(context.Variables.GetValueOrDefault<bool>("ShouldRetry", true))" count="50" interval="1" delta="1">
 			<!-- Before picking the backend, let's verify if there is any that should be set to not throttling anymore -->
 			<set-variable name="listBackends" value="@{
                 JArray backends = (JArray)context.Variables["listBackends"];
@@ -130,8 +143,21 @@
                         backend["retryAfter"] = DateTime.MinValue;
                     });
 
+
+                // check if the previous run was limited and then blocked.  Mark backend for throttling if so.
+                var shouldLimit = context.Variables.GetValueOrDefault<bool>("shouldLimit", false);
+                var wasLimited = context.Variables.GetValueOrDefault<bool>("wasLimited", false);
+                var backendIndex = context.Variables.GetValueOrDefault<int>("backendIndex", -1);
+
+                if ( shouldLimit && wasLimited && backendIndex >= 0 && backendIndex < backends.Count ) {
+                    JObject backend = (JObject)backends[backendIndex];
+                    backend["isThrottling"] = true;
+                    backend["retryAfter"] = DateTime.UtcNow.AddSeconds(4);
+                }
+
                 return backends;
             }" />
+
 			<cache-store-value key="@("listBackends-" + context.Api.Id)" value="@((JArray)context.Variables["listBackends"])" duration="120" />
 			<!-- This is the main logic to pick the backend to be used -->
 			<set-variable name="backendIndex" value="@{
@@ -139,7 +165,6 @@
                 JArray backends = context.Variables.GetValueOrDefault<JArray>("listBackends", new JArray());
                 if (!backends.Any()) {return -1;}
 
-                int requestPriority = (int)context.Variables["RequestPriority"];
                 JArray priorityBackendIndxs = (JArray)context.Variables["PriBackendIndxs"];
 
                 // Find all non-throttling backends that support the request priority
@@ -163,15 +188,25 @@
 
                 if (!availableBackends.Any())  { return -1; }
 
-                int index = availableBackends.Count == 1 ? 0 : new Random(context.RequestId.GetHashCode()).Next(availableBackends.Count);
-                return availableBackends[index];
+                // pick a random backend from the available ones
+                return availableBackends[ new Random(context.RequestId.GetHashCode()).Next(availableBackends.Count) ];
 
+            }" />
+            <set-variable name="shouldLimit" value="@{
+                // Check if the backend should limit concurrency
+                JArray backends = context.Variables.GetValueOrDefault<JArray>("listBackends", new JArray());
+                int backendIndex = (int)context.Variables["backendIndex"];
+                if (backendIndex < 0 || backendIndex >= backends.Count) { return false; }
+                JObject backend = (JObject)backends[backendIndex];
+                return backend.Value<bool>("LimitConcurrency") == true;
             }" />
 			<set-variable name="backendLog" value="@{
                 int backendIndex = (int)context.Variables["backendIndex"];
+                var shouldLimit = context.Variables.GetValueOrDefault<bool>("shouldLimit", false);
 
                 string backendLog = context.Variables.GetValueOrDefault<string>("backendLog", "");
-                backendLog += "  NEXT INDEX TO TRY: " + backendIndex  + "  NOW=" + DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
+                backendLog += "  NEXT INDEX TO TRY: " + backendIndex + " SHOULD LIMIT: " + shouldLimit.ToString() + 
+                              "  NOW=" + DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
                 return backendLog;
             }" />
 			<!-- Make the request to the selected backend -->
@@ -202,12 +237,25 @@
                         string backendLog = context.Variables.GetValueOrDefault<string>("backendLog", "");
                         int index         = context.Variables.GetValueOrDefault<int>("backendIndex", 0);
 
-                        backendLog += ( index == 0) ? "  Using PTU backend: Now=" : "  Using PAYGO backend: Now=";
+                        backendLog += "  Using " + ((JObject)((JArray)context.Variables["listBackends"])[index]).Value<string>("ModelType") + " backend: Now=";
                         backendLog += DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") + " - " + ((JObject)((JArray)context.Variables["listBackends"])[index]).Value<string>("url"); 
 
                         return backendLog;
                     }" />
-					<forward-request buffer-request-body="true" />
+                    <!-- If the endpoint is concurrency limited, it will immedietly retry -->
+                    <choose>
+                        <when condition="@(context.Variables.GetValueOrDefault<bool>("shouldLimit", false))">
+                            <set-variable name="wasLimited" value="@(true)" />
+                            <limit-concurrency key="PTU" max-count="10">
+                                <forward-request buffer-request-body="true" />
+                            </limit-concurrency>
+                        </when>
+                        <otherwise>
+        					<forward-request buffer-request-body="true" />
+                        </otherwise>
+                    </choose>
+                    <set-variable name="wasLimited" value="@(false)" />
+
 					<set-variable name="backendLog" value="@{
                         string backendLog = context.Variables.GetValueOrDefault<string>("backendLog", "");
                         backendLog += "  HEADERS: Now=" + DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") +
@@ -252,7 +300,14 @@
 
                         // Update backend status
                         backend["isThrottling"] = true;
-                        backend["retryAfter"] = DateTime.UtcNow.AddSeconds(retryAfterSeconds);
+
+                        // we're multi-processing, so we need to set the retryAfter to the max of the current and the new one
+                        var newRetryAfter = DateTime.UtcNow.AddSeconds(retryAfterSeconds);
+                        if (newRetryAfter > backend["retryAfter"].Value<DateTime>()) {
+                            backend["oldTime"] = DateTime.UtcNow;
+                            backend["oldRetryAfter"] = retryAfterSeconds;
+                            backend["retryAfter"] = newRetryAfter;
+                        }
 
                         return backends;     
                     }" />
@@ -303,7 +358,7 @@
                         }
 
                         if (minRetryTime > DateTime.UtcNow)  {
-                            return (int)Math.Min(120000, Math.Max(0, (minRetryTime - DateTime.UtcNow).TotalMilliseconds));
+                            return (int)Math.Min(120000,  (minRetryTime - DateTime.UtcNow).TotalMilliseconds);
                         }
 
                         return 1000;
@@ -338,12 +393,12 @@
 	<outbound>
 		<base />
 		<include-fragment fragment-id="LogResponseFragment" />
-		<set-header name="backendLog" exists-action="override">
-			<value>@((string)context.Variables.GetValueOrDefault("backendLog", ""))</value>
-		</set-header>
 	</outbound>
 	<!-- Handle exceptions and customize error responses  -->
 	<on-error>
+		<set-header name="backendLog" exists-action="override">
+			<value>@((string)context.Variables.GetValueOrDefault("backendLog", ""))</value>
+		</set-header>
 		<base />
 	</on-error>
 </policies>
