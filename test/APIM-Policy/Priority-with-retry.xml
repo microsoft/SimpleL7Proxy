@@ -334,15 +334,16 @@
 
                 return hasFailed && count > 0 && retryCount > 0;
             }" />
-			<set-variable name="ShouldRequeue" value="@{
-                var hasFailed = context.Variables.GetValueOrDefault<bool>("hasFailed", true);
-                var backendIndex = context.Variables.GetValueOrDefault<int>("backendIndex", 0);
+			<set-variable name="ShouldRequeueNow" value="@{
+                var ShouldRequeue = context.Variables.GetValueOrDefault<bool>("ShouldRequeue", true);
+                var hasFailed     = context.Variables.GetValueOrDefault<bool>("hasFailed", true);
+                var backendIndex  = context.Variables.GetValueOrDefault<int>("backendIndex", 0);
                 var count = context.Variables.GetValueOrDefault<int>("unThrottledBackends", 0);
 
-                return backendIndex == -1 || (hasFailed && count == 0);
+                return ShouldRequeue && (backendIndex == -1 || (hasFailed && count == 0));
             }" />
 			<choose>
-				<when condition="@(context.Variables.GetValueOrDefault<bool>("ShouldRequeue", true))">
+				<when condition="@(context.Variables.GetValueOrDefault<bool>("ShouldRequeueNow", true))">
 					<set-variable name="ShouldRetry" value="@(false)" />
 					<set-variable name="sleepDuration" value="@{
                         // This gets triggered when all backends are throttling, let's sleep for the minimum retry time and then retry
