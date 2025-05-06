@@ -343,15 +343,10 @@ public class Server : BackgroundService
                                 rd.ExpiresAt = rd.EnqueueTime.AddSeconds(timeout);
                             }
                             else if (_options.DefaultTTLSecs > 0) {
-                                Console.WriteLine($"Default TTL: {_options.DefaultTTLSecs} seconds");
-                                Console.WriteLine($"Enqueue Time: {rd.EnqueueTime}");
-                                Console.WriteLine($"Expires At: {rd.EnqueueTime.AddSeconds(_options.DefaultTTLSecs)}");
                                 rd.ExpiresAt = rd.EnqueueTime.AddSeconds(_options.DefaultTTLSecs);
-                                Console.WriteLine($"Expires At: {rd.ExpiresAt}");
                             }
 
                             rd.ExpiresAtString = rd.ExpiresAt.ToLocalTime().ToString("HH:mm:ss");
-                                Console.WriteLine($"Expires At String: {rd.ExpiresAtString}");
 
                             // Check circuit breaker status and enqueue the request
                             if (_backends.CheckFailedStatus())

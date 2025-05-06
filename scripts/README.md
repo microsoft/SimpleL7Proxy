@@ -17,4 +17,58 @@ The scripts need to be run in the following order:
 
 Usage: $0 -g <resource_group> -n <container_app_name> -t <tenant_id> -c <client_id> -s <client_secret> -a <new_app_id>
 
+**Example Usage:**
+
+I have a container app that was deployed and I wanted to require authentication for it.  I created 2 service principals: 1 for the container app and the second for the client.  I also created a secret for both.  Since the secret will expire in 30 days, its a good idea to get to know how to reset these.  In any case, after hacing these, I ran this command to set it all up:
+
+
+
+``` 
+G=<Resource group for the container app>
+N=<Name of container app>
+T=<Tenant for the service principal for the container app>
+C=<The clientID / appID for the container app service principal>
+S=<The secret for the container app>
+A=<The clientID / AppID for the client app service principal>
+```
+
+I did need to add a scope for the service principal before running this command. It can be done in the app registration under expose API in the portal.
+
+```./enableContainerAppAuth.sh -g $G -n $N -t $T -c $C -s $S -a $A ```
+
+In order to validate, I logged in as the client service principal using this script:
+
+```
+secret=<secret for the client service principal>
+clientID=<ClientID for the client service principal>
+tenantID=<Tenant / Directory ID for the client service principal>
+
+az login --service-principal --username $clientID --password $secret --tenant $tenantID --allow-no-subscriptions
+
+```
+
+Once logged in, I can then obtain a token for the client service principal to access the container app.  For this, I need the scope that I created in the above step:
+
+```
+export token=$(az account get-access-token  --resource api://61e0f881-aace-4fea-bc4a-9468a72aa6d7 --query accessToken -o tsv) ; echo $token
+```
+
+Now I can make a call to the container app:
+```> curl -k   https://ca.api.4i.com/health -H "Authorization: Bearer $token"```
+
+Here is the expected output:
+
+```
+Backend Hosts:                                SimpleL7Proxy: 2.1.16
+ Active Hosts: 1  -  All Hosts Operational
+ Name: nvmtr.api.4i.com  Status:  -
+Worker Statistics:
+ Count: 2001 QLen: 0 States: [ deq-2000 pre-1 prxy-0 -[snd-0 rcv-0]-  wr-0 rpt-0 cln-0 ]
+User Priority Queue: Users: 0 Total Requests: 0
+Request Queue: 0
+Event Hub: Enabled  -  0 Items
+```
+
+
+
  
