@@ -42,7 +42,7 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         s7pid = self.headers.get('x-S7PID', 'N/A')
 
         # Sleep for a random number from 4 to 5 seconds
-        sleep_time = random.uniform(0.1, 1.5)  # Random float between 0 and 0.2 seconds
+        sleep_time = random.uniform(0.5, 1.5)  # Random float between 0 and 0.2 seconds
         time.sleep(sleep_time)
 
         print(f"Request: {parsed_path.path}  Sequence: {request_sequence} QueueTime: {queue_time} ProcessTime: {process_time} ID: {s7pid}")

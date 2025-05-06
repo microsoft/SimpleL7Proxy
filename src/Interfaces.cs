@@ -17,6 +17,7 @@ public interface IBackendService
 
 public interface IEventHubClient
 {
+    int Count { get; }
     Task StartTimer();
     void StopTimer();
     void SendData(string? value);
@@ -38,26 +39,41 @@ public interface IBackendOptions
     List<BackendHost>? Hosts { get; set; }
     string IDStr { get; set; }
     List<string> LogHeaders { get; set; }
+    bool LogAllRequestHeaders { get; set; }
+    List<string> LogAllRequestHeadersExcept { get; set; }
+    bool LogAllResponseHeaders { get; set; }
+    List<string> LogAllResponseHeadersExcept { get; set; }
     bool LogProbes { get; set; }
+    string LookupHeaderName { get; set; }
     int MaxQueueLength { get; set; }
     string OAuthAudience { get; set; }
     int Port { get; set; }
     int PollInterval { get; set; }
     int PollTimeout { get; set; }
+    string PriorityKeyHeader { get; set; }
     List<string> PriorityKeys { get; set; }
     List<int> PriorityValues { get; set; }
     Dictionary<int, int> PriorityWorkers { get; set; }
     List<string> RequiredHeaders { get; set; }
     int SuccessRate { get; set; }
+    string SuspendedUserConfigUrl { get; set; }
     int Timeout { get; set; }
+    string TimeoutHeader { get; set; }
     int TerminationGracePeriodSeconds { get; set; }
+    string TTLHeader { get; set; }
     List<string> UniqueUserHeaders { get; set; }
     bool UseOAuth { get; set; }
+    bool UseOAuthGov { get; set; }
     bool UseUserConfig { get; set; }
     bool UseProfiles { get; set; }
     string UserProfileHeader { get; set; }
     string UserConfigUrl { get; set; }
     float UserPriorityThreshold { get; set; }
+    Dictionary<string, string> ValidateHeaders { get; set; }
+    bool ValidateAuthAppID { get; set; }
+    string ValidateAuthAppFieldName { get; set; }
+    string ValidateAuthAppIDUrl { get; set; }
+    string ValidateAuthAppIDHeader { get; set; }
     int Workers { get; set; }
 }
 
@@ -74,5 +90,7 @@ public interface IUserPriority
 public interface IUserProfile
 {
     public Dictionary<string, string> GetUserProfile(string userId);
+    public bool IsUserSuspended(string userId);
+    public bool IsAuthAppIDValid(string authAppId);
 
 }

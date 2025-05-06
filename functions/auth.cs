@@ -10,16 +10,16 @@ using System.Linq;
 
 namespace Company.Function
 {
-    public class three
+    public class auth
     {
-        private readonly ILogger<three> _logger;
+        private readonly ILogger<auth> _logger;
 
-        public three(ILogger<three> logger)
+        public auth(ILogger<auth> logger)
         {
             _logger = logger;
         }
 
-        [Function("three")]
+        [Function("auth")]
         public IActionResult Run([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")] HttpRequest req,
                                  [CosmosDBInput(
                                  databaseName: "customer",

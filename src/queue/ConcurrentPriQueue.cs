@@ -83,9 +83,16 @@ public class ConcurrentPriQueue<T>
                 {
                     continue;
                 }
-                lock (_lock)
-                {
-                    nextWorker.TaskCompletionSource.SetResult( _priorityQueue.Dequeue(nextWorker.Priority) );                    
+                try {
+                    lock (_lock)
+                    {
+                        nextWorker.TaskCompletionSource.SetResult( _priorityQueue.Dequeue(nextWorker.Priority) );                    
+                    }
+                } catch (InvalidOperationException) {
+                    // This should never happen. It means that the queue is empty after we checked that the count was > 0
+                    // put the worker back in the queue   
+                    Console.WriteLine("SignalWorker: InvalidOperationException - requeuing task  Priority: " + nextWorker.Priority);  
+                    _taskSignaler.ReQueueTask(nextWorker);               
                 }
             }
         }

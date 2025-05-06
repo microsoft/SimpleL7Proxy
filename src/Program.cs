@@ -79,10 +79,16 @@ public class Program
                     options.HostName = backendOptions.HostName;
                     options.Hosts = backendOptions.Hosts;
                     options.IDStr = backendOptions.IDStr;
+                    options.LogAllRequestHeaders = backendOptions.LogAllRequestHeaders;
+                    options.LogAllRequestHeadersExcept = backendOptions.LogAllRequestHeadersExcept;
+                    options.LogAllResponseHeaders = backendOptions.LogAllResponseHeaders;
+                    options.LogAllResponseHeadersExcept = backendOptions.LogAllResponseHeadersExcept;
                     options.LogHeaders = backendOptions.LogHeaders;
                     options.LogProbes = backendOptions.LogProbes;
+                    options.LookupHeaderName = backendOptions.LookupHeaderName;
                     options.MaxQueueLength = backendOptions.MaxQueueLength;
                     options.OAuthAudience = backendOptions.OAuthAudience;
+                    options.PriorityKeyHeader = backendOptions.PriorityKeyHeader;
                     options.PriorityKeys = backendOptions.PriorityKeys;
                     options.PriorityValues = backendOptions.PriorityValues;
                     options.Port = backendOptions.Port;
@@ -90,15 +96,24 @@ public class Program
                     options.PollTimeout = backendOptions.PollTimeout;
                     options.RequiredHeaders = backendOptions.RequiredHeaders;
                     options.SuccessRate = backendOptions.SuccessRate;
+                    options.SuspendedUserConfigUrl = backendOptions.SuspendedUserConfigUrl;
                     options.Timeout = backendOptions.Timeout;
+                    options.TimeoutHeader = backendOptions.TimeoutHeader;
                     options.TerminationGracePeriodSeconds = backendOptions.TerminationGracePeriodSeconds;
+                    options.TTLHeader = backendOptions.TTLHeader;
                     options.UniqueUserHeaders = backendOptions.UniqueUserHeaders;
                     options.UseOAuth = backendOptions.UseOAuth;
+                    options.UseOAuthGov = backendOptions.UseOAuthGov;
                     options.UserProfileHeader = backendOptions.UserProfileHeader;
                     options.UseProfiles = backendOptions.UseProfiles;
                     options.UserConfigUrl = backendOptions.UserConfigUrl;
                     options.UserPriorityThreshold = backendOptions.UserPriorityThreshold;
+                    options.ValidateHeaders = backendOptions.ValidateHeaders;
                     options.PriorityWorkers = backendOptions.PriorityWorkers;
+                    options.ValidateAuthAppID = backendOptions.ValidateAuthAppID;
+                    options.ValidateAuthAppFieldName = backendOptions.ValidateAuthAppFieldName;
+                    options.ValidateAuthAppIDUrl = backendOptions.ValidateAuthAppIDUrl;
+                    options.ValidateAuthAppIDHeader = backendOptions.ValidateAuthAppIDHeader;
                     options.Workers = backendOptions.Workers;
                 });
 
@@ -385,18 +400,32 @@ public class Program
     }
 
     // Converts a List<string> to a dictionary of integers.
-    private static Dictionary<int, int> KVPairs(List<string> list)
+    private static Dictionary<int, int> KVIntPairs(List<string> list)
     {
-        Dictionary<int, int> keyValuePairs = new Dictionary<int, int>();
-        foreach (var item in list)
-        {
+        Dictionary<int, int> keyValuePairs = [];
+
+        foreach (var item in list) {
             var kvp = item.Split(':');
-            if (int.TryParse(kvp[0], out int key) && int.TryParse(kvp[1], out int value))
-            {
+            if (int.TryParse(kvp[0], out int key) && int.TryParse(kvp[1], out int value)) {
                 keyValuePairs.Add(key, value);
+            } else {
+                Console.WriteLine($"Could not parse {item} as a key-value pair, ignoring");
             }
-            else
-            {
+        }
+
+        return keyValuePairs;
+    }
+
+    // Converts a List<string> to a dictionary of stgrings.
+    private static Dictionary<string, string> KVStringPairs(List<string> list)
+    {
+        Dictionary<string, string> keyValuePairs = [];
+
+        foreach (var item in list) {
+            var kvp = item.Split(':');
+            if (kvp.Length == 2) {
+                keyValuePairs.Add(kvp[0].Trim(), kvp[1].Trim());
+            } else{
                 Console.WriteLine($"Could not parse {item} as a key-value pair, ignoring");
             }
         }
@@ -405,7 +434,7 @@ public class Program
     }
 
     // Converts a comma-separated string to a list of strings.
-    private static List<string> toListOfString(string s)
+    private static List<string> ToListOfString(string s)
     {
         if (String.IsNullOrEmpty(s))
             return [];
@@ -414,7 +443,7 @@ public class Program
     }
 
     // Converts a comma-separated string to a list of integers.
-    private static List<int> toListOfInt(string s)
+    private static List<int> ToListOfInt(string s)
     {
 
         // parse each value in the list
@@ -465,35 +494,50 @@ public class Program
             CircuitBreakerTimeslice = ReadEnvironmentVariableOrDefault("CBTimeslice", 60),
             DefaultPriority = ReadEnvironmentVariableOrDefault("DefaultPriority", 2),
             DefaultTTLSecs = ReadEnvironmentVariableOrDefault("DefaultTTLSecs", 300),
-            DisallowedHeaders = toListOfString(ReadEnvironmentVariableOrDefault("DisallowedHeaders", "")),
-            HostName = ReadEnvironmentVariableOrDefault("Hostname", "Default"),
+            DisallowedHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("DisallowedHeaders", "")),
+            HostName = ReadEnvironmentVariableOrDefault("Hostname", replicaID),
             Hosts = new List<BackendHost>(),
             IDStr = $"{ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P")}-{replicaID}-",
-            LogHeaders = toListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
+            LogAllRequestHeaders = ReadEnvironmentVariableOrDefault("LogAllRequestHeaders", false),
+            LogAllRequestHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllRequestHeadersExcept", "Authorization")),
+            LogAllResponseHeaders = ReadEnvironmentVariableOrDefault("LogAllResponseHeaders", false),
+            LogAllResponseHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllResponseHeadersExcept", "Api-Key")),
+            LogHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
             LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", false),
+            LookupHeaderName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "userId"),
             MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
             OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
             Port = ReadEnvironmentVariableOrDefault("Port", 80),
             PollInterval = ReadEnvironmentVariableOrDefault("PollInterval", 15000),
             PollTimeout = ReadEnvironmentVariableOrDefault("PollTimeout", 3000),
-            PriorityKeys = toListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
-            PriorityValues = toListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
-            RequiredHeaders = toListOfString(ReadEnvironmentVariableOrDefault("RequiredHeaders", "")),
+            PriorityKeyHeader = ReadEnvironmentVariableOrDefault("PriorityKeyHeader", "S7PPriorityKey"),
+            PriorityKeys = ToListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
+            PriorityValues = ToListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
+            RequiredHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("RequiredHeaders", "")),
             SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
+            SuspendedUserConfigUrl = ReadEnvironmentVariableOrDefault("SuspendedUserConfigUrl", "file:config.json"),
             Timeout = ReadEnvironmentVariableOrDefault("Timeout", 3000),
+            TimeoutHeader = ReadEnvironmentVariableOrDefault("TimeoutHeader", "S7PTimeout"),
             TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
-            UniqueUserHeaders = toListOfString(ReadEnvironmentVariableOrDefault("UniqueUserHeaders", "X-UserID")),
+            TTLHeader = ReadEnvironmentVariableOrDefault("TTLHeader", "S7PTTL"),
+            UniqueUserHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("UniqueUserHeaders", "X-UserID")),
             UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", false),
+            UseOAuthGov = ReadEnvironmentVariableOrDefault("UseOAuthGov", false),
             UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", "X-UserProfile"),
             UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", false),
             UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", "file:config.json"),
             UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
-            PriorityWorkers = KVPairs(toListOfString(ReadEnvironmentVariableOrDefault("PriorityWorkers", "2:1,3:1"))),
+            PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault("PriorityWorkers", "2:1,3:1"))),
+            ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault("ValidateHeaders", ""))),
+            ValidateAuthAppID = ReadEnvironmentVariableOrDefault("ValidateAuthAppID", false),
+            ValidateAuthAppFieldName = ReadEnvironmentVariableOrDefault("ValidateAuthAppFieldName", "authAppID"),
+            ValidateAuthAppIDUrl = ReadEnvironmentVariableOrDefault("ValidateAuthAppIDUrl", "file:auth.json"),
+            ValidateAuthAppIDHeader = ReadEnvironmentVariableOrDefault("ValidateAuthAppIDHeader", "X-MS-CLIENT-PRINCIPAL-ID"),
             Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
         };
 
         terminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30);
-        backendOptions.Client.Timeout = TimeSpan.FromMilliseconds(backendOptions.Timeout);
+        //backendOptions.Client.Timeout = TimeSpan.FromMilliseconds(backendOptions.Timeout);
 
         int i = 1;
         StringBuilder sb = new StringBuilder();
@@ -558,15 +602,35 @@ public class Program
             backendOptions.Workers = workerAllocation;
         }
 
-        if (backendOptions.UniqueUserHeaders.Count > 0)
+        // if (backendOptions.UniqueUserHeaders.Count > 0)
+        // {
+        // // Make sure that uniqueUserHeaders are also in the required headers
+        // foreach (var header in backendOptions.UniqueUserHeaders)
+        // {
+        //     if (!backendOptions.RequiredHeaders.Contains(header))
+        //     {
+        //     Console.WriteLine($"Adding {header} to RequiredHeaders");
+        //     backendOptions.RequiredHeaders.Add(header);
+        //     }
+        // }
+        // }
+
+        // If validate headers are set, make sure they are also in the required headers and disallowed headers
+        if (backendOptions.ValidateHeaders.Count > 0)
         {
-            // Make sure that uniqueUserHeaders are also in the required headers
-            foreach (var header in backendOptions.UniqueUserHeaders)
-            {
-                if (!backendOptions.RequiredHeaders.Contains(header))
-                {
-                    Console.WriteLine($"Adding {header} to RequiredHeaders");
-                    backendOptions.RequiredHeaders.Add(header);
+            foreach (var (key, value)  in backendOptions.ValidateHeaders) {
+                Console.WriteLine($"Validating {key} against {value}");
+                if (!backendOptions.RequiredHeaders.Contains(key)) {
+                    Console.WriteLine($"Adding {key} to RequiredHeaders");
+                    backendOptions.RequiredHeaders.Add(key);
+                }
+                if (!backendOptions.RequiredHeaders.Contains(value)) {
+                    Console.WriteLine($"Adding {value} to RequiredHeaders");
+                    backendOptions.RequiredHeaders.Add(value);
+                }
+                if (!backendOptions.DisallowedHeaders.Contains(value)) {
+                    Console.WriteLine($"Adding {value} to DisallowedHeaders");
+                    backendOptions.DisallowedHeaders.Add(value);
                 }
             }
         }

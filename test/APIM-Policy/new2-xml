@@ -1,0 +1,192 @@
+<policies>
+    <inbound>
+        <base />
+        <include-fragment fragment-id="a208790-eais-openai-inbound-fragment" />
+        <set-variable name="deploymentId" value="/deployments/gpt-4o-2024-05-13" />
+        <!--        <set-variable name="deploymentModel" value="gpt-4o-2024-05-13" />
+        <include-fragment fragment-id="a208790-eais-max-token-fragment" />
+        -->
+        <cache-lookup-value key="@("listBackends-" + context.Api.Id)" variable-name="listBackends" />
+        <!-- If we can't find the variable, initialize it -->
+        <choose>
+            <when condition="@(context.Variables.ContainsKey("listBackends") == false)">
+                <set-variable name="listBackends" value="@{
+                    JArray backends = new JArray();
+                    backends.Add(new JObject()
+                    {
+                        { "url", "https://openai1ptu.openai.azure.com/" },
+                        { "priority", 1},
+                        { "isThrottling", false },
+                        { "retryAfter", DateTime.MinValue } ,
+                        { "ModelType", "PTU" }
+                    });
+                backends.Add(new JObject()
+                    {
+                        { "url", "https://openai2.openai.azure.com/" },
+                        { "priority", 2},
+                        { "isThrottling", false },
+                        { "retryAfter", DateTime.MinValue } ,
+                        { "ModelType", "PAYGO" }
+                    });
+                    backends.Add(new JObject()
+                    {
+                        { "url", "https://openai3.openai.azure.com/" },
+                        { "priority", 2},
+                        { "isThrottling", false },
+                        { "retryAfter", DateTime.MinValue },
+                        { "ModelType", "PAYGO" }
+                    });
+        
+                    return backends;  
+                    }" />
+                <!-- And store the variable into cache again -->
+                <cache-store-value key="@("listBackends-" + context.Api.Id)" value="@((JArray)context.Variables["listBackends"])" duration="60" />
+            </when>
+        </choose>
+        <!--        <choose>
+            <when condition="@(context.Variables.GetValueOrDefault<int>("ptuId") == 1)">
+                <set-variable name="backendUrl" value="https://a208790-eais-aoai-ptu-eus.openai.azure.com/" />
+                <set-variable name="ModelType" value="PTU" />
+                <set-variable name="backendCallCounter" value="@(context.Variables.GetValueOrDefault<int>("backendCallCounter") + 1)" />
+            </when>
+        </choose> -->
+        <authentication-managed-identity resource="https://cognitiveservices.azure.com" output-token-variable-name="managed-id-access-token" ignore-error="false" />
+        <set-header name="Authorization" exists-action="override">
+            <value>@("Bearer " + (string)context.Variables["managed-id-access-token"])</value>
+        </set-header>
+    </inbound>
+    <backend>
+        <retry condition="@(context.Response != null 
+                && (context.Response.StatusCode == 429 || context.Response.StatusCode >= 500) 
+                && context.Variables.GetValueOrDefault<int>("remainingBackends", 0) > 0)" count="50" interval="0">
+            <!-- Before picking the backend, let's verify if there is any that should be set to not throttling anymore -->
+            <set-variable name="listBackends" value="@{
+                JArray backends = (JArray)context.Variables["listBackends"];
+
+                foreach (JObject backend in backends)
+                {
+                    // Check if the backend is throttling and the retry time has passed
+                    if (backend.TryGetValue("isThrottling", out JToken isThrottlingToken) && 
+                        isThrottlingToken.Value<bool>() &&
+                        backend.TryGetValue("retryAfter", out JToken retryAfterToken) &&
+                        DateTime.UtcNow >= retryAfterToken.Value<DateTime>())
+                    {
+                        // Reset throttling status and retry time
+                        backend["isThrottling"] = false;
+                        backend["retryAfter"] = DateTime.MinValue;
+                    }
+                }
+
+                return backends;
+            }" />
+            <cache-store-value key="@("listBackends-" + context.Api.Id)" value="@((JArray)context.Variables["listBackends"])" duration="60" />
+            <!-- This is the main logic to pick the backend to be used -->
+            <set-variable name="backendIndex" value="@{
+                // Retrieve the list of backends
+                JArray backends = context.Variables.GetValueOrDefault<JArray>("listBackends", new JArray());
+                if (backends == null || backends.Count == 0) {
+                    // Default to the first backend if the list is empty or null
+                    return 0;
+                }
+
+                int selectedPriority = Int32.MaxValue;
+                List<int> availableBackends = new List<int>();
+
+                // Iterate through the backends to find the ones with the highest priority
+                foreach (JObject backend in backends) {
+                    if (!backend.Value<bool>("isThrottling")) {
+                        int backendPriority = backend.Value<int>("priority");
+
+                        if (backendPriority < selectedPriority) {
+                            selectedPriority = backendPriority;
+                            availableBackends.Clear();
+                            availableBackends.Add(backends.IndexOf(backend));
+                        } else if (backendPriority == selectedPriority) {
+                            availableBackends.Add(backends.IndexOf(backend));
+                        }
+                    }
+                }
+
+                // Select a backend based on availability
+                if (availableBackends.Count == 1) {
+                    return availableBackends[0];
+                }
+
+                if (availableBackends.Count > 0) {
+                    // Use a single instance of Random for consistent randomization
+                    Random random = new Random(context.RequestId.GetHashCode());
+                    return availableBackends[random.Next(availableBackends.Count)];
+                }
+
+                // Default to the first backend if no available backends are found
+                return 0;
+            }" />
+            <set-variable name="backendUrl" value="@(((JObject)((JArray)context.Variables["listBackends"])[(Int32)context.Variables["backendIndex"]]).Value<string>("url") )" />
+            <set-backend-service base-url="@((string)context.Variables["backendUrl"] + "/openai")" />
+            <set-variable name="ModelType" value="@(((JObject)((JArray)context.Variables["listBackends"])[(Int32)context.Variables["backendIndex"]]).Value<string>("ModelType"))" />
+            <set-variable name="backendCallCounter" value="@(context.Variables.GetValueOrDefault<int>("backendCallCounter") + 1)" />
+            <forward-request buffer-request-body="true" />
+            <choose>
+                <!-- In case we got 429 or 5xx from a backend, update the list with its status -->
+                <when condition="@(context.Response != null && (context.Response.StatusCode == 429 || context.Response.StatusCode >= 500) )">
+                    <cache-lookup-value key="@("listBackends-" + context.Api.Id)" variable-name="listBackends" />
+                    <set-variable name="listBackends" value="@{
+                        JArray backends = (JArray)context.Variables["listBackends"];
+                        int currentBackendIndex = (int)context.Variables["backendIndex"];
+
+                        // Attempt to retrieve retry-after duration from headers
+                        string[] retryHeaders = new[] { "Retry-After", "x-ratelimit-reset-requests", "x-ratelimit-reset-tokens" };
+                        int retryAfterSeconds = 10; // Default value
+
+                        foreach (string headerName in retryHeaders)
+                        {
+                            if (context.Response.Headers.ContainsKey(headerName))
+                            {
+                                string headerValue = context.Response.Headers[headerName].FirstOrDefault();
+                                if (int.TryParse(headerValue, out int parsedValue) && parsedValue > 0)
+                                {
+                                    retryAfterSeconds = parsedValue;
+                                    break;
+                                }
+                            }
+                        }
+
+                        // Update backend status
+                        JObject backend = (JObject)backends[currentBackendIndex];
+                        backend["isThrottling"] = true;
+                        backend["retryAfter"] = DateTime.UtcNow.AddSeconds(retryAfterSeconds);
+
+                        return backends;     
+                    }" />
+                    <cache-store-value key="@("listBackends-" + context.Api.Id)" value="@((JArray)context.Variables["listBackends"])" duration="60" />
+                    <set-variable name="remainingBackends" value="@{
+                        int remainingBackends = 0;
+                        var backends = (JArray)context.Variables.GetValueOrDefault("listBackends", new JArray());
+ 
+                        foreach (JObject backend in backends)
+                        {
+                            bool isThrottling = backend.GetValue("isThrottling")?.Value<bool>() ?? false;
+                            if (!isThrottling)
+                            {
+                                remainingBackends++;
+                            }
+                        }
+ 
+                        return remainingBackends;
+                    }" />
+                    <set-variable name="backendCallCounter" value="@(context.Variables.GetValueOrDefault<int>("backendCallCounter") + 1)" />
+                </when>
+            </choose>
+        </retry>
+    </backend>
+    <outbound>
+        <include-fragment fragment-id="a208790-eais-header-latency-calculation-fragment-v1" />
+        <base />
+        <include-fragment fragment-id="a208790-eais-usage-chargeback-fragment-v1" />
+        <include-fragment fragment-id="a208790-eais-outbound-fragment-non-prod-eus-v1" />
+    </outbound>
+    <on-error>
+        <include-fragment fragment-id="a208790-eais-error-logging-fragment-nonprod-eus-v1" />
+        <base />
+    </on-error>
+</policies>

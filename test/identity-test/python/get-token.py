@@ -1,16 +1,23 @@
 import os
-from azure.identity import ClientSecretCredential
+from azure.identity import ClientSecretCredential, AzureAuthorityHosts
 from azure.mgmt.resource import ResourceManagementClient
 
-def get_token(tenant_id, client_id, client_secret, audience):
-    credential = ClientSecretCredential(
-        tenant_id=tenant_id,
-        client_id=client_id,
-        client_secret=client_secret
-    )
-    
-    token = credential.get_token(audience)
-    return token.token
+
+def get_token(tenant_id, client_id, client_secret, audience, is_gov=False):
+    if is_gov:
+        # Use the Government authority host.
+        credential = ClientSecretCredential(
+            tenant_id=tenant_id,
+            client_id=client_id,
+            client_secret=client_secret,
+            authority=AzureAuthorityHosts.AZURE_GOVERNMENT
+        )
+    else:
+        credential = ClientSecretCredential(
+            tenant_id=tenant_id,
+            client_id=client_id,
+            client_secret=client_secret
+        )
 
 # Read from environment variables
 tenant_id = os.getenv('AZURE_TENANT_ID')

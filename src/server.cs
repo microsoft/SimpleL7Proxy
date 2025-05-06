@@ -22,6 +22,7 @@ public class Server : IServer
     private ConcurrentPriQueue<RequestData> _requestsQueue = new ConcurrentPriQueue<RequestData>();
     private readonly IEventHubClient? _eventHubClient;
     private static bool _isShuttingDown = false;
+    private readonly string _priorityHeaderName;
 
     // public void enqueueShutdownRequest() {
     //     var shutdownRequest = new RequestData(Constants.Shutdown);
@@ -41,6 +42,7 @@ public class Server : IServer
         _requestsQueue.MaxQueueLength = _options.MaxQueueLength;
         _userPriority = userPriority;
         _userProfile = userProfile;
+        _priorityHeaderName = _options.PriorityKeyHeader;
 
         var _listeningUrl = $"http://+:{_options.Port}/";
 
@@ -145,15 +147,26 @@ public class Server : IServer
                     {
                         try
                         {
-                            // Check for any required headers
-                            if (_options.RequiredHeaders.Count > 0)
-                            {
-                                var missing = _options.RequiredHeaders.FirstOrDefault(x => string.IsNullOrEmpty(rd.Headers[x]));
-                                if (!string.IsNullOrEmpty(missing)) {
+                            rd.Debug = rd.Headers["S7PDEBUG"] != null && string.Equals(rd.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase);
+
+
+                            if (_options.ValidateAuthAppID) 
+                            { 
+                                string? authAppID = rd.Headers[_options.ValidateAuthAppIDHeader];
+                                if (!string.IsNullOrEmpty(authAppID) && _userProfile.IsAuthAppIDValid(authAppID))
+                                {
+                                    if (rd.Debug)
+                                        Console.WriteLine($"AuthAppID {rd.Headers[_options.ValidateAuthAppIDHeader]} is valid.");
+                                }
+                                else
+                                {
+                                    if (rd.Debug)
+                                        Console.WriteLine($"AuthAppID {rd.Headers[_options.ValidateAuthAppIDHeader]} is invalid.");
+
                                     throw new ProxyErrorException(
-                                        ProxyErrorException.ErrorType.IncompleteHeaders,
-                                        HttpStatusCode.ExpectationFailed,
-                                        "Required header is missing: " + missing
+                                        ProxyErrorException.ErrorType.DisallowedAppID,
+                                        HttpStatusCode.Forbidden,
+                                        "Invalid AuthAppID: " + rd.Headers[_options.ValidateAuthAppIDHeader] + "\n"
                                     );
                                 }
                             }
@@ -161,12 +174,73 @@ public class Server : IServer
                             // Remove any disallowed headers
                             foreach (var header in _options.DisallowedHeaders)
                             {
+                                if (rd.Debug && !String.IsNullOrEmpty(rd.Headers.Get(header)))
+                                    Console.WriteLine($"Disallowed header {header} removed from request.");
                                 rd.Headers.Remove(header);   
                             }
                             
                             rd.UserID = "";
 
-                            // Determine priority boost based on the userid headers
+                            // Lookup the user profile and add the headers to the request
+                            if (doUserProfile)
+                            {
+                                var requestUser = rd.Headers[_options.UserProfileHeader];
+                                if (!string.IsNullOrEmpty(requestUser))
+                                {
+                                    var headers = _userProfile.GetUserProfile(requestUser);
+
+                                    if (headers != null)
+                                    {
+                                        foreach (var header in headers)
+                                        {
+                                            rd.Headers.Set(header.Key, header.Value);
+                                            if (rd.Debug)
+                                                Console.WriteLine($"Add Header: {header.Key} = {header.Value}");
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Check for any required headers
+                            if (_options.RequiredHeaders.Count > 0)
+                            {
+                                var missing = _options.RequiredHeaders.FirstOrDefault(x => string.IsNullOrEmpty(rd.Headers[x]));
+                                if (!string.IsNullOrEmpty(missing)) {
+                                    if (rd.Debug)
+                                        Console.WriteLine($"Required header {missing} is missing from request.");
+
+                                    throw new ProxyErrorException(
+                                        ProxyErrorException.ErrorType.IncompleteHeaders,
+                                        HttpStatusCode.ExpectationFailed,
+                                        "Required header is missing: " + missing + "\n"
+                                    );
+                                }
+                            }
+
+                            // Check for any validate headers  ( both fields have been checked for existance )
+                            if (_options.ValidateHeaders.Count > 0)
+                            {
+                                foreach (var header in _options.ValidateHeaders)
+                                {
+                                    // Check that the header exists in the destination header
+                                    var lookup = rd.Headers[header.Key]!.Trim();
+                                    List<string> values = [.. rd.Headers[header.Value]!.Split(',')];
+                                    if (!values.Contains(lookup))
+                                    {
+                                        if (rd.Debug)
+                                            Console.WriteLine($"Validation check failed for header: {header.Key} = {lookup}");
+                                        throw new ProxyErrorException(
+                                            ProxyErrorException.ErrorType.InvalidHeader,
+                                            HttpStatusCode.ExpectationFailed,
+                                            "Validation check failed for header: " + header.Key + "\n"
+                                        );
+                                    }
+                                }
+                                if (rd.Debug)
+                                    Console.WriteLine($"Validation check passed for all headers."); 
+                            }
+
+                            // Determine priority boost based on the UserID 
                             if (_options.UniqueUserHeaders.Count > 0)
                             {
                                 foreach (var header in _options.UniqueUserHeaders)
@@ -180,29 +254,18 @@ public class Server : IServer
                                 rd.UserID = "defaultUser";
                             }
 
-                            // Lookup the user profile and add the headers to the request
-                            if (doUserProfile)
-                            {
-                                var requestUser = rd.Headers.Get(_options.UserProfileHeader);
-                                if (!string.IsNullOrEmpty(requestUser))
-                                {
-                                    var headers = _userProfile.GetUserProfile(requestUser);
+                            ed["UserID"] = rd.UserID;
+                            ed["x-S7PID"] = rd.MID;
+   
+                            if (rd.Debug)
+                                Console.WriteLine($"UserID: {rd.UserID}");
+                                
+                            // Determine priority boost based on the UserID
+                            rd.Guid = _userPriority.addRequest(rd.UserID);
+                            bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
+                            userPriorityBoost = shouldBoost ? 1 : 0;
 
-                                    if (headers != null)
-                                    {
-                                        foreach (var header in headers)
-                                        {
-                                            rd.Headers.Set(header.Key, header.Value);
-                                        }
-                                    }
-                                }
-
-                                rd.Guid = _userPriority.addRequest(rd.UserID);
-                                bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
-                                userPriorityBoost = shouldBoost ? 1 : 0;
-                            }
-
-                            var priorityKey = rd.Headers.Get("S7PPriorityKey");
+                            var priorityKey = rd.Headers[_priorityHeaderName];
                             if (!string.IsNullOrEmpty(priorityKey) && _options.PriorityKeys.Contains(priorityKey)) //lookup the priority
                             {
                                 var index = _options.PriorityKeys.IndexOf(priorityKey);
@@ -216,6 +279,19 @@ public class Server : IServer
                             rd.EnqueueTime = DateTime.UtcNow;
 
                             ed["S7P-Hostname"] = _options.IDStr;
+                            ed["S7P-Priority"] = priority.ToString();
+                            ed["S7P-Priority2"] = userPriorityBoost.ToString();
+
+                            // Calculate expiresAt time based on the timeout header or default TTL
+                            if (rd.Headers[_options.TimeoutHeader] != null && int.TryParse(rd.Headers[_options.TimeoutHeader], out var timeout)) {
+                                rd.ExpiresAt = rd.EnqueueTime.AddSeconds(timeout);
+                            }
+                            else if (_options.DefaultTTLSecs > 0) {
+                                rd.ExpiresAt = rd.EnqueueTime.AddSeconds(_options.DefaultTTLSecs);
+                            }
+
+                            rd.ExpiresAtString = rd.ExpiresAt.ToLocalTime().ToString("HH:mm:ss");
+
                             // Check circuit breaker status and enqueue the request
                             if (_backends.CheckFailedStatus())
                             {
@@ -242,6 +318,7 @@ public class Server : IServer
                                 retrymsg = ed["Message"] = "No active hosts";
                                 logmsg = "No active hosts  => 429:";
                             }
+
 
                             // Enqueue the request
 
@@ -276,14 +353,15 @@ public class Server : IServer
                         }
                     }
 
+                    ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
+                    ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
+
                     if (notEnqued)
                     {
 
                         if (rd.Context is not null)
                         {
                             ed["Type"] = "S7P-EnqueueFailed";
-                            ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
-                            ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
                             WriteOutput($"{logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}", ed);
 
                             rd.Context.Response.StatusCode = notEnquedCode;
@@ -302,11 +380,8 @@ public class Server : IServer
                     {
                         ed["Type"] = "S7P-Enqueue";
                         ed["Message"] = "Enqueued request";
-                        ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
-                        ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
-                        ed["Priority"] = priority.ToString();
 
-                        WriteOutput($"Enque Pri: {priority}, User: {rd.UserID}, Queue: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ", ed);
+                        WriteOutput($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ", ed);
                     }
                 }
                 else
