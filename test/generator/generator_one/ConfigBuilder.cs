@@ -15,7 +15,7 @@ namespace test.generator.config
 
         public string TestEndpoint => _configuration?["test_endpoint"] ?? "Undefined";
         public string DurationSeconds => _configuration?["duration_seconds"] ?? "Undefined";
-        public int Concurrency => int.Parse(_configuration["concurrency"]);
+        public int Concurrency =>  int.TryParse(_configuration?["concurrency"], out int x) ? x : 1;
         public string InterrunDelay => _configuration?["interrun_delay"] ?? "0";
 
         public string EntraAudience => _configuration?["Entra_audience"] ?? "Undefined";
@@ -74,10 +74,7 @@ namespace test.generator.config
             {
                 throw new ArgumentException($"Invalid timeout format: {timeout}");
             }
-
-            return null;
         }
-
     }
 
     public class TestConfig

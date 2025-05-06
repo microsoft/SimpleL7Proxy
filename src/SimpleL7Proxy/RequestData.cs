@@ -47,6 +47,7 @@ public class RequestData : IDisposable, IAsyncDisposable
         Body = context.Request.InputStream;
         Context = context;
         Timestamp = DateTime.UtcNow;
+        ExpiresAt = DateTime.MinValue;  // Set it after reading the headers
         FullURL = "";
         Debug = false;
         MID = mid;

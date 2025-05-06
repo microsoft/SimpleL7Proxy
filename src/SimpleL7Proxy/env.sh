@@ -1,1 +1,0 @@
-../../../SimpleL7Proxy/deployment/env.sh
