@@ -94,7 +94,7 @@ public class Backends : IBackendService
         return _activeHosts.Count;
     }
 
-    static Dictionary<string, string> logerror = new Dictionary<string, string>() { { "Type", "CircuitBreaker-Error-Event" } };
+    static Dictionary<string, string> logerror = new Dictionary<string, string>() { { "Type", "S7P-CircuitBreaker-Error-Event" } };
     public void TrackStatus(int code, bool wasException)
     {
         if (allowableCodes.Contains(code) && !wasException)
@@ -300,7 +300,7 @@ public class Backends : IBackendService
 
                 probeData["Latency"] = latency.ToString() + " ms";
                 probeData["Code"] = response.StatusCode.ToString();
-                probeData["Type"] = "Poller";
+                probeData["Type"] = "S7P-Poller";
                 probeData["ID"] = _options.IDStr;
 
                 response.EnsureSuccessStatusCode();
@@ -321,13 +321,13 @@ public class Backends : IBackendService
         {
             Program.telemetryClient?.TrackException(e);
             WriteOutput($"Poller: Could not check probe: {e.Message}");
-            probeData["Type"] = "Uri Format Exception";
+            probeData["Type"] = "S7P-Uri Format Exception";
             probeData["Code"] = "-";
         }
         catch (System.Threading.Tasks.TaskCanceledException)
         {
             WriteOutput($"Poller: Host Timeout: {host.host}");
-            probeData["Type"] = "TaskCanceledException";
+            probeData["Type"] = "S7P-TaskCanceledException";
             probeData["Code"] = "-";
             probeData["Timeout"] = client.Timeout.TotalMilliseconds.ToString();
         }
@@ -335,7 +335,7 @@ public class Backends : IBackendService
         {
             Program.telemetryClient?.TrackException(e);
             WriteOutput($"Poller: Host {host.host} is down with exception: {e.Message}");
-            probeData["Type"] = "HttpRequestException";
+            probeData["Type"] = "S7P-HttpRequestException";
             probeData["Code"] = "-";
         }
         catch (OperationCanceledException)
@@ -347,14 +347,14 @@ public class Backends : IBackendService
         catch (System.Net.Sockets.SocketException e)
         {
             WriteOutput($"Poller: Host {host.host} is down:  {e.Message}");
-            probeData["Type"] = "SocketException";
+            probeData["Type"] = "S7P-SocketException";
             probeData["Code"] = "-";
         }
         catch (Exception e)
         {
             Program.telemetryClient?.TrackException(e);
             WriteOutput($"Poller: Error: {e.Message}");
-            probeData["Type"] = "Exception " + e.Message;
+            probeData["Type"] = "S7P-Exception " + e.Message;
             probeData["Code"] = "-";
         }
         finally
