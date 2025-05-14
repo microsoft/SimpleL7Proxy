@@ -11,6 +11,7 @@ using SimpleL7Proxy.User;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.Proxy;
+using SimpleL7Proxy.ServiceBus;
 using System.Text;
 
 namespace SimpleL7Proxy;
@@ -30,6 +31,7 @@ public class Server : BackgroundService
     private readonly IUserProfileService _userProfile;
     private CancellationTokenSource? _cancellationTokenSource;
     private readonly IConcurrentPriQueue<RequestData> _requestsQueue;// = new ConcurrentPriQueue<RequestData>();
+    //private readonly IServiceBusRequestService _serviceBusRequestService;
     private readonly ILogger<Server> _logger;
     private static bool _isShuttingDown = false;
     private readonly string _priorityHeaderName;
@@ -48,6 +50,7 @@ public class Server : BackgroundService
         IHostApplicationLifetime appLifetime,
         IUserPriorityService userPriority,
         IUserProfileService userProfile,
+        //IServiceBusRequestService serviceBusRequestService,
         //IEventHubClient? eventHubClient, 
         IBackendService backends,
         TelemetryClient? telemetryClient,
@@ -61,6 +64,8 @@ public class Server : BackgroundService
         ArgumentNullException.ThrowIfNull(appLifetime, nameof(appLifetime));
         //ArgumentNullException.ThrowIfNull(telemetryClient, nameof(telemetryClient));
         ArgumentNullException.ThrowIfNull(requestsQueue, nameof(requestsQueue));
+        //ArgumentNullException.ThrowIfNull(serviceBusRequestService, nameof(serviceBusRequestService));
+
 
 
         _options = backendOptions.Value;
@@ -73,6 +78,7 @@ public class Server : BackgroundService
         _logger = logger;
         _requestsQueue = requestsQueue;
         _priorityHeaderName = _options.PriorityKeyHeader;
+        //_serviceBusRequestService = serviceBusRequestService;
 
         //appLifetime.ApplicationStopping.Register(OnApplicationStopping);
 
@@ -338,15 +344,16 @@ public class Server : BackgroundService
                             ed["S7P-Priority"] = priority.ToString();
                             ed["S7P-Priority2"] = userPriorityBoost.ToString();
 
-                            // Calculate expiresAt time based on the timeout header or default TTL
+                            // Save the timeout header value if it exists
                             if (rd.Headers[_options.TimeoutHeader] != null && int.TryParse(rd.Headers[_options.TimeoutHeader], out var timeout)) {
-                                rd.ExpiresAt = rd.EnqueueTime.AddSeconds(timeout);
-                            }
-                            else if (_options.DefaultTTLSecs > 0) {
-                                rd.ExpiresAt = rd.EnqueueTime.AddSeconds(_options.DefaultTTLSecs);
+                                rd.defaultTimeout = timeout;
+                            } else {
+                                rd.defaultTimeout = _options.Timeout;
                             }
 
-                            rd.ExpiresAtString = rd.ExpiresAt.ToLocalTime().ToString("HH:mm:ss");
+                            // Calculate expiresAt time based on the timeout header or default TTL
+                            rd.CalculateExpiration(_options.DefaultTTLSecs);
+
 
                             // Check circuit breaker status and enqueue the request
                             if (_backends.CheckFailedStatus())
@@ -375,7 +382,6 @@ public class Server : BackgroundService
                                 logmsg = "No active hosts  => 429:";
                             }
 
-
                             // Enqueue the request
 
                             else if (!_requestsQueue.Enqueue(rd, priority, userPriorityBoost, rd.EnqueueTime))
@@ -386,6 +392,15 @@ public class Server : BackgroundService
                                 retrymsg = ed["Message"] = "Failed to enqueue request";
                                 logmsg = "Failed to enqueue request  => 429:";
                             }
+                            
+                            if (!notEnqued && _options.UseServiceBus)
+                            {
+                                rd.SBClientID = "client1";
+                                rd.SBStatus = ServiceBusMessageStatusEnum.InQueue;
+                                
+                                //_serviceBusRequestService.updateStatus(rd);
+                            }
+                            
                         } 
                         catch (ProxyErrorException e) {
                             notEnqued = true;

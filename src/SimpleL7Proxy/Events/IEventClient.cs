@@ -6,5 +6,6 @@ public interface IEventClient
   public void StopTimer();
 
   void SendData(string? value);
+ void SendData(Dictionary<string, string> data);
   void SendData(ProxyEvent eventData);
 }

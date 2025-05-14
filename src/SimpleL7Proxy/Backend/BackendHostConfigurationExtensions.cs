@@ -14,6 +14,9 @@ namespace SimpleL7Proxy.Backend;
 public static class BackendHostConfigurationExtensions
 {
   private static ILogger? _logger;
+  static Dictionary<string, string> EnvVars = new Dictionary<string, string>();
+
+
   public static IServiceCollection AddBackendHostConfiguration(this IServiceCollection services, ILogger logger)
   {
     var backendOptions = LoadBackendOptions();
@@ -72,14 +75,46 @@ public static class BackendHostConfigurationExtensions
     return services;
   }
 
+  private static int ReadEnvironmentVariableOrDefault(string variableName, int defaultValue)
+  {
+    int value = _ReadEnvironmentVariableOrDefault(variableName, defaultValue);
+    EnvVars[variableName] = value.ToString();
+    return value;
+  }
+
+  private static int[] ReadEnvironmentVariableOrDefault(string variableName, int[] defaultValues)
+  {
+    int[] value = _ReadEnvironmentVariableOrDefault(variableName, defaultValues);
+    EnvVars[variableName] = string.Join(",", value);
+    return value;
+  }
+  private static float ReadEnvironmentVariableOrDefault(string variableName, float defaultValue)
+  {
+    float value = _ReadEnvironmentVariableOrDefault(variableName, defaultValue);
+    EnvVars[variableName] = value.ToString();
+    return value;
+  }
+  private static string ReadEnvironmentVariableOrDefault(string variableName, string defaultValue)
+  {
+    string value = _ReadEnvironmentVariableOrDefault(variableName, defaultValue);
+    EnvVars[variableName] = value;
+    return value;
+  }
+  private static bool ReadEnvironmentVariableOrDefault(string variableName, bool defaultValue)
+  {
+    bool value = _ReadEnvironmentVariableOrDefault(variableName, defaultValue);
+    EnvVars[variableName] = value.ToString();
+    return value;
+  }
+
   // Reads an environment variable and returns its value as an integer.
   // If the environment variable is not set, it returns the provided default value.
-  private static int ReadEnvironmentVariableOrDefault(string variableName, int defaultValue)
+  private static int _ReadEnvironmentVariableOrDefault(string variableName, int defaultValue)
   {
     var envValue = Environment.GetEnvironmentVariable(variableName);
     if (!int.TryParse(envValue, out var value))
     {
-      _logger?.LogWarning($"Using default: {variableName}: {defaultValue}");
+      //_logger?.LogWarning($"Using default: {variableName}: {defaultValue}");
       return defaultValue;
     }
     return value;
@@ -87,12 +122,12 @@ public static class BackendHostConfigurationExtensions
 
   // Reads an environment variable and returns its value as an integer[].
   // If the environment variable is not set, it returns the provided default value.
-  private static int[] ReadEnvironmentVariableOrDefault(string variableName, int[] defaultValues)
+  private static int[] _ReadEnvironmentVariableOrDefault(string variableName, int[] defaultValues)
   {
     var envValue = Environment.GetEnvironmentVariable(variableName);
     if (string.IsNullOrEmpty(envValue))
     {
-      _logger?.LogWarning($"Using default: {variableName}: {string.Join(",", defaultValues)}");
+      //_logger?.LogWarning($"Using default: {variableName}: {string.Join(",", defaultValues)}");
       return defaultValues;
     }
     try
@@ -108,24 +143,24 @@ public static class BackendHostConfigurationExtensions
 
   // Reads an environment variable and returns its value as a float.
   // If the environment variable is not set, it returns the provided default value.
-  private static float ReadEnvironmentVariableOrDefault(string variableName, float defaultValue)
+  private static float _ReadEnvironmentVariableOrDefault(string variableName, float defaultValue)
   {
     var envValue = Environment.GetEnvironmentVariable(variableName);
     if (!float.TryParse(envValue, out var value))
     {
-      Console.WriteLine($"Using default: {variableName}: {defaultValue}");
+      //_logger?.LogWarning($"Using default: {variableName}: {defaultValue}");
       return defaultValue;
     }
     return value;
   }
   // Reads an environment variable and returns its value as a string.
   // If the environment variable is not set, it returns the provided default value.
-  private static string ReadEnvironmentVariableOrDefault(string variableName, string defaultValue)
+  private static string _ReadEnvironmentVariableOrDefault(string variableName, string defaultValue)
   {
     var envValue = Environment.GetEnvironmentVariable(variableName);
     if (string.IsNullOrEmpty(envValue))
     {
-      _logger?.LogWarning($"Using default: {variableName}: {defaultValue}");
+      //_logger?.LogWarning($"Using default: {variableName}: {defaultValue}");
       return defaultValue;
     }
     return envValue.Trim();
@@ -133,7 +168,7 @@ public static class BackendHostConfigurationExtensions
 
   // Reads an environment variable and returns its value as a string.
   // If the environment variable is not set, it returns the provided default value.
-  private static bool ReadEnvironmentVariableOrDefault(string variableName, bool defaultValue)
+  private static bool _ReadEnvironmentVariableOrDefault(string variableName, bool defaultValue)
   {
     var envValue = Environment.GetEnvironmentVariable(variableName);
     if (string.IsNullOrEmpty(envValue))
@@ -147,35 +182,43 @@ public static class BackendHostConfigurationExtensions
   // Converts a List<string> to a dictionary of integers.
   private static Dictionary<int, int> KVIntPairs(List<string> list)
   {
-      Dictionary<int, int> keyValuePairs = [];
+    Dictionary<int, int> keyValuePairs = [];
 
-      foreach (var item in list) {
-          var kvp = item.Split(':');
-          if (int.TryParse(kvp[0], out int key) && int.TryParse(kvp[1], out int value)) {
-              keyValuePairs.Add(key, value);
-          } else {
-              Console.WriteLine($"Could not parse {item} as a key-value pair, ignoring");
-          }
+    foreach (var item in list)
+    {
+      var kvp = item.Split(':');
+      if (int.TryParse(kvp[0], out int key) && int.TryParse(kvp[1], out int value))
+      {
+        keyValuePairs.Add(key, value);
       }
+      else
+      {
+        Console.WriteLine($"Could not parse {item} as a key-value pair, ignoring");
+      }
+    }
 
-      return keyValuePairs;
+    return keyValuePairs;
   }
 
   // Converts a List<string> to a dictionary of stgrings.
   private static Dictionary<string, string> KVStringPairs(List<string> list)
   {
-      Dictionary<string, string> keyValuePairs = [];
+    Dictionary<string, string> keyValuePairs = [];
 
-      foreach (var item in list) {
-          var kvp = item.Split(':');
-          if (kvp.Length == 2) {
-              keyValuePairs.Add(kvp[0].Trim(), kvp[1].Trim());
-          } else{
-              Console.WriteLine($"Could not parse {item} as a key-value pair, ignoring");
-          }
+    foreach (var item in list)
+    {
+      var kvp = item.Split(':');
+      if (kvp.Length == 2)
+      {
+        keyValuePairs.Add(kvp[0].Trim(), kvp[1].Trim());
       }
+      else
+      {
+        Console.WriteLine($"Could not parse {item} as a key-value pair, ignoring");
+      }
+    }
 
-      return keyValuePairs;
+    return keyValuePairs;
   }
 
   // Converts a comma-separated string to a list of strings.
@@ -372,31 +415,83 @@ public static class BackendHostConfigurationExtensions
     //     }
     //   }
     // }
-    
+
     // If validate headers are set, make sure they are also in the required headers and disallowed headers
     if (backendOptions.ValidateHeaders.Count > 0)
     {
-        foreach (var (key, value)  in backendOptions.ValidateHeaders) {
-            Console.WriteLine($"Validating {key} against {value}");
-            if (!backendOptions.RequiredHeaders.Contains(key)) {
-                Console.WriteLine($"Adding {key} to RequiredHeaders");
-                backendOptions.RequiredHeaders.Add(key);
-            }
-            if (!backendOptions.RequiredHeaders.Contains(value)) {
-                Console.WriteLine($"Adding {value} to RequiredHeaders");
-                backendOptions.RequiredHeaders.Add(value);
-            }
-            if (!backendOptions.DisallowedHeaders.Contains(value)) {
-                Console.WriteLine($"Adding {value} to DisallowedHeaders");
-                backendOptions.DisallowedHeaders.Add(value);
-            }
+      foreach (var (key, value) in backendOptions.ValidateHeaders)
+      {
+        Console.WriteLine($"Validating {key} against {value}");
+        if (!backendOptions.RequiredHeaders.Contains(key))
+        {
+          Console.WriteLine($"Adding {key} to RequiredHeaders");
+          backendOptions.RequiredHeaders.Add(key);
         }
+        if (!backendOptions.RequiredHeaders.Contains(value))
+        {
+          Console.WriteLine($"Adding {value} to RequiredHeaders");
+          backendOptions.RequiredHeaders.Add(value);
+        }
+        if (!backendOptions.DisallowedHeaders.Contains(value))
+        {
+          Console.WriteLine($"Adding {value} to DisallowedHeaders");
+          backendOptions.DisallowedHeaders.Add(value);
+        }
+      }
     }
 
-
+    OutputEnvVars();
 
     return backendOptions;
   }
 
+  private static void OutputEnvVars()
+  {
+    const int keyWidth = 27;
+    const int valWidth = 30;
+    const int gutterWidth = 4;
+    int col = 0;
+    string? pendingEntry = null;
+    foreach (var kvp in EnvVars)
+    {
+      string key = kvp.Key;
+      string value = kvp.Value;
+
+      // Prepare the entry for this pair
+      string entry = $"{(key.Length > keyWidth ? key.Substring(0, keyWidth - 3) + "..." : key),-keyWidth}:" +
+                  $"{(value.Length > valWidth ? value.Substring(0, valWidth - 3) + "..." : value),-valWidth}";
+
+      if (col == 0)
+      {
+        // Store the first column entry and wait for the second
+        pendingEntry = entry;
+        col = 1;
+      }
+      else
+      {
+        // If the untrimmed key or value for the second column is too long, print it on its own line
+        if (key.Length > keyWidth || value.Length > valWidth)
+        {
+          // Print the pending first column entry alone
+          Console.WriteLine(pendingEntry);
+          // Print the long second column entry alone, but obey key/value widths
+          Console.WriteLine($"{(key.Length > keyWidth ? key.Substring(0, keyWidth - 3) + "..." : key),-keyWidth}: {value}");
+          pendingEntry = null;
+          col = 0;
+        }
+        else
+        {
+          // Print both columns on the same line with gutter
+          Console.WriteLine($"{pendingEntry}{new string(' ', gutterWidth)}{entry}");
+          pendingEntry = null;
+          col = 0;
+        }
+      }
+    }
+    if (col % 2 != 0)
+    {
+      Console.WriteLine();
+    }
+  }
 
 }

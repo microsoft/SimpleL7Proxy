@@ -3,6 +3,7 @@ namespace SimpleL7Proxy.Backend;
 public class BackendOptions
 {
     public int[] AcceptableStatusCodes { get; set; } =[];
+    public double AsyncTimeout {get; set; } = 30* 60000; // 30 minutes
     public HttpClient? Client { get; set; }
     public int CircuitBreakerErrorThreshold { get; set; }
     public int CircuitBreakerTimeslice { get; set; }
@@ -29,6 +30,7 @@ public class BackendOptions
     public List<int> PriorityValues { get; set; } = [];
     public Dictionary<int, int> PriorityWorkers { get; set; } = [];
     public List<string> RequiredHeaders { get; set; } = [];
+    public string ServiceBusTopic { get; set; } = "example-topic";
     public int SuccessRate { get; set; }
     public string SuspendedUserConfigUrl { get; set; } = "";
     public int Timeout { get; set; }
@@ -40,6 +42,8 @@ public class BackendOptions
     public bool UseOAuthGov { get; set; } = false;
     public bool UseUserConfig { get; set; } = false;
     public bool UseProfiles { get; set; } = false;
+    public bool UseServiceBus { get; set; } = true;
+    
     public string UserProfileHeader { get; set; } = "";
     public string UserConfigUrl { get; set; } = "";
     public float UserPriorityThreshold { get; set; }

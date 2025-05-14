@@ -171,6 +171,14 @@ public class EventHubClient : IEventClient
         _logBuffer.Enqueue(value);
     }
 
+    public void SendData(Dictionary<string, string> data)
+    {
+        if (!isRunning || isShuttingDown) return;
+
+        string jsonData = JsonSerializer.Serialize(data);
+        SendData(jsonData);
+    }
+    
     public void SendData(ProxyEvent proxyEvent)
     {
         if (!isRunning || isShuttingDown) return;

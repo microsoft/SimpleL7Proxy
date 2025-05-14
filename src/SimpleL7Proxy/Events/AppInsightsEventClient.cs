@@ -19,4 +19,9 @@ public class AppInsightsEventClient(TelemetryClient telemetryClient)
     }
     telemetryClient.TrackEvent(proxyEvent.Name, proxyEvent.EventData);
   }
+
+  public void SendData(Dictionary<string, string> data)
+  {
+    telemetryClient.TrackEvent("ProxyEvent", data);
+  }
 }

@@ -1,0 +1,103 @@
+using System;
+using System.IO;
+using System.Net.Http;
+using System.Text.Json;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using SimpleL7Proxy.Backend;
+using Azure.Messaging.EventGrid;
+using Azure;
+
+namespace SimpleL7Proxy.EventGrid
+{
+    public class RequestsConsumer : BackgroundService, IRequestsConsumerService
+    {
+        private readonly BackendOptions _options;
+        private readonly ILogger<Server> _logger;
+
+        public RequestsConsumer(IOptions<BackendOptions> options, ILogger<Server> logger)
+        {
+            _options = options.Value;
+            _logger = logger;
+        }
+
+        private void OnApplicationStopping()
+        {
+            _cancellationTokenSource?.Cancel();
+        }
+
+        CancellationTokenSource? _cancellationTokenSource;
+
+        protected override Task ExecuteAsync(CancellationToken stoppingToken)
+        {
+            _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            stoppingToken.Register(() =>
+            {
+                _logger.LogInformation("RequestsConsumer service stopping.");
+            });
+
+            _logger.LogInformation("Starting RequestsConsumer service...");
+
+            // Initialize User Profiles
+            if (_options.UseProfiles && !string.IsNullOrEmpty(_options.UserConfigUrl))
+            {
+                // create a new task that reads the user config every hour
+                return Task.Run(() => EventConsumer(stoppingToken), stoppingToken);
+            }
+
+            return Task.CompletedTask;
+        }
+
+
+        public async Task EventConsumer(CancellationToken cancellationToken)
+        {
+
+            // This method will run in the background and listen for requests from the Event Grid.
+
+            // Instantiate the event grid client and set up the necessary configurations.
+            string endpoint = "https://nvmevgr.eastus-1.eventgrid.azure.net/api/events";
+            string key = "5hgUgSWwf5TU20ZmfPfepVoa71Xu2WWqlzFMRl1SECL0hbVkkyRLJQQJ99BDACYeBjFXJ3w3AAABAZEGBJ3G";
+
+            var eventGridClient = new EventGridPublisherClient(new Uri(endpoint), new AzureKeyCredential(key));
+            
+
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    // read from the event grid and process the events
+                    var events = await eventGridClient.ReceiveAsync(cancellationToken).ConfigureAwait(false);
+
+                    foreach (var eventGridEvent in events) 
+                    {
+                        // Process the event here
+                        // For example, you can deserialize the event and log it
+                        var eventData = JsonSerializer.Deserialize<RequestData>(eventGridEvent.Data.ToString());
+                        if (eventData != null)
+                        {
+                            // Process the event data
+                            _logger.LogInformation($"Received event: {eventData}");
+                        }
+                    }
+
+                    // If you have a specific method to handle the event data, call it here
+                    // await HandleEventDataAsync(eventData, cancellationToken).ConfigureAwait(false);
+
+
+                    // await ReadUserConfigAsync(_options.UserConfigUrl, ParsingMode.profileMode).ConfigureAwait(false);
+                    // await ReadUserConfigAsync(_options.SuspendedUserConfigUrl, ParsingMode.SuspendedUserMode).ConfigureAwait(false);
+                    // await ReadUserConfigAsync(_options.ValidateAuthAppIDUrl, ParsingMode.AuthAppIDMode).ConfigureAwait(false);
+                }
+                catch (Exception e)
+                {
+                    // Log error
+                    Console.WriteLine($"Error reading user config: {e.Message}");
+                }
+
+                await Task.Delay(3600000, cancellationToken);
+            }
+        }
+    }
+}

@@ -1,12 +1,28 @@
 using System;
 using System.IO;
 using System.Net;
+using SimpleL7Proxy.ServiceBus;
+using SimpleL7Proxy.Proxy;
+using SimpleL7Proxy.Backend;
 
 // This class represents the request received from the upstream client.
 
 public class RequestData : IDisposable, IAsyncDisposable
 {
+    // Static variable to hold the IServiceBusRequestService instance
+    public static IServiceBusRequestService? SBRequestService { get; private set; }
+
+    // Method to initialize the static variable from DI
+    public static void InitializeServiceBusRequestService(IServiceBusRequestService serviceBusRequestService )
+    {
+        if (SBRequestService == null)
+        {
+            SBRequestService = serviceBusRequestService;
+        }
+    }
+    
     public HttpListenerContext? Context { get; private set; }
+    public Stream OutputStream {get; set;}
     public Stream? Body { get; private set; }
     public DateTime Timestamp { get; private set; }
     public string Path { get; private set; }
@@ -25,14 +41,34 @@ public class RequestData : IDisposable, IAsyncDisposable
     public string MID { get; set; } = "";
     public Guid Guid { get; set; }
     public string UserID { get; set; } = "";
+
+    // calculated timeout
     public int Timeout {get; set;}
 
+    // Header timeout or default timeout
+    public int defaultTimeout { get; set; } = 0;
+    public bool runAsync {get; set; } = false;
+    public AsyncWorker? asyncWorker { get; set; } = null;
+
+    public string ExpireReason { get; set; } = "";
+
     public string TTL="";
-    public long TTLSeconds = 0;
+    public string  SBClientID { get; set; } = "";
+    public ServiceBusMessageStatusEnum SBStatus
+    {
+        get => _sbStatus;
+        set
+        {
+            _sbStatus = value;
+            //SBRequestService?.updateStatus(this);
+        }
+    }
+    private ServiceBusMessageStatusEnum _sbStatus = ServiceBusMessageStatusEnum.None;
 
     // Track if the request was re-qued for cleanup purposes
     //public bool Requeued { get; set; } = false;
     public bool SkipDispose { get; set; } = false;
+
 
     public RequestData(HttpListenerContext context, string mid)
     {
@@ -45,6 +81,7 @@ public class RequestData : IDisposable, IAsyncDisposable
         Method = context.Request.HttpMethod;
         Headers = (WebHeaderCollection)context.Request.Headers;
         Body = context.Request.InputStream;
+        OutputStream = context.Response.OutputStream;
         Context = context;
         Timestamp = DateTime.UtcNow;
         ExpiresAt = DateTime.MinValue;  // Set it after reading the headers
@@ -73,6 +110,59 @@ public class RequestData : IDisposable, IAsyncDisposable
         }
 
         return BodyBytes;
+    }
+
+    // Updates the ExpiresAt time based on the TTL header
+     public void CalculateExpiration(int defaultTTLSecs)
+    {
+        //Console.WriteLine($"Calculating TTL for {request.Headers["S7PTTL"]} {request.TTLSeconds}");
+
+        const string TtlHeaderName = "S7PTTL";
+        string ttlString = Headers.Get(TtlHeaderName)!;
+
+        if (!string.IsNullOrWhiteSpace(ttlString))
+        {
+            ExpireReason = "TTL Header: " + ttlString;
+
+            // TTL can be specified as +300 ( 300 seconds from now ) or as an absolute number of seconds
+            if (ttlString.StartsWith('+') && long.TryParse(ttlString.Substring(1), out long relativeSeconds))
+            {
+                ExpiresAt = EnqueueTime.AddSeconds(relativeSeconds);
+            }
+            else if (long.TryParse(ttlString, out long absoluteSeconds))
+            {
+                // Absolute TTL in seconds
+                ExpiresAt = DateTimeOffset.FromUnixTimeSeconds(absoluteSeconds).UtcDateTime;
+
+            }
+            else if (DateTimeOffset.TryParse(ttlString, out var ttlOffset))
+            {
+                // If the offset is zero, treat as UTC; otherwise, convert to UTC
+                if (ttlOffset.Offset == TimeSpan.Zero)
+                {
+                    ExpiresAt = ttlOffset.UtcDateTime;
+                }
+                else
+                {
+                    // Handles cases where the string specifies a local time or a non-UTC offset
+                    ExpiresAt = ttlOffset.ToUniversalTime().UtcDateTime;
+                }
+            }
+            else 
+            {
+                throw new ProxyErrorException(ProxyErrorException.ErrorType.InvalidTTL,
+                                              HttpStatusCode.BadRequest,
+                                              $"Invalid TTL format: '{ttlString}'");
+            }
+        }
+        else
+        {
+            int ttlMsToUse = (defaultTTLSecs > 0) ? defaultTTLSecs * 1000 : defaultTimeout;
+            ExpireReason = (defaultTTLSecs > 0) ? $"Default TTL: {defaultTTLSecs} secs" : $"Default Timeout: {defaultTimeout} ms";
+            ExpiresAt = EnqueueTime.AddMilliseconds(ttlMsToUse);
+        }
+        
+        ExpiresAtString = ExpiresAt.ToString("yyyy-MM-ddTHH:mm:ssZ");
     }
 
     // Implement IDisposable
@@ -105,7 +195,10 @@ public class RequestData : IDisposable, IAsyncDisposable
             Context?.Request?.InputStream?.Dispose();
             Context?.Response?.OutputStream?.Dispose();
             Context?.Response?.Close();
+            OutputStream?.Flush();
+            OutputStream?.Close();
             Context = null;
+            Console.WriteLine($"RequestData disposed: {Guid}");
         }
     }
 

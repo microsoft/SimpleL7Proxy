@@ -31,6 +31,13 @@ public class CompositeEventClient(IEnumerable<IEventClient> eventClients)
     }
   }
 
+  public void SendData(Dictionary<string, string> data)
+  {
+    foreach (var client in eventClients)
+    {
+      client.SendData(data);
+    }
+  }
   public void SendData(ProxyEvent proxyEvent)
   {
     foreach (var client in eventClients)

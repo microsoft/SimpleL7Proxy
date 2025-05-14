@@ -39,7 +39,7 @@
                         { "retryAfter", DateTime.MinValue } ,
                         { "ModelType", "PAYGO" },
                         { "acceptablePriorities", new JArray(3) },
-                        { "LimitConcurrency", false},
+                        { "LimitConcurrency", "off"},
                         { "api-key", ""},
                         { "defaultRetryAfter", 10 } // Default retry-after value in seconds
                     });
@@ -51,7 +51,7 @@
                         { "retryAfter", DateTime.MinValue } ,
                         { "ModelType", "PAYGO" },
                         { "acceptablePriorities", new JArray(1,2) },
-                        { "LimitConcurrency", true},
+                        { "LimitConcurrency", "low"},
                         { "api-key", "123"},
                         { "defaultRetryAfter", 10 } // Default retry-after value in seconds
                     });
@@ -198,7 +198,7 @@
                 int backendIndex = (int)context.Variables["backendIndex"];
                 if (backendIndex < 0 || backendIndex >= backends.Count) { return false; }
                 JObject backend = (JObject)backends[backendIndex];
-                return backend.Value<bool>("LimitConcurrency") == true;
+                return backend.Value<string>("LimitConcurrency") != "off";
             }" />
 			<set-variable name="backendLog" value="@{
                 int backendIndex = (int)context.Variables["backendIndex"];
@@ -244,9 +244,21 @@
                     }" />
                     <!-- If the endpoint is concurrency limited, it will immedietly retry -->
                     <choose>
-                        <when condition="@(context.Variables.GetValueOrDefault<bool>("shouldLimit", false))">
+                        <when condition="@(context.Variables.GetValueOrDefault<string>("shouldLimit", "off") == "low")">
                             <set-variable name="wasLimited" value="@(true)" />
                             <limit-concurrency key="PTU" max-count="10">
+                                <forward-request buffer-request-body="true" />
+                            </limit-concurrency>
+                        </when>
+                        <when condition="@(context.Variables.GetValueOrDefault<string>("shouldLimit", "off") == "medium")">
+                            <set-variable name="wasLimited" value="@(true)" />
+                            <limit-concurrency key="PTU" max-count="50">
+                                <forward-request buffer-request-body="true" />
+                            </limit-concurrency>
+                        </when>
+                        <when condition="@(context.Variables.GetValueOrDefault<string>("shouldLimit", "off") == "high")">
+                            <set-variable name="wasLimited" value="@(true)" />
+                            <limit-concurrency key="PTU" max-count="100">
                                 <forward-request buffer-request-body="true" />
                             </limit-concurrency>
                         </when>
