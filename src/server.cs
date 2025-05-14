@@ -282,15 +282,15 @@ public class Server : IServer
                             ed["S7P-Priority"] = priority.ToString();
                             ed["S7P-Priority2"] = userPriorityBoost.ToString();
 
-                            // Calculate expiresAt time based on the timeout header or default TTL
+                            // Save the timeout header value if it exists
                             if (rd.Headers[_options.TimeoutHeader] != null && int.TryParse(rd.Headers[_options.TimeoutHeader], out var timeout)) {
-                                rd.ExpiresAt = rd.EnqueueTime.AddSeconds(timeout);
-                            }
-                            else if (_options.DefaultTTLSecs > 0) {
-                                rd.ExpiresAt = rd.EnqueueTime.AddSeconds(_options.DefaultTTLSecs);
+                                rd.defaultTimeout = timeout;
+                            } else {
+                                rd.defaultTimeout = _options.Timeout;
                             }
 
-                            rd.ExpiresAtString = rd.ExpiresAt.ToLocalTime().ToString("HH:mm:ss");
+                            // Calculate expiresAt time based on the timeout header or default TTL
+                            rd.CalculateExpiration(_options.DefaultTTLSecs);
 
                             // Check circuit breaker status and enqueue the request
                             if (_backends.CheckFailedStatus())
