@@ -28,13 +28,15 @@ public class RequestData : IDisposable, IAsyncDisposable
     public Guid Guid { get; set; }
     public string UserID { get; set; } = "";
     public int Timeout {get; set;}
+    public int defaultTimeout { get; set; } = 0;
+    public string ExpireReason { get; set; } = "";
 
     public string TTL="";
-    public long TTLSeconds = 0;
 
     // Track if the request was re-qued for cleanup purposes
     //public bool Requeued { get; set; } = false;
     public bool SkipDispose { get; set; } = false;
+
 
     public RequestData(HttpListenerContext context, string mid)
     {
@@ -75,6 +77,58 @@ public class RequestData : IDisposable, IAsyncDisposable
         }
 
         return BodyBytes;
+    }
+
+    public void CalculateExpiration(int defaultTTLSecs)
+    {
+        //Console.WriteLine($"Calculating TTL for {request.Headers["S7PTTL"]} {request.TTLSeconds}");
+
+        const string TtlHeaderName = "S7PTTL";
+        string ttlString = Headers.Get(TtlHeaderName)!;
+
+        if (!string.IsNullOrWhiteSpace(ttlString))
+        {
+            ExpireReason = "TTL Header: " + ttlString;
+
+            // TTL can be specified as +300 ( 300 seconds from now ) or as an absolute number of seconds
+            if (ttlString.StartsWith('+') && long.TryParse(ttlString.Substring(1), out long relativeSeconds))
+            {
+                ExpiresAt = EnqueueTime.AddSeconds(relativeSeconds);
+            }
+            else if (long.TryParse(ttlString, out long absoluteSeconds))
+            {
+                // Absolute TTL in seconds
+                ExpiresAt = DateTimeOffset.FromUnixTimeSeconds(absoluteSeconds).UtcDateTime;
+
+            }
+            else if (DateTimeOffset.TryParse(ttlString, out var ttlOffset))
+            {
+                // If the offset is zero, treat as UTC; otherwise, convert to UTC
+                if (ttlOffset.Offset == TimeSpan.Zero)
+                {
+                    ExpiresAt = ttlOffset.UtcDateTime;
+                }
+                else
+                {
+                    // Handles cases where the string specifies a local time or a non-UTC offset
+                    ExpiresAt = ttlOffset.ToUniversalTime().UtcDateTime;
+                }
+            }
+            else 
+            {
+                throw new ProxyErrorException(ProxyErrorException.ErrorType.InvalidTTL,
+                                              HttpStatusCode.BadRequest,
+                                              $"Invalid TTL format: '{ttlString}'");
+            }
+        }
+        else
+        {
+            int ttlMsToUse = (defaultTTLSecs > 0) ? defaultTTLSecs * 1000 : defaultTimeout;
+            ExpireReason = (defaultTTLSecs > 0) ? $"Default TTL: {defaultTTLSecs} secs" : $"Default Timeout: {defaultTimeout} ms";
+            ExpiresAt = EnqueueTime.AddMilliseconds(ttlMsToUse);
+        }
+        
+        ExpiresAtString = ExpiresAt.ToString("yyyy-MM-ddTHH:mm:ssZ");
     }
 
     // Implement IDisposable
