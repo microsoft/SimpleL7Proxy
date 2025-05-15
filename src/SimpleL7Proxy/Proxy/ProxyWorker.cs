@@ -954,7 +954,7 @@ public class ProxyWorker
                 //lastStatusCode = HandleProxyRequestError(host, e, request.Timestamp, request.FullURL, HttpStatusCode.InternalServerError);
 
                 Dictionary<string, string> requestAttempt = new();
-                requestAttempt["status"] = ((int)lastStatusCode).ToString();
+                requestAttempt["status"] = ((int)HttpStatusCode.InternalServerError).ToString();
                 requestAttempt["Backend-Host"] = host.Host;
                 requestAttempt["Error"] = "Internal Error: " + e.Message;
                 incompleteRequests.Add(requestAttempt);
