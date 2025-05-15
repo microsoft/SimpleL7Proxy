@@ -2,6 +2,7 @@ env.sh
 deployment.yaml
 deployment.json
 appsettings.json
+setup.sh
 # Prerequisites
 *.d
 
