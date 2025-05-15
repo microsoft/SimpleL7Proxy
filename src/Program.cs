@@ -644,17 +644,21 @@ public class Program
         // If validate headers are set, make sure they are also in the required headers and disallowed headers
         if (backendOptions.ValidateHeaders.Count > 0)
         {
-            foreach (var (key, value)  in backendOptions.ValidateHeaders) {
+            foreach (var (key, value) in backendOptions.ValidateHeaders)
+            {
                 Console.WriteLine($"Validating {key} against {value}");
-                if (!backendOptions.RequiredHeaders.Contains(key)) {
+                if (!backendOptions.RequiredHeaders.Contains(key))
+                {
                     Console.WriteLine($"Adding {key} to RequiredHeaders");
                     backendOptions.RequiredHeaders.Add(key);
                 }
-                if (!backendOptions.RequiredHeaders.Contains(value)) {
+                if (!backendOptions.RequiredHeaders.Contains(value))
+                {
                     Console.WriteLine($"Adding {value} to RequiredHeaders");
                     backendOptions.RequiredHeaders.Add(value);
                 }
-                if (!backendOptions.DisallowedHeaders.Contains(value)) {
+                if (!backendOptions.DisallowedHeaders.Contains(value))
+                {
                     Console.WriteLine($"Adding {value} to DisallowedHeaders");
                     backendOptions.DisallowedHeaders.Add(value);
                 }
@@ -672,7 +676,13 @@ public class Program
         Console.WriteLine("=======================================================================================");
         Console.WriteLine($"Version: {Constants.VERSION}");
         Console.WriteLine("ENV VARIABLES:");
+        OutputEnvVars();
 
+        return backendOptions;
+    }
+
+    private static void OutputEnvVars()
+    {
         const int keyWidth = 27;
         const int valWidth = 30;
         const int gutterWidth = 4;
@@ -701,7 +711,7 @@ public class Program
                     // Print the pending first column entry alone
                     Console.WriteLine(pendingEntry);
                     // Print the long second column entry alone, but obey key/value widths
-                    Console.WriteLine( $"{(key.Length > keyWidth ? key.Substring(0, keyWidth - 3) + "..." : key),-keyWidth}: {value}");
+                    Console.WriteLine($"{(key.Length > keyWidth ? key.Substring(0, keyWidth - 3) + "..." : key),-keyWidth}: {value}");
                     pendingEntry = null;
                     col = 0;
                 }
@@ -718,8 +728,5 @@ public class Program
         {
             Console.WriteLine();
         }
-
-        return backendOptions;
     }
-
 }
