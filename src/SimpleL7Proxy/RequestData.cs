@@ -47,7 +47,7 @@ public class RequestData : IDisposable, IAsyncDisposable
 
     // Header timeout or default timeout
     public int defaultTimeout { get; set; } = 0;
-    public bool runAsync {get; set; } = false;
+    public bool runAsync {get; set; } = true;
     public AsyncWorker? asyncWorker { get; set; } = null;
 
     public string ExpireReason { get; set; } = "";
@@ -60,7 +60,7 @@ public class RequestData : IDisposable, IAsyncDisposable
         set
         {
             _sbStatus = value;
-            //SBRequestService?.updateStatus(this);
+            SBRequestService?.updateStatus(this);
         }
     }
     private ServiceBusMessageStatusEnum _sbStatus = ServiceBusMessageStatusEnum.None;

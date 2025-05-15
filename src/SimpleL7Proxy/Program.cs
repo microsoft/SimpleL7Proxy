@@ -65,6 +65,15 @@ public class Program
 
         var frameworkHost = hostBuilder.Build();
         //        var serviceProvider = frameworkHost.Services;
+        // Perform static initialization after building the host to ensure correct singleton usage
+        var serviceProvider = frameworkHost.Services;
+        var serviceBusRequestService = serviceProvider.GetRequiredService<IServiceBusRequestService>();
+        RequestData.InitializeServiceBusRequestService(serviceBusRequestService);
+        AsyncWorker.Initialize(
+            serviceProvider.GetRequiredService<BlobWriter>(),
+            serviceProvider.GetRequiredService<ILogger<AsyncWorker>>()
+        );
+
 
         try
         {
@@ -105,49 +114,47 @@ public class Program
         }
     }
 
-private static void ConfigureDependencyInjection(IServiceCollection services, ILogger startupLogger)
-{
-    var eventHubConnectionString = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING");
-    var eventHubName = Environment.GetEnvironmentVariable("EVENTHUB_NAME");
+    private static void ConfigureDependencyInjection(IServiceCollection services, ILogger startupLogger)
+    {
+        var eventHubConnectionString = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING");
+        var eventHubName = Environment.GetEnvironmentVariable("EVENTHUB_NAME");
 
-    //var serviceBusConnectionString = Environment.GetEnvironmentVariable("SERVICEBUS_CONNECTIONSTRING");
-    // var blobConnectionString = Environment.GetEnvironmentVariable("BLOB_CONNECTIONSTRING") ?? "";
-    // var blobContainerName = Environment.GetEnvironmentVariable("BLOB_CONTAINERNAME") ?? "";
-    // services.AddSingleton(provider => new BlobWriter(blobConnectionString, blobContainerName));
+        // MOVE THESE TO THE BACKEND CLASS
+        var serviceBusConnectionString = Environment.GetEnvironmentVariable("SERVICEBUS_CONNECTIONSTRING");
+        var blobConnectionString = Environment.GetEnvironmentVariable("BLOB_CONNECTIONSTRING") ?? "";
+        var blobContainerName = Environment.GetEnvironmentVariable("BLOB_CONTAINERNAME") ?? "";
+        services.AddSingleton(provider => new BlobWriter(blobConnectionString, blobContainerName));
 
+        // Register TelemetryClient
+        services.AddSingleton<TelemetryClient>();
 
-    // Register TelemetryClient
-    services.AddSingleton<TelemetryClient>();
+        services.AddProxyEventClient(eventHubConnectionString, eventHubName, Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING"));
+        services.AddBackendHostConfiguration(startupLogger);
 
-    services.AddProxyEventClient(eventHubConnectionString, eventHubName, Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING"));
-    services.AddBackendHostConfiguration(startupLogger);
+        services.AddSingleton<IUserPriorityService, UserPriority>();
+        services.AddSingleton<UserProfile>();
+        services.AddSingleton<IUserProfileService>(provider => provider.GetRequiredService<UserProfile>());
 
-    services.AddSingleton<IUserPriorityService, UserPriority>();
-    services.AddSingleton<UserProfile>();
-    services.AddSingleton<IUserProfileService>(provider => provider.GetRequiredService<UserProfile>());
+        services.AddSingleton<IBackendService, Backends>();
+        services.AddSingleton<Server>();
+        services.AddSingleton<ConcurrentSignal<RequestData>>();
+        services.AddSingleton<IConcurrentPriQueue<RequestData>, ConcurrentPriQueue<RequestData>>();
+        services.AddSingleton<ProxyStreamWriter>();
+        services.AddSingleton<IBackendHostHealthCollection, BackendHostHealthCollection>();
+        services.AddHostedService<Server>(provider => provider.GetRequiredService<Server>());
 
-    services.AddSingleton<IBackendService, Backends>();
-    services.AddSingleton<Server>();
-    services.AddSingleton<ConcurrentSignal<RequestData>>();
-    services.AddSingleton<IConcurrentPriQueue<RequestData>, ConcurrentPriQueue<RequestData>>();
-    services.AddSingleton<ProxyStreamWriter>();
-    services.AddSingleton<IBackendHostHealthCollection, BackendHostHealthCollection>();
-    services.AddHostedService<Server>(provider => provider.GetRequiredService<Server>());
+        // ASYNC RELATED
+        services.AddSingleton(sp => new ServiceBusClient(serviceBusConnectionString));
+        services.AddSingleton<ServiceBusSenderFactory>();
 
-    // services.AddSingleton(sp => new ServiceBusClient(serviceBusConnectionString));
-    // services.AddSingleton<ServiceBusSenderFactory>();
-    // services.AddSingleton<IServiceBusRequestService, ServiceBusRequestService>();
+        // Register ServiceBusRequestService as singleton and as hosted service using the same instance
+        services.AddSingleton<ServiceBusRequestService>();
+        services.AddSingleton<IServiceBusRequestService>(sp => sp.GetRequiredService<ServiceBusRequestService>());
+        services.AddHostedService(sp => sp.GetRequiredService<ServiceBusRequestService>());
 
-    // Initialize the static variable in RequestData
-    // var serviceProvider = services.BuildServiceProvider();
-    // var serviceBusRequestService = serviceProvider.GetRequiredService<IServiceBusRequestService>();
-    // RequestData.InitializeServiceBusRequestService(serviceBusRequestService);
-    // AsyncWorker.Initialize(serviceProvider.GetRequiredService<BlobWriter>(), serviceProvider.GetRequiredService<ILogger<AsyncWorker>>());
-
-    services.AddHostedService<ProxyWorkerCollection>();
-    services.AddTransient(source => new CancellationTokenSource());
-    services.AddHostedService<CoordinatedShutdownService>();
-    services.AddHostedService<UserProfile>(provider => provider.GetRequiredService<UserProfile>());
-    // services.AddHostedService<ServiceBusRequestService>();
-}
+        services.AddHostedService<ProxyWorkerCollection>();
+        services.AddTransient(source => new CancellationTokenSource());
+        services.AddHostedService<CoordinatedShutdownService>();
+        services.AddHostedService<UserProfile>(provider => provider.GetRequiredService<UserProfile>());
+    }
 }

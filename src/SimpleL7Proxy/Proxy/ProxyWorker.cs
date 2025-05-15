@@ -725,7 +725,7 @@ public class ProxyWorker
                         {
                             rTimeout = _options.AsyncTimeout;
                             request.asyncWorker = new AsyncWorker(request);
-                            //_= request.asyncWorker.StartAsync();   // don't await this, let it run in parallell, fire and forget
+                            _= request.asyncWorker.StartAsync();   // don't await this, let it run in parallell, fire and forget
                         }
 
                         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(rTimeout));
