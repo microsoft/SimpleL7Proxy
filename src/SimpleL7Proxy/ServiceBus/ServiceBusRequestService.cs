@@ -21,7 +21,6 @@ namespace SimpleL7Proxy.ServiceBus
         private readonly ServiceBusSenderFactory _senderFactory;
         private readonly ILogger<ServiceBusRequestService> _logger;
         public static readonly ConcurrentQueue<ServiceBusStatusMessage> _statusQueue = new ConcurrentQueue<ServiceBusStatusMessage>();
-        //    private TaskCompletionSource<bool> _queueSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly SemaphoreSlim _queueSignal = new SemaphoreSlim(0);
 
         public ServiceBusRequestService(IOptions<BackendOptions> options, ServiceBusSenderFactory senderFactory, ILogger<ServiceBusRequestService> logger)
