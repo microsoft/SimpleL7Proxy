@@ -108,14 +108,32 @@ namespace SimpleL7Proxy.ServiceBus
             catch (OperationCanceledException)
             {
                 // Operation was canceled, exit gracefully
-                _logger.LogInformation("ServiceBusRequestService operation was canceled.");
+                _logger.LogInformation($"ServiceBusRequestService shutdown initiated: {_statusQueue.Count()} items need to be flushed.");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "An error occurred while sending a message to the topic.");
             }
+            finally
+            {
+                // Flush all items
 
-            _logger.LogInformation("AzureServiceBusServer is stopping.");
+                while (_statusQueue.TryDequeue(out var statusMessage))
+                {
+                    if (_statusQueue.Count() % 100 == 0) _logger.LogInformation($"{_statusQueue.Count()} items remain to be flushed.");
+                    // Process the status message
+                    try
+                    {
+                        await _senderFactory.GetSender("status").SendMessageAsync(new ServiceBusMessage(JsonSerializer.Serialize(statusMessage)), stoppingToken);
+                    }
+                    catch (Exception e)
+                    {
+                        _logger.LogError(e, "Error while flushing service bus.  Continuing.");
+                    }
+                }
+            }
+
+            _logger.LogInformation("ServiceBusRequestService is stopping.");
         }
 
 
