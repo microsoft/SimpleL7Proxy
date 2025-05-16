@@ -1,6 +1,6 @@
 ﻿using Azure.Messaging.ServiceBus;
 
-var serviceBusConnectionString = "";
+var serviceBusConnectionString = Environment.GetEnvironmentVariable("SERVICEBUS_CONNECTIONSTRING");
 var client = new ServiceBusClient(serviceBusConnectionString);
 var processor = client.CreateProcessor("status", "client1-jobs");
 
