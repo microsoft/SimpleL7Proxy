@@ -734,9 +734,13 @@ public class ProxyWorker
                             proxyRequest, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
 
                         // We got a response back, Synchronize with the asyncWorker 
-                        if ((int)proxyResponse.StatusCode == 200 &&  request.runAsync && request.asyncWorker != null)
+                        if ((int)proxyResponse.StatusCode == 200 &&  request.runAsync )
                         {
-                            if (! await request.asyncWorker.Synchronize() ) {
+                            if (request.asyncWorker == null)
+                            {
+                                _logger.LogError("AsyncWorker is null, but runAsync is true");
+                            }
+                            else if (! await request.asyncWorker.Synchronize() ) {
 
                                 _logger.LogError($"AsyncWorker failed to setup: {request.asyncWorker.ErrorMessage}");
                             }
@@ -844,11 +848,16 @@ public class ProxyWorker
 
                         // TODO: Move to caller to handle writing errors?
                         // Store the response stream in proxyData and return to parent caller
-                        request.Context!.Response.StatusCode = (int)proxyResponse.StatusCode;
-                        request.Context.Response.Headers = pr.Headers;
+
+                        if (request.AsyncTriggered) {
+                            await request.asyncWorker.WriteHeaders(proxyResponse.StatusCode, pr.Headers);
+                        }
+                        else {
+                            request.Context!.Response.StatusCode = (int)proxyResponse.StatusCode;
+                            request.Context.Response.Headers = pr.Headers;
+                        }
 
                         // Stream response from the backend to the client / blob depending on async timer 
-
                         try
                         {
                             // This will write to either the client or the blob depending on the async timer
@@ -862,13 +871,6 @@ public class ProxyWorker
                                                           HttpStatusCode.InternalServerError, e.Message);
                         }
 
-                        //awaitrequest.Context.Response.flush();
-
-
-                        //Console.WriteLine($"Writing: to {context} {pr.StatusCode} {pr.FullURL} {pr.ContentHeaders["Content-Length"]} bytes");
-                        //await _proxyStreamWriter.WriteDataToStreamAsync(listener, pr, token);
-
-                        //await WriteDataToStreamAsync(request.Context!, pr, token).ConfigureAwait(false);
                         // Log the response if debugging is enabled
                         if (request.Debug)
                         {
