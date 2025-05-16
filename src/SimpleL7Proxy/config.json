@@ -3,11 +3,13 @@
         "userId": "123456",
         "S7PPriorityKey": "12345",
         "Header1": "Value1",
-        "Header2": "Value2"
+        "Header2": "Value2",
+        "AsyncEnabled": true
     },
     {
         "userId": "123457",
-        "Header1": "Value-1",
-        "Header2": "Value-2"
+        "Header1": "Value1",
+        "Header2": "Value2",
+        "AsyncEnabled": false
     }
 ]
