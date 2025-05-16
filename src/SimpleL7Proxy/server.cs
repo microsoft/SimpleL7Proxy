@@ -354,6 +354,19 @@ public class Server : BackgroundService
                             // Calculate expiresAt time based on the timeout header or default TTL
                             rd.CalculateExpiration(_options.DefaultTTLSecs);
 
+                            // determine if the request is allowed async operation
+
+                            if (rd.Headers["AsyncEnabled"] != null && bool.TryParse(rd.Headers["AsyncEnabled"], out var allowed))
+                            {
+                                Console.WriteLine($"AsyncEnabled: {allowed}");
+                                rd.runAsync = allowed;
+                            }
+                            else
+                            {
+                                rd.runAsync = false;
+                                Console.WriteLine($"AsyncEnabled: NOT DEFINED");
+                            }
+
 
                             // Check circuit breaker status and enqueue the request
                             if (_backends.CheckFailedStatus())
@@ -488,7 +501,7 @@ public class Server : BackgroundService
             catch (OperationCanceledException)
             {
                 // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
-                _logger.LogInformation("Operation was canceled. Stopping the listener.");
+                _logger.LogInformation("HTTP server shutdown initiated.");
                 break; // Exit the loop
             }
             catch (Exception e)
@@ -498,7 +511,7 @@ public class Server : BackgroundService
             }
         }
 
-        _logger.LogInformation("Listener task stopped.");
+        _logger.LogInformation("HTTP server stopped.");
     }
 
     private void WriteOutput(string data = "", Dictionary<string, string>? eventData = null)
