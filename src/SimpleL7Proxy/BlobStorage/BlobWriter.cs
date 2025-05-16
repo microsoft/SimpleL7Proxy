@@ -59,8 +59,8 @@ namespace SimpleL7Proxy.BlobStorage
             };
             sasBuilder.SetPermissions(BlobSasPermissions.Read | BlobSasPermissions.Delete);
 
-            // Replace with your actual account name and key in production.
-            return $"{blobClient.Uri}?{sasBuilder.ToSasQueryParameters(new StorageSharedKeyCredential("<account-name>", "<account-key>"))}";
+            var sasUri = blobClient.GenerateSasUri(sasBuilder);
+            return sasUri.ToString();
         }
     }
 }
