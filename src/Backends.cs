@@ -301,7 +301,6 @@ public class Backends : IBackendService
                 probeData["Latency"] = latency.ToString() + " ms";
                 probeData["Code"] = response.StatusCode.ToString();
                 probeData["Type"] = "S7P-Poller";
-                probeData["ID"] = _options.IDStr;
 
                 response.EnsureSuccessStatusCode();
 
@@ -359,6 +358,7 @@ public class Backends : IBackendService
         }
         finally
         {
+            probeData["Host-ID"] = _options.IDStr;
             SendEventData(probeData);
         }
 
