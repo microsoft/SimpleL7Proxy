@@ -5,7 +5,7 @@ public static class Constants
     public const string Startup = "/startup";
     public const string Liveness = "/liveness";
     public const string Shutdown = "/shutdown"; // Signal to unwedge workers and shut down gracefully
-    public const string VERSION = "2.1.22";
+    public const string VERSION = "2.1.23";
 
     public const int AnyPriority = -1;
 

@@ -967,7 +967,6 @@ public class ProxyWorker
         {
             var data = request.EventData;
             data["Type"] = "S7P-InvalidCharset";
-
             data["Content-Type"] = request.Headers["Content-Type"] ?? "";
 
             
