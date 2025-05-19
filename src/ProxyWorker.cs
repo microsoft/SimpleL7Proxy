@@ -117,7 +117,7 @@ public class ProxyWorker
                     continue;
                 }
 
-                Dictionary<string, string> eventData = new Dictionary<string, string>();
+                var eventData = incomingRequest.EventData;
                 bool dirtyExceptionLog = false;
                 bool requestException = false;
                 try
@@ -151,6 +151,10 @@ public class ProxyWorker
                     }
 
                     eventData["ProxyHost"] = _options.HostName;
+                    eventData["EnqueueTime"] = incomingRequest.EnqueueTime.ToString("o");
+                    eventData["MID"] = incomingRequest.MID ?? "N/A";
+                    eventData["Url"] = incomingRequest.FullURL;
+                    eventData["Host-ID"] = IDstr;
                     eventData["Date"] = incomingRequest.DequeueTime.ToString("o") ?? DateTime.UtcNow.ToString("o");
                     eventData["Path"] = incomingRequest.Path ?? "N/A";
                     eventData["x-RequestPriority"] = incomingRequest.Priority.ToString() ?? "N/A";
@@ -175,7 +179,10 @@ public class ProxyWorker
                     Interlocked.Decrement(ref states[1]);
                     Interlocked.Increment(ref states[2]);
                     workerState = "Read Proxy";
+
+                    // DO THE WORK
                     var pr = await ReadProxyAsync(incomingRequest).ConfigureAwait(false);
+
                     Interlocked.Decrement(ref states[2]);
                     Interlocked.Increment(ref states[5]);
                     workerState = "Write Response";
@@ -229,7 +236,6 @@ public class ProxyWorker
                     var timeTaken = (DateTime.UtcNow - incomingRequest.EnqueueTime).TotalMilliseconds.ToString("F3");
                     Console.WriteLine($"Pri: {incomingRequest.Priority}, Stat: {(int)pr.StatusCode}, Len: {conlen}, {pr.FullURL}, Deq: {incomingRequest.DequeueTime.ToLocalTime().ToString("HH:mm:ss")}, Lat: {proxyTime} ms");
 
-                    eventData["Url"] = pr.FullURL;
                     eventData["x-Response-Latency"] = (pr.ResponseDate - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
                     eventData["x-Total-Latency"] = timeTaken;
                     eventData["x-Backend-Host"] = pr?.BackendHostname ?? "N/A";
@@ -269,7 +275,6 @@ public class ProxyWorker
                     Console.WriteLine($"Requeued request, Pri: {incomingRequest.Priority}, Expires-At: {incomingRequest.ExpiresAtString} Retry-after-ms: {e.RetryAfter}, Q-Len: {_requestsQueue.Count}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()}");
                     requestWasRetried = true;
                     incomingRequest.SkipDispose = true;
-                    eventData["Url"] = e.pr.FullURL;
                     eventData["x-Status"] = ((int)202).ToString();
                     eventData["x-Response-Latency"] = (e.pr.ResponseDate - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
                     eventData["x-Total-Latency"] = (DateTime.UtcNow - incomingRequest.EnqueueTime).TotalMilliseconds.ToString("F3");
@@ -564,11 +569,7 @@ public class ProxyWorker
         request.Debug = _debug || (request.Headers["S7PDEBUG"] != null && string.Equals(request.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase));
         HttpStatusCode lastStatusCode = HttpStatusCode.ServiceUnavailable;
         List<Dictionary<string, string>> incompleteRequests = new();
-        Dictionary<string, string> requestSummary = new();
-
-        requestSummary["MID"] = request.MID ?? "N/A";
-        requestSummary["EnqueueTime"] = request.EnqueueTime.ToString("o");
-        requestSummary["Url"] = request.FullURL;
+        Dictionary<string, string> requestSummary = request.EventData;
 
         // Read the body stream once and reuse it
         //byte[] bodyBytes = await request.CachBodyAsync().ConfigureAwait(false);
@@ -819,7 +820,7 @@ public class ProxyWorker
                 //lastStatusCode = HandleProxyRequestError(host, e, request.Timestamp, request.FullURL, HttpStatusCode.InternalServerError);
 
                 Dictionary<string, string> requestAttempt = new();
-                requestAttempt["status"] = ((int)lastStatusCode).ToString();
+                requestAttempt["status"] = ((int)HttpStatusCode.InternalServerError).ToString();
                 requestAttempt["Backend-Host"] = host.host;
                 requestAttempt["Error"] = "Internal Error: " + e.Message;
                 incompleteRequests.Add(requestAttempt);
@@ -967,7 +968,6 @@ public class ProxyWorker
             Dictionary<string, string> data = new();
             data["MID"] = request.MID;
             data["Content-Type"] = request.Headers["Content-Type"] ?? "";
-            data["EnqueueTime"] = request.EnqueueTime.ToString("o");
             data["Url"] = request.FullURL;
             
             HandleProxyRequestError(null, data, HttpStatusCode.UnsupportedMediaType,$"Unsupported charset: {contentType.CharSet}", null, e);
@@ -1036,12 +1036,12 @@ public class ProxyWorker
 
         if (incompleteRequests != null) {
             int i = 0;
-            foreach (var requestSummary in incompleteRequests)
+            foreach (var summary in incompleteRequests)
             {
                 i++;
-                foreach (var key in requestSummary.Keys)
+                foreach (var key in summary.Keys)
                 {
-                    data[$"attempt-{i}-{key}"] =  requestSummary[key];
+                    data[$"attempt-{i}-{key}"] =  summary[key];
                 }
             }
         }
@@ -1060,33 +1060,33 @@ public class ProxyWorker
     }
  
 
-    private HttpStatusCode HandleProxyRequestError2(BackendHost? host, Exception? e, DateTime requestDate, string url, HttpStatusCode statusCode, string? customMessage = null)
-    {
-        // Common operations for all exceptions
+    // private HttpStatusCode HandleProxyRequestError2(BackendHost? host, Exception? e, DateTime requestDate, string url, HttpStatusCode statusCode, string? customMessage = null)
+    // {
+    //     // Common operations for all exceptions
 
-        if (_telemetryClient != null)
-        {
-            if (e != null)
-                _telemetryClient.TrackException(e);
+    //     if (_telemetryClient != null)
+    //     {
+    //         if (e != null)
+    //             _telemetryClient.TrackException(e);
 
-            var telemetry = new EventTelemetry("ProxyRequest");
-            telemetry.Properties.Add("URL", url);
-            telemetry.Properties.Add("RequestDate", requestDate.ToString("o"));
-            telemetry.Properties.Add("ResponseDate", DateTime.Now.ToString("o"));
-            telemetry.Properties.Add("StatusCode", statusCode.ToString());
-            _telemetryClient.TrackEvent(telemetry);
-        }
+    //         var telemetry = new EventTelemetry("ProxyRequest");
+    //         telemetry.Properties.Add("URL", url);
+    //         telemetry.Properties.Add("RequestDate", requestDate.ToString("o"));
+    //         telemetry.Properties.Add("ResponseDate", DateTime.Now.ToString("o"));
+    //         telemetry.Properties.Add("StatusCode", statusCode.ToString());
+    //         _telemetryClient.TrackEvent(telemetry);
+    //     }
 
 
-        if (!string.IsNullOrEmpty(customMessage))
-        {
-            Console.WriteLine($"{e?.Message ?? customMessage}");
-        }
-        var date = requestDate.ToString("o");
-        _eventHubClient?.SendData($"{{\"Date\":\"{date}\", \"Url\":\"{url}\", \"Error\":\"{e?.Message ?? customMessage}\"}}");
+    //     if (!string.IsNullOrEmpty(customMessage))
+    //     {
+    //         Console.WriteLine($"{e?.Message ?? customMessage}");
+    //     }
+    //     var date = requestDate.ToString("o");
+    //     _eventHubClient?.SendData($"{{\"Date\":\"{date}\", \"Url\":\"{url}\", \"Error\":\"{e?.Message ?? customMessage}\"}}");
 
-        host?.AddError();
-        return statusCode;
-    }
+    //     host?.AddError();
+    //     return statusCode;
+    // }
 
 }
