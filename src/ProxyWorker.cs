@@ -965,10 +965,11 @@ public class ProxyWorker
         }
         catch (ArgumentException e)
         {
-            Dictionary<string, string> data = new();
-            data["MID"] = request.MID;
+            var data = request.EventData;
+            data["Type"] = "S7P-InvalidCharset";
+
             data["Content-Type"] = request.Headers["Content-Type"] ?? "";
-            data["Url"] = request.FullURL;
+
             
             HandleProxyRequestError(null, data, HttpStatusCode.UnsupportedMediaType,$"Unsupported charset: {contentType.CharSet}", null, e);
             return Encoding.UTF8; // Fallback to UTF-8 in case of error
