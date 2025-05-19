@@ -30,8 +30,9 @@ public class RequestData : IDisposable, IAsyncDisposable
     public int Timeout {get; set;}
     public int defaultTimeout { get; set; } = 0;
     public string ExpireReason { get; set; } = "";
+    public Dictionary<string, string> EventData = new Dictionary<string, string>();
 
-    public string TTL="";
+    public string TTL = "";
 
     // Track if the request was re-qued for cleanup purposes
     //public bool Requeued { get; set; } = false;
