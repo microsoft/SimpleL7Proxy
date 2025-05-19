@@ -197,6 +197,15 @@ public class Server : IServer
                                             if (rd.Debug)
                                                 Console.WriteLine($"Add Header: {header.Key} = {header.Value}");
                                         }
+                                    } else
+                                    {
+                                        if (rd.Debug)
+                                            Console.WriteLine($"User profile for {requestUser} not found.");
+                                        throw new ProxyErrorException(
+                                            ProxyErrorException.ErrorType.UnknownProfile,
+                                            HttpStatusCode.Forbidden,
+                                            "User profile not found: " + requestUser + "\n"
+                                        );
                                     }
                                 }
                             }
