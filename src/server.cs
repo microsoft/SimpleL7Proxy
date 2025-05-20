@@ -99,6 +99,8 @@ public class Server : IServer
 
         while (!_cancellationToken.IsCancellationRequested)
         {
+            Dictionary<string, string> ed = null!;
+            
             try
             {
                 // Use the CancellationToken to asynchronously wait for an HTTP request.
@@ -122,14 +124,15 @@ public class Server : IServer
                     int notEnquedCode = 0;
                     var retrymsg = "";
                     var logmsg = "";
-                    Dictionary<string, string> ed = [];
 
                     Interlocked.Increment(ref counter);
                     var requestId = _options.IDStr + counter.ToString();
 
                     //delayCts.Cancel();
                     var rd = new RequestData(await getContextTask.ConfigureAwait(false), requestId);
-
+                    ed = rd.EventData;
+                    ed["Date"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
+                    ed["S7P-Host-ID"] = _options.IDStr;
                     // readiness probes:
                     // if it's a probe, then bypass all the below checks and enqueue the request 
                     if (Constants.probes.Contains(rd.Path))
@@ -150,8 +153,8 @@ public class Server : IServer
                             rd.Debug = rd.Headers["S7PDEBUG"] != null && string.Equals(rd.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase);
 
 
-                            if (_options.ValidateAuthAppID) 
-                            { 
+                            if (_options.ValidateAuthAppID)
+                            {
                                 string? authAppID = rd.Headers[_options.ValidateAuthAppIDHeader];
                                 if (!string.IsNullOrEmpty(authAppID) && _userProfile.IsAuthAppIDValid(authAppID))
                                 {
@@ -176,9 +179,9 @@ public class Server : IServer
                             {
                                 if (rd.Debug && !String.IsNullOrEmpty(rd.Headers.Get(header)))
                                     Console.WriteLine($"Disallowed header {header} removed from request.");
-                                rd.Headers.Remove(header);   
+                                rd.Headers.Remove(header);
                             }
-                            
+
                             rd.UserID = "";
 
                             // Lookup the user profile and add the headers to the request
@@ -197,7 +200,8 @@ public class Server : IServer
                                             if (rd.Debug)
                                                 Console.WriteLine($"Add Header: {header.Key} = {header.Value}");
                                         }
-                                    } else
+                                    }
+                                    else
                                     {
                                         if (rd.Debug)
                                             Console.WriteLine($"User profile for {requestUser} not found.");
@@ -214,7 +218,8 @@ public class Server : IServer
                             if (_options.RequiredHeaders.Count > 0)
                             {
                                 var missing = _options.RequiredHeaders.FirstOrDefault(x => string.IsNullOrEmpty(rd.Headers[x]));
-                                if (!string.IsNullOrEmpty(missing)) {
+                                if (!string.IsNullOrEmpty(missing))
+                                {
                                     if (rd.Debug)
                                         Console.WriteLine($"Required header {missing} is missing from request.");
 
@@ -246,7 +251,7 @@ public class Server : IServer
                                     }
                                 }
                                 if (rd.Debug)
-                                    Console.WriteLine($"Validation check passed for all headers."); 
+                                    Console.WriteLine($"Validation check passed for all headers.");
                             }
 
                             // Determine priority boost based on the UserID 
@@ -265,14 +270,16 @@ public class Server : IServer
 
                             ed["UserID"] = rd.UserID;
                             ed["x-S7PID"] = rd.MID;
-   
+
                             if (rd.Debug)
                                 Console.WriteLine($"UserID: {rd.UserID}");
-                                
+
                             // Determine priority boost based on the UserID
                             rd.Guid = _userPriority.addRequest(rd.UserID);
                             bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
                             userPriorityBoost = shouldBoost ? 1 : 0;
+
+                            ed["GUID"] = rd.Guid.ToString();
 
                             var priorityKey = rd.Headers[_priorityHeaderName];
                             if (!string.IsNullOrEmpty(priorityKey) && _options.PriorityKeys.Contains(priorityKey)) //lookup the priority
@@ -287,19 +294,22 @@ public class Server : IServer
                             rd.Priority2 = userPriorityBoost;
                             rd.EnqueueTime = DateTime.UtcNow;
 
-                            ed["S7P-Hostname"] = _options.IDStr;
                             ed["S7P-Priority"] = priority.ToString();
                             ed["S7P-Priority2"] = userPriorityBoost.ToString();
 
                             // Save the timeout header value if it exists
-                            if (rd.Headers[_options.TimeoutHeader] != null && int.TryParse(rd.Headers[_options.TimeoutHeader], out var timeout)) {
+                            if (rd.Headers[_options.TimeoutHeader] != null && int.TryParse(rd.Headers[_options.TimeoutHeader], out var timeout))
+                            {
                                 rd.defaultTimeout = timeout;
-                            } else {
+                            }
+                            else
+                            {
                                 rd.defaultTimeout = _options.Timeout;
                             }
 
                             // Calculate expiresAt time based on the timeout header or default TTL
                             rd.CalculateExpiration(_options.DefaultTTLSecs);
+                            ed["DefaultTimeout"] = rd.defaultTimeout.ToString();
 
                             // Check circuit breaker status and enqueue the request
                             if (_backends.CheckFailedStatus())
@@ -339,6 +349,7 @@ public class Server : IServer
                                 retrymsg = ed["Message"] = "Failed to enqueue request";
                                 logmsg = "Failed to enqueue request  => 429:";
                             }
+
                         }
                         catch (ProxyErrorException e)
                         {
@@ -362,8 +373,12 @@ public class Server : IServer
                         }
                     }
 
-                    ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
                     ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
+                    ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
+                    ed["MID"] = rd.MID;
+                    ed["ExpiresAt"] = rd.ExpiresAtString;
+                    ed["Priority"] = priority.ToString();
+                    ed["Priority2"] = userPriorityBoost.ToString();
 
                     if (notEnqued)
                     {
@@ -390,7 +405,8 @@ public class Server : IServer
                         ed["Type"] = "S7P-Enqueue";
                         ed["Message"] = "Enqueued request";
 
-                        WriteOutput($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ", ed);
+                        WriteOutput("", ed);
+                        WriteOutput($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
                     }
                 }
                 else
@@ -401,18 +417,18 @@ public class Server : IServer
             }
             catch (IOException ioEx)
             {
-                WriteOutput($"An IO exception occurred: {ioEx.Message}");
+                WriteOutput($"An IO exception occurred: {ioEx.Message}", ed);
             }
             catch (OperationCanceledException)
             {
                 // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
-                WriteOutput("Operation was canceled. Stopping the listener.");
+                WriteOutput("Operation was canceled. Stopping the listener.", ed);
                 break; // Exit the loop
             }
             catch (Exception e)
             {
                 _telemetryClient?.TrackException(e);
-                WriteOutput($"Error: {e.Message}\n{e.StackTrace}");
+                WriteOutput($"Error: {e.Message}\n{e.StackTrace}", ed);
             }
         }
 
