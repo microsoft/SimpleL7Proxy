@@ -21,7 +21,8 @@ public class ProxyData
     {
         Headers = new WebHeaderCollection();
         ContentHeaders = new WebHeaderCollection();
-        FullURL="";
-        BackendHostname="";
+        FullURL = "";
+        BackendHostname = "";
+        ResponseDate = DateTime.UtcNow;
     }
 }
