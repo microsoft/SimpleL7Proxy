@@ -854,30 +854,19 @@ public class ProxyWorker
             }
         }   
 
-        if (activeHosts.Count == 1)
-        {
-            return new ProxyData
-            {
-                StatusCode = lastStatusCode,
-                Body = Encoding.UTF8.GetBytes("Error processing request.")
-            };
-        }
-        else
-        {
-            StringBuilder sb;
-            bool statusMatches;
-            int currentStatusCode;
-            GenerateErrorMessage(incompleteRequests, out sb, out statusMatches, out currentStatusCode);
+        StringBuilder sb;
+        bool statusMatches;
+        int currentStatusCode;
+        GenerateErrorMessage(incompleteRequests, out sb, out statusMatches, out currentStatusCode);
 
-            // 502 Bad Gateway  or   call status code form all attempts ( if they are the same )
-            lastStatusCode = (statusMatches) ? (HttpStatusCode)currentStatusCode : HttpStatusCode.BadGateway;
+        // 502 Bad Gateway  or   call status code form all attempts ( if they are the same )
+        lastStatusCode = (statusMatches) ? (HttpStatusCode)currentStatusCode : HttpStatusCode.BadGateway;
 
-            return new ProxyData
-            {
-                StatusCode = HandleProxyRequestError(null, requestSummary, lastStatusCode, "No active hosts were able to handle the request", incompleteRequests),
-                Body = Encoding.UTF8.GetBytes(sb.ToString())
-            };
-        }
+        return new ProxyData
+        {
+            StatusCode = HandleProxyRequestError(null, requestSummary, lastStatusCode, "No active hosts were able to handle the request", incompleteRequests),
+            Body = Encoding.UTF8.GetBytes(sb.ToString())
+        };
     }
 
     private static void GenerateErrorMessage(List<Dictionary<string, string>> incompleteRequests, out StringBuilder sb, out bool statusMatches, out int currentStatusCode)
