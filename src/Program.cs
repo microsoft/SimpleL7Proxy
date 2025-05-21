@@ -130,20 +130,28 @@ public class Program
                         Console.WriteLine("AppInsights initialized");
                 }
 
-                EventHubClient? eventHubClient = null;
-                try 
+                var log_to_file = false;
+                if (log_to_file)
                 {
-                    var eventHubConnectionString = OS.Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING") ?? "";
-                    var eventHubName = OS.Environment.GetEnvironmentVariable("EVENTHUB_NAME") ?? "";
-                    eventHubClient= new EventHubClient(eventHubConnectionString, eventHubName);
-                    eventHubTask = eventHubClient.StartTimer();   // Must shutdown after worker threads are done
+                    string logFileName = OS.Environment.GetEnvironmentVariable("LOGFILE") ?? "events.log";
+                    eventHubClient = new LogFileEventClient(logFileName);
                 }
-                catch(Exception ex) {
-                    Console.WriteLine($"Failed to initialize EventHubClient: {ex.Message}");
-                    System.Environment.Exit(1);
+                else
+                {
+                    try
+                    {
+                        var eventHubConnectionString = OS.Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING") ?? "";
+                        var eventHubName = OS.Environment.GetEnvironmentVariable("EVENTHUB_NAME") ?? "";
+                        eventHubClient = new EventHubClient(eventHubConnectionString, eventHubName);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Failed to initialize EventHubClient: {ex.Message}");
+                        System.Environment.Exit(1);
+                    }
                 }
-
                 services.AddSingleton<IEventHubClient>(provider => eventHubClient);
+
                 //services.AddHttpLogging(o => { });
                 services.AddSingleton<IBackendOptions>(backendOptions);
 
@@ -184,6 +192,8 @@ public class Program
 
         server = serviceProvider.GetRequiredService<IServer>();
         eventHubClient = serviceProvider.GetRequiredService<IEventHubClient>();
+        eventHubTask = eventHubClient.StartTimer();   // Must shutdown after worker threads are done
+
         var userProfile = serviceProvider.GetService<IUserProfile>();
         var userPriority = serviceProvider.GetService<IUserPriority>();
         try
@@ -315,7 +325,7 @@ public class Program
         }
         else
         {
-            Console.WriteLine("All tasks completed.");
+            Console.WriteLine("All tasks shutdown completed.");
         }
 
         backends?.Stop(); // Stop the backend pollers
@@ -323,8 +333,12 @@ public class Program
         {
             await backendPollerTask.ConfigureAwait(false);
         }
+        Console.WriteLine("Backend pollers stopped. Shutting down.");
         eventHubClient?.SendData($"Workers Stopped:   {ProxyWorker.GetState()}");
-        eventHubClient?.StopTimer();
+        if (eventHubClient != null)
+        {
+            await eventHubClient.StopTimer();
+        }
     }
 
     private static int ReadEnvironmentVariableOrDefault(string variableName, int defaultValue) {
