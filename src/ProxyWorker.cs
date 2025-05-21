@@ -289,7 +289,7 @@ public class ProxyWorker
                     requestWasRetried = true;
                     incomingRequest.SkipDispose = true;
                     eventData["Status"] = ((int)202).ToString();
-                    eventData["Type"] = "S7P-Requeue-Request";renam
+                    eventData["Type"] = "S7P-Requeue-Request";
 
                     SendEventData(eventData);
                 }
