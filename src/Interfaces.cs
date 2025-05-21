@@ -19,7 +19,7 @@ public interface IEventHubClient
 {
     int Count { get; }
     Task StartTimer();
-    void StopTimer();
+    Task StopTimer();
     void SendData(string? value);
     void SendData(Dictionary<string, string> eventData);
     int GetEntryCount();
