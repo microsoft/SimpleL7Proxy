@@ -459,7 +459,6 @@ public class Server : IServer
             eventData["Type"] = "S7P-Console";
         }
 
-        string jsonData = JsonSerializer.Serialize(eventData);
-        _eventHubClient?.SendData(jsonData);
+        _eventHubClient?.SendData(eventData);
     }
 }
