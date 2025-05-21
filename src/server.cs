@@ -269,7 +269,7 @@ public class Server : IServer
                             }
 
                             ed["UserID"] = rd.UserID;
-                            ed["x-S7PID"] = rd.MID;
+                            ed["S7P-ID"] = rd.MID;
 
                             if (rd.Debug)
                                 Console.WriteLine($"UserID: {rd.UserID}");
