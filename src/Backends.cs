@@ -427,8 +427,7 @@ public class Backends : IBackendService
 
     private void SendEventData(Dictionary<string, string> eventData)//string urlWithPath, HttpStatusCode statusCode, DateTime requestDate, DateTime responseDate)
     {
-        string jsonData = JsonSerializer.Serialize(eventData);
-        _eventHubClient?.SendData(jsonData);
+        _eventHubClient?.SendData(eventData);
     }
 
     // Fetches the OAuth2 Token as a seperate task. The token is fetched and updated 100ms before it expires. 
@@ -548,8 +547,7 @@ public class Backends : IBackendService
             eventData["Type"] = "S7P-Backend-Status";
         }
 
-        string jsonData = JsonSerializer.Serialize(eventData);
-        _eventHubClient?.SendData(jsonData);
+        _eventHubClient?.SendData(eventData);
     }
 
 }
