@@ -333,7 +333,6 @@ public class Program
         {
             await backendPollerTask.ConfigureAwait(false);
         }
-        Console.WriteLine("Backend pollers stopped. Shutting down.");
         eventHubClient?.SendData($"Workers Stopped:   {ProxyWorker.GetState()}");
         if (eventHubClient != null)
         {
