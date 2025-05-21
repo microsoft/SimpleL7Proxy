@@ -142,7 +142,7 @@ public class EventHubClient : IEventHubClient
         return _batchData.Count;
     }
 
-    public void StopTimer()
+    public Task StopTimer()
     {
         isShuttingDown = true;
         while (isRunning && _logBuffer.Count > 0)
@@ -151,9 +151,9 @@ public class EventHubClient : IEventHubClient
         }
 
         cancellationTokenSource.Cancel();
-        writerTask?.Wait();
-
         isRunning = false;
+
+        return writerTask;
     }
 
     public void SendData(string? value)
