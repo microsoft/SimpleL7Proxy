@@ -22,4 +22,13 @@ public class ProxyData
     public string BackendHostname { get; set; } = string.Empty;
 
     public DateTime ResponseDate { get; set; } = DateTime.UtcNow;
+
+    public ProxyData()
+    {
+        Headers = new WebHeaderCollection();
+        ContentHeaders = new WebHeaderCollection();
+        FullURL = "";
+        BackendHostname = "";
+        ResponseDate = DateTime.UtcNow;
+    }
 }
