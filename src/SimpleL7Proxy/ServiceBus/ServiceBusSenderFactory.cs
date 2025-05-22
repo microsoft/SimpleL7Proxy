@@ -1,22 +1,31 @@
 using Azure.Messaging.ServiceBus;
 using System;
 using System.Collections.Generic;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
+using SimpleL7Proxy.Backend;
 
 namespace SimpleL7Proxy.ServiceBus
 {
     public class ServiceBusSenderFactory
     {
-        private readonly ServiceBusClient _client;
-        private readonly Dictionary<string, ServiceBusSender> _senders;
+        private readonly IOptionsMonitor<BackendOptions> _optionsMonitor;
+
+        private readonly ServiceBusClient _client = null!;
+        private readonly Dictionary<string, ServiceBusSender> _senders =null!;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ServiceBusSenderFactory"/> class.
         /// </summary>
         /// <param name="client">The ServiceBusClient instance provided by DI.</param>
-        public ServiceBusSenderFactory(ServiceBusClient client)
+        public ServiceBusSenderFactory(IOptionsMonitor<BackendOptions> optionsMonitor)
         {
-            _client = client ?? throw new ArgumentNullException(nameof(client));
-            _senders = new Dictionary<string, ServiceBusSender>();
+            _optionsMonitor = optionsMonitor ?? throw new ArgumentNullException(nameof(optionsMonitor));
+            if (optionsMonitor.CurrentValue.AsyncModeEnabled)
+            {
+                _client = new ServiceBusClient(optionsMonitor.CurrentValue.AsyncBlobStorageConnectionString);
+                _senders = new Dictionary<string, ServiceBusSender>();
+            }
         }
 
         /// <summary>
