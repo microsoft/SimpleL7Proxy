@@ -52,8 +52,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     public AsyncWorker? asyncWorker { get; set; } = null;
 
     public string ExpireReason { get; set; } = "";
-
-    public string TTL="";
+    public Dictionary<string, string> EventData = new Dictionary<string, string>();
     public string  SBClientID { get; set; } = "";
     public ServiceBusMessageStatusEnum SBStatus
     {
