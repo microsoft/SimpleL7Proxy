@@ -39,18 +39,16 @@ namespace SimpleL7Proxy.ServiceBus
 
         protected override Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-            stoppingToken.Register(() =>
+            if (_options.AsyncModeEnabled)
             {
-                _logger.LogInformation("ServiceBus Reader service stopping.");
-            });
+                _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                stoppingToken.Register(() =>
+                {
+                    _logger.LogInformation("ServiceBus Reader service stopping.");
+                });
 
-
-            // Initialize Service Bus Sender
-            if (_options.UseServiceBus)
-            {
                 // create a new task that reads the user config every hour
-                return Task.Run(() => EventConsumer(stoppingToken), stoppingToken);
+                return Task.Run(() => EventConsumer(stoppingToken), stoppingToken);                
             }
 
             return Task.CompletedTask;
