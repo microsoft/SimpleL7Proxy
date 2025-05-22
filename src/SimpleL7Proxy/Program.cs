@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging.Console;
 
 using Azure.Messaging.ServiceBus;
@@ -67,6 +68,7 @@ public class Program
         //        var serviceProvider = frameworkHost.Services;
         // Perform static initialization after building the host to ensure correct singleton usage
         var serviceProvider = frameworkHost.Services;
+
         var serviceBusRequestService = serviceProvider.GetRequiredService<IServiceBusRequestService>();
         RequestData.InitializeServiceBusRequestService(serviceBusRequestService);
         AsyncWorker.Initialize(
@@ -116,20 +118,37 @@ public class Program
 
     private static void ConfigureDependencyInjection(IServiceCollection services, ILogger startupLogger)
     {
-        var eventHubConnectionString = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING");
-        var eventHubName = Environment.GetEnvironmentVariable("EVENTHUB_NAME");
+
+
+        // Register TelemetryClient
+        services.AddSingleton<TelemetryClient>();
+        var log_to_file = true;
+
+        if (log_to_file)
+        {
+            var logFileName = Environment.GetEnvironmentVariable("LOGFILE_NAME") ?? "events.log";
+            services.AddProxyEventLogFileClient(logFileName, Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING"));
+
+        }
+        else
+        {
+            var eventHubConnectionString = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING");
+            var eventHubName = Environment.GetEnvironmentVariable("EVENTHUB_NAME");
+            services.AddProxyEventClient(eventHubConnectionString, eventHubName, Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING"));
+        }
+
+        services.AddBackendHostConfiguration(startupLogger);
 
         // MOVE THESE TO THE BACKEND CLASS
         var serviceBusConnectionString = Environment.GetEnvironmentVariable("SERVICEBUS_CONNECTIONSTRING");
         var blobConnectionString = Environment.GetEnvironmentVariable("BLOB_CONNECTIONSTRING") ?? "";
         var blobContainerName = Environment.GetEnvironmentVariable("BLOB_CONTAINERNAME") ?? "";
-        services.AddSingleton(provider => new BlobWriter(blobConnectionString, blobContainerName));
-
-        // Register TelemetryClient
-        services.AddSingleton<TelemetryClient>();
-
-        services.AddProxyEventClient(eventHubConnectionString, eventHubName, Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING"));
-        services.AddBackendHostConfiguration(startupLogger);
+        //services.AddSingleton(provider => new BlobWriter(blobConnectionString, blobContainerName));
+        services.AddSingleton<BlobWriter>(provider =>
+        {
+            var optionsMonitor = provider.GetRequiredService<IOptionsMonitor<BackendOptions>>();
+            return new BlobWriter(blobConnectionString, blobContainerName, optionsMonitor);
+        });
 
         services.AddSingleton<IUserPriorityService, UserPriority>();
         services.AddSingleton<UserProfile>();
@@ -144,10 +163,7 @@ public class Program
         services.AddHostedService<Server>(provider => provider.GetRequiredService<Server>());
 
         // ASYNC RELATED
-        services.AddSingleton(sp => new ServiceBusClient(serviceBusConnectionString));
         services.AddSingleton<ServiceBusSenderFactory>();
-
-        // Register ServiceBusRequestService as singleton and as hosted service using the same instance
         services.AddSingleton<ServiceBusRequestService>();
         services.AddSingleton<IServiceBusRequestService>(sp => sp.GetRequiredService<ServiceBusRequestService>());
         services.AddHostedService(sp => sp.GetRequiredService<ServiceBusRequestService>());
@@ -156,5 +172,6 @@ public class Program
         services.AddTransient(source => new CancellationTokenSource());
         services.AddHostedService<CoordinatedShutdownService>();
         services.AddHostedService<UserProfile>(provider => provider.GetRequiredService<UserProfile>());
+        
     }
 }
