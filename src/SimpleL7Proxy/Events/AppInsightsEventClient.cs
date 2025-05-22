@@ -6,6 +6,11 @@ public class AppInsightsEventClient(TelemetryClient telemetryClient)
   : IEventClient
 {
 
+public Task StartTimer()
+  {
+    // No timer needed for App Insights
+    return Task.CompletedTask;
+  }
   public void StopTimer() { }
   public int Count => 0;
   public void SendData(string? value) => telemetryClient.TrackEvent(value);
