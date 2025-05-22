@@ -3,6 +3,9 @@ using Azure.Storage.Blobs;
 using Azure.Storage.Sas;
 using System.IO;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
+using SimpleL7Proxy.Backend;
 
 namespace SimpleL7Proxy.BlobStorage
 {
@@ -11,17 +14,23 @@ namespace SimpleL7Proxy.BlobStorage
     /// </summary>
     public class BlobWriter
     {
-        private readonly BlobContainerClient _containerClient;
+        private readonly BlobContainerClient _containerClient=null!;
+        private readonly IOptionsMonitor<BackendOptions> _optionsMonitor;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="BlobWriter"/> class.
         /// </summary>
         /// <param name="connectionString">The Azure Storage connection string.</param>
         /// <param name="containerName">The name of the blob container.</param>
-        public BlobWriter(string connectionString, string containerName)
+        public BlobWriter(string connectionString, string containerName, IOptionsMonitor<BackendOptions> optionsMonitor)
         {
-            var blobServiceClient = new BlobServiceClient(connectionString);
-            _containerClient = blobServiceClient.GetBlobContainerClient(containerName);
+            _optionsMonitor = optionsMonitor;
+            
+            if (optionsMonitor.CurrentValue.AsyncModeEnabled)
+            {
+                var blobServiceClient = new BlobServiceClient(connectionString);
+                _containerClient = blobServiceClient.GetBlobContainerClient(containerName);
+            }
         }
 
         /// <summary>
