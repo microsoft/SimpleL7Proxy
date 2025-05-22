@@ -25,6 +25,11 @@ public static class BackendHostConfigurationExtensions
     services.Configure<BackendOptions>(options =>
     {
       options.AcceptableStatusCodes = backendOptions.AcceptableStatusCodes;
+      options.AsyncBlobStorageContainer = backendOptions.AsyncBlobStorageContainer;
+      options.AsyncBlobStorageConnectionString = backendOptions.AsyncBlobStorageConnectionString;
+      options.AsyncModeEnabled = backendOptions.AsyncModeEnabled;
+      options.AsyncTimeout = backendOptions.AsyncTimeout;
+      options.AsyncServiceBusTopic = backendOptions.AsyncServiceBusTopic;
       options.Client = backendOptions.Client;
       options.CircuitBreakerErrorThreshold = backendOptions.CircuitBreakerErrorThreshold;
       options.CircuitBreakerTimeslice = backendOptions.CircuitBreakerTimeslice;
@@ -293,6 +298,11 @@ public static class BackendHostConfigurationExtensions
     var backendOptions = new BackendOptions
     {
       AcceptableStatusCodes = ReadEnvironmentVariableOrDefault("AcceptableStatusCodes", new int[] { 200, 401, 403, 404, 408, 410, 412, 417, 400 }),
+      AsyncBlobStorageContainer = ReadEnvironmentVariableOrDefault("AsyncBlobStorageContainer", "example-container"),
+      AsyncBlobStorageConnectionString = ReadEnvironmentVariableOrDefault("AsyncBlobStorageConnectionString", "example-connection-string"),
+      AsyncModeEnabled = ReadEnvironmentVariableOrDefault("AsyncModeEnabled", false),
+      AsyncServiceBusTopic = ReadEnvironmentVariableOrDefault("AsyncServiceBusTopic", "example-topic"),
+      AsyncTimeout = ReadEnvironmentVariableOrDefault("AsyncTimeout", 30 * 60000),
       Client = _client,
       CircuitBreakerErrorThreshold = ReadEnvironmentVariableOrDefault("CBErrorThreshold", 50),
       CircuitBreakerTimeslice = ReadEnvironmentVariableOrDefault("CBTimeslice", 60),
