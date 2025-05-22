@@ -360,6 +360,8 @@ public class ProxyWorker
                             errorMessage,
                             0,
                             errorMessage.Length).ConfigureAwait(false);
+
+                        _eventClient.SendData(proxyEvent);
                     }
                     catch (Exception writeEx)
                     {
@@ -369,10 +371,7 @@ public class ProxyWorker
                         _eventClient.SendData(proxyEventData);
                     }
                     
-                    proxyEventData["Status"] = ((int)e.StatusCode).ToString();
-                    proxyEventData["Type"] = "S7P-ProxyError";
-                    proxyEventData["Error"] = e.Message;
-                    _eventClient.SendData(proxyEvent);
+
                 }
                 // catch (ProxyErrorException e) {
                 //     // Handle proxy error
@@ -404,7 +403,7 @@ public class ProxyWorker
                     }
                     proxyEventData["Status"] = "408";
                     proxyEventData["Type"] = "S7P-IOException";
-                    proxyEventData["x-Message"] = ioEx.Message;
+                    proxyEventData["Message"] = ioEx.Message;
 
                     _logger.LogError($"An IO exception occurred: {ioEx.Message}");
                     lcontext.Response.StatusCode = 408;
@@ -435,7 +434,7 @@ public class ProxyWorker
 
                     proxyEventData["Status"] = "500";
                     proxyEventData["Type"] = "S7P-Exception";
-                    proxyEventData["x-Message"] = ex.Message;
+                    proxyEventData["Message"] = ex.Message;
 
                     if (ex.Message == "Cannot access a disposed object."
                         || ex.Message.StartsWith("Unable to write data")
