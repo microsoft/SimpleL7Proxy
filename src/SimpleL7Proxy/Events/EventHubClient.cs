@@ -3,10 +3,11 @@ using Azure.Messaging.EventHubs.Producer;
 using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Hosting;
 using System.Threading.Tasks;
 
 namespace SimpleL7Proxy.Events;
-public class EventHubClient : IEventClient
+public class EventHubClient : IEventClient, IHostedService
 {
 
     private readonly EventHubProducerClient? _producerClient;
@@ -52,9 +53,10 @@ public class EventHubClient : IEventClient
 
     public int Count => _logBuffer.Count;
 
-    public Task StartTimer()
+    public Task StartAsync(CancellationToken cancellationToken)
     {
-
+        Console.WriteLine("EventHubClient: StartAsync called");
+        workerCancelToken = cancellationTokenSource.Token;
         if (isRunning && _producerClient is not null && _batchData is not null)
         {
             writerTask = Task.Run(() => EventWriter(workerCancelToken));
@@ -64,19 +66,25 @@ public class EventHubClient : IEventClient
         return Task.CompletedTask;
     }
 
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        StopTimer();
+        return Task.CompletedTask;
+    }
+
     TaskCompletionSource<bool> ShutdownTCS = new();
 
     public void StopTimer()
     {
         isShuttingDown = true;
+        while (isRunning && _logBuffer.Count > 0)
+        {
+            Task.Delay(100).Wait();
+        }
+
         cancellationTokenSource.Cancel();
-
-        Console.WriteLine("EventHubClient: Stopping EventWriter..." + isRunning + "  " + _logBuffer.Count);
-        // wait for the queue to empty
-
-        writerTask?.Wait();
-
         isRunning = false;
+        writerTask?.Wait();
     }
 
     public async Task EventWriter(CancellationToken token)
