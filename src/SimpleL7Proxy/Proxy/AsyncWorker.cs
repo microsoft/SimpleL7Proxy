@@ -51,6 +51,10 @@ namespace SimpleL7Proxy.Proxy
         public AsyncWorker(RequestData data)
         {
             _requestData = data;
+            if ( !data.runAsync)
+            {
+                throw new ArgumentException("AsyncWorker can only be used for async requests.");
+            }
             _cancellationTokenSource = new CancellationTokenSource();
         }
 
