@@ -117,7 +117,7 @@ public class Backends : IBackendService
   public List<BackendHostHealth> GetActiveHosts() => _activeHosts;
   public int ActiveHostCount() => _activeHosts.Count;
 
-  static Dictionary<string, string> logerror = new Dictionary<string, string>() { { "Type", "CircuitBreaker-Error-Event" } };
+  static Dictionary<string, string> logerror = new Dictionary<string, string>() { { "Type", "S7P-CircuitBreaker-Error-Event" } };
   public void TrackStatus(int code, bool wasException)
   {
     if (allowableCodes.Contains(code) && !wasException)
@@ -331,7 +331,7 @@ public class Backends : IBackendService
 
           probeData.EventData["Latency"] = latency.ToString() + " ms";
           probeData.EventData["Code"] = response.StatusCode.ToString();
-          probeData.EventData["Type"] = "Poller";
+          probeData.EventData["Type"] = "S7P-Poller";
           //probeData.EventData["Host"] = host.Host;
           probeData.EventData["ID"] = _options.IDStr;
 
@@ -351,13 +351,13 @@ public class Backends : IBackendService
     {
       _telemetryClient?.TrackException(e);
       _logger.LogError($"Poller: Could not check probe: {e.Message}");
-      probeData.EventData["Type"] = "Uri Format Exception";
+      probeData.EventData["Type"] = "S7P-Uri Format Exception";
       probeData.EventData["Code"] = "-";
     }
     catch (System.Threading.Tasks.TaskCanceledException)
     {
       _logger.LogError($"Poller: Host Timeout: {host.Host}");
-      probeData.EventData["Type"] = "TaskCanceledException";
+      probeData.EventData["Type"] = "S7P-TaskCanceledException";
       probeData.EventData["Code"] = "-";
       probeData.EventData["Timeout"] = client.Timeout.TotalMilliseconds.ToString();
     }
@@ -365,7 +365,7 @@ public class Backends : IBackendService
     {
       _telemetryClient?.TrackException(e);
       _logger.LogError($"Poller: Host {host.Host} is down with exception: {e.Message}");
-      probeData.EventData["Type"] = "HttpRequestException";
+      probeData.EventData["Type"] = "S7P-HttpRequestException";
       probeData.EventData["Code"] = "-";
     }
     catch (OperationCanceledException)
@@ -377,7 +377,7 @@ public class Backends : IBackendService
     catch (System.Net.Sockets.SocketException e)
     {
       _logger.LogError($"Poller: Host {host.Host} is down:  {e.Message}");
-      probeData.EventData["Type"] = "SocketException";
+      probeData.EventData["Type"] = "S7P-SocketException";
       probeData.EventData["Code"] = "-";
     }
     catch (Exception e)
@@ -459,8 +459,7 @@ public class Backends : IBackendService
 
   private void SendEventData(Dictionary<string, string> eventData)//string urlWithPath, HttpStatusCode statusCode, DateTime requestDate, DateTime responseDate)
   {
-    string jsonData = JsonSerializer.Serialize(eventData);
-    _eventClient?.SendData(jsonData);
+    _eventClient?.SendData(eventData);
   }
 
   // Fetches the OAuth2 Token as a seperate task. The token is fetched and updated 100ms before it expires. 
