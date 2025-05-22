@@ -3,6 +3,18 @@
 public class CompositeEventClient(IEnumerable<IEventClient> eventClients)
   : IEventClient
 {
+
+
+  public Task StartTimer()
+  {
+    foreach (var client in eventClients)
+    {
+      Console.WriteLine($"starting timer for {client}");
+      client.StopTimer();
+    }
+
+    return Task.CompletedTask;
+  }
   public void StopTimer()
   {
     foreach (var client in eventClients)
