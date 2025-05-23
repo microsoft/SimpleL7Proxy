@@ -94,7 +94,6 @@ public class Backends : IBackendService
         return _activeHosts.Count;
     }
 
-    static Dictionary<string, string> logerror = new Dictionary<string, string>() { { "Type", "S7P-CircuitBreaker-Error-Event" } };
     public void TrackStatus(int code, bool wasException)
     {
         if (allowableCodes.Contains(code) && !wasException)
@@ -103,6 +102,7 @@ public class Backends : IBackendService
         }
 
         DateTime now = DateTime.UtcNow;
+        ConcurrentDictionary<string, string> logerror = new();
 
         // truncate older entries
         while (hostFailureTimes2.TryPeek(out var t) && (now - t).TotalSeconds >= FailureTimeFrame)
@@ -115,6 +115,7 @@ public class Backends : IBackendService
         logerror["Time"] = now.ToString();
         logerror["WasException"] = wasException.ToString();
         logerror["Count"] = hostFailureTimes2.Count.ToString();
+        logerror["Type"] = "S7P-CircuitBreaker-Error-Event";
 
         SendEventData(logerror);
     }
@@ -267,7 +268,7 @@ public class Backends : IBackendService
 
     private async Task<bool> GetHostStatus(BackendHost host, HttpClient client)
     {
-        Dictionary<string, string> probeData = new Dictionary<string, string>();
+        ConcurrentDictionary<string, string> probeData = new();
         double latency = 0;
         try {
             probeData["ProxyHost"] = _options.HostName;
@@ -425,7 +426,7 @@ public class Backends : IBackendService
         }
     }
 
-    private void SendEventData(Dictionary<string, string> eventData)//string urlWithPath, HttpStatusCode statusCode, DateTime requestDate, DateTime responseDate)
+    private void SendEventData(ConcurrentDictionary<string, string> eventData)//string urlWithPath, HttpStatusCode statusCode, DateTime requestDate, DateTime responseDate)
     {
         _eventHubClient?.SendData(eventData);
     }
@@ -524,30 +525,30 @@ public class Backends : IBackendService
         }
     }
 
-    private void WriteOutput(string data = "", Dictionary<string, string>? eventData = null)
+    private void WriteOutput(string data = "", ConcurrentDictionary<string, string>? eventData = null)
     {
-        // Log the data to the console
-        if (!string.IsNullOrEmpty(data))
+        try
         {
-            Console.WriteLine(data);
+            var ldata = eventData ?? new();
 
-            // if eventData is null, create a new dictionary and add the message to it
-            if (eventData == null)
+            // Log the data to the console
+            if (!string.IsNullOrEmpty(data))
             {
-                eventData = new Dictionary<string, string>();
-                eventData.Add("Message", data);
+                Console.WriteLine(data);
+                ldata["Message"] = data;
             }
-        }
 
-        if (eventData == null)
-            eventData = new Dictionary<string, string>();
+            if (!ldata.TryGetValue("Type", out var typeValue))
+            {
+                ldata["Type"] = "S7P-Backend-Status";
+            }
 
-        if (!eventData.TryGetValue("Type", out var typeValue))
+            _eventHubClient?.SendData(ldata);
+        } catch (Exception ex)
         {
-            eventData["Type"] = "S7P-Backend-Status";
+            // Handle any exceptions that occur during logging
+            Console.WriteLine($"Error writing output: {ex.Message}");
         }
-
-        _eventHubClient?.SendData(eventData);
     }
 
 }
