@@ -32,6 +32,7 @@ public interface IBackendOptions
 {
     int[] AcceptableStatusCodes { get; set; }
     HttpClient? Client { get; set; }
+    string ContainerApp { get; set; }
     int CircuitBreakerErrorThreshold { get; set; }
     int CircuitBreakerTimeslice { get; set; }
     int DefaultPriority { get; set; }
@@ -56,6 +57,7 @@ public interface IBackendOptions
     List<string> PriorityKeys { get; set; }
     List<int> PriorityValues { get; set; }
     Dictionary<int, int> PriorityWorkers { get; set; }
+    string Revision { get; set; }
     List<string> RequiredHeaders { get; set; }
     int SuccessRate { get; set; }
     string SuspendedUserConfigUrl { get; set; }

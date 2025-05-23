@@ -71,6 +71,7 @@ public class Program
                 {
                     options.AcceptableStatusCodes = backendOptions.AcceptableStatusCodes;
                     options.Client = backendOptions.Client;
+                    options.ContainerApp = backendOptions.ContainerApp;
                     options.CircuitBreakerErrorThreshold = backendOptions.CircuitBreakerErrorThreshold;
                     options.CircuitBreakerTimeslice = backendOptions.CircuitBreakerTimeslice;
                     options.DefaultPriority = backendOptions.DefaultPriority;
@@ -94,6 +95,7 @@ public class Program
                     options.Port = backendOptions.Port;
                     options.PollInterval = backendOptions.PollInterval;
                     options.PollTimeout = backendOptions.PollTimeout;
+                    options.Revision = backendOptions.Revision;
                     options.RequiredHeaders = backendOptions.RequiredHeaders;
                     options.SuccessRate = backendOptions.SuccessRate;
                     options.SuspendedUserConfigUrl = backendOptions.SuspendedUserConfigUrl;
@@ -529,6 +531,7 @@ public class Program
         var backendOptions = new BackendOptions
         {
             AcceptableStatusCodes = ReadEnvironmentVariableOrDefault("AcceptableStatusCodes", new int[] { 200, 401, 403, 404, 408, 410, 412, 417, 400 }),
+            ContainerApp = ReadEnvironmentVariableOrDefault("CONTAINER_APP_NAME", "ContainerAppName"),
             Client = _client,
             CircuitBreakerErrorThreshold = ReadEnvironmentVariableOrDefault("CBErrorThreshold", 50),
             CircuitBreakerTimeslice = ReadEnvironmentVariableOrDefault("CBTimeslice", 60),
@@ -553,6 +556,7 @@ public class Program
             PriorityKeyHeader = ReadEnvironmentVariableOrDefault("PriorityKeyHeader", "S7PPriorityKey"),
             PriorityKeys = ToListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
             PriorityValues = ToListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
+            Revision = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REVISION", "revisionID"),
             RequiredHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("RequiredHeaders", "")),
             SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
             SuspendedUserConfigUrl = ReadEnvironmentVariableOrDefault("SuspendedUserConfigUrl", "file:config.json"),

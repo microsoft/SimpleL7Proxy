@@ -133,6 +133,8 @@ public class Server : IServer
                     ed = rd.EventData;
                     ed["Date"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
                     ed["S7P-Host-ID"] = _options.IDStr;
+                    ed["Revision"] = _options.Revision;
+                    ed["ContainerApp"] = _options.ContainerApp;
                     // readiness probes:
                     // if it's a probe, then bypass all the below checks and enqueue the request 
                     if (Constants.probes.Contains(rd.Path))
