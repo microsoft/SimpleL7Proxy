@@ -183,7 +183,6 @@ public class ProxyWorker
 
                     //  Do THE WORK:  FIND A BACKEND AND SEND THE REQUEST
                     ProxyData pr = null!;
-                    incomingRequest.Attempts++;
                     try
                     {
                         pr = await ReadProxyAsync(incomingRequest).ConfigureAwait(false);
@@ -619,6 +618,9 @@ public class ProxyWorker
                                                 HttpStatusCode.PreconditionFailed,
                                                 errorMessage);
                 }
+
+                // track the number of attempts
+                request.Attempts++;
 
                 var minDate = DateTime.Compare(request.ExpiresAt, DateTime.UtcNow.AddMilliseconds(request.defaultTimeout)) < 0
                     ? request.ExpiresAt
