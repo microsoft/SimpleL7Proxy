@@ -183,6 +183,7 @@ public class ProxyWorker
 
                     //  Do THE WORK:  FIND A BACKEND AND SEND THE REQUEST
                     ProxyData pr = null!;
+
                     try
                     {
                         pr = await ReadProxyAsync(incomingRequest).ConfigureAwait(false);
@@ -261,6 +262,10 @@ public class ProxyWorker
                     if (_eventHubClient != null)
                     {
                         //SendEventData(pr.FullURL, pr.StatusCode, incomingRequest.Timestamp, pr.ResponseDate);
+                        if (incomingRequest.incompleteRequests != null)
+                        {
+                            AddIncompleteRequestsToEventData(incomingRequest.incompleteRequests, eventData);
+                        }
                         SendEventData(eventData);
                     }
 
@@ -435,6 +440,18 @@ public class ProxyWorker
         Console.WriteLine($"Worker {IDstr} stopped.");
     }
 
+    private void AddIncompleteRequestsToEventData(List<Dictionary<string, string>> incompleteRequests, ConcurrentDictionary<string, string> eventData)
+    {
+        int i = 0;
+        foreach (var summary in incompleteRequests)
+        {
+            i++;
+            foreach (var key in summary.Keys)
+            {
+                eventData[$"attempt-{i}-{key}"] = summary[key];
+            }
+        }
+    }
 
     // Returns probe responses
     //
@@ -572,7 +589,7 @@ public class ProxyWorker
         }
     }
 
-    public async Task<ProxyData> ReadProxyAsync(RequestData request) //DateTime requestDate, string method, string path, WebHeaderCollection headers, Stream body)//HttpListenerResponse downStreamResponse)
+    public async Task<ProxyData> ReadProxyAsync(RequestData request)
     {
         if (request == null) throw new ArgumentNullException(nameof(request), "Request cannot be null.");
         if (request.Body == null) throw new ArgumentNullException(nameof(request.Body), "Request body cannot be null.");
@@ -581,10 +598,10 @@ public class ProxyWorker
 
         // Use the current active hosts
         var activeHosts = _backends.GetActiveHosts();
+        List<Dictionary<string, string>> incompleteRequests = request.incompleteRequests;
 
         request.Debug = _debug || (request.Headers["S7PDEBUG"] != null && string.Equals(request.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase));
         HttpStatusCode lastStatusCode = HttpStatusCode.ServiceUnavailable;
-        List<Dictionary<string, string>> incompleteRequests = new();
         ConcurrentDictionary<string, string> requestSummary = request.EventData;
 
         // Read the body stream once and reuse it
@@ -746,7 +763,9 @@ public class ProxyWorker
                         try
                         {
                             await GetProxyResponseAsync(proxyResponse, request, pr).ConfigureAwait(false);
-                        } finally {
+                        }
+                        finally
+                        {
                             Interlocked.Decrement(ref states[4]);
                             requestSummary["S7P-BackendHost"] = pr.BackendHostname;
                             requestSummary["S7P-Request-Queue-Duration"] = request.Headers["x-Request-Queue-Duration"] ?? "N/A";
@@ -799,7 +818,7 @@ public class ProxyWorker
                 requestAttempt["Backend-Host"] = host.host;
                 requestAttempt["Backend-Latency"] = (DateTime.UtcNow - ProxyStartDate).TotalMilliseconds + "ms";
                 requestAttempt["Message"] = "Will retry if no other hosts are available";
-                requestAttempt["Error"] = "Requeue request: Retry-After = " + e.RetryAfter; 
+                requestAttempt["Error"] = "Requeue request: Retry-After = " + e.RetryAfter;
                 incompleteRequests.Add(requestAttempt);
 
                 // Try all the hosts before sleeping
@@ -1065,15 +1084,7 @@ public class ProxyWorker
 
         if (incompleteRequests != null)
         {
-            int i = 0;
-            foreach (var summary in incompleteRequests)
-            {
-                i++;
-                foreach (var key in summary.Keys)
-                {
-                    data[$"attempt-{i}-{key}"] = summary[key];
-                }
-            }
+            AddIncompleteRequestsToEventData(incompleteRequests, data);
         }
 
         // if (_telemetryClient != null)

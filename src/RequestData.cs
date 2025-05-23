@@ -33,6 +33,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     public int defaultTimeout { get; set; } = 0;
     public string ExpireReason { get; set; } = "";
     public ConcurrentDictionary<string, string> EventData = new ();
+    public List<Dictionary<string, string>> incompleteRequests = new();
 
     public string TTL = "";
 
