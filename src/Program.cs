@@ -130,7 +130,7 @@ public class Program
                         Console.WriteLine("AppInsights initialized");
                 }
 
-                var log_to_file = false;
+                var log_to_file = false;  // DON'T EVER DO A CHECKIN WITH THIS SET TO TRUE
                 if (log_to_file)
                 {
                     string logFileName = OS.Environment.GetEnvironmentVariable("LOGFILE") ?? "events.log";
