@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 public interface IBackendService
 {
     public Task Start();
@@ -21,7 +23,7 @@ public interface IEventHubClient
     Task StartTimer();
     Task StopTimer();
     void SendData(string? value);
-    void SendData(Dictionary<string, string> eventData);
+    void SendData(ConcurrentDictionary<string, string> eventData);
     int GetEntryCount();
     bool IsRunning { get; set; }
 }

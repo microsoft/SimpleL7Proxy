@@ -153,7 +153,7 @@ public class EventHubClient : IEventHubClient
         cancellationTokenSource.Cancel();
         isRunning = false;
 
-        return writerTask;
+        return writerTask!;
     }
 
     public void SendData(string? value)
@@ -170,7 +170,7 @@ public class EventHubClient : IEventHubClient
         _logBuffer.Enqueue(value);
     }
 
-    public void SendData(Dictionary<string, string> eventData)
+    public void SendData(ConcurrentDictionary<string, string> eventData)
     {
         if (!isRunning || isShuttingDown) return;
 

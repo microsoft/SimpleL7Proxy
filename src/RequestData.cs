@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Net;
 using System.Threading.Tasks;
@@ -31,7 +32,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     public int Timeout {get; set;}
     public int defaultTimeout { get; set; } = 0;
     public string ExpireReason { get; set; } = "";
-    public Dictionary<string, string> EventData = new Dictionary<string, string>();
+    public ConcurrentDictionary<string, string> EventData = new ();
 
     public string TTL = "";
 

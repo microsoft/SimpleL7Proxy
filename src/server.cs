@@ -99,7 +99,7 @@ public class Server : IServer
 
         while (!_cancellationToken.IsCancellationRequested)
         {
-            Dictionary<string, string> ed = null!;
+            ConcurrentDictionary<string, string> ed = null!;
             
             try
             {
@@ -435,12 +435,12 @@ public class Server : IServer
         WriteOutput("Listener task stopped.");
     }
 
-    private void WriteOutput(string data = "", Dictionary<string, string>? eventData = null)
+    private void WriteOutput(string data = "", ConcurrentDictionary<string, string>? eventData = null)
     {
 
         try
         {
-            var ldata = eventData ?? new Dictionary<string, string>();
+            var ldata = eventData ?? new();
 
             // Log the data to the console
             if (!string.IsNullOrEmpty(data))

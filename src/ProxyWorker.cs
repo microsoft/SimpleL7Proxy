@@ -586,7 +586,7 @@ public class ProxyWorker
         request.Debug = _debug || (request.Headers["S7PDEBUG"] != null && string.Equals(request.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase));
         HttpStatusCode lastStatusCode = HttpStatusCode.ServiceUnavailable;
         List<Dictionary<string, string>> incompleteRequests = new();
-        Dictionary<string, string> requestSummary = request.EventData;
+        ConcurrentDictionary<string, string> requestSummary = request.EventData;
 
         // Read the body stream once and reuse it
         //byte[] bodyBytes = await request.CachBodyAsync().ConfigureAwait(false);
@@ -1041,7 +1041,7 @@ public class ProxyWorker
         }
     }
 
-    private void SendEventData(Dictionary<string, string> eventData)//string urlWithPath, HttpStatusCode statusCode, DateTime requestDate, DateTime responseDate)
+    private void SendEventData(ConcurrentDictionary<string, string> eventData)//string urlWithPath, HttpStatusCode statusCode, DateTime requestDate, DateTime responseDate)
     {
         _eventHubClient?.SendData(eventData);
     }
@@ -1054,7 +1054,7 @@ public class ProxyWorker
         }
     }
 
-    private HttpStatusCode HandleProxyRequestError(BackendHost? host, Dictionary<string, string> data, HttpStatusCode statusCode, string message,
+    private HttpStatusCode HandleProxyRequestError(BackendHost? host, ConcurrentDictionary<string, string> data, HttpStatusCode statusCode, string message,
                                                    List<Dictionary<string, string>>? incompleteRequests = null, Exception? e = null)
     {
 
