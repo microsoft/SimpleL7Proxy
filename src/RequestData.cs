@@ -8,6 +8,7 @@ using Microsoft.Azure.Amqp;
 
 public class RequestData : IDisposable, IAsyncDisposable
 {
+    public int Attempts { get; set; } = 0;
     public HttpListenerContext? Context { get; private set; }
     public Stream? Body { get; private set; }
     public DateTime Timestamp { get; private set; }
