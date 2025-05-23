@@ -438,27 +438,27 @@ public class Server : IServer
     private void WriteOutput(string data = "", Dictionary<string, string>? eventData = null)
     {
 
-        // Log the data to the console
-        if (!string.IsNullOrEmpty(data))
+        try
         {
-            Console.WriteLine(data);
+            var ldata = eventData ?? new Dictionary<string, string>();
 
-            // if eventData is null, create a new dictionary and add the message to it
-            if (eventData == null)
+            // Log the data to the console
+            if (!string.IsNullOrEmpty(data))
             {
-                eventData = new Dictionary<string, string>();
-                eventData.Add("Message", data);
+                Console.WriteLine(data);
+                ldata["Message"] = data;
             }
-        }
 
-        if (eventData == null)
-            eventData = new Dictionary<string, string>();
+            if (!ldata.TryGetValue("Type", out var typeValue))
+            {
+                ldata["Type"] = "S7P-Console";
+            }
 
-        if (!eventData.TryGetValue("Type", out var typeValue))
+            _eventHubClient?.SendData(ldata);
+        } catch (Exception ex)
         {
-            eventData["Type"] = "S7P-Console";
+            // Handle any exceptions that occur during logging
+            Console.WriteLine($"Error writing output: {ex.Message}");
         }
-
-        _eventHubClient?.SendData(eventData);
     }
 }
