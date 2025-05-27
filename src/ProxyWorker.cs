@@ -816,7 +816,7 @@ public class ProxyWorker
                 Dictionary<string, string> requestAttempt = new();
                 requestAttempt["Status"] = "429";
                 requestAttempt["Backend-Host"] = host.host;
-                requestAttempt["Backend-Latency"] = (DateTime.UtcNow - ProxyStartDate).TotalMilliseconds + "ms";
+                requestAttempt["Request-Duration"] = (DateTime.UtcNow - ProxyStartDate).TotalMilliseconds.ToString("F1") + "ms";
                 requestAttempt["Message"] = "Will retry if no other hosts are available";
                 requestAttempt["Error"] = "Requeue request: Retry-After = " + e.RetryAfter;
                 incompleteRequests.Add(requestAttempt);
@@ -830,7 +830,7 @@ public class ProxyWorker
                 Dictionary<string, string> requestAttempt = new();
                 requestAttempt["Status"] = ((int)e.StatusCode).ToString();
                 requestAttempt["Backend-Host"] = host.host;
-                requestAttempt["Backend-Latency"] = (DateTime.UtcNow - ProxyStartDate).TotalMilliseconds + "ms";
+                requestAttempt["Request-Duration"] = (DateTime.UtcNow - ProxyStartDate).TotalMilliseconds.ToString("F1") + "ms";
                 requestAttempt["Error"] = e.Message;
                 incompleteRequests.Add(requestAttempt);
 
@@ -843,8 +843,12 @@ public class ProxyWorker
                 Dictionary<string, string> requestAttempt = new();
                 requestAttempt["Status"] = ((int)HttpStatusCode.RequestTimeout).ToString();
                 requestAttempt["Backend-Host"] = host.host;
-                requestAttempt["Backend-Latency"] = (DateTime.UtcNow - ProxyStartDate).TotalMilliseconds + "ms";
-                requestAttempt["Error"] = "Request Timeout after " + request.Timeout + " ms";
+                requestAttempt["Expires-At"] = request.ExpiresAt.ToString("o");
+                requestAttempt["MaxTimeout"] = _options.Timeout.ToString();
+                requestAttempt["Request-Date"] = ProxyStartDate.ToString("o");
+                requestAttempt["Request-Duration"] = (DateTime.UtcNow - ProxyStartDate).TotalMilliseconds.ToString("F1") + "ms";
+                requestAttempt["Request-Timeout"] = request.Timeout.ToString() + " ms";
+                requestAttempt["Error"] = "Request Timed out";
                 incompleteRequests.Add(requestAttempt);
 
                 continue;
@@ -856,7 +860,7 @@ public class ProxyWorker
                 Dictionary<string, string> requestAttempt = new();
                 requestAttempt["Status"] = ((int)HttpStatusCode.RequestTimeout).ToString();
                 requestAttempt["Backend-Host"] = host.host;
-                requestAttempt["Backend-Latency"] = (DateTime.UtcNow - ProxyStartDate).TotalMilliseconds + "ms";
+                requestAttempt["Request-Duration"] = (DateTime.UtcNow - ProxyStartDate).TotalMilliseconds.ToString("F1") + "ms";
                 requestAttempt["Error"] = "Request Cancelled";
                 incompleteRequests.Add(requestAttempt);
 
@@ -869,7 +873,7 @@ public class ProxyWorker
                 Dictionary<string, string> requestAttempt = new();
                 requestAttempt["Status"] = ((int)HttpStatusCode.BadRequest).ToString();
                 requestAttempt["Backend-Host"] = host.host;
-                requestAttempt["Backend-Latency"] = (DateTime.UtcNow - ProxyStartDate).TotalMilliseconds + "ms";
+                requestAttempt["Request-Duration"] = (DateTime.UtcNow - ProxyStartDate).TotalMilliseconds.ToString("F1") + "ms";
                 requestAttempt["Error"] = "Bad Request: " + e.Message;
                 incompleteRequests.Add(requestAttempt);
                 continue;
@@ -888,7 +892,7 @@ public class ProxyWorker
                 Dictionary<string, string> requestAttempt = new();
                 requestAttempt["Status"] = ((int)HttpStatusCode.InternalServerError).ToString();
                 requestAttempt["Backend-Host"] = host.host;
-                requestAttempt["Backend-Latency"] = (DateTime.UtcNow - ProxyStartDate).TotalMilliseconds + "ms";
+                requestAttempt["Request-Duration"] = (DateTime.UtcNow - ProxyStartDate).TotalMilliseconds.ToString("F1") + "ms";
                 requestAttempt["Error"] = "Internal Error: " + e.Message;
                 incompleteRequests.Add(requestAttempt);
             }
