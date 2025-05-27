@@ -560,7 +560,7 @@ public class Program
             RequiredHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("RequiredHeaders", "")),
             SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
             SuspendedUserConfigUrl = ReadEnvironmentVariableOrDefault("SuspendedUserConfigUrl", "file:config.json"),
-            Timeout = ReadEnvironmentVariableOrDefault("Timeout", 3000),
+            Timeout = ReadEnvironmentVariableOrDefault("Timeout", 1200000), // 20 minutes
             TimeoutHeader = ReadEnvironmentVariableOrDefault("TimeoutHeader", "S7PTimeout"),
             TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
             TTLHeader = ReadEnvironmentVariableOrDefault("TTLHeader", "S7PTTL"),
@@ -580,7 +580,8 @@ public class Program
             Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
         };
 
-        //backendOptions.Client.Timeout = TimeSpan.FromMilliseconds(backendOptions.Timeout);
+        // This is the MAX TIMEOUT for the HttpClient, not the individual requests.
+        backendOptions.Client.Timeout = TimeSpan.FromSeconds(backendOptions.Timeout);
 
         int i = 1;
         StringBuilder sb = new StringBuilder();
