@@ -122,7 +122,13 @@
             }
 
             backendLog += " REQUEST PRIORITY: " + requestPriority +
-                "  REQUEST-HEADERS: " + string.Join(", ", context.Request.Headers.Select(h => $"{h.Key}: {string.Join(", ", h.Value)}"));
+                "  REQUEST-HEADERS: " +
+                string.Join(", ",
+                    context.Request.Headers
+                        .Where(h => !string.Equals(h.Key, "api-key", StringComparison.OrdinalIgnoreCase) &&
+                                    !string.Equals(h.Key, "Authorization", StringComparison.OrdinalIgnoreCase))
+                        .Select(h => $"{h.Key}: {string.Join(", ", h.Value)}")
+                );
             return backendLog;
 
         }" />
