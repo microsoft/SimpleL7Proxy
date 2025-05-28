@@ -923,6 +923,7 @@ public class ProxyWorker
 
         return new ProxyData
         {
+            ResponseDate = DateTime.UtcNow,
             StatusCode = HandleProxyRequestError(null, requestSummary, lastStatusCode, "No active hosts were able to handle the request", incompleteRequests),
             Body = Encoding.UTF8.GetBytes(sb.ToString())
         };
