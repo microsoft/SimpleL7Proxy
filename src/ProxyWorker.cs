@@ -192,11 +192,18 @@ public class ProxyWorker
                     {
                         eventData["Url"] = incomingRequest.FullURL;
                         var timeTaken = (DateTime.UtcNow - incomingRequest.EnqueueTime).TotalMilliseconds.ToString("F3");
-                        eventData["x-Response-Latency"] = (pr.ResponseDate - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
                         eventData["x-Total-Latency"] = timeTaken;
-                        eventData["x-Backend-Host"] = pr.BackendHostname;
-                        eventData["x-Average-Backend-Probe-Latency"] = pr.CalculatedHostLatency.ToString("F3") + " ms";
-                        eventData["x-Attempts"] = pr.Headers["x-Attempts"] = incomingRequest.Attempts.ToString();
+                        eventData["x-Attempts"] = incomingRequest.Attempts.ToString();
+                        if (pr != null) {
+                            eventData["x-Backend-Host"] = !string.IsNullOrEmpty(pr.BackendHostname) ? pr.BackendHostname : "N/A";
+                            eventData["x-Response-Latency"] =
+                                pr.ResponseDate != default && incomingRequest.DequeueTime != default
+                                    ? (pr.ResponseDate - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3") : "N/A";
+                            eventData["x-Average-Backend-Probe-Latency"] =
+                                pr.CalculatedHostLatency != 0 ? pr.CalculatedHostLatency.ToString("F3") + " ms" : "N/A";
+                            if (pr.Headers != null)
+                                pr.Headers["x-Attempts"] = incomingRequest.Attempts.ToString();
+                        }
                     }
 
                     Interlocked.Decrement(ref states[2]);
