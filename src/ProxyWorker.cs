@@ -858,6 +858,11 @@ public class ProxyWorker
                 requestAttempt["Error"] = "Request Timed out";
                 incompleteRequests.Add(requestAttempt);
 
+                var str = JsonSerializer.Serialize(requestAttempt);
+
+                Console.WriteLine($"Operation TIMEOUT for host: {host.host} - Request: { str }");
+
+
                 continue;
             }
             catch (OperationCanceledException)
@@ -870,6 +875,10 @@ public class ProxyWorker
                 requestAttempt["Request-Duration"] = (DateTime.UtcNow - ProxyStartDate).TotalMilliseconds.ToString("F1") + "ms";
                 requestAttempt["Error"] = "Request Cancelled";
                 incompleteRequests.Add(requestAttempt);
+
+                var str = JsonSerializer.Serialize(requestAttempt);
+
+                Console.WriteLine($"Operation CANCELLED for host: {host.host} - Request : {str}");
 
                 continue;
             }
