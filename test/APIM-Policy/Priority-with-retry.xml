@@ -284,7 +284,7 @@
 			</choose>
 			<!-- Errors we care about:  408, 429 and 50xx  -->
 			<set-variable name="hasFailed" value="@(context.Response != null && 
-                (context.Response.StatusCode == 429 || context.Response.StatusCode == 408 || context.Response.StatusCode == 500))" />
+                (context.Response.StatusCode == 429 || context.Response.StatusCode == 408 || context.Response.StatusCode >= 500))" />
 			<choose>
 				<when condition="@(context.Variables.GetValueOrDefault<bool>("hasFailed", true) )">
 					<cache-lookup-value key="@("listBackends-" + context.Api.Id)" variable-name="listBackends" />
