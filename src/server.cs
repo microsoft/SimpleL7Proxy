@@ -404,10 +404,11 @@ public class Server : IServer
                     }
                     else
                     {
-                        ed["Type"] = "S7P-Enqueue";
-                        ed["Message"] = "Enqueued request";
+                        ConcurrentDictionary<string, string> temp_ed = new(ed);
+                        temp_ed["Type"] = "S7P-Enqueue";
+                        temp_ed["Message"] = "Enqueued request";
 
-                        WriteOutput("", ed);
+                        WriteOutput("", temp_ed);
                         WriteOutput($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
                     }
                 }
