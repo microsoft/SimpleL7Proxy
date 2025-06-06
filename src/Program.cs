@@ -513,17 +513,29 @@ public class Program
     private static BackendOptions LoadBackendOptions()
     {
         // Read and set the DNS refresh timeout from environment variables or use the default value
-        var DNSTimeout = ReadEnvironmentVariableOrDefault("DnsRefreshTimeout", 120000);
-        ServicePointManager.DnsRefreshTimeout = DNSTimeout;
+        var DNSTimeout = ReadEnvironmentVariableOrDefault("DnsRefreshTimeout", 240000);
+        var KeepAliveIdleTimeoutSecs = ReadEnvironmentVariableOrDefault("KeepAliveIdleTimeoutSecs", 1200); // 20 minutes
+        var KeepAlivePingDelaySecs = ReadEnvironmentVariableOrDefault("KeepAlivePingDelaySecs", 30); // 30 seconds
+        var KeepAlivePingTimeoutSecs = ReadEnvironmentVariableOrDefault("KeepAlivePingTimeoutSecs", 30); // 10 seconds
+        //ServicePointManager.DnsRefreshTimeout = DNSTimeout;
 
+        var handler = new SocketsHttpHandler
+        {
+            PooledConnectionIdleTimeout = TimeSpan.FromSeconds(KeepAliveIdleTimeoutSecs),
+            KeepAlivePingPolicy = HttpKeepAlivePingPolicy.Always,
+            KeepAlivePingDelay = TimeSpan.FromSeconds(KeepAlivePingDelaySecs),
+            KeepAlivePingTimeout = TimeSpan.FromSeconds(KeepAlivePingTimeoutSecs)
+        };
+        
         // Initialize HttpClient and configure it to ignore SSL certificate errors if specified in environment variables.
-        HttpClient _client = new HttpClient();
         if (ReadEnvironmentVariableOrDefault("IgnoreSSLCert", false))
         {
-            var handler = new HttpClientHandler();
-            handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
-            _client = new HttpClient(handler);
+            handler.PooledConnectionLifetime = TimeSpan.FromMilliseconds(DNSTimeout); // or your preferred value
+            // var handler = new HttpClientHandler();
+            // handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
+            // _client = new HttpClient(handler);
         }
+        HttpClient _client = new HttpClient(handler);
 
         string replicaID = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REPLICA_NAME", "01");
 
