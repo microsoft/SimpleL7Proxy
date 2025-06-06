@@ -325,10 +325,12 @@ public class ProxyWorker
                         Console.WriteLine($"Failed to write error message: {writeEx.Message}");
                         eventData["Status"] = "Network Error";
                         eventData["Type"] = "S7P-IOException";
-                        SendEventData(eventData);
+                    }
+                    finally
+                    {
+                        SendEventData(eventData);                    
                     }
 
-                    SendEventData(eventData);
                 }
                 catch (IOException ioEx)
                 {
@@ -340,6 +342,7 @@ public class ProxyWorker
                     eventData["Status"] = "408";
                     eventData["Type"] = "S7P-IOException";
                     eventData["Message"] = ioEx.Message;
+
 
                     Console.WriteLine($"An IO exception occurred: {ioEx.Message}");
                     lcontext.Response.StatusCode = 408;
@@ -353,11 +356,11 @@ public class ProxyWorker
                         Console.WriteLine($"Failed to write error message: {writeEx.Message}");
                         eventData["Status"] = "Network Error";
                         eventData["Type"] = "S7P-IOException";
+                    }
+                    finally 
+                    {
                         SendEventData(eventData);
                     }
-
-
-                    SendEventData(eventData);
 
                 }
                 catch (Exception ex)
@@ -858,10 +861,12 @@ public class ProxyWorker
                 requestAttempt["Error"] = "Request Timed out";
                 incompleteRequests.Add(requestAttempt);
 
+                requestAttempt["MID"] = request.MID ?? "N/A";
+                requestAttempt["Message"] = "Operation TIMEOUT";
+                
                 var str = JsonSerializer.Serialize(requestAttempt);
 
-                Console.WriteLine($"Operation TIMEOUT for host: {host.host} - Request: { str }");
-
+                Console.WriteLine(str);
 
                 continue;
             }
@@ -876,9 +881,11 @@ public class ProxyWorker
                 requestAttempt["Error"] = "Request Cancelled";
                 incompleteRequests.Add(requestAttempt);
 
+                requestAttempt["MID"] = request.MID ?? "N/A";
+                requestAttempt["Message"] = "Operation CANCELLED";
                 var str = JsonSerializer.Serialize(requestAttempt);
 
-                Console.WriteLine($"Operation CANCELLED for host: {host.host} - Request : {str}");
+                Console.WriteLine(str);
 
                 continue;
             }
@@ -892,6 +899,13 @@ public class ProxyWorker
                 requestAttempt["Request-Duration"] = (DateTime.UtcNow - ProxyStartDate).TotalMilliseconds.ToString("F1") + "ms";
                 requestAttempt["Error"] = "Bad Request: " + e.Message;
                 incompleteRequests.Add(requestAttempt);
+
+                requestAttempt["MID"] = request.MID ?? "N/A";
+                requestAttempt["Message"] = "Operation Exception: HttpRequest";
+                var str = JsonSerializer.Serialize(requestAttempt);
+
+                Console.WriteLine(str);
+
                 continue;
             }
             catch (Exception e)
