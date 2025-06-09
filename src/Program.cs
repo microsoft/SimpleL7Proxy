@@ -530,7 +530,7 @@ public class Program
                         BitConverter.GetBytes((uint)30000).CopyTo(keepAliveValues, IntervalSecs);       // 30 second interval
 
                         s.IOControl(IOControlCode.KeepAliveValues, keepAliveValues, null);
-                        Console.WriteLine("TCP keep-alive settings applied using Windows-specific method");
+                        //Console.WriteLine("TCP keep-alive settings applied using Windows-specific method");
                     }
                     else if (OperatingSystem.IsLinux())
                     {
@@ -545,9 +545,9 @@ public class Program
                         s.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount, linuxRetryCount);
                         linuxKeepAliveConfigured = true;
 
-                        Console.WriteLine($"TCPKEEPALIVETIME set to {initialDelaySecs} seconds (connection idle time before sending probes)");
-                        Console.WriteLine($"TCPKEEPALIVEINTERVAL set to {IntervalSecs} seconds (interval between probes)");
-                        Console.WriteLine($"TCPKEEPALIVERETRYCOUNT set to {linuxRetryCount} probes (max failures before disconnect)");
+                        //Console.WriteLine($"TCPKEEPALIVETIME set to {initialDelaySecs} seconds (connection idle time before sending probes)");
+                        //Console.WriteLine($"TCPKEEPALIVEINTERVAL set to {IntervalSecs} seconds (interval between probes)");
+                       // Console.WriteLine($"TCPKEEPALIVERETRYCOUNT set to {linuxRetryCount} probes (max failures before disconnect)");
 
                     }
                 }
