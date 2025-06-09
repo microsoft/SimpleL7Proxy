@@ -1,4 +1,3 @@
-
 using System.Collections.Concurrent;
 using System.Collections.Specialized;
 using System.Diagnostics.Tracing;
@@ -30,7 +29,6 @@ public class ProxyWorker
     private IUserPriority _userPriority;
     private IUserProfile _profiles;
     private readonly string _TimeoutHeaderName;
-    private readonly string _TTLHeaderName;
     private string IDstr = "";
     public static int activeWorkers = 0;
     private static bool readyToWork = false;
@@ -52,7 +50,6 @@ public class ProxyWorker
         _options = backendOptions ?? throw new ArgumentNullException(nameof(backendOptions));
         _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
         _TimeoutHeaderName = _options.TimeoutHeader;
-        _TTLHeaderName = _options.TTLHeader;
         if (_options.Client == null) throw new ArgumentNullException(nameof(_options.Client));
         IDstr = ID.ToString();
         PreferredPriority = priority;
@@ -328,7 +325,7 @@ public class ProxyWorker
                     }
                     finally
                     {
-                        SendEventData(eventData);                    
+                        SendEventData(eventData);
                     }
 
                 }
@@ -357,7 +354,7 @@ public class ProxyWorker
                         eventData["Status"] = "Network Error";
                         eventData["Type"] = "S7P-IOException";
                     }
-                    finally 
+                    finally
                     {
                         SendEventData(eventData);
                     }
