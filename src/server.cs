@@ -390,13 +390,19 @@ public class Server : IServer
                             ed["Type"] = "S7P-EnqueueFailed";
                             WriteOutput($"{logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}", ed);
 
-                            rd.Context.Response.StatusCode = notEnquedCode;
-                            rd.Context.Response.Headers["Retry-After"] = (_backends.ActiveHostCount() == 0) ? _options.PollInterval.ToString() : "500";
-                            using (var writer = new System.IO.StreamWriter(rd.Context.Response.OutputStream))
+                            try
                             {
-                                await writer.WriteAsync(retrymsg).ConfigureAwait(false);
+                                rd.Context.Response.StatusCode = notEnquedCode;
+                                rd.Context.Response.Headers["Retry-After"] = (_backends.ActiveHostCount() == 0) ? _options.PollInterval.ToString() : "500";
+                                using (var writer = new System.IO.StreamWriter(rd.Context.Response.OutputStream))
+                                {
+                                    await writer.WriteAsync(retrymsg).ConfigureAwait(false);
+                                }
+                                rd.Context.Response.Close();
+                            } catch (Exception ex)
+                            {
+                                WriteOutput($"Request was not enqueue'd and got an error writing on network: {ex.Message}", ed);
                             }
-                            rd.Context.Response.Close();
                             WriteOutput($"Pri: {priority} Stat: 429 Path: {rd.Path}");
                         }
 
