@@ -83,27 +83,26 @@ public class RequestData : IDisposable, IAsyncDisposable
         return BodyBytes;
     }
 
-    public void CalculateExpiration(int defaultTTLSecs)
+    public void CalculateExpiration(int defaultTTLSecs, string TtlHeaderName )
     {
         //Console.WriteLine($"Calculating TTL for {request.Headers["S7PTTL"]} {request.TTLSeconds}");
 
-        const string TtlHeaderName = "S7PTTL";
         string ttlString = Headers.Get(TtlHeaderName)!;
 
         if (!string.IsNullOrWhiteSpace(ttlString))
         {
             ExpireReason = "TTL Header: " + ttlString;
 
-            // TTL can be specified as +300 ( 300 seconds from now ) or as an absolute number of seconds
-            if (ttlString.StartsWith('+') && long.TryParse(ttlString.Substring(1), out long relativeSeconds))
-            {
-                ExpiresAt = EnqueueTime.AddSeconds(relativeSeconds);
-            }
-            else if (long.TryParse(ttlString, out long absoluteSeconds))
+            // TTL can be specified as 300 ( 300 seconds from now ) or +nnnn as an absolute number of seconds
+            if (ttlString.StartsWith('+') && long.TryParse(ttlString.Substring(1), out long absoluteSeconds))
             {
                 // Absolute TTL in seconds
                 ExpiresAt = DateTimeOffset.FromUnixTimeSeconds(absoluteSeconds).UtcDateTime;
-
+            }
+            else if (float.TryParse(ttlString, out float relativeSeconds ))
+            {
+                // Relative TTL in seconds ( e.g.  2.5s => 2500 ms)
+                ExpiresAt = EnqueueTime.AddMilliseconds(relativeSeconds * 1000 );
             }
             else if (DateTimeOffset.TryParse(ttlString, out var ttlOffset))
             {
