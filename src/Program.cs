@@ -2,6 +2,7 @@
 using System.Net;
 using System.Text;
 using OS = System;
+using System.Net.Sockets;
 using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.Extensibility;
 using Microsoft.Extensions.DependencyInjection;
@@ -506,6 +507,71 @@ public class Program
         return s.Split(',').Select(p => int.Parse(p.Trim())).ToList();
     }
 
+    private static SocketsHttpHandler getHandler(int initialDelaySecs, int IntervalSecs, int linuxRetryCount)
+    {
+        SocketsHttpHandler handler = new SocketsHttpHandler();
+        handler.ConnectCallback = async (ctx, ct) =>
+        {
+            DnsEndPoint dnsEndPoint = ctx.DnsEndPoint;
+            IPAddress[] addresses = await Dns.GetHostAddressesAsync(dnsEndPoint.Host, dnsEndPoint.AddressFamily, ct).ConfigureAwait(false);
+            var s = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+            try
+            {
+                // Basic keep-alive setting - should work on all platforms
+                s.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+                try
+                {
+                    if (OperatingSystem.IsWindows())
+                    {
+                        // Windows-specific approach using IOControl
+                        byte[] keepAliveValues = new byte[12];
+                        BitConverter.GetBytes((uint)1).CopyTo(keepAliveValues, 0);           // Turn keep-alive on
+                        BitConverter.GetBytes((uint)60000).CopyTo(keepAliveValues, initialDelaySecs);       // 60 seconds before first keep-alive
+                        BitConverter.GetBytes((uint)30000).CopyTo(keepAliveValues, IntervalSecs);       // 30 second interval
+
+                        s.IOControl(IOControlCode.KeepAliveValues, keepAliveValues, null);
+                        Console.WriteLine("TCP keep-alive settings applied using Windows-specific method");
+                    }
+                    else if (OperatingSystem.IsLinux())
+                    {
+                        bool linuxKeepAliveConfigured = false;
+
+                        // Set keep-alive idle time in milliseconds
+                        s.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, initialDelaySecs);
+
+                        // Set keep-alive interval in milliseconds
+                        s.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, IntervalSecs);
+
+                        s.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount, linuxRetryCount);
+                        linuxKeepAliveConfigured = true;
+
+                        Console.WriteLine($"TCPKEEPALIVETIME set to {initialDelaySecs} seconds (connection idle time before sending probes)");
+                        Console.WriteLine($"TCPKEEPALIVEINTERVAL set to {IntervalSecs} seconds (interval between probes)");
+                        Console.WriteLine($"TCPKEEPALIVERETRYCOUNT set to {linuxRetryCount} probes (max failures before disconnect)");
+
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Fall back to basic keep-alive if platform-specific settings fail
+                    Console.WriteLine($"Could not set TCP keep-alive parameters: {ex.Message}. Using default keep-alive settings.");
+                }
+
+                // Connect to the endpoint
+                await s.ConnectAsync(addresses, dnsEndPoint.Port, ct).ConfigureAwait(false);
+                return new NetworkStream(s, ownsSocket: true);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Socket connection error: {ex.Message}");
+                s.Dispose();
+                throw;
+            }
+        };
+
+        return handler;
+    }
+
     // Loads backend options from environment variables or uses default values if the variables are not set.
     // It also configures the DNS refresh timeout and sets up an HttpClient instance.
     // If the IgnoreSSLCert environment variable is set to true, it configures the HttpClient to ignore SSL certificate errors.
@@ -514,27 +580,45 @@ public class Program
     {
         // Read and set the DNS refresh timeout from environment variables or use the default value
         var DNSTimeout = ReadEnvironmentVariableOrDefault("DnsRefreshTimeout", 240000);
-        var KeepAliveIdleTimeoutSecs = ReadEnvironmentVariableOrDefault("KeepAliveIdleTimeoutSecs", 1200); // 20 minutes
-        var KeepAlivePingDelaySecs = ReadEnvironmentVariableOrDefault("KeepAlivePingDelaySecs", 30); // 30 seconds
-        var KeepAlivePingTimeoutSecs = ReadEnvironmentVariableOrDefault("KeepAlivePingTimeoutSecs", 30); // 10 seconds
-        //ServicePointManager.DnsRefreshTimeout = DNSTimeout;
+        var KeepAliveInitialDelaySecs = ReadEnvironmentVariableOrDefault("KeepAliveInitialDelaySecs", 60); // 60 seconds
+        var KeepAlivePingIntervalSecs = ReadEnvironmentVariableOrDefault("KeepAlivePingIntervalSecs", 60); // 60 seconds
+        var keepAliveDurationSecs = ReadEnvironmentVariableOrDefault("KeepAliveIdleTimeoutSecs", 1200); // 20 minutes
 
-        var handler = new SocketsHttpHandler
+        var EnableMultipleHttp2Connections = ReadEnvironmentVariableOrDefault("EnableMultipleHttp2Connections", false);
+        var MultiConnLifetimeSecs = ReadEnvironmentVariableOrDefault("MultiConnLifetimeSecs", 3600); // 1 hours
+        var MultiConnIdleTimeoutSecs = ReadEnvironmentVariableOrDefault("MultiConnIdleTimeoutSecs", 300); // 5 minutes
+        var MultiConnMaxConns = ReadEnvironmentVariableOrDefault("MultiConnMaxConns", 4000); // 4000 connections
+
+        var retryCount = keepAliveDurationSecs / KeepAlivePingIntervalSecs; // Calculate retry count 
+        var handler = getHandler(KeepAliveInitialDelaySecs, KeepAlivePingIntervalSecs, retryCount);
+
+        if (EnableMultipleHttp2Connections)
         {
-            PooledConnectionIdleTimeout = TimeSpan.FromSeconds(KeepAliveIdleTimeoutSecs),
-            KeepAlivePingPolicy = HttpKeepAlivePingPolicy.Always,
-            KeepAlivePingDelay = TimeSpan.FromSeconds(KeepAlivePingDelaySecs),
-            KeepAlivePingTimeout = TimeSpan.FromSeconds(KeepAlivePingTimeoutSecs)
-        };
-        
-        // Initialize HttpClient and configure it to ignore SSL certificate errors if specified in environment variables.
+            handler.EnableMultipleHttp2Connections = true;
+            handler.PooledConnectionLifetime = TimeSpan.FromSeconds(MultiConnLifetimeSecs);
+            handler.PooledConnectionIdleTimeout = TimeSpan.FromSeconds(MultiConnIdleTimeoutSecs);
+            handler.MaxConnectionsPerServer = MultiConnMaxConns;
+            handler.ResponseDrainTimeout = TimeSpan.FromSeconds(keepAliveDurationSecs);
+            Console.WriteLine("Multiple HTTP/2 connections enabled.");
+        }
+        else
+        {
+            handler.EnableMultipleHttp2Connections = false;
+            Console.WriteLine("Multiple HTTP/2 connections disabled.");
+        }
+        //     PooledConnectionIdleTimeout = TimeSpan.FromSeconds(KeepAliveIdleTimeoutSecs),
+
+
+        // Configure SSL handling
         if (ReadEnvironmentVariableOrDefault("IgnoreSSLCert", false))
         {
-            handler.PooledConnectionLifetime = TimeSpan.FromMilliseconds(DNSTimeout); // or your preferred value
-            // var handler = new HttpClientHandler();
-            // handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
-            // _client = new HttpClient(handler);
+            handler.SslOptions = new System.Net.Security.SslClientAuthenticationOptions
+            {
+                RemoteCertificateValidationCallback = (sender, cert, chain, errors) => true
+            };
+            Console.WriteLine("Ignoring SSL certificate validation errors.");
         }
+
         HttpClient _client = new HttpClient(handler);
 
         string replicaID = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REPLICA_NAME", "01");
