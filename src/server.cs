@@ -310,7 +310,7 @@ public class Server : IServer
                             }
 
                             // Calculate expiresAt time based on the timeout header or default TTL
-                            rd.CalculateExpiration(_options.DefaultTTLSecs);
+                            rd.CalculateExpiration(_options.DefaultTTLSecs, _options.TTLHeader);
                             ed["DefaultTimeout"] = rd.defaultTimeout.ToString();
 
                             // Check circuit breaker status and enqueue the request
