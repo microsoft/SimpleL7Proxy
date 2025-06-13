@@ -25,6 +25,26 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"OK")
             return
+        
+        if parsed_path.path == '/error':
+            self.send_response(500)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b" An error occurred!")
+            return
+        
+        if parsed_path.path == '/killConnection':
+            time.sleep(.5)
+            self.wfile.close()
+            print("Connection closed")
+            return
+
+        if parsed_path.path == '/success':
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b" Congrats! You did it!")
+            return
 
         # Example: /echo/resource?param1=sample
         if parsed_path.path == '/echo/resource':
