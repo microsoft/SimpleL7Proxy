@@ -272,7 +272,7 @@ public class ProxyWorker
                         }
                     }
 
-                    if (pr.StatusCode == HttpStatusCode.PreconditionFailed) // 412 Precondition failed
+                    if (pr.StatusCode == HttpStatusCode.PreconditionFailed || pr.StatusCode == HttpStatusCode.RequestTimeout) // 412 Precondition failed
                     {
                         // Request has expired
                         isExpired = true;
@@ -642,6 +642,7 @@ public class ProxyWorker
                 {
                     string errorMessage = $"Request has expired: Time: {DateTime.Now}  Reason: {request.ExpireReason}";
                     requestSummary["Type"] = "S7P-ProxyError";
+                    Console.WriteLine(errorMessage);
                     throw new ProxyErrorException(ProxyErrorException.ErrorType.TTLExpired,
                                                 HttpStatusCode.PreconditionFailed,
                                                 errorMessage);
@@ -918,13 +919,14 @@ public class ProxyWorker
                 
                 var str = JsonSerializer.Serialize(requestAttempt);
 
-                Console.WriteLine(str);
+                _logger.LogInformation(str);
 
                 continue;
             }
             catch (OperationCanceledException)
             {
                 // 408 Request Timeout
+                
                 Dictionary<string, string> requestAttempt = new();
                 requestAttempt["Status"] = ((int)HttpStatusCode.RequestTimeout).ToString();
                 requestAttempt["Backend-Host"] = host.Host;
@@ -1000,6 +1002,31 @@ public class ProxyWorker
         // 502 Bad Gateway  or   call status code form all attempts ( if they are the same )
         lastStatusCode = (statusMatches) ? (HttpStatusCode)currentStatusCode : HttpStatusCode.BadGateway;
         requestSummary["Type"] = "S7P-ProxyError";
+
+        // STREAM SERVER ERROR RESPONSE.  Must respond because the request was not successful
+        try
+        {
+            request.Context!.Response.StatusCode = (int)lastStatusCode;
+            request.Context!.Response.Headers["x-Request-Queue-Duration"] = (request.DequeueTime - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms";
+            request.Context!.Response.Headers["x-Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms";
+            request.Context!.Response.Headers["x-ProxyHost"] = _options.HostName;
+            request.Context!.Response.Headers["x-MID"] = request.MID;
+            request.Context!.Response.Headers["Attempts"] = request.Attempts.ToString();
+            
+            await request.OutputStream.WriteAsync(
+                Encoding.UTF8.GetBytes(sb.ToString()),
+                0,
+                sb.Length).ConfigureAwait(false);
+            await request.OutputStream.FlushAsync().ConfigureAwait(false);
+
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"Error writing response: {e.Message}");
+            // If we can't write the response, we can only log it
+            _logger.LogError($"Error writing response: {e.Message}");
+        }
+
 
         return new ProxyData
         {
