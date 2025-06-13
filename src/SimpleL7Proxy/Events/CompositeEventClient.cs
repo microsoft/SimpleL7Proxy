@@ -1,4 +1,6 @@
-﻿namespace SimpleL7Proxy.Events;
+﻿using System.Collections.Concurrent;
+
+namespace SimpleL7Proxy.Events;
 
 public class CompositeEventClient(IEnumerable<IEventClient> eventClients)
   : IEventClient
@@ -50,6 +52,15 @@ public class CompositeEventClient(IEnumerable<IEventClient> eventClients)
       client.SendData(data);
     }
   }
+
+    public void SendData(ConcurrentDictionary<string, string> eventData, string? name = null)
+  {
+    foreach (var client in eventClients)
+    {
+      client.SendData(eventData);
+    }
+  }
+
   public void SendData(ProxyEvent proxyEvent)
   {
     foreach (var client in eventClients)

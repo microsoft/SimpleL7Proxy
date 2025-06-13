@@ -9,6 +9,7 @@ public class BackendOptions
     public string AsyncServiceBusTopic { get; set; } = "example-topic";
     public double AsyncTimeout { get; set; } = 30 * 60000; // 30 minutes
     public HttpClient? Client { get; set; }
+    public string ContainerApp { get; set; } = "";
     public int CircuitBreakerErrorThreshold { get; set; }
     public int CircuitBreakerTimeslice { get; set; }
     public int DefaultPriority { get; set; }
@@ -33,6 +34,7 @@ public class BackendOptions
     public List<string> PriorityKeys { get; set; } = [];
     public List<int> PriorityValues { get; set; } = [];
     public Dictionary<int, int> PriorityWorkers { get; set; } = [];
+    public string Revision { get; set; } = "";
     public List<string> RequiredHeaders { get; set; } = [];
     public int SuccessRate { get; set; }
     public string SuspendedUserConfigUrl { get; set; } = "";
@@ -56,5 +58,4 @@ public class BackendOptions
     public string ValidateAuthAppFieldName { get; set; } = "";
     public string ValidateAuthAppIDHeader { get; set; } = "";
     public int Workers { get; set; }
-
 }

@@ -159,6 +159,12 @@ public class LogFileEventClient : IEventClient, IHostedService
         SendData(JsonSerializer.Serialize(eventData));
     }
     
+    public void SendData( ConcurrentDictionary<string, string> eventData, string? name = null)
+    {
+        if (!isRunning || isShuttingDown) return;
+
+        SendData(JsonSerializer.Serialize(eventData));
+    }
     public void SendData(ProxyEvent proxyEvent)
     {
         if (!isRunning || isShuttingDown) return;

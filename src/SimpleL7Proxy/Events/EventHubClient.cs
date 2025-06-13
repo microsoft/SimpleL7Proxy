@@ -7,6 +7,7 @@ using Microsoft.Extensions.Hosting;
 using System.Threading.Tasks;
 
 namespace SimpleL7Proxy.Events;
+
 public class EventHubClient : IEventClient, IHostedService
 {
 
@@ -186,12 +187,20 @@ public class EventHubClient : IEventClient, IHostedService
         string jsonData = JsonSerializer.Serialize(data);
         SendData(jsonData);
     }
-    
+
     public void SendData(ProxyEvent proxyEvent)
     {
         if (!isRunning || isShuttingDown) return;
 
         string jsonData = JsonSerializer.Serialize(proxyEvent.EventData);
+        SendData(jsonData);
+    }
+
+    public void SendData(ConcurrentDictionary<string, string> eventData, string? name = null)
+    {
+        if (!isRunning || isShuttingDown) return;
+
+        string jsonData = JsonSerializer.Serialize(eventData);
         SendData(jsonData);
     }
 }

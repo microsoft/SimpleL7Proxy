@@ -1,14 +1,17 @@
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Net;
+using System.Threading.Tasks;
+using Microsoft.Azure.Amqp;
 using SimpleL7Proxy.ServiceBus;
 using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Backend;
-
 // This class represents the request received from the upstream client.
 
 public class RequestData : IDisposable, IAsyncDisposable
 {
+    public int Attempts { get; set; } = 0;
     // Static variable to hold the IServiceBusRequestService instance
     public static IServiceBusRequestService? SBRequestService { get; private set; }
 
@@ -52,7 +55,8 @@ public class RequestData : IDisposable, IAsyncDisposable
     public AsyncWorker? asyncWorker { get; set; } = null;
 
     public string ExpireReason { get; set; } = "";
-    public Dictionary<string, string> EventData = new Dictionary<string, string>();
+    public ConcurrentDictionary<string, string> EventData = new ();
+    public List<Dictionary<string, string>> incompleteRequests = new();
     public string  SBClientID { get; set; } = "";
     public ServiceBusMessageStatusEnum SBStatus
     {
@@ -112,28 +116,26 @@ public class RequestData : IDisposable, IAsyncDisposable
         return BodyBytes;
     }
 
-    // Updates the ExpiresAt time based on the TTL header
-     public void CalculateExpiration(int defaultTTLSecs)
+    public void CalculateExpiration(int defaultTTLSecs, string TtlHeaderName )
     {
         //Console.WriteLine($"Calculating TTL for {request.Headers["S7PTTL"]} {request.TTLSeconds}");
 
-        const string TtlHeaderName = "S7PTTL";
         string ttlString = Headers.Get(TtlHeaderName)!;
 
         if (!string.IsNullOrWhiteSpace(ttlString))
         {
             ExpireReason = "TTL Header: " + ttlString;
 
-            // TTL can be specified as +300 ( 300 seconds from now ) or as an absolute number of seconds
-            if (ttlString.StartsWith('+') && long.TryParse(ttlString.Substring(1), out long relativeSeconds))
-            {
-                ExpiresAt = EnqueueTime.AddSeconds(relativeSeconds);
-            }
-            else if (long.TryParse(ttlString, out long absoluteSeconds))
+            // TTL can be specified as 300 ( 300 seconds from now ) or +nnnn as an absolute number of seconds
+            if (ttlString.StartsWith('+') && long.TryParse(ttlString.Substring(1), out long absoluteSeconds))
             {
                 // Absolute TTL in seconds
                 ExpiresAt = DateTimeOffset.FromUnixTimeSeconds(absoluteSeconds).UtcDateTime;
-
+            }
+            else if (float.TryParse(ttlString, out float relativeSeconds ))
+            {
+                // Relative TTL in seconds ( e.g.  2.5s => 2500 ms)
+                ExpiresAt = EnqueueTime.AddMilliseconds(relativeSeconds * 1000 );
             }
             else if (DateTimeOffset.TryParse(ttlString, out var ttlOffset))
             {
@@ -198,7 +200,7 @@ public class RequestData : IDisposable, IAsyncDisposable
             OutputStream?.Flush();
             OutputStream?.Close();
             Context = null;
-            Console.WriteLine($"RequestData disposed: {Guid}");
+            //Console.WriteLine($"RequestData disposed: {Guid}");
         }
     }
 

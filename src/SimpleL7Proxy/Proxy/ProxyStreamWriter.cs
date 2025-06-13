@@ -29,27 +29,27 @@ public class ProxyStreamWriter
         }
     }
 
-    public async Task WriteDataToStreamAsync(
-        IHttpListenerResponse response,
-        ProxyData proxyData,
-        CancellationToken token)
-    {
-        var responseMessage = proxyData.ResponseMessage;
-        OverrideResponseHeaders(response, responseMessage);
+    // public async Task WriteDataToStreamAsync(
+    //     IHttpListenerResponse response,
+    //     ProxyData proxyData,
+    //     CancellationToken token)
+    // {
+    //     var responseMessage = proxyData.ResponseMessage;
+    //     OverrideResponseHeaders(response, responseMessage);
 
-        var outputStream = response.OutputStream;
-        var content = responseMessage.Content;
-        if (content != null)
-        {
-            try {
-            await using var responseStream = await content.ReadAsStreamAsync(token).ConfigureAwait(false);
-            await responseStream.CopyToAsync(outputStream, token).ConfigureAwait(false);
-            await outputStream.FlushAsync(token).ConfigureAwait(false);
-            } catch (Exception ex)
-            {
-                Console.WriteLine(ex);
-                Console.WriteLine(ex.StackTrace);
-            }
-        }
-    }
+    //     var outputStream = response.OutputStream;
+    //     var content = responseMessage.Content;
+    //     if (content != null)
+    //     {
+    //         try {
+    //         await using var responseStream = await content.ReadAsStreamAsync(token).ConfigureAwait(false);
+    //         await responseStream.CopyToAsync(outputStream, token).ConfigureAwait(false);
+    //         await outputStream.FlushAsync(token).ConfigureAwait(false);
+    //         } catch (Exception ex)
+    //         {
+    //             Console.WriteLine(ex);
+    //             Console.WriteLine(ex.StackTrace);
+    //         }
+    //     }
+    // }
 }

@@ -72,7 +72,6 @@ public class Server : BackgroundService
         _backends = backends;
         _eventHubClient = eventHubClient;
         _telemetryClient = telemetryClient;
-        //_requestsQueue.MaxQueueLength = _options.MaxQueueLength;
         _userPriority = userPriority;
         _userProfile = userProfile;
         _logger = logger;
@@ -162,7 +161,7 @@ public class Server : BackgroundService
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            Dictionary<string, string> ed = null!;
+            ConcurrentDictionary<string, string> ed = null!;
 
             try
             {
@@ -186,10 +185,20 @@ public class Server : BackgroundService
                     var requestId = _options.IDStr + counter.ToString();
 
                     //delayCts.Cancel();
-                    var rd = new RequestData(await getContextTask.ConfigureAwait(false), requestId) { runAsync = doAsync };  // Move this to the user profile later
+                    var rd = new RequestData(await getContextTask.ConfigureAwait(false), requestId) 
+                        {
+                            runAsync = doAsync 
+                        };  // Move this to the user profile later
                     ed = rd.EventData;
                     ed["Date"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
                     ed["S7P-Host-ID"] = _options.IDStr;
+                    ed["Revision"] = _options.Revision;
+                    ed["ContainerApp"] = _options.ContainerApp;
+                    ed["Path"] = rd.Path ?? "N/A";
+                    ed["Method"] = rd.Method ?? "N/A";
+                    ed["RequestHost"] = rd.Headers["Host"] ?? "N/A";
+                    ed["RequestUserAgent"] = rd.Headers["User-Agent"] ?? "N/A";
+
                     // readiness probes:
                     // if it's a probe, then bypass all the below checks and enqueue the request 
                     if (Constants.probes.Contains(rd.Path))
@@ -365,7 +374,7 @@ public class Server : BackgroundService
                             }
 
                             // Calculate expiresAt time based on the timeout header or default TTL
-                            rd.CalculateExpiration(_options.DefaultTTLSecs);
+                            rd.CalculateExpiration(_options.DefaultTTLSecs, _options.TTLHeader);
                             ed["DefaultTimeout"] = rd.defaultTimeout.ToString();
 
                             // determine if the request is allowed async operation
@@ -411,6 +420,7 @@ public class Server : BackgroundService
                                 logmsg = "No active hosts  => 429:";
                             }
 
+
                             // Enqueue the request
 
                             else if (!_requestsQueue.Enqueue(rd, priority, userPriorityBoost, rd.EnqueueTime))
@@ -424,7 +434,7 @@ public class Server : BackgroundService
 
                             if (!notEnqued && _options.UseServiceBus)
                             {
-                                rd.SBClientID = "client1";
+                                rd.SBClientID = "client1";   //  TODO:  this should be set to the client ID of the user's service bus client
                                 rd.SBStatus = ServiceBusMessageStatusEnum.InQueue;
 
                                 //_serviceBusRequestService.updateStatus(rd);
@@ -462,47 +472,39 @@ public class Server : BackgroundService
 
                     if (notEnqued)
                     {
+
                         if (rd.Context is not null)
                         {
                             ed["Type"] = "S7P-EnqueueFailed";
                             _logger.LogInformation($"{logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}", ed);
 
-                            rd.Context.Response.StatusCode = notEnquedCode;
-                            rd.Context.Response.Headers["Retry-After"] = (_backends.ActiveHostCount() == 0) ? _options.PollInterval.ToString() : "500";
-
                             try
                             {
+                                rd.Context.Response.StatusCode = notEnquedCode;
+                                rd.Context.Response.Headers["Retry-After"] = (_backends.ActiveHostCount() == 0) ? _options.PollInterval.ToString() : "500";
                                 using (var writer = new System.IO.StreamWriter(rd.Context.Response.OutputStream))
                                 {
-                                    try
-                                    {
-                                        await writer.WriteAsync(retrymsg).ConfigureAwait(false);
-                                    }
-                                    catch (IOException)
-                                    {
-                                        // pass
-                                    }
+                                    await writer.WriteAsync(retrymsg).ConfigureAwait(false);
                                 }
+                                rd.Context.Response.Close();
                             }
-                            catch (Exception)
+                            catch (Exception ex)
                             {
-                                // pass
+                                _logger.LogInformation($"Request was not enqueue'd and got an error writing on network: {ex.Message}", ed);
                             }
-
-                            rd.Context.Response.Close();
-                            _logger.LogError($"Pri: {priority} Stat: {notEnquedCode} Path: {rd.Path}");
+                            _logger.LogInformation($"Pri: {priority} Stat: 429 Path: {rd.Path}");
                         }
 
                         _userPriority.removeRequest(rd.UserID, rd.Guid);
-
                     }
                     else
                     {
-                        ed["Type"] = "S7P-Enqueue";
-                        ed["Message"] = "Enqueued request";
+                        ConcurrentDictionary<string, string> temp_ed = new(ed);
+                        temp_ed["Type"] = "S7P-Enqueue";
+                        temp_ed["Message"] = "Enqueued request";
 
-                        WriteOutput("", ed);
                         _logger.LogInformation($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
+                        _eventHubClient?.SendData(temp_ed, "Enqueue");
                     }
                 }
                 else
@@ -531,31 +533,30 @@ public class Server : BackgroundService
         _logger.LogInformation("HTTP server stopped.");
     }
 
-    private void WriteOutput(string data = "", Dictionary<string, string>? eventData = null)
+    private void WriteOutput(string data = "", ConcurrentDictionary<string, string>? eventData = null)
     {
 
-        // Log the data to the console
-        if (!string.IsNullOrEmpty(data))
+        try
         {
-            _logger.LogInformation(data);
+            var ldata = eventData ?? new();
 
-            // if eventData is null, create a new dictionary and add the message to it
-            if (eventData == null)
+            // Log the data to the console
+            if (!string.IsNullOrEmpty(data))
             {
-                eventData = new Dictionary<string, string>();
-                eventData["Message"] = data;
+                Console.WriteLine(data);
+                ldata["Message"] = data;
             }
-        }
 
-        if (eventData == null)
-            eventData = new Dictionary<string, string>();
+            if (!ldata.TryGetValue("Type", out var typeValue))
+            {
+                ldata["Type"] = "S7P-Console";
+            }
 
-        if (!eventData.TryGetValue("Type", out var typeValue))
+            _eventHubClient?.SendData(ldata);
+        } catch (Exception ex)
         {
-            eventData["Type"] = "S7P-Console";
+            // Handle any exceptions that occur during logging
+            Console.WriteLine($"Error writing output: {ex.Message}");
         }
-
-        // string jsonData = JsonSerializer.Serialize(eventData);
-        _eventHubClient?.SendData(eventData);
     }
 }

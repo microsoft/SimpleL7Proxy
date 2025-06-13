@@ -1,4 +1,5 @@
 ﻿using Microsoft.ApplicationInsights;
+using System.Collections.Concurrent;
 
 namespace SimpleL7Proxy.Events;
 
@@ -6,7 +7,7 @@ public class AppInsightsEventClient(TelemetryClient telemetryClient)
   : IEventClient
 {
 
-public Task StartTimer()
+  public Task StartTimer()
   {
     // No timer needed for App Insights
     return Task.CompletedTask;
@@ -28,5 +29,11 @@ public Task StartTimer()
   public void SendData(Dictionary<string, string> data)
   {
     telemetryClient.TrackEvent("ProxyEvent", data);
+  }
+  
+  
+    public void SendData(ConcurrentDictionary<string, string> eventData, string? name = "ProxyEvent")
+  {
+    telemetryClient.TrackEvent(name, eventData);
   }
 }
