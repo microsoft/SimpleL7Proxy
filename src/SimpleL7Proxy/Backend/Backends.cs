@@ -302,7 +302,11 @@ public class Backends : IBackendService
         ["ProxyHost"] = _options.HostName,
         ["Backend-Host"] = host.Host,
         ["Port"] = host.Port.ToString(),
-        ["Path"] = host.ProbePath
+        ["Path"] = host.ProbePath,
+        ["Revision"] = _options.Revision,
+        ["ContainerApp"] = _options.ContainerApp,
+        ["S7P-Host-ID"] = _options.IDStr,
+        ["Type"] = "S7P-Poller"
       }
     };
 
@@ -321,21 +325,9 @@ public class Backends : IBackendService
           // send and read the entire response
           var response = await client.SendAsync(request, _cancellationToken);
           var responseBody = await response.Content.ReadAsStringAsync(_cancellationToken);
-                    
-          stopwatch.Stop();
-
-          latency = stopwatch.Elapsed.TotalMilliseconds;
-
-          // Update the host with the new latency
-          host.AddLatency(latency);
-
-          probeData.EventData["Latency"] = latency.ToString() + " ms";
-          probeData.EventData["Code"] = response.StatusCode.ToString();
-          probeData.EventData["Type"] = "S7P-Poller";
-          //probeData.EventData["Host"] = host.Host;
-          probeData.EventData["ID"] = _options.IDStr;
-
           response.EnsureSuccessStatusCode();
+                    
+          probeData.EventData["Code"] = response.StatusCode.ToString();
 
           _isRunning = true;
 
@@ -344,7 +336,10 @@ public class Backends : IBackendService
         } finally {
           stopwatch.Stop();
           latency = stopwatch.Elapsed.TotalMilliseconds;
-          probeData.EventData["Latency"] = latency.ToString() + " ms";
+
+          // Update the host with the new latency
+          host.AddLatency(latency);
+          probeData.EventData["Latency"] = latency.ToString("F3") + " ms";
         }
     }
     catch (UriFormatException e)
