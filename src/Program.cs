@@ -1,18 +1,19 @@
-﻿using System.Runtime.InteropServices;
-using System.Net;
-using System.Text;
-using OS = System;
-using System.Net.Sockets;
+﻿using Azure.Core;
+using Azure.Identity;
 using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.Extensibility;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.ApplicationInsights.WorkerService;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using System.Threading.Tasks;
-using Azure.Identity;
-using Azure.Core;
+using OS = System;
 using System.Linq.Expressions;
+using System.Net;
+using System.Net.Sockets;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading.Tasks;
 
 
 // This code serves as the entry point for the .NET application.
@@ -71,10 +72,10 @@ public class Program
                 services.Configure<BackendOptions>(options =>
                 {
                     options.AcceptableStatusCodes = backendOptions.AcceptableStatusCodes;
-                    options.Client = backendOptions.Client;
-                    options.ContainerApp = backendOptions.ContainerApp;
                     options.CircuitBreakerErrorThreshold = backendOptions.CircuitBreakerErrorThreshold;
                     options.CircuitBreakerTimeslice = backendOptions.CircuitBreakerTimeslice;
+                    options.Client = backendOptions.Client;
+                    options.ContainerApp = backendOptions.ContainerApp;
                     options.DefaultPriority = backendOptions.DefaultPriority;
                     options.DefaultTTLSecs = backendOptions.DefaultTTLSecs;
                     options.DisallowedHeaders = backendOptions.DisallowedHeaders;
@@ -90,33 +91,33 @@ public class Program
                     options.LookupHeaderName = backendOptions.LookupHeaderName;
                     options.MaxQueueLength = backendOptions.MaxQueueLength;
                     options.OAuthAudience = backendOptions.OAuthAudience;
+                    options.PollInterval = backendOptions.PollInterval;
+                    options.PollTimeout = backendOptions.PollTimeout;
+                    options.Port = backendOptions.Port;
                     options.PriorityKeyHeader = backendOptions.PriorityKeyHeader;
                     options.PriorityKeys = backendOptions.PriorityKeys;
                     options.PriorityValues = backendOptions.PriorityValues;
-                    options.Port = backendOptions.Port;
-                    options.PollInterval = backendOptions.PollInterval;
-                    options.PollTimeout = backendOptions.PollTimeout;
-                    options.Revision = backendOptions.Revision;
+                    options.PriorityWorkers = backendOptions.PriorityWorkers;
                     options.RequiredHeaders = backendOptions.RequiredHeaders;
+                    options.Revision = backendOptions.Revision;
                     options.SuccessRate = backendOptions.SuccessRate;
                     options.SuspendedUserConfigUrl = backendOptions.SuspendedUserConfigUrl;
+                    options.TerminationGracePeriodSeconds = backendOptions.TerminationGracePeriodSeconds;
                     options.Timeout = backendOptions.Timeout;
                     options.TimeoutHeader = backendOptions.TimeoutHeader;
-                    options.TerminationGracePeriodSeconds = backendOptions.TerminationGracePeriodSeconds;
                     options.TTLHeader = backendOptions.TTLHeader;
                     options.UniqueUserHeaders = backendOptions.UniqueUserHeaders;
                     options.UseOAuth = backendOptions.UseOAuth;
                     options.UseOAuthGov = backendOptions.UseOAuthGov;
-                    options.UserProfileHeader = backendOptions.UserProfileHeader;
                     options.UseProfiles = backendOptions.UseProfiles;
                     options.UserConfigUrl = backendOptions.UserConfigUrl;
                     options.UserPriorityThreshold = backendOptions.UserPriorityThreshold;
-                    options.ValidateHeaders = backendOptions.ValidateHeaders;
-                    options.PriorityWorkers = backendOptions.PriorityWorkers;
-                    options.ValidateAuthAppID = backendOptions.ValidateAuthAppID;
+                    options.UserProfileHeader = backendOptions.UserProfileHeader;
                     options.ValidateAuthAppFieldName = backendOptions.ValidateAuthAppFieldName;
-                    options.ValidateAuthAppIDUrl = backendOptions.ValidateAuthAppIDUrl;
+                    options.ValidateAuthAppID = backendOptions.ValidateAuthAppID;
                     options.ValidateAuthAppIDHeader = backendOptions.ValidateAuthAppIDHeader;
+                    options.ValidateAuthAppIDUrl = backendOptions.ValidateAuthAppIDUrl;
+                    options.ValidateHeaders = backendOptions.ValidateHeaders;
                     options.Workers = backendOptions.Workers;
                 });
 
@@ -178,6 +179,7 @@ public class Program
         var frameworkHost = hostBuilder.Build();
         var serviceProvider = frameworkHost.Services;
 
+        ProxyEvent.Initialize(serviceProvider.GetRequiredService<IOptions<BackendOptions>>());
         backends = serviceProvider.GetRequiredService<IBackendService>();
         //ILogger<Program> logger = serviceProvider.GetRequiredService<ILogger<Program>>();
         try
@@ -627,10 +629,10 @@ public class Program
         var backendOptions = new BackendOptions
         {
             AcceptableStatusCodes = ReadEnvironmentVariableOrDefault("AcceptableStatusCodes", new int[] { 200, 401, 403, 404, 408, 410, 412, 417, 400 }),
-            ContainerApp = ReadEnvironmentVariableOrDefault("CONTAINER_APP_NAME", "ContainerAppName"),
-            Client = _client,
             CircuitBreakerErrorThreshold = ReadEnvironmentVariableOrDefault("CBErrorThreshold", 50),
             CircuitBreakerTimeslice = ReadEnvironmentVariableOrDefault("CBTimeslice", 60),
+            Client = _client,
+            ContainerApp = ReadEnvironmentVariableOrDefault("CONTAINER_APP_NAME", "ContainerAppName"),
             DefaultPriority = ReadEnvironmentVariableOrDefault("DefaultPriority", 2),
             DefaultTTLSecs = ReadEnvironmentVariableOrDefault("DefaultTTLSecs", 300),
             DisallowedHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("DisallowedHeaders", "")),
@@ -646,33 +648,33 @@ public class Program
             LookupHeaderName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "userId"),
             MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
             OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
-            Port = ReadEnvironmentVariableOrDefault("Port", 80),
             PollInterval = ReadEnvironmentVariableOrDefault("PollInterval", 15000),
             PollTimeout = ReadEnvironmentVariableOrDefault("PollTimeout", 3000),
+            Port = ReadEnvironmentVariableOrDefault("Port", 80),
             PriorityKeyHeader = ReadEnvironmentVariableOrDefault("PriorityKeyHeader", "S7PPriorityKey"),
             PriorityKeys = ToListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
             PriorityValues = ToListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
-            Revision = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REVISION", "revisionID"),
+            PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault("PriorityWorkers", "2:1,3:1"))),
             RequiredHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("RequiredHeaders", "")),
+            Revision = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REVISION", "revisionID"),
             SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
             SuspendedUserConfigUrl = ReadEnvironmentVariableOrDefault("SuspendedUserConfigUrl", "file:config.json"),
+            TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
             Timeout = ReadEnvironmentVariableOrDefault("Timeout", 1200000), // 20 minutes
             TimeoutHeader = ReadEnvironmentVariableOrDefault("TimeoutHeader", "S7PTimeout"),
-            TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
             TTLHeader = ReadEnvironmentVariableOrDefault("TTLHeader", "S7PTTL"),
             UniqueUserHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("UniqueUserHeaders", "X-UserID")),
             UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", false),
             UseOAuthGov = ReadEnvironmentVariableOrDefault("UseOAuthGov", false),
-            UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", "X-UserProfile"),
             UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", false),
             UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", "file:config.json"),
             UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
-            PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault("PriorityWorkers", "2:1,3:1"))),
-            ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault("ValidateHeaders", ""))),
-            ValidateAuthAppID = ReadEnvironmentVariableOrDefault("ValidateAuthAppID", false),
+            UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", "X-UserProfile"),
             ValidateAuthAppFieldName = ReadEnvironmentVariableOrDefault("ValidateAuthAppFieldName", "authAppID"),
-            ValidateAuthAppIDUrl = ReadEnvironmentVariableOrDefault("ValidateAuthAppIDUrl", "file:auth.json"),
+            ValidateAuthAppID = ReadEnvironmentVariableOrDefault("ValidateAuthAppID", false),
             ValidateAuthAppIDHeader = ReadEnvironmentVariableOrDefault("ValidateAuthAppIDHeader", "X-MS-CLIENT-PRINCIPAL-ID"),
+            ValidateAuthAppIDUrl = ReadEnvironmentVariableOrDefault("ValidateAuthAppIDUrl", "file:auth.json"),
+            ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault("ValidateHeaders", ""))),
             Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
         };
 
