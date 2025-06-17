@@ -46,6 +46,7 @@ public interface IBackendOptions
     List<string> LogAllRequestHeadersExcept { get; set; }
     bool LogAllResponseHeaders { get; set; }
     List<string> LogAllResponseHeadersExcept { get; set; }
+    bool LogConsole { get; set; }
     bool LogProbes { get; set; }
     string LookupHeaderName { get; set; }
     int MaxQueueLength { get; set; }

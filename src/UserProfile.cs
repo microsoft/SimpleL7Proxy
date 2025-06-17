@@ -45,7 +45,7 @@ public class UserProfile : IUserProfile
             catch (Exception e)
             {
                 // Log error
-                Console.WriteLine($"Error reading user config: {e.Message}");
+                Console.Error.WriteLine($"Error reading user config: {e.Message}");
             }
 
             await Task.Delay(3600000, cancellationToken);
@@ -77,7 +77,7 @@ public class UserProfile : IUserProfile
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error reading user config file: {ex.Message}");
+                    Console.Error.WriteLine($"Error reading user config file: {ex.Message}");
                 }
             }
             else
@@ -96,7 +96,7 @@ public class UserProfile : IUserProfile
                 }
                 catch (HttpRequestException e)
                 {
-                    Console.WriteLine($"Error reading user config from URL {location}: {e.Message}");
+                    Console.Error.WriteLine($"Error reading user config from URL {location}: {e.Message}");
                 }
             }
         }
@@ -227,7 +227,7 @@ public class UserProfile : IUserProfile
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error parsing user config: {ex.Message}");
+            Console.Error.WriteLine($"Error parsing user config: {ex.Message}");
         }
     }
 

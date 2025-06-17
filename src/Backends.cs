@@ -213,7 +213,7 @@ public class Backends : IBackendService
                     }
                     catch (Exception e)
                     {
-                        Console.WriteLine($"An unexpected error occurred: {e.Message}");
+                        Console.Error.WriteLine($"An unexpected error occurred: {e.Message}");
                     }
                 }
             }
@@ -279,32 +279,36 @@ public class Backends : IBackendService
             ["Path"] = host.probe_path,
             ["Type"] = "S7P-Poller"
         };
-        try {
+        try
+        {
 
             if (_debug)
                 WriteOutput($"Checking host {host.url + host.probe_path}");
 
 
             var request = new HttpRequestMessage(HttpMethod.Get, host.probeurl);
-            if (_options.UseOAuth) {
+            if (_options.UseOAuth)
+            {
                 request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", OAuth2Token());
             }
 
             var stopwatch = Stopwatch.StartNew();
 
-            try {
+            try
+            {
                 // send and read the entire response
                 var response = await client.SendAsync(request, _cancellationToken);
                 var responseBody = await response.Content.ReadAsStringAsync(_cancellationToken);
                 response.EnsureSuccessStatusCode();
-                
+
                 probeData["Code"] = response.StatusCode.ToString();
                 _isRunning = true;
 
                 // If the response is successful, add the host to the active hosts
                 return response.IsSuccessStatusCode;
             }
-            finally {
+            finally
+            {
                 stopwatch.Stop();
                 latency = stopwatch.Elapsed.TotalMilliseconds;
 
@@ -349,7 +353,7 @@ public class Backends : IBackendService
         catch (Exception e)
         {
             Program.telemetryClient?.TrackException(e);
-            WriteOutput($"Poller: Error: {e.Message}");
+            WriteErrorOutput($"Poller: Error: {e.Message}");
             probeData["Type"] = "S7P-Exception " + e.Message;
             probeData["Code"] = "-";
         }
@@ -475,7 +479,7 @@ public class Backends : IBackendService
             catch (Exception e)
             {
                 // Handle any unexpected errors that occur during token fetching
-                WriteOutput($"An unexpected error occurred while fetching Auth Token: {e.Message}");
+                WriteErrorOutput($"An unexpected error occurred while fetching Auth Token: {e.Message}");
             }
         }, _cancellationToken);
     }
@@ -496,8 +500,9 @@ public class Backends : IBackendService
         {
             var options = new DefaultAzureCredentialOptions();
 
-            if (_options.UseOAuthGov == true) {
-                options.AuthorityHost =AzureAuthorityHosts.AzureGovernment;
+            if (_options.UseOAuthGov == true)
+            {
+                options.AuthorityHost = AzureAuthorityHosts.AzureGovernment;
                 //options = new DefaultAzureCredentialOptions { AuthorityHost = AzureAuthorityHosts.AzureGovernment };
             }
 
@@ -515,7 +520,7 @@ public class Backends : IBackendService
         }
         catch (Exception ex)
         {
-            WriteOutput($"An unexpected error occurred: {ex.Message}");
+            WriteErrorOutput($"An unexpected error occurred: {ex.Message}");
             // Handle other potential exceptions
             throw;
         }
@@ -540,11 +545,37 @@ public class Backends : IBackendService
             }
 
             _eventHubClient?.SendData(ldata);
-        } catch (Exception ex)
+        }
+        catch (Exception ex)
         {
             // Handle any exceptions that occur during logging
-            Console.WriteLine($"Error writing output: {ex.Message}");
+            Console.Error.WriteLine($"Error writing output: {ex.Message}");
         }
     }
 
+    private void WriteErrorOutput(string data = "", ProxyEvent? eventData = null)
+    {
+        try
+        {
+            var ldata = eventData ?? new();
+
+            // Log the data to the console
+            if (!string.IsNullOrEmpty(data))
+            {
+                Console.Error.WriteLine(data);
+                ldata["Message"] = data;
+            }
+
+            if (!ldata.TryGetValue("Type", out var typeValue))
+            {
+                ldata["Type"] = "S7P-Backend-Status";
+            }
+
+            _eventHubClient?.SendData(ldata);
+        } catch (Exception ex)
+        {
+            // Handle any exceptions that occur during logging
+            Console.Error.WriteLine($"Error writing output: {ex.Message}");
+        }
+    }
 }

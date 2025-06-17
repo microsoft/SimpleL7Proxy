@@ -86,6 +86,7 @@ public class Program
                     options.LogAllRequestHeadersExcept = backendOptions.LogAllRequestHeadersExcept;
                     options.LogAllResponseHeaders = backendOptions.LogAllResponseHeaders;
                     options.LogAllResponseHeadersExcept = backendOptions.LogAllResponseHeadersExcept;
+                    options.LogConsole = backendOptions.LogConsole;
                     options.LogHeaders = backendOptions.LogHeaders;
                     options.LogProbes = backendOptions.LogProbes;
                     options.LookupHeaderName = backendOptions.LookupHeaderName;
@@ -178,15 +179,19 @@ public class Program
 
         var frameworkHost = hostBuilder.Build();
         var serviceProvider = frameworkHost.Services;
+        var options = serviceProvider.GetRequiredService<IOptions<BackendOptions>>();
 
-        ProxyEvent.Initialize(serviceProvider.GetRequiredService<IOptions<BackendOptions>>());
+        ProxyEvent.Initialize(options);
         backends = serviceProvider.GetRequiredService<IBackendService>();
         //ILogger<Program> logger = serviceProvider.GetRequiredService<ILogger<Program>>();
         try
         {
             Program.telemetryClient = serviceProvider.GetRequiredService<TelemetryClient>();
             if (Program.telemetryClient != null)
-                Console.SetOut(new AppInsightsTextWriter(Program.telemetryClient, Console.Out));
+            {
+                Console.SetOut(new AppInsightsTextWriter(Program.telemetryClient, Console.Out, options.Value, false));
+                Console.SetError(new AppInsightsTextWriter(Program.telemetryClient, Console.Error, options.Value, true));
+            }
         }
         catch (System.InvalidOperationException)
         {
@@ -260,8 +265,8 @@ public class Program
         catch (Exception e)
         {
             telemetryClient?.TrackException(e);
-            Console.WriteLine($"Error: {e.Message}");
-            Console.WriteLine($"Stack Trace: {e.StackTrace}");
+            Console.Error.WriteLine($"Error: {e.Message}");
+            Console.Error.WriteLine($"Stack Trace: {e.StackTrace}");
         }
 
         try
@@ -271,12 +276,12 @@ public class Program
         }
         catch (OperationCanceledException)
         {
-            Console.WriteLine("Service Exiting.");
+            Console.Error.WriteLine("Service Exiting.");
         }
         catch (Exception e)
         {
             // Handle other exceptions that might occur
-            Console.WriteLine($"An unexpected error occurred: {e.Message}");
+            Console.Error.WriteLine($"An unexpected error occurred: {e.Message}");
         }
     }
 
@@ -565,7 +570,7 @@ public class Program
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Socket connection error: {ex.Message}");
+                Console.Error.WriteLine($"Socket connection error: {ex.Message}");
                 s.Dispose();
                 throw;
             }
@@ -643,6 +648,7 @@ public class Program
             LogAllRequestHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllRequestHeadersExcept", "Authorization")),
             LogAllResponseHeaders = ReadEnvironmentVariableOrDefault("LogAllResponseHeaders", false),
             LogAllResponseHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllResponseHeadersExcept", "Api-Key")),
+            LogConsole = ReadEnvironmentVariableOrDefault("LogConsole", true),
             LogHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
             LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", false),
             LookupHeaderName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "userId"),

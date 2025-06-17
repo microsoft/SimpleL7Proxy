@@ -11,6 +11,7 @@ public class BackendOptions : IBackendOptions
     public string HostName { get; set; } = "";
     public List<BackendHost>? Hosts { get; set; } = [];
     public string IDStr { get; set; } = "S7P";
+    public bool LogConsole { get; set; } = true;
     public List<string> LogHeaders { get; set; } = [];
     public bool LogProbes { get; set; }
     public bool LogAllRequestHeaders { get; set; } = false;

@@ -80,7 +80,7 @@ public class Server : IServer
         catch (Exception ex)
         {
             // Handle other potential errors
-            WriteOutput($"An error occurred: {ex.Message}");
+            WriteErrorOutput($"An error occurred: {ex.Message}");
             throw new Exception("An error occurred while starting the server.", ex);
         }
     }
@@ -100,7 +100,7 @@ public class Server : IServer
         while (!_cancellationToken.IsCancellationRequested)
         {
             ProxyEvent ed = null!;
-            
+
             try
             {
                 // Use the CancellationToken to asynchronously wait for an HTTP request.
@@ -398,9 +398,10 @@ public class Server : IServer
                                     await writer.WriteAsync(retrymsg).ConfigureAwait(false);
                                 }
                                 rd.Context.Response.Close();
-                            } catch (Exception ex)
+                            }
+                            catch (Exception ex)
                             {
-                                WriteOutput($"Request was not enqueue'd and got an error writing on network: {ex.Message}", ed);
+                                WriteErrorOutput($"Request was not enqueue'd and got an error writing on network: {ex.Message}", ed);
                             }
                             WriteOutput($"Pri: {priority} Stat: 429 Path: {rd.Path}");
                         }
@@ -463,10 +464,38 @@ public class Server : IServer
             }
 
             _eventHubClient?.SendData(ldata);
-        } catch (Exception ex)
+        }
+        catch (Exception ex)
         {
             // Handle any exceptions that occur during logging
             Console.WriteLine($"Error writing output: {ex.Message}");
+        }
+    }
+    
+    private void WriteErrorOutput(string data = "", ProxyEvent? eventData = null)
+    {
+
+        try
+        {
+            var ldata = eventData ?? new();
+
+            // Log the data to the console
+            if (!string.IsNullOrEmpty(data))
+            {
+                Console.Error.WriteLine(data);
+                ldata["Message"] = data;
+            }
+
+            if (!ldata.TryGetValue("Type", out var typeValue))
+            {
+                ldata["Type"] = "S7P-Console";
+            }
+
+            _eventHubClient?.SendData(ldata);
+        } catch (Exception ex)
+        {
+            // Handle any exceptions that occur during logging
+            Console.Error.WriteLine($"Error writing output: {ex.Message}");
         }
     }
 }

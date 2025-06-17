@@ -10,16 +10,20 @@ public class AppInsightsTextWriter : TextWriter
 {
     private readonly TelemetryClient _telemetryClient;
     private readonly TextWriter _innerTextWriter;
+    private readonly IBackendOptions _backendOptions;
+    private bool _isError;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AppInsightsTextWriter"/> class.
     /// </summary>
     /// <param name="telemetryClient">The telemetry client for logging to Application Insights.</param>
     /// <param name="innerTextWriter">The inner text writer for logging to a text writer.</param>
-    public AppInsightsTextWriter(TelemetryClient telemetryClient, TextWriter innerTextWriter)
+    public AppInsightsTextWriter(TelemetryClient telemetryClient, TextWriter innerTextWriter, IBackendOptions backendOptions, bool isError)
     {
         _telemetryClient = telemetryClient;
         _innerTextWriter = innerTextWriter;
+        _isError = isError;
+        _backendOptions = backendOptions ?? throw new ArgumentNullException(nameof(backendOptions));
     }
 
     /// <summary>
@@ -32,11 +36,20 @@ public class AppInsightsTextWriter : TextWriter
         base.WriteLine(value);
         string timestamp = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss");
 
-        if (value.StartsWith("\n\n")) {
-            _innerTextWriter.WriteLine($"{timestamp} {value.Substring(2)}");
-        } else {
+        if (value.StartsWith("\n\n"))
+        {
+            if (_backendOptions.LogConsole || _isError)
+            {
+                _innerTextWriter.WriteLine($"{timestamp} {value.Substring(2)}");
+            }
+        }
+        else
+        {
             _telemetryClient.TrackTrace(value);
-            _innerTextWriter.WriteLine($"{timestamp} {value}");
+            if (_backendOptions.LogConsole || _isError)
+            {
+                _innerTextWriter.WriteLine($"{timestamp} {value}");
+            }
         }
     }
 

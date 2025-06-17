@@ -73,7 +73,6 @@ public class ProxyWorker
         if (doUserconfig && _profiles == null) throw new ArgumentNullException(nameof(_profiles));
         if (_requestsQueue == null) throw new ArgumentNullException(nameof(_requestsQueue));
 
-
         // increment the active workers count
         Interlocked.Increment(ref activeWorkers);
         if (_options.Workers == activeWorkers)
@@ -316,11 +315,11 @@ public class ProxyWorker
                     {
                         lcontext.Response.StatusCode = (int)e.StatusCode;
                         await lcontext.Response.OutputStream.WriteAsync(errorMessage, 0, errorMessage.Length).ConfigureAwait(false);
-                        Console.WriteLine($"Proxy error: {e.Message}");
+                        Console.Error.WriteLine($"Proxy error: {e.Message}");
                     }
                     catch (Exception writeEx)
                     {
-                        Console.WriteLine($"Failed to write error message: {writeEx.Message}");
+                        Console.Error.WriteLine($"Failed to write error message: {writeEx.Message}");
                         eventData["Status"] = e.StatusCode.ToString();
                         eventData["ErrorDetail"] = "Network Error";
                         eventData["Type"] = "S7P-IOException";
@@ -348,11 +347,11 @@ public class ProxyWorker
                     {
                         lcontext.Response.StatusCode = 408;
                         await lcontext.Response.OutputStream.WriteAsync(errorMessage, 0, errorMessage.Length).ConfigureAwait(false);
-                        Console.WriteLine($"An IO exception occurred: {ioEx.Message}");
+                        Console.Error.WriteLine($"An IO exception occurred: {ioEx.Message}");
                     }
                     catch (Exception writeEx)
                     {
-                        Console.WriteLine($"Failed to write error message: {writeEx.Message}");
+                        Console.Error.WriteLine($"Failed to write error message: {writeEx.Message}");
                         eventData["Status"] = "Network Error";
                         eventData["Type"] = "S7P-IOException";
                     }
@@ -366,7 +365,7 @@ public class ProxyWorker
                 {
                     if (isExpired)
                     {
-                        Console.WriteLine("Exception on an exipred request");
+                        Console.Error.WriteLine("Exception on an exipred request");
                         continue;
                     }
 
@@ -376,7 +375,7 @@ public class ProxyWorker
 
                     if (ex.Message == "Cannot access a disposed object." || ex.Message.StartsWith("Unable to write data") || ex.Message.Contains("Broken Pipe")) // The client likely closed the connection
                     {
-                        Console.WriteLine($"Client closed connection: {incomingRequest.FullURL}");
+                        Console.Error.WriteLine($"Client closed connection: {incomingRequest.FullURL}");
                         eventData["Status"] = "Network Error";
                         eventData["Type"] = "S7P-IOException";
                         SendEventData(eventData);
@@ -386,8 +385,8 @@ public class ProxyWorker
                     requestException = true;
                     dirtyExceptionLog = true;
                     // Log the exception
-                    Console.WriteLine($"Exception: {ex.Message}");
-                    Console.WriteLine($"Stack Trace: {ex.StackTrace}");
+                    Console.Error.WriteLine($"Exception: {ex.Message}");
+                    Console.Error.WriteLine($"Stack Trace: {ex.StackTrace}");
                     // Convert the multi-line stack trace to a single line
                     eventData["x-Stack"] = ex.StackTrace?.Replace(Environment.NewLine, " ") ?? "N/A";
                     eventData["WorkerState"] = workerState;
@@ -404,7 +403,7 @@ public class ProxyWorker
                     }
                     catch (Exception writeEx)
                     {
-                        Console.WriteLine($"Failed to write error message: {writeEx.Message}");
+                        Console.Error.WriteLine($"Failed to write error message: {writeEx.Message}");
                     }
                 }
                 finally
@@ -435,7 +434,7 @@ public class ProxyWorker
                     }
                     catch (Exception e)
                     {
-                        Console.WriteLine($"Error in finally: {e.Message}");
+                        Console.Error.WriteLine($"Error in finally: {e.Message}");
                     }
 
                     Interlocked.Decrement(ref states[7]);
@@ -740,7 +739,7 @@ public class ProxyWorker
                                 }
                                 catch (Exception e)
                                 {
-                                    Console.WriteLine($"Error reading from backend host: {e.Message}");
+                                    Console.Error.WriteLine($"Error reading from backend host: {e.Message}");
                                 }
 
                                 Console.WriteLine($"Trying next host: Response: {proxyResponse.StatusCode}");
@@ -913,8 +912,8 @@ public class ProxyWorker
                     throw new ProxyErrorException(ProxyErrorException.ErrorType.InvalidHeader, HttpStatusCode.BadRequest, "Bad header: " + e.Message);
                 }
                 // 500 Internal Server Error
-                Console.WriteLine($"Error: {e.StackTrace}");
-                Console.WriteLine($"Error: {e.Message}");
+                Console.Error.WriteLine($"Error: {e.StackTrace}");
+                Console.Error.WriteLine($"Error: {e.Message}");
                 //lastStatusCode = HandleProxyRequestError(host, e, request.Timestamp, request.FullURL, HttpStatusCode.InternalServerError);
 
                 Dictionary<string, string> requestAttempt = new();
