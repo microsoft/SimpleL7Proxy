@@ -29,13 +29,17 @@ public class RequestData : IDisposable, IAsyncDisposable
     public string MID { get; set; } = "";
     public Guid Guid { get; set; }
     public string UserID { get; set; } = "";
-    public int Timeout {get; set;}
+
+    // calculated timeout
+    public int Timeout { get; set; }
+
+    // Header timeout or default timeout
     public int defaultTimeout { get; set; } = 0;
     public string ExpireReason { get; set; } = "";
-    public ConcurrentDictionary<string, string> EventData = new ();
+    public ProxyEvent EventData = new ();
     public List<Dictionary<string, string>> incompleteRequests = new();
 
-    public string TTL = "";
+    //public string TTL = "";
 
     // Track if the request was re-qued for cleanup purposes
     //public bool Requeued { get; set; } = false;
@@ -61,7 +65,7 @@ public class RequestData : IDisposable, IAsyncDisposable
         MID = mid;
     }
 
-    public async Task<byte[]> CachBodyAsync() {
+    public async Task<byte[]> CacheBodyAsync() {
 
         if (BodyBytes != null)
         {
@@ -74,7 +78,7 @@ public class RequestData : IDisposable, IAsyncDisposable
         }
 
         // Read the body stream once and reuse it
-        using (MemoryStream ms = new MemoryStream())
+        using (MemoryStream ms = new())
         {
             await Body.CopyToAsync(ms);
             BodyBytes = ms.ToArray();

@@ -23,7 +23,7 @@ public interface IEventHubClient
     Task StartTimer();
     Task StopTimer();
     void SendData(string? value);
-    void SendData(ConcurrentDictionary<string, string> eventData);
+    void SendData(ProxyEvent eventData);
     int GetEntryCount();
     bool IsRunning { get; set; }
 }

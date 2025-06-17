@@ -170,7 +170,7 @@ public class EventHubClient : IEventHubClient
         _logBuffer.Enqueue(value);
     }
 
-    public void SendData(ConcurrentDictionary<string, string> eventData)
+    public void SendData(ProxyEvent eventData)
     {
         if (!isRunning || isShuttingDown) return;
 

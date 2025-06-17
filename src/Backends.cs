@@ -102,7 +102,6 @@ public class Backends : IBackendService
         }
 
         DateTime now = DateTime.UtcNow;
-        ConcurrentDictionary<string, string> logerror = new();
 
         // truncate older entries
         while (hostFailureTimes2.TryPeek(out var t) && (now - t).TotalSeconds >= FailureTimeFrame)
@@ -111,11 +110,14 @@ public class Backends : IBackendService
         }
 
         hostFailureTimes2.Enqueue(now);
-        logerror["Code"] = code.ToString();
-        logerror["Time"] = now.ToString();
-        logerror["WasException"] = wasException.ToString();
-        logerror["Count"] = hostFailureTimes2.Count.ToString();
-        logerror["Type"] = "S7P-CircuitBreaker-Error-Event";
+        ProxyEvent logerror = new ProxyEvent()
+        {
+            ["Type"] = "S7P-CircuitBreaker-Error",
+            ["Code"] = code.ToString(),
+            ["Time"] = now.ToString(),
+            ["WasException"] = wasException.ToString(),
+            ["Count"] = hostFailureTimes2.Count.ToString(),
+        };
 
         SendEventData(logerror);
     }
@@ -268,13 +270,16 @@ public class Backends : IBackendService
 
     private async Task<bool> GetHostStatus(BackendHost host, HttpClient client)
     {
-        ConcurrentDictionary<string, string> probeData = new();
         double latency = 0;
+        ProxyEvent probeData = new()
+        {
+            ["ProxyHost"] = _options.HostName,
+            ["Backend-Host"] = host.host,
+            ["Port"] = host.port.ToString(),
+            ["Path"] = host.probe_path,
+            ["Type"] = "S7P-Poller"
+        };
         try {
-            probeData["ProxyHost"] = _options.HostName;
-            probeData["Backend-Host"] = host.host;
-            probeData["Port"] = host.port.ToString();
-            probeData["Path"] = host.probe_path;
 
             if (_debug)
                 WriteOutput($"Checking host {host.url + host.probe_path}");
@@ -291,20 +296,9 @@ public class Backends : IBackendService
                 // send and read the entire response
                 var response = await client.SendAsync(request, _cancellationToken);
                 var responseBody = await response.Content.ReadAsStringAsync(_cancellationToken);
-                
-                stopwatch.Stop();
-
-                latency = stopwatch.Elapsed.TotalMilliseconds;
-
-                // Update the host with the new latency
-                host.AddLatency(latency);
-
-                probeData["Latency"] = latency.ToString() + " ms";
-                probeData["Code"] = response.StatusCode.ToString();
-                probeData["Type"] = "S7P-Poller";
-
                 response.EnsureSuccessStatusCode();
-
+                
+                probeData["Code"] = response.StatusCode.ToString();
                 _isRunning = true;
 
                 // If the response is successful, add the host to the active hosts
@@ -314,6 +308,8 @@ public class Backends : IBackendService
                 stopwatch.Stop();
                 latency = stopwatch.Elapsed.TotalMilliseconds;
 
+                // Update the host with the new latency
+                host.AddLatency(latency);
                 probeData["Latency"] = latency.ToString() + " ms";
             }
         }
@@ -426,7 +422,7 @@ public class Backends : IBackendService
         }
     }
 
-    private void SendEventData(ConcurrentDictionary<string, string> eventData)//string urlWithPath, HttpStatusCode statusCode, DateTime requestDate, DateTime responseDate)
+    private void SendEventData(ProxyEvent eventData)//string urlWithPath, HttpStatusCode statusCode, DateTime requestDate, DateTime responseDate)
     {
         _eventHubClient?.SendData(eventData);
     }
@@ -525,7 +521,7 @@ public class Backends : IBackendService
         }
     }
 
-    private void WriteOutput(string data = "", ConcurrentDictionary<string, string>? eventData = null)
+    private void WriteOutput(string data = "", ProxyEvent? eventData = null)
     {
         try
         {

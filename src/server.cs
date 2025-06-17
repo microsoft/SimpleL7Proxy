@@ -99,17 +99,14 @@ public class Server : IServer
 
         while (!_cancellationToken.IsCancellationRequested)
         {
-            ConcurrentDictionary<string, string> ed = null!;
+            ProxyEvent ed = null!;
             
             try
             {
                 // Use the CancellationToken to asynchronously wait for an HTTP request.
                 var getContextTask = httpListener.GetContextAsync();
-                //using (var delayCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationToken))
-                //{
-                //var delayTask = Task.Delay(Timeout.Infinite, delayCts.Token);
 
-                //var completedTask = await Task.WhenAny(getContextTask, delayTask).ConfigureAwait(false);
+                // call GetContextAsync in a way that it can be cancelled
                 var completedTask = await Task.WhenAny(getContextTask, Task.Delay(Timeout.Infinite, _cancellationToken)).ConfigureAwait(false);
 
                 //  control to allow other tasks to run .. doesn't make sense here
@@ -133,8 +130,10 @@ public class Server : IServer
                     ed = rd.EventData;
                     ed["Date"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
                     ed["S7P-Host-ID"] = _options.IDStr;
-                    ed["Revision"] = _options.Revision;
-                    ed["ContainerApp"] = _options.ContainerApp;
+                    ed["Path"] = rd.Path ?? "N/A";
+                    ed["Method"] = rd.Method ?? "N/A";
+                    ed["RequestHost"] = rd.Headers["Host"] ?? "N/A";
+                    ed["RequestUserAgent"] = rd.Headers["User-Agent"] ?? "N/A";
                     // readiness probes:
                     // if it's a probe, then bypass all the below checks and enqueue the request 
                     if (Constants.probes.Contains(rd.Path))
@@ -194,7 +193,7 @@ public class Server : IServer
                                 {
                                     var headers = _userProfile.GetUserProfile(requestUser);
 
-                                    if (headers != null)
+                                    if (headers != null && headers.Count > 0)
                                     {
                                         foreach (var header in headers)
                                         {
@@ -410,7 +409,7 @@ public class Server : IServer
                     }
                     else
                     {
-                        ConcurrentDictionary<string, string> temp_ed = new(ed);
+                        ProxyEvent temp_ed = new(ed);
                         temp_ed["Type"] = "S7P-Enqueue";
                         temp_ed["Message"] = "Enqueued request";
 
@@ -431,7 +430,7 @@ public class Server : IServer
             catch (OperationCanceledException)
             {
                 // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
-                WriteOutput("Operation was canceled. Stopping the listener.", ed);
+                WriteOutput("HTTP server shutdown initiated.", ed);
                 break; // Exit the loop
             }
             catch (Exception e)
@@ -441,10 +440,10 @@ public class Server : IServer
             }
         }
 
-        WriteOutput("Listener task stopped.");
+        WriteOutput("HTTP server stopped.");
     }
 
-    private void WriteOutput(string data = "", ConcurrentDictionary<string, string>? eventData = null)
+    private void WriteOutput(string data = "", ProxyEvent? eventData = null)
     {
 
         try
