@@ -34,9 +34,11 @@ public static class BackendHostConfigurationExtensions
     {
       options.AcceptableStatusCodes = backendOptions.AcceptableStatusCodes;
       options.AsyncBlobStorageConnectionString = backendOptions.AsyncBlobStorageConnectionString;
-      options.AsyncBlobStorageContainer = backendOptions.AsyncBlobStorageContainer;
+      options.AsyncClientAllowedFieldName = backendOptions.AsyncClientAllowedFieldName;
+      options.AsyncClientBlobFieldname = backendOptions.AsyncClientBlobFieldname;
+      options.AsyncClientBlobTimeoutFieldName = backendOptions.AsyncClientBlobTimeoutFieldName;
       options.AsyncModeEnabled = backendOptions.AsyncModeEnabled;
-      options.AsyncServiceBusTopic = backendOptions.AsyncServiceBusTopic;
+      options.AsyncSBConnectionString = backendOptions.AsyncSBConnectionString;
       options.AsyncTimeout = backendOptions.AsyncTimeout;
       options.CircuitBreakerErrorThreshold = backendOptions.CircuitBreakerErrorThreshold;
       options.CircuitBreakerTimeslice = backendOptions.CircuitBreakerTimeslice;
@@ -54,7 +56,7 @@ public static class BackendHostConfigurationExtensions
       options.LogAllResponseHeadersExcept = backendOptions.LogAllResponseHeadersExcept;
       options.LogHeaders = backendOptions.LogHeaders;
       options.LogProbes = backendOptions.LogProbes;
-      options.LookupHeaderName = backendOptions.LookupHeaderName;
+      options.UserIDFieldName = backendOptions.UserIDFieldName;
       options.MaxQueueLength = backendOptions.MaxQueueLength;
       options.OAuthAudience = backendOptions.OAuthAudience;
       options.PollInterval = backendOptions.PollInterval;
@@ -115,6 +117,20 @@ public static class BackendHostConfigurationExtensions
     EnvVars[variableName] = value;
     return value;
   }
+  private static string ReadEnvironmentVariableOrDefault(string altVariableName, string variableName, string defaultValue)
+  {
+    // Try both variable names and use the first non-empty one
+    string? envValue = Environment.GetEnvironmentVariable(variableName)?.Trim() ?? 
+                       Environment.GetEnvironmentVariable(altVariableName)?.Trim();
+    
+    // Use default if neither variable is defined
+    string result = !string.IsNullOrEmpty(envValue) ? envValue : defaultValue;
+    
+    // Record and return the value
+    EnvVars[variableName] = result;
+    return result;
+  }
+
   private static bool ReadEnvironmentVariableOrDefault(string variableName, bool defaultValue)
   {
     bool value = _ReadEnvironmentVariableOrDefault(variableName, defaultValue);
@@ -400,9 +416,12 @@ public static class BackendHostConfigurationExtensions
     {
       AcceptableStatusCodes = ReadEnvironmentVariableOrDefault("AcceptableStatusCodes", new int[] { 200, 401, 403, 404, 408, 410, 412, 417, 400 }),
       AsyncBlobStorageConnectionString = ReadEnvironmentVariableOrDefault("AsyncBlobStorageConnectionString", "example-connection-string"),
-      AsyncBlobStorageContainer = ReadEnvironmentVariableOrDefault("AsyncBlobStorageContainer", "example-container"),
+      AsyncClientAllowedFieldName = ReadEnvironmentVariableOrDefault("AsyncClientAllowedFieldName", "async-allowed"),
+      AsyncClientBlobFieldname = ReadEnvironmentVariableOrDefault("AsyncClientBlobFieldname", "async-blobname"),
+      AsyncClientBlobTimeoutFieldName = ReadEnvironmentVariableOrDefault("AsyncClientBlobTimeoutFieldName", "async-blobaccess-timeout"),
       AsyncModeEnabled = ReadEnvironmentVariableOrDefault("AsyncModeEnabled", false),
-      AsyncServiceBusTopic = ReadEnvironmentVariableOrDefault("AsyncServiceBusTopic", "example-topic"),
+      AsyncSBConnectionString = ReadEnvironmentVariableOrDefault("AsyncSBConnectionString", "example-sb-connection-string"),
+      AsyncSBTopicFieldName = ReadEnvironmentVariableOrDefault("AsyncSBTopicFieldName", "async-topic"),
       AsyncTimeout = ReadEnvironmentVariableOrDefault("AsyncTimeout", 30 * 60000),
       CircuitBreakerErrorThreshold = ReadEnvironmentVariableOrDefault("CBErrorThreshold", 50),
       CircuitBreakerTimeslice = ReadEnvironmentVariableOrDefault("CBTimeslice", 60),
@@ -420,7 +439,6 @@ public static class BackendHostConfigurationExtensions
       LogAllResponseHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllResponseHeadersExcept", "Api-Key")),
       LogHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
       LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", false),
-      LookupHeaderName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "userId"),
       MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
       OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
       PollInterval = ReadEnvironmentVariableOrDefault("PollInterval", 15000),
@@ -443,6 +461,7 @@ public static class BackendHostConfigurationExtensions
       UseOAuthGov = ReadEnvironmentVariableOrDefault("UseOAuthGov", false),
       UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", false),
       UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", "file:config.json"),
+      UserIDFieldName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "UserIDFieldName", "userId"), // migrate from LookupHeaderName
       UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
       UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", "X-UserProfile"),
       ValidateAuthAppFieldName = ReadEnvironmentVariableOrDefault("ValidateAuthAppFieldName", "authAppID"),
@@ -452,6 +471,8 @@ public static class BackendHostConfigurationExtensions
       ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault("ValidateHeaders", ""))),
       Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
     };
+
+    
 
     //backendOptions.Client.Timeout = TimeSpan.FromMilliseconds(backendOptions.Timeout);
     int i = 1;
