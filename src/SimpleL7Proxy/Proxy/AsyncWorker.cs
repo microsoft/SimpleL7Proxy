@@ -25,6 +25,8 @@ namespace SimpleL7Proxy.Proxy
         private string _headerBlobUri { get; set; } = "";
         private string _dataBlobUri { get; set; } = "";
         private Stream _hos { get; set; } = null!;
+        private string _userId { get; set; } = "";
+
         private static BlobWriter? _blobWriter;
         private static ILogger<AsyncWorker>? _logger;
         public string ErrorMessage { get; set; } = "";
@@ -51,9 +53,14 @@ namespace SimpleL7Proxy.Proxy
         public AsyncWorker(RequestData data)
         {
             _requestData = data;
+            _userId = data.UserID;
             if ( !data.runAsync)
             {
                 throw new ArgumentException("AsyncWorker can only be used for async requests.");
+            }
+            if ( _blobWriter?.initClient(_userId, data.BlobContainerName) == false)
+            {
+                throw new ArgumentException("Failed to initialize BlobWriter for AsyncWorker.");
             }
             _cancellationTokenSource = new CancellationTokenSource();
         }
@@ -79,9 +86,9 @@ namespace SimpleL7Proxy.Proxy
                     {
                         dataBlobName = _requestData.Guid.ToString();
                         headerBlobName = dataBlobName + "-Headers";
-                        var os = await _blobWriter!.CreateBlobAndGetOutputStreamAsync(dataBlobName).ConfigureAwait(false);
+                        var os = await _blobWriter!.CreateBlobAndGetOutputStreamAsync(_userId, dataBlobName).ConfigureAwait(false);
                         _requestData.OutputStream = new BufferedStream(os);
-                        _hos = new BufferedStream(await _blobWriter!.CreateBlobAndGetOutputStreamAsync(headerBlobName).ConfigureAwait(false));
+                        _hos = new BufferedStream(await _blobWriter!.CreateBlobAndGetOutputStreamAsync(_userId, headerBlobName).ConfigureAwait(false));
 
                     }
                     catch (Exception blobEx)
@@ -95,8 +102,8 @@ namespace SimpleL7Proxy.Proxy
                     // create a SAS token for the blob
                     try
                     {
-                        _dataBlobUri = _blobWriter!.GenerateSasToken(dataBlobName, TimeSpan.FromMinutes(5));
-                        _headerBlobUri = _blobWriter!.GenerateSasToken(headerBlobName, TimeSpan.FromMinutes(5));
+                        _dataBlobUri = _blobWriter!.GenerateSasToken(_userId, dataBlobName, TimeSpan.FromSeconds(_requestData.AsyncBlobAccessTimeoutSecs));
+                        _headerBlobUri = _blobWriter!.GenerateSasToken(_userId, headerBlobName, TimeSpan.FromSeconds(_requestData.AsyncBlobAccessTimeoutSecs));
                         _requestData.Context!.Response.Headers.Add("x-Data-Blob-SAS-URI", _dataBlobUri);
                         _requestData.Context!.Response.Headers.Add("x-Header-Blob-SAS-URI", _headerBlobUri);
                     }
