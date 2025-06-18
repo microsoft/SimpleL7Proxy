@@ -7,8 +7,11 @@ import json
 import signal
 import http.server
 import socketserver
+import threading
 from urllib.parse import urlparse, parse_qs
 from socketserver import ThreadingMixIn
+
+httpd = None  # Declare httpd as a global variable
 
 class MyHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
@@ -26,7 +29,7 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(b"OK")
             return
         
-        if parsed_path.path == '/error':
+        if parsed_path.path == '/500error':
             self.send_response(500)
             self.send_header("Content-Type", "text/plain")
             self.end_headers()
@@ -39,6 +42,12 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             print("Connection closed")
             return
 
+        if parsed_path.path == '/delay800seconds':
+            time.sleep(800)
+            self.wfile.close()
+            print("Connection closed")
+            return
+        
         if parsed_path.path == '/success':
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
@@ -102,25 +111,47 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.flush()
 
 class ThreadedTCPServer(ThreadingMixIn, socketserver.TCPServer):
+    daemon_threads = True
     pass
+
+shutdown_event = threading.Event()
 
 def handle_sigint(signum, frame):
     print("\nReceived interrupt, shutting down server...")
-    httpd.shutdown()
-    httpd.server_close()
-    sys.exit(0)
+    shutdown_event.set()
 
 def mt_main():
+    global httpd
+    
     # Listen on port 3000
-    with ThreadedTCPServer(("localhost", 3000), MyHandler) as httpd:
-        print("Server started on port 3000...")
-        httpd.serve_forever()
+    httpd = ThreadedTCPServer(("localhost", 3000), MyHandler)
+    print("Server started on port 3000...")
+    
+    # Start server in a separate thread
+    server_thread = threading.Thread(target=httpd.serve_forever)
+    server_thread.daemon = True
+    server_thread.start()
+    
+    # Wait for shutdown signal
+    shutdown_event.wait()
+    
+    # Shutdown the server
+    httpd.shutdown()
+    httpd.server_close()
+    httpd = None
+    print("Server shut down successfully")
         
 def single_main():
+    global httpd
+
     # Listen on port 3000
-    with socketserver.TCPServer(("localhost", 3000), MyHandler) as httpd:
-        print("Server started on port 3000...")
+    httpd = ThreadedTCPServer(("localhost", 3000), MyHandler)
+    print("Server started on port 3000...")
+    try:
         httpd.serve_forever()
+    finally:
+        httpd.server_close()
+        httpd = None
 
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, handle_sigint)
