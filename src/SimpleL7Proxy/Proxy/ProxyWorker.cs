@@ -222,7 +222,8 @@ public class ProxyWorker
                         var timeTaken = (DateTime.UtcNow - incomingRequest.EnqueueTime).TotalMilliseconds.ToString("F3");
                         eventData["x-Total-Latency"] = timeTaken;
                         eventData["x-Attempts"] = incomingRequest.Attempts.ToString();
-                        if (pr != null) {
+                        if (pr != null)
+                        {
                             eventData["x-Backend-Host"] = !string.IsNullOrEmpty(pr.BackendHostname) ? pr.BackendHostname : "N/A";
                             eventData["x-Response-Latency"] =
                                 pr.ResponseDate != default && incomingRequest.DequeueTime != default
@@ -366,6 +367,7 @@ public class ProxyWorker
                         _logger.LogError($"Failed to write error message: {writeEx.Message}");
                         eventData["Status"] = "Network Error";
                         eventData["Type"] = "S7P-IOException";
+                        eventData["Message"] = writeEx.Message;
                     }
                     finally
                     {
@@ -616,7 +618,7 @@ public class ProxyWorker
         List<S7PRequeueException> retryAfter = new();
 
 
- 
+
 
         if (_options.UseOAuth)
         {
@@ -914,9 +916,8 @@ public class ProxyWorker
                 requestAttempt["Error"] = "Request Timed out";
                 incompleteRequests.Add(requestAttempt);
 
-                requestAttempt["MID"] = request.MID ?? "N/A";
                 requestAttempt["Message"] = "Operation TIMEOUT";
-                
+
                 var str = JsonSerializer.Serialize(requestAttempt);
 
                 _logger.LogInformation(str);
@@ -926,7 +927,7 @@ public class ProxyWorker
             catch (OperationCanceledException)
             {
                 // 408 Request Timeout
-                
+
                 Dictionary<string, string> requestAttempt = new();
                 requestAttempt["Status"] = ((int)HttpStatusCode.RequestTimeout).ToString();
                 requestAttempt["Backend-Host"] = host.Host;
@@ -1012,7 +1013,7 @@ public class ProxyWorker
             request.Context!.Response.Headers["x-ProxyHost"] = _options.HostName;
             request.Context!.Response.Headers["x-MID"] = request.MID;
             request.Context!.Response.Headers["Attempts"] = request.Attempts.ToString();
-            
+
             await request.OutputStream.WriteAsync(
                 Encoding.UTF8.GetBytes(sb.ToString()),
                 0,
@@ -1146,7 +1147,7 @@ public class ProxyWorker
     //     return statusCode;
     // }
 
-    private void SendEventData(ConcurrentDictionary<string, string> eventData)//string urlWithPath, HttpStatusCode statusCode, DateTime requestDate, DateTime responseDate)
+    private void SendEventData(ProxyEvent eventData)//string urlWithPath, HttpStatusCode statusCode, DateTime requestDate, DateTime responseDate)
     {
         _eventClient?.SendData(eventData);
     }
