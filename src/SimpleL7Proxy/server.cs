@@ -14,6 +14,7 @@ using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.ServiceBus;
 using System.Text;
 
+
 namespace SimpleL7Proxy;
 // This class represents a server that listens for HTTP requests and processes them.
 // It uses a priority queue to manage incoming requests and supports telemetry for monitoring.
@@ -36,7 +37,7 @@ public class Server : BackgroundService
     private static bool _isShuttingDown = false;
     private readonly string _priorityHeaderName;
 
-    //private readonly IEventHubClient? _eventHubClient;
+    private readonly IEventClient? _eventHubClient;
 
     // public void enqueueShutdownRequest() {
     //     var shutdownRequest = new RequestData(Constants.Shutdown);
@@ -51,7 +52,7 @@ public class Server : BackgroundService
         IUserPriorityService userPriority,
         IUserProfileService userProfile,
         //IServiceBusRequestService serviceBusRequestService,
-        //IEventHubClient? eventHubClient, 
+        IEventClient? eventHubClient,
         IBackendService backends,
         TelemetryClient? telemetryClient,
         ILogger<Server> logger)
@@ -70,9 +71,8 @@ public class Server : BackgroundService
 
         _options = backendOptions.Value;
         _backends = backends;
-        //_eventHubClient = eventHubClient;
+        _eventHubClient = eventHubClient;
         _telemetryClient = telemetryClient;
-        //_requestsQueue.MaxQueueLength = _options.MaxQueueLength;
         _userPriority = userPriority;
         _userProfile = userProfile;
         _logger = logger;
@@ -158,21 +158,19 @@ public class Server : BackgroundService
 
         int livenessPriority = _options.PriorityValues.Min();
         bool doUserProfile = _options.UseProfiles;
+        bool doAsync = _options.AsyncModeEnabled;
 
         while (!cancellationToken.IsCancellationRequested)
         {
+            ProxyEvent ed = null!;
+
             try
             {
                 // Use the CancellationToken to asynchronously wait for an HTTP request.
                 var getContextTask = _httpListener.GetContextAsync();
-                //using (var delayCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationToken))
-                //{
-                //var delayTask = Task.Delay(Timeout.Infinite, delayCts.Token);
-                //var completedTask = await Task.WhenAny(getContextTask, delayTask).ConfigureAwait(false);
-                var completedTask = await Task.WhenAny(getContextTask, Task.Delay(Timeout.Infinite, cancellationToken)).ConfigureAwait(false);
 
-                //  control to allow other tasks to run .. doesn't make sense here
-                // await Task.Yield();
+                // call GetContextAsync in a way that it can be cancelled
+                var completedTask = await Task.WhenAny(getContextTask, Task.Delay(Timeout.Infinite, cancellationToken)).ConfigureAwait(false);
 
                 // Cancel the delay task immedietly if the getContextTask completes first
                 if (completedTask == getContextTask)
@@ -183,14 +181,22 @@ public class Server : BackgroundService
                     int notEnquedCode = 0;
                     var retrymsg = "";
                     var logmsg = "";
-                    Dictionary<string, string> ed = [];
-
 
                     Interlocked.Increment(ref counter);
                     var requestId = _options.IDStr + counter.ToString();
 
                     //delayCts.Cancel();
                     var rd = new RequestData(await getContextTask.ConfigureAwait(false), requestId);
+
+                    ed = rd.EventData;
+                    ed["Date"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
+                    ed["S7P-Host-ID"] = _options.IDStr;
+                    ed["Revision"] = _options.Revision;
+                    ed["ContainerApp"] = _options.ContainerApp;
+                    ed["Path"] = rd.Path ?? "N/A";
+                    ed["Method"] = rd.Method ?? "N/A";
+                    ed["RequestHost"] = rd.Headers["Host"] ?? "N/A";
+                    ed["RequestUserAgent"] = rd.Headers["User-Agent"] ?? "N/A";
 
                     // readiness probes:
                     // if it's a probe, then bypass all the below checks and enqueue the request 
@@ -207,13 +213,13 @@ public class Server : BackgroundService
 
                     if (!_isShuttingDown)
                     {
-                        try 
+                        try
                         {
                             rd.Debug = rd.Headers["S7PDEBUG"] != null && string.Equals(rd.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase);
 
 
-                            if (_options.ValidateAuthAppID) 
-                            { 
+                            if (_options.ValidateAuthAppID)
+                            {
                                 string? authAppID = rd.Headers[_options.ValidateAuthAppIDHeader];
                                 if (!string.IsNullOrEmpty(authAppID) && _userProfile.IsAuthAppIDValid(authAppID))
                                 {
@@ -238,9 +244,9 @@ public class Server : BackgroundService
                             {
                                 if (rd.Debug && !String.IsNullOrEmpty(rd.Headers.Get(header)))
                                     Console.WriteLine($"Disallowed header {header} removed from request.");
-                                rd.Headers.Remove(header);   
+                                rd.Headers.Remove(header);
                             }
-                            
+
                             rd.UserID = "";
 
                             // Lookup the user profile and add the headers to the request
@@ -260,6 +266,16 @@ public class Server : BackgroundService
                                                 Console.WriteLine($"Add Header: {header.Key} = {header.Value}");
                                         }
                                     }
+                                    else
+                                    {
+                                        if (rd.Debug)
+                                            Console.WriteLine($"User profile for {requestUser} not found.");
+                                        throw new ProxyErrorException(
+                                            ProxyErrorException.ErrorType.UnknownProfile,
+                                            HttpStatusCode.Forbidden,
+                                            "User profile not found: " + requestUser + "\n"
+                                        );
+                                    }
                                 }
                             }
 
@@ -267,7 +283,8 @@ public class Server : BackgroundService
                             if (_options.RequiredHeaders.Count > 0)
                             {
                                 var missing = _options.RequiredHeaders.FirstOrDefault(x => string.IsNullOrEmpty(rd.Headers[x]));
-                                if (!string.IsNullOrEmpty(missing)) {
+                                if (!string.IsNullOrEmpty(missing))
+                                {
                                     if (rd.Debug)
                                         Console.WriteLine($"Required header {missing} is missing from request.");
 
@@ -299,7 +316,7 @@ public class Server : BackgroundService
                                     }
                                 }
                                 if (rd.Debug)
-                                    Console.WriteLine($"Validation check passed for all headers."); 
+                                    Console.WriteLine($"Validation check passed for all headers.");
                             }
 
                             // Determine priority boost based on the UserID 
@@ -317,15 +334,40 @@ public class Server : BackgroundService
                             }
 
                             ed["UserID"] = rd.UserID;
-                            ed["x-S7PID"] = rd.MID;
-   
+                            ed["S7P-ID"] = rd.MID;
+
                             if (rd.Debug)
                                 Console.WriteLine($"UserID: {rd.UserID}");
-                                
+
+                            // determine if the request is allowed async operation
+                            if (doAsync && rd.Headers["AsyncEnabled"] != null && bool.TryParse(rd.Headers["AsyncEnabled"], out var allowed))
+                            {
+                                var clientInfo = _userProfile.GetAsyncParams(rd.UserID);
+                                rd.runAsync = false;
+
+                                if (clientInfo != null)
+                                {
+                                    rd.AsyncBlobAccessTimeoutSecs = clientInfo.AsyncBlobAccessTimeoutSecs;
+                                                                        
+                                    // Set blob storage and Service Bus information for async processing
+                                    ed["AsyncBlobContainer"] = rd.BlobContainerName = clientInfo.ContainerName;
+                                    ed["AsyncSBTopic"] = rd.SBTopicName = clientInfo.SBTopicName;
+                                    ed["BlobAccessTimeout"] = clientInfo.AsyncBlobAccessTimeoutSecs.ToString();
+                                    rd.runAsync = true;
+                                }
+
+                                if (rd.Debug)
+                                {
+                                    Console.WriteLine($"AsyncEnabled: {rd.runAsync}");
+                                }
+                            }
+
                             // Determine priority boost based on the UserID
                             rd.Guid = _userPriority.addRequest(rd.UserID);
                             bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
                             userPriorityBoost = shouldBoost ? 1 : 0;
+
+                            ed["GUID"] = rd.Guid.ToString();
 
                             var priorityKey = rd.Headers[_priorityHeaderName];
                             if (!string.IsNullOrEmpty(priorityKey) && _options.PriorityKeys.Contains(priorityKey)) //lookup the priority
@@ -340,20 +382,22 @@ public class Server : BackgroundService
                             rd.Priority2 = userPriorityBoost;
                             rd.EnqueueTime = DateTime.UtcNow;
 
-                            ed["S7P-Hostname"] = _options.IDStr;
                             ed["S7P-Priority"] = priority.ToString();
                             ed["S7P-Priority2"] = userPriorityBoost.ToString();
 
                             // Save the timeout header value if it exists
-                            if (rd.Headers[_options.TimeoutHeader] != null && int.TryParse(rd.Headers[_options.TimeoutHeader], out var timeout)) {
+                            if (rd.Headers[_options.TimeoutHeader] != null && int.TryParse(rd.Headers[_options.TimeoutHeader], out var timeout))
+                            {
                                 rd.defaultTimeout = timeout;
-                            } else {
+                            }
+                            else
+                            {
                                 rd.defaultTimeout = _options.Timeout;
                             }
 
                             // Calculate expiresAt time based on the timeout header or default TTL
-                            rd.CalculateExpiration(_options.DefaultTTLSecs);
-
+                            rd.CalculateExpiration(_options.DefaultTTLSecs, _options.TTLHeader);
+                            ed["DefaultTimeout"] = rd.defaultTimeout.ToString();
 
                             // Check circuit breaker status and enqueue the request
                             if (_backends.CheckFailedStatus())
@@ -382,6 +426,7 @@ public class Server : BackgroundService
                                 logmsg = "No active hosts  => 429:";
                             }
 
+
                             // Enqueue the request
 
                             else if (!_requestsQueue.Enqueue(rd, priority, userPriorityBoost, rd.EnqueueTime))
@@ -392,17 +437,15 @@ public class Server : BackgroundService
                                 retrymsg = ed["Message"] = "Failed to enqueue request";
                                 logmsg = "Failed to enqueue request  => 429:";
                             }
-                            
-                            if (!notEnqued && _options.UseServiceBus)
+
+                            if (!notEnqued && doAsync)
                             {
-                                rd.SBClientID = "client1";
                                 rd.SBStatus = ServiceBusMessageStatusEnum.InQueue;
-                                
-                                //_serviceBusRequestService.updateStatus(rd);
                             }
-                            
-                        } 
-                        catch (ProxyErrorException e) {
+
+                        }
+                        catch (ProxyErrorException e)
+                        {
                             notEnqued = true;
                             notEnquedCode = (int)e.StatusCode;
 
@@ -423,56 +466,48 @@ public class Server : BackgroundService
                         }
                     }
 
-                    ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
                     ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
+                    ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
+                    ed["MID"] = rd.MID;
+                    ed["ExpiresAt"] = rd.ExpiresAtString;
+                    ed["Priority"] = priority.ToString();
+                    ed["Priority2"] = userPriorityBoost.ToString();
 
                     if (notEnqued)
                     {
+
                         if (rd.Context is not null)
                         {
                             ed["Type"] = "S7P-EnqueueFailed";
-                            ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
-                            ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
                             _logger.LogInformation($"{logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}", ed);
-
-                            rd.Context.Response.StatusCode = notEnquedCode;
-                            rd.Context.Response.Headers["Retry-After"] = (_backends.ActiveHostCount() == 0) ? _options.PollInterval.ToString() : "500";
 
                             try
                             {
+                                rd.Context.Response.StatusCode = notEnquedCode;
+                                rd.Context.Response.Headers["Retry-After"] = (_backends.ActiveHostCount() == 0) ? _options.PollInterval.ToString() : "500";
                                 using (var writer = new System.IO.StreamWriter(rd.Context.Response.OutputStream))
                                 {
-                                    try
-                                    {
-                                        await writer.WriteAsync(retrymsg).ConfigureAwait(false);
-                                    }
-                                    catch (IOException)
-                                    {
-                                        // pass
-                                    }
+                                    await writer.WriteAsync(retrymsg).ConfigureAwait(false);
                                 }
+                                rd.Context.Response.Close();
                             }
-                            catch (Exception)
+                            catch (Exception ex)
                             {
-                                // pass
+                                _logger.LogInformation($"Request was not enqueue'd and got an error writing on network: {ex.Message}", ed);
                             }
-
-                            rd.Context.Response.Close();
-                            _logger.LogError($"Pri: {priority} Stat: {notEnquedCode} Path: {rd.Path}");
+                            _logger.LogInformation($"Pri: {priority} Stat: 429 Path: {rd.Path}");
                         }
 
                         _userPriority.removeRequest(rd.UserID, rd.Guid);
-
                     }
                     else
                     {
-                        ed["Type"] = "S7P-Enqueue";
-                        ed["Message"] = "Enqueued request";
-                        ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
-                        ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
-                        ed["Priority"] = priority.ToString();
+                        ProxyEvent temp_ed = new(ed);
+                        temp_ed["Type"] = "S7P-Enqueue";
+                        temp_ed["Message"] = "Enqueued request";
 
-                        _logger.LogInformation($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ", ed);
+                        _logger.LogInformation($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
+                        temp_ed.SendEvent();
                     }
                 }
                 else
@@ -483,49 +518,21 @@ public class Server : BackgroundService
             }
             catch (IOException ioEx)
             {
-                _logger.LogError($"An IO exception occurred: {ioEx.Message}");
+                _logger.LogError($"An IO exception occurred: {ioEx.Message}", ed);
             }
             catch (OperationCanceledException)
             {
                 // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
-                _logger.LogInformation("Operation was canceled. Stopping the listener.");
+                _logger.LogInformation("HTTP server shutdown.");
                 break; // Exit the loop
             }
             catch (Exception e)
             {
                 _telemetryClient?.TrackException(e);
-                _logger.LogError($"Error: {e.Message}\n{e.StackTrace}");
+                _logger.LogError($"Error: {e.Message}\n{e.StackTrace}", ed);
             }
         }
 
-        _logger.LogInformation("Listener task stopped.");
-    }
-
-    private void WriteOutput(string data = "", Dictionary<string, string>? eventData = null)
-    {
-
-        // Log the data to the console
-        if (!string.IsNullOrEmpty(data))
-        {
-            Console.WriteLine(data);
-
-            // if eventData is null, create a new dictionary and add the message to it
-            if (eventData == null)
-            {
-                eventData = new Dictionary<string, string>();
-                eventData.Add("Message", data);
-            }
-        }
-
-        if (eventData == null)
-            eventData = new Dictionary<string, string>();
-
-        if (!eventData.TryGetValue("Type", out var typeValue))
-        {
-            eventData["Type"] = "S7P-Console";
-        }
-
-        string jsonData = JsonSerializer.Serialize(eventData);
-        // _eventHubClient?.SendData(jsonData);
+        _logger.LogInformation("HTTP server stopped.");
     }
 }

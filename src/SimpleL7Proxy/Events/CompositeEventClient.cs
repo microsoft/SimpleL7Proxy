@@ -1,8 +1,22 @@
-﻿namespace SimpleL7Proxy.Events;
+﻿using System.Collections.Concurrent;
+
+namespace SimpleL7Proxy.Events;
 
 public class CompositeEventClient(IEnumerable<IEventClient> eventClients)
   : IEventClient
 {
+
+
+  public Task StartTimer()
+  {
+    foreach (var client in eventClients)
+    {
+      Console.WriteLine($"starting timer for {client}");
+      client.StopTimer();
+    }
+
+    return Task.CompletedTask;
+  }
   public void StopTimer()
   {
     foreach (var client in eventClients)
@@ -31,13 +45,22 @@ public class CompositeEventClient(IEnumerable<IEventClient> eventClients)
     }
   }
 
-  public void SendData(Dictionary<string, string> data)
-  {
-    foreach (var client in eventClients)
-    {
-      client.SendData(data);
-    }
-  }
+  // public void SendData(Dictionary<string, string> data)
+  // {
+  //   foreach (var client in eventClients)
+  //   {
+  //     client.SendData(data);
+  //   }
+  // }
+
+  //   public void SendData(ConcurrentDictionary<string, string> eventData, string? name = null)
+  // {
+  //   foreach (var client in eventClients)
+  //   {
+  //     client.SendData(eventData);
+  //   }
+  // }
+
   public void SendData(ProxyEvent proxyEvent)
   {
     foreach (var client in eventClients)

@@ -1,11 +1,19 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿using Microsoft.ApplicationInsights;
+using Microsoft.ApplicationInsights.Extensibility;
+using Microsoft.ApplicationInsights.WorkerService;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using OS = System;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Net;
+using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -25,9 +33,17 @@ public static class BackendHostConfigurationExtensions
     services.Configure<BackendOptions>(options =>
     {
       options.AcceptableStatusCodes = backendOptions.AcceptableStatusCodes;
-      options.Client = backendOptions.Client;
+      options.AsyncBlobStorageConnectionString = backendOptions.AsyncBlobStorageConnectionString;
+      options.AsyncClientAllowedFieldName = backendOptions.AsyncClientAllowedFieldName;
+      options.AsyncClientBlobFieldname = backendOptions.AsyncClientBlobFieldname;
+      options.AsyncClientBlobTimeoutFieldName = backendOptions.AsyncClientBlobTimeoutFieldName;
+      options.AsyncModeEnabled = backendOptions.AsyncModeEnabled;
+      options.AsyncSBConnectionString = backendOptions.AsyncSBConnectionString;
+      options.AsyncTimeout = backendOptions.AsyncTimeout;
       options.CircuitBreakerErrorThreshold = backendOptions.CircuitBreakerErrorThreshold;
       options.CircuitBreakerTimeslice = backendOptions.CircuitBreakerTimeslice;
+      options.Client = backendOptions.Client;
+      options.ContainerApp = backendOptions.ContainerApp;
       options.DefaultPriority = backendOptions.DefaultPriority;
       options.DefaultTTLSecs = backendOptions.DefaultTTLSecs;
       options.DisallowedHeaders = backendOptions.DisallowedHeaders;
@@ -38,37 +54,39 @@ public static class BackendHostConfigurationExtensions
       options.LogAllRequestHeadersExcept = backendOptions.LogAllRequestHeadersExcept;
       options.LogAllResponseHeaders = backendOptions.LogAllResponseHeaders;
       options.LogAllResponseHeadersExcept = backendOptions.LogAllResponseHeadersExcept;
+      options.LogConsoleEvent = backendOptions.LogConsoleEvent;
       options.LogHeaders = backendOptions.LogHeaders;
       options.LogProbes = backendOptions.LogProbes;
-      options.LookupHeaderName = backendOptions.LookupHeaderName;
+      options.UserIDFieldName = backendOptions.UserIDFieldName;
       options.MaxQueueLength = backendOptions.MaxQueueLength;
       options.OAuthAudience = backendOptions.OAuthAudience;
+      options.PollInterval = backendOptions.PollInterval;
+      options.PollTimeout = backendOptions.PollTimeout;
+      options.Port = backendOptions.Port;
       options.PriorityKeyHeader = backendOptions.PriorityKeyHeader;
       options.PriorityKeys = backendOptions.PriorityKeys;
       options.PriorityValues = backendOptions.PriorityValues;
-      options.Port = backendOptions.Port;
-      options.PollInterval = backendOptions.PollInterval;
-      options.PollTimeout = backendOptions.PollTimeout;
+      options.PriorityWorkers = backendOptions.PriorityWorkers;
       options.RequiredHeaders = backendOptions.RequiredHeaders;
+      options.Revision = backendOptions.Revision;
       options.SuccessRate = backendOptions.SuccessRate;
       options.SuspendedUserConfigUrl = backendOptions.SuspendedUserConfigUrl;
+      options.TerminationGracePeriodSeconds = backendOptions.TerminationGracePeriodSeconds;
       options.Timeout = backendOptions.Timeout;
       options.TimeoutHeader = backendOptions.TimeoutHeader;
-      options.TerminationGracePeriodSeconds = backendOptions.TerminationGracePeriodSeconds;
       options.TTLHeader = backendOptions.TTLHeader;
       options.UniqueUserHeaders = backendOptions.UniqueUserHeaders;
       options.UseOAuth = backendOptions.UseOAuth;
       options.UseOAuthGov = backendOptions.UseOAuthGov;
-      options.UserProfileHeader = backendOptions.UserProfileHeader;
       options.UseProfiles = backendOptions.UseProfiles;
       options.UserConfigUrl = backendOptions.UserConfigUrl;
       options.UserPriorityThreshold = backendOptions.UserPriorityThreshold;
-      options.ValidateHeaders = backendOptions.ValidateHeaders;
-      options.PriorityWorkers = backendOptions.PriorityWorkers;
-      options.ValidateAuthAppID = backendOptions.ValidateAuthAppID;
+      options.UserProfileHeader = backendOptions.UserProfileHeader;
       options.ValidateAuthAppFieldName = backendOptions.ValidateAuthAppFieldName;
-      options.ValidateAuthAppIDUrl = backendOptions.ValidateAuthAppIDUrl;
+      options.ValidateAuthAppID = backendOptions.ValidateAuthAppID;
       options.ValidateAuthAppIDHeader = backendOptions.ValidateAuthAppIDHeader;
+      options.ValidateAuthAppIDUrl = backendOptions.ValidateAuthAppIDUrl;
+      options.ValidateHeaders = backendOptions.ValidateHeaders;
       options.Workers = backendOptions.Workers;
     });
 
@@ -100,6 +118,20 @@ public static class BackendHostConfigurationExtensions
     EnvVars[variableName] = value;
     return value;
   }
+  private static string ReadEnvironmentVariableOrDefault(string altVariableName, string variableName, string defaultValue)
+  {
+    // Try both variable names and use the first non-empty one
+    string? envValue = Environment.GetEnvironmentVariable(variableName)?.Trim() ?? 
+                       Environment.GetEnvironmentVariable(altVariableName)?.Trim();
+    
+    // Use default if neither variable is defined
+    string result = !string.IsNullOrEmpty(envValue) ? envValue : defaultValue;
+    
+    // Record and return the value
+    EnvVars[variableName] = result;
+    return result;
+  }
+
   private static bool ReadEnvironmentVariableOrDefault(string variableName, bool defaultValue)
   {
     bool value = _ReadEnvironmentVariableOrDefault(variableName, defaultValue);
@@ -252,7 +284,70 @@ public static class BackendHostConfigurationExtensions
     return s.Split(',').Select(p => int.Parse(p.Trim())).ToList();
   }
 
+  private static SocketsHttpHandler getHandler(int initialDelaySecs, int IntervalSecs, int linuxRetryCount)
+  {
+    SocketsHttpHandler handler = new SocketsHttpHandler();
+    handler.ConnectCallback = async (ctx, ct) =>
+    {
+      DnsEndPoint dnsEndPoint = ctx.DnsEndPoint;
+      IPAddress[] addresses = await Dns.GetHostAddressesAsync(dnsEndPoint.Host, dnsEndPoint.AddressFamily, ct).ConfigureAwait(false);
+      var s = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+      try
+      {
+        // Basic keep-alive setting - should work on all platforms
+        s.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+        try
+        {
+          if (OperatingSystem.IsWindows())
+          {
+            // Windows-specific approach using IOControl
+            byte[] keepAliveValues = new byte[12];
+            BitConverter.GetBytes((uint)1).CopyTo(keepAliveValues, 0);           // Turn keep-alive on
+            BitConverter.GetBytes((uint)60000).CopyTo(keepAliveValues, initialDelaySecs);       // 60 seconds before first keep-alive
+            BitConverter.GetBytes((uint)30000).CopyTo(keepAliveValues, IntervalSecs);       // 30 second interval
 
+            s.IOControl(IOControlCode.KeepAliveValues, keepAliveValues, null);
+            //Console.WriteLine("TCP keep-alive settings applied using Windows-specific method");
+          }
+          else if (OperatingSystem.IsLinux())
+          {
+            //bool linuxKeepAliveConfigured = false;
+
+            // Set keep-alive idle time in milliseconds
+            s.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, initialDelaySecs);
+
+            // Set keep-alive interval in milliseconds
+            s.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, IntervalSecs);
+
+            s.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount, linuxRetryCount);
+            //linuxKeepAliveConfigured = true;
+
+            //Console.WriteLine($"TCPKEEPALIVETIME set to {initialDelaySecs} seconds (connection idle time before sending probes)");
+            //Console.WriteLine($"TCPKEEPALIVEINTERVAL set to {IntervalSecs} seconds (interval between probes)");
+            // Console.WriteLine($"TCPKEEPALIVERETRYCOUNT set to {linuxRetryCount} probes (max failures before disconnect)");
+
+          }
+        }
+        catch (Exception ex)
+        {
+          // Fall back to basic keep-alive if platform-specific settings fail
+          Console.WriteLine($"Could not set TCP keep-alive parameters: {ex.Message}. Using default keep-alive settings.");
+        }
+
+        // Connect to the endpoint
+        await s.ConnectAsync(addresses, dnsEndPoint.Port, ct).ConfigureAwait(false);
+        return new NetworkStream(s, ownsSocket: true);
+      }
+      catch (Exception ex)
+      {
+        Console.WriteLine($"Socket connection error: {ex.Message}");
+        s.Dispose();
+        throw;
+      }
+    };
+
+    return handler;
+  }
 
   // Loads backend options from environment variables or uses default values if the variables are not set.
   // It also configures the DNS refresh timeout and sets up an HttpClient instance.
@@ -261,21 +356,49 @@ public static class BackendHostConfigurationExtensions
   private static BackendOptions LoadBackendOptions()
   {
     // Read and set the DNS refresh timeout from environment variables or use the default value
-    var DNSTimeout = ReadEnvironmentVariableOrDefault("DnsRefreshTimeout", 120000);
-    ServicePointManager.DnsRefreshTimeout = DNSTimeout;
+    var DNSTimeout = ReadEnvironmentVariableOrDefault("DnsRefreshTimeout", 240000);
+    var KeepAliveInitialDelaySecs = ReadEnvironmentVariableOrDefault("KeepAliveInitialDelaySecs", 60); // 60 seconds
+    var KeepAlivePingIntervalSecs = ReadEnvironmentVariableOrDefault("KeepAlivePingIntervalSecs", 60); // 60 seconds
+    var keepAliveDurationSecs = ReadEnvironmentVariableOrDefault("KeepAliveIdleTimeoutSecs", 1200); // 20 minutes
 
-    // Initialize HttpClient and configure it to ignore SSL certificate errors if specified in environment variables.
-    HttpClient _client = new();
-    if (Environment.GetEnvironmentVariable("IgnoreSSLCert")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true)
+    var EnableMultipleHttp2Connections = ReadEnvironmentVariableOrDefault("EnableMultipleHttp2Connections", false);
+    var MultiConnLifetimeSecs = ReadEnvironmentVariableOrDefault("MultiConnLifetimeSecs", 3600); // 1 hours
+    var MultiConnIdleTimeoutSecs = ReadEnvironmentVariableOrDefault("MultiConnIdleTimeoutSecs", 300); // 5 minutes
+    var MultiConnMaxConns = ReadEnvironmentVariableOrDefault("MultiConnMaxConns", 4000); // 4000 connections
+
+    var retryCount = keepAliveDurationSecs / KeepAlivePingIntervalSecs; // Calculate retry count 
+    var handler = getHandler(KeepAliveInitialDelaySecs, KeepAlivePingIntervalSecs, retryCount);
+
+    if (EnableMultipleHttp2Connections)
     {
-      _client = new(new HttpClientHandler
+      handler.EnableMultipleHttp2Connections = true;
+      handler.PooledConnectionLifetime = TimeSpan.FromSeconds(MultiConnLifetimeSecs);
+      handler.PooledConnectionIdleTimeout = TimeSpan.FromSeconds(MultiConnIdleTimeoutSecs);
+      handler.MaxConnectionsPerServer = MultiConnMaxConns;
+      handler.ResponseDrainTimeout = TimeSpan.FromSeconds(keepAliveDurationSecs);
+      Console.WriteLine("Multiple HTTP/2 connections enabled.");
+    }
+    else
+    {
+      handler.EnableMultipleHttp2Connections = false;
+      Console.WriteLine("Multiple HTTP/2 connections disabled.");
+    }
+    //     PooledConnectionIdleTimeout = TimeSpan.FromSeconds(KeepAliveIdleTimeoutSecs),
+
+
+    // Configure SSL handling
+    if (ReadEnvironmentVariableOrDefault("IgnoreSSLCert", false))
+    {
+      handler.SslOptions = new System.Net.Security.SslClientAuthenticationOptions
       {
-        ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
-      });
+        RemoteCertificateValidationCallback = (sender, cert, chain, errors) => true
+      };
+      Console.WriteLine("Ignoring SSL certificate validation errors.");
     }
 
-    string replicaID = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REPLICA_NAME", "01");
+    HttpClient _client = new HttpClient(handler);
 
+    string replicaID = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REPLICA_NAME", "01");
 #if DEBUG
     // Load appsettings.json only in Debug mode
     var configuration = new ConfigurationBuilder()
@@ -293,9 +416,18 @@ public static class BackendHostConfigurationExtensions
     var backendOptions = new BackendOptions
     {
       AcceptableStatusCodes = ReadEnvironmentVariableOrDefault("AcceptableStatusCodes", new int[] { 200, 401, 403, 404, 408, 410, 412, 417, 400 }),
-      Client = _client,
+      AsyncBlobStorageConnectionString = ReadEnvironmentVariableOrDefault("AsyncBlobStorageConnectionString", "example-connection-string"),
+      AsyncClientAllowedFieldName = ReadEnvironmentVariableOrDefault("AsyncClientAllowedFieldName", "async-allowed"),
+      AsyncClientBlobFieldname = ReadEnvironmentVariableOrDefault("AsyncClientBlobFieldname", "async-blobname"),
+      AsyncClientBlobTimeoutFieldName = ReadEnvironmentVariableOrDefault("AsyncClientBlobTimeoutFieldName", "async-blobaccess-timeout"),
+      AsyncModeEnabled = ReadEnvironmentVariableOrDefault("AsyncModeEnabled", false),
+      AsyncSBConnectionString = ReadEnvironmentVariableOrDefault("AsyncSBConnectionString", "example-sb-connection-string"),
+      AsyncSBTopicFieldName = ReadEnvironmentVariableOrDefault("AsyncSBTopicFieldName", "async-topic"),
+      AsyncTimeout = ReadEnvironmentVariableOrDefault("AsyncTimeout", 30 * 60000),
       CircuitBreakerErrorThreshold = ReadEnvironmentVariableOrDefault("CBErrorThreshold", 50),
       CircuitBreakerTimeslice = ReadEnvironmentVariableOrDefault("CBTimeslice", 60),
+      Client = _client,
+      ContainerApp = ReadEnvironmentVariableOrDefault("CONTAINER_APP_NAME", "ContainerAppName"),
       DefaultPriority = ReadEnvironmentVariableOrDefault("DefaultPriority", 2),
       DefaultTTLSecs = ReadEnvironmentVariableOrDefault("DefaultTTLSecs", 300),
       DisallowedHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("DisallowedHeaders", "")),
@@ -306,39 +438,43 @@ public static class BackendHostConfigurationExtensions
       LogAllRequestHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllRequestHeadersExcept", "Authorization")),
       LogAllResponseHeaders = ReadEnvironmentVariableOrDefault("LogAllResponseHeaders", false),
       LogAllResponseHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllResponseHeadersExcept", "Api-Key")),
+      LogConsoleEvent = ReadEnvironmentVariableOrDefault("LogConsoleEvent", true),
       LogHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
       LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", false),
-      LookupHeaderName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "userId"),
       MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
       OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
-      Port = ReadEnvironmentVariableOrDefault("Port", 80),
       PollInterval = ReadEnvironmentVariableOrDefault("PollInterval", 15000),
       PollTimeout = ReadEnvironmentVariableOrDefault("PollTimeout", 3000),
+      Port = ReadEnvironmentVariableOrDefault("Port", 80),
       PriorityKeyHeader = ReadEnvironmentVariableOrDefault("PriorityKeyHeader", "S7PPriorityKey"),
       PriorityKeys = ToListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
       PriorityValues = ToListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
+      PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault("PriorityWorkers", "2:1,3:1"))),
       RequiredHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("RequiredHeaders", "")),
+      Revision = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REVISION", "revisionID"),
       SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
       SuspendedUserConfigUrl = ReadEnvironmentVariableOrDefault("SuspendedUserConfigUrl", "file:config.json"),
-      Timeout = ReadEnvironmentVariableOrDefault("Timeout", 3000),
-      TimeoutHeader = ReadEnvironmentVariableOrDefault("TimeoutHeader", "S7PTimeout"),
       TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
+      Timeout = ReadEnvironmentVariableOrDefault("Timeout", 1200000), // 20 minutes
+      TimeoutHeader = ReadEnvironmentVariableOrDefault("TimeoutHeader", "S7PTimeout"),
       TTLHeader = ReadEnvironmentVariableOrDefault("TTLHeader", "S7PTTL"),
       UniqueUserHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("UniqueUserHeaders", "X-UserID")),
       UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", false),
       UseOAuthGov = ReadEnvironmentVariableOrDefault("UseOAuthGov", false),
-      UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", "X-UserProfile"),
       UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", false),
       UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", "file:config.json"),
+      UserIDFieldName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "UserIDFieldName", "userId"), // migrate from LookupHeaderName
       UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
-      PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault("PriorityWorkers", "2:1,3:1"))),
-      ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault("ValidateHeaders", ""))),
-      ValidateAuthAppID = ReadEnvironmentVariableOrDefault("ValidateAuthAppID", false),
+      UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", "X-UserProfile"),
       ValidateAuthAppFieldName = ReadEnvironmentVariableOrDefault("ValidateAuthAppFieldName", "authAppID"),
-      ValidateAuthAppIDUrl = ReadEnvironmentVariableOrDefault("ValidateAuthAppIDUrl", "file:auth.json"),
+      ValidateAuthAppID = ReadEnvironmentVariableOrDefault("ValidateAuthAppID", false),
       ValidateAuthAppIDHeader = ReadEnvironmentVariableOrDefault("ValidateAuthAppIDHeader", "X-MS-CLIENT-PRINCIPAL-ID"),
+      ValidateAuthAppIDUrl = ReadEnvironmentVariableOrDefault("ValidateAuthAppIDUrl", "file:auth.json"),
+      ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault("ValidateHeaders", ""))),
       Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
     };
+
+    
 
     //backendOptions.Client.Timeout = TimeSpan.FromMilliseconds(backendOptions.Timeout);
     int i = 1;

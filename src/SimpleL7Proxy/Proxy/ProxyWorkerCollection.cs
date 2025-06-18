@@ -54,7 +54,7 @@ public class ProxyWorkerCollection : BackgroundService
   {
 
     var workerPriorities = new Dictionary<int, int>(_backendOptions.PriorityWorkers);
-    Console.WriteLine($"Worker Priorities: {string.Join(",", workerPriorities)}");
+    _logger.LogInformation($"Worker Priorities: {string.Join(",", workerPriorities)}");
 
     // The loop creates a number of workers based on backendOptions.Workers.
     // The first worker (wrkrNum == 0) is always a probe worker with priority 0.

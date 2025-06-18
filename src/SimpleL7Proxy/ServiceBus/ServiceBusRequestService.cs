@@ -14,12 +14,14 @@ using SimpleL7Proxy.Backend;
 
 namespace SimpleL7Proxy.ServiceBus
 {
+
     public class ServiceBusRequestService : BackgroundService, IServiceBusRequestService
     {
         private readonly BackendOptions _options;
         private readonly ServiceBusSenderFactory _senderFactory;
         private readonly ILogger<ServiceBusRequestService> _logger;
         public static readonly ConcurrentQueue<ServiceBusStatusMessage> _statusQueue = new ConcurrentQueue<ServiceBusStatusMessage>();
+        private readonly SemaphoreSlim _queueSignal = new SemaphoreSlim(0);
 
         public ServiceBusRequestService(IOptions<BackendOptions> options, ServiceBusSenderFactory senderFactory, ILogger<ServiceBusRequestService> logger)
         {
@@ -37,18 +39,16 @@ namespace SimpleL7Proxy.ServiceBus
 
         protected override Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-            stoppingToken.Register(() =>
+            if (_options.AsyncModeEnabled)
             {
-                _logger.LogInformation("ServiceBus Reader service stopping.");
-            });
+                _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                stoppingToken.Register(() =>
+                {
+                    _logger.LogInformation("ServiceBus Reader service stopping.");
+                });
 
-
-            // Initialize Service Bus Sender
-            if (_options.UseServiceBus )
-            {
                 // create a new task that reads the user config every hour
-                return Task.Run(() => EventConsumer(stoppingToken), stoppingToken);
+                return Task.Run(() => EventConsumer(stoppingToken), stoppingToken);                
             }
 
             return Task.CompletedTask;
@@ -61,7 +61,8 @@ namespace SimpleL7Proxy.ServiceBus
         {
             try
             {
-                _statusQueue.Enqueue(new ServiceBusStatusMessage(message.SBClientID, message.Guid, message.SBStatus.ToString()));
+                _statusQueue.Enqueue(new ServiceBusStatusMessage(message.Guid, message.SBTopicName, message.SBStatus.ToString()));
+                _queueSignal.Release();
 
                 return true; // Enqueue succeeded
             }
@@ -76,48 +77,63 @@ namespace SimpleL7Proxy.ServiceBus
         public async Task EventConsumer(CancellationToken stoppingToken)
         {
 
-            _logger.LogInformation("Starting ServiceBusRequestService service...");
+            _logger.LogInformation("Starting Async Status Processor service...");
 
-            
-            while (!stoppingToken.IsCancellationRequested)
+            try
             {
-                try
-                {   while (!stoppingToken.IsCancellationRequested)
-                    {
-                        // Check if there are any messages in the status queue
-                        if (_statusQueue.TryDequeue(out var statusMessage))
-                        {
-                            // Process the status message
-                            await _senderFactory.GetSender("status").SendMessageAsync(new ServiceBusMessage(JsonSerializer.Serialize(statusMessage)), stoppingToken);
-                        }
-                        else {
-                            break;
-                        }
-                    }
-
-
-                    //     // Process the status message
-                    // // Example message payload
-                    // var messagePayload = new { Id = Guid.NewGuid(), Timestamp = DateTime.UtcNow, Message = "Hello, Azure Service Bus!" };
-                    // string messageBody = JsonSerializer.Serialize(messagePayload);
-
-                    // // Send message to the topic
-                    // await SendMessageToTopicAsync("example-topic", messageBody, stoppingToken);
-
-
-                    // Wait for 5 seconds before sending the next message
-                    await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
-                }
-                catch (Exception ex)
+                while (!stoppingToken.IsCancellationRequested)
                 {
-                    _logger.LogError(ex, "An error occurred while sending a message to the topic.");
+                    await _queueSignal.WaitAsync(stoppingToken).ConfigureAwait(false);
+
+                    // Check if there are any messages in the status queue
+                    while (_statusQueue.TryDequeue(out var statusMessage))
+                    {
+                        // Process the status message
+                        await _senderFactory.
+                            GetSender(statusMessage.topicName).
+                            SendMessageAsync(new ServiceBusMessage(JsonSerializer.Serialize(statusMessage)), stoppingToken);
+                    }
+                }
+
+                Console.WriteLine("Stopping ServiceBusRequestService service...");
+            }
+            catch (TaskCanceledException)
+            {
+                // Task was canceled, exit gracefully
+                _logger.LogInformation("ServiceBusRequestService task was canceled.");
+            }
+            catch (OperationCanceledException)
+            {
+                // Operation was canceled, exit gracefully
+                _logger.LogInformation($"ServiceBusRequestService shutdown initiated: {_statusQueue.Count()} items need to be flushed.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "An error occurred while sending a message to the topic.");
+            }
+            finally
+            {
+                // Flush all items
+
+                while (_statusQueue.TryDequeue(out var statusMessage))
+                {
+                    if (_statusQueue.Count() % 100 == 0) _logger.LogInformation($"{_statusQueue.Count()} items remain to be flushed.");
+                    // Process the status message
+                    try
+                    {
+                        await _senderFactory.GetSender("status").SendMessageAsync(new ServiceBusMessage(JsonSerializer.Serialize(statusMessage)), stoppingToken);
+                    }
+                    catch (Exception e)
+                    {
+                        _logger.LogError(e, "Error while flushing service bus.  Continuing.");
+                    }
                 }
             }
 
-            _logger.LogInformation("AzureServiceBusServer is stopping.");
+            _logger.LogInformation("ServiceBusRequestService is stopping.");
         }
 
-        
+
         private async Task SendMessageToTopicAsync(string topicName, string messageBody, CancellationToken cancellationToken)
         {
             var sender = _senderFactory.GetSender(topicName);

@@ -1,6 +1,9 @@
 using System;
+using System.IO;
+using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using SimpleL7Proxy;
@@ -15,13 +18,24 @@ namespace SimpleL7Proxy.Proxy
     public class AsyncWorker
     {
         private readonly CancellationTokenSource _cancellationTokenSource;
-        private int _beginStartup =0; // 0 = not started, 1 = started, -1 = abort startup
+        private int _beginStartup = 0; // 0 = not started, 1 = started, -1 = abort startup
         TaskCompletionSource<bool> _taskCompletionSource = new TaskCompletionSource<bool>();
         //private int _completed = 0; // 0 = not completed, 1 = completed
         private RequestData _requestData { get; set; }
-        private static  BlobWriter? _blobWriter;
-        private static  ILogger<AsyncWorker>? _logger;
+        private string _headerBlobUri { get; set; } = "";
+        private string _dataBlobUri { get; set; } = "";
+        private Stream _hos { get; set; } = null!;
+        private string _userId { get; set; } = "";
+
+        private static BlobWriter? _blobWriter;
+        private static ILogger<AsyncWorker>? _logger;
         public string ErrorMessage { get; set; } = "";
+
+        private static JsonSerializerOptions serialize_options = new()
+        {
+            WriteIndented = true,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        };
 
 
         // Static constructor to initialize the BlobWriter and Logger
@@ -39,9 +53,17 @@ namespace SimpleL7Proxy.Proxy
         public AsyncWorker(RequestData data)
         {
             _requestData = data;
+            _userId = data.UserID;
+            if ( !data.runAsync)
+            {
+                throw new ArgumentException("AsyncWorker can only be used for async requests.");
+            }
+            if ( _blobWriter?.initClient(_userId, data.BlobContainerName) == false)
+            {
+                throw new ArgumentException("Failed to initialize BlobWriter for AsyncWorker.");
+            }
             _cancellationTokenSource = new CancellationTokenSource();
         }
-
 
         /// <summary>
         /// Starts the worker if it has not already been started.
@@ -51,6 +73,8 @@ namespace SimpleL7Proxy.Proxy
         {
             try
             {
+                string dataBlobName = "";
+                string headerBlobName = "";
                 // wait state... can be cancelled by Terminate
                 await Task.Delay(_requestData.Timeout, _cancellationTokenSource.Token).ConfigureAwait(false);
 
@@ -60,40 +84,58 @@ namespace SimpleL7Proxy.Proxy
                 {
                     try
                     {
-                        var os = await _blobWriter!.CreateBlobAndGetOutputStreamAsync(_requestData.Guid.ToString()).ConfigureAwait(false);
+                        dataBlobName = _requestData.Guid.ToString();
+                        headerBlobName = dataBlobName + "-Headers";
+                        var os = await _blobWriter!.CreateBlobAndGetOutputStreamAsync(_userId, dataBlobName).ConfigureAwait(false);
                         _requestData.OutputStream = new BufferedStream(os);
-
-                        // _requestData.OutputStream.WriteLine($"Request GUID: {_requestData.Guid}");
-                        // _requestData.OutputStream.WriteLine($"Request MID: {_requestData.MID}");
-                        // _requestData.OutputStream.WriteLine($"Request URL: {_requestData.FullURL}");
-                        // _requestData.OutputStream.WriteLine($"Request Timestamp: {_requestData.Timestamp}");
-                        // _requestData.OutputStream.WriteLine($"Request Headers: {_requestData.Headers}");
-                        // _requestData.OutputStream.WriteLine($"Request Body: {Encoding.UTF8.GetString(_requestData.BodyBytes!)}");
+                        _hos = new BufferedStream(await _blobWriter!.CreateBlobAndGetOutputStreamAsync(_userId, headerBlobName).ConfigureAwait(false));
 
                     }
                     catch (Exception blobEx)
                     {
                         _logger!.LogError($"Failed to create blob: {blobEx.Message}");
-                        _taskCompletionSource.TrySetResult (false);
+                        _taskCompletionSource.TrySetResult(false);
                         ErrorMessage = "Failed to create blob: " + blobEx.Message;
+
                         return;
-                        //proxyEventData["x-Status"] = "Blob Error";
-                        // Client disconnected?
+                    }
+                    // create a SAS token for the blob
+                    try
+                    {
+                        _dataBlobUri = _blobWriter!.GenerateSasToken(_userId, dataBlobName, TimeSpan.FromSeconds(_requestData.AsyncBlobAccessTimeoutSecs));
+                        _headerBlobUri = _blobWriter!.GenerateSasToken(_userId, headerBlobName, TimeSpan.FromSeconds(_requestData.AsyncBlobAccessTimeoutSecs));
+                        _requestData.Context!.Response.Headers.Add("x-Data-Blob-SAS-URI", _dataBlobUri);
+                        _requestData.Context!.Response.Headers.Add("x-Header-Blob-SAS-URI", _headerBlobUri);
+                    }
+                    catch (Exception sasEx)
+                    {
+                        _logger!.LogError($"Failed to create SAS token: {sasEx.Message}");
+                        _taskCompletionSource.TrySetResult(false);
+                        ErrorMessage = "Failed to create SAS token: " + sasEx.Message;
+
+                        return;
                     }
 
-                    RequestResponse Statusmessage = new()
+                    AsyncMessage Statusmessage = new()
                     {
                         Status = 202,
-                        Message = "Request will process async.",
-                        RequestGuid = _requestData.Guid.ToString()
+                        Message = "Your request has been accepted for async processing.  You can view the status on the event hub. The final result will be available at the BlobUri.",
+                        MID = _requestData.MID,
+                        UserId = _requestData.UserID,
+                        Guid = _requestData.Guid.ToString(),
+                        DataBlobUri = _dataBlobUri,
+                        HeaderBlobUri = _headerBlobUri,
+                        Timestamp = DateTime.UtcNow
                     };
 
                     try
                     {
-                        var message = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(Statusmessage));
+                        var message = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(Statusmessage, serialize_options) + "\n");
 
                         _requestData.Context!.Response.StatusCode = 202;
                         await _requestData.Context.Response.OutputStream.WriteAsync(message, 0, message.Length).ConfigureAwait(false);
+                        await _requestData.Context.Response.OutputStream.FlushAsync().ConfigureAwait(false);
+                        _requestData.Context.Response.Close();
                     }
                     catch (Exception writeEx)
                     {
@@ -102,25 +144,56 @@ namespace SimpleL7Proxy.Proxy
                         // Client disconnected?
                     }
 
-                    _logger.LogInformation($"Async: Request MID: {_requestData.MID} Guid: {_requestData.Guid.ToString()} created.");
-                    _taskCompletionSource.TrySetResult (true); // Set the task completion source to indicate that the worker has started
+                    _logger!.LogInformation($"Async: Request MID: {_requestData.MID} Guid: {_requestData.Guid.ToString()} created.");
+                    _taskCompletionSource.TrySetResult(true); // Set the task completion source to indicate that the worker has started
                 }
 
 
             }
-            catch (ObjectDisposedException) {
-                _taskCompletionSource.TrySetResult (false); // Set the task completion source to indicate that the worker was cancelled
+            catch (ObjectDisposedException)
+            {
+                _taskCompletionSource.TrySetResult(false); // Set the task completion source to indicate that the worker was cancelled
             }
             catch (TaskCanceledException)
             {
                 // Timer was cancelled by TryTerminate, do nothing
-                _taskCompletionSource.TrySetResult (false); // Set the task completion source to indicate that the worker was cancelled
+                _taskCompletionSource.TrySetResult(false); // Set the task completion source to indicate that the worker was cancelled
             }
-            finally {
+            finally
+            {
                 // Dispose of the cancellation token source
                 _cancellationTokenSource.Dispose();
-             }
+            }
 
+        }
+
+        public async Task<bool> WriteHeaders(HttpStatusCode status, WebHeaderCollection headers)
+        {
+            try
+            {
+                var header_message = new AsyncHeaders()
+                {
+                    Status = status.ToString(),
+                    Headers = headers,
+                    UserId = _requestData.UserID,
+                    MID = _requestData.MID,
+                    Guid = _requestData.Guid.ToString(),
+                    Timestamp = DateTime.UtcNow,
+                    BlobUri = _dataBlobUri
+                };
+
+                var message = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(header_message, serialize_options) + "\n");
+                var bos = new BufferedStream(_hos);
+                await bos.WriteAsync(message, 0, message.Length).ConfigureAwait(false);
+                await bos.FlushAsync().ConfigureAwait(false);
+                bos.Close();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger!.LogError($"Failed to write headers: {ex.Message}");
+                return false;
+            }
         }
 
         /// <summary>
@@ -129,18 +202,17 @@ namespace SimpleL7Proxy.Proxy
         /// <returns><c>true</c> if everything looks good; otherwise, <c>false</c>.</returns>
         public async Task<bool> Synchronize()
         {
-            Console.WriteLine($"AsyncWorker: Synchronize called.  Request GUID: {_requestData.Guid}");
             // If it has not already entered startup, abort it and cancel the token
             if (Interlocked.CompareExchange(ref _beginStartup, -1, 0) == 0)
             {
                 _cancellationTokenSource?.Cancel();
 
-                Console.WriteLine($"AsyncWorker: Terminating worker.  Request GUID: {_requestData.Guid}");
+                // Async Worker has not started, Terminate it
                 return true; // Worker was not started, so we terminated it
             }
 
-            Console.WriteLine($"AsyncWorker: Worker already started. Request GUID: {_requestData.Guid}");
-
+            _requestData.AsyncTriggered = true;
+            // Asynnc Worker task already started. Wait for it to finish
             return await _taskCompletionSource.Task.ConfigureAwait(false); // Wait for the worker to start up
         }
 
