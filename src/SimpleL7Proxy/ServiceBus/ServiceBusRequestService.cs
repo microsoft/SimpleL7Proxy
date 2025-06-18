@@ -61,7 +61,7 @@ namespace SimpleL7Proxy.ServiceBus
         {
             try
             {
-                _statusQueue.Enqueue(new ServiceBusStatusMessage(message.SBClientID, message.Guid, message.SBStatus.ToString()));
+                _statusQueue.Enqueue(new ServiceBusStatusMessage(message.Guid, message.SBTopicName, message.SBStatus.ToString()));
                 _queueSignal.Release();
 
                 return true; // Enqueue succeeded
@@ -77,6 +77,8 @@ namespace SimpleL7Proxy.ServiceBus
         public async Task EventConsumer(CancellationToken stoppingToken)
         {
 
+            _logger.LogInformation("Starting Async Status Processor service...");
+
             try
             {
                 while (!stoppingToken.IsCancellationRequested)
@@ -87,13 +89,10 @@ namespace SimpleL7Proxy.ServiceBus
                     while (_statusQueue.TryDequeue(out var statusMessage))
                     {
                         // Process the status message
-                        await _senderFactory.GetSender("status").SendMessageAsync(new ServiceBusMessage(JsonSerializer.Serialize(statusMessage)), stoppingToken);
+                        await _senderFactory.
+                            GetSender(statusMessage.topicName).
+                            SendMessageAsync(new ServiceBusMessage(JsonSerializer.Serialize(statusMessage)), stoppingToken);
                     }
-
-                    // Process the message
-                    //var message = new ServiceBusStatusMessage("ClientId", Guid.NewGuid(), "Status");
-                    //await SendMessageToTopicAsync("status", JsonSerializer.Serialize(message), stoppingToken);
-
                 }
 
                 Console.WriteLine("Stopping ServiceBusRequestService service...");
