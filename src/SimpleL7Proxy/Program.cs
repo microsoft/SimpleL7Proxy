@@ -64,10 +64,14 @@ public class Program
             });
 
 
+
         var frameworkHost = hostBuilder.Build();
         //        var serviceProvider = frameworkHost.Services;
         // Perform static initialization after building the host to ensure correct singleton usage
         var serviceProvider = frameworkHost.Services;
+
+         // Initialize ProxyEvent with BackendOptions
+        ProxyEvent.Initialize(serviceProvider.GetRequiredService<IOptions<BackendOptions>>());
 
         var serviceBusRequestService = serviceProvider.GetRequiredService<IServiceBusRequestService>();
         RequestData.InitializeServiceBusRequestService(serviceBusRequestService);
@@ -139,15 +143,10 @@ public class Program
 
         services.AddBackendHostConfiguration(startupLogger);
 
-        // MOVE THESE TO THE BACKEND CLASS
-        var serviceBusConnectionString = Environment.GetEnvironmentVariable("SERVICEBUS_CONNECTIONSTRING");
-        var blobConnectionString = Environment.GetEnvironmentVariable("BLOB_CONNECTIONSTRING") ?? "";
-        var blobContainerName = Environment.GetEnvironmentVariable("BLOB_CONTAINERNAME") ?? "";
-        //services.AddSingleton(provider => new BlobWriter(blobConnectionString, blobContainerName));
         services.AddSingleton<BlobWriter>(provider =>
         {
             var optionsMonitor = provider.GetRequiredService<IOptionsMonitor<BackendOptions>>();
-            return new BlobWriter(blobConnectionString, blobContainerName, optionsMonitor);
+            return new BlobWriter(optionsMonitor);
         });
 
         services.AddSingleton<IUserPriorityService, UserPriority>();
