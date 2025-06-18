@@ -1,8 +1,19 @@
 ﻿using Azure.Messaging.ServiceBus;
 
 var serviceBusConnectionString = Environment.GetEnvironmentVariable("SERVICEBUS_CONNECTIONSTRING");
+var serviceBusTopicName = Environment.GetEnvironmentVariable("SERVICEBUS_TOPICNAME");
+var serviceBusSubscriptionName = Environment.GetEnvironmentVariable("SERVICEBUS_SUBSCRIPTIONNAME");
+
+if (string.IsNullOrEmpty(serviceBusConnectionString) ||
+    string.IsNullOrEmpty(serviceBusTopicName) ||
+    string.IsNullOrEmpty(serviceBusSubscriptionName))
+{
+    Console.WriteLine("Please set the SERVICEBUS_CONNECTIONSTRING, SERVICEBUS_TOPICNAME, and SERVICEBUS_SUBSCRIPTIONNAME environment variables.");
+    return;
+}
+
 var client = new ServiceBusClient(serviceBusConnectionString);
-var processor = client.CreateProcessor("status", "client1-jobs");
+var processor = client.CreateProcessor(serviceBusTopicName,serviceBusSubscriptionName );
 
 processor.ProcessMessageAsync += MessageHandler;
 processor.ProcessErrorAsync += ErrorHandler;
