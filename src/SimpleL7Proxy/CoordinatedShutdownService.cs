@@ -68,7 +68,7 @@ public class CoordinatedShutdownService : IHostedService
             ["ActiveWorkers"] = ProxyWorker.activeWorkers.ToString(),
             ["WorkerStates"] = string.Join(", ", ProxyWorker.GetState())
         };
-        _eventClient?.SendData(data);
+        data.SendEvent();
 
         await _server.StopListening(cancellationToken);
 
@@ -86,7 +86,7 @@ public class CoordinatedShutdownService : IHostedService
             ["ActiveWorkers"] = ProxyWorker.activeWorkers.ToString(),
             ["WorkerStates"] = string.Join(", ", ProxyWorker.GetState())
         };
-        _eventClient?.SendData(data);
+        data.SendEvent();
         _eventClient?.StopTimer();
         //await Task.CompletedTask;
     }

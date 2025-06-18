@@ -22,6 +22,7 @@ public class BackendOptions
     public List<BackendHostConfig> Hosts { get; set; } = [];
     public string IDStr { get; set; } = "S7P";
     public List<string> LogHeaders { get; set; } = [];
+    public bool LogConsoleEvent { get; set; } = true;
     public bool LogProbes { get; set; }
     public bool LogAllRequestHeaders { get; set; } = false;
     public List<string> LogAllRequestHeadersExcept { get; set; } = [];

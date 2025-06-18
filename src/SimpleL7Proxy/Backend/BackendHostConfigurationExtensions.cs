@@ -54,6 +54,7 @@ public static class BackendHostConfigurationExtensions
       options.LogAllRequestHeadersExcept = backendOptions.LogAllRequestHeadersExcept;
       options.LogAllResponseHeaders = backendOptions.LogAllResponseHeaders;
       options.LogAllResponseHeadersExcept = backendOptions.LogAllResponseHeadersExcept;
+      options.LogConsoleEvent = backendOptions.LogConsoleEvent;
       options.LogHeaders = backendOptions.LogHeaders;
       options.LogProbes = backendOptions.LogProbes;
       options.UserIDFieldName = backendOptions.UserIDFieldName;
@@ -437,6 +438,7 @@ public static class BackendHostConfigurationExtensions
       LogAllRequestHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllRequestHeadersExcept", "Authorization")),
       LogAllResponseHeaders = ReadEnvironmentVariableOrDefault("LogAllResponseHeaders", false),
       LogAllResponseHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllResponseHeadersExcept", "Api-Key")),
+      LogConsoleEvent = ReadEnvironmentVariableOrDefault("LogConsoleEvent", true),
       LogHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
       LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", false),
       MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),

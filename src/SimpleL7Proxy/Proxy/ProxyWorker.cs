@@ -185,7 +185,7 @@ public class ProxyWorker
                             eventData["ProbeStatus"] = probeStatus.ToString();
                             eventData["ProbeMessage"] = probeMessage;
                             eventData["Type"] = "S7P-Probe";
-                            SendEventData(eventData);
+                            eventData.SendEvent();
                             _logger.LogInformation($"Probe: {incomingRequest.Path} Status: {probeStatus} Message: {probeMessage}");
                         }
                         continue;
@@ -306,7 +306,7 @@ public class ProxyWorker
                         {
                             AddIncompleteRequestsToEventData(incomingRequest.incompleteRequests, eventData);
                         }
-                        SendEventData(eventData);
+                        eventData.SendEvent();
                     }
 
                     // pr.Body = [];
@@ -340,7 +340,7 @@ public class ProxyWorker
                     eventData["Status"] = ((int)202).ToString();
                     eventData["Type"] = "S7P-Requeue-Request";
 
-                    SendEventData(eventData);
+                    eventData.SendEvent();
 
                 }
                 catch (ProxyErrorException e)
@@ -371,7 +371,7 @@ public class ProxyWorker
                     }
                     finally
                     {
-                        SendEventData(eventData);
+                        eventData.SendEvent();
                     }
                 }
 
@@ -404,7 +404,7 @@ public class ProxyWorker
                     }
                     finally
                     {
-                        SendEventData(eventData);
+                        eventData.SendEvent();
                     }
 
                 }
@@ -425,7 +425,7 @@ public class ProxyWorker
                         _logger.LogError($"Client closed connection: {incomingRequest.FullURL}");
                         eventData["Status"] = "Network Error";
                         eventData["Type"] = "S7P-IOException";
-                        SendEventData(eventData);
+                        eventData.SendEvent();
 
                         continue;
                     }
@@ -437,7 +437,7 @@ public class ProxyWorker
                     // Convert the multi-line stack trace to a single line
                     eventData["x-Stack"] = ex.StackTrace?.Replace(Environment.NewLine, " ") ?? "N/A";
                     eventData["WorkerState"] = workerState;
-                    SendEventData(eventData);
+                    eventData.SendEvent();
                     dirtyExceptionLog = false;
 
                     // Set an appropriate status code for the error
@@ -464,7 +464,7 @@ public class ProxyWorker
                         if (dirtyExceptionLog)
                         {
                             eventData["x-Additional"] = "Failed to log exception";
-                            SendEventData(eventData);
+                            eventData.SendEvent();
                         }
                         // Let's not track the request if it was retried.
                         if (!requestWasRetried)
@@ -1108,48 +1108,6 @@ public class ProxyWorker
         {
             _logger.LogInformation($"{prefix} {header.Key} : {string.Join(", ", header.Value)}");
         }
-    }
-
-    // private HttpStatusCode HandleProxyRequestError2(
-    //     BackendHostHealth? host,
-    //     Exception? e,
-    //     DateTime requestDate,
-    //     string url,
-    //     HttpStatusCode statusCode,
-    //     string? customMessage = null)
-    // {
-    //     // Common operations for all exceptions
-    //     if (_telemetryClient != null)
-    //     {
-    //         if (e != null)
-    //             _telemetryClient.TrackException(e);
-
-    //         _telemetryClient.TrackEvent(new("ProxyRequest")
-    //         {
-    //             Properties =
-    //             {
-    //                 { "URL", url },
-    //                 { "RequestDate", requestDate.ToString("o") },
-    //                 { "ResponseDate", DateTime.Now.ToString("o") },
-    //                 { "StatusCode", statusCode.ToString() }
-    //             }
-    //         });
-    //     }
-
-    //     if (!string.IsNullOrEmpty(customMessage))
-    //     {
-    //         _logger.LogError($"{e?.Message ?? customMessage}");
-    //     }
-    //     var date = requestDate.ToString("o");
-    //     _eventClient?.SendData($"{{\"Date\":\"{date}\", \"Url\":\"{url}\", \"Error\":\"{e?.Message ?? customMessage}\"}}");
-
-    //     host?.AddError();
-    //     return statusCode;
-    // }
-
-    private void SendEventData(ProxyEvent eventData)//string urlWithPath, HttpStatusCode statusCode, DateTime requestDate, DateTime responseDate)
-    {
-        _eventClient?.SendData(eventData);
     }
 
     private HttpStatusCode HandleProxyRequestError(

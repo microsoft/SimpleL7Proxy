@@ -69,9 +69,10 @@ public class Program
         //        var serviceProvider = frameworkHost.Services;
         // Perform static initialization after building the host to ensure correct singleton usage
         var serviceProvider = frameworkHost.Services;
-
+        var options = serviceProvider.GetRequiredService<IOptions<BackendOptions>>();
+        var eventHubClient = serviceProvider.GetService<IEventClient>();
          // Initialize ProxyEvent with BackendOptions
-        ProxyEvent.Initialize(serviceProvider.GetRequiredService<IOptions<BackendOptions>>());
+        ProxyEvent.Initialize(options, eventHubClient);
 
         var serviceBusRequestService = serviceProvider.GetRequiredService<IServiceBusRequestService>();
         RequestData.InitializeServiceBusRequestService(serviceBusRequestService);

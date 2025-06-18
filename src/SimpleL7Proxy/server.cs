@@ -507,7 +507,7 @@ public class Server : BackgroundService
                         temp_ed["Message"] = "Enqueued request";
 
                         _logger.LogInformation($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
-                        _eventHubClient?.SendData(temp_ed);
+                        temp_ed.SendEvent();
                     }
                 }
                 else
@@ -523,7 +523,7 @@ public class Server : BackgroundService
             catch (OperationCanceledException)
             {
                 // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
-                WriteOutput("HTTP server shutdown initiated.", ed);
+                _logger.LogInformation("HTTP server shutdown.");
                 break; // Exit the loop
             }
             catch (Exception e)
@@ -534,33 +534,5 @@ public class Server : BackgroundService
         }
 
         _logger.LogInformation("HTTP server stopped.");
-    }
-
-    private void WriteOutput(string data = "", ProxyEvent eventData = null)
-    {
-
-        try
-        {
-            var ldata = eventData ?? new();
-
-            // Log the data to the console
-            if (!string.IsNullOrEmpty(data))
-            {
-                Console.WriteLine(data);
-                ldata["Message"] = data;
-            }
-
-            if (!ldata.TryGetValue("Type", out var typeValue))
-            {
-                ldata["Type"] = "S7P-Console";
-            }
-
-            _eventHubClient?.SendData(ldata);
-        }
-        catch (Exception ex)
-        {
-            // Handle any exceptions that occur during logging
-            Console.WriteLine($"Error writing output: {ex.Message}");
-        }
     }
 }

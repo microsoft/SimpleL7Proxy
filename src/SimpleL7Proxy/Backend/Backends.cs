@@ -142,7 +142,7 @@ public class Backends : IBackendService
       ["Count"] = hostFailureTimes2.Count.ToString(),
     };
 
-    SendEventData(logerror);
+    logerror.SendEvent();
   }
 
   public List<BackendHostHealth> GetHosts() => _backendHosts;
@@ -381,7 +381,7 @@ public class Backends : IBackendService
     }
     finally
     {
-      _eventClient.SendData(probeData);
+      probeData.SendEvent();
     }
 
     return false;
@@ -447,11 +447,6 @@ public class Backends : IBackendService
       GC.WaitForPendingFinalizers();
       _lastGCTime = DateTime.Now;
     }
-  }
-
-  private void SendEventData(ProxyEvent eventData)//string urlWithPath, HttpStatusCode statusCode, DateTime requestDate, DateTime responseDate)
-  {
-    _eventClient?.SendData(eventData);
   }
 
   // Fetches the OAuth2 Token as a seperate task. The token is fetched and updated 100ms before it expires. 
@@ -546,31 +541,5 @@ public class Backends : IBackendService
     }
   }
 
-  // private void WriteOutput(string data = "", Dictionary<string, string>? eventData = null)
-  // {
-  //   // Log the data to the console
-  //   if (!string.IsNullOrEmpty(data))
-  //   {
-  //     Console.WriteLine(data);
-
-  //     // if eventData is null, create a new dictionary and add the message to it
-  //     if (eventData == null)
-  //     {
-  //       eventData = new Dictionary<string, string>();
-  //       eventData.Add("Message", data);
-  //     }
-  //   }
-
-  //   if (eventData == null)
-  //     eventData = new Dictionary<string, string>();
-
-  //   if (!eventData.TryGetValue("Type", out var typeValue))
-  //   {
-  //     eventData["Type"] = "S7P-Backend-Status";
-  //   }
-
-  //   string jsonData = JsonSerializer.Serialize(eventData);
-  //   _eventHubClient?.SendData(jsonData);
-  // }
 
 }
