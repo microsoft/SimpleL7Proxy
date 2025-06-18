@@ -45,21 +45,21 @@ public class CompositeEventClient(IEnumerable<IEventClient> eventClients)
     }
   }
 
-  public void SendData(Dictionary<string, string> data)
-  {
-    foreach (var client in eventClients)
-    {
-      client.SendData(data);
-    }
-  }
+  // public void SendData(Dictionary<string, string> data)
+  // {
+  //   foreach (var client in eventClients)
+  //   {
+  //     client.SendData(data);
+  //   }
+  // }
 
-    public void SendData(ConcurrentDictionary<string, string> eventData, string? name = null)
-  {
-    foreach (var client in eventClients)
-    {
-      client.SendData(eventData);
-    }
-  }
+  //   public void SendData(ConcurrentDictionary<string, string> eventData, string? name = null)
+  // {
+  //   foreach (var client in eventClients)
+  //   {
+  //     client.SendData(eventData);
+  //   }
+  // }
 
   public void SendData(ProxyEvent proxyEvent)
   {
