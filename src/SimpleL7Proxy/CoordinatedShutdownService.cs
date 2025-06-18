@@ -58,14 +58,35 @@ public class CoordinatedShutdownService : IHostedService
             _logger.LogInformation("All tasks completed.");
         }
 
-        _eventClient?.SendData($"Server shutting down:   {ProxyWorker.GetState()}");
+        ProxyEvent data=new() 
+        {
+            ["EventType"] = "S7P-Shutdown",
+            ["Message"] = "Coordinated shutdown completed.",
+            ["Timestamp"] = DateTime.UtcNow.ToString("o"),
+            ["BackendStatus"] = _backends.HostStatus,
+            ["QueueCount"] = _queue.thrdSafeCount.ToString(),
+            ["ActiveWorkers"] = ProxyWorker.activeWorkers.ToString(),
+            ["WorkerStates"] = string.Join(", ", ProxyWorker.GetState())
+        };
+        _eventClient?.SendData(data);
+
         await _server.StopListening(cancellationToken);
 
         Task? t = _backends?.Stop();
         if (t != null)
             await t.ConfigureAwait(false); // Stop the backend pollers
 
-        _eventClient?.SendData($"Workers Stopped:   {ProxyWorker.GetState()}");
+        data = new()
+        {
+            ["EventType"] = "S7P-Shutdown",
+            ["Message"] = "Backend pollers stopped.",
+            ["Timestamp"] = DateTime.UtcNow.ToString("o"),
+            ["BackendStatus"] = _backends.HostStatus,
+            ["QueueCount"] = _queue.thrdSafeCount.ToString(),
+            ["ActiveWorkers"] = ProxyWorker.activeWorkers.ToString(),
+            ["WorkerStates"] = string.Join(", ", ProxyWorker.GetState())
+        };
+        _eventClient?.SendData(data);
         _eventClient?.StopTimer();
         //await Task.CompletedTask;
     }
