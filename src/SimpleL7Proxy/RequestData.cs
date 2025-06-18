@@ -7,6 +7,7 @@ using Microsoft.Azure.Amqp;
 using SimpleL7Proxy.ServiceBus;
 using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.Events;
 // This class represents the request received from the upstream client.
 
 public class RequestData : IDisposable, IAsyncDisposable
@@ -53,11 +54,12 @@ public class RequestData : IDisposable, IAsyncDisposable
     public bool runAsync { get; set; } = false;
     public bool AsyncTriggered { get; set; } = false;
     public AsyncWorker? asyncWorker { get; set; } = null;
-
+    public int AsyncBlobAccessTimeoutSecs { get; set; } = 3600; // 1 hour
     public string ExpireReason { get; set; } = "";
-    public ConcurrentDictionary<string, string> EventData = new ();
+    public ProxyEvent EventData = new ();
     public List<Dictionary<string, string>> incompleteRequests = new();
-    public string  SBClientID { get; set; } = "";
+    public string SBTopicName { get; set; } = "";
+    public string BlobContainerName { get; set; } = "";
     public ServiceBusMessageStatusEnum SBStatus
     {
         get => _sbStatus;
