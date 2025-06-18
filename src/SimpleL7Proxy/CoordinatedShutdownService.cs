@@ -72,7 +72,7 @@ public class CoordinatedShutdownService : IHostedService
 
         await _server.StopListening(cancellationToken);
 
-        Task? t = _backends?.Stop();
+        Task? t = _backends.Stop();
         if (t != null)
             await t.ConfigureAwait(false); // Stop the backend pollers
 
