@@ -117,7 +117,6 @@ public class Backends : IBackendService
   public List<BackendHostHealth> GetActiveHosts() => _activeHosts;
   public int ActiveHostCount() => _activeHosts.Count;
 
-  static Dictionary<string, string> logerror = new Dictionary<string, string>() { { "Type", "S7P-CircuitBreaker-Error-Event" } };
   public void TrackStatus(int code, bool wasException)
   {
     if (allowableCodes.Contains(code) && !wasException)
@@ -134,10 +133,14 @@ public class Backends : IBackendService
     }
 
     hostFailureTimes2.Enqueue(now);
-    logerror["Code"] = code.ToString();
-    logerror["Time"] = now.ToString();
-    logerror["WasException"] = wasException.ToString();
-    logerror["Count"] = hostFailureTimes2.Count.ToString();
+    ProxyEvent logerror = new ProxyEvent()
+    {
+      ["Type"] = "S7P-CircuitBreaker-Error",
+      ["Code"] = code.ToString(),
+      ["Time"] = now.ToString(),
+      ["WasException"] = wasException.ToString(),
+      ["Count"] = hostFailureTimes2.Count.ToString(),
+    };
 
     SendEventData(logerror);
   }
@@ -297,17 +300,11 @@ public class Backends : IBackendService
 
     ProxyEvent probeData = new()
     {
-      EventData =
-      {
-        ["ProxyHost"] = _options.HostName,
-        ["Backend-Host"] = host.Host,
-        ["Port"] = host.Port.ToString(),
-        ["Path"] = host.ProbePath,
-        ["Revision"] = _options.Revision,
-        ["ContainerApp"] = _options.ContainerApp,
-        ["S7P-Host-ID"] = _options.IDStr,
-        ["Type"] = "S7P-Poller"
-      }
+      ["ProxyHost"] = _options.HostName,
+      ["Backend-Host"] = host.Host,
+      ["Port"] = host.Port.ToString(),
+      ["Path"] = host.ProbePath,
+      ["Type"] = "S7P-Poller"
     };
 
     try {
@@ -327,7 +324,7 @@ public class Backends : IBackendService
           var responseBody = await response.Content.ReadAsStringAsync(_cancellationToken);
           response.EnsureSuccessStatusCode();
                     
-          probeData.EventData["Code"] = response.StatusCode.ToString();
+          probeData["Code"] = response.StatusCode.ToString();
 
           _isRunning = true;
 
@@ -339,29 +336,29 @@ public class Backends : IBackendService
 
           // Update the host with the new latency
           host.AddLatency(latency);
-          probeData.EventData["Latency"] = latency.ToString("F3") + " ms";
+          probeData["Latency"] = latency.ToString("F3") + " ms";
         }
     }
     catch (UriFormatException e)
     {
       _telemetryClient?.TrackException(e);
       _logger.LogError($"Poller: Could not check probe: {e.Message}");
-      probeData.EventData["Type"] = "S7P-Uri Format Exception";
-      probeData.EventData["Code"] = "-";
+      probeData["Type"] = "S7P-Uri Format Exception";
+      probeData["Code"] = "-";
     }
     catch (System.Threading.Tasks.TaskCanceledException)
     {
       _logger.LogError($"Poller: Host Timeout: {host.Host}");
-      probeData.EventData["Type"] = "S7P-TaskCanceledException";
-      probeData.EventData["Code"] = "-";
-      probeData.EventData["Timeout"] = client.Timeout.TotalMilliseconds.ToString();
+      probeData["Type"] = "S7P-TaskCanceledException";
+      probeData["Code"] = "-";
+      probeData["Timeout"] = client.Timeout.TotalMilliseconds.ToString();
     }
     catch (HttpRequestException e)
     {
       _telemetryClient?.TrackException(e);
       _logger.LogError($"Poller: Host {host.Host} is down with exception: {e.Message}");
-      probeData.EventData["Type"] = "S7P-HttpRequestException";
-      probeData.EventData["Code"] = "-";
+      probeData["Type"] = "S7P-HttpRequestException";
+      probeData["Code"] = "-";
     }
     catch (OperationCanceledException)
     {
@@ -372,15 +369,15 @@ public class Backends : IBackendService
     catch (System.Net.Sockets.SocketException e)
     {
       _logger.LogError($"Poller: Host {host.Host} is down:  {e.Message}");
-      probeData.EventData["Type"] = "S7P-SocketException";
-      probeData.EventData["Code"] = "-";
+      probeData["Type"] = "S7P-SocketException";
+      probeData["Code"] = "-";
     }
     catch (Exception e)
     {
       _telemetryClient?.TrackException(e);
       _logger.LogError($"Poller: Error: {e.Message}");
-      probeData.EventData["Type"] = "Exception " + e.Message;
-      probeData.EventData["Code"] = "-";
+      probeData["Type"] = "Exception " + e.Message;
+      probeData["Code"] = "-";
     }
     finally
     {
@@ -452,7 +449,7 @@ public class Backends : IBackendService
     }
   }
 
-  private void SendEventData(Dictionary<string, string> eventData)//string urlWithPath, HttpStatusCode statusCode, DateTime requestDate, DateTime responseDate)
+  private void SendEventData(ProxyEvent eventData)//string urlWithPath, HttpStatusCode statusCode, DateTime requestDate, DateTime responseDate)
   {
     _eventClient?.SendData(eventData);
   }
