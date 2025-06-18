@@ -56,7 +56,7 @@ public class EventHubClient : IEventClient, IHostedService
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        Console.WriteLine("EventHubClient: StartAsync called");
+        Console.WriteLine("Eventhub Client starting");
         workerCancelToken = cancellationTokenSource.Token;
         if (isRunning && _producerClient is not null && _batchData is not null)
         {
@@ -180,27 +180,27 @@ public class EventHubClient : IEventClient, IHostedService
         _logBuffer.Enqueue(value);
     }
 
-    public void SendData(Dictionary<string, string> data)
-    {
-        if (!isRunning || isShuttingDown) return;
+    // public void SendData(Dictionary<string, string> data)
+    // {
+    //     if (!isRunning || isShuttingDown) return;
 
-        string jsonData = JsonSerializer.Serialize(data);
-        SendData(jsonData);
-    }
+    //     string jsonData = JsonSerializer.Serialize(data);
+    //     SendData(jsonData);
+    // }
 
     public void SendData(ProxyEvent proxyEvent)
     {
         if (!isRunning || isShuttingDown) return;
 
-        string jsonData = JsonSerializer.Serialize(proxyEvent.EventData);
+        string jsonData = JsonSerializer.Serialize(proxyEvent);
         SendData(jsonData);
     }
 
-    public void SendData(ConcurrentDictionary<string, string> eventData, string? name = null)
-    {
-        if (!isRunning || isShuttingDown) return;
+    // public void SendData(ConcurrentDictionary<string, string> eventData, string? name = null)
+    // {
+    //     if (!isRunning || isShuttingDown) return;
 
-        string jsonData = JsonSerializer.Serialize(eventData);
-        SendData(jsonData);
-    }
+    //     string jsonData = JsonSerializer.Serialize(eventData);
+    //     SendData(jsonData);
+    // }
 }
