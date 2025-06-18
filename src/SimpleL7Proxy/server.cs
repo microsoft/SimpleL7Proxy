@@ -14,6 +14,7 @@ using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.ServiceBus;
 using System.Text;
 
+
 namespace SimpleL7Proxy;
 // This class represents a server that listens for HTTP requests and processes them.
 // It uses a priority queue to manage incoming requests and supports telemetry for monitoring.
@@ -161,7 +162,7 @@ public class Server : BackgroundService
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            ConcurrentDictionary<string, string> ed = null!;
+            ProxyEvent ed = null!;
 
             try
             {
@@ -185,10 +186,8 @@ public class Server : BackgroundService
                     var requestId = _options.IDStr + counter.ToString();
 
                     //delayCts.Cancel();
-                    var rd = new RequestData(await getContextTask.ConfigureAwait(false), requestId) 
-                        {
-                            runAsync = doAsync 
-                        };  // Move this to the user profile later
+                    var rd = new RequestData(await getContextTask.ConfigureAwait(false), requestId);
+
                     ed = rd.EventData;
                     ed["Date"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
                     ed["S7P-Host-ID"] = _options.IDStr;
@@ -340,6 +339,29 @@ public class Server : BackgroundService
                             if (rd.Debug)
                                 Console.WriteLine($"UserID: {rd.UserID}");
 
+                            // determine if the request is allowed async operation
+                            if (doAsync && rd.Headers["AsyncEnabled"] != null && bool.TryParse(rd.Headers["AsyncEnabled"], out var allowed))
+                            {
+                                var clientInfo = _userProfile.GetAsyncParams(rd.UserID);
+                                rd.runAsync = false;
+
+                                if (clientInfo != null)
+                                {
+                                    rd.AsyncBlobAccessTimeoutSecs = clientInfo.AsyncBlobAccessTimeoutSecs;
+                                                                        
+                                    // Set blob storage and Service Bus information for async processing
+                                    ed["AsyncBlobContainer"] = rd.BlobContainerName = clientInfo.ContainerName;
+                                    ed["AsyncSBTopic"] = rd.SBTopicName = clientInfo.SBTopicName;
+                                    ed["BlobAccessTimeout"] = clientInfo.AsyncBlobAccessTimeoutSecs.ToString();
+                                    rd.runAsync = true;
+                                }
+
+                                if (rd.Debug)
+                                {
+                                    Console.WriteLine($"AsyncEnabled: {rd.runAsync}");
+                                }
+                            }
+
                             // Determine priority boost based on the UserID
                             rd.Guid = _userPriority.addRequest(rd.UserID);
                             bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
@@ -376,22 +398,6 @@ public class Server : BackgroundService
                             // Calculate expiresAt time based on the timeout header or default TTL
                             rd.CalculateExpiration(_options.DefaultTTLSecs, _options.TTLHeader);
                             ed["DefaultTimeout"] = rd.defaultTimeout.ToString();
-
-                            // determine if the request is allowed async operation
-
-                            if (rd.Headers["AsyncEnabled"] != null && bool.TryParse(rd.Headers["AsyncEnabled"], out var allowed))
-                            {
-                                if (doAsync)
-                                {
-                                    Console.WriteLine($"AsyncEnabled: {allowed}");
-                                    rd.runAsync = allowed;
-                                }
-                            }
-                            else
-                            {
-                                rd.runAsync = false;
-                            }
-
 
                             // Check circuit breaker status and enqueue the request
                             if (_backends.CheckFailedStatus())
@@ -432,12 +438,9 @@ public class Server : BackgroundService
                                 logmsg = "Failed to enqueue request  => 429:";
                             }
 
-                            if (!notEnqued && _options.UseServiceBus)
+                            if (!notEnqued && doAsync)
                             {
-                                rd.SBClientID = "client1";   //  TODO:  this should be set to the client ID of the user's service bus client
                                 rd.SBStatus = ServiceBusMessageStatusEnum.InQueue;
-
-                                //_serviceBusRequestService.updateStatus(rd);
                             }
 
                         }
@@ -499,12 +502,12 @@ public class Server : BackgroundService
                     }
                     else
                     {
-                        ConcurrentDictionary<string, string> temp_ed = new(ed);
+                        ProxyEvent temp_ed = new(ed);
                         temp_ed["Type"] = "S7P-Enqueue";
                         temp_ed["Message"] = "Enqueued request";
 
                         _logger.LogInformation($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
-                        _eventHubClient?.SendData(temp_ed, "Enqueue");
+                        _eventHubClient?.SendData(temp_ed);
                     }
                 }
                 else
@@ -533,7 +536,7 @@ public class Server : BackgroundService
         _logger.LogInformation("HTTP server stopped.");
     }
 
-    private void WriteOutput(string data = "", ConcurrentDictionary<string, string>? eventData = null)
+    private void WriteOutput(string data = "", ProxyEvent eventData = null)
     {
 
         try
@@ -553,7 +556,8 @@ public class Server : BackgroundService
             }
 
             _eventHubClient?.SendData(ldata);
-        } catch (Exception ex)
+        }
+        catch (Exception ex)
         {
             // Handle any exceptions that occur during logging
             Console.WriteLine($"Error writing output: {ex.Message}");
