@@ -44,7 +44,7 @@ public class LogFileEventClient : IEventClient, IHostedService
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        Console.WriteLine("LogFileEventClient: StartAsync called");
+        Console.WriteLine("Local File Logger starting");
         workerCancelToken = cancellationTokenSource.Token;
         if (isRunning)
         {
@@ -152,24 +152,24 @@ public class LogFileEventClient : IEventClient, IHostedService
         _logBuffer.Enqueue(value);
     }
 
-    public void SendData(Dictionary<string, string> eventData)
-    {
-        if (!isRunning || isShuttingDown) return;
+    // public void SendData(Dictionary<string, string> eventData)
+    // {
+    //     if (!isRunning || isShuttingDown) return;
 
-        SendData(JsonSerializer.Serialize(eventData));
-    }
+    //     SendData(JsonSerializer.Serialize(eventData));
+    // }
     
-    public void SendData( ConcurrentDictionary<string, string> eventData, string? name = null)
-    {
-        if (!isRunning || isShuttingDown) return;
+    // public void SendData( ConcurrentDictionary<string, string> eventData, string? name = null)
+    // {
+    //     if (!isRunning || isShuttingDown) return;
 
-        SendData(JsonSerializer.Serialize(eventData));
-    }
+    //     SendData(JsonSerializer.Serialize(eventData));
+    // }
     public void SendData(ProxyEvent proxyEvent)
     {
         if (!isRunning || isShuttingDown) return;
 
-        string jsonData = JsonSerializer.Serialize(proxyEvent.EventData);
+        string jsonData = JsonSerializer.Serialize(proxyEvent);
         SendData(jsonData);
     }
 
