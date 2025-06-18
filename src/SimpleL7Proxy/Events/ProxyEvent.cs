@@ -1,7 +1,35 @@
-﻿namespace SimpleL7Proxy.Events;
+﻿using System.Collections.Concurrent;
+using SimpleL7Proxy.Backend;
+using Microsoft.Extensions.Options;
 
-public class ProxyEvent
+namespace SimpleL7Proxy.Events
 {
-  public Dictionary<string, string> EventData { get; private set; } = [];
-  public string Name { get; set; } = string.Empty;
+
+  public class ProxyEvent : ConcurrentDictionary<string, string>
+  {
+    private static IOptions<BackendOptions> _options = null!;
+
+    public static void Initialize(IOptions<BackendOptions> backendOptions)
+    {
+      _options = backendOptions ?? throw new ArgumentNullException(nameof(backendOptions));
+    }
+
+    public ProxyEvent() : base()
+    {
+      try {
+      base["Ver"] = Constants.VERSION;
+      base["Revision"] = _options.Value.Revision;
+      base["ContainerApp"] = _options.Value.ContainerApp;
+    } catch (Exception ex)
+      {
+Console.WriteLine($"Error initializing ProxyEvent: {ex.Message}");
+      }
+    }
+    
+    public ProxyEvent(ProxyEvent other) : base(other)
+    {
+      if (other == null) throw new ArgumentNullException(nameof(other));
+    }
+  }
+
 }
