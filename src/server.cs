@@ -424,7 +424,7 @@ public class Server : IServer
                         temp_ed.Type = EventType.ProxyRequestEnqueued;
                         temp_ed["Message"] = "Enqueued request";
 
-                        temp_ed.WriteOutput("");
+                        temp_ed.SendEvent();
                         _staticEvent.WriteOutput($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
                     }
                 }
