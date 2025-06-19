@@ -23,6 +23,7 @@ public class Server : IServer
     private readonly IEventHubClient? _eventHubClient;
     private static bool _isShuttingDown = false;
     private readonly string _priorityHeaderName;
+    private static ProxyEvent _staticEvent = new ProxyEvent();
 
     // public void enqueueShutdownRequest() {
     //     var shutdownRequest = new RequestData(Constants.Shutdown);
@@ -50,7 +51,7 @@ public class Server : IServer
         httpListener.Prefixes.Add(_listeningUrl);
 
         var timeoutTime = TimeSpan.FromMilliseconds(_options.Timeout).ToString(@"hh\:mm\:ss\.fff");
-        WriteOutput($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
+        _staticEvent.WriteOutput($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
     }
 
     public ConcurrentPriQueue<RequestData> Queue()
@@ -65,7 +66,7 @@ public class Server : IServer
         {
             _cancellationToken = cancellationToken;
             httpListener.Start();
-            WriteOutput($"Listening on {_options?.Port}");
+            _staticEvent.WriteOutput($"Listening on {_options?.Port}");
             // Additional setup or async start operations can be performed here
 
             return _requestsQueue;
@@ -73,14 +74,14 @@ public class Server : IServer
         catch (HttpListenerException ex)
         {
             // Handle specific errors, e.g., port already in use
-            WriteOutput($"Failed to start HttpListener: {ex.Message}");
+            _staticEvent.WriteOutput($"Failed to start HttpListener: {ex.Message}");
             // Consider rethrowing, logging the error, or handling it as needed
             throw new Exception("Failed to start the server due to an HttpListener exception.", ex);
         }
         catch (Exception ex)
         {
             // Handle other potential errors
-            WriteErrorOutput($"An error occurred: {ex.Message}");
+            _staticEvent.WriteErrorOutput($"An error occurred: {ex.Message}");
             throw new Exception("An error occurred while starting the server.", ex);
         }
     }
@@ -130,6 +131,7 @@ public class Server : IServer
                     ed = rd.EventData;
                     ed["Date"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
                     ed["S7P-Host-ID"] = _options.IDStr;
+                    ed.Uri = rd.Context!.Request.Url!;
                     ed["Path"] = rd.Path ?? "N/A";
                     ed["Method"] = rd.Method ?? "N/A";
                     ed["RequestHost"] = rd.Headers["Host"] ?? "N/A";
@@ -374,9 +376,9 @@ public class Server : IServer
                         }
                     }
 
+                    ed.MID = rd.MID;
                     ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
                     ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
-                    ed["MID"] = rd.MID;
                     ed["ExpiresAt"] = rd.ExpiresAtString;
                     ed["Priority"] = priority.ToString();
                     ed["Priority2"] = userPriorityBoost.ToString();
@@ -386,13 +388,19 @@ public class Server : IServer
 
                         if (rd.Context is not null)
                         {
-                            ed["Type"] = "S7P-EnqueueFailed";
-                            WriteOutput($"{logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}", ed);
+                            ed.Type = EventType.ServerError;
+                            ed["ErrorDetail"] = "EnqueueFailed";
+                            ed.Status = (HttpStatusCode)notEnquedCode;
+                            ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
+                            ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
+
+                            Console.Error.WriteLine($"{logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}");
 
                             try
                             {
                                 rd.Context.Response.StatusCode = notEnquedCode;
-                                rd.Context.Response.Headers["Retry-After"] = (_backends.ActiveHostCount() == 0) ? _options.PollInterval.ToString() : "500";
+                                ed["Retry-After"] = rd.Context.Response.Headers["Retry-After"] = (_backends.ActiveHostCount() == 0) ? _options.PollInterval.ToString() : "500";
+
                                 using (var writer = new System.IO.StreamWriter(rd.Context.Response.OutputStream))
                                 {
                                     await writer.WriteAsync(retrymsg).ConfigureAwait(false);
@@ -401,21 +409,23 @@ public class Server : IServer
                             }
                             catch (Exception ex)
                             {
-                                WriteErrorOutput($"Request was not enqueue'd and got an error writing on network: {ex.Message}", ed);
+                                Console.Error.WriteLine($"Request was not enqueue'd and got an error writing on network: {ex.Message}");
+                                ed["ErrorWritingResponse"] = ex.Message;
                             }
-                            WriteOutput($"Pri: {priority} Stat: 429 Path: {rd.Path}");
+                            _staticEvent.WriteOutput($"Pri: {priority} Stat: 429 Path: {rd.Path}");
                         }
 
+                        ed.SendEvent();
                         _userPriority.removeRequest(rd.UserID, rd.Guid);
                     }
                     else
                     {
                         ProxyEvent temp_ed = new(ed);
-                        temp_ed["Type"] = "S7P-Enqueue";
+                        temp_ed.Type = EventType.ProxyRequestEnqueued;
                         temp_ed["Message"] = "Enqueued request";
 
-                        WriteOutput("", temp_ed);
-                        WriteOutput($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
+                        temp_ed.WriteOutput("");
+                        _staticEvent.WriteOutput($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
                     }
                 }
                 else
@@ -426,76 +436,21 @@ public class Server : IServer
             }
             catch (IOException ioEx)
             {
-                WriteOutput($"An IO exception occurred: {ioEx.Message}", ed);
+                ed.WriteOutput($"An IO exception occurred: {ioEx.Message}");
             }
             catch (OperationCanceledException)
             {
                 // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
-                WriteOutput("HTTP server shutdown initiated.", ed);
+                _staticEvent.WriteOutput("HTTP server shutdown initiated.");
                 break; // Exit the loop
             }
             catch (Exception e)
             {
                 _telemetryClient?.TrackException(e);
-                WriteOutput($"Error: {e.Message}\n{e.StackTrace}", ed);
+                _staticEvent.WriteOutput($"Error: {e.Message}\n{e.StackTrace}");
             }
         }
 
-        WriteOutput("HTTP server stopped.");
-    }
-
-    private void WriteOutput(string data = "", ProxyEvent? eventData = null)
-    {
-
-        try
-        {
-            var ldata = eventData ?? new();
-
-            // Log the data to the console
-            if (!string.IsNullOrEmpty(data))
-            {
-                Console.WriteLine(data);
-                ldata["Message"] = data;
-            }
-
-            if (!ldata.TryGetValue("Type", out var typeValue))
-            {
-                ldata["Type"] = "S7P-Console";
-            }
-
-            _eventHubClient?.SendData(ldata);
-        }
-        catch (Exception ex)
-        {
-            // Handle any exceptions that occur during logging
-            Console.WriteLine($"Error writing output: {ex.Message}");
-        }
-    }
-    
-    private void WriteErrorOutput(string data = "", ProxyEvent? eventData = null)
-    {
-
-        try
-        {
-            var ldata = eventData ?? new();
-
-            // Log the data to the console
-            if (!string.IsNullOrEmpty(data))
-            {
-                Console.Error.WriteLine(data);
-                ldata["Message"] = data;
-            }
-
-            if (!ldata.TryGetValue("Type", out var typeValue))
-            {
-                ldata["Type"] = "S7P-Console";
-            }
-
-            _eventHubClient?.SendData(ldata);
-        } catch (Exception ex)
-        {
-            // Handle any exceptions that occur during logging
-            Console.Error.WriteLine($"Error writing output: {ex.Message}");
-        }
+        _staticEvent.WriteOutput("HTTP server stopped.");
     }
 }
