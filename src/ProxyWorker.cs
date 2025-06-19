@@ -154,14 +154,13 @@ public class ProxyWorker
                             eventData["ProbeStatus"] = probeStatus.ToString();
                             eventData["ProbeMessage"] = probeMessage;
                             eventData.Type = EventType.Probe;
-                            eventData.SendEvent();
+                            eventData.SendEvent(); // send the probe event to telemetry
                             Console.WriteLine($"Probe: {incomingRequest.Path} Status: {probeStatus} Message: {probeMessage}");
                         }
                         continue;
                     }
                     eventData.Type = EventType.ProxyRequest;
                     eventData["EnqueueTime"] = incomingRequest.EnqueueTime.ToString("o");
-                    eventData["MID"] = incomingRequest.MID ?? "N/A";
                     eventData["RequestContentLength"] = incomingRequest.Headers["Content-Length"] ?? "N/A";
 
                     incomingRequest.Headers["x-Request-Queue-Duration"] = (incomingRequest.DequeueTime! - incomingRequest.EnqueueTime!).TotalMilliseconds.ToString();
@@ -192,7 +191,8 @@ public class ProxyWorker
                         eventData.Duration = timeTaken;
                         eventData["x-Total-Latency"] = timeTaken.TotalMilliseconds.ToString("F3");
                         eventData["x-Attempts"] = incomingRequest.Attempts.ToString();
-                        if (pr != null) {
+                        if (pr != null)
+                        {
                             eventData["x-Backend-Host"] = !string.IsNullOrEmpty(pr.BackendHostname) ? pr.BackendHostname : "N/A";
                             eventData["x-Response-Latency"] =
                                 pr.ResponseDate != default && incomingRequest.DequeueTime != default
@@ -268,12 +268,7 @@ public class ProxyWorker
                     {
                         AddIncompleteRequestsToEventData(incomingRequest.incompleteRequests, eventData);
                     }
-                    eventData.SendEvent();
-                    
 
-                    // pr.Body = [];
-                    // pr.ContentHeaders.Clear();
-                    // pr.FullURL = "";
                     Interlocked.Decrement(ref states[6]);
                     Interlocked.Increment(ref states[7]);
                     workerState = "Cleanup";
@@ -290,16 +285,14 @@ public class ProxyWorker
                         _requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.Priority2, incomingRequest.EnqueueTime);
                     });
 
+                    // Event details were  already captured in ReadProxyAsync
+
                     // Requeue the request 
                     //_requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.Priority2, incomingRequest.EnqueueTime);
                     Console.WriteLine($"Requeued request, Pri: {incomingRequest.Priority}, Expires-At: {incomingRequest.ExpiresAtString} Retry-after-ms: {e.RetryAfter}, Q-Len: {_requestsQueue.Count}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()}");
                     requestWasRetried = true;
                     incomingRequest.SkipDispose = true;
-                    eventData.Status = HttpStatusCode.Accepted;
-                    eventData["Retry-After"] = e.RetryAfter.ToString();
-                    eventData.Type = EventType.ProxyRequestRequeued;
 
-                    eventData.SendEvent();
                 }
                 catch (ProxyErrorException e)
                 {
@@ -320,103 +313,93 @@ public class ProxyWorker
                     catch (Exception writeEx)
                     {
                         Console.Error.WriteLine($"Failed to write error message: {writeEx.Message}");
-                        eventData["ErrorDetail"] = "Network Error";
+
+                        eventData["ErrorDetail"] = "Network Error sending error response";
                         eventData.Type = EventType.Exception;
                         eventData.Exception = writeEx;
                     }
-                    finally
-                    {
-                        eventData.SendEvent();
-                    }
-
                 }
                 catch (IOException ioEx)
                 {
                     if (isExpired)
                     {
                         Console.WriteLine("IoException on an exipred request");
-                        continue;
                     }
-                    eventData.Status = HttpStatusCode.RequestTimeout; // 408 Request Timeout
-                    eventData.Type = EventType.Exception;
-                    eventData.Exception = ioEx;
-
-                    var errorMessage = Encoding.UTF8.GetBytes($"Broken Pipe: {ioEx.Message}");
-                    try
+                    else
                     {
-                        lcontext.Response.StatusCode = 408;
-                        await lcontext.Response.OutputStream.WriteAsync(errorMessage, 0, errorMessage.Length).ConfigureAwait(false);
-                        Console.Error.WriteLine($"An IO exception occurred: {ioEx.Message}");
-                    }
-                    catch (Exception writeEx)
-                    {
-                        Console.Error.WriteLine($"Failed to write error message: {writeEx.Message}");
-                        eventData.Status = HttpStatusCode.Gone; // 410 Gone
-                        eventData["ErrorDetail"] = "Network Error";
+                        eventData.Status = HttpStatusCode.RequestTimeout; // 408 Request Timeout
                         eventData.Type = EventType.Exception;
-                        eventData.Exception = writeEx;
-                    }
-                    finally
-                    {
-                        eventData.SendEvent();
-                    }
+                        eventData.Exception = ioEx;
+                        var errorMessage = "IO Exception: " + ioEx.Message;
+                        eventData["ErrorDetails"] = errorMessage;
 
+                        try
+                        {
+                            lcontext.Response.StatusCode = (int)eventData.Status;
+                            var errorBytes = Encoding.UTF8.GetBytes(errorMessage);
+                            await lcontext.Response.OutputStream.WriteAsync(errorBytes, 0, errorBytes.Length).ConfigureAwait(false);
+                            Console.Error.WriteLine($"An IO exception occurred: {ioEx.Message}");
+                        }
+                        catch (Exception writeEx)
+                        {
+                            Console.Error.WriteLine($"Failed to write error message: {writeEx.Message}");
+                            eventData["InnerErrorDetail"] = "Network Error";
+                            if (writeEx.StackTrace != null)
+                            {
+                                eventData["InnerErrorStack"] = writeEx.StackTrace.ToString();
+                            }
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
                     if (isExpired)
                     {
                         Console.Error.WriteLine("Exception on an exipred request");
-                        continue;
                     }
-
-                    eventData.Status = HttpStatusCode.InternalServerError; // 500 Internal Server Error
-                    eventData.Type = EventType.Exception;
-                    eventData.Exception = ex;
-
-                    if (ex.Message == "Cannot access a disposed object." || ex.Message.StartsWith("Unable to write data") || ex.Message.Contains("Broken Pipe")) // The client likely closed the connection
+                    else
                     {
-                        Console.Error.WriteLine($"Client closed connection: {incomingRequest.FullURL}");
-                        eventData.Status = HttpStatusCode.Gone; // 410 Gone
-                        eventData["ErrorDetail"] = "Client Disconnected";
-                        eventData.SendEvent();
+                        eventData.Status = HttpStatusCode.InternalServerError; // 500 Internal Server Error
+                        eventData.Type = EventType.Exception;
+                        eventData.Exception = ex;
 
-                        continue;
-                    }
-                    requestException = true;
-                    dirtyExceptionLog = true;
-                    // Log the exception
-                    Console.Error.WriteLine($"Exception: {ex.Message}");
-                    Console.Error.WriteLine($"Stack Trace: {ex.StackTrace}");
-                    // Convert the multi-line stack trace to a single line
-                    eventData["x-Stack"] = ex.StackTrace?.Replace(Environment.NewLine, " ") ?? "N/A";
-                    eventData["WorkerState"] = workerState;
-                    eventData.SendEvent();
-                    dirtyExceptionLog = false;
+                        if (ex.Message == "Cannot access a disposed object." || ex.Message.StartsWith("Unable to write data") || ex.Message.Contains("Broken Pipe")) // The client likely closed the connection
+                        {
+                            Console.Error.WriteLine($"Client closed connection: {incomingRequest.FullURL}");
+                            eventData["InnerErrorDetail"] = "Client Disconnected";
+                        }
+                        else
+                        {
+                            requestException = true;
 
-                    // Set an appropriate status code for the error
-                    var errorMessage = Encoding.UTF8.GetBytes("Internal Server Error");
-                    try
-                    {
-                        _telemetryClient?.TrackException(ex, eventData);
-                        lcontext.Response.StatusCode = 500;
-                        await lcontext.Response.OutputStream.WriteAsync(errorMessage, 0, errorMessage.Length).ConfigureAwait(false);
-                    }
-                    catch (Exception writeEx)
-                    {
-                        Console.Error.WriteLine($"Failed to write error message: {writeEx.Message}");
+                            // Set an appropriate status code for the error
+                            var errorMessage = "Exception: " + ex.Message;
+                            eventData["ErrorDetails"] = errorMessage;
+
+                            try
+                            {
+                                _telemetryClient?.TrackException(ex, eventData);
+                                lcontext.Response.StatusCode = 500;
+                                var errorBytes = Encoding.UTF8.GetBytes(errorMessage);
+                                await lcontext.Response.OutputStream.WriteAsync(errorBytes, 0, errorBytes.Length).ConfigureAwait(false);
+                            }
+                            catch (Exception writeEx)
+                            {
+                                eventData["InnerErrorDetail"] = "Network Error";
+                                if (writeEx.StackTrace != null)
+                                {
+                                    eventData["InnerErrorStack"] = writeEx.StackTrace.ToString();
+                                }
+                            }
+                        }
                     }
                 }
                 finally
                 {
+                    eventData.SendEvent(); // Ensure the event at the completion of the request
                     try
                     {
 
-                        if (dirtyExceptionLog)
-                        {
-                            eventData["x-Additional"] = "Failed to log exception";
-                            eventData.SendEvent();
-                        }
                         // Let's not track the request if it was retried.
                         if (!requestWasRetried)
                         {
@@ -426,9 +409,11 @@ public class ProxyWorker
                             // Track the status of the request for circuit breaker
                             _backends.TrackStatus((int)lcontext.Response.StatusCode, requestException);
 
-                            _telemetryClient?.TrackRequest($"{incomingRequest.Method} {incomingRequest.Path}",
-                                DateTimeOffset.UtcNow, new TimeSpan(0, 0, 0), $"{lcontext.Response.StatusCode}", true);
-                            _telemetryClient?.TrackEvent("ProxyRequest", eventData);
+                            _telemetryClient?.TrackRequest( $"{incomingRequest.Method} {incomingRequest.Path}",
+                                DateTimeOffset.UtcNow,
+                                DateTime.UtcNow - incomingRequest.EnqueueTime,
+                                 $"{lcontext.Response.StatusCode}",
+                                 lcontext.Response.StatusCode==(int)HttpStatusCode.OK);
 
                             lcontext?.Response.Close();
                         }
@@ -457,7 +442,7 @@ public class ProxyWorker
             i++;
             foreach (var key in summary.Keys)
             {
-                eventData[$"attempt-{i}-{key}"] = summary[key];
+                eventData[$"x-attempt-{i}-{key}"] = summary[key];
             }
         }
     }
@@ -660,8 +645,8 @@ public class ProxyWorker
                 // Read the body stream once and reuse it
                 byte[] bodyBytes = await request.CacheBodyAsync().ConfigureAwait(false);
 
-                using (ByteArrayContent bodyContent = new (bodyBytes))
-                using (HttpRequestMessage proxyRequest = new (new (request.Method), request.FullURL))
+                using (ByteArrayContent bodyContent = new(bodyBytes))
+                using (HttpRequestMessage proxyRequest = new(new(request.Method), request.FullURL))
                 {
                     proxyRequest.Content = bodyContent;
                     CopyHeaders(request.Headers, proxyRequest, true);
@@ -861,9 +846,8 @@ public class ProxyWorker
                 incompleteRequests.Add(requestAttempt);
 
                 requestAttempt["Message"] = "Operation TIMEOUT";
-                
-                var str = JsonSerializer.Serialize(requestAttempt);
 
+                var str = JsonSerializer.Serialize(requestAttempt);
                 Console.WriteLine(str);
 
                 continue;
@@ -879,10 +863,9 @@ public class ProxyWorker
                 requestAttempt["Error"] = "Request Cancelled";
                 incompleteRequests.Add(requestAttempt);
 
-                requestAttempt["MID"] = request.MID ?? "N/A";
                 requestAttempt["Message"] = "Operation CANCELLED";
-                var str = JsonSerializer.Serialize(requestAttempt);
 
+                var str = JsonSerializer.Serialize(requestAttempt);
                 Console.WriteLine(str);
 
                 continue;
@@ -898,10 +881,9 @@ public class ProxyWorker
                 requestAttempt["Error"] = "Bad Request: " + e.Message;
                 incompleteRequests.Add(requestAttempt);
 
-                requestAttempt["MID"] = request.MID ?? "N/A";
                 requestAttempt["Message"] = "Operation Exception: HttpRequest";
-                var str = JsonSerializer.Serialize(requestAttempt);
 
+                var str = JsonSerializer.Serialize(requestAttempt);
                 Console.WriteLine(str);
 
                 continue;
@@ -948,7 +930,7 @@ public class ProxyWorker
         // 502 Bad Gateway  or   call status code form all attempts ( if they are the same )
         lastStatusCode = (statusMatches) ? (HttpStatusCode)currentStatusCode : HttpStatusCode.BadGateway;
         requestSummary.Type = EventType.ProxyError;
-        
+
         return new ProxyData
         {
             ResponseDate = DateTime.UtcNow,
@@ -1049,7 +1031,7 @@ public class ProxyWorker
         }
         catch (ArgumentException e)
         {
-            ProxyEvent  data = new ()
+            ProxyEvent data = new()
             {
                 Type = EventType.Exception,
                 Exception = e,
@@ -1058,7 +1040,7 @@ public class ProxyWorker
                 ["x-Request-FullURL"] = request.FullURL,
                 ["x-Request-MID"] = request.MID ?? "N/A",
                 ["x-Request-GUID"] = request.Guid.ToString(),
-                ["Parsing Error"] = "Invalid charset in Content-Type header",                
+                ["Parsing Error"] = "Invalid charset in Content-Type header",
                 ["Content-Type"] = request.Headers["Content-Type"] ?? ""
             };
             data.SendEvent();
