@@ -153,13 +153,13 @@ public class ProxyWorker
                             eventData["Probe"] = incomingRequest.Path;
                             eventData["ProbeStatus"] = probeStatus.ToString();
                             eventData["ProbeMessage"] = probeMessage;
-                            eventData["Type"] = "S7P-Probe";
-                            SendEventData(eventData);
+                            eventData.Type = EventType.Probe;
+                            eventData.SendEvent();
                             Console.WriteLine($"Probe: {incomingRequest.Path} Status: {probeStatus} Message: {probeMessage}");
                         }
                         continue;
                     }
-                    eventData["Type"] = "S7P-ProxyRequest";
+                    eventData.Type = EventType.ProxyRequest;
                     eventData["EnqueueTime"] = incomingRequest.EnqueueTime.ToString("o");
                     eventData["MID"] = incomingRequest.MID ?? "N/A";
                     eventData["RequestContentLength"] = incomingRequest.Headers["Content-Length"] ?? "N/A";
@@ -188,8 +188,9 @@ public class ProxyWorker
                     finally
                     {
                         eventData["Url"] = incomingRequest.FullURL;
-                        var timeTaken = (DateTime.UtcNow - incomingRequest.EnqueueTime).TotalMilliseconds.ToString("F3");
-                        eventData["x-Total-Latency"] = timeTaken;
+                        var timeTaken = DateTime.UtcNow - incomingRequest.EnqueueTime;
+                        eventData.Duration = timeTaken;
+                        eventData["x-Total-Latency"] = timeTaken.TotalMilliseconds.ToString("F3");
                         eventData["x-Attempts"] = incomingRequest.Attempts.ToString();
                         if (pr != null) {
                             eventData["x-Backend-Host"] = !string.IsNullOrEmpty(pr.BackendHostname) ? pr.BackendHostname : "N/A";
@@ -209,7 +210,7 @@ public class ProxyWorker
 
                     //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
 
-                    eventData["Status"] = ((int)pr.StatusCode).ToString();
+                    eventData.Status = pr.StatusCode;
                     if (_options.LogAllRequestHeaders)
                     {
                         foreach (var header in incomingRequest.Headers.AllKeys)
@@ -240,11 +241,11 @@ public class ProxyWorker
                         }
                     }
 
-                    if (pr.StatusCode == HttpStatusCode.PreconditionFailed) // 412 Precondition failed
+                    if (pr.StatusCode == HttpStatusCode.PreconditionFailed || pr.StatusCode == HttpStatusCode.RequestTimeout) // 412 or 408
                     {
                         // Request has expired
                         isExpired = true;
-                        eventData["Type"] = "S7P-Expired-Request";
+                        eventData.Type = EventType.ProxyRequestExpired;
                     }
 
                     await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);
@@ -263,15 +264,12 @@ public class ProxyWorker
                     eventData["Content-Type"] = lcontext?.Response?.ContentType ?? "N/A";
                     workerState = "Send Event";
 
-                    if (_eventHubClient != null)
+                    if (incomingRequest.incompleteRequests != null)
                     {
-                        //SendEventData(pr.FullURL, pr.StatusCode, incomingRequest.Timestamp, pr.ResponseDate);
-                        if (incomingRequest.incompleteRequests != null)
-                        {
-                            AddIncompleteRequestsToEventData(incomingRequest.incompleteRequests, eventData);
-                        }
-                        SendEventData(eventData);
+                        AddIncompleteRequestsToEventData(incomingRequest.incompleteRequests, eventData);
                     }
+                    eventData.SendEvent();
+                    
 
                     // pr.Body = [];
                     // pr.ContentHeaders.Clear();
@@ -297,17 +295,19 @@ public class ProxyWorker
                     Console.WriteLine($"Requeued request, Pri: {incomingRequest.Priority}, Expires-At: {incomingRequest.ExpiresAtString} Retry-after-ms: {e.RetryAfter}, Q-Len: {_requestsQueue.Count}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()}");
                     requestWasRetried = true;
                     incomingRequest.SkipDispose = true;
-                    eventData["Status"] = ((int)202).ToString();
-                    eventData["Type"] = "S7P-Requeue-Request";
+                    eventData.Status = HttpStatusCode.Accepted;
+                    eventData["Retry-After"] = e.RetryAfter.ToString();
+                    eventData.Type = EventType.ProxyRequestRequeued;
 
-                    SendEventData(eventData);
+                    eventData.SendEvent();
                 }
                 catch (ProxyErrorException e)
                 {
                     // Handle proxy error
-                    eventData["Status"] = ((int)e.StatusCode).ToString();
-                    eventData["Error"] = e.Message;
-                    eventData["Type"] = "S7P-ProxyError";
+                    eventData.Status = e.StatusCode;
+                    eventData["Error"] = "Proxy Exception";
+                    eventData.Type = EventType.Exception;
+                    eventData.Exception = e;
 
                     var errorMessage = Encoding.UTF8.GetBytes(e.Message);
 
@@ -320,14 +320,13 @@ public class ProxyWorker
                     catch (Exception writeEx)
                     {
                         Console.Error.WriteLine($"Failed to write error message: {writeEx.Message}");
-                        eventData["Status"] = e.StatusCode.ToString();
                         eventData["ErrorDetail"] = "Network Error";
-                        eventData["Type"] = "S7P-IOException";
-                        eventData["ErrorMessage"] = writeEx.Message;
+                        eventData.Type = EventType.Exception;
+                        eventData.Exception = writeEx;
                     }
                     finally
                     {
-                        SendEventData(eventData);
+                        eventData.SendEvent();
                     }
 
                 }
@@ -338,9 +337,9 @@ public class ProxyWorker
                         Console.WriteLine("IoException on an exipred request");
                         continue;
                     }
-                    eventData["Status"] = "408";
-                    eventData["Type"] = "S7P-IOException";
-                    eventData["Message"] = ioEx.Message;
+                    eventData.Status = HttpStatusCode.RequestTimeout; // 408 Request Timeout
+                    eventData.Type = EventType.Exception;
+                    eventData.Exception = ioEx;
 
                     var errorMessage = Encoding.UTF8.GetBytes($"Broken Pipe: {ioEx.Message}");
                     try
@@ -352,12 +351,14 @@ public class ProxyWorker
                     catch (Exception writeEx)
                     {
                         Console.Error.WriteLine($"Failed to write error message: {writeEx.Message}");
-                        eventData["Status"] = "Network Error";
-                        eventData["Type"] = "S7P-IOException";
+                        eventData.Status = HttpStatusCode.Gone; // 410 Gone
+                        eventData["ErrorDetail"] = "Network Error";
+                        eventData.Type = EventType.Exception;
+                        eventData.Exception = writeEx;
                     }
                     finally
                     {
-                        SendEventData(eventData);
+                        eventData.SendEvent();
                     }
 
                 }
@@ -369,16 +370,16 @@ public class ProxyWorker
                         continue;
                     }
 
-                    eventData["Status"] = "500";
-                    eventData["Type"] = "S7P-Exception";
-                    eventData["Message"] = ex.Message;
+                    eventData.Status = HttpStatusCode.InternalServerError; // 500 Internal Server Error
+                    eventData.Type = EventType.Exception;
+                    eventData.Exception = ex;
 
                     if (ex.Message == "Cannot access a disposed object." || ex.Message.StartsWith("Unable to write data") || ex.Message.Contains("Broken Pipe")) // The client likely closed the connection
                     {
                         Console.Error.WriteLine($"Client closed connection: {incomingRequest.FullURL}");
-                        eventData["Status"] = "Network Error";
-                        eventData["Type"] = "S7P-IOException";
-                        SendEventData(eventData);
+                        eventData.Status = HttpStatusCode.Gone; // 410 Gone
+                        eventData["ErrorDetail"] = "Client Disconnected";
+                        eventData.SendEvent();
 
                         continue;
                     }
@@ -390,7 +391,7 @@ public class ProxyWorker
                     // Convert the multi-line stack trace to a single line
                     eventData["x-Stack"] = ex.StackTrace?.Replace(Environment.NewLine, " ") ?? "N/A";
                     eventData["WorkerState"] = workerState;
-                    SendEventData(eventData);
+                    eventData.SendEvent();
                     dirtyExceptionLog = false;
 
                     // Set an appropriate status code for the error
@@ -414,7 +415,7 @@ public class ProxyWorker
                         if (dirtyExceptionLog)
                         {
                             eventData["x-Additional"] = "Failed to log exception";
-                            SendEventData(eventData);
+                            eventData.SendEvent();
                         }
                         // Let's not track the request if it was retried.
                         if (!requestWasRetried)
@@ -638,7 +639,7 @@ public class ProxyWorker
                 if (request.ExpiresAt < DateTimeOffset.UtcNow)
                 {
                     string errorMessage = $"Request has expired: Time: {DateTime.Now}  Reason: {request.ExpireReason}";
-                    requestSummary["Type"] = "S7P-ProxyError";
+                    requestSummary.Type = EventType.ProxyRequestExpired;
                     throw new ProxyErrorException(ProxyErrorException.ErrorType.TTLExpired,
                                                 HttpStatusCode.PreconditionFailed,
                                                 errorMessage);
@@ -946,8 +947,8 @@ public class ProxyWorker
 
         // 502 Bad Gateway  or   call status code form all attempts ( if they are the same )
         lastStatusCode = (statusMatches) ? (HttpStatusCode)currentStatusCode : HttpStatusCode.BadGateway;
-        requestSummary["Type"] = "S7P-ProxyError";
-
+        requestSummary.Type = EventType.ProxyError;
+        
         return new ProxyData
         {
             ResponseDate = DateTime.UtcNow,
@@ -1048,12 +1049,20 @@ public class ProxyWorker
         }
         catch (ArgumentException e)
         {
-            var data = request.EventData;
-            data["Type"] = "S7P-InvalidCharset";
-            data["Content-Type"] = request.Headers["Content-Type"] ?? "";
+            ProxyEvent  data = new ()
+            {
+                Type = EventType.Exception,
+                Exception = e,
+                ["x-Request-Path"] = request.Path,
+                ["x-Request-Method"] = request.Method,
+                ["x-Request-FullURL"] = request.FullURL,
+                ["x-Request-MID"] = request.MID ?? "N/A",
+                ["x-Request-GUID"] = request.Guid.ToString(),
+                ["Parsing Error"] = "Invalid charset in Content-Type header",                
+                ["Content-Type"] = request.Headers["Content-Type"] ?? ""
+            };
+            data.SendEvent();
 
-
-            HandleProxyRequestError(null, data, HttpStatusCode.UnsupportedMediaType, $"Unsupported charset: {contentType.CharSet}", null, e);
             return Encoding.UTF8; // Fallback to UTF-8 in case of error
         }
     }
@@ -1094,11 +1103,6 @@ public class ProxyWorker
         }
     }
 
-    private void SendEventData(ProxyEvent eventData)//string urlWithPath, HttpStatusCode statusCode, DateTime requestDate, DateTime responseDate)
-    {
-        _eventHubClient?.SendData(eventData);
-    }
-
     private void LogHeaders(IEnumerable<KeyValuePair<string, IEnumerable<string>>> headers, string prefix)
     {
         foreach (var header in headers)
@@ -1131,35 +1135,4 @@ public class ProxyWorker
         host?.AddError();
         return statusCode;
     }
-
-
-    // private HttpStatusCode HandleProxyRequestError2(BackendHost? host, Exception? e, DateTime requestDate, string url, HttpStatusCode statusCode, string? customMessage = null)
-    // {
-    //     // Common operations for all exceptions
-
-    //     if (_telemetryClient != null)
-    //     {
-    //         if (e != null)
-    //             _telemetryClient.TrackException(e);
-
-    //         var telemetry = new EventTelemetry("ProxyRequest");
-    //         telemetry.Properties.Add("URL", url);
-    //         telemetry.Properties.Add("RequestDate", requestDate.ToString("o"));
-    //         telemetry.Properties.Add("ResponseDate", DateTime.Now.ToString("o"));
-    //         telemetry.Properties.Add("StatusCode", statusCode.ToString());
-    //         _telemetryClient.TrackEvent(telemetry);
-    //     }
-
-
-    //     if (!string.IsNullOrEmpty(customMessage))
-    //     {
-    //         Console.WriteLine($"{e?.Message ?? customMessage}");
-    //     }
-    //     var date = requestDate.ToString("o");
-    //     _eventHubClient?.SendData($"{{\"Date\":\"{date}\", \"Url\":\"{url}\", \"Error\":\"{e?.Message ?? customMessage}\"}}");
-
-    //     host?.AddError();
-    //     return statusCode;
-    // }
-
 }

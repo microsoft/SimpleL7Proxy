@@ -112,14 +112,14 @@ public class Backends : IBackendService
         hostFailureTimes2.Enqueue(now);
         ProxyEvent logerror = new ProxyEvent()
         {
-            ["Type"] = "S7P-CircuitBreaker-Error",
             ["Code"] = code.ToString(),
             ["Time"] = now.ToString(),
             ["WasException"] = wasException.ToString(),
             ["Count"] = hostFailureTimes2.Count.ToString(),
+            Type = EventType.CircuitBreakerError
         };
 
-        SendEventData(logerror);
+        logerror.SendEvent();
     }
 
     // returns true if the service is in failure state
@@ -277,8 +277,9 @@ public class Backends : IBackendService
             ["Backend-Host"] = host.host,
             ["Port"] = host.port.ToString(),
             ["Path"] = host.probe_path,
-            ["Type"] = "S7P-Poller"
+            Type = EventType.Poller
         };
+
         try
         {
 
@@ -319,48 +320,52 @@ public class Backends : IBackendService
         }
         catch (UriFormatException e)
         {
-            Program.telemetryClient?.TrackException(e);
-            WriteOutput($"Poller: Could not check probe: {e.Message}");
-            probeData["Type"] = "S7P-Uri Format Exception";
+            // WriteOutput($"Poller: Could not check probe: {e.Message}");
+            probeData.Type = EventType.Exception;
+            probeData.Exception = e;
+            //"S7P-Uri Format Exception";
             probeData["Code"] = "-";
         }
-        catch (System.Threading.Tasks.TaskCanceledException)
+        catch (System.Threading.Tasks.TaskCanceledException e)
         {
-            WriteOutput($"Poller: Host Timeout: {host.host}");
-            probeData["Type"] = "S7P-TaskCanceledException";
+            // WriteOutput($"Poller: Host Timeout: {host.host}");
+            probeData.Type = EventType.Exception;
+            probeData.Exception = e;
             probeData["Code"] = "-";
             probeData["Timeout"] = client.Timeout.TotalMilliseconds.ToString();
         }
         catch (HttpRequestException e)
         {
-            Program.telemetryClient?.TrackException(e);
-            WriteOutput($"Poller: Host {host.host} is down with exception: {e.Message}");
-            probeData["Type"] = "S7P-HttpRequestException";
+            // WriteOutput($"Poller: Host {host.host} is down with exception: {e.Message}");
+            probeData.Type = EventType.Exception;
+            probeData.Exception = e;
             probeData["Code"] = "-";
         }
         catch (OperationCanceledException)
         {
             // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
-            WriteOutput("Poller: Operation was canceled. Stopping the server.");
+            WriteOutput("Poller: Stopping the server.");
             throw; // Exit the loop
         }
         catch (System.Net.Sockets.SocketException e)
         {
-            WriteOutput($"Poller: Host {host.host} is down:  {e.Message}");
-            probeData["Type"] = "S7P-SocketException";
+            // WriteOutput($"Poller: Host {host.host} is down:  {e.Message}");
+            probeData.Type = EventType.Exception;
+            probeData.Exception = e;
             probeData["Code"] = "-";
         }
         catch (Exception e)
         {
-            Program.telemetryClient?.TrackException(e);
-            WriteErrorOutput($"Poller: Error: {e.Message}");
-            probeData["Type"] = "S7P-Exception " + e.Message;
+            // Program.telemetryClient?.TrackException(e);
+            // WriteErrorOutput($"Poller: Error: {e.Message}");
+            probeData.Type = EventType.Exception;
+            probeData.Exception = e;
             probeData["Code"] = "-";
         }
         finally
         {
             probeData["Host-ID"] = _options.IDStr;
-            SendEventData(probeData);
+            probeData.SendEvent();
         }
 
         return false;
@@ -426,11 +431,6 @@ public class Backends : IBackendService
         }
     }
 
-    private void SendEventData(ProxyEvent eventData)//string urlWithPath, HttpStatusCode statusCode, DateTime requestDate, DateTime responseDate)
-    {
-        _eventHubClient?.SendData(eventData);
-    }
-
     // Fetches the OAuth2 Token as a seperate task. The token is fetched and updated 100ms before it expires. 
     public void GetToken()
     {
@@ -471,15 +471,28 @@ public class Backends : IBackendService
 
                 }
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException e)
             {
-                // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
-                WriteOutput("Exiting fetching Auth Token: Operation was canceled.");
+                ProxyEvent logEvent = new ProxyEvent
+                {
+                    Type = EventType.Exception,
+                    Exception = e,
+                    ["Message"] = "Auth Token fetching operation was canceled.",
+                    ["OAuthAudience"] = _options.OAuthAudience
+                };
+                logEvent.SendEvent();
             }
             catch (Exception e)
             {
-                // Handle any unexpected errors that occur during token fetching
-                WriteErrorOutput($"An unexpected error occurred while fetching Auth Token: {e.Message}");
+                ProxyEvent logEvent = new ProxyEvent
+                {
+                    Type = EventType.Exception,
+                    Exception = e,
+                    ["Message"] = $"An error occurred while fetching Auth Token: {e.Message}",
+                    ["OAuthAudience"] = _options.OAuthAudience
+                };
+                logEvent.SendEvent();
+
             }
         }, _cancellationToken);
     }
@@ -514,7 +527,14 @@ public class Backends : IBackendService
         }
         catch (AuthenticationFailedException ex)
         {
-            WriteOutput($"Authentication failed: {ex.Message}");
+            var logEvent = new ProxyEvent
+            {
+                Type = EventType.Exception,
+                Exception = ex,
+                ["Message"] = $"Authentication failed: {ex.Message}",
+                ["OAuthAudience"] = _options.OAuthAudience
+            };
+            logEvent.SendEvent();
             // Handle the exception as needed, e.g., return a default value or rethrow the exception
             throw;
         }
@@ -526,11 +546,11 @@ public class Backends : IBackendService
         }
     }
 
-    private void WriteOutput(string data = "", ProxyEvent? eventData = null)
+    private void WriteOutput(string data = "", EventType type = EventType.Backend)
     {
         try
         {
-            var ldata = eventData ?? new();
+            ProxyEvent ldata = new();
 
             // Log the data to the console
             if (!string.IsNullOrEmpty(data))
@@ -538,13 +558,8 @@ public class Backends : IBackendService
                 Console.WriteLine(data);
                 ldata["Message"] = data;
             }
-
-            if (!ldata.TryGetValue("Type", out var typeValue))
-            {
-                ldata["Type"] = "S7P-Backend-Status";
-            }
-
-            _eventHubClient?.SendData(ldata);
+            ldata.Type = type;
+            ldata.SendEvent();
         }
         catch (Exception ex)
         {
@@ -566,12 +581,9 @@ public class Backends : IBackendService
                 ldata["Message"] = data;
             }
 
-            if (!ldata.TryGetValue("Type", out var typeValue))
-            {
-                ldata["Type"] = "S7P-Backend-Status";
-            }
+            ldata.Type = EventType.ServerError;
 
-            _eventHubClient?.SendData(ldata);
+            ldata.SendEvent();
         } catch (Exception ex)
         {
             // Handle any exceptions that occur during logging
