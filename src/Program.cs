@@ -87,7 +87,9 @@ public class Program
                     options.LogAllResponseHeaders = backendOptions.LogAllResponseHeaders;
                     options.LogAllResponseHeadersExcept = backendOptions.LogAllResponseHeadersExcept;
                     options.LogConsole = backendOptions.LogConsole;
+                    options.LogConsoleEvent = backendOptions.LogConsoleEvent;
                     options.LogHeaders = backendOptions.LogHeaders;
+                    options.LogPoller = backendOptions.LogPoller;
                     options.LogProbes = backendOptions.LogProbes;
                     options.LookupHeaderName = backendOptions.LookupHeaderName;
                     options.MaxQueueLength = backendOptions.MaxQueueLength;
@@ -135,7 +137,7 @@ public class Program
                         Console.WriteLine("AppInsights initialized");
                 }
 
-                var log_to_file = false;  // DON'T EVER DO A CHECKIN WITH THIS SET TO TRUE
+                var log_to_file = true;  // DON'T EVER DO A CHECKIN WITH THIS SET TO TRUE
                 if (log_to_file)
                 {
                     string logFileName = OS.Environment.GetEnvironmentVariable("LOGFILE") ?? "events.log";
@@ -180,17 +182,17 @@ public class Program
         var frameworkHost = hostBuilder.Build();
         var serviceProvider = frameworkHost.Services;
         var options = serviceProvider.GetRequiredService<IOptions<BackendOptions>>();
+        telemetryClient = serviceProvider.GetRequiredService<TelemetryClient>();
 
-        ProxyEvent.Initialize(options);
+        ProxyEvent.Initialize(options, eventHubClient, telemetryClient);
         backends = serviceProvider.GetRequiredService<IBackendService>();
         //ILogger<Program> logger = serviceProvider.GetRequiredService<ILogger<Program>>();
         try
         {
-            Program.telemetryClient = serviceProvider.GetRequiredService<TelemetryClient>();
-            if (Program.telemetryClient != null)
+            if (telemetryClient != null)
             {
-                Console.SetOut(new AppInsightsTextWriter(Program.telemetryClient, Console.Out, options.Value, false));
-                Console.SetError(new AppInsightsTextWriter(Program.telemetryClient, Console.Error, options.Value, true));
+                Console.SetOut(new AppInsightsTextWriter(telemetryClient, Console.Out, options.Value, false));
+                Console.SetError(new AppInsightsTextWriter(telemetryClient, Console.Error, options.Value, true));
             }
         }
         catch (System.InvalidOperationException)
@@ -201,8 +203,7 @@ public class Program
         backendPollerTask = backends.Start();
 
         server = serviceProvider.GetRequiredService<IServer>();
-        eventHubClient = serviceProvider.GetRequiredService<IEventHubClient>();
-        eventHubTask = eventHubClient.StartTimer();   // Must shutdown after worker threads are done
+        eventHubTask = eventHubClient?.StartTimer();   // Must shutdown after worker threads are done
 
         var userProfile = serviceProvider.GetService<IUserProfile>();
         var userPriority = serviceProvider.GetService<IUserPriority>();
@@ -649,7 +650,9 @@ public class Program
             LogAllResponseHeaders = ReadEnvironmentVariableOrDefault("LogAllResponseHeaders", false),
             LogAllResponseHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllResponseHeadersExcept", "Api-Key")),
             LogConsole = ReadEnvironmentVariableOrDefault("LogConsole", true),
+            LogConsoleEvent = ReadEnvironmentVariableOrDefault("LogConsoleEvent", false),
             LogHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
+            LogPoller = ReadEnvironmentVariableOrDefault("LogPoller", false),
             LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", false),
             LookupHeaderName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "userId"),
             MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
