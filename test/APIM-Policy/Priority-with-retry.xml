@@ -400,7 +400,10 @@
 						<set-header name="retry-after-ms" exists-action="override">
 							<value>@(context.Variables.GetValueOrDefault<int>("sleepDuration",10000).ToString())</value>
 						</set-header>
-						<!-- <set-header name="backendLog" exists-action="override">
+                        <set-header name="X-Backend-Attempts" exists-action="override">
+                            <value>@(context.Variables.GetValueOrDefault<int>("backendCallCounter", 0).ToString())</value>
+                        </set-header>
+                        <!-- <set-header name="backendLog" exists-action="override">
 							<value>@((string)context.Variables.GetValueOrDefault("backendLog", ""))</value>
 						</set-header> -->
 					</return-response>
@@ -411,6 +414,9 @@
 	<!-- Customize the responses -->
 	<outbound>
 		<base />
+        <set-header name="X-Backend-Attempts" exists-action="override">
+            <value>@(context.Variables.GetValueOrDefault<int>("backendCallCounter", 0).ToString())</value>
+        </set-header>
 		<include-fragment fragment-id="LogResponseFragment" />
 	</outbound>
 	<!-- Handle exceptions and customize error responses  -->
