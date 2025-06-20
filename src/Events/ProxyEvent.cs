@@ -122,8 +122,8 @@ public class ProxyEvent : ConcurrentDictionary<string, string>
       if (_telemetryClient is not null)
       {
         if (logEvent) TrackEvent();
-        if (logRequest) TrackRequest();
-        if (logException) TrackException();
+        else if (logRequest) TrackRequest();
+        else if (logException) TrackException();
       }
 
       if (logToEventHub && _eventHubClient is not null)
