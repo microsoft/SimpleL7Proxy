@@ -124,7 +124,6 @@ public class ProxyWorker
                 }
 
                 var eventData = incomingRequest.EventData;
-                bool dirtyExceptionLog = false;
                 bool requestException = false;
                 try
                 {
@@ -363,6 +362,7 @@ public class ProxyWorker
                         eventData.Status = HttpStatusCode.InternalServerError; // 500 Internal Server Error
                         eventData.Type = EventType.Exception;
                         eventData.Exception = ex;
+                        eventData["WorkerState"] = workerState;
 
                         if (ex.Message == "Cannot access a disposed object." || ex.Message.StartsWith("Unable to write data") || ex.Message.Contains("Broken Pipe")) // The client likely closed the connection
                         {
