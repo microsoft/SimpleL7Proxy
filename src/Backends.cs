@@ -36,6 +36,7 @@ public class Backends : IBackendService
     private Azure.Core.AccessToken? AuthToken { get; set; }
     private readonly IEventHubClient? _eventHubClient;
     CancellationTokenSource workerCancelTokenSource = new CancellationTokenSource();
+    private ProxyEvent staticEvent = new(); 
 
 
     //public Backends(List<BackendHost> hosts, HttpClient client, int interval, int successRate)
@@ -263,7 +264,7 @@ public class Backends : IBackendService
         }
 
         if (_debug)
-            WriteOutput("Returning status changed: " + _statusChanged);
+            staticEvent.WriteOutput("Returning status changed: " + _statusChanged);
 
         return _statusChanged;
     }
@@ -284,7 +285,7 @@ public class Backends : IBackendService
         {
 
             if (_debug)
-                WriteOutput($"Checking host {host.url + host.probe_path}");
+                staticEvent.WriteOutput($"Checking host {host.url + host.probe_path}");
 
 
             var request = new HttpRequestMessage(HttpMethod.Get, host.probeurl);
@@ -344,7 +345,7 @@ public class Backends : IBackendService
         catch (OperationCanceledException)
         {
             // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
-            WriteOutput("Poller: Stopping the server.");
+            staticEvent.WriteOutput("Poller: Stopping the server.");
             throw; // Exit the loop
         }
         catch (System.Net.Sockets.SocketException e)
@@ -429,7 +430,7 @@ public class Backends : IBackendService
 
         _lastStatusDisplay = DateTime.Now;
         _hostStatus = sb.ToString();
-        WriteOutput(_hostStatus);
+        staticEvent.WriteOutput(_hostStatus);
 
         //Console.WriteLine($"Total Transactions: {txActivity}   Time to go: {DateTime.Now - _lastGCTime}" );
         if (txActivity == 0 && (DateTime.Now - _lastGCTime).TotalSeconds > (60 * 15))
@@ -461,14 +462,14 @@ public class Backends : IBackendService
 
                         if (timeout < 500)
                         {
-                            WriteOutput($"Auth Token is about to expire. Retrying in {timeout} ms.");
+                            staticEvent.WriteOutput($"Auth Token is about to expire. Retrying in {timeout} ms.");
                             await Task.Delay((int)timeout, _cancellationToken);
                         }
                         else
                         {
                             // Calculate the time to refresh the token, 100 ms before it expires
                             var refreshTime = timeout - 100;
-                            WriteOutput($"Auth Token expires on: {AuthToken.Value.ExpiresOn} Refresh in: {FormatMilliseconds(refreshTime)} (100 ms grace)");
+                            staticEvent.WriteOutput($"Auth Token expires on: {AuthToken.Value.ExpiresOn} Refresh in: {FormatMilliseconds(refreshTime)} (100 ms grace)");
                             // Wait for the calculated refresh time or until a cancellation is requested
                             await Task.Delay((int)refreshTime, _cancellationToken);
                         }
@@ -476,7 +477,7 @@ public class Backends : IBackendService
                     else
                     {
                         // Handle the case where the token is null
-                        WriteOutput("Auth Token is null. Retrying in 10 seconds.");
+                        staticEvent.WriteOutput("Auth Token is null. Retrying in 10 seconds.");
                         await Task.Delay(TimeSpan.FromMilliseconds(10000), _cancellationToken);
                     }
 
@@ -551,54 +552,17 @@ public class Backends : IBackendService
         }
         catch (Exception ex)
         {
-            WriteErrorOutput($"An unexpected error occurred: {ex.Message}");
+            ProxyEvent logEvent = new ProxyEvent
+            {
+                Type = EventType.Exception,
+                Exception = ex,
+                ["Message"] = $"An unexpected error occurred while fetching the token: {ex.Message}",
+                ["OAuthAudience"] = _options.OAuthAudience
+            };
+            logEvent.SendEvent();
+
             // Handle other potential exceptions
             throw;
-        }
-    }
-
-    private void WriteOutput(string data = "", EventType type = EventType.Backend)
-    {
-        try
-        {
-            ProxyEvent ldata = new();
-
-            // Log the data to the console
-            if (!string.IsNullOrEmpty(data))
-            {
-                Console.WriteLine(data);
-                ldata["Message"] = data;
-            }
-            ldata.Type = type;
-            ldata.SendEvent();
-        }
-        catch (Exception ex)
-        {
-            // Handle any exceptions that occur during logging
-            Console.Error.WriteLine($"Error writing output: {ex.Message}");
-        }
-    }
-
-    private void WriteErrorOutput(string data = "", ProxyEvent? eventData = null)
-    {
-        try
-        {
-            var ldata = eventData ?? new();
-
-            // Log the data to the console
-            if (!string.IsNullOrEmpty(data))
-            {
-                Console.Error.WriteLine(data);
-                ldata["Message"] = data;
-            }
-
-            ldata.Type = EventType.ServerError;
-
-            ldata.SendEvent();
-        } catch (Exception ex)
-        {
-            // Handle any exceptions that occur during logging
-            Console.Error.WriteLine($"Error writing output: {ex.Message}");
         }
     }
 }
