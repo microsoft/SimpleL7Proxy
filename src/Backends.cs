@@ -36,7 +36,7 @@ public class Backends : IBackendService
     private Azure.Core.AccessToken? AuthToken { get; set; }
     private readonly IEventHubClient? _eventHubClient;
     CancellationTokenSource workerCancelTokenSource = new CancellationTokenSource();
-    private ProxyEvent staticEvent = new(); 
+    private ProxyEvent staticEvent = new() { Type = EventType.Backend }; 
 
 
     //public Backends(List<BackendHost> hosts, HttpClient client, int interval, int successRate)
@@ -408,10 +408,20 @@ public class Backends : IBackendService
     // Display the status of the hosts
     private void DisplayHostStatus()
     {
+        ProxyEvent statusEvent = new ProxyEvent
+        {
+            Type = EventType.Backend,
+            ["Timestamp"] = DateTime.UtcNow.ToString("o"),
+            ["LoadBalanceMode"] = _options.LoadBalanceMode,
+            ["ActiveHostsCount"] = ActiveHostCount().ToString(),
+            ["SuccessRate"] = _successRate.ToString()
+        };
+        
         StringBuilder sb = new StringBuilder();
         sb.Append("\n\n============ Host Status =========\n");
 
         int txActivity = 0;
+        int counter = 0;
 
         if (_hosts != null)
             foreach (var host in _hosts)
@@ -419,18 +429,28 @@ public class Backends : IBackendService
                 string statusIndicator = host.SuccessRate() > _successRate ? "Good  " : "Errors";
                 double roundedLatency = Math.Round(host.AverageLatency(), 3);
                 double successRatePercentage = Math.Round(host.SuccessRate() * 100, 2);
+                counter++;
 
                 string hoststatus = host.GetStatus(out int calls, out int errors, out double average);
                 txActivity += calls;
                 txActivity += errors;
 
                 sb.Append($"{statusIndicator} Host: {host.url} Lat: {roundedLatency}ms Succ: {successRatePercentage}% {hoststatus}\n");
+                Dictionary<string, string> hostStatus = new();
+                hostStatus["Host"] = host.ToString();
+                hostStatus["Latency"] = roundedLatency.ToString();
+                hostStatus["SuccessRate"] = successRatePercentage.ToString();
+                hostStatus["Calls"] = calls.ToString();
+                hostStatus["Errors"] = errors.ToString();
+                hostStatus["Average"] = average.ToString();
+                hostStatus["Status"] = statusIndicator;
+                statusEvent[$"Host{counter}"] = JsonSerializer.Serialize(hostStatus, new JsonSerializerOptions { WriteIndented = true });
             }
 
+        statusEvent.SendEvent();
 
         _lastStatusDisplay = DateTime.Now;
         _hostStatus = sb.ToString();
-        staticEvent.WriteOutput(_hostStatus);
 
         //Console.WriteLine($"Total Transactions: {txActivity}   Time to go: {DateTime.Now - _lastGCTime}" );
         if (txActivity == 0 && (DateTime.Now - _lastGCTime).TotalSeconds > (60 * 15))
