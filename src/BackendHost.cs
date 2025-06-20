@@ -5,6 +5,7 @@ using System.Collections.Concurrent;
 
 public class BackendHost
 {
+    public Guid guid = Guid.NewGuid();
     public string host;
     public string? ipaddr;
     public int port;
