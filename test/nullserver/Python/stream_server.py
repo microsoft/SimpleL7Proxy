@@ -4,10 +4,15 @@
 import time
 import random
 import json
+import signal
 import http.server
 import socketserver
+import threading
+import os
 from urllib.parse import urlparse, parse_qs
 from socketserver import ThreadingMixIn
+
+httpd = None  # Declare httpd as a global variable
 
 class MyHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
@@ -23,6 +28,32 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/plain")
             self.end_headers()
             self.wfile.write(b"OK")
+            return
+        
+        if parsed_path.path == '/500error':
+            self.send_response(500)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b" An error occurred!")
+            return
+        
+        if parsed_path.path == '/killConnection':
+            time.sleep(.5)
+            self.wfile.close()
+            print("Connection closed")
+            return
+
+        if parsed_path.path == '/delay800seconds':
+            time.sleep(800)
+            self.wfile.close()
+            print("Connection closed")
+            return
+        
+        if parsed_path.path == '/success':
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b" Congrats! You did it!")
             return
 
         # Example: /echo/resource?param1=sample
@@ -42,7 +73,7 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         s7pid = self.headers.get('x-S7PID', 'N/A')
 
         # Sleep for a random number from 4 to 5 seconds
-        sleep_time = random.uniform(0.5, 1.5)  # Random float between 0 and 0.2 seconds
+        sleep_time = random.uniform(60, 65)  # Random sleep time 
         time.sleep(sleep_time)
 
         print(f"Request: {parsed_path.path}  Sequence: {request_sequence} QueueTime: {queue_time} ProcessTime: {process_time} ID: {s7pid}")
@@ -81,19 +112,51 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.flush()
 
 class ThreadedTCPServer(ThreadingMixIn, socketserver.TCPServer):
+    daemon_threads = True
     pass
 
+shutdown_event = threading.Event()
+
+def handle_sigint(signum, frame):
+    print("\nReceived interrupt, shutting down server...")
+    shutdown_event.set()
+
 def mt_main():
-    # Listen on port 3000
-    with ThreadedTCPServer(("localhost", 3000), MyHandler) as httpd:
-        print("Server started on port 3000...")
-        httpd.serve_forever()
+    global httpd
+    # Listen on port 3000 or specified port
+    port = int(os.environ.get('PORT', 3000))
+    if port < 1024 or port > 65535:
+        raise ValueError("Port must be between 1024 and 65535")
+    
+    httpd = ThreadedTCPServer(("localhost", port), MyHandler)
+    print(f"Server started on port {port}...")
+    
+    # Start server in a separate thread
+    server_thread = threading.Thread(target=httpd.serve_forever)
+    server_thread.daemon = True
+    server_thread.start()
+    
+    # Wait for shutdown signal
+    shutdown_event.wait()
+    
+    # Shutdown the server
+    httpd.shutdown()
+    httpd.server_close()
+    httpd = None
+    print("Server shut down successfully")
         
 def single_main():
+    global httpd
+
     # Listen on port 3000
-    with socketserver.TCPServer(("localhost", 3000), MyHandler) as httpd:
-        print("Server started on port 3000...")
+    httpd = ThreadedTCPServer(("localhost", 3000), MyHandler)
+    print("Server started on port 3000...")
+    try:
         httpd.serve_forever()
+    finally:
+        httpd.server_close()
+        httpd = None
 
 if __name__ == '__main__':
+    signal.signal(signal.SIGINT, handle_sigint)
     mt_main()
