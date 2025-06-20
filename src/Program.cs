@@ -82,6 +82,7 @@ public class Program
                     options.HostName = backendOptions.HostName;
                     options.Hosts = backendOptions.Hosts;
                     options.IDStr = backendOptions.IDStr;
+                    options.LoadBalanceMode = backendOptions.LoadBalanceMode;
                     options.LogAllRequestHeaders = backendOptions.LogAllRequestHeaders;
                     options.LogAllRequestHeadersExcept = backendOptions.LogAllRequestHeadersExcept;
                     options.LogAllResponseHeaders = backendOptions.LogAllResponseHeaders;
@@ -645,6 +646,7 @@ public class Program
             HostName = ReadEnvironmentVariableOrDefault("Hostname", replicaID),
             Hosts = new List<BackendHost>(),
             IDStr = $"{ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P")}-{replicaID}-",
+            LoadBalanceMode = ReadEnvironmentVariableOrDefault("LoadBalanceMode", "latency"), // "latency", "roundrobin", "random"
             LogAllRequestHeaders = ReadEnvironmentVariableOrDefault("LogAllRequestHeaders", false),
             LogAllRequestHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllRequestHeadersExcept", "Authorization")),
             LogAllResponseHeaders = ReadEnvironmentVariableOrDefault("LogAllResponseHeaders", false),
@@ -788,6 +790,16 @@ public class Program
                     backendOptions.DisallowedHeaders.Add(value);
                 }
             }
+        }
+
+        // Validate LoadBalanceMode case insensitively
+        backendOptions.LoadBalanceMode = backendOptions.LoadBalanceMode.Trim().ToLower(); 
+        if (backendOptions.LoadBalanceMode != Constants.Latency &&
+            backendOptions.LoadBalanceMode != Constants.RoundRobin &&
+            backendOptions.LoadBalanceMode != Constants.Random)
+        {
+            Console.WriteLine($"Invalid LoadBalanceMode: {backendOptions.LoadBalanceMode}. Defaulting to '{Constants.Latency}'.");
+            backendOptions.LoadBalanceMode = Constants.Latency;
         }
 
         Console.WriteLine("=======================================================================================");

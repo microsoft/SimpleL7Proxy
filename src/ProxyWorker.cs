@@ -32,6 +32,7 @@ public class ProxyWorker
     private string IDstr = "";
     public static int activeWorkers = 0;
     private static bool readyToWork = false;
+    private static Guid? LastHostGuid;
 
     private static int[] states = [0, 0, 0, 0, 0, 0, 0, 0];
 
@@ -400,7 +401,7 @@ public class ProxyWorker
                     try
                     {
 
-                        // Let's not track the request if it was retried.
+                        // Don't track the request yet if it was retried.
                         if (!requestWasRetried)
                         {
                             if (doUserconfig)
@@ -460,20 +461,20 @@ public class ProxyWorker
         probeMessage = "OK\n";
 
         // Cache these to avoid repeatedly calling the same methods
-        int activeHosts = _backends.ActiveHostCount();
+        int hostCount = _backends.ActiveHostCount();
         bool hasFailedHosts = _backends.CheckFailedStatus();
 
         switch (path)
         {
             case Constants.Health:
-                if (activeHosts == 0 || hasFailedHosts)
+                if (hostCount == 0 || hasFailedHosts)
                 {
                     probeStatus = 503;
-                    probeMessage = $"Not Healthy.  Active Hosts: {activeHosts} Failed Hosts: {hasFailedHosts}\n";
+                    probeMessage = $"Not Healthy.  Active Hosts: {hostCount} Failed Hosts: {hasFailedHosts}\n";
                 }
                 else
                 {
-                    probeMessage = $"Replica: {_options.HostName} {"".PadRight(30)} SimpleL7Proxy: {Constants.VERSION}\nBackend Hosts:\n  Active Hosts: {activeHosts}  -  {(hasFailedHosts ? "FAILED HOSTS" : "All Hosts Operational")}\n";
+                    probeMessage = $"Replica: {_options.HostName} {"".PadRight(30)} SimpleL7Proxy: {Constants.VERSION}\nBackend Hosts:\n  Active Hosts: {hostCount}  -  {(hasFailedHosts ? "FAILED HOSTS" : "All Hosts Operational")}\n";
                     if (_backends._hosts.Count > 0)
                     {
                         foreach (var host in _backends._hosts)
@@ -496,18 +497,18 @@ public class ProxyWorker
 
             case Constants.Readiness:
             case Constants.Startup:
-                if (!readyToWork || activeHosts == 0)
+                if (!readyToWork || hostCount == 0)
                 {
                     probeStatus = 503;
-                    probeMessage = "Not Ready .. activeHosts = " + activeHosts + " readyToWork = " + readyToWork;
+                    probeMessage = "Not Ready .. hostCount = " + hostCount + " readyToWork = " + readyToWork;
                 }
                 break;
 
             case Constants.Liveness:
-                if (activeHosts == 0)
+                if (hostCount == 0)
                 {
                     probeStatus = 503;
-                    probeMessage = $"Not Lively.  Active Hosts: {activeHosts} Failed Hosts: {hasFailedHosts}";
+                    probeMessage = $"Not Lively.  Active Hosts: {hostCount} Failed Hosts: {hasFailedHosts}";
                 }
                 break;
 
@@ -614,9 +615,27 @@ public class ProxyWorker
             request.Headers.Set("Authorization", $"Bearer {OAToken}");
         }
 
+        // Round-robin logic: if the last used host is known, start after it
+        if (_options.LoadBalanceMode == Constants.RoundRobin)
+        {
+            // Round-robin mode: start after the last used host
+            if (LastHostGuid != null)
+            {
+
+                Console.WriteLine($"Last Round Robin Host: {LastHostGuid}");
+                int lastIndex = activeHosts.FindIndex(h => h.guid == LastHostGuid);
+                if (lastIndex >= 0)
+                {
+                    // Rotate the list to start after the last used host
+                    activeHosts = activeHosts.Skip(lastIndex + 1).Concat(activeHosts.Take(lastIndex + 1)).ToList();
+                }
+            }
+        }
+
         foreach (var host in activeHosts)
         {
             DateTime ProxyStartDate = DateTime.UtcNow;
+            LastHostGuid = host.guid;
             // Try the request on each active host, stop if it worked
             try
             {

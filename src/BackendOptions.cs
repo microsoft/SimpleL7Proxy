@@ -11,6 +11,7 @@ public class BackendOptions : IBackendOptions
     public string HostName { get; set; } = "";
     public List<BackendHost>? Hosts { get; set; } = [];
     public string IDStr { get; set; } = "S7P";
+    public string LoadBalanceMode { get; set; } = "latency"; // "latency", "roundrobin", "random"
     public bool LogConsole { get; set; }
     public bool LogConsoleEvent { get; set; }
     public bool LogPoller { get; set; } = false; 

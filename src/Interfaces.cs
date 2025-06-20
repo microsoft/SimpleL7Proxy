@@ -41,6 +41,7 @@ public interface IBackendOptions
     string HostName { get; set; }
     List<BackendHost>? Hosts { get; set; }
     string IDStr { get; set; }
+    string LoadBalanceMode { get; set; } // "latency", "roundrobin", "random"
     List<string> LogHeaders { get; set; }
     bool LogAllRequestHeaders { get; set; }
     List<string> LogAllRequestHeadersExcept { get; set; }

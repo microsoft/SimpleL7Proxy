@@ -374,16 +374,27 @@ public class Backends : IBackendService
     // Filter the active hosts based on the success rate
     private void FilterActiveHosts()
     {
-        //Console.WriteLine("Filtering active hosts");
-        _activeHosts = _hosts
-            .Where(h => h.SuccessRate() > _successRate)
-            .Select(h =>
-            {
-                h.calculatedAverageLatency = h.AverageLatency();
-                return h;
-            })
-            .OrderBy(h => h.calculatedAverageLatency)
-            .ToList();
+        var hosts = _hosts
+                .Where(h => h.SuccessRate() > _successRate)
+                .Select(h =>
+                {
+                    h.calculatedAverageLatency = h.AverageLatency();
+                    return h;
+                });
+
+        switch (_options.LoadBalanceMode)
+        {
+            case Constants.Latency:
+                _activeHosts = hosts.OrderBy(h => h.calculatedAverageLatency).ToList();
+                break;
+            case Constants.RoundRobin:
+                _activeHosts = hosts.ToList();  // roundrobin is handled in proxyWroker
+                break;
+            default:
+                _activeHosts = hosts.OrderBy(_ => Guid.NewGuid()).ToList();
+
+                break;
+        }
     }
 
     public string _hostStatus { get; set; } = "-";
