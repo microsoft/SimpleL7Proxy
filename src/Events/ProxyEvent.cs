@@ -118,6 +118,7 @@ public class ProxyEvent : ConcurrentDictionary<string, string>
           break;
       }
 
+      this["Status"] = ((int)Status).ToString();
       if (_telemetryClient is not null)
       {
         if (logEvent) TrackEvent();
@@ -127,6 +128,8 @@ public class ProxyEvent : ConcurrentDictionary<string, string>
 
       if (logToEventHub && _eventHubClient is not null)
       {
+        this["Type"] = "S7P-" + Type.ToString();
+        this["MID"] = MID ?? "N/A"; 
         // Send the event to Event Hub
         _eventHubClient.SendData(this);
       }
