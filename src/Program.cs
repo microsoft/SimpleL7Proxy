@@ -14,7 +14,7 @@ using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
-
+using System.Linq;
 
 // This code serves as the entry point for the .NET application.
 // It sets up the necessary configurations, including logging and telemetry.
@@ -106,6 +106,7 @@ public class Program
                     options.Revision = backendOptions.Revision;
                     options.SuccessRate = backendOptions.SuccessRate;
                     options.SuspendedUserConfigUrl = backendOptions.SuspendedUserConfigUrl;
+                    options.StripHeaders = backendOptions.StripHeaders;
                     options.TerminationGracePeriodSeconds = backendOptions.TerminationGracePeriodSeconds;
                     options.Timeout = backendOptions.Timeout;
                     options.TimeoutHeader = backendOptions.TimeoutHeader;
@@ -125,17 +126,37 @@ public class Program
                     options.Workers = backendOptions.Workers;
                 });
 
-                services.AddLogging(loggingBuilder => loggingBuilder.AddFilter<Microsoft.Extensions.Logging.ApplicationInsights.ApplicationInsightsLoggerProvider>("Category", LogLevel.Information));
+
                 var aiConnectionString = OS.Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING") ?? "";
-                if (aiConnectionString != null)
+                if (!string.IsNullOrEmpty(aiConnectionString))
                 {
-                    services.AddApplicationInsightsTelemetryWorkerService((ApplicationInsightsServiceOptions options) => options.ConnectionString = aiConnectionString);
-                    services.AddApplicationInsightsTelemetry(options =>
+                    // Register Application Insights
+                    services.AddApplicationInsightsTelemetryWorkerService(options =>
                     {
-                        options.EnableRequestTrackingTelemetryModule = true;
+                        options.ConnectionString = aiConnectionString;
+                        options.EnableAdaptiveSampling = false; // Disable sampling to ensure all your custom telemetry is sent
                     });
-                    if (aiConnectionString != "")
-                        Console.WriteLine("AppInsights initialized");
+
+                    // Completely disable automatic request tracking
+                    services.Configure<TelemetryConfiguration>(config =>
+                    {
+                        // Remove request tracking module
+                        var modules = config.TelemetryInitializers
+                            .Where(i => i.GetType().Name.Contains("RequestTrackingTelemetryModule") ||
+                                        i.GetType().Name.Contains("RequestTrackingTelemetryInitializer"))
+                            .ToList();
+
+                        foreach (var module in modules)
+                        {
+                            config.TelemetryInitializers.Remove(module);
+                        }
+
+                        // Add a filter that will discard auto-generated request telemetry since we are logging it ourselves
+                        config.TelemetryProcessorChainBuilder.Use(next => new RequestFilterTelemetryProcessor(next));
+                        config.TelemetryProcessorChainBuilder.Build();
+                    });
+
+                    Console.WriteLine("AppInsights initialized with custom request tracking");
                 }
 
                 var log_to_file = false;  // DON'T EVER DO A CHECKIN WITH THIS SET TO TRUE
@@ -352,28 +373,33 @@ public class Program
         }
     }
 
-    private static int ReadEnvironmentVariableOrDefault(string variableName, int defaultValue) {
+    private static int ReadEnvironmentVariableOrDefault(string variableName, int defaultValue)
+    {
         int value = _ReadEnvironmentVariableOrDefault(variableName, defaultValue);
         EnvVars[variableName] = value.ToString();
         return value;
     }
 
-    private static int[] ReadEnvironmentVariableOrDefault(string variableName, int[] defaultValues) {
+    private static int[] ReadEnvironmentVariableOrDefault(string variableName, int[] defaultValues)
+    {
         int[] value = _ReadEnvironmentVariableOrDefault(variableName, defaultValues);
         EnvVars[variableName] = string.Join(",", value);
         return value;
     }
-    private static float ReadEnvironmentVariableOrDefault(string variableName, float defaultValue) {
+    private static float ReadEnvironmentVariableOrDefault(string variableName, float defaultValue)
+    {
         float value = _ReadEnvironmentVariableOrDefault(variableName, defaultValue);
         EnvVars[variableName] = value.ToString();
         return value;
     }
-    private static string ReadEnvironmentVariableOrDefault(string variableName, string defaultValue){
+    private static string ReadEnvironmentVariableOrDefault(string variableName, string defaultValue)
+    {
         string value = _ReadEnvironmentVariableOrDefault(variableName, defaultValue);
         EnvVars[variableName] = value;
         return value;
     }
-    private static bool ReadEnvironmentVariableOrDefault(string variableName, bool defaultValue) {
+    private static bool ReadEnvironmentVariableOrDefault(string variableName, bool defaultValue)
+    {
         bool value = _ReadEnvironmentVariableOrDefault(variableName, defaultValue);
         EnvVars[variableName] = value.ToString();
         return value;
@@ -456,11 +482,15 @@ public class Program
     {
         Dictionary<int, int> keyValuePairs = [];
 
-        foreach (var item in list) {
+        foreach (var item in list)
+        {
             var kvp = item.Split(':');
-            if (int.TryParse(kvp[0], out int key) && int.TryParse(kvp[1], out int value)) {
+            if (int.TryParse(kvp[0], out int key) && int.TryParse(kvp[1], out int value))
+            {
                 keyValuePairs.Add(key, value);
-            } else {
+            }
+            else
+            {
                 Console.WriteLine($"Could not parse {item} as a key-value pair, ignoring");
             }
         }
@@ -473,11 +503,15 @@ public class Program
     {
         Dictionary<string, string> keyValuePairs = [];
 
-        foreach (var item in list) {
+        foreach (var item in list)
+        {
             var kvp = item.Split(':');
-            if (kvp.Length == 2) {
+            if (kvp.Length == 2)
+            {
                 keyValuePairs.Add(kvp[0].Trim(), kvp[1].Trim());
-            } else{
+            }
+            else
+            {
                 Console.WriteLine($"Could not parse {item} as a key-value pair, ignoring");
             }
         }
@@ -526,6 +560,8 @@ public class Program
             var s = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
             try
             {
+                bool linuxKeepAliveConfigured = false;
+
                 // Basic keep-alive setting - should work on all platforms
                 s.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
                 try
@@ -543,7 +579,6 @@ public class Program
                     }
                     else if (OperatingSystem.IsLinux())
                     {
-                        bool linuxKeepAliveConfigured = false;
 
                         // Set keep-alive idle time in milliseconds
                         s.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, initialDelaySecs);
@@ -556,14 +591,25 @@ public class Program
 
                         //Console.WriteLine($"TCPKEEPALIVETIME set to {initialDelaySecs} seconds (connection idle time before sending probes)");
                         //Console.WriteLine($"TCPKEEPALIVEINTERVAL set to {IntervalSecs} seconds (interval between probes)");
-                       // Console.WriteLine($"TCPKEEPALIVERETRYCOUNT set to {linuxRetryCount} probes (max failures before disconnect)");
-
+                        // Console.WriteLine($"TCPKEEPALIVERETRYCOUNT set to {linuxRetryCount} probes (max failures before disconnect)");
                     }
+
                 }
                 catch (Exception ex)
                 {
-                    // Fall back to basic keep-alive if platform-specific settings fail
-                    Console.WriteLine($"Could not set TCP keep-alive parameters: {ex.Message}. Using default keep-alive settings.");
+                    ProxyEvent pe = new()
+                    {
+                        Type = EventType.Exception,
+                        Exception = ex,
+                        ["Message"] = "Failed to set TCP keep-alive parameters",
+                        ["Host"] = dnsEndPoint.Host,
+                        ["Port"] = dnsEndPoint.Port.ToString(),
+                        ["InitialDelaySecs"] = initialDelaySecs.ToString(),
+                        ["IntervalSecs"] = IntervalSecs.ToString(),
+                        ["LinuxRetryCount"] = linuxRetryCount.ToString(),
+                        ["linuxKeepAliveConfigured"] = linuxKeepAliveConfigured.ToString()
+                    };
+                    pe.SendEvent();
                 }
 
                 // Connect to the endpoint
@@ -670,6 +716,7 @@ public class Program
             Revision = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REVISION", "revisionID"),
             SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
             SuspendedUserConfigUrl = ReadEnvironmentVariableOrDefault("SuspendedUserConfigUrl", "file:config.json"),
+            StripHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("StripHeaders", "")),
             TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
             Timeout = ReadEnvironmentVariableOrDefault("Timeout", 1200000), // 20 minutes
             TimeoutHeader = ReadEnvironmentVariableOrDefault("TimeoutHeader", "S7PTimeout"),
@@ -793,7 +840,7 @@ public class Program
         }
 
         // Validate LoadBalanceMode case insensitively
-        backendOptions.LoadBalanceMode = backendOptions.LoadBalanceMode.Trim().ToLower(); 
+        backendOptions.LoadBalanceMode = backendOptions.LoadBalanceMode.Trim().ToLower();
         if (backendOptions.LoadBalanceMode != Constants.Latency &&
             backendOptions.LoadBalanceMode != Constants.RoundRobin &&
             backendOptions.LoadBalanceMode != Constants.Random)
