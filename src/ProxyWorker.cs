@@ -622,7 +622,7 @@ public class ProxyWorker
             if (LastHostGuid != null)
             {
 
-                Console.WriteLine($"Last Round Robin Host: {LastHostGuid}");
+                // Console.WriteLine($"Last Round Robin Host: {LastHostGuid}");
                 int lastIndex = activeHosts.FindIndex(h => h.guid == LastHostGuid);
                 if (lastIndex >= 0)
                 {
@@ -1073,6 +1073,10 @@ public class ProxyWorker
         foreach (string? key in sourceHeaders.AllKeys)
         {
             if (key == null) continue;
+            if (_options.StripHeaders.Contains(key, StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
             if (!ignoreHeaders || (!key.StartsWith("S7P") && !key.StartsWith("X-MS-CLIENT", StringComparison.OrdinalIgnoreCase) && !key.Equals("content-length", StringComparison.OrdinalIgnoreCase)))
             {
                 targetMessage?.Headers.TryAddWithoutValidation(key, sourceHeaders[key]);
