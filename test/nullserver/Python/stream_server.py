@@ -50,6 +50,10 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             return
         
         if parsed_path.path == '/success':
+            # Log all incoming headers
+            print("Headers received:")
+            for header, value in self.headers.items():
+                print(f"{header}: {value}")
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
             self.end_headers()
