@@ -132,8 +132,9 @@ public class Server : IServer
                     ed["Date"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
                     ed["S7P-Host-ID"] = _options.IDStr;
                     ed.Uri = rd.Context!.Request.Url!;
+                    ed.Method = rd.Method ?? "N/A";
+
                     ed["Path"] = rd.Path ?? "N/A";
-                    ed["Method"] = rd.Method ?? "N/A";
                     ed["RequestHost"] = rd.Headers["Host"] ?? "N/A";
                     ed["RequestUserAgent"] = rd.Headers["User-Agent"] ?? "N/A";
                     // readiness probes:
@@ -199,9 +200,12 @@ public class Server : IServer
                                     {
                                         foreach (var header in headers)
                                         {
-                                            rd.Headers.Set(header.Key, header.Value);
-                                            if (rd.Debug)
-                                                Console.WriteLine($"Add Header: {header.Key} = {header.Value}");
+                                            if ( !header.Key.StartsWith("internal-") )
+                                            {
+                                                rd.Headers.Set(header.Key, header.Value);
+                                                if (rd.Debug)
+                                                    Console.WriteLine($"Add Header: {header.Key} = {header.Value}");
+                                            }
                                         }
                                     }
                                     else
