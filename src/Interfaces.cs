@@ -63,6 +63,7 @@ public interface IBackendOptions
     Dictionary<int, int> PriorityWorkers { get; set; }
     string Revision { get; set; }
     List<string> RequiredHeaders { get; set; }
+    List<string> StripHeaders { get; set; }
     int SuccessRate { get; set; }
     string SuspendedUserConfigUrl { get; set; }
     int Timeout { get; set; }

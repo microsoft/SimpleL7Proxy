@@ -35,6 +35,7 @@ public class BackendOptions : IBackendOptions
     public List<string> RequiredHeaders { get; set; } = [];
     public int SuccessRate { get; set; }
     public string SuspendedUserConfigUrl { get; set; } = "";
+    public List<string> StripHeaders { get; set; } = [];
     public int Timeout { get; set; }
     public string TimeoutHeader { get; set; } = "";
     public int TerminationGracePeriodSeconds { get; set; }
