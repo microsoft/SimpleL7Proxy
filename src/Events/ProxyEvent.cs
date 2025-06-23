@@ -31,6 +31,7 @@ public class ProxyEvent : ConcurrentDictionary<string, string>
   public HttpStatusCode Status { get; set; } = 0;
   public Uri Uri { get; set; } = new Uri("http://localhost");
   public string? MID { get; set; } = "";
+  public string? Method { get; set; } = "GET"; 
   public TimeSpan Duration { get; set; } = TimeSpan.Zero;
   public Exception? Exception { get; set; } = null;
 
@@ -86,8 +87,11 @@ public class ProxyEvent : ConcurrentDictionary<string, string>
         case EventType.CustomEvent:
         case EventType.CircuitBreakerError:
         case EventType.Probe:
-          logEvent = true;
-          logToEventHub = true;
+        if (_options?.Value.LogProbes == true)
+          {
+            logEvent = true;
+            logToEventHub = true;
+          }
           break;
         case EventType.Console:
           if (_options?.Value.LogConsole == true)
@@ -119,6 +123,7 @@ public class ProxyEvent : ConcurrentDictionary<string, string>
       }
 
       this["Status"] = ((int)Status).ToString();
+      this["Method"] = Method ?? "GET"; // Default to GET if Method is null
       if (_telemetryClient is not null)
       {
         if (logEvent) TrackEvent();
@@ -158,7 +163,7 @@ public class ProxyEvent : ConcurrentDictionary<string, string>
     var success = (int)Status >= 200 && (int)Status < 400;
     var requestTelemetry = new RequestTelemetry
     {
-      Name = Uri.Segments[^1],
+      Name = Method + " " + Uri.Segments[^1],
       Url = Uri,
       ResponseCode = Status.ToString(),
       Success = success
