@@ -6,6 +6,9 @@ public static class Constants
     public const string Startup = "/startup";
     public const string Liveness = "/liveness";
     public const string Shutdown = "/shutdown"; // Signal to unwedge workers and shut down gracefully
+    public const string Latency = "latency";
+    public const string RoundRobin = "roundrobin";
+    public const string Random = "random";
     public const string VERSION = "2.2.3";
 
     public const int AnyPriority = -1;

@@ -14,7 +14,8 @@ public class ProxyErrorException(ProxyErrorException.ErrorType type, HttpStatusC
         IncompleteHeaders,
         InvalidHeader,
         DisallowedAppID,
-        UnknownProfile
+        UnknownProfile,
+        AsyncWorkerError
     } 
     
     public ErrorType Type { get; set; } = type;

@@ -38,6 +38,7 @@ public class Server : BackgroundService
     private readonly string _priorityHeaderName;
 
     private readonly IEventClient? _eventHubClient;
+    private static ProxyEvent _staticEvent = new ProxyEvent();
 
     // public void enqueueShutdownRequest() {
     //     var shutdownRequest = new RequestData(Constants.Shutdown);
@@ -127,14 +128,14 @@ public class Server : BackgroundService
         catch (HttpListenerException ex)
         {
             // Handle specific errors, e.g., port already in use
-            _logger.LogError($"Failed to start HttpListener: {ex.Message}");
+            _staticEvent.WriteOutput($"Failed to start HttpListener: {ex.Message}");
             // Consider rethrowing, logging the error, or handling it as needed
             throw new Exception("Failed to start the server due to an HttpListener exception.", ex);
         }
         catch (Exception ex)
         {
             // Handle other potential errors
-            _logger.LogError($"An error occurred: {ex.Message}");
+            _staticEvent.WriteErrorOutput($"An error occurred: {ex.Message}");
             throw new Exception("An error occurred while starting the server.", ex);
         }
 
@@ -154,8 +155,7 @@ public class Server : BackgroundService
         //ArgumentNullException.ThrowIfNull(_cancellationTokenSource, nameof(_cancellationTokenSource));
         ArgumentNullException.ThrowIfNull(_options, nameof(_options));
 
-        //var cancellationToken = _cancellationTokenSource.Token;
-
+        long counter = 0;
         int livenessPriority = _options.PriorityValues.Min();
         bool doUserProfile = _options.UseProfiles;
         bool doAsync = _options.AsyncModeEnabled;
@@ -191,13 +191,12 @@ public class Server : BackgroundService
                     ed = rd.EventData;
                     ed["Date"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
                     ed["S7P-Host-ID"] = _options.IDStr;
-                    ed["Revision"] = _options.Revision;
-                    ed["ContainerApp"] = _options.ContainerApp;
+                    ed.Uri = rd.Context!.Request.Url!;
+                    ed.Method = rd.Method ?? "N/A";
+
                     ed["Path"] = rd.Path ?? "N/A";
-                    ed["Method"] = rd.Method ?? "N/A";
                     ed["RequestHost"] = rd.Headers["Host"] ?? "N/A";
                     ed["RequestUserAgent"] = rd.Headers["User-Agent"] ?? "N/A";
-
                     // readiness probes:
                     // if it's a probe, then bypass all the below checks and enqueue the request 
                     if (Constants.probes.Contains(rd.Path))
@@ -257,13 +256,16 @@ public class Server : BackgroundService
                                 {
                                     var headers = _userProfile.GetUserProfile(requestUser);
 
-                                    if (headers != null)
+                                    if (headers != null && headers.Count > 0)
                                     {
                                         foreach (var header in headers)
                                         {
-                                            rd.Headers.Set(header.Key, header.Value);
-                                            if (rd.Debug)
-                                                Console.WriteLine($"Add Header: {header.Key} = {header.Value}");
+                                            if ( !header.Key.StartsWith("internal-") )
+                                            {
+                                                rd.Headers.Set(header.Key, header.Value);
+                                                if (rd.Debug)
+                                                    Console.WriteLine($"Add Header: {header.Key} = {header.Value}");
+                                            }
                                         }
                                     }
                                     else
@@ -466,9 +468,9 @@ public class Server : BackgroundService
                         }
                     }
 
+                    ed.MID = rd.MID;
                     ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
                     ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
-                    ed["MID"] = rd.MID;
                     ed["ExpiresAt"] = rd.ExpiresAtString;
                     ed["Priority"] = priority.ToString();
                     ed["Priority2"] = userPriorityBoost.ToString();
@@ -478,13 +480,19 @@ public class Server : BackgroundService
 
                         if (rd.Context is not null)
                         {
-                            ed["Type"] = "S7P-EnqueueFailed";
+                            ed.Type = EventType.ServerError;
+                            ed["ErrorDetail"] = "EnqueueFailed";
+                            ed.Status = (HttpStatusCode)notEnquedCode;
+                            ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
+                            ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
+
                             _logger.LogInformation($"{logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}", ed);
 
                             try
                             {
                                 rd.Context.Response.StatusCode = notEnquedCode;
-                                rd.Context.Response.Headers["Retry-After"] = (_backends.ActiveHostCount() == 0) ? _options.PollInterval.ToString() : "500";
+                                ed["Retry-After"] = rd.Context.Response.Headers["Retry-After"] = (_backends.ActiveHostCount() == 0) ? _options.PollInterval.ToString() : "500";
+
                                 using (var writer = new System.IO.StreamWriter(rd.Context.Response.OutputStream))
                                 {
                                     await writer.WriteAsync(retrymsg).ConfigureAwait(false);
@@ -494,20 +502,22 @@ public class Server : BackgroundService
                             catch (Exception ex)
                             {
                                 _logger.LogInformation($"Request was not enqueue'd and got an error writing on network: {ex.Message}", ed);
+                                ed["ErrorWritingResponse"] = ex.Message;
                             }
-                            _logger.LogInformation($"Pri: {priority} Stat: 429 Path: {rd.Path}");
+                            _staticEvent.WriteOutput($"Pri: {priority} Stat: 429 Path: {rd.Path}");
                         }
 
+                        ed.SendEvent();
                         _userPriority.removeRequest(rd.UserID, rd.Guid);
                     }
                     else
                     {
                         ProxyEvent temp_ed = new(ed);
-                        temp_ed["Type"] = "S7P-Enqueue";
+                        temp_ed.Type = EventType.ProxyRequestEnqueued;
                         temp_ed["Message"] = "Enqueued request";
 
-                        _logger.LogInformation($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
                         temp_ed.SendEvent();
+                        _staticEvent.WriteOutput($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
                     }
                 }
                 else
@@ -518,21 +528,21 @@ public class Server : BackgroundService
             }
             catch (IOException ioEx)
             {
-                _logger.LogError($"An IO exception occurred: {ioEx.Message}", ed);
+                ed.WriteOutput($"An IO exception occurred: {ioEx.Message}");
             }
             catch (OperationCanceledException)
             {
                 // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
-                _logger.LogInformation("HTTP server shutdown.");
+                _staticEvent.WriteOutput("HTTP server shutdown initiated.");
                 break; // Exit the loop
             }
             catch (Exception e)
             {
                 _telemetryClient?.TrackException(e);
-                _logger.LogError($"Error: {e.Message}\n{e.StackTrace}", ed);
+                _staticEvent.WriteOutput($"Error: {e.Message}\n{e.StackTrace}");
             }
         }
 
-        _logger.LogInformation("HTTP server stopped.");
+        _staticEvent.WriteOutput("HTTP server stopped.");
     }
 }

@@ -1,11 +1,12 @@
 ﻿using Microsoft.ApplicationInsights;
+using Microsoft.ApplicationInsights.Extensibility;
 using Microsoft.ApplicationInsights.WorkerService;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging.Console;
+using Microsoft.Extensions.Options;
 
 using Azure.Messaging.ServiceBus;
 
@@ -71,8 +72,11 @@ public class Program
         var serviceProvider = frameworkHost.Services;
         var options = serviceProvider.GetRequiredService<IOptions<BackendOptions>>();
         var eventHubClient = serviceProvider.GetService<IEventClient>();
-         // Initialize ProxyEvent with BackendOptions
-        ProxyEvent.Initialize(options, eventHubClient);
+        var telemetryClient = serviceProvider.GetRequiredService<TelemetryClient>();
+
+        // Initialize ProxyEvent with BackendOptions
+
+        ProxyEvent.Initialize(options, eventHubClient, telemetryClient);
 
         var serviceBusRequestService = serviceProvider.GetRequiredService<IServiceBusRequestService>();
         RequestData.InitializeServiceBusRequestService(serviceBusRequestService);
@@ -104,10 +108,29 @@ public class Program
         if (!string.IsNullOrEmpty(aiConnectionString))
         {
             services.AddApplicationInsightsTelemetryWorkerService(options =>
-                options.ConnectionString = aiConnectionString);
+            {
+                options.ConnectionString = aiConnectionString;
+                options.EnableAdaptiveSampling = false; // Disable sampling to ensure all your custom telemetry is sent
+            });
 
-            services.AddApplicationInsightsTelemetry(options =>
-                options.EnableRequestTrackingTelemetryModule = true);
+            // Completely disable automatic request tracking
+            services.Configure<TelemetryConfiguration>(config =>
+            {
+                // Remove request tracking module
+                var modules = config.TelemetryInitializers
+                    .Where(i => i.GetType().Name.Contains("RequestTrackingTelemetryModule") ||
+                                i.GetType().Name.Contains("RequestTrackingTelemetryInitializer"))
+                    .ToList();
+
+                foreach (var module in modules)
+                {
+                    config.TelemetryInitializers.Remove(module);
+                }
+
+                // Add a filter that will discard auto-generated request telemetry since we are logging it ourselves
+                config.TelemetryProcessorChainBuilder.Use(next => new RequestFilterTelemetryProcessor(next));
+                config.TelemetryProcessorChainBuilder.Build();
+            });
 
             services.AddLogging(loggingBuilder =>
             {
