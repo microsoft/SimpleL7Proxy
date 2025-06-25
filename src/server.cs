@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Microsoft.ApplicationInsights;
+using Microsoft.ApplicationInsights.DataContracts;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 
@@ -102,6 +103,7 @@ public class Server : IServer
         {
             ProxyEvent ed = null!;
 
+            using var operation = _telemetryClient.StartOperation<RequestTelemetry>("IncomingRequest");
             try
             {
                 // Use the CancellationToken to asynchronously wait for an HTTP request.
@@ -124,13 +126,12 @@ public class Server : IServer
                     var logmsg = "";
 
                     Interlocked.Increment(ref counter);
-                    var requestId = _options.IDStr + counter.ToString();
+                    var requestId = "nvm2-"+  _options.IDStr + counter.ToString();
 
                     //delayCts.Cancel();
                     var rd = new RequestData(await getContextTask.ConfigureAwait(false), requestId);
                     ed = rd.EventData;
                     ed["Date"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
-                    ed["S7P-Host-ID"] = _options.IDStr;
                     ed.Uri = rd.Context!.Request.Url!;
                     ed.Method = rd.Method ?? "N/A";
 
@@ -200,7 +201,7 @@ public class Server : IServer
                                     {
                                         foreach (var header in headers)
                                         {
-                                            if ( !header.Key.StartsWith("internal-") )
+                                            if (!header.Key.StartsWith("internal-"))
                                             {
                                                 rd.Headers.Set(header.Key, header.Value);
                                                 if (rd.Debug)
@@ -380,7 +381,19 @@ public class Server : IServer
                         }
                     }
 
+                    // Distributed tracking:
+                    // If incoming request already has a ParentId, use it otherwise use the current request's MID as ParentId
+                    if (rd.Context?.Request.Headers["ParentId"] is string parentId && !string.IsNullOrEmpty(parentId))
+                    {
+                         rd.ParentId = parentId;
+                    }
+                    else
+                    {
+                        rd.ParentId = rd.MID;
+                    }
+
                     ed.MID = rd.MID;
+                    ed.ParentId = rd.ParentId;
                     ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
                     ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
                     ed["ExpiresAt"] = rd.ExpiresAtString;
