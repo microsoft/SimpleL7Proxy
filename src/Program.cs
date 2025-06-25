@@ -126,7 +126,7 @@ public class Program
                     options.Workers = backendOptions.Workers;
                 });
 
-
+                // Register App Insights telemetry, since we're manually logging Requests and Dependencies, disable automatic tracking
                 var aiConnectionString = OS.Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING") ?? "";
                 if (!string.IsNullOrEmpty(aiConnectionString))
                 {
@@ -135,29 +135,19 @@ public class Program
                     {
                         options.ConnectionString = aiConnectionString;
                         options.EnableAdaptiveSampling = false; // Disable sampling to ensure all your custom telemetry is sent
-                    });
+                        options.EnableDependencyTrackingTelemetryModule = false; // Disable automatic dependency tracking
+                    });    
 
-                    // Completely disable automatic request tracking
+                    // Configure telemetry to filter out duplicate logs
                     services.Configure<TelemetryConfiguration>(config =>
-                    {
-                        // Remove request tracking module
-                        var modules = config.TelemetryInitializers
-                            .Where(i => i.GetType().Name.Contains("RequestTrackingTelemetryModule") ||
-                                        i.GetType().Name.Contains("RequestTrackingTelemetryInitializer"))
-                            .ToList();
-
-                        foreach (var module in modules)
-                        {
-                            config.TelemetryInitializers.Remove(module);
-                        }
-
-                        // Add a filter that will discard auto-generated request telemetry since we are logging it ourselves
+                    {                           
                         config.TelemetryProcessorChainBuilder.Use(next => new RequestFilterTelemetryProcessor(next));
                         config.TelemetryProcessorChainBuilder.Build();
                     });
 
                     Console.WriteLine("AppInsights initialized with custom request tracking");
                 }
+
 
                 var log_to_file = false;  // DON'T EVER DO A CHECKIN WITH THIS SET TO TRUE
                 if (log_to_file)
