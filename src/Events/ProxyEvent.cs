@@ -116,6 +116,9 @@ public class ProxyEvent : ConcurrentDictionary<string, string>
           logToEventHub = true;
           break;
         case EventType.ProxyRequestEnqueued:
+          logEvent = true;
+          logToEventHub = true;
+          break;
         case EventType.ProxyRequestExpired:
         case EventType.ProxyRequestRequeued:
         case EventType.ProxyError:
