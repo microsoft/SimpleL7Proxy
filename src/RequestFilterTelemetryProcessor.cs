@@ -44,7 +44,6 @@ public class RequestFilterTelemetryProcessor : ITelemetryProcessor
         // Filter out request telemetry that doesn't have our custom properties
         if (item is RequestTelemetry requestTelemetry)
         {
-            Console.WriteLine($"Processing telemetry item: {item.GetType().Name}");
             // Check if this request has our custom properties that we set in ProxyEvent
             bool hasCustomProperties = requestTelemetry.Properties.ContainsKey("Ver") ||
                                         requestTelemetry.Properties.ContainsKey("Revision") ||
