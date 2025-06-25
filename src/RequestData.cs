@@ -27,6 +27,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     public DateTime ExpiresAt { get; set; }
     public string ExpiresAtString { get; set; } = "";
     public string MID { get; set; } = "";
+    public string ParentId { get; set; } = "";
     public Guid Guid { get; set; }
     public string UserID { get; set; } = "";
 
