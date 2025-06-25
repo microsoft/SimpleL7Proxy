@@ -61,6 +61,8 @@ public class ProxyEvent : ConcurrentDictionary<string, string>
     Status = other.Status;
     Uri = other.Uri;
     MID = other.MID;
+    ParentId = other.ParentId;
+    Method = other.Method;
     Duration = other.Duration;
     Exception = other.Exception;
   }
@@ -116,11 +118,11 @@ public class ProxyEvent : ConcurrentDictionary<string, string>
           logToEventHub = true;
           break;
         case EventType.ProxyRequestEnqueued:
+        case EventType.ProxyRequestRequeued:
           logEvent = true;
           logToEventHub = true;
           break;
         case EventType.ProxyRequestExpired:
-        case EventType.ProxyRequestRequeued:
         case EventType.ProxyError:
         case EventType.ProxyRequest:
           logRequest = true;
@@ -165,12 +167,32 @@ public class ProxyEvent : ConcurrentDictionary<string, string>
   private void TrackEvent()
   {
     string eventName = "S7P-" + Type.ToString();
-    Dictionary<string, double> metrics = new()
-    {
-      ["Duration"] = Duration.TotalMilliseconds
-    };
 
-    _telemetryClient?.TrackEvent(eventName, this.ToDictionary(), metrics);
+    var eventTelemetry = new EventTelemetry(eventName);
+    eventTelemetry.Metrics["Duration"] = Duration.TotalMilliseconds;
+    // eventTelemetry.Name = eventName;
+
+    // Set operation context if available
+    if (!string.IsNullOrEmpty(MID))
+    {
+      eventTelemetry.Context.Operation.Id = MID;
+      if (!string.IsNullOrEmpty(ParentId))
+      {
+        eventTelemetry.Context.Operation.ParentId = ParentId;
+      }
+    }
+
+    // Add all properties except MID and ParentId (which go in the operation context)
+    foreach (var kvp in this)
+    {
+      // Skip MID and ParentId as they belong in the operation context
+      if (kvp.Key != "MID" && kvp.Key != "ParentId" && kvp.Key != "OperationId")
+      {
+        eventTelemetry.Properties[kvp.Key] = kvp.Value;
+      }
+    }
+
+    _telemetryClient?.TrackEvent(eventTelemetry);
   }
 
 private void TrackDependancy()
