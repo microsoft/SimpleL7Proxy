@@ -126,7 +126,7 @@ public class Server : IServer
                     var logmsg = "";
 
                     Interlocked.Increment(ref counter);
-                    var requestId = "nvm2-"+  _options.IDStr + counter.ToString();
+                    var requestId = _options.IDStr + counter.ToString();
 
                     //delayCts.Cancel();
                     var rd = new RequestData(await getContextTask.ConfigureAwait(false), requestId);
