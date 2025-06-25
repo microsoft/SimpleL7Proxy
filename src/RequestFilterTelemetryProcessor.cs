@@ -27,21 +27,43 @@ public class RequestFilterTelemetryProcessor : ITelemetryProcessor
     /// <param name="item">The telemetry item to process.</param>
     public void Process(ITelemetry item)
     {
-        // Filter out automatically generated request telemetry
-        // But keep our custom tracked requests from ProxyEvent
-        if (item is RequestTelemetry requestTelemetry)
+        var type = item.GetType().Name;
+
+        if (item is DependencyTelemetry request)
         {
-            // If it doesn't have our custom properties, it's an auto-generated request
-            // Your ProxyEvent adds Ver and Revision properties to custom requests
-            if (!requestTelemetry.Properties.ContainsKey("Ver") &&
-                !requestTelemetry.Properties.ContainsKey("Revision"))
+            bool hasCustomProperties = request.Properties.ContainsKey("Ver") ||
+                                        request.Properties.ContainsKey("Revision") ||
+                                        request.Properties.ContainsKey("CustomTracked");
+            if (request.Type == "Http" && !hasCustomProperties)
             {
-                // Don't process this item further
+                // Skip auto-generated HTTP requests that don't have our custom properties
                 return;
             }
         }
 
-        // Pass the telemetry item to the next processor
+        // Filter out request telemetry that doesn't have our custom properties
+        if (item is RequestTelemetry requestTelemetry)
+        {
+            Console.WriteLine($"Processing telemetry item: {item.GetType().Name}");
+            // Check if this request has our custom properties that we set in ProxyEvent
+            bool hasCustomProperties = requestTelemetry.Properties.ContainsKey("Ver") ||
+                                        requestTelemetry.Properties.ContainsKey("Revision") ||
+                                        requestTelemetry.Properties.ContainsKey("CustomTracked");
+
+            if (!hasCustomProperties)
+            {
+                // Skip auto-generated requests that don't have our custom properties
+                return;
+            }
+            // foreach (var prop in requestTelemetry.Properties)
+            // {
+            //     Console.WriteLine($"{prop.Key}: {prop.Value}");
+            // }
+            // Console.WriteLine($"Request: {requestTelemetry.Name}");
+            // Console.WriteLine("-------");
+        }
+
+        // Pass all other telemetry (including our custom requests) to the next processor
         _next.Process(item);
     }
 }

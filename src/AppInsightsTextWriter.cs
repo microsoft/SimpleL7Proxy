@@ -45,7 +45,10 @@ public class AppInsightsTextWriter : TextWriter
         }
         else
         {
-            _telemetryClient.TrackTrace(value);
+            if (_backendOptions.LogConsoleEvent)
+            {
+                _telemetryClient.TrackTrace(value); 
+            }    
             if (_backendOptions.LogConsole || _isError)
             {
                 _innerTextWriter.WriteLine($"{timestamp} {value}");
