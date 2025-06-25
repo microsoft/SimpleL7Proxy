@@ -365,7 +365,6 @@ public class Backends : IBackendService
         }
         finally
         {
-            probeData["Host-ID"] = _options.IDStr;
             probeData.SendEvent();
         }
 
@@ -436,15 +435,14 @@ public class Backends : IBackendService
                 txActivity += errors;
 
                 sb.Append($"{statusIndicator} Host: {host.url} Lat: {roundedLatency}ms Succ: {successRatePercentage}% {hoststatus}\n");
-                Dictionary<string, string> hostStatus = new();
-                hostStatus["Host"] = host.ToString();
-                hostStatus["Latency"] = roundedLatency.ToString();
-                hostStatus["SuccessRate"] = successRatePercentage.ToString();
-                hostStatus["Calls"] = calls.ToString();
-                hostStatus["Errors"] = errors.ToString();
-                hostStatus["Average"] = average.ToString();
-                hostStatus["Status"] = statusIndicator;
-                statusEvent[$"Host{counter}"] = JsonSerializer.Serialize(hostStatus, new JsonSerializerOptions { WriteIndented = true });
+
+                statusEvent[$"{counter}-Host"] = host.ToString();
+                statusEvent[$"{counter}-Latency"] = roundedLatency.ToString();
+                statusEvent[$"{counter}-SuccessRate"] = successRatePercentage.ToString();
+                statusEvent[$"{counter}-Calls"] = calls.ToString();
+                statusEvent[$"{counter}-Errors"] = errors.ToString();
+                statusEvent[$"{counter}-Average"] = average.ToString();
+                statusEvent[$"{counter}-Status"] = statusIndicator;
             }
 
         statusEvent.SendEvent();
