@@ -135,7 +135,7 @@ public class Program
                     {
                         options.ConnectionString = aiConnectionString;
                         options.EnableAdaptiveSampling = false; // Disable sampling to ensure all your custom telemetry is sent
-                        options.EnableDependencyTrackingTelemetryModule = false; // Disable automatic dependency tracking
+                       // options.EnableDependencyTrackingTelemetryModule = false; // Disable automatic dependency tracking
                     });    
 
                     // Configure telemetry to filter out duplicate logs
