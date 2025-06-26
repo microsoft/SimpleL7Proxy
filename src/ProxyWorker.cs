@@ -34,6 +34,7 @@ public class ProxyWorker
     public static int activeWorkers = 0;
     private static bool readyToWork = false;
     private static Guid? LastHostGuid;
+    static string[] backendKeys = new[] { "Backend-Host", "Host-URL", "Status", "Duration", "Error", "Message", "Request-Date" };
 
     private static int[] states = [0, 0, 0, 0, 0, 0, 0, 0];
 
@@ -110,11 +111,14 @@ public class ProxyWorker
                 workerState = "Exit - Get Work";
             }
 
-            incomingRequest.DequeueTime = DateTime.UtcNow;
-
+            if (!incomingRequest.Requeued)
+            {
+                incomingRequest.DequeueTime = DateTime.UtcNow;
+            }
+            incomingRequest.Requeued = false;  // reset this flag for this round of activity
+            
             await using (incomingRequest)
             {
-                var requestWasRetried = false;
                 var lcontext = incomingRequest.Context;
                 bool isExpired = false;
 
@@ -253,6 +257,7 @@ public class ProxyWorker
                         eventData.Type = EventType.ProxyRequestExpired;
                     }
 
+                    // SYNCHRONOUS MODE
                     await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);
 
 
@@ -295,7 +300,7 @@ public class ProxyWorker
                     // Requeue the request 
                     //_requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.Priority2, incomingRequest.EnqueueTime);
                     Console.WriteLine($"Requeued request, Pri: {incomingRequest.Priority}, Expires-At: {incomingRequest.ExpiresAtString} Retry-after-ms: {e.RetryAfter}, Q-Len: {_requestsQueue.Count}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()}");
-                    requestWasRetried = true;
+                    incomingRequest.Requeued = true;
                     incomingRequest.SkipDispose = true;
 
                 }
@@ -312,8 +317,8 @@ public class ProxyWorker
                     try
                     {
                         lcontext.Response.StatusCode = (int)e.StatusCode;
-                        lcontext.Response.StatusCode = (int)e.StatusCode;
-                        await lcontext.Response.OutputStream.WriteAsync(errorMessage,
+                        await lcontext.Response.OutputStream.WriteAsync(
+                            errorMessage,
                             0,
                             errorMessage.Length).ConfigureAwait(false);
 
@@ -346,7 +351,8 @@ public class ProxyWorker
                         {
                             lcontext.Response.StatusCode = (int)eventData.Status;
                             var errorBytes = Encoding.UTF8.GetBytes(errorMessage);
-                            await lcontext.Response.OutputStream.WriteAsync(errorBytes,
+                            await lcontext.Response.OutputStream.WriteAsync(
+                                errorBytes,
                                 0,
                                 errorBytes.Length).ConfigureAwait(false);
                             Console.Error.WriteLine($"An IO exception occurred: {ioEx.Message}");
@@ -393,7 +399,10 @@ public class ProxyWorker
                                 // _telemetryClient?.TrackException(ex, eventData);
                                 lcontext.Response.StatusCode = 500;
                                 var errorBytes = Encoding.UTF8.GetBytes(errorMessage);
-                                await lcontext.Response.OutputStream.WriteAsync(errorBytes, 0, errorBytes.Length).ConfigureAwait(false);
+                                await lcontext.Response.OutputStream.WriteAsync(
+                                    errorBytes,
+                                    0,
+                                    errorBytes.Length).ConfigureAwait(false);
                             }
                             catch (Exception writeEx)
                             {
@@ -408,13 +417,12 @@ public class ProxyWorker
                 }
                 finally
                 {
-                    eventData.SendEvent(); // Ensure the event at the completion of the request
                     try
                     {
-
                         // Don't track the request yet if it was retried.
-                        if (!requestWasRetried)
+                        if (!incomingRequest.Requeued)
                         {
+                            eventData.SendEvent(); // Ensure the event at the completion of the request
                             if (doUserconfig)
                                 _userPriority.removeRequest(incomingRequest.UserID, incomingRequest.Guid);
 
@@ -529,16 +537,6 @@ public class ProxyWorker
         }
     }
 
-    // // Method to replace or add a header
-    // void ReplaceOrAddHeader(WebHeaderCollection headers, string headerName, string headerValue)
-    // {
-    //     if (headers[headerName] != null)
-    //     {
-    //         headers.Remove(headerName);
-    //     }
-    //     headers.Add(headerName, headerValue);
-    // }
-
     private async Task WriteResponseAsync(HttpListenerContext context, ProxyData pr)
     {
         // Set the response status code
@@ -594,8 +592,6 @@ public class ProxyWorker
             }
         }
     }
-
-    static string[] backendKeys = new[] { "Backend-Host", "Host-URL", "Status", "Duration", "Error", "Message" };
 
     public async Task<ProxyData> ReadProxyAsync(RequestData request)
     {
@@ -661,6 +657,7 @@ public class ProxyWorker
                 MID = $"{request.MID}-{request.Attempts}",
                 Method = request.Method,
                 Uri = request.Context!.Request.Url!,
+                ["Request-Date"] = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffK"), 
                 ["Backend-Host"] = host.host,
                 ["Host-URL"] = host.url,
                 ["Attempt"] = request.Attempts.ToString()
@@ -674,6 +671,7 @@ public class ProxyWorker
                 {
                     string errorMessage = $"Request has expired: Time: {DateTime.Now}  Reason: {request.ExpireReason}";
                     requestSummary.Type = EventType.ProxyRequestExpired;
+                    request.SkipDispose = false;
                     throw new ProxyErrorException(ProxyErrorException.ErrorType.TTLExpired,
                                                 HttpStatusCode.PreconditionFailed,
                                                 errorMessage);
@@ -743,6 +741,8 @@ public class ProxyWorker
                     Interlocked.Increment(ref states[3]);
                     try
                     {
+
+                        // SEND THE REQUEST TO THE BACKEND USING THE APROPRIATE TIMEOUT
                         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(request.Timeout));
                         using var proxyResponse = await _options.Client!.SendAsync(
                             proxyRequest, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
@@ -792,7 +792,7 @@ public class ProxyWorker
 
                         Interlocked.Increment(ref states[4]);
 
-                        // Read the response
+                        // SYNCHRONOUS: Read the response
                         try
                         {
                             await GetProxyResponseAsync(proxyResponse, request, pr).ConfigureAwait(false);
@@ -989,7 +989,7 @@ public class ProxyWorker
         if (statusCodes.Count > 0)
         {
             // If all status codes are 408 or 412, use the latest (last) one
-            if (statusCodes.All(s => s == 408 || s == 412))
+            if (statusCodes.All(s => s == 408 || s == 412 || s == 429))
             {
                 currentStatusCode = statusCodes.Last();
                 statusMatches = true;
@@ -1119,9 +1119,15 @@ public class ProxyWorker
         }
     }
 
-    private HttpStatusCode HandleProxyRequestError(BackendHost? host, ConcurrentDictionary<string, string> data, HttpStatusCode statusCode, string message,
-                                                   List<Dictionary<string, string>>? incompleteRequests = null, Exception? e = null)
+    private HttpStatusCode HandleProxyRequestError(
+        BackendHost? host,
+        ConcurrentDictionary<string, string> data,
+        HttpStatusCode statusCode,
+        string message,
+        List<Dictionary<string, string>>? incompleteRequests = null,
+        Exception? e = null)
     {
+
 
         data["Status"] = statusCode.ToString();
         data["Message"] = message;
