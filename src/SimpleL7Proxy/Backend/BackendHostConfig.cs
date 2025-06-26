@@ -10,6 +10,7 @@ namespace SimpleL7Proxy.Backend
 {
   public class BackendHostConfig
   {
+    public Guid guid = Guid.NewGuid();
     public readonly string Host;
     public readonly string ProbePath;
     public readonly string Protocol;

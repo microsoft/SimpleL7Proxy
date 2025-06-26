@@ -40,6 +40,7 @@ public class Backends : IBackendService
   CancellationTokenSource workerCancelTokenSource = new CancellationTokenSource();
   private readonly TelemetryClient _telemetryClient;
   private readonly ILogger<Backends> _logger;
+  private static readonly ProxyEvent staticEvent = new ProxyEvent() { Type = EventType.Backend };
 
   private Task? PollerTask;
   //public Backends(List<BackendHost> hosts, HttpClient client, int interval, int successRate)
@@ -310,9 +311,10 @@ public class Backends : IBackendService
     {
 
       if (_debug)
-        _logger.LogDebug($"Checking host {host.Url + host.ProbePath}");
+        staticEvent.WriteOutput($"Checking host {host.Url + host.ProbePath}");
 
-      HttpRequestMessage request = new(HttpMethod.Get, host.ProbeUrl);
+
+      var request = new HttpRequestMessage(HttpMethod.Get, host.ProbeUrl);
       if (_options.UseOAuth)
       {
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", OAuth2Token());
@@ -369,7 +371,7 @@ public class Backends : IBackendService
     catch (OperationCanceledException)
     {
       // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
-      _logger.LogInformation("Poller: Stopping the server.");
+      staticEvent.WriteOutput("Poller: Stopping the server.");
       throw; // Exit the loop
     }
     catch (System.Net.Sockets.SocketException e)
@@ -389,7 +391,6 @@ public class Backends : IBackendService
     }
     finally
     {
-      probeData["Host-ID"] = _options.IDStr;
       probeData.SendEvent();
     }
 
@@ -399,16 +400,27 @@ public class Backends : IBackendService
   // Filter the active hosts based on the success rate
   private void FilterActiveHosts()
   {
-    //Console.WriteLine("Filtering active hosts");
-    _activeHosts = _backendHosts
-        .Where(h => h.SuccessRate() > _successRate)
-        .Select(h =>
-        {
-          h.CalculatedAverageLatency = h.AverageLatency();
-          return h;
-        })
-        .OrderBy(h => h.CalculatedAverageLatency)
-        .ToList();
+    var hosts = _backendHosts
+            .Where(h => h.SuccessRate() > _successRate)
+            .Select(h =>
+            {
+              h.CalculatedAverageLatency = h.AverageLatency();
+              return h;
+            });
+
+    switch (_options.LoadBalanceMode)
+    {
+      case Constants.Latency:
+        _activeHosts = hosts.OrderBy(h => h.CalculatedAverageLatency).ToList();
+        break;
+      case Constants.RoundRobin:
+        _activeHosts = hosts.ToList();  // roundrobin is handled in proxyWroker
+        break;
+      default:
+        _activeHosts = hosts.OrderBy(_ => Guid.NewGuid()).ToList();
+
+        break;
+    }
   }
 
   public string HostStatus { get; set; } = "-";
@@ -445,15 +457,14 @@ public class Backends : IBackendService
         txActivity += errors;
 
         sb.Append($"{statusIndicator} Host: {host.Url} Lat: {roundedLatency}ms Succ: {successRatePercentage}% {hoststatus}\n");
-        Dictionary<string, string> hostStatus = new();
-        hostStatus["Host"] = host.ToString();
-        hostStatus["Latency"] = roundedLatency.ToString();
-        hostStatus["SuccessRate"] = successRatePercentage.ToString();
-        hostStatus["Calls"] = calls.ToString();
-        hostStatus["Errors"] = errors.ToString();
-        hostStatus["Average"] = average.ToString();
-        hostStatus["Status"] = statusIndicator;
-        statusEvent[$"Host{counter}"] = JsonSerializer.Serialize(hostStatus, new JsonSerializerOptions { WriteIndented = true });
+
+        statusEvent[$"{counter}-Host"] = host.ToString();
+        statusEvent[$"{counter}-Latency"] = roundedLatency.ToString();
+        statusEvent[$"{counter}-SuccessRate"] = successRatePercentage.ToString();
+        statusEvent[$"{counter}-Calls"] = calls.ToString();
+        statusEvent[$"{counter}-Errors"] = errors.ToString();
+        statusEvent[$"{counter}-Average"] = average.ToString();
+        statusEvent[$"{counter}-Status"] = statusIndicator;
       }
 
     statusEvent.SendEvent();

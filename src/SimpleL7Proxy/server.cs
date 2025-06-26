@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Microsoft.ApplicationInsights;
+using Microsoft.ApplicationInsights.DataContracts;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
@@ -79,9 +80,6 @@ public class Server : BackgroundService
         _logger = logger;
         _requestsQueue = requestsQueue;
         _priorityHeaderName = _options.PriorityKeyHeader;
-        //_serviceBusRequestService = serviceBusRequestService;
-
-        //appLifetime.ApplicationStopping.Register(OnApplicationStopping);
 
         var _listeningUrl = $"http://+:{_options.Port}/";
 
@@ -89,7 +87,7 @@ public class Server : BackgroundService
         _httpListener.Prefixes.Add(_listeningUrl);
 
         var timeoutTime = TimeSpan.FromMilliseconds(_options.Timeout).ToString(@"hh\:mm\:ss\.fff");
-        _logger.LogInformation($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
+        _staticEvent.WriteOutput($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
     }
 
     public void BeginShutdown()
@@ -164,6 +162,7 @@ public class Server : BackgroundService
         {
             ProxyEvent ed = null!;
 
+            //using var operation = _telemetryClient.StartOperation<RequestTelemetry>("IncomingRequest");
             try
             {
                 // Use the CancellationToken to asynchronously wait for an HTTP request.
@@ -171,6 +170,9 @@ public class Server : BackgroundService
 
                 // call GetContextAsync in a way that it can be cancelled
                 var completedTask = await Task.WhenAny(getContextTask, Task.Delay(Timeout.Infinite, cancellationToken)).ConfigureAwait(false);
+
+                //  control to allow other tasks to run .. doesn't make sense here
+                // await Task.Yield();
 
                 // Cancel the delay task immedietly if the getContextTask completes first
                 if (completedTask == getContextTask)
@@ -187,10 +189,8 @@ public class Server : BackgroundService
 
                     //delayCts.Cancel();
                     var rd = new RequestData(await getContextTask.ConfigureAwait(false), requestId);
-
                     ed = rd.EventData;
                     ed["Date"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
-                    ed["S7P-Host-ID"] = _options.IDStr;
                     ed.Uri = rd.Context!.Request.Url!;
                     ed.Method = rd.Method ?? "N/A";
 
@@ -260,7 +260,7 @@ public class Server : BackgroundService
                                     {
                                         foreach (var header in headers)
                                         {
-                                            if ( !header.Key.StartsWith("internal-") )
+                                            if (!header.Key.StartsWith("internal-"))
                                             {
                                                 rd.Headers.Set(header.Key, header.Value);
                                                 if (rd.Debug)
@@ -341,7 +341,7 @@ public class Server : BackgroundService
                             if (rd.Debug)
                                 Console.WriteLine($"UserID: {rd.UserID}");
 
-                            // determine if the request is allowed async operation
+                            // ASYNC: Determine if the request is allowed async operation
                             if (doAsync && rd.Headers["AsyncEnabled"] != null && bool.TryParse(rd.Headers["AsyncEnabled"], out var allowed))
                             {
                                 var clientInfo = _userProfile.GetAsyncParams(rd.UserID);
@@ -440,6 +440,7 @@ public class Server : BackgroundService
                                 logmsg = "Failed to enqueue request  => 429:";
                             }
 
+                            // ASYNC: If the request is allowed to run async, set the status
                             if (!notEnqued && doAsync)
                             {
                                 rd.SBStatus = ServiceBusMessageStatusEnum.InQueue;
@@ -468,7 +469,19 @@ public class Server : BackgroundService
                         }
                     }
 
+                    // Distributed tracking:
+                    // If incoming request already has a ParentId, use it otherwise use the current request's MID as ParentId
+                    if (rd.Context?.Request.Headers["ParentId"] is string parentId && !string.IsNullOrEmpty(parentId))
+                    {
+                        rd.ParentId = parentId;
+                    }
+                    else
+                    {
+                        rd.ParentId = rd.MID;
+                    }
+
                     ed.MID = rd.MID;
+                    ed.ParentId = rd.ParentId;
                     ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
                     ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
                     ed["ExpiresAt"] = rd.ExpiresAtString;
@@ -486,7 +499,7 @@ public class Server : BackgroundService
                             ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
                             ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
 
-                            _logger.LogInformation($"{logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}", ed);
+                            _logger.LogError($"{logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}");
 
                             try
                             {
@@ -501,7 +514,7 @@ public class Server : BackgroundService
                             }
                             catch (Exception ex)
                             {
-                                _logger.LogInformation($"Request was not enqueue'd and got an error writing on network: {ex.Message}", ed);
+                                _logger.LogError($"Request was not enqueue'd and got an error writing on network: {ex.Message}");
                                 ed["ErrorWritingResponse"] = ex.Message;
                             }
                             _staticEvent.WriteOutput($"Pri: {priority} Stat: 429 Path: {rd.Path}");
@@ -517,7 +530,7 @@ public class Server : BackgroundService
                         temp_ed["Message"] = "Enqueued request";
 
                         temp_ed.SendEvent();
-                        _staticEvent.WriteOutput($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
+                        _logger.LogInformation($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
                     }
                 }
                 else

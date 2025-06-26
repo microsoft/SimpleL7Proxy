@@ -12,54 +12,46 @@ using SimpleL7Proxy.Events;
 
 public class RequestData : IDisposable, IAsyncDisposable
 {
-    public int Attempts { get; set; } = 0;
     // Static variable to hold the IServiceBusRequestService instance
     public static IServiceBusRequestService? SBRequestService { get; private set; }
 
-    // Method to initialize the static variable from DI
-    public static void InitializeServiceBusRequestService(IServiceBusRequestService serviceBusRequestService )
-    {
-        if (SBRequestService == null)
-        {
-            SBRequestService = serviceBusRequestService;
-        }
-    }
-    
-    public HttpListenerContext? Context { get; private set; }
-    public Stream OutputStream {get; set;}
-    public Stream? Body { get; private set; }
-    public DateTime Timestamp { get; private set; }
-    public string Path { get; private set; }
-    public string Method { get; private set; }
-    public WebHeaderCollection Headers { get; private set; }
-    public string FullURL { get;  set; }
-    public bool Debug { get; set; } 
 
-    public byte[]? BodyBytes { get; set; }=null;
+    private ServiceBusMessageStatusEnum _sbStatus = ServiceBusMessageStatusEnum.None;
+    public AsyncWorker? asyncWorker { get; set; } = null;
+    public bool AsyncTriggered { get; set; } = false;
+    public bool Debug { get; set; }
+    public bool runAsync { get; set; } = false;
+    public bool SkipDispose { get; set; } = false;
+    public byte[]? BodyBytes { get; set; } = null;
+    public DateTime DequeueTime { get; set; }
+    public DateTime EnqueueTime { get; set; }
+    public DateTime ExpiresAt { get; set; }
+    public DateTime Timestamp { get; private set; }
+    public Guid Guid { get; set; }
+    public HttpListenerContext? Context { get; private set; }
+    public int AsyncBlobAccessTimeoutSecs { get; set; } = 3600; // 1 hour
+    public int Attempts { get; set; } = 0;
+    public int defaultTimeout { get; set; } = 0; // header timeout or default timeout in milliseconds
     public int Priority { get; set; }
     public int Priority2 { get; set; }
-    public DateTime EnqueueTime { get; set; }
-    public DateTime DequeueTime { get; set; }
-    public DateTime ExpiresAt { get; set; }
-    public string ExpiresAtString { get; set; } = "";
-    public string MID { get; set; } = "";
-    public Guid Guid { get; set; }
-    public string UserID { get; set; } = "";
-
-    // calculated timeout
-    public int Timeout {get; set;}
-
-    // Header timeout or default timeout
-    public int defaultTimeout { get; set; } = 0;
-    public bool runAsync { get; set; } = false;
-    public bool AsyncTriggered { get; set; } = false;
-    public AsyncWorker? asyncWorker { get; set; } = null;
-    public int AsyncBlobAccessTimeoutSecs { get; set; } = 3600; // 1 hour
-    public string ExpireReason { get; set; } = "";
-    public ProxyEvent EventData = new ();
+    public int Timeout { get; set; }  // calculated timeout in milliseconds
     public List<Dictionary<string, string>> incompleteRequests = new();
-    public string SBTopicName { get; set; } = "";
+    public ProxyEvent EventData = new();
+    public Stream OutputStream {get; set;}
+    public Stream? Body { get; private set; }
     public string BlobContainerName { get; set; } = "";
+    public string ExpireReason { get; set; } = "";
+    public string ExpiresAtString { get; set; } = "";
+    public string FullURL { get; set; }
+    public string Method { get; private set; }
+    public string MID { get; set; } = "";
+    public string ParentId { get; set; } = "";
+    public string Path { get; private set; }
+    public bool Requeued { get; set; } = false;
+    public string SBTopicName { get; set; } = "";
+    public string UserID { get; set; } = "";
+    public WebHeaderCollection Headers { get; private set; }
+
     public ServiceBusMessageStatusEnum SBStatus
     {
         get => _sbStatus;
@@ -69,11 +61,14 @@ public class RequestData : IDisposable, IAsyncDisposable
             SBRequestService?.updateStatus(this);
         }
     }
-    private ServiceBusMessageStatusEnum _sbStatus = ServiceBusMessageStatusEnum.None;
-
-    // Track if the request was re-qued for cleanup purposes
-    //public bool Requeued { get; set; } = false;
-    public bool SkipDispose { get; set; } = false;
+    // Method to initialize the static variable from DI
+    public static void InitializeServiceBusRequestService(IServiceBusRequestService serviceBusRequestService )
+    {
+        if (SBRequestService == null)
+        {
+            SBRequestService = serviceBusRequestService;
+        }
+    }
 
 
     public RequestData(HttpListenerContext context, string mid)
@@ -87,16 +82,19 @@ public class RequestData : IDisposable, IAsyncDisposable
         Method = context.Request.HttpMethod;
         Headers = (WebHeaderCollection)context.Request.Headers;
         Body = context.Request.InputStream;
-        OutputStream = context.Response.OutputStream;
         Context = context;
         Timestamp = DateTime.UtcNow;
         ExpiresAt = DateTime.MinValue;  // Set it after reading the headers
         FullURL = "";
         Debug = false;
         MID = mid;
+
+        // ASYNC
+        OutputStream = context.Response.OutputStream;
     }
 
-    public async Task<byte[]> CacheBodyAsync() {
+    public async Task<byte[]> CacheBodyAsync()
+    {
 
         if (BodyBytes != null)
         {
@@ -175,6 +173,7 @@ public class RequestData : IDisposable, IAsyncDisposable
 
         if (SkipDispose)
         {
+            Console.WriteLine("RequestData: Dispose called but SkipDispose is true. ----------------");
             return;
         }
 
@@ -187,6 +186,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     {
         if (SkipDispose)
         {
+            Console.WriteLine("RequestData: Dispose called but SkipDispose is true. =================");
             return;
         }
 
@@ -202,7 +202,6 @@ public class RequestData : IDisposable, IAsyncDisposable
             OutputStream?.Flush();
             OutputStream?.Close();
             Context = null;
-            //Console.WriteLine($"RequestData disposed: {Guid}");
         }
     }
 

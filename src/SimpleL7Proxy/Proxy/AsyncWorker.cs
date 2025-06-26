@@ -24,7 +24,7 @@ namespace SimpleL7Proxy.Proxy
         private RequestData _requestData { get; set; }
         private string _headerBlobUri { get; set; } = "";
         private string _dataBlobUri { get; set; } = "";
-        private Stream _hos { get; set; } = null!;
+        private Stream? _hos { get; set; } = null!;
         private string _userId { get; set; } = "";
 
         private static BlobWriter? _blobWriter;

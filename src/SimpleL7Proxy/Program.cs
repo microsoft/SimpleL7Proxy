@@ -104,43 +104,23 @@ public class Program
     private static void ConfigureApplicationInsights(IServiceCollection services)
     {
         var aiConnectionString = Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING") ?? "";
-
         if (!string.IsNullOrEmpty(aiConnectionString))
         {
+            // Register Application Insights
             services.AddApplicationInsightsTelemetryWorkerService(options =>
             {
                 options.ConnectionString = aiConnectionString;
                 options.EnableAdaptiveSampling = false; // Disable sampling to ensure all your custom telemetry is sent
             });
 
-            // Completely disable automatic request tracking
+            // Configure telemetry to filter out duplicate logs
             services.Configure<TelemetryConfiguration>(config =>
             {
-                // Remove request tracking module
-                var modules = config.TelemetryInitializers
-                    .Where(i => i.GetType().Name.Contains("RequestTrackingTelemetryModule") ||
-                                i.GetType().Name.Contains("RequestTrackingTelemetryInitializer"))
-                    .ToList();
-
-                foreach (var module in modules)
-                {
-                    config.TelemetryInitializers.Remove(module);
-                }
-
-                // Add a filter that will discard auto-generated request telemetry since we are logging it ourselves
                 config.TelemetryProcessorChainBuilder.Use(next => new RequestFilterTelemetryProcessor(next));
                 config.TelemetryProcessorChainBuilder.Build();
             });
 
-            services.AddLogging(loggingBuilder =>
-            {
-                loggingBuilder.AddApplicationInsights(
-                    configureTelemetryConfiguration: config => config.ConnectionString = aiConnectionString,
-                    configureApplicationInsightsLoggerOptions: options => { });
-                loggingBuilder.AddConsole();
-            });
-
-            Console.WriteLine("AppInsights initialized");
+            Console.WriteLine("AppInsights initialized with custom request tracking");
         }
     }
 
@@ -195,6 +175,6 @@ public class Program
         services.AddTransient(source => new CancellationTokenSource());
         services.AddHostedService<CoordinatedShutdownService>();
         services.AddHostedService<UserProfile>(provider => provider.GetRequiredService<UserProfile>());
-        
+
     }
 }

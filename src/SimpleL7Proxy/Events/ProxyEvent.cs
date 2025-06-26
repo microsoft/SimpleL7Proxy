@@ -1,28 +1,29 @@
 ﻿using System.Collections.Concurrent;
-using SimpleL7Proxy.Backend;
 using Microsoft.Extensions.Options;
 using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.DataContracts;
 using System.Net;
+using SimpleL7Proxy.Backend;
 
 namespace SimpleL7Proxy.Events
 {
 
   public enum EventType
   {
-    ProxyRequestEnqueued,
+    Backend,
+    BackendRequest,
+    CircuitBreakerError,
+    Console,
+    CustomEvent,
+    Exception,
+    Poller,
+    Probe,
+    ProxyError,
     ProxyRequest,
+    ProxyRequestEnqueued,
     ProxyRequestExpired,
     ProxyRequestRequeued,
-    ProxyError,
-    Exception,
-    Backend,
     ServerError,
-    Probe,
-    CustomEvent,
-    Console,
-    CircuitBreakerError,
-    Poller,
   }
 
   public class ProxyEvent : ConcurrentDictionary<string, string>
@@ -35,6 +36,7 @@ namespace SimpleL7Proxy.Events
     public HttpStatusCode Status { get; set; } = 0;
     public Uri Uri { get; set; } = new Uri("http://localhost");
     public string? MID { get; set; } = "";
+    public string? ParentId { get; set; } = "";
     public string? Method { get; set; } = "GET";
     public TimeSpan Duration { get; set; } = TimeSpan.Zero;
     public Exception? Exception { get; set; } = null;
@@ -49,7 +51,6 @@ namespace SimpleL7Proxy.Events
       _telemetryClient = telemetryClient ?? throw new ArgumentNullException(nameof(telemetryClient));
 
     }
-
     public ProxyEvent() : base()
     {
       base["Ver"] = Constants.VERSION;
@@ -64,6 +65,8 @@ namespace SimpleL7Proxy.Events
       Status = other.Status;
       Uri = other.Uri;
       MID = other.MID;
+      ParentId = other.ParentId;
+      Method = other.Method;
       Duration = other.Duration;
       Exception = other.Exception;
     }
@@ -76,27 +79,29 @@ namespace SimpleL7Proxy.Events
       try
       {
         bool logEvent = false;
+        bool logDependency = false;
         bool logRequest = false;
         bool logException = false;
         bool logToEventHub = false;
 
+        // Console.WriteLine($"Sending event: {Type} with Status: {Status} and Duration: {Duration.TotalMilliseconds} ms");
+
         // Determine the type of telemetry to send based on event type
         switch (Type)
         {
-          case EventType.ProxyRequestEnqueued:
-          case EventType.ProxyRequestExpired:
-          case EventType.ProxyRequestRequeued:
-          case EventType.ProxyError:
           case EventType.Backend:
-          case EventType.ServerError:
           case EventType.CustomEvent:
-          case EventType.CircuitBreakerError:
           case EventType.Probe:
             if (_options?.Value.LogProbes == true)
             {
               logEvent = true;
               logToEventHub = true;
             }
+            break;
+          case EventType.ServerError:
+          case EventType.CircuitBreakerError:
+            logEvent = true;
+            logToEventHub = true;
             break;
           case EventType.Console:
             if (_options?.Value.LogConsole == true)
@@ -112,6 +117,17 @@ namespace SimpleL7Proxy.Events
               logToEventHub = true;
             }
             break;
+          case EventType.BackendRequest:
+            logDependency = true;
+            logToEventHub = true;
+            break;
+          case EventType.ProxyRequestEnqueued:
+          case EventType.ProxyRequestRequeued:
+            logEvent = true;
+            logToEventHub = true;
+            break;
+          case EventType.ProxyRequestExpired:
+          case EventType.ProxyError:
           case EventType.ProxyRequest:
             logRequest = true;
             logToEventHub = true;
@@ -131,8 +147,9 @@ namespace SimpleL7Proxy.Events
         this["Method"] = Method ?? "GET"; // Default to GET if Method is null
         if (_telemetryClient is not null)
         {
-          if (logEvent) TrackEvent();
+          if (logDependency) TrackDependancy();
           else if (logRequest) TrackRequest();
+          else if (logEvent) TrackEvent();
           else if (logException) TrackException();
         }
 
@@ -141,7 +158,7 @@ namespace SimpleL7Proxy.Events
           this["Type"] = "S7P-" + Type.ToString();
           this["MID"] = MID ?? "N/A";
           // Send the event to Event Hub
-          _eventHubClient?.SendData(this);
+          _eventHubClient.SendData(this);
         }
       }
       catch (Exception ex)
@@ -154,16 +171,70 @@ namespace SimpleL7Proxy.Events
     private void TrackEvent()
     {
       string eventName = "S7P-" + Type.ToString();
-      Dictionary<string, double> metrics = new()
-      {
-        ["Duration"] = Duration.TotalMilliseconds
-      };
 
-      _telemetryClient?.TrackEvent(eventName, this.ToDictionary(), metrics);
+      var eventTelemetry = new EventTelemetry(eventName);
+      eventTelemetry.Metrics["Duration"] = Duration.TotalMilliseconds;
+      // eventTelemetry.Name = eventName;
+
+      // Set operation context if available
+      if (!string.IsNullOrEmpty(MID))
+      {
+        eventTelemetry.Context.Operation.Id = MID;
+        if (!string.IsNullOrEmpty(ParentId))
+        {
+          eventTelemetry.Context.Operation.ParentId = ParentId;
+        }
+      }
+
+      // Add all properties except MID and ParentId (which go in the operation context)
+      foreach (var kvp in this)
+      {
+        // Skip MID and ParentId as they belong in the operation context
+        if (kvp.Key != "MID" && kvp.Key != "ParentId" && kvp.Key != "OperationId")
+        {
+          eventTelemetry.Properties[kvp.Key] = kvp.Value;
+        }
+      }
+
+      _telemetryClient?.TrackEvent(eventTelemetry);
     }
 
+    private void TrackDependancy()
+    {
+      // Create a dependency telemetry instance
+      var dependencyTelemetry = new DependencyTelemetry
+      {
+        Name = Method + " " + Uri.Segments[^1],
+        Data = Uri.ToString(),
+        Type = "HTTP", // Can be HTTP, SQL, Azure blob, etc.
+        Target = Uri.Host,
+        Duration = Duration,
+        Success = (int)Status >= 200 && (int)Status < 400,
+        ResultCode = ((int)Status).ToString()
+      };
+
+      // Set the timestamp
+      dependencyTelemetry.Timestamp = DateTimeOffset.UtcNow.Subtract(Duration);
+      dependencyTelemetry.Id = MID;
+      // Add custom properties
+      foreach (var kvp in this)
+      {
+        dependencyTelemetry.Properties[kvp.Key] = kvp.Value;
+      }
+
+      // Add context if available
+      if (!string.IsNullOrEmpty(MID))
+      {
+        dependencyTelemetry.Context.Operation.Id = MID;
+        dependencyTelemetry.Context.Operation.ParentId = ParentId;
+      }
+
+      _telemetryClient?.TrackDependency(dependencyTelemetry);
+    }
     private void TrackRequest()
     {
+      // Check if we've already tracked this request using the MID as a key
+      var requestId = MID ?? Guid.NewGuid().ToString();
 
       var success = (int)Status >= 200 && (int)Status < 400;
       var requestTelemetry = new RequestTelemetry
@@ -171,11 +242,19 @@ namespace SimpleL7Proxy.Events
         Name = Method + " " + Uri.Segments[^1],
         Url = Uri,
         ResponseCode = Status.ToString(),
-        Success = success
+        Success = success,
+        Id = requestId // Set a consistent ID to help identify duplicates
       };
 
+      requestTelemetry.Timestamp = DateTimeOffset.UtcNow.Subtract(Duration);
+      requestTelemetry.HttpMethod = Method ?? "GET"; // Default to GET if Method is null
+      requestTelemetry.Source = "S7P"; // Custom source identifier
       requestTelemetry.Duration = Duration;
-      requestTelemetry.Context.Operation.Id = MID ?? Guid.NewGuid().ToString();
+      requestTelemetry.Context.Operation.Id = requestId;
+      requestTelemetry.Context.Operation.ParentId = ParentId;
+
+      // Add a special flag to mark this as our custom telemetry
+      requestTelemetry.Properties["CustomTracked"] = "true";
 
       foreach (var kvp in this)
       {
@@ -187,7 +266,7 @@ namespace SimpleL7Proxy.Events
 
     private void TrackException()
     {
-      _telemetryClient!.TrackException(Exception, this.ToDictionary());
+      _telemetryClient?.TrackException(Exception, this.ToDictionary());
     }
 
     // private void TrackAvailability()
@@ -274,6 +353,30 @@ namespace SimpleL7Proxy.Events
         Console.Error.WriteLine($"Error writing output: {ex.Message}");
       }
     }
+
+    public Dictionary<string, string> ToDictionary(string[]? keys = null)
+    {
+      // Create a new dictionary to hold the properties
+      var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+      dict["Status"] = ((int)Status).ToString();
+      dict["Duration"] = Duration.TotalMilliseconds.ToString();
+
+      if (keys != null)
+      {
+        foreach (var key in keys)
+        {
+          if (TryGetValue(key, out var value))
+          {
+            dict[key] = value;
+          }
+        }
+
+        return dict;
+      }
+
+      // Convert the ProxyEvent to a dictionary for telemetry
+      return this.ToDictionary((kvp) => kvp.Key, (kvp) => kvp.Value, StringComparer.OrdinalIgnoreCase);
+    }
   }
 }
-
