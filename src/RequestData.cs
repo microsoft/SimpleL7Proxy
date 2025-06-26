@@ -9,42 +9,34 @@ using Microsoft.Azure.Amqp;
 
 public class RequestData : IDisposable, IAsyncDisposable
 {
-    public int Attempts { get; set; } = 0;
-    public HttpListenerContext? Context { get; private set; }
-    public Stream? Body { get; private set; }
-    public DateTime Timestamp { get; private set; }
-    public string Path { get; private set; }
-    public string Method { get; private set; }
-    public WebHeaderCollection Headers { get; private set; }
-    public string FullURL { get;  set; }
-    public bool Debug { get; set; } 
 
+    public bool Debug { get; set; } 
+    public bool SkipDispose { get; set; } = false;
     public byte[]? BodyBytes { get; set; }=null;
+    public DateTime DequeueTime { get; set; }
+    public DateTime EnqueueTime { get; set; }
+    public DateTime ExpiresAt { get; set; }
+    public DateTime Timestamp { get; private set; }
+    public Guid Guid { get; set; }
+    public HttpListenerContext? Context { get; private set; }
+    public int Attempts { get; set; } = 0;
+    public int defaultTimeout { get; set; } = 0;// Header timeout or default timeout
     public int Priority { get; set; }
     public int Priority2 { get; set; }
-    public DateTime EnqueueTime { get; set; }
-    public DateTime DequeueTime { get; set; }
-    public DateTime ExpiresAt { get; set; }
-    public string ExpiresAtString { get; set; } = "";
-    public string MID { get; set; } = "";
-    public string ParentId { get; set; } = "";
-    public Guid Guid { get; set; }
-    public string UserID { get; set; } = "";
-
-    // calculated timeout
-    public int Timeout { get; set; }
-
-    // Header timeout or default timeout
-    public int defaultTimeout { get; set; } = 0;
-    public string ExpireReason { get; set; } = "";
-    public ProxyEvent EventData = new ();
+    public int Timeout { get; set; }// calculated timeout
     public List<Dictionary<string, string>> incompleteRequests = new();
-
-    //public string TTL = "";
-
-    // Track if the request was re-qued for cleanup purposes
-    //public bool Requeued { get; set; } = false;
-    public bool SkipDispose { get; set; } = false;
+    public ProxyEvent EventData = new ();
+    public Stream? Body { get; private set; }
+    public string ExpireReason { get; set; } = "";
+    public string ExpiresAtString { get; set; } = "";
+    public string FullURL { get;  set; }
+    public string Method { get; private set; }
+    public string MID { get; set; } = "";
+    public bool Requeued { get; set; } = false;
+    public string ParentId { get; set; } = "";
+    public string Path { get; private set; }
+    public string UserID { get; set; } = "";
+    public WebHeaderCollection Headers { get; private set; }
 
 
     public RequestData(HttpListenerContext context, string mid)
