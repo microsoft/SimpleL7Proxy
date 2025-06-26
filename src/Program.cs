@@ -127,7 +127,7 @@ public class Program
                 });
 
                 // Register App Insights telemetry, since we're manually logging Requests and Dependencies, disable automatic tracking
-                var aiConnectionString = OS.Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING") ?? "";
+                var aiConnectionString = Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING") ?? "";
                 if (!string.IsNullOrEmpty(aiConnectionString))
                 {
                     // Register Application Insights
@@ -388,6 +388,20 @@ public class Program
         EnvVars[variableName] = value;
         return value;
     }
+    private static string ReadEnvironmentVariableOrDefault(string altVariableName, string variableName, string defaultValue)
+    {
+        // Try both variable names and use the first non-empty one
+        string? envValue = Environment.GetEnvironmentVariable(variableName)?.Trim() ??
+                        Environment.GetEnvironmentVariable(altVariableName)?.Trim();
+
+        // Use default if neither variable is defined
+        string result = !string.IsNullOrEmpty(envValue) ? envValue : defaultValue;
+
+        // Record and return the value
+        EnvVars[variableName] = result;
+        return result;
+    }
+
     private static bool ReadEnvironmentVariableOrDefault(string variableName, bool defaultValue)
     {
         bool value = _ReadEnvironmentVariableOrDefault(variableName, defaultValue);
@@ -692,7 +706,8 @@ public class Program
             LogHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
             LogPoller = ReadEnvironmentVariableOrDefault("LogPoller", false),
             LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", false),
-            LookupHeaderName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "userId"),
+            LookupHeaderName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "UserIDFieldName", "userId"), // migrate from LookupHeaderName
+            //LookupHeaderName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "userId"),
             MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
             OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
             PollInterval = ReadEnvironmentVariableOrDefault("PollInterval", 15000),
