@@ -24,6 +24,25 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(b"OK")
             return
 
+        if parsed_path.path == '/500error':
+            self.send_response(500)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b" An error occurred!")
+            return
+        
+        if parsed_path.path == '/killConnection':
+            time.sleep(.5)
+            self.wfile.close()
+            print("Connection closed")
+            return
+
+        if parsed_path.path == '/delay800seconds':
+            time.sleep(800)
+            self.wfile.close()
+            print("Connection closed")
+            return
+        
         # Example: /echo/resource?param1=sample
         if parsed_path.path == '/echo/resource':
             self.send_response(200)
@@ -32,7 +51,7 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(b"Hello, world!")
             return
         
-        if parsed_path.path == '/echo/requeueME':
+        if parsed_path.path == '/429error':
 
             # Read the body
             content_length = int(self.headers.get('Content-Length', 0))  # Get the length of the body
