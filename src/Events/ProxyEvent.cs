@@ -350,7 +350,7 @@ private void TrackDependancy()
     }
   }
   
-  public Dictionary<string, string> ToDictionary(string[] keys = null)
+  public Dictionary<string, string> ToDictionary(string[]? keys = null)
   {
     // Create a new dictionary to hold the properties
     var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
