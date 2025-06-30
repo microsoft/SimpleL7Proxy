@@ -9,6 +9,9 @@
     }
   },
   "extensions": {
+    "http": {
+      "routePrefix": "echo"
+    },
     "serviceBus": {
         "maxConcurrentCalls": 1
     }

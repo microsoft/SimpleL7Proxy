@@ -1,11 +1,14 @@
 import azure.functions as func
 import logging
+import time
 
-app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
+app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 
-@app.route(route="httpget", methods=["GET"])
+@app.route(route="resource", methods=["GET"])
 def http_get(req: func.HttpRequest) -> func.HttpResponse:
     name = req.params.get("name", "World")
+
+    time.sleep(50)
 
     logging.info(f"Processing GET request. Name: {name}")
 
