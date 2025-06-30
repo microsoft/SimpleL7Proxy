@@ -22,63 +22,7 @@ During promotional periods, free tier usage can spike unexpectedly, threatening 
 
 By implementing this policy, the company can:
 
-1. **Configure Backend Priorities with Cost-First Approach**:
-```XML
-<set-variable name="listBackends" value="@{
-    JArray backends = new JArray();
-    // PTU instance - maximize usage for all tiers to get ROI on pre-paid capacity
-    backends.Add(new JObject() {
-        { "url", "https://ptu-openai-eastus.openai.azure.com/" },
-        { "priority", 1 },
-        { "isThrottling", false },
-        { "retryAfter", DateTime.MinValue },
-        { "ModelType", "GPT4" },
-        { "deploymentType", "PTU" },
-        { "acceptablePriorities", new JArray(1, 2, 3) }, // Accept all priorities
-        { "api-key", "ptu-instance-key" },
-        { "defaultRetryAfter", 5 }
-    });
-    // Region 1 PayGo - only for paying customers
-    backends.Add(new JObject() {
-        { "url", "https://paygo1-openai.openai.azure.com/" },
-        { "priority", 2 },
-        { "isThrottling", false },
-        { "retryAfter", DateTime.MinValue },
-        { "ModelType", "GPT4" },
-        { "deploymentType", "PayGo" },
-        { "acceptablePriorities", new JArray(1, 2) }, // Only Enterprise and Pro tiers
-        { "api-key", "paygo1-key" },
-        { "defaultRetryAfter", 10 }
-    });
-    // Region 2 PayGo - only for Enterprise customers
-    backends.Add(new JObject() {
-        { "url", "https://paygo2-openai.openai.azure.com/" },
-        { "priority", 3 },
-        { "isThrottling", false },
-        { "retryAfter", DateTime.MinValue },
-        { "ModelType", "GPT4" },
-        { "deploymentType", "PayGo" },
-        { "acceptablePriorities", new JArray(1) }, // Only Enterprise tier
-        { "api-key", "paygo2-key" },
-        { "defaultRetryAfter", 15 }
-    });
-    // Limited deployment - only for free tier
-    backends.Add(new JObject() {
-        { "url", "https://limited-openai.openai.azure.com/" },
-        { "priority", 4 },
-        { "isThrottling", false },
-        { "retryAfter", DateTime.MinValue },
-        { "ModelType", "GPT35Turbo" }, // Lower cost model for free tier
-        { "deploymentType", "Limited" },
-        { "acceptablePriorities", new JArray(3) }, // Only free tier
-        { "api-key", "limited-key" },
-        { "defaultRetryAfter", 60 } // Long delay for free tier
-    });
-    return backends;
-}" />
-```
-
-2. **Define Priority Behaviors with Cost Controls**:
+1. **Define Priority Behaviors**:
 ```XML
 <set-variable name="priorityCfg" value="@{
     JObject cfg = new JObject();
@@ -106,6 +50,7 @@ By implementing this policy, the company can:
 ``` XML
 <set-variable name="listBackends" value="@{
     JArray backends = new JArray();
+    // PTU backend: accepts all priorities
     backends.Add(new JObject()
     {
         { "url", "https://ptu-backend.example.com/" },
@@ -118,17 +63,44 @@ By implementing this policy, the company can:
         { "defaultRetryAfter", 5 },
         { "LimitConcurrency", "high" }
     });
+    // PayGo backend 1: only for enterprise and pro (no free tier)
     backends.Add(new JObject()
     {
-        { "url", "https://paygo-backend.example.com/" },
+        { "url", "https://paygo1-backend.example.com/" },
         { "priority", 2 },
         { "isThrottling", false },
         { "retryAfter", DateTime.MinValue },
         { "ModelType", "GPT-4" },
         { "acceptablePriorities", new JArray(1, 2) },
-        { "api-key", "paygo-api-key" },
+        { "api-key", "paygo1-api-key" },
         { "defaultRetryAfter", 15 },
         { "LimitConcurrency", "medium" }
+    });
+    // PayGo backend 2: only for enterprise (no pro or free tier)
+    backends.Add(new JObject()
+    {
+        { "url", "https://paygo2-backend.example.com/" },
+        { "priority", 2 },
+        { "isThrottling", false },
+        { "retryAfter", DateTime.MinValue },
+        { "ModelType", "GPT-4" },
+        { "acceptablePriorities", new JArray(1) },
+        { "api-key", "paygo2-api-key" },
+        { "defaultRetryAfter", 15 },
+        { "LimitConcurrency", "medium" }
+    });
+    // Limited backend for free tier only (internal/testing, cheaper model)
+    backends.Add(new JObject()
+    {
+        { "url", "https://limited-backend.example.com/" },
+        { "priority", 3 },
+        { "isThrottling", false },
+        { "retryAfter", DateTime.MinValue },
+        { "ModelType", "GPT-3.5-Turbo" },
+        { "acceptablePriorities", new JArray(3) },
+        { "api-key", "limited-backend-key" },
+        { "defaultRetryAfter", 60 },
+        { "LimitConcurrency", "low" }
     });
     return backends;
 }" />

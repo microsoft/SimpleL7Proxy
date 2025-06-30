@@ -20,95 +20,9 @@ Any regional outage or capacity issue must not impact the critical patient diagn
 
 ## Solution with Priority-with-retry
 
-By implementing this policy with a focus on high availability, the company can:
+By implementing this policy, the company can:
 
-1. **Configure Multi-Region Backend Strategy**:
-```XML
-<set-variable name="listBackends" value="@{
-    JArray backends = new JArray();
-    // US PTU instance - primary for US workloads
-    backends.Add(new JObject() {
-        { "url", "https://ptu-us-openai.openai.azure.com/" },
-        { "priority", 1 },
-        { "region", "US" },
-        { "isThrottling", false },
-        { "retryAfter", DateTime.MinValue },
-        { "ModelType", "GPT4" },
-        { "deploymentType", "PTU" },
-        { "acceptablePriorities", new JArray(1, 2) }, // Patient diagnostics and provider recommendations
-        { "api-key", "ptu-us-key" },
-        { "defaultRetryAfter", 3 }
-    });
-    // Europe PTU instance - primary for EU workloads, secondary for US
-    backends.Add(new JObject() {
-        { "url", "https://ptu-eu-openai.openai.azure.com/" },
-        { "priority", 1 },
-        { "region", "EU" },
-        { "isThrottling", false },
-        { "retryAfter", DateTime.MinValue },
-        { "ModelType", "GPT4" },
-        { "deploymentType", "PTU" },
-        { "acceptablePriorities", new JArray(1, 2) }, // Patient diagnostics and provider recommendations
-        { "api-key", "ptu-eu-key" },
-        { "defaultRetryAfter", 3 }
-    });
-    // US PayGo instance - overflow for US region
-    backends.Add(new JObject() {
-        { "url", "https://paygo-us-openai.openai.azure.com/" },
-        { "priority", 2 },
-        { "region", "US" },
-        { "isThrottling", false },
-        { "retryAfter", DateTime.MinValue },
-        { "ModelType", "GPT4" },
-        { "deploymentType", "PayGo" },
-        { "acceptablePriorities", new JArray(1, 2, 3) }, // All priorities
-        { "api-key", "paygo-us-key" },
-        { "defaultRetryAfter", 5 }
-    });
-    // EU PayGo instance - overflow for EU region
-    backends.Add(new JObject() {
-        { "url", "https://paygo-eu-openai.openai.azure.com/" },
-        { "priority", 2 },
-        { "region", "EU" },
-        { "isThrottling", false },
-        { "retryAfter", DateTime.MinValue },
-        { "ModelType", "GPT4" },
-        { "deploymentType", "PayGo" },
-        { "acceptablePriorities", new JArray(1, 2, 3) }, // All priorities
-        { "api-key", "paygo-eu-key" },
-        { "defaultRetryAfter", 5 }
-    });
-    // Asia PayGo instance - geographic redundancy
-    backends.Add(new JObject() {
-        { "url", "https://paygo-asia-openai.openai.azure.com/" },
-        { "priority", 3 },
-        { "region", "ASIA" },
-        { "isThrottling", false },
-        { "retryAfter", DateTime.MinValue },
-        { "ModelType", "GPT4" },
-        { "deploymentType", "PayGo" },
-        { "acceptablePriorities", new JArray(1, 2, 3) }, // All priorities
-        { "api-key", "paygo-asia-key" },
-        { "defaultRetryAfter", 10 }
-    });
-    // Dev/Test instance - for research only
-    backends.Add(new JObject() {
-        { "url", "https://dev-openai.openai.azure.com/" },
-        { "priority", 4 },
-        { "region", "US" },
-        { "isThrottling", false },
-        { "retryAfter", DateTime.MinValue },
-        { "ModelType", "GPT4" },
-        { "deploymentType", "Development" },
-        { "acceptablePriorities", new JArray(3) }, // Research only
-        { "api-key", "dev-key" },
-        { "defaultRetryAfter", 15 }
-    });
-    return backends;
-}" />
-```
-
-2. **Define Priority Behaviors with High Availability Focus**:
+1. **Define Priority Behaviors with High Availability Focus**:
 ```XML
 <set-variable name="priorityCfg" value="@{
     JObject cfg = new JObject();

@@ -26,63 +26,7 @@ During market volatility, all systems experience high load simultaneously, causi
 
 By implementing this policy, the company can:
 
-1. **Configure Backend Priorities**:
-```XML
-<set-variable name="listBackends" value="@{
-    JArray backends = new JArray();
-    // PTU instance - since it's pre-paid, always try to use this first for supported priorities
-    backends.Add(new JObject() {
-        { "url", "https://ptu-openai-east.openai.azure.com/" },
-        { "priority", 1 },
-        { "isThrottling", false },
-        { "retryAfter", DateTime.MinValue },
-        { "ModelType", "GPT4" },
-        { "deploymentType", "PTU" },
-        { "acceptablePriorities", new JArray(1, 2, 3) }, // Handle all priorities to maximize PTU utilization
-        { "api-key", "ptu-instance-key" },
-        { "defaultRetryAfter", 5 }
-    });
-    // Premium PayGo instance for critical operations only
-    backends.Add(new JObject() {
-        { "url", "https://premium-openai-east.openai.azure.com/" },
-        { "priority", 1 },
-        { "isThrottling", false },
-        { "retryAfter", DateTime.MinValue },
-        { "ModelType", "GPT4" },
-        { "deploymentType", "PayGo" },
-        { "acceptablePriorities", new JArray(1) }, // Only highest priority can use premium PayGo
-        { "api-key", "premium-instance-key" },
-        { "defaultRetryAfter", 5 }
-    });
-    // Standard PayGo instance for high and medium priority only
-    backends.Add(new JObject() {
-        { "url", "https://standard-openai-west.openai.azure.com/" },
-        { "priority", 2 },
-        { "isThrottling", false },
-        { "retryAfter", DateTime.MinValue },
-        { "ModelType", "GPT4" },
-        { "deploymentType", "PayGo" },
-        { "acceptablePriorities", new JArray(1, 2) }, // No low priority allowed on PayGo
-        { "api-key", "standard-instance-key" },
-        { "defaultRetryAfter", 10 }
-    });
-    // Free tier or internal capacity for low-priority workloads
-    backends.Add(new JObject() {
-        { "url", "https://internal-openai-central.openai.azure.com/" },
-        { "priority", 3 },
-        { "isThrottling", false },
-        { "retryAfter", DateTime.MinValue },
-        { "ModelType", "GPT4" },
-        { "deploymentType", "Internal", }, // Internal capacity, not PayGo
-        { "acceptablePriorities", new JArray(3) }, // Only for low priority traffic
-        { "api-key", "internal-instance-key" },
-        { "defaultRetryAfter", 30 } // Longer retry for low priority
-    });
-    return backends;
-}" />
-```
-
-2. **Define Priority Behaviors**:
+1. **Define Priority Behaviors**:
 ```XML
 <set-variable name="priorityCfg" value="@{
     JObject cfg = new JObject();
@@ -133,6 +77,18 @@ By implementing this policy, the company can:
         { "api-key", "standard-paygo-key" },
         { "defaultRetryAfter", 20 },
         { "LimitConcurrency", "medium" }
+    });
+    backends.Add(new JObject()
+    {
+        { "url", "https://internal-openai-central.openai.azure.com/" },
+        { "priority", 3 },
+        { "isThrottling", false },
+        { "retryAfter", DateTime.MinValue },
+        { "ModelType", "GPT4" },
+        { "deploymentType", "Internal" }, // Internal capacity, not PayGo
+        { "acceptablePriorities", new JArray(3) }, // Only for low priority traffic
+        { "api-key", "internal-instance-key" },
+        { "defaultRetryAfter", 30 } // Longer retry for low priority
     });
     return backends;
 }" />
