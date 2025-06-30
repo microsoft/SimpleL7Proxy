@@ -19,7 +19,7 @@ The Priority-with-retry policy delivers robust, intelligent request routing and 
 - **Detailed Diagnostics:** Provides logging with timestamps and diagnostic info in response headers for monitoring and troubleshooting.
 - **No External Dependencies:** Maintains backend and throttling state in memory.
 
-This policy has been rigorously tested and successfully benchmarked with two OpenAI pay-as-you-go instances deployed in different regions, achieving a sustained performance of over 10 million tokens per minute over an extended period.
+This policy has been rigorously tested and successfully benchmarked with two OpenAI pay-as-you-go instances deployed in different regions, achieving a sustained performance of over 23 million tokens per minute over an extended period.
 
 ![image](./Flow.pdf)
 
@@ -46,14 +46,6 @@ Each scenario demonstrates how to configure the policy to meet different busines
 This document provides an overview of the **Priority-with-retry.xml** Azure API Management (APIM) policy, explaining its purpose and functionality. The policy is designed to route requests to specific backends based on their assigned priority, with built-in mechanisms for retrying and requeuing requests when necessary.
 
 For detailed technical explanations of how the policy works internally, please see our [How It Works](./how-it-works.md) document.
-
-### Key Functionality
-
-- Routes requests to backends based on priority and availability
-- Detects and avoids throttled backends for the appropriate duration
-- Implements configurable retry and requeue strategies based on priority
-- Supports both API Key and Azure Managed Identity authentication
-- Provides detailed logging for monitoring and debugging
 
 ## Customization Instructions
 
@@ -144,7 +136,7 @@ To add custom log entries, update the *backendLog* variable in the <backend> sec
 
 *Enable Debugging:*
 
-Set the *S7PDEBUG* header to true in your requests to enable detailed tracing.
+Set the *S7PDEBUG* header to true in your requests to the proxy enable detailed tracing.
 
 *Inspect Logs:*
 
@@ -154,66 +146,51 @@ Review the *backendLog* variable in the response headers to understand backend s
 
 Test the retry and requeue logic by simulating backend failures or throttling.
 
-## Notes ##
+## Notes
 
-The Priority-with-retry.xml policy is a practical tool for managing priority-based request routing and retries in Azure API Management. By customizing the variables and logic described above, you can adapt the policy to meet your specific needs. For further assistance, refer to the Azure API Management documentation or consult your team.
+- **PTU First:** The policy always tries pre-paid PTU endpoints before PayGo to maximize value.
+- **Consistent Models:** Use the same model (e.g., GPT-4) across deployment types for consistent results.
+- **Retry-After:** Lower-priority requests may be asked to retry later, letting higher-priority requests go first during busy periods.
+- **Cost Controls:** 
+  - PTU handles all priorities to use committed capacity.
+  - PayGo is restricted for low-priority traffic to control costs.
+  - Low-priority workloads can be routed to internal or free-tier resources.
+  - Lower priorities have longer retry-after times, ensuring critical operations are prioritized.
 
-**Important Notes on Configuration:**
+## FAQ
 
-- **PTU Prioritization**: Since Provisioned Throughput Units (PTU) are pre-paid capacity, the policy is configured to always try PTU endpoints first before falling back to Pay-as-you-go (PayGo) endpoints. This ensures maximum utilization of already-paid resources.
+**How do I install this policy?**  
+Paste the policy XML into your API operation in the Azure portal.
 
-- **Model Consistency**: In practice, you typically maintain the same model (GPT-4 in this example) across different deployment types rather than switching between model families (like GPT-4 and GPT-3.5 Turbo). This ensures consistent response quality while varying the deployment type (PTU vs PayGo) based on priority.
+**What do I need to use this policy?**  
+An Azure API Management instance and at least one Azure OpenAI or compatible backend.
 
-- **Retry-After Strategy**: The retry-after mechanism functions as a deliberate offloading technique. When a request is sent back to the proxy with a retry-after value, it allows other higher-priority requests to be processed first. This creates an intelligent queuing system where lower-priority items yield to higher-priority ones during high traffic periods.
+**Which APIM versions are supported?**  
+All current versions.
 
-- **Cost Management Considerations:**
+**How many backends should I configure?**  
+At least 2-3 for redundancy; dozens are supported.
 
-  - **Maximize PTU Usage**: Since PTU capacity is already paid for, it's configured to accept all priority levels to maximize utilization.
-  
-  - **Restrict PayGo Access**: For cost control, PayGo instances are restricted from handling low-priority traffic. This prevents incurring additional costs for non-critical workloads.
-  
-  - **Dedicated Low-Priority Backend**: Low-priority workloads are directed to internal capacity or free-tier resources, ensuring they don't compete with critical workloads and don't incur additional costs.
-  
-  - **Graduated Retry Times**: Lower priority workloads have longer retry-after times (30 seconds vs 5 seconds for high priority), further ensuring that during high demand, the system naturally prioritizes critical operations.
+**How do I set priorities?**  
+Map critical operations to priority 1, standard to 2, background to 3.
 
-## Frequently Asked Questions
+**How can I test before production?**  
+Use APIM's test feature and set the S7PDEBUG header to true for diagnostics.
 
-### Implementation Questions
-1. **How do I install this policy in my Azure API Management instance?**
-   The policy XML can be added to any API operation in your APIM instance. Navigate to your API in the Azure portal, select an operation, and paste the policy XML in the policy editor.
+**Is it safe to store API keys in the policy?**  
+Use Azure Key Vault for production instead of hardcoding keys.
 
-2. **What are the prerequisites for using this policy?**
-   You need an Azure API Management instance (any tier) and at least one Azure OpenAI service instance or other backend service.
+**How do I prevent users from setting their own priority?**  
+Add APIM validation policies to enforce or override the priority header.
 
-3. **Which versions of Azure API Management support this policy?**
-   This policy is compatible with all current versions of Azure API Management.
+**What if all backends are throttling?**  
+Increase backend capacity, adjust retry strategy, or add client-side throttling.
 
-### Configuration Questions
-1. **How many backends should I configure for optimal performance?**
-   We recommend at least 2-3 backends for redundancy, but the policy can handle dozens of backends if needed.
+**How do I monitor the policy?**  
+Check backendLog in response headers or export to Application Insights/Log Analytics.
 
-2. **How should I determine priority levels for my workloads?**
-   Map your business-critical operations to priority 1, standard operations to priority 2, and background/non-critical operations to priority 3.
+**Common issues?**  
+Misconfigured priorities, retry counts, or backend authentication.
 
-3. **Is there a way to test the configuration before deploying to production?**
-   Yes, you can use the test capabilities in APIM and set the S7PDEBUG header to true to see detailed diagnostic information.
-
-### Security Questions
-1. **Is it safe to store API keys in the policy?**
-   For production environments, we recommend using Azure Key Vault references instead of hardcoding API keys in the policy.
-
-2. **How can I secure access to the priority header to prevent users from setting their own priority?**
-   Use APIM validation policies to validate or override the priority header based on authentication, subscription, or other criteria.
-
-### Troubleshooting Questions
-1. **What should I do if all backends are consistently throttling?**
-   Consider increasing capacity of your backends, reviewing your retry strategy, or implementing client-side throttling.
-
-2. **How can I monitor the effectiveness of this policy?**
-   Monitor the backendLog values in response headers and consider exporting this data to Application Insights or Log Analytics.
-
-3. **What are common issues users encounter?**
-   Common issues include misconfigured priorities, inappropriate retry counts, and backend authentication problems.
-
-### For More Information
-For detailed questions, implementation assistance, or to report issues, please file an issue in the GitHub repository or contact your Azure support representative.
+**Need help?**  
+File an issue in the GitHub repo or contact Azure support.
