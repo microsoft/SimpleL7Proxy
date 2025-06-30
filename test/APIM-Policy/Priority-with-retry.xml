@@ -133,6 +133,7 @@
 
         }" />
 		<authentication-managed-identity resource="https://cognitiveservices.azure.com" output-token-variable-name="managed-id-access-token" ignore-error="false" />
+        <set-variable name="backendCallCounter" value="@(0)" />
 	</inbound>
 	<!-- Control if and how the requests are forwarded to services  -->
 	<backend>
@@ -151,11 +152,14 @@
 
 
                 // check if the previous run was limited and then blocked.  Mark backend for throttling if so.
-                var shouldLimit = context.Variables.GetValueOrDefault<bool>("shouldLimit", false);
+                var callCompleted = context.Variables.GetValueOrDefault<bool>("callCompleted", true);
+                var lastStatusCode = context.Response?.StatusCode ?? 0;
+                var shouldLimit = context.Variables.GetValueOrDefault<string>("shouldLimit", "off");
                 var wasLimited = context.Variables.GetValueOrDefault<bool>("wasLimited", false);
                 var backendIndex = context.Variables.GetValueOrDefault<int>("backendIndex", -1);
 
-                if ( shouldLimit && wasLimited && backendIndex >= 0 && backendIndex < backends.Count ) {
+                // There was either a timeout  or a limitConcurrency that was hit
+                if ( (!callCompleted && lastStatusCode!=200) || (shouldLimit!="off" && wasLimited && backendIndex >= 0 && backendIndex < backends.Count) ) {
                     JObject backend = (JObject)backends[backendIndex];
                     backend["isThrottling"] = true;
                     backend["retryAfter"] = DateTime.UtcNow.AddSeconds(4);
@@ -204,14 +208,14 @@
                 int backendIndex = (int)context.Variables["backendIndex"];
                 if (backendIndex < 0 || backendIndex >= backends.Count) { return false; }
                 JObject backend = (JObject)backends[backendIndex];
-                return backend.Value<string>("LimitConcurrency") != "off";
+                return backend.Value<string>("LimitConcurrency");
             }" />
 			<set-variable name="backendLog" value="@{
                 int backendIndex = (int)context.Variables["backendIndex"];
-                var shouldLimit = context.Variables.GetValueOrDefault<bool>("shouldLimit", false);
+                var shouldLimit = context.Variables.GetValueOrDefault<string>("shouldLimit", "off");
 
                 string backendLog = context.Variables.GetValueOrDefault<string>("backendLog", "");
-                backendLog += "  NEXT INDEX TO TRY: " + backendIndex + " SHOULD LIMIT: " + shouldLimit.ToString() + 
+                backendLog += "  NEXT INDEX TO TRY: " + backendIndex + " SHOULD LIMIT: " + shouldLimit + 
                               "  NOW=" + DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
                 return backendLog;
             }" />
@@ -249,30 +253,32 @@
                         return backendLog;
                     }" />
                     <!-- If the endpoint is concurrency limited, it will immedietly retry -->
+
+                    <set-variable name="callCompleted" value="@(false)" />
+                    <set-variable name="wasLimited" value="@(true)" />
                     <choose>
                         <when condition="@(context.Variables.GetValueOrDefault<string>("shouldLimit", "off") == "low")">
-                            <set-variable name="wasLimited" value="@(true)" />
                             <limit-concurrency key="PTU" max-count="10">
                                 <forward-request buffer-request-body="true" />
                             </limit-concurrency>
                         </when>
                         <when condition="@(context.Variables.GetValueOrDefault<string>("shouldLimit", "off") == "medium")">
-                            <set-variable name="wasLimited" value="@(true)" />
                             <limit-concurrency key="PTU" max-count="50">
                                 <forward-request buffer-request-body="true" />
                             </limit-concurrency>
                         </when>
                         <when condition="@(context.Variables.GetValueOrDefault<string>("shouldLimit", "off") == "high")">
-                            <set-variable name="wasLimited" value="@(true)" />
                             <limit-concurrency key="PTU" max-count="100">
                                 <forward-request buffer-request-body="true" />
                             </limit-concurrency>
                         </when>
                         <otherwise>
+                            <set-variable name="wasLimited" value="@(false)" />
         					<forward-request buffer-request-body="true" />
                         </otherwise>
                     </choose>
                     <set-variable name="wasLimited" value="@(false)" />
+                    <set-variable name="callCompleted" value="@(true)" />
 
 					<set-variable name="backendLog" value="@{
                         string backendLog = context.Variables.GetValueOrDefault<string>("backendLog", "");
@@ -282,9 +288,28 @@
                     }" />
 				</when>
 			</choose>
+
 			<!-- Errors we care about:  408, 429 and 50xx  -->
-			<set-variable name="hasFailed" value="@(context.Response != null && 
-                (context.Response.StatusCode == 429 || context.Response.StatusCode == 408 || context.Response.StatusCode >= 500))" />
+            <set-variable name="hasFailed" value="@{
+                // A timeout causes context.Response to be null
+                bool isTimeout = context.Response == null;
+                
+                // For other errors, check status codes
+                bool isErrorStatus = context.Response != null && 
+                    (context.Response.StatusCode == 429 || 
+                    context.Response.StatusCode == 408 || 
+                    context.Response.StatusCode >= 500);
+                
+                // If we have a timeout, also log it
+                if (isTimeout) {
+                    var startTime = context.Variables.GetValueOrDefault<DateTime>("requestStartTime", DateTime.MinValue);
+                    var duration = DateTime.UtcNow - startTime;
+                }
+                
+                return isTimeout || isErrorStatus;
+            }" />
+			<!-- <set-variable name="hasFailed" value="@(context.Response != null && 
+                (context.Response.StatusCode == 429 || context.Response.StatusCode == 408 || context.Response.StatusCode >= 500))" /> -->
 			<choose>
 				<when condition="@(context.Variables.GetValueOrDefault<bool>("hasFailed", true) )">
 					<cache-lookup-value key="@("listBackends-" + context.Api.Id)" variable-name="listBackends" />
