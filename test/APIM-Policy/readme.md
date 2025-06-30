@@ -9,49 +9,43 @@ This policy solves a critical challenge for organizations using multiple OpenAI 
 - You want to optimize cost by intelligently routing traffic
 - Your application requires resilience against throttling and service interruptions
 
-## Key Features Not Available Out-of-the-Box
+## Key Capabilities & Functionality
 
-- **Priority-Based Routing**: Routes requests to specific backends based on priority headers, allowing critical requests to use preferred backends.
-- **Smart Throttling Management**: Automatically tracks which backends are throttling and avoids them until they're available again.
-- **Adaptive Concurrency Control**: Applies different concurrency limits to different backends based on their capabilities.
-- **Intelligent Request Queueing**: When all appropriate backends are unavailable, returns a precise retry-after value based on when the next backend will become available.
-- **Advanced Retry Strategies**: Configurable retry counts and strategies per request priority level.
-- **In-Memory Cache**: Maintains throttling state across requests without external dependencies.
-- **Cost-Optimized Resource Allocation**: Intelligently routes traffic based on both priority and deployment type (PTU vs. PayGo), ensuring optimal resource utilization while controlling costs.
-- **Pre-paid Capacity Maximization**: Prioritizes using pre-paid PTU capacity before falling back to PayGo resources, ensuring maximum ROI on committed purchases.
+The Priority-with-retry policy provides advanced, flexible request routing and robust operational features:
+
+- **Priority-Based Routing:** Routes requests to specific backends based on priority headers, ensuring critical requests use preferred backends.
+- **Smart Backend Selection:** Intelligently selects the most appropriate backend based on priority, throttling status, deployment type (PTU vs. PayGo), and region.
+- **Adaptive Concurrency Control:** Applies different concurrency limits to each backend using the `LimitConcurrency` setting, preventing overload and reducing throttling.
+- **Dynamic Throttling Detection:** Detects when backends are throttling and avoids them until they're available again, using in-memory cache for state.
+- **Intelligent Request Queueing:** When all suitable backends are unavailable, returns a precise retry-after value based on when the next backend will become available, creating an intelligent queuing system.
+- **Advanced Retry Strategies:** Configurable retry counts and strategies per request priority level, including graduated retry and requeue logic.
+- **Load Balancing:** Randomly distributes requests among equally suitable backends to prevent hotspots.
+- **Cost-Optimized Resource Allocation:** Routes traffic based on both priority and deployment type, maximizing use of pre-paid PTU resources before falling back to PayGo.
+- **Authentication Support:** Supports both API Key and Azure Managed Identity authentication for backends.
+- **Detailed Logging & Diagnostics:** Provides detailed logging (including timestamps) and adds diagnostic information to response headers for monitoring and troubleshooting.
+- **Cache-Based State Management:** Maintains throttling state across requests without external dependencies, improving performance and reliability.
+
+This policy has been rigorously tested and successfully benchmarked with two OpenAI pay-as-you-go instances deployed in different regions, achieving a sustained performance of over 10 million tokens per minute over an extended period.
+
+![image](./Flow.pdf)
 
 ## How to Tune the Policy
 
-- **Backend Configuration**: Define your available backends, their priorities, and which priority levels they should accept
-- **Priority Configuration**: Set different retry behaviors and counts for different priority levels
-- **Concurrency Limits**: Tune the concurrency limits for different tiers
-- **Cost Management**: Configure priority-based access to different pricing tiers (PTU vs. PayGo)
-- **Retry Strategies**: Customize retry-after durations based on workload importance and cost considerations
+- **Backend Configuration:** Define your available backends, their priorities, and which priority levels they should accept.
+- **Priority Configuration:** Set different retry behaviors and counts for different priority levels.
+- **Concurrency Limits:** Tune the concurrency limits for different tiers.
+- **Cost Management:** Configure priority-based access to different pricing tiers (PTU vs. PayGo).
+- **Retry Strategies:** Customize retry-after durations based on workload importance and cost considerations.
 
 ## Real-World Scenarios
 
 The Priority-with-retry policy can be applied to various business scenarios with different optimization goals:
 
 1. [**Financial Services Scenario**](./scenarios/financial-services-scenario.md) - Prioritizing performance for critical trading operations while managing costs for lower-priority workloads.
-
 2. [**Cost Optimization Scenario**](./scenarios/cost-optimization-scenario.md) - Focusing on minimizing Azure OpenAI costs while maintaining acceptable performance for all workloads.
-
 3. [**High Availability Scenario**](./scenarios/high-availability-scenario.md) - Ensuring maximum service availability across multiple regions and deployment types.
 
 Each scenario demonstrates how to configure the policy to meet different business requirements.
-
-## Key Policy Capabilities
-
-Beyond the features listed above, the Priority-with-retry policy offers several advanced capabilities:
-
-- **Deployment Type Preference**: Automatically prefers certain deployment types (PTU over PayGo) for cost optimization
-- **Dynamic Throttling Detection**: Detects when backends are throttling and avoids them for precisely the right duration
-- **Smart Backend Selection**: Intelligently selects the most appropriate backend based on priority, throttling status, and deployment type
-- **Request Prioritization**: Ensures high-priority requests get processed even during high load periods
-- **Graduated Retry Strategy**: Implements different retry behaviors based on request priority
-- **Load Balancing**: Randomly distributes requests among equally suitable backends to prevent hotspots
-- **Header-Based Diagnostics**: Adds detailed diagnostic information to response headers for troubleshooting
-- **Cache-Based State Management**: Maintains throttling state without external dependencies, improving performance
 
 ## Overview
 
@@ -66,10 +60,6 @@ For detailed technical explanations of how the policy works internally, please s
 - Implements configurable retry and requeue strategies based on priority
 - Supports both API Key and Azure Managed Identity authentication
 - Provides detailed logging for monitoring and debugging
-
-This policy has been rigorously tested and successfully benchmarked with two OpenAI pay-as-you-go instances deployed in different regions, achieving a sustained performance of over 10 million tokens per minute over an extended period.
-
-![image](./Flow.pdf)
 
 ## Customization Instructions
 
