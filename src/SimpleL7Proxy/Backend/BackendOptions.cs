@@ -21,8 +21,11 @@ public class BackendOptions
     public string HostName { get; set; } = "";
     public List<BackendHostConfig> Hosts { get; set; } = [];
     public string IDStr { get; set; } = "S7P";
+    public string LoadBalanceMode { get; set; } = "latency"; // "latency", "roundrobin", "random"
+    public bool LogConsole { get; set; }
+    public bool LogConsoleEvent { get; set; }
+    public bool LogPoller { get; set; } = false; 
     public List<string> LogHeaders { get; set; } = [];
-    public bool LogConsoleEvent { get; set; } = true;
     public bool LogProbes { get; set; }
     public bool LogAllRequestHeaders { get; set; } = false;
     public List<string> LogAllRequestHeadersExcept { get; set; } = [];
@@ -42,6 +45,7 @@ public class BackendOptions
     public List<string> RequiredHeaders { get; set; } = [];
     public int SuccessRate { get; set; }
     public string SuspendedUserConfigUrl { get; set; } = "";
+    public List<string> StripHeaders { get; set; } = [];
     public int Timeout { get; set; }
     public string TimeoutHeader { get; set; } = "";
     public int TerminationGracePeriodSeconds { get; set; }

@@ -148,8 +148,8 @@ For production deployments, consider also configuring:
 | **DisallowedHeaders**         | string | A comma-separated list of headers that should be removed or disallowed when forwarding requests.                                                                                                  | None                                     |
 | **UserIDFieldName**          | string | The header name used to look up user information in configuration files.                                                                               | userId                                   |
 | **PriorityKeyHeader**          | string | Name of the header that contains the priority key for determining request priority.                                                                     | S7PPriorityKey                           |
-| **PriorityKeys**              | int array | A comma-separated list of keys that correspond to the header 'S7PPriorityKey'.                                                                                                                   | "12345,234"                                |
-| **PriorityValues**            | int array | A comma-separated list of priorities that map to the **PriorityKeys**.                                                                                                                           | "1,3"                                      |
+| **PriorityKeys**              | int array | A comma-separated list of keys that correspond to the header 'S7PPriorityKey'. Both **PriorityKeys** and **PriorityValues** should have the same number of elements.  | "12345,234"                                |
+| **PriorityValues**            | int array | A comma-separated list of priorities that map to the **PriorityKeys**. Both **PriorityKeys** and **PriorityValues** should have the same number of elements.   | "1,3"                                      |
 | **PriorityWorkers**           | string | A comma-separated list (e.g., "2:1,3:1") specifying how many worker threads are assigned to each priority.  The first number in the tuple is the priority and the second is the number of dedicated workers for that priority level.                                                                                       | 2:1,3:1                                  |
 | **RequiredHeaders**           | string | A comma-separated list of headers required for incoming requests to be deemed valid.                                                                                                             | None                                     |
 | **TimeoutHeader**               | string | Name of the header used to specify per-request timeout (in ms).                                                                                       | S7PTimeout                               |
@@ -212,7 +212,7 @@ For production deployments, consider also configuring:
 | ----------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | **AcceptableStatusCodes**     | int array | The list of HTTP status codes considered successful. If a host returns a code not in this list, it's deemed a failure. | 200, 401, 403, 404, 408, 410, 412, 417, 400 |
 | **APPENDHOSTSFILE / AppendHostsFile** | bool | If true, appends host/IP pairs to /etc/hosts for DNS resolution. Both case variants are supported.      | false                                    |
-| **CBErrorThreshold**          | int | The error threshold percentage for the circuit breaker. If the error rate surpasses this, the circuit breaks.     | 50                                       |
+| **CBErrorThreshold**          | int | The error threshold percentage for the circuit breaker. If the error rate surpasses this value in **CBTimeslice** time period, the circuit breaks.     | 50                                       |
 | **CBTimeslice**               | int | The duration (in seconds) of the sampling window for the circuit breaker's error rate.                             | 60                                       |
 | **DnsRefreshTimeout**         | int | The number of milliseconds to force a DNS refresh, useful for making services fail over more quickly.             | 120000                                   |
 | **Host1, Host2, ...**         | string | Up to 9 backend servers can be specified. Each Host should be in the form "http(s)://fqdnhostname" for proper DNS resolution. | None                                     |
@@ -230,11 +230,6 @@ For production deployments, consider also configuring:
 
 ### Additional Configuration Notes
 
-- **Timeout Settings**: The default timeout for backend requests is 20 minutes (1,200,000 ms), not 3 seconds as shown in some examples. Adjust this value based on your expected request duration.
-
-- **Array Parameters**: Parameters like `AcceptableStatusCodes`, `PriorityKeys`, and `PriorityValues` accept comma-separated values that are parsed into arrays in the code.
-
-- **Circuit Breaker Configuration**: The circuit breaker is controlled by both `CBErrorThreshold` and `CBTimeslice`. The error rate is calculated over the timeslice period.
 
 - **Environment Variables vs Configuration File**: While most settings can be provided via environment variables, you can also use appsettings.json in development mode.
 

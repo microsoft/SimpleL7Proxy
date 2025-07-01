@@ -16,6 +16,7 @@ using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using SimpleL7Proxy.Events;
 
 namespace SimpleL7Proxy.Backend;
 
@@ -50,12 +51,15 @@ public static class BackendHostConfigurationExtensions
       options.HostName = backendOptions.HostName;
       options.Hosts = backendOptions.Hosts;
       options.IDStr = backendOptions.IDStr;
+      options.LoadBalanceMode = backendOptions.LoadBalanceMode;
       options.LogAllRequestHeaders = backendOptions.LogAllRequestHeaders;
       options.LogAllRequestHeadersExcept = backendOptions.LogAllRequestHeadersExcept;
       options.LogAllResponseHeaders = backendOptions.LogAllResponseHeaders;
       options.LogAllResponseHeadersExcept = backendOptions.LogAllResponseHeadersExcept;
+      options.LogConsole = backendOptions.LogConsole;
       options.LogConsoleEvent = backendOptions.LogConsoleEvent;
       options.LogHeaders = backendOptions.LogHeaders;
+      options.LogPoller = backendOptions.LogPoller;
       options.LogProbes = backendOptions.LogProbes;
       options.UserIDFieldName = backendOptions.UserIDFieldName;
       options.MaxQueueLength = backendOptions.MaxQueueLength;
@@ -71,6 +75,7 @@ public static class BackendHostConfigurationExtensions
       options.Revision = backendOptions.Revision;
       options.SuccessRate = backendOptions.SuccessRate;
       options.SuspendedUserConfigUrl = backendOptions.SuspendedUserConfigUrl;
+      options.StripHeaders = backendOptions.StripHeaders;
       options.TerminationGracePeriodSeconds = backendOptions.TerminationGracePeriodSeconds;
       options.Timeout = backendOptions.Timeout;
       options.TimeoutHeader = backendOptions.TimeoutHeader;
@@ -121,12 +126,12 @@ public static class BackendHostConfigurationExtensions
   private static string ReadEnvironmentVariableOrDefault(string altVariableName, string variableName, string defaultValue)
   {
     // Try both variable names and use the first non-empty one
-    string? envValue = Environment.GetEnvironmentVariable(variableName)?.Trim() ?? 
+    string? envValue = Environment.GetEnvironmentVariable(variableName)?.Trim() ??
                        Environment.GetEnvironmentVariable(altVariableName)?.Trim();
-    
+
     // Use default if neither variable is defined
     string result = !string.IsNullOrEmpty(envValue) ? envValue : defaultValue;
-    
+
     // Record and return the value
     EnvVars[variableName] = result;
     return result;
@@ -294,6 +299,8 @@ public static class BackendHostConfigurationExtensions
       var s = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
       try
       {
+        bool linuxKeepAliveConfigured = false;
+
         // Basic keep-alive setting - should work on all platforms
         s.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
         try
@@ -311,7 +318,6 @@ public static class BackendHostConfigurationExtensions
           }
           else if (OperatingSystem.IsLinux())
           {
-            //bool linuxKeepAliveConfigured = false;
 
             // Set keep-alive idle time in milliseconds
             s.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, initialDelaySecs);
@@ -320,18 +326,29 @@ public static class BackendHostConfigurationExtensions
             s.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, IntervalSecs);
 
             s.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount, linuxRetryCount);
-            //linuxKeepAliveConfigured = true;
+            linuxKeepAliveConfigured = true;
 
             //Console.WriteLine($"TCPKEEPALIVETIME set to {initialDelaySecs} seconds (connection idle time before sending probes)");
             //Console.WriteLine($"TCPKEEPALIVEINTERVAL set to {IntervalSecs} seconds (interval between probes)");
             // Console.WriteLine($"TCPKEEPALIVERETRYCOUNT set to {linuxRetryCount} probes (max failures before disconnect)");
-
           }
+
         }
         catch (Exception ex)
         {
-          // Fall back to basic keep-alive if platform-specific settings fail
-          Console.WriteLine($"Could not set TCP keep-alive parameters: {ex.Message}. Using default keep-alive settings.");
+          ProxyEvent pe = new()
+          {
+            Type = EventType.Exception,
+            Exception = ex,
+            ["Message"] = "Failed to set TCP keep-alive parameters",
+            ["Host"] = dnsEndPoint.Host,
+            ["Port"] = dnsEndPoint.Port.ToString(),
+            ["InitialDelaySecs"] = initialDelaySecs.ToString(),
+            ["IntervalSecs"] = IntervalSecs.ToString(),
+            ["LinuxRetryCount"] = linuxRetryCount.ToString(),
+            ["linuxKeepAliveConfigured"] = linuxKeepAliveConfigured.ToString()
+          };
+          pe.SendEvent();
         }
 
         // Connect to the endpoint
@@ -340,7 +357,7 @@ public static class BackendHostConfigurationExtensions
       }
       catch (Exception ex)
       {
-        Console.WriteLine($"Socket connection error: {ex.Message}");
+        Console.Error.WriteLine($"Socket connection error: {ex.Message}");
         s.Dispose();
         throw;
       }
@@ -434,12 +451,15 @@ public static class BackendHostConfigurationExtensions
       HostName = ReadEnvironmentVariableOrDefault("Hostname", replicaID),
       Hosts = new List<BackendHostConfig>(),
       IDStr = $"{ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P")}-{replicaID}-",
+      LoadBalanceMode = ReadEnvironmentVariableOrDefault("LoadBalanceMode", "latency"), // "latency", "roundrobin", "random"
       LogAllRequestHeaders = ReadEnvironmentVariableOrDefault("LogAllRequestHeaders", false),
       LogAllRequestHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllRequestHeadersExcept", "Authorization")),
       LogAllResponseHeaders = ReadEnvironmentVariableOrDefault("LogAllResponseHeaders", false),
       LogAllResponseHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllResponseHeadersExcept", "Api-Key")),
-      LogConsoleEvent = ReadEnvironmentVariableOrDefault("LogConsoleEvent", true),
+      LogConsole = ReadEnvironmentVariableOrDefault("LogConsole", true),
+      LogConsoleEvent = ReadEnvironmentVariableOrDefault("LogConsoleEvent", false),
       LogHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
+      LogPoller = ReadEnvironmentVariableOrDefault("LogPoller", false),
       LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", false),
       MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
       OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
@@ -454,6 +474,7 @@ public static class BackendHostConfigurationExtensions
       Revision = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REVISION", "revisionID"),
       SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
       SuspendedUserConfigUrl = ReadEnvironmentVariableOrDefault("SuspendedUserConfigUrl", "file:config.json"),
+      StripHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("StripHeaders", "")),
       TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
       Timeout = ReadEnvironmentVariableOrDefault("Timeout", 1200000), // 20 minutes
       TimeoutHeader = ReadEnvironmentVariableOrDefault("TimeoutHeader", "S7PTimeout"),
@@ -474,7 +495,7 @@ public static class BackendHostConfigurationExtensions
       Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
     };
 
-    
+
 
     //backendOptions.Client.Timeout = TimeSpan.FromMilliseconds(backendOptions.Timeout);
     int i = 1;
@@ -574,6 +595,16 @@ public static class BackendHostConfigurationExtensions
           backendOptions.DisallowedHeaders.Add(value);
         }
       }
+    }
+
+    // Validate LoadBalanceMode case insensitively
+    backendOptions.LoadBalanceMode = backendOptions.LoadBalanceMode.Trim().ToLower();
+    if (backendOptions.LoadBalanceMode != Constants.Latency &&
+        backendOptions.LoadBalanceMode != Constants.RoundRobin &&
+        backendOptions.LoadBalanceMode != Constants.Random)
+    {
+      Console.WriteLine($"Invalid LoadBalanceMode: {backendOptions.LoadBalanceMode}. Defaulting to '{Constants.Latency}'.");
+      backendOptions.LoadBalanceMode = Constants.Latency;
     }
 
     OutputEnvVars();

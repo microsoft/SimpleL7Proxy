@@ -7,6 +7,7 @@ namespace SimpleL7Proxy.Backend;
 
 public class BackendHostHealth
 {
+  public Guid guid = Guid.NewGuid();
   public BackendHostConfig HostConfig { get; set; }
 
   public string Host => HostConfig.Host;

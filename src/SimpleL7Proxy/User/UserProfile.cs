@@ -73,7 +73,7 @@ public class UserProfile : BackgroundService, IUserProfileService
             catch (Exception e)
             {
                 // Log error
-                Console.WriteLine($"Error reading user config: {e.Message}");
+                _logger.LogInformation($"Error reading user config: {e.Message}");
             }
 
             await Task.Delay(3600000, cancellationToken);
@@ -84,7 +84,7 @@ public class UserProfile : BackgroundService, IUserProfileService
     {
         if (string.IsNullOrEmpty(_options.UserConfigUrl))
         {
-            Console.WriteLine($"{config} is not set.");
+            _logger.LogInformation($"{config} is not set.");
             return;
         }
         // Read user config from URL
@@ -105,12 +105,12 @@ public class UserProfile : BackgroundService, IUserProfileService
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error reading user config file: {ex.Message}");
+                    _logger.LogError($"Error reading user config file: {ex.Message}");
                 }
             }
             else
             {
-                Console.WriteLine($"{config} file: {location.Substring(5)} not found or not a JSON file");
+                _logger.LogInformation($"{config} file: {location.Substring(5)} not found or not a JSON file");
             }
         }
         else
@@ -124,7 +124,7 @@ public class UserProfile : BackgroundService, IUserProfileService
                 }
                 catch (HttpRequestException e)
                 {
-                    Console.WriteLine($"Error reading user config from URL {location}: {e.Message}");
+                    _logger.LogError($"Error reading user config from URL {location}: {e.Message}");
                 }
             }
         }
@@ -159,7 +159,7 @@ public class UserProfile : BackgroundService, IUserProfileService
 
         if (string.IsNullOrWhiteSpace(fileContent))
         {
-            Console.WriteLine("No user config provided to parse.");
+            _logger.LogInformation("No user config provided to parse.");
             return;
         }
 
@@ -169,7 +169,7 @@ public class UserProfile : BackgroundService, IUserProfileService
 
             if (userConfig.ValueKind != JsonValueKind.Array)
             {
-                Console.WriteLine($"User config is not an array. Skipping...");
+                _logger.LogInformation($"User config is not an array. Skipping...");
                 return;
             }
 
@@ -226,7 +226,7 @@ public class UserProfile : BackgroundService, IUserProfileService
                     }
                     else
                     {
-                        Console.WriteLine($"Profile field is missing {_UserIDFieldName}. Skipping...");
+                        _logger.LogInformation($"Profile field is missing {_UserIDFieldName}. Skipping...");
                     }
                 }
             }
@@ -253,11 +253,11 @@ public class UserProfile : BackgroundService, IUserProfileService
                 entityValue = userProfiles.Count;
             }
 
-            Console.WriteLine($"Successfully parsed {entityName}.  Found {entityValue} user entities.");
+            _logger.LogInformation($"Successfully parsed {entityName}.  Found {entityValue} user entities.");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error parsing user config: {ex.Message}");
+            _logger.LogError($"Error parsing user config: {ex.Message}");
         }
     }
 

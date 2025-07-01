@@ -35,7 +35,8 @@ public static class ProxyEventServiceCollectionExtensions
         {
             try
             {
-                services.AddSingleton<EventHubClient>(svc => new EventHubClient(eventHubConnectionString, eventHubName));
+                services.AddSingleton<EventHubClient>();
+                //services.AddSingleton<EventHubClient>(svc => new EventHubClient(eventHubConnectionString, eventHubName));
                 services.AddSingleton<IEventClient>(svc => svc.GetRequiredService<EventHubClient>());
                 services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService<EventHubClient>());
             }

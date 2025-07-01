@@ -8,6 +8,7 @@ import signal
 import http.server
 import socketserver
 import threading
+import os
 from urllib.parse import urlparse, parse_qs
 from socketserver import ThreadingMixIn
 
@@ -47,8 +48,40 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.close()
             print("Connection closed")
             return
-        
+
+        if parsed_path.path == '/429error':
+
+            # Read the body
+            content_length = int(self.headers.get('Content-Length', 0))  # Get the length of the body
+            request_body = self.rfile.read(content_length).decode('utf-8')  # Read and decode the body
+            print(f"Request: {parsed_path.path}  Body: {request_body}")
+            self.send_response(429)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("retry-after-ms", "10000")
+            self.send_header("S7PREQUEUE", "true")
+            self.end_headers()
+            self.wfile.write(b"Hello, world!")
+            return
+                
+        if parsed_path.path == '/echo/requeueME':
+
+            # Read the body
+            content_length = int(self.headers.get('Content-Length', 0))  # Get the length of the body
+            request_body = self.rfile.read(content_length).decode('utf-8')  # Read and decode the body
+            print(f"Request: {parsed_path.path}  Body: {request_body}")
+            self.send_response(429)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("retry-after-ms", "10000")
+            self.send_header("S7PREQUEUE", "true")
+            self.end_headers()
+            self.wfile.write(b"Hello, world!")
+            return
+
         if parsed_path.path == '/success':
+            # Log all incoming headers
+            print("Headers received:")
+            for header, value in self.headers.items():
+                print(f"{header}: {value}")
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
             self.end_headers()
@@ -122,10 +155,13 @@ def handle_sigint(signum, frame):
 
 def mt_main():
     global httpd
+    # Listen on port 3000 or specified port
+    port = int(os.environ.get('PORT', 3000))
+    if port < 1024 or port > 65535:
+        raise ValueError("Port must be between 1024 and 65535")
     
-    # Listen on port 3000
-    httpd = ThreadedTCPServer(("localhost", 3000), MyHandler)
-    print("Server started on port 3000...")
+    httpd = ThreadedTCPServer(("localhost", port), MyHandler)
+    print(f"Server started on port {port}...")
     
     # Start server in a separate thread
     server_thread = threading.Thread(target=httpd.serve_forever)

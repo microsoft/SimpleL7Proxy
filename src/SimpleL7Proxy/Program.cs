@@ -1,11 +1,12 @@
 ﻿using Microsoft.ApplicationInsights;
+using Microsoft.ApplicationInsights.Extensibility;
 using Microsoft.ApplicationInsights.WorkerService;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging.Console;
+using Microsoft.Extensions.Options;
 
 using Azure.Messaging.ServiceBus;
 
@@ -61,6 +62,7 @@ public class Program
             {
                 ConfigureApplicationInsights(services);
                 ConfigureDependencyInjection(services, startupLogger);
+
             });
 
 
@@ -71,8 +73,11 @@ public class Program
         var serviceProvider = frameworkHost.Services;
         var options = serviceProvider.GetRequiredService<IOptions<BackendOptions>>();
         var eventHubClient = serviceProvider.GetService<IEventClient>();
-         // Initialize ProxyEvent with BackendOptions
-        ProxyEvent.Initialize(options, eventHubClient);
+        var telemetryClient = serviceProvider.GetRequiredService<TelemetryClient>();
+
+        // Initialize ProxyEvent with BackendOptions
+
+        ProxyEvent.Initialize(options, eventHubClient, telemetryClient);
 
         var serviceBusRequestService = serviceProvider.GetRequiredService<IServiceBusRequestService>();
         RequestData.InitializeServiceBusRequestService(serviceBusRequestService);
@@ -100,24 +105,23 @@ public class Program
     private static void ConfigureApplicationInsights(IServiceCollection services)
     {
         var aiConnectionString = Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING") ?? "";
-
         if (!string.IsNullOrEmpty(aiConnectionString))
         {
+            // Register Application Insights
             services.AddApplicationInsightsTelemetryWorkerService(options =>
-                options.ConnectionString = aiConnectionString);
-
-            services.AddApplicationInsightsTelemetry(options =>
-                options.EnableRequestTrackingTelemetryModule = true);
-
-            services.AddLogging(loggingBuilder =>
             {
-                loggingBuilder.AddApplicationInsights(
-                    configureTelemetryConfiguration: config => config.ConnectionString = aiConnectionString,
-                    configureApplicationInsightsLoggerOptions: options => { });
-                loggingBuilder.AddConsole();
+                options.ConnectionString = aiConnectionString;
+                options.EnableAdaptiveSampling = false; // Disable sampling to ensure all your custom telemetry is sent
             });
 
-            Console.WriteLine("AppInsights initialized");
+            // Configure telemetry to filter out duplicate logs
+            services.Configure<TelemetryConfiguration>(config =>
+            {
+                config.TelemetryProcessorChainBuilder.Use(next => new RequestFilterTelemetryProcessor(next));
+                config.TelemetryProcessorChainBuilder.Build();
+            });
+
+            Console.WriteLine("AppInsights initialized with custom request tracking");
         }
     }
 
@@ -127,7 +131,7 @@ public class Program
 
         // Register TelemetryClient
         services.AddSingleton<TelemetryClient>();
-        var log_to_file = true;
+        var log_to_file = false;
 
         if (log_to_file)
         {
@@ -139,6 +143,8 @@ public class Program
         {
             var eventHubConnectionString = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING");
             var eventHubName = Environment.GetEnvironmentVariable("EVENTHUB_NAME");
+
+            services.AddSingleton(new EventHubConfig(eventHubConnectionString!, eventHubName!));
             services.AddProxyEventClient(eventHubConnectionString, eventHubName, Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING"));
         }
 
@@ -172,6 +178,6 @@ public class Program
         services.AddTransient(source => new CancellationTokenSource());
         services.AddHostedService<CoordinatedShutdownService>();
         services.AddHostedService<UserProfile>(provider => provider.GetRequiredService<UserProfile>());
-        
+
     }
 }
