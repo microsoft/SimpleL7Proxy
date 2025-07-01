@@ -87,7 +87,7 @@ public class Server : BackgroundService
         _httpListener.Prefixes.Add(_listeningUrl);
 
         var timeoutTime = TimeSpan.FromMilliseconds(_options.Timeout).ToString(@"hh\:mm\:ss\.fff");
-        _staticEvent.WriteOutput($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
+        _logger.LogInformation($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
     }
 
     public void BeginShutdown()
@@ -153,7 +153,6 @@ public class Server : BackgroundService
         //ArgumentNullException.ThrowIfNull(_cancellationTokenSource, nameof(_cancellationTokenSource));
         ArgumentNullException.ThrowIfNull(_options, nameof(_options));
 
-        long counter = 0;
         int livenessPriority = _options.PriorityValues.Min();
         bool doUserProfile = _options.UseProfiles;
         bool doAsync = _options.AsyncModeEnabled;
