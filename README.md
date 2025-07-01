@@ -1,22 +1,46 @@
 # SimpleL7Proxy
 
-SimpleL7Proxy is a lightweight yet powerful proxy service designed to direct network traffic between clients and servers at the application layer (Layer 7) of the OSI model. It manages HTTP(s) requests and can also function as a regional internal proxy, ensuring that traffic remains within a specified region. By continuously measuring and comparing backend latencies, SimpleL7Proxy always selects the fastest host to serve incoming requests. Additionally, higher priority tasks can interrupt and preempt lower priority ones.
+SimpleL7Proxy is a lightweight yet powerful proxy service designed to direct network traffic between clients and servers at the application layer (Layer 7). It manages HTTP(s) requests with intelligent routing capabilities, automatically selecting the fastest available backend host based on continuous latency monitoring. The service excels as a regional internal proxy, ensuring traffic is routed to the optimal region for minimal latency.
 
-## Introduction
+One of SimpleL7Proxy's key strengths is its priority-based request handling system, which implements a sophisticated queue that allows higher priority tasks to interrupt and preempt lower priority ones. This makes it particularly valuable for environments where business-critical requests need guaranteed faster processing times.
 
-Use SimpleL7Proxy as an easy-to-set-up solution that intelligently balances or distributes traffic among multiple backend services. Since it operates at Layer 7, it can examine each request’s content or metadata to route it effectively, reroute failures, and automatically track host performance. This makes SimpleL7Proxy suitable for scenarios like:
+As an example, SimpleL7Proxy can serve as an intelligent router to Azure API Management service that has been configured with large language model endpoints.  In thes scenario, the proxy will add routing and scheduling capabilities while providing cross-regional load balancing and failover capability. The logs can be configured to send to event hub or application insights.
 
-1. Routing requests to hosts in different regions or datacenters.  
-2. Handling failover quickly by selecting a responsive backend.  
-3. Prioritizing business-critical requests while still serving standard requests efficiently.
+## Getting Started Quickly
 
-## How It Works
+Want to try SimpleL7Proxy right now? You can have it running in under 5 minutes with dummy backends:
 
-1. **Latency Monitoring**: The proxy periodically checks each backend server, measuring response time to dynamically maintain a ranking of healthiest or fastest hosts.  
-2. **Priority-based Request Handling**: SimpleL7Proxy supports multiple priority classes. If a request arrives with a higher priority, it can supersede other queued requests.  
-3. **Expirable Requests**: The configurable TTL (time-to-live) ensures that requests that are too old receive an appropriate status code, preventing stale operations.  
-4. **Configuration via Environment Variables**: Most operational aspects—like port, host addresses, special headers, queue lengths—are managed through environment variables, making deployments flexible and easy.  
-5. **Observability and Logging**: SimpleL7Proxy can log details to Azure Application Insights or EventHub, capturing key metrics around request success, timeouts, and failures for diagnostics.
+1. **Prerequisites**: .NET SDK 9.0 installed
+2. **Clone and run**: Set up two simple mock backends and start the proxy
+3. **Test**: Send requests and see intelligent load balancing in action
+
+For detailed step-by-step instructions including setting up mock backends, see **[Development & Testing Guide](DEVELOPMENT.md#local-development-setup)**.
+
+## Features
+
+SimpleL7Proxy is built for reliability and performance with these key capabilities:
+
+### Core Proxy Functionality
+- **HTTP/HTTPS Traffic Handling**: Processes all standard web traffic with full SSL/TLS support and optional SSL termination
+- **Intelligent Load Balancing**: Automatically routes requests to the most responsive backend by continuously measuring server response times.  Can also be configured for round-robin and random.
+- **Automatic Failover**: Instantly switches to healthy servers when backends become unresponsive or start failing
+
+### Smart Request Management
+- **Priority-Based Queuing**: Route urgent requests ahead of regular traffic using configurable priority levels
+- **Request Expiration**: Automatically drop old requests using TTL (time-to-live) to prevent processing stale data
+- **Dedicated Worker Threads**: Assign specific workers to handle different priority levels for guaranteed performance
+
+### Enterprise Operations
+- **Comprehensive Monitoring**: Track every request with detailed metrics including processing time, queue duration, and worker assignments
+- **Azure Integration**: Native support for Application Insights logging and EventHub streaming for real-time analytics
+- **Flexible Configuration**: Manage all settings through environment variables for easy deployment across environments
+
+### Advanced Capabilities
+- **Async Processing**: Handle long-running requests with Service Bus notifications when complete (available in Streaming Branch)
+- **Cross-Platform Support**: Runs on Windows, Linux, and macOS without modification
+- **High Concurrency**: Efficiently processes concurrent requests and can be configured with auto-scale when deployed to Azure.
+
+This design ensures your applications stay responsive even under heavy load while providing the observability needed for production environments.
 
 ## Usage Scenarios
 
@@ -40,83 +64,46 @@ In the diagram below, a client connected to the proxy which has 3 backend hosts.
 - Cross-platform compatibility (Windows, Linux, macOS)
 - Logging to Application Insights
 - Logging to EventHub
+- Async mode for processing long running requests 
 
+## Configuration
 
-## Environment Variables
+SimpleL7Proxy supports various deployment scenarios through environment variable configuration:
 
-| Variable                       | Description                                                                                                                                                                                        | Default                                  |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| **AcceptableStatusCodes**     | The list of HTTP status codes considered successful. If a host returns a code not in this list, it's deemed a failure.                                                                            | 200, 401, 403, 404, 408, 410, 412, 417, 400 |
-| **APPENDHOSTSFILE**           | When running in a container and DNS does not resolve, this option can append entries to the hosts file using pairs like Host1 and IP1.                                                              | None                                     |
-| **APPINSIGHTS_CONNECTIONSTRING** | Specifies the connection string for Azure Application Insights. If set, the service sends logs to the configured Application Insights instance.                                                 | None                                     |
-| **CBErrorThreshold**          | The error threshold percentage for the circuit breaker. If the error rate surpasses this, the circuit breaks.                                                                                     | 50                                       |
-| **CBTimeslice**               | The duration (in seconds) of the sampling window for the circuit breaker’s error rate.                                                                                                             | 60                                       |
-| **DefaultPriority**           | The default request priority when none other is specified.                                                                                                                                        | 2                                        |
-| **DefaultTTLSecs**            | The default time-to-live for a request in seconds.                                                                                                                                               | 300                                      |
-| **DisallowedHeaders**         | A comma-separated list of headers that should be removed or disallowed when forwarding requests.                                                                                                  | None                                     |
-| **DnsRefreshTimeout**         | The number of milliseconds to force a DNS refresh, useful for making services fail over more quickly.                                                                                             | 120000                                   |
-| **EVENTHUB_CONNECTIONSTRING** | The connection string for EventHub logging. Must also set **EVENTHUB_NAME**.                                                                                                                      | None                                     |
-| **EVENTHUB_NAME**             | The EventHub namespace for logging. Must also set **EVENTHUB_CONNECTIONSTRING**.                                                                                                                  | None                                     |
-| **Host1, Host2, ...**         | Up to 9 backend servers can be specified. Each Host should be in the form “http(s)://fqdnhostname” for proper DNS resolution.                                                                     | None                                     |
-| **HostName**                  | A logical name for the backend host used for identification and logging.                                                                                                                          | Default                                  |
-| **IgnoreSSLCert**             | Toggles SSL certificate validation. If true, accepts self-signed certificates.                                                                                                                    | false                                    |
-| **IP1, IP2, ...**             | IP addresses that map to corresponding Host entries if DNS is unavailable. Must define Host, IP, and APPENDHOSTSFILE.                                                                             | None                                     |
-| **KeepAliveIdleTimeoutSecs**      | The idle timeout (in seconds) for pooled HTTP connections before they are closed.                                         | 1200 (20 minutes)                        |
-| **KeepAlivePingDelaySecs**        | The delay (in seconds) before sending a TCP keep-alive probe on an idle connection.                                       | 30                                       |
-| **KeepAlivePingTimeoutSecs**      | The timeout (in seconds) to wait for a response to a TCP keep-alive probe before closing the connection.                  | 30                                       |
-| **LogAllRequestHeaders**        | If true, logs all request headers for each proxied request.                                                                                           | false                                    |
-| **LogAllRequestHeadersExcept**  | Comma-separated list of request headers to exclude from logging, even if LogAllRequestHeaders is true.                                                | Authorization                            |
-| **LogAllResponseHeaders**       | If true, logs all response headers for each proxied request.                                                                                          | false                                    |
-| **LogAllResponseHeadersExcept** | Comma-separated list of response headers to exclude from logging, even if LogAllResponseHeaders is true.                                               | Api-Key                                  |
-| **LogHeaders**                  | Comma-separated list of specific headers to log for debugging.                                                                                        | (empty)                                  |
-| **LogProbes**                  | If true, logs details about health probe requests to backends.                                                                                        | false                                    |
-| **LookupHeaderName**          | The header name used to look up user information in configuration files.                                                                               | userId                                   |
-| **MaxQueueLength**             | Sets the maximum number of requests allowed in the queue.                                                                                                                        | 10                                       |
-| **OAuthAudience**             | The audience used for OAuth token requests, if **UseOAuth** is enabled.                                                                                                           | None                                     |
-| **PollInterval**              | The interval (in milliseconds) at which SimpleL7Proxy polls the backend servers.                                                                                                                  | 15000                                    |
-| **PollTimeout**               | The timeout (in milliseconds) for each server poll request.                                                                                                                                     | 3000                                     |
-| **Port**                      | The port on which SimpleL7Proxy listens for incoming traffic.                                                                                                                                    | 80                                       |
-| **PriorityKeyHeader**          | Name of the header that contains the priority key for determining request priority.                                                                     | S7PPriorityKey                           |
-| **PriorityKeys**              | A comma-separated list of keys that correspond to the header 'S7PPriorityKey'.                                                                                                                   | 12345,234                                |
-| **PriorityValues**            | A comma-separated list of priorities that map to the **PriorityKeys**.                                                                                                                           | 1,3                                      |
-| **PriorityWorkers**           | A comma-separated list (e.g., “2:1,3:1”) specifying how many worker threads are assigned to each priority.  The first number in the tuple is the priority and the second is the number of dedicated workers for that priority level.                                                                                       | 2:1,3:1                                  |
-| **RequestIDPrefix**           | The prefix appended to every request ID.                                                                                                                                                         | S7P                                      |
-| **RequiredHeaders**           | A comma-separated list of headers required for incoming requests to be deemed valid.                                                                                                             | None                                     |
-| **SuccessRate**               | The minimum success rate (percentage) a backend must maintain to stay active.                                                                                                                    | 80                                       |
-| **TERMINATION_GRACE_PERIOD_SECONDS** | The number of seconds SimpleL7Proxy waits before forcing itself to shut down.                                                                                                             | 30                                       |
-| **Timeout**                   | Connection timeout (in milliseconds) for each backend request. If exceeded, SimpleL7Proxy tries the next available host.                                                                         | 3000                                     |
-| **TimeoutHeader**               | Name of the header used to specify per-request timeout (in ms).                                                                                       | S7PTimeout                               |
-| **TTLHeader**                  | Name of the header used to specify time-to-live for requests.                                                                                         | S7PTTL                                   |
-| **UniqueUserHeaders**         | A list of header names that uniquely identify the caller or user.                                                                                                                               | X-UserID                                 |
-| **UseOAuth**                  | Enables or disables OAuth token fetching for incoming requests.                                                                                                                                 | false                                    |
-| **UseOAuthGov**                 | If true, uses the government cloud OAuth endpoint for token acquisition.                                                                              | false                                    |
-| **ValidateAuthAppID**           | If true, enables validation of an application ID in the request for authentication.  Entra has a limit of 13 application id's, use this setting to make the check in the proxy code.                                                                  | false                                    |
-| **ValidateAuthAppFieldName**    | Name of the field in the authentication payload to validate as the App ID.                                                                            | authAppID                                |
-| **ValidateAuthAppIDUrl**        | URL or file path to fetch the list of valid App IDs for authentication.                                                                               | file:auth.json                           |
-| **ValidateAuthAppIDHeader**     | Name of the header containing the App ID to validate.                                                                                                 | X-MS-CLIENT-PRINCIPAL-ID                 |
-| **SuspendedUserConfigUrl**      | URL or file path to fetch the list of suspended users.                                                                                                | file:config.json                         |
-| **CONTAINER_APP_NAME**         | The name of the container application to be used in logs and telemetry. This is automatically defined by the ACA environment.                                                                           | ContainerAppName                         |
-| **CONTAINER_APP_REPLICA_NAME**  | Name/ID of the current container app replica (used for logging and request IDs).   This is automatically defined by the ACA environment.                                                                           | ContainerAppName                         |                                                                   | 01                                       |
-| **CONTAINER_APP_REVISION**      | Revision identifier for the current container app deployment.    This is automatically defined by the ACA environment.                                                                           | ContainerAppName                         |                                                                                     | revisionID                               |
-| **Probe_path1, Probe_path2, ...** | Path(s) to health check endpoints for each backend host (e.g., /health, /readiness).                                                                | echo/resource?param1=sample              |
-| **APPENDHOSTSFILE / AppendHostsFile** | If true, appends host/IP pairs to /etc/hosts for DNS resolution. Both case variants are supported.                                              | false                                    |
-| **LOGFILE**                     | If set, logs events to the specified file instead of EventHub (for debugging/testing only; not for production use).                                   | events.log (if enabled in code)          |
-| **Workers**                   | The number of worker threads used to process incoming proxy requests.                                                                                                                            | 10                                       |
-| **UseProfiles**                | If true, enables user profile functionality for custom handling based on user profiles.                                                               | false                                    |
-| **UserConfigUrl**             | URL or file path to fetch user configuration data.                                                                                                     | file:config.json                         |
-| **UserPriorityThreshold**     | Floating point threshold value for user priority calculations (lower values make priority promotion more likely). Us a user owns more than this percentage of the requests , its priority is lowered.  This prevents greedy users from using all the resources.                                    | 0.1                                      |
-| **UserProfileHeader**         | Name of the header that contains user profile information when UseProfiles is enabled.                                                                 | X-UserProfile                            |
+- **[Configuration Examples](SCENARIOS.md)** - Detailed examples for high availability, security-focused, performance-optimized, and async processing configurations
+- **[Development & Testing](DEVELOPMENT.md)** - Local development setup, testing scenarios, debugging tips, and container development
+- **[Container Deployment](CONTAINER_DEPLOYMENT.md)** - Docker and Azure Container Apps deployment instructions
+
+### Environment Variables
+
+The proxy is configured through environment variables organized into functional categories:
+
+- **[Core Configuration](ENVIRONMENT_VARIABLES.md#core-configuration-variables)** - Essential settings for basic proxy operation (port, workers, queue length)
+- **[Request Processing](ENVIRONMENT_VARIABLES.md#request-processing-variables)** - Controls how incoming requests are handled, prioritized, and validated
+- **[Logging & Monitoring](ENVIRONMENT_VARIABLES.md#logging--monitoring-variables)** - Options for logging to Application Insights, EventHub, or files
+- **[Async Processing](ENVIRONMENT_VARIABLES.md#async-processing-variables)** - Configuration for asynchronous request handling with Azure storage
+- **[Connection Management](ENVIRONMENT_VARIABLES.md#connection-management-variables)** - Controls for HTTP connections, keep-alive settings, and SSL
+- **[Backend Configuration](ENVIRONMENT_VARIABLES.md#backend-configuration-variables)** - Settings for backend servers, health checks, and failover behavior
+
+For complete details, see the **[Environment Variables Reference](ENVIRONMENT_VARIABLES.md)**.
+
+## Deploy to Container Apps via a GitHub Action
+
+You can create a GitHub workflow to deploy this code to an Azure container app. You can follow the step by step instruction from a similar project in the following video:
+
+[![Video Title](https://i.ytimg.com/vi/-KojzBMM2ic/hqdefault.jpg)](https://www.youtube.com/watch?v=-KojzBMM2ic "How to Create a Github Action to Deploy to Azure Container Apps")
 
 ---
 
-### Proxy Response Codes
+## Proxy Response Codes
 
 | Code | Description                                                                                  |
 |----- |----------------------------------------------------------------------------------------------|
 | 200  | Success                                                                                      |
 | 400  | Bad Request (Issue with the HTTP request format)                                             |
 | 408  | Request Timed Out (The request to the backend host timed out)                                |
-| 410  | Request Expired (S7PTTL indicates the request is too old to process)                         |
+| 412  | Request Expired (S7PTTL indicates the request is too old to process)                         |
+| 429  | The circuit breaker has tripped and the service not accepting requests currently             |
 | 500  | Internal Server Error (Check Application Insights for more details)                          |
 | 502  | Bad Gateway (Could not complete the request, possibly from overloaded backend hosts)         |
 
@@ -133,85 +120,48 @@ In the diagram below, a client connected to the proxy which has 3 backend hosts.
 | **x-Request-Worker**          | Identifies which worker ID handled the request.                                                             |
 
 
-### Example:
+
+### Additional Configuration Notes
+
+
+- **Environment Variables vs Configuration File**: While most settings can be provided via environment variables, you can also use appsettings.json in development mode.
+
+- **Priority Configuration**: When setting up priorities, ensure the number of values in `PriorityKeys` and `PriorityValues` match, and that `PriorityWorkers` references valid priority levels.
+
+- **DNS Refresh**: If you're experiencing issues with DNS resolution in dynamic environments, adjust the `DnsRefreshTimeout` value to force more frequent DNS lookups.
+
+### User Profile contents ###
+
+This is a json formatted file that gets read every hour.  It can be fetched from a URL or a file location, depending on the configuration.  Here is an example file:
+
+```json:
+[
+    {
+        "userId": "123456",
+        "S7PPriorityKey": "12345",
+        "Header1": "Value1",
+        "Header2": "Value2",
+        "async-blobname": "data",
+        "async-topic": "status",
+        "async-allowed": true
+    },
+    {
+        "userId": "123455",
+        "S7PPriorityKey": "12345",
+        "Header1": "Value1",
+        "Header2": "Value2",
+        "async-blobname": "data-12355",
+        "async-topic": "status-12355",
+        "async-allowed": true
+    },
+    {
+        "userId": "123457",
+        "Header1": "Value1",
+        "Header2": "Value2",
+        "AsyncEnabled": false
+    }
+]
 ```
-Port=8000
-Host1=https://localhost:3000
-Host2=http://localhost:5000
-PollInterval=1500
-Timeout=3000
-```
 
-This will create a listener on port 8000 and will check the health of the two hosts (https://localhost:3000 and http://localhost:5000) every 1.5 seconds.  Any incoming requests will be proxied to the server with the lowest latency ( as measured every PollInterval). The first request will timeout after 3 seconds. If the second request also timesout, the service will return error code 503.
 
-### Running it on the command line
 
-**Pre-requisutes:**
-- Cloned repo
-- Dotnet SDK 9.0
-
-**Run it**
-```
-export Port=8000
-export Host1=https://localhost:3000
-export Host2=http://localhost:5000
-export Timeout=2000
-
-dotnet run
-```
-
-## Running it as a container
-
-**Pre-requisites:**
-- Cloned repo
-- Docker
-
-**Run it**
-```
-docker build -t proxy -f Dockerfile .
-docker run -p 8000:443 -e "Host1=https://localhost:3000" -e "Host2=http://localhost:5000" -e "Timeout=2000" proxy
-```
-
-## Deploy the container to Azure Container Apps
-
-**Pre-requisites:**
-- Cloned repo
-- Docker
-- az cli ( logged into azure account )
-
-**Deploy it**
-```
-# Fill in the name of your Azure Container Registry (ACR) here, without the azurecr.io part:
-export ACR=<ACR>
-export GROUP=simplel7proxyg
-export ACENV=simplel7proxyenv
-export ACANAME=simplel7proxy
-
-az acr login --name $ACR.azurecr.io
-docker build -t $ACR.azurecr.io/myproxy:v1 -f Dockerfile .
-docker push $ACR.azurecr.io/myproxy:v1
-
-ACR_CREDENTIALS=$(az acr credential show --name $ACR)
-export ACR_USERNAME=$(echo $ACR_CREDENTIALS | jq -r '.username')
-export ACR_PASSWORD=$(echo $ACR_CREDENTIALS | jq -r '.passwords[0].value')
-
-az group create --name $GROUP --location eastus
-az containerapp env create --name $ACENV --resource-group $GROUP --location eastus
-az containerapp create --name $ACANAME \
-  --resource-group $GROUP \
-  --environment $ACENV \
-  --image $ACR.azurecr.io/myproxy:v1 \
-  --target-port 443 \
-  --ingress external \
-  --registry-server $ACR.azurecr.io \
-  --query properties.configuration.ingress.fqdn \
-  --registry-username $ACR_USERNAME \
-  --registry-password $ACR_PASSWORD \
-  --env-vars Host1=https://localhost:3000 Host2=http://localhost:5000
-
-```
-## Deploy to Container Apps via a Github Action
-
-You can create a github workflow to deploy this code to an Azure container app.  You can follow the step by step instruction from a similar project in the following video:
-
-[![Video Title](https://i.ytimg.com/vi/-KojzBMM2ic/hqdefault.jpg)](https://www.youtube.com/watch?v=-KojzBMM2ic "How to Create a Github Action to Deploy to Azure Container Apps")
