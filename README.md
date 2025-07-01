@@ -6,6 +6,8 @@ One of SimpleL7Proxy's key strengths is its priority-based request handling syst
 
 As an example, SimpleL7Proxy can serve as an intelligent router to Azure API Management service that has been configured with large language model endpoints.  In thes scenario, the proxy will add routing and scheduling capabilities while providing cross-regional load balancing and failover capability. The logs can be configured to send to event hub or application insights.
 
+**Note:** If you are looking for the high performance APIM policy, see **[High perf APIM policy](test/APIM-Policy/readme.md)**.
+
 ## Getting Started Quickly
 
 Want to try SimpleL7Proxy right now? You can have it running in under 5 minutes with dummy backends:
@@ -56,17 +58,6 @@ In the diagram below, a client connected to the proxy which has 3 backend hosts.
 
 ![image](https://github.com/nagendramishr/SimpleL7Proxy/assets/81572024/d2b09ebb-1bce-41a7-879a-ac90aa5ae227)
 
-## Features
-- HTTP/HTTPS traffic proxy
-- Failover
-- Load balance based on latency
-- SSL termination
-- Priority based processing
-- Cross-platform compatibility (Windows, Linux, macOS)
-- Logging to Application Insights
-- Logging to EventHub
-- Async mode for processing long running requests 
-
 ## Configuration
 
 SimpleL7Proxy supports various deployment scenarios through environment variable configuration:
@@ -91,72 +82,12 @@ For complete details, see the **[Environment Variables Reference](ENVIRONMENT_VA
 
 ## Request Validation
 
-SimpleL7Proxy can validate incoming requests against user profiles, allowing you to:
-- **Control access** to proxy features on a per-user basis
-- **Apply custom priority levels** based on user identity  
-- **Enable async processing** only for authorized users
-- **Add user-specific headers** automatically
+For information about request validation and user profiles, see the **[Request Validation Guide](REQUEST_VALIDATION.md)**.
 
-See the **[User Profiles Guide](USER_PROFILES.md)** for complete configuration details and examples.
+## Response Codes and Headers
 
-## Proxy Response Codes
+For details about proxy response codes and headers, see the **[Response Codes and Headers Reference](RESPONSE_CODES.md)**.
 
-| Code | Description                                                                                  |
-|----- |----------------------------------------------------------------------------------------------|
-| 200  | Success                                                                                      |
-| 400  | Bad Request (Issue with the HTTP request format)                                             |
-| 408  | Request Timed Out (The request to the backend host timed out)                                |
-| 412  | Request Expired (S7PTTL indicates the request is too old to process)                         |
-| 429  | The queue is full or circuit breaker has tripped and the service not accepting requests currently   |
-| 500  | Internal Server Error (Check Application Insights for more details)                          |
-| 502  | Bad Gateway (Could not complete the request, possibly from overloaded backend hosts)         |
-
-### Headers Used
-
-| Header                 | Description                                                                                                       |
-|------------------------|-------------------------------------------------------------------------------------------------------------------|
-| **S7PDEBUG**           | Set to `true` to enable tracing at the request level.                                                             |
-| **S7PPriorityKey**     | If this header matches a defined key in *PriorityKeys*, the request uses the associated priority from *PriorityValues*. |
-| **S7PREQUEUE**         | If a remote host returns `429` and sets this header to `true`, the request will be requeued using its original enqueue time. |
-| **S7PTTL**             | Time-to-live for a message. Once expired, the proxy returns `410` for that request.                                |
-| **x-Request-Queue-Duration**  | Shows how long the message spent in the queue before being processed.                                       |
-| **x-Request-Process-Duration**| Indicates the processing duration of the request.                                                           |
-| **x-Request-Worker**          | Identifies which worker ID handled the request.                                                             |
-
-
-
-### Additional Configuration Notes
-
-- **Environment Variables vs Configuration File**: While most settings can be provided via environment variables, you can also use appsettings.json in development mode.
-
-- **Priority Configuration**: When setting up priorities, ensure the number of values in `PriorityKeys` and `PriorityValues` match, and that `PriorityWorkers` references valid priority levels.
-
-- **DNS Refresh**: If you're experiencing issues with DNS resolution in dynamic environments, adjust the `DnsRefreshTimeout` value to force more frequent DNS lookups.
-        "userId": "123456",
-        "S7PPriorityKey": "12345",
-        "Header1": "Value1",
-        "Header2": "Value2",
-        "async-blobname": "data",
-        "async-topic": "status",
-        "async-allowed": true
-    },
-    {
-        "userId": "123455",
-        "S7PPriorityKey": "12345",
-        "Header1": "Value1",
-        "Header2": "Value2",
-        "async-blobname": "data-12355",
-        "async-topic": "status-12355",
-        "async-allowed": true
-    },
-    {
-        "userId": "123457",
-        "Header1": "Value1",
-        "Header2": "Value2",
-        "AsyncEnabled": false
-    }
-]
-```
 
 
 
