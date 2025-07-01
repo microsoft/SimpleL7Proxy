@@ -211,9 +211,9 @@ public class ProxyWorker
                             if (pr.Headers != null)
                                 pr.Headers["x-Attempts"] = incomingRequest.Attempts.ToString();
                         }
+                        Interlocked.Decrement(ref states[2]);
                     }
 
-                    Interlocked.Decrement(ref states[2]);
                     Interlocked.Increment(ref states[5]);
                     workerState = "Write Response";
 
@@ -291,7 +291,11 @@ public class ProxyWorker
                     {
                         // we shouldn't need to create a copy of the incomingRequest because we are skipping the dispose.
                         // Requeue the request after the retry-after value
+
+                        Interlocked.Decrement(ref states[7]);
                         await Task.Delay(e.RetryAfter).ConfigureAwait(false);
+                        Interlocked.Increment(ref states[7]);
+
                         _requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.Priority2, incomingRequest.EnqueueTime);
                     });
 
@@ -505,13 +509,13 @@ public class ProxyWorker
                     {
                         probeMessage += "No Hosts\n";
                     }
-
-                    var stats = $"Worker Statistics:\n {GetState()}\n";
-                    var priority = $"User Priority Queue: {_userPriority?.GetState() ?? "N/A"}\n";
-                    var requestQueue = $"Request Queue: {_requestsQueue?.thrdSafeCount.ToString() ?? "N/A"}\n";
-                    var events = $"Event Hub: {(_eventHubClient != null ? $"Enabled  -  {_eventHubClient.Count} Items" : "Disabled")}\n";
-                    probeMessage += stats + priority + requestQueue + events;
                 }
+
+                var stats = $"Worker Statistics:\n {GetState()}\n";
+                var priority = $"User Priority Queue: {_userPriority?.GetState() ?? "N/A"}\n";
+                var requestQueue = $"Request Queue: {_requestsQueue?.thrdSafeCount.ToString() ?? "N/A"}\n";
+                var events = $"Event Hub: {(_eventHubClient != null ? $"Enabled  -  {_eventHubClient.Count} Items" : "Disabled")}\n";
+                probeMessage += stats + priority + requestQueue + events;
                 break;
 
             case Constants.Readiness:
