@@ -292,6 +292,13 @@ az containerapp revision list \
   --resource-group $GROUP
 ```
 
+## Deploy to Container Apps via a GitHub Action
+
+You can create a GitHub workflow to deploy this code to an Azure container app. You can follow the step by step instruction from a similar project in the following video:
+
+[![Video Title](https://i.ytimg.com/vi/-KojzBMM2ic/hqdefault.jpg)](https://www.youtube.com/watch?v=-KojzBMM2ic "How to Create a Github Action to Deploy to Azure Container Apps")
+
+
 ### Common Issues and Solutions
 
 1. **Container fails to start**: Check environment variables and image availability

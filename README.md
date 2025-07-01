@@ -29,6 +29,7 @@ SimpleL7Proxy is built for reliability and performance with these key capabiliti
 - **Priority-Based Queuing**: Route urgent requests ahead of regular traffic using configurable priority levels
 - **Request Expiration**: Automatically drop old requests using TTL (time-to-live) to prevent processing stale data
 - **Dedicated Worker Threads**: Assign specific workers to handle different priority levels for guaranteed performance
+- **User Profile-Based Control**: Validate incoming requests and apply per-user configurations including access control, custom priority assignment, and anti-starvation protection to prevent resource monopolization
 
 ### Enterprise Operations
 - **Comprehensive Monitoring**: Track every request with detailed metrics including processing time, queue duration, and worker assignments
@@ -84,16 +85,19 @@ The proxy is configured through environment variables organized into functional 
 - **[Async Processing](ENVIRONMENT_VARIABLES.md#async-processing-variables)** - Configuration for asynchronous request handling with Azure storage
 - **[Connection Management](ENVIRONMENT_VARIABLES.md#connection-management-variables)** - Controls for HTTP connections, keep-alive settings, and SSL
 - **[Backend Configuration](ENVIRONMENT_VARIABLES.md#backend-configuration-variables)** - Settings for backend servers, health checks, and failover behavior
+- **[User Profiles](USER_PROFILES.md)** - Configure per-user settings, request validation, and access control
 
 For complete details, see the **[Environment Variables Reference](ENVIRONMENT_VARIABLES.md)**.
 
-## Deploy to Container Apps via a GitHub Action
+## Request Validation
 
-You can create a GitHub workflow to deploy this code to an Azure container app. You can follow the step by step instruction from a similar project in the following video:
+SimpleL7Proxy can validate incoming requests against user profiles, allowing you to:
+- **Control access** to proxy features on a per-user basis
+- **Apply custom priority levels** based on user identity  
+- **Enable async processing** only for authorized users
+- **Add user-specific headers** automatically
 
-[![Video Title](https://i.ytimg.com/vi/-KojzBMM2ic/hqdefault.jpg)](https://www.youtube.com/watch?v=-KojzBMM2ic "How to Create a Github Action to Deploy to Azure Container Apps")
-
----
+See the **[User Profiles Guide](USER_PROFILES.md)** for complete configuration details and examples.
 
 ## Proxy Response Codes
 
@@ -103,7 +107,7 @@ You can create a GitHub workflow to deploy this code to an Azure container app. 
 | 400  | Bad Request (Issue with the HTTP request format)                                             |
 | 408  | Request Timed Out (The request to the backend host timed out)                                |
 | 412  | Request Expired (S7PTTL indicates the request is too old to process)                         |
-| 429  | The circuit breaker has tripped and the service not accepting requests currently             |
+| 429  | The queue is full or circuit breaker has tripped and the service not accepting requests currently   |
 | 500  | Internal Server Error (Check Application Insights for more details)                          |
 | 502  | Bad Gateway (Could not complete the request, possibly from overloaded backend hosts)         |
 
@@ -123,20 +127,11 @@ You can create a GitHub workflow to deploy this code to an Azure container app. 
 
 ### Additional Configuration Notes
 
-
 - **Environment Variables vs Configuration File**: While most settings can be provided via environment variables, you can also use appsettings.json in development mode.
 
 - **Priority Configuration**: When setting up priorities, ensure the number of values in `PriorityKeys` and `PriorityValues` match, and that `PriorityWorkers` references valid priority levels.
 
 - **DNS Refresh**: If you're experiencing issues with DNS resolution in dynamic environments, adjust the `DnsRefreshTimeout` value to force more frequent DNS lookups.
-
-### User Profile contents ###
-
-This is a json formatted file that gets read every hour.  It can be fetched from a URL or a file location, depending on the configuration.  Here is an example file:
-
-```json:
-[
-    {
         "userId": "123456",
         "S7PPriorityKey": "12345",
         "Header1": "Value1",
