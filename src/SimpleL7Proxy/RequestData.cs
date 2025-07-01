@@ -90,7 +90,14 @@ public class RequestData : IDisposable, IAsyncDisposable
         MID = mid;
 
         // ASYNC
-        OutputStream = context.Response.OutputStream;
+        try
+        {
+            OutputStream = context.Response.OutputStream;
+        }
+        catch (Exception ex)
+        {
+            throw new IOException("Failed to initialize OutputStream for the request.", ex);
+        }
     }
 
     public async Task<byte[]> CacheBodyAsync()
@@ -173,7 +180,7 @@ public class RequestData : IDisposable, IAsyncDisposable
 
         if (SkipDispose)
         {
-            Console.WriteLine("RequestData: Dispose called but SkipDispose is true. ----------------");
+            //Console.WriteLine("RequestData: Dispose called but SkipDispose is true. ----------------");
             return;
         }
 
@@ -186,7 +193,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     {
         if (SkipDispose)
         {
-            Console.WriteLine("RequestData: Dispose called but SkipDispose is true. =================");
+            //Console.WriteLine("RequestData: Dispose called but SkipDispose is true. =================");
             return;
         }
 
