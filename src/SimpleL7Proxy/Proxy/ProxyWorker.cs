@@ -100,7 +100,7 @@ public class ProxyWorker
         if (_options.Workers == activeWorkers)
         {
             readyToWork = true;
-            Console.WriteLine("All workers ready to work");
+            _logger.LogInformation("All workers ready to work");
         }
 
         // Stop the worker if the cancellation token is cancelled and there is no work to do
@@ -235,10 +235,10 @@ public class ProxyWorker
                             if (pr.Headers != null)
                                 pr.Headers["x-Atthempts"] = incomingRequest.Attempts.ToString();
                         }
+                        Interlocked.Decrement(ref states[2]);
                     }
 
                     // POST PROCESSING ... logging
-                    Interlocked.Decrement(ref states[2]);
                     Interlocked.Increment(ref states[5]);
                     workerState = "Write Response";
 
@@ -323,7 +323,10 @@ public class ProxyWorker
                         // Requeue the request after the retry-after value
                         incomingRequest.SBStatus = ServiceBusMessageStatusEnum.RetryAfterDelay;
 
+                        Interlocked.Decrement(ref states[7]);
                         await Task.Delay(e.RetryAfter).ConfigureAwait(false);
+                        Interlocked.Increment(ref states[7]);
+
 
                         incomingRequest.SBStatus = ServiceBusMessageStatusEnum.ReQueued;
                         _requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.Priority2, incomingRequest.EnqueueTime);
@@ -472,6 +475,15 @@ public class ProxyWorker
                     }
                     catch (Exception e)
                     {
+                        ProxyEvent errorEvent = new(eventData)
+                        {
+                            Type = EventType.Exception,
+                            Exception = e,
+                            Status = HttpStatusCode.InternalServerError,
+                            ["WorkerState"] = workerState,
+                            ["Message"] = e.Message,
+                            ["StackTrace"] = e.StackTrace ?? "No Stack Trace"
+                        };
                         _logger.LogError($"Error in finally: {e.Message}");
                     }
 
@@ -538,13 +550,13 @@ public class ProxyWorker
                     {
                         probeMessage += "No Hosts\n";
                     }
-
-                    var stats = $"Worker Statistics:\n {GetState()}\n";
-                    var priority = $"User Priority Queue: {_userPriority?.GetState() ?? "N/A"}\n";
-                    var requestQueue = $"Request Queue: {_requestsQueue?.thrdSafeCount.ToString() ?? "N/A"}\n";
-                    var events = $"Event Hub: {(_eventClient != null ? $"Enabled  -  {_eventClient.Count} Items" : "Disabled")}\n";
-                    probeMessage += stats + priority + requestQueue + events;
                 }
+
+                var stats = $"Worker Statistics:\n {GetState()}\n";
+                var priority = $"User Priority Queue: {_userPriority?.GetState() ?? "N/A"}\n";
+                var requestQueue = $"Request Queue: {_requestsQueue?.thrdSafeCount.ToString() ?? "N/A"}\n";
+                var events = $"Event Hub: {(_eventClient != null ? $"Enabled  -  {_eventClient.Count} Items" : "Disabled")}\n";
+                probeMessage += stats + priority + requestQueue + events;
                 break;
 
             case Constants.Readiness:
@@ -1082,7 +1094,7 @@ public class ProxyWorker
         if (statusCodes.Count > 0)
         {
 
-            Console.WriteLine($"Status Codes: {string.Join(", ", statusCodes)}");
+           // Console.WriteLine($"Status Codes: {string.Join(", ", statusCodes)}");
 
             // If all status codes are 408 or 412, use the latest (last) one
             if (statusCodes.All(s => s == 408 || s == 412 || s == 429))
