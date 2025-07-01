@@ -259,22 +259,22 @@
                     <choose>
                         <when condition="@(context.Variables.GetValueOrDefault<string>("shouldLimit", "off") == "low")">
                             <limit-concurrency key="PTU" max-count="10">
-                                <forward-request buffer-request-body="true" />
+                                <forward-request buffer-request-body="true" timeout="300"/>
                             </limit-concurrency>
                         </when>
                         <when condition="@(context.Variables.GetValueOrDefault<string>("shouldLimit", "off") == "medium")">
                             <limit-concurrency key="PTU" max-count="50">
-                                <forward-request buffer-request-body="true" />
+                                <forward-request buffer-request-body="true" timeout="300" />
                             </limit-concurrency>
                         </when>
                         <when condition="@(context.Variables.GetValueOrDefault<string>("shouldLimit", "off") == "high")">
                             <limit-concurrency key="PTU" max-count="100">
-                                <forward-request buffer-request-body="true" />
+                                <forward-request buffer-request-body="true" timeout="300" />
                             </limit-concurrency>
                         </when>
                         <otherwise>
                             <set-variable name="wasLimited" value="@(false)" />
-        					<forward-request buffer-request-body="true" />
+        					<forward-request buffer-request-body="true"  timeout="300"/>
                         </otherwise>
                     </choose>
                     <set-variable name="wasLimited" value="@(false)" />
