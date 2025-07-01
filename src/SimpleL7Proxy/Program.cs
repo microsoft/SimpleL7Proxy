@@ -62,6 +62,7 @@ public class Program
             {
                 ConfigureApplicationInsights(services);
                 ConfigureDependencyInjection(services, startupLogger);
+
             });
 
 
@@ -130,7 +131,7 @@ public class Program
 
         // Register TelemetryClient
         services.AddSingleton<TelemetryClient>();
-        var log_to_file = true;
+        var log_to_file = false;
 
         if (log_to_file)
         {
@@ -142,6 +143,8 @@ public class Program
         {
             var eventHubConnectionString = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING");
             var eventHubName = Environment.GetEnvironmentVariable("EVENTHUB_NAME");
+
+            services.AddSingleton(new EventHubConfig(eventHubConnectionString!, eventHubName!));
             services.AddProxyEventClient(eventHubConnectionString, eventHubName, Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING"));
         }
 
