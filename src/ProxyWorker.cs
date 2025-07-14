@@ -264,7 +264,7 @@ public class ProxyWorker
                     //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
                     Interlocked.Decrement(ref states[5]);
                     Interlocked.Increment(ref states[6]);
-                    workerState = "Send Event";
+                    workerState = "Finalize";
 
                     var conlen = pr.ContentHeaders?["Content-Length"] ?? "N/A";
                     var proxyTime = (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
@@ -272,7 +272,6 @@ public class ProxyWorker
 
                     eventData["Content-Length"] = lcontext.Response?.ContentLength64.ToString() ?? "N/A";
                     eventData["Content-Type"] = lcontext?.Response?.ContentType ?? "N/A";
-                    workerState = "Send Event";
 
                     if (incomingRequest.incompleteRequests != null)
                     {
@@ -426,6 +425,9 @@ public class ProxyWorker
                         // Don't track the request yet if it was retried.
                         if (!incomingRequest.Requeued)
                         {
+                            if (workerState != "Cleanup")
+                                eventData["WorkerState"] = workerState;
+
                             eventData.SendEvent(); // Ensure the event at the completion of the request
                             if (doUserconfig)
                                 _userPriority.removeRequest(incomingRequest.UserID, incomingRequest.Guid);
@@ -653,6 +655,7 @@ public class ProxyWorker
             // track the number of attempts
             request.Attempts++;
             bool successfulRequest = false;
+            string requestState = "Init";
 
             ProxyEvent requestAttempt = new(request.EventData)
             {
@@ -670,6 +673,8 @@ public class ProxyWorker
             // Try the request on each active host, stop if it worked
             try
             {
+                requestState = "Calc ExpiresAt";
+
                 // Check ExpiresAt against current time .. keep in mind, client may have disconnected already
                 if (request.ExpiresAt < DateTimeOffset.UtcNow)
                 {
@@ -691,9 +696,11 @@ public class ProxyWorker
                 var urlWithPath = new UriBuilder(host.url) { Path = request.Path }.Uri.AbsoluteUri;
                 request.FullURL = System.Net.WebUtility.UrlDecode(urlWithPath);
 
+                requestState = "Cache Body";
                 // Read the body stream once and reuse it
                 byte[] bodyBytes = await request.CacheBodyAsync().ConfigureAwait(false);
 
+                requestState = "Create Backend Request";
                 using (ByteArrayContent bodyContent = new(bodyBytes))
                 using (HttpRequestMessage proxyRequest = new(new(request.Method), request.FullURL))
                 {
@@ -745,6 +752,7 @@ public class ProxyWorker
                     Interlocked.Increment(ref states[3]);
                     try
                     {
+                        requestState = "Make Backend Request";
 
                         // SEND THE REQUEST TO THE BACKEND USING THE APROPRIATE TIMEOUT
                         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(request.Timeout));
@@ -754,6 +762,8 @@ public class ProxyWorker
                         var responseDate = DateTime.UtcNow;
                         lastStatusCode = proxyResponse.StatusCode;
                         requestAttempt.Status = proxyResponse.StatusCode;
+
+                        requestState = "Process Backend Response";
 
                         // Capture the response
                         ProxyData pr = new()
@@ -768,6 +778,7 @@ public class ProxyWorker
                         // Check if the status code of the response is in the set of allowed status codes, else try the next host
                         if (((int)proxyResponse.StatusCode > 300 && (int)proxyResponse.StatusCode < 400) || (int)proxyResponse.StatusCode >= 500)
                         {
+                            requestState = "Handle Proxy Response Error";
 
                             if (request.Debug)
                             {
@@ -799,7 +810,9 @@ public class ProxyWorker
                         // SYNCHRONOUS: Read the response
                         try
                         {
+                            requestState = "Read Proxy Response";
                             await GetProxyResponseAsync(proxyResponse, request, pr).ConfigureAwait(false);
+                            requestState = "Finalize Proxy Response";
                         }
                         finally
                         {
@@ -922,6 +935,7 @@ public class ProxyWorker
                 if (!successfulRequest)
                 {
                     var miniDict = requestAttempt.ToDictionary(backendKeys);
+                    miniDict["ProxyWorkerState"] = requestState;
                     incompleteRequests.Add(miniDict);
 
                     var str = JsonSerializer.Serialize(miniDict);
