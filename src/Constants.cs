@@ -9,7 +9,7 @@ public static class Constants
     public const string Latency = "latency";
     public const string RoundRobin = "roundrobin";
     public const string Random = "random";
-    public const string VERSION = "2.1.32";
+    public const string VERSION = "2.1.33";
 
     public const int AnyPriority = -1;
 
