@@ -149,7 +149,7 @@ public class Program
                 }
 
 
-                var log_to_file = true;  // DON'T EVER DO A CHECKIN WITH THIS SET TO TRUE
+                var log_to_file = false;  // DON'T EVER DO A CHECKIN WITH THIS SET TO TRUE
                 if (log_to_file)
                 {
                     string logFileName = OS.Environment.GetEnvironmentVariable("LOGFILE") ?? "events.log";
