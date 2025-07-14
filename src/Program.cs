@@ -149,7 +149,7 @@ public class Program
                 }
 
 
-                var log_to_file = false;  // DON'T EVER DO A CHECKIN WITH THIS SET TO TRUE
+                var log_to_file = true;  // DON'T EVER DO A CHECKIN WITH THIS SET TO TRUE
                 if (log_to_file)
                 {
                     string logFileName = OS.Environment.GetEnvironmentVariable("LOGFILE") ?? "events.log";
@@ -704,8 +704,8 @@ public class Program
             LogConsole = ReadEnvironmentVariableOrDefault("LogConsole", true),
             LogConsoleEvent = ReadEnvironmentVariableOrDefault("LogConsoleEvent", false),
             LogHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
-            LogPoller = ReadEnvironmentVariableOrDefault("LogPoller", false),
-            LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", false),
+            LogPoller = ReadEnvironmentVariableOrDefault("LogPoller", true),
+            LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", true),
             LookupHeaderName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "UserIDFieldName", "userId"), // migrate from LookupHeaderName
             //LookupHeaderName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "userId"),
             MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
