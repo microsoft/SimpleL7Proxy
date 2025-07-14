@@ -157,15 +157,14 @@ public class ProxyWorker
                         workerState = "Exit - Probe";
                         Interlocked.Increment(ref states[7]);
 
-                        if (_options.LogProbes)
-                        {
-                            eventData["Probe"] = incomingRequest.Path;
-                            eventData["ProbeStatus"] = probeStatus.ToString();
-                            eventData["ProbeMessage"] = probeMessage;
-                            eventData.Type = EventType.Probe;
-                            eventData.SendEvent(); // send the probe event to telemetry
-                            Console.WriteLine($"Probe: {incomingRequest.Path} Status: {probeStatus} Message: {probeMessage}");
-                        }
+
+                        // probe details, will be logged in the finally clause [ or not if logProbes==false ]
+                        eventData["Probe"] = incomingRequest.Path;
+                        eventData["ProbeStatus"] = probeStatus.ToString();
+                        eventData["ProbeMessage"] = probeMessage;
+                        eventData.Type = EventType.Probe;
+                        //Console.WriteLine($"Probe: {incomingRequest.Path} Status: {probeStatus} Message: {probeMessage}");
+
                         continue;
                     }
                     eventData.Type = EventType.ProxyRequest;
