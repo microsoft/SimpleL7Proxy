@@ -775,9 +775,10 @@ public class ProxyWorker
                         };
 
                         // Check if the status code of the response is in the set of allowed status codes, else try the next host
-                        if (((int)proxyResponse.StatusCode > 300 && (int)proxyResponse.StatusCode < 400) || (int)proxyResponse.StatusCode >= 500)
+                        var intCode = (int)proxyResponse.StatusCode;
+                        if ((intCode > 300 && intCode < 400) || intCode == 412 || intCode >= 500)
                         {
-                            requestState = "Handle Proxy Response Error";
+                            requestState = "Call unsuccessful";
 
                             if (request.Debug)
                             {
@@ -934,7 +935,7 @@ public class ProxyWorker
                 if (!successfulRequest)
                 {
                     var miniDict = requestAttempt.ToDictionary(backendKeys);
-                    miniDict["ProxyWorkerState"] = requestState;
+                    miniDict["State"] = requestState;
                     incompleteRequests.Add(miniDict);
 
                     var str = JsonSerializer.Serialize(miniDict);
