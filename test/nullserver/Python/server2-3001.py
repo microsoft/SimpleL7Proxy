@@ -30,7 +30,7 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b" An error occurred!")
             return
-
+        
         if parsed_path.path == '/412error':
             self.send_response(412)
             self.send_header("Content-Type", "text/plain")
@@ -105,15 +105,15 @@ class ThreadedTCPServer(ThreadingMixIn, socketserver.TCPServer):
     pass
 
 def mt_main():
-    # Listen on port 3000
-    with ThreadedTCPServer(("localhost", 3000), MyHandler) as httpd:
-        print("Server started on port 3000...")
+    # Listen on port 3001
+    with ThreadedTCPServer(("localhost", 3001), MyHandler) as httpd:
+        print("Server started on port 3001...")
         httpd.serve_forever()
         
 def single_main():
-    # Listen on port 3000
-    with socketserver.TCPServer(("localhost", 3000), MyHandler) as httpd:
-        print("Server started on port 3000...")
+    # Listen on port 3001
+    with socketserver.TCPServer(("localhost", 3001), MyHandler) as httpd:
+        print("Server started on port 3001...")
         httpd.serve_forever()
 
 if __name__ == '__main__':

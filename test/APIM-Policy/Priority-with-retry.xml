@@ -137,7 +137,7 @@
 	</inbound>
 	<!-- Control if and how the requests are forwarded to services  -->
 	<backend>
-		<retry condition="@(context.Variables.GetValueOrDefault<bool>("ShouldRetry", true))" count="50" interval="1" delta="1">
+		<retry condition="@(context.Variables.GetValueOrDefault<bool>("ShouldRetry", true))" count="@(context.Variables.GetValueOrDefault<int>("RetryCount", 50))" interval="1" delta="1">
 			<!-- Before picking the backend, let's verify if there is any that should be set to not throttling anymore -->
 			<set-variable name="listBackends" value="@{
                 JArray backends = (JArray)context.Variables["listBackends"];
@@ -151,7 +151,7 @@
                     });
 
 
-                // check if the previous run was limited and then blocked.  Mark backend for throttling if so.
+                // check if the previous run was limited or timed out.  Mark backend for throttling if so.
                 var callCompleted = context.Variables.GetValueOrDefault<bool>("callCompleted", true);
                 var lastStatusCode = context.Response?.StatusCode ?? 0;
                 var shouldLimit = context.Variables.GetValueOrDefault<string>("shouldLimit", "off");
@@ -220,8 +220,9 @@
                 return backendLog;
             }" />
 			<!-- Make the request to the selected backend -->
+			<set-variable name="RetryCount" value="@(context.Variables.GetValueOrDefault<int>("RetryCount") - 1)" />
 			<choose>
-				<when condition="@(context.Variables.GetValueOrDefault<int>("backendIndex", 0) > -1)">
+				<when condition="@(context.Variables.GetValueOrDefault<int>("backendIndex", 0) > -1 && context.Variables.GetValueOrDefault<int>("RetryCount") > 0)">
 					<!-- Set each backend configuration value individually -->
 					<set-variable name="selectedBackend" value="@(((JArray)context.Variables["listBackends"])[(int)context.Variables["backendIndex"]])" />
 					<set-variable name="backendUrl" value="@(((JObject)context.Variables["selectedBackend"]).Value<string>("url") + "/openai")" />
@@ -357,7 +358,6 @@
 					<cache-store-value key="@("listBackends-" + context.Api.Id)" value="@((JArray)context.Variables["listBackends"])" duration="120" />
 				</when>
 			</choose>
-			<set-variable name="RetryCount" value="@(context.Variables.GetValueOrDefault<int>("RetryCount") - 1)" />
 			<set-variable name="unThrottledBackends" value="@{
                 var backends = context.Variables.GetValueOrDefault<JArray>("listBackends", new JArray());
                 var priorityBackendIndxs = (JArray)context.Variables["PriBackendIndxs"];
@@ -433,6 +433,17 @@
 						</set-header> -->
 					</return-response>
 				</when>
+                <when condition="@(context.Variables.GetValueOrDefault<int>("RetryCount") == 0)">
+                    <return-response>
+                        <set-status code="412" reason="Retry Count Exhausted" />
+                        <set-header name="X-Backend-Attempts" exists-action="override">
+                            <value>@(context.Variables.GetValueOrDefault<int>("backendCallCounter", 0).ToString())</value>
+                        </set-header>
+                        <set-header name="backendLog" exists-action="override">
+                            <value>@((string)context.Variables.GetValueOrDefault("backendLog", ""))</value>
+                        </set-header>
+                    </return-response>
+                </when>
 			</choose>
 		</retry>
 	</backend>
