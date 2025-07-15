@@ -356,6 +356,7 @@ private void TrackDependancy()
     var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
     dict["Status"] = ((int)Status).ToString();
+    dict["Reason"] = Status.ToString();
     dict["Duration"] = Duration.TotalMilliseconds.ToString();
 
     if (keys != null)
