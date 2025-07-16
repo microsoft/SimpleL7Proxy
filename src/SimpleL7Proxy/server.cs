@@ -141,8 +141,6 @@ public class Server : BackgroundService
 
     }
 
-    static long counter = 0;
-
     // Continuously listens for incoming HTTP requests and processes them.
     // Requests are enqueued with a priority based on specific headers.
     // The method runs until a cancellation is requested.
@@ -153,6 +151,7 @@ public class Server : BackgroundService
         //ArgumentNullException.ThrowIfNull(_cancellationTokenSource, nameof(_cancellationTokenSource));
         ArgumentNullException.ThrowIfNull(_options, nameof(_options));
 
+        long counter = 0;
         int livenessPriority = _options.PriorityValues.Min();
         bool doUserProfile = _options.UseProfiles;
         bool doAsync = _options.AsyncModeEnabled;
