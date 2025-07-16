@@ -4,6 +4,8 @@
         "S7PPriorityKey": "12345",
         "Header1": "Value1",
         "Header2": "Value2",
+        "fofo": "fofo",
+        "internal-fofo2": "fofo2",
         "async-blobname": "data",
         "async-topic": "status",
         "async-allowed": true

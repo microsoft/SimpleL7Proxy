@@ -231,6 +231,7 @@ namespace SimpleL7Proxy.Events
 
       _telemetryClient?.TrackDependency(dependencyTelemetry);
     }
+
     private void TrackRequest()
     {
       // Check if we've already tracked this request using the MID as a key
@@ -360,6 +361,7 @@ namespace SimpleL7Proxy.Events
       var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
       dict["Status"] = ((int)Status).ToString();
+      dict["Reason"] = Status.ToString();
       dict["Duration"] = Duration.TotalMilliseconds.ToString();
 
       if (keys != null)

@@ -144,9 +144,6 @@ public class ProxyWorker
                 Interlocked.Increment(ref states[1]);
                 workerState = "Processing";
 
-                // ASYNC: Set the status to Processing
-                incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Processing;
-
                 if (lcontext == null || incomingRequest == null)
                 {
                     Interlocked.Decrement(ref states[1]);
@@ -180,18 +177,20 @@ public class ProxyWorker
                         workerState = "Exit - Probe";
                         Interlocked.Increment(ref states[7]);
 
-                        if (_options.LogProbes)
-                        {
-                            eventData["Probe"] = incomingRequest.Path;
-                            eventData["ProbeStatus"] = probeStatus.ToString();
-                            eventData["ProbeMessage"] = probeMessage;
-                            eventData.Type = EventType.Probe;
-                            eventData.SendEvent(); // send the probe event to telemetry
-                            _logger.LogInformation($"Probe: {incomingRequest.Path} Status: {probeStatus} Message: {probeMessage}");
-                        }
+
+                        // probe details, will be logged in the finally clause [ or not if logProbes==false ]
+                        eventData["Probe"] = incomingRequest.Path;
+                        eventData["ProbeStatus"] = probeStatus.ToString();
+                        eventData["ProbeMessage"] = probeMessage;
+                        eventData.Type = EventType.Probe;
+                        //Console.WriteLine($"Probe: {incomingRequest.Path} Status: {probeStatus} Message: {probeMessage}");
+
                         continue;
                     }
-                    
+
+                    // ASYNC: Set the status to Processing
+                    incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Processing;
+
                     eventData.Type = EventType.ProxyRequest;
                     eventData["EnqueueTime"] = incomingRequest.EnqueueTime.ToString("o");
                     eventData["RequestContentLength"] = incomingRequest.Headers["Content-Length"] ?? "N/A";
@@ -294,7 +293,7 @@ public class ProxyWorker
                     //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
                     Interlocked.Decrement(ref states[5]);
                     Interlocked.Increment(ref states[6]);
-                    workerState = "Send Event";
+                    workerState = "Finalize";
 
                     var conlen = pr.ContentHeaders?["Content-Length"] ?? "N/A";
                     var proxyTime = (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
@@ -302,7 +301,6 @@ public class ProxyWorker
 
                     eventData["Content-Length"] = lcontext.Response?.ContentLength64.ToString() ?? "N/A";
                     eventData["Content-Type"] = lcontext?.Response?.ContentType ?? "N/A";
-                    workerState = "Send Event";
 
                     if (incomingRequest.incompleteRequests != null)
                     {
@@ -337,8 +335,8 @@ public class ProxyWorker
                     // Requeue the request 
                     //_requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.Priority2, incomingRequest.EnqueueTime);
                     _logger.LogInformation($"Requeued request, Pri: {incomingRequest.Priority}, Expires-At: {incomingRequest.ExpiresAtString} Retry-after-ms: {e.RetryAfter}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()}");
-                    incomingRequest.SkipDispose = true;
                     incomingRequest.Requeued = true;
+                    incomingRequest.SkipDispose = true;
 
                 }
                 catch (ProxyErrorException e)
@@ -462,6 +460,9 @@ public class ProxyWorker
                         // Don't track the request yet if it was retried.
                         if (!incomingRequest.Requeued)
                         {
+                            if (workerState != "Cleanup")
+                                eventData["WorkerState"] = workerState;
+
                             eventData.SendEvent(); // Ensure the event at the completion of the request
                             if (doUserconfig)
                                 _userPriority.removeRequest(incomingRequest.UserID, incomingRequest.Guid);
@@ -657,6 +658,7 @@ public class ProxyWorker
             // track the number of attempts
             request.Attempts++;
             bool successfulRequest = false;
+            string requestState = "Init";
 
             ProxyEvent requestAttempt = new(request.EventData)
             {
@@ -674,6 +676,8 @@ public class ProxyWorker
             // Try the request on each active host, stop if it worked
             try
             {
+                requestState = "Calc ExpiresAt";
+
                 // Check ExpiresAt against current time .. keep in mind, client may have disconnected already
                 if (request.ExpiresAt < DateTimeOffset.UtcNow)
                 {
@@ -695,9 +699,11 @@ public class ProxyWorker
                 var urlWithPath = new UriBuilder(host.Url) { Path = request.Path }.Uri.AbsoluteUri;
                 request.FullURL = System.Net.WebUtility.UrlDecode(urlWithPath);
 
+                requestState = "Cache Body";
                 // Read the body stream once and reuse it
                 byte[] bodyBytes = await request.CacheBodyAsync().ConfigureAwait(false);
 
+                requestState = "Create Backend Request";
                 using (ByteArrayContent bodyContent = new(bodyBytes))
                 using (HttpRequestMessage proxyRequest = new(new(request.Method), request.FullURL))
                 {
@@ -749,6 +755,8 @@ public class ProxyWorker
                     Interlocked.Increment(ref states[3]);
                     try
                     {
+                        requestState = "Make Backend Request";
+
                         // ASYNC: Calculate the timeout, start async worker
                         double rTimeout = request.Timeout;
 
@@ -759,7 +767,7 @@ public class ProxyWorker
                             request.asyncWorker = new AsyncWorker(request);
                             _ = request.asyncWorker.StartAsync();   // don't await this, let it run in parallel
                         }
-                        
+
                         // SEND THE REQUEST TO THE BACKEND USING THE APROPRIATE TIMEOUT
                         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(rTimeout));
                         using var proxyResponse = await _options.Client!.SendAsync(
@@ -782,6 +790,8 @@ public class ProxyWorker
                         lastStatusCode = proxyResponse.StatusCode;
                         requestAttempt.Status = proxyResponse.StatusCode;
 
+                        requestState = "Process Backend Response";
+
                         // Capture the response
                         ProxyData pr = new()
                         {
@@ -792,9 +802,12 @@ public class ProxyWorker
                             BackendHostname = host.Host
                         };
 
+
                         // Check if the status code of the response is in the set of allowed status codes, else try the next host
-                        if (((int)proxyResponse.StatusCode > 300 && (int)proxyResponse.StatusCode < 400) || (int)proxyResponse.StatusCode >= 500)
+                        var intCode = (int)proxyResponse.StatusCode;
+                        if ((intCode > 300 && intCode < 400) || intCode == 412 || intCode >= 500)
                         {
+                            requestState = "Call unsuccessful";
 
                             if (request.Debug)
                             {
@@ -875,7 +888,7 @@ public class ProxyWorker
                         else
                         {
                             request.Context!.Response.StatusCode = (int)proxyResponse.StatusCode;
-                            
+
                             // Strip headers from pr.Headers that are not allowed in the response
                             foreach (var header in _options.StripHeaders)
                             {
@@ -893,6 +906,8 @@ public class ProxyWorker
                         {
                             // This will write to either the client or the blob depending on the async timer
                             // await proxyResponse.Content.CopyToAsync(request.Context!.Response.OutputStream).ConfigureAwait(false);
+
+                            requestState = "Stream Proxy Response";
                             await proxyResponse.Content.CopyToAsync(request.OutputStream).ConfigureAwait(false);
                             await request.OutputStream.FlushAsync().ConfigureAwait(false);
                         }
@@ -996,6 +1011,7 @@ public class ProxyWorker
                 if (!successfulRequest)
                 {
                     var miniDict = requestAttempt.ToDictionary(backendKeys);
+                    miniDict["State"] = requestState;
                     incompleteRequests.Add(miniDict);
 
                     var str = JsonSerializer.Serialize(miniDict);
