@@ -8,25 +8,11 @@
 	<!-- Throttle, authorize, validate, cache, or transform the requests -->
 	<inbound>
 		<base />
-		<!-- <rate-limit-by-key calls="1" renewal-period="1" counter-key="@(context.Api.Id)" increment-condition="@(true)" 
-        remaining-calls-variable-name="remainingCallsPerIP" retry-after-header-name="foobar" remaining-calls-header-name="fizbar" /> -->
-		<azure-openai-emit-token-metric namespace="AzureOpenAI">
-			<dimension name="User ID" />
-			<dimension name="Client IP" value="foobar" />
-			<dimension name="API ID" />
-		</azure-openai-emit-token-metric>
-		<!--        <log-to-eventhub logger-id="eventHubLogger1">@{
-                return new JObject(
-                    new JProperty("EventTime", DateTime.UtcNow.ToString()),
-                    new JProperty("ServiceName", context.Deployment.ServiceName),
-                    new JProperty("RequestId", context.RequestId),
-                    new JProperty("RequestIp", context.Request.IpAddress),
-                    new JProperty("OperationName", context.Operation.Name),
-                    new JProperty("foo", "bar")
-                ).ToString();
-            }</log-to-eventhub> -->
 		<cache-lookup-value key="@("listBackends-" + context.Api.Id)" variable-name="listBackends" />
-		<!-- If we can't find the variable, initialize it -->
+        <!-- set the request ID in case we need to debug with OpenAI Service -->
+        <set-header name="x-ms-client-request-id" exists-action="override">
+			<value>(@context.Request.Headers.GetValueOrDefault("x-S7P-id", Guid.NewGuid().ToString()))</value>
+		</set-header>
 		<choose>
 			<when condition="@(context.Variables.ContainsKey("listBackends") == false)">
 				<set-variable name="listBackends" value="@{
