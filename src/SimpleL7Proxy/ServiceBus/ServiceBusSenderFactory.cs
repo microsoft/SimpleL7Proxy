@@ -40,7 +40,6 @@ namespace SimpleL7Proxy.ServiceBus
                 }
             } catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error initializing ServiceBusSenderFactory: {ex}");
                 _logger!.LogError(ex, "Failed to initialize ServiceBusSenderFactory");
                 optionsMonitor.CurrentValue.AsyncModeEnabled = false; // Disable async mode if initialization fails
                 _logger.LogWarning("Async mode disabled due to initialization failure.");
