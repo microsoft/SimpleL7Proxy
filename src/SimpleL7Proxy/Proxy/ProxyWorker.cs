@@ -414,6 +414,7 @@ public class ProxyWorker
                     }
                     else
                     {
+                        Console.Error.WriteLine("GOT AN ERROR: " + ex.Message);
                         eventData.Status = HttpStatusCode.InternalServerError; // 500 Internal Server Error
                         eventData.Type = EventType.Exception;
                         eventData.Exception = ex;
@@ -904,17 +905,32 @@ public class ProxyWorker
                         // Stream response from the backend to the client / blob depending on async timer 
                         try
                         {
+
                             // This will write to either the client or the blob depending on the async timer
                             // await proxyResponse.Content.CopyToAsync(request.Context!.Response.OutputStream).ConfigureAwait(false);
-
                             requestState = "Stream Proxy Response";
                             await proxyResponse.Content.CopyToAsync(request.OutputStream).ConfigureAwait(false);
                             await request.OutputStream.FlushAsync().ConfigureAwait(false);
                         }
+                        catch (IOException e)
+                        {
+                            Console.Error.WriteLine($"IO Error streaming response: {e}");
+
+                        }                        
                         catch (Exception e)
                         {
-                            throw new ProxyErrorException(ProxyErrorException.ErrorType.ClientDisconnected,
-                                                          HttpStatusCode.InternalServerError, e.Message);
+                            if (e.InnerException is IOException ioex)
+                            {
+                                // This is likely a client disconnect, we can ignore it.
+                                // We've already returned a status and streamed the response.  Best to continue.
+                                _logger.LogWarning($"Client disconnected while streaming response: {ioex.Message}");
+                            }
+                            else
+                            {
+                                Console.Error.WriteLine($"Error streaming response: {e.InnerException}");
+                                throw new ProxyErrorException(ProxyErrorException.ErrorType.ClientDisconnected,
+                                                              HttpStatusCode.InternalServerError, e.Message);
+                            }
                         }
 
 
