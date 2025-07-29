@@ -1,124 +1,56 @@
-## README: Priority-with-retry.xml APIM Policy ##
+# Priority-with-retry: Advanced APIM Policy for OpenAI Service Routing
 
-This document provides an overview of the **Priority-with-retry.xml** Azure API Management (APIM) policy, explaining its purpose, structure, functionality, and customization options. The policy is designed to route requests to specific backends based on their assigned priority, with built-in mechanisms for retrying and requeuing requests when necessary.
+## When to Use This Policy
 
-When a backend indicates that it is throttling, the policy caches this status and ensures that the backend is not retried until its **retry-after** time has elapsed. Subsequent requests automatically bypass the throttled backend until it becomes available again. Each cache update lasts for 120 seconds, and any updates to the list of backends are incorporated during this period. Additionally, each API maintains its own independent copy of the cache, as different deployments may experience throttling at varying rates.
+- You need to maintain high availability across multiple backend services
+- Different request types require different priority levels
+- You want to optimize cost by intelligently routing traffic
+- Your application requires resilience against throttling and service interruptions
 
-If no suitable backends are found, the policy responds with a **429 Too Many Requests** status and includes a **retry-after-ms** header. In scenarios where no backends can handle the specified priority level, the policy returns a maximum **retry-after-ms** value of 120,000 milliseconds.
+## What This Policy Does
 
-Backends can define the list of priorities they support, and the policy dynamically identifies the appropriate backends to use based on this configuration. Furthermore, each priority level can be customized to specify the number of retries to perform and whether a **retry-after-ms** response should be returned in cases of throttling. Each backend can also be configured to use either an API key or Azure Managed Identity.
+The Priority-with-retry policy delivers robust, intelligent request routing and operational control:
 
-This policy has been rigorously tested and successfully benchmarked with two OpenAI pay-as-you-go instances deployed in different regions, achieving a sustained performance of over 10 million tokens per minute over an extended period.
+- **Smart Priority Routing:** Directs requests to the best backend based on priority, health (throttling), deployment type (PTU/PayGo), and region. Balances load and avoids hotspots by randomizing among suitable backends.
+- **Concurrency & Throttling Control:** Applies per-backend concurrency limits (`LimitConcurrency`), detects throttling in real time, and avoids throttled backends until they recover using in-memory cache.
+- **Flexible Retry & Queueing:** Supports configurable retry and requeue strategies per priority, including graduated retry counts and smart queuing. If all backends are busy, returns a precise retry-after value.
+- **Cost Efficiency:** Maximizes use of pre-paid PTU resources before using PayGo, and restricts PayGo for non-critical workloads.
+- **Authentication Options:** Supports both API Key and Azure Managed Identity for backend authentication.
+- **Detailed Diagnostics:** Provides logging with timestamps and diagnostic info in response headers for monitoring and troubleshooting.
+- **No External Dependencies:** Maintains backend and throttling state in memory.
+
+This policy has been rigorously tested and successfully benchmarked with two OpenAI pay-as-you-go instances deployed in different regions, achieving a sustained performance of over 23 million tokens per minute over an extended period.
 
 ![image](./Flow.pdf)
 
-## Overview ##
+## How to Configure
 
-The Priority-with-retry.xml policy manages backend requests while adding the following capabilities:
+- **Backends:** Define your available backends, their priorities, and which priority levels they should accept.
+- **Priorities:** Set different retry behaviors and counts for different priority levels.
+- **Concurrency:** Tune the concurrency limits for different tiers.
+- **Cost Controls:** Configure priority-based access to different pricing tiers (PTU vs. PayGo).
+- **Retry Logic:** Customize retry-after durations based on workload importance and cost considerations.
 
-* *Priority-Based Backend Selection:* Routes requests to backends based on their priority and availability. Ths incoming request specifies its priority by adding a header.  This policy reads the priority header and only uses backends that accept that priority. 
-* *Retry Mechanism:* Retries requests to backends that fail due to throttling or other errors. The **retry** element is configured to handle specific error codes like 429, 408, and 500. Retry count and interval are customizable.
-* *Requeueing:* Requeues requests when no backends are available, returning a 429 response with a retry-after-ms header. If all backends are throttling, the request is requeued with a 429 response, and the retry-after-ms duration is enforced.
-* *Throttling Management:* Tracks backend throttling status and enforces retry-after-ms durations. A customizable default value is used when the retry-after-ms header is missing from the backend response.
-* *Logging:* Captures detailed logs for debugging and monitoring purposes. The backendLog includes backend selection, retries, throttling status, and custom log entries. You can optionally comment these out once you are satisfied.
+## Example Scenarios
 
-This policy is particularly helpful in scenarios where requests need to be prioritized and routed efficiently while ensuring high availability.
+The Priority-with-retry policy can be applied to various business scenarios with different optimization goals:
 
-## Policy Structure ##
+1. [**Financial Services Scenario**](./scenarios/financial-services-scenario.md) - Prioritizing performance for critical trading operations while managing costs for lower-priority workloads.
+2. [**Cost Optimization Scenario**](./scenarios/cost-optimization-scenario.md) - Focusing on minimizing Azure OpenAI costs while maintaining acceptable performance for all workloads.
+3. [**High Availability Scenario**](./scenarios/high-availability-scenario.md) - Ensuring maximum service availability across multiple regions and deployment types.
 
-The policy is organized into four sections:
+Each scenario demonstrates how to configure the policy to meet different business requirements.
 
-* *Inbound:* Prepares variables, validates requests, and sets up configurations.
-* *Backend:* Contains the main logic for backend selection, retries, and requeueing.
-* *Outbound:* Customizes the response before sending it back to the client.
-* *On-Error:* Handles exceptions and customizes error responses.
+## Overview
 
-## Key Variables and Their Purpose ##
+This document provides an overview of the **Priority-with-retry.xml** Azure API Management (APIM) policy, explaining its purpose and functionality. The policy is designed to route requests to specific backends based on their assigned priority, with built-in mechanisms for retrying and requeuing requests when necessary.
 
-* *listBackends:* A cached list of backend configurations, including their URLs, priorities, throttling status, and retry-after-ms durations. Backends can be added or removed by modifying the initialization of the listBackends variable in the <inbound> section.
-* *priorityCfg:* Defines retry counts and requeue behavior for each priority level. Customize the priorityCfg variable to define custom retry counts and requeue behavior for each priority.
-* *RequestPriority:* Determines the priority of the current request from the headers. A default priority of 3 is assigned if the incoming request is missing the priority header.
-* *PriBackendIndxs:* A list of backend indices that match the request's priority.
-* *RetryCount:* Tracks the number of retries allowed for the current request.
-* *ShouldRequeue:* Indicates whether the request should be requeued.
-* *backendLog:* Logs details about backend selection and request processing.
+For detailed technical explanations of how the policy works internally, please see our [How It Works](./how-it-works.md) document.
 
-## Detailed Explanation of Each Section ##
+## Customization Instructions
 
-## Inbound Section ##
-This section initializes variables and prepares configurations for backend selection and retry logic.
+### Adding New Backends
 
-*Backend Initialization:*
-
-The *listBackends* variable is initialized with backend configurations, including their URLs, priorities, and throttling status.
-If the *listBackends* variable is not found in the cache, it is created and stored for future use.
-
-*Priority Configuration:*
-
-The *priorityCfg* variable defines retry counts and requeue behavior for each priority level.
-Example:
-* *Priority 1:* Retry 50 times, no requeue.
-* *Priority 2:* Retry 5 times, requeue if retries fail.
-* *Priority 3:* Retry 1 time, requeue if retry fails.
-
-*Request Priority:*
-
-The *RequestPriority* variable determines the priority of the current request based on the *llm_proxy_priority* header. If the header is missing, a default priority of 3 is assigned.
-
-*Backend Filtering:*
-
-The *PriBackendIndxs* variable identifies backends that support the request's priority and are not throttling.
-
-*Logging:*
-
-The *backendLog* variable captures details about the request, including its priority and headers.
-
-## Backend Section ##
-This section contains the main logic for backend selection, retries, and requeueing.
-
-*Retry Logic:*
-
-The <retry> element retries requests to backends that fail due to throttling or other errors (e.g., 429, 408, 500).
-Retry count and interval are configurable.
-
-*Backend Selection:*
-
-The *backendIndex* variable identifies the most suitable backend based on priority and availability.
-If multiple backends are available at the same priority level, one is selected randomly.
-
-*Throttling Management:*
-
-Backends that return a 429 response are marked as throttling, and their retryAfter value is updated based on the retry-after-ms header or a default value.
-
-*Requeueing:*
-
-If all backends are throttling, the request is requeued by returning a 429 response with a retry-after-ms header.
-
-*Logging:*
-
-The *backendLog* variable is updated with details about backend selection, retries, and throttling status.
-
-## Outbound Section ##
-This section customizes the response before sending it back to the client.
-
-*Response Headers:*
-
-The *backendLog* variable is included in the response headers for debugging and monitoring purposes.
-
-*Response Customization:*
-
-Additional response customization can be implemented as needed.
-
-## On-Error Section ##
-This section handles exceptions and customizes error responses.
-
-*Error Handling:*
-Exceptions are logged, and custom error responses can be returned to the client. Exceptions are logged in the backendLog, and custom error messages can be defined in this section.
-
-
-## Customization Instructions ##
-
-Adding New Backends
 To add new backends, modify the initialization of the listBackends variable in the <inbound> section:
 
 ``` XML
@@ -133,7 +65,8 @@ To add new backends, modify the initialization of the listBackends variable in t
         { "ModelType", "NEW" },
         { "acceptablePriorities", new JArray(1, 2, 3) },
         { "api-key", "new-api-key" },
-        { "defaultRetryAfter", 15 }
+        { "defaultRetryAfter", 15 },
+        { "LimitConcurrency", "low" } // Set concurrency limit: "high", "medium", "low", or "off"
     });
     return backends;
 }" />
@@ -141,7 +74,19 @@ To add new backends, modify the initialization of the listBackends variable in t
 
 To use an API key, paste its value into the designated section. If you prefer to use **Azure Managed Identity**, leave the value blank.
 
-Adjusting Priority Configuration
+**Concurrency Control (`LimitConcurrency`):**
+
+- Use `"high"`, `"medium"`, or `"low"` to set the backend's concurrency limit to a preset value.
+    - `"high"`: Allows the most concurrent requests (best for robust or PTU-backed endpoints)
+    - `"medium"`: Moderate concurrency (default for most PayGo endpoints)
+    - `"low"`: Restricts concurrency (useful for fragile or rate-limited endpoints)
+    - `"off"`: Disables concurrency limiting for this backend
+- If omitted, the policy uses its default concurrency behavior.
+
+Choose the value that matches your backend's capacity and throttling tolerance. For Azure OpenAI, `"medium"` is a safe starting point for PayGo, and `"high"` for PTU.
+
+### Adjusting Priority Configuration
+
 To change the retry count or requeue behavior for a specific priority, update the priorityCfg variable:
 
 ``` XML
@@ -163,16 +108,17 @@ To change the retry count or requeue behavior for a specific priority, update th
 }" />
 ```
 
-Modifying Retry Logic
+### Modifying Retry Logic
+
 To adjust the retry condition or count, modify the <retry> element in the <backend> section:
 
 ``` XML
-<retry condition="@(context.Variables.GetValueOrDefault<bool>("ShouldRetry", true##" count="100" interval="500">
+<retry condition="@(context.Variables.GetValueOrDefault<bool>("ShouldRetry", true##" count="50" interval="1">
 ```
 
 * *condition:* Specifies when retries should occur.
 * *count:* Sets the maximum number of retries.
-* *interval:* Defines the delay (in milliseconds) between retries.
+* *interval:* Defines the delta delay (in seconds) between retries.  0 means linear while 1 means, add 1 second after each retry.
 
 *Customizing Logging:*
 
@@ -190,7 +136,7 @@ To add custom log entries, update the *backendLog* variable in the <backend> sec
 
 *Enable Debugging:*
 
-Set the *S7PDEBUG* header to true in your requests to enable detailed tracing.
+Set the *S7PDEBUG* header to true in your requests to the proxy enable detailed tracing.
 
 *Inspect Logs:*
 
@@ -200,6 +146,51 @@ Review the *backendLog* variable in the response headers to understand backend s
 
 Test the retry and requeue logic by simulating backend failures or throttling.
 
-## Conclusion ##
+## Notes
 
-The Priority-with-retry.xml policy is a practical tool for managing priority-based request routing and retries in Azure API Management. By customizing the variables and logic described above, you can adapt the policy to meet your specific needs. For further assistance, refer to the Azure API Management documentation or consult your team. [[[/markdown]]]
+- **PTU First:** The policy always tries pre-paid PTU endpoints before PayGo to maximize value.
+- **Consistent Models:** Use the same model (e.g., GPT-4) across deployment types for consistent results.
+- **Retry-After:** Lower-priority requests may be asked to retry later, letting higher-priority requests go first during busy periods.
+- **Cost Controls:** 
+  - PTU handles all priorities to use committed capacity.
+  - PayGo is restricted for low-priority traffic to control costs.
+  - Low-priority workloads can be routed to internal or free-tier resources.
+  - Lower priorities have longer retry-after times, ensuring critical operations are prioritized.
+
+## FAQ
+
+**How do I install this policy?**  
+Paste the policy XML into your API operation in the Azure portal.
+
+**What do I need to use this policy?**  
+An Azure API Management instance and at least one Azure OpenAI or compatible backend.
+
+**Which APIM versions are supported?**  
+All current versions.
+
+**How many backends should I configure?**  
+At least 2-3 for redundancy; dozens are supported.
+
+**How do I set priorities?**  
+Map critical operations to priority 1, standard to 2, background to 3.
+
+**How can I test before production?**  
+Use APIM's test feature and set the S7PDEBUG header to true for diagnostics.
+
+**Is it safe to store API keys in the policy?**  
+Use Azure Key Vault for production instead of hardcoding keys.
+
+**How do I prevent users from setting their own priority?**  
+Add APIM validation policies to enforce or override the priority header.
+
+**What if all backends are throttling?**  
+Increase backend capacity, adjust retry strategy, or add client-side throttling.
+
+**How do I monitor the policy?**  
+Check backendLog in response headers or export to Application Insights/Log Analytics.
+
+**Common issues?**  
+Misconfigured priorities, retry counts, or backend authentication.
+
+**Need help?**  
+File an issue in the GitHub repo or contact Azure support.
