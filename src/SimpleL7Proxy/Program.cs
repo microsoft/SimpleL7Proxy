@@ -79,13 +79,27 @@ public class Program
 
         ProxyEvent.Initialize(options, eventHubClient, telemetryClient);
 
-        var serviceBusRequestService = serviceProvider.GetRequiredService<IServiceBusRequestService>();
-        RequestData.InitializeServiceBusRequestService(serviceBusRequestService);
-        AsyncWorker.Initialize(
-            serviceProvider.GetRequiredService<BlobWriter>(),
-            serviceProvider.GetRequiredService<ILogger<AsyncWorker>>()
-        );
-
+        try
+        {
+            if (options.Value.AsyncModeEnabled)
+            {
+                startupLogger.LogInformation("Async mode is enabled. Initializing ServiceBusRequestService and AsyncWorker.");
+                var serviceBusRequestService = serviceProvider.GetRequiredService<IServiceBusRequestService>();
+                RequestData.InitializeServiceBusRequestService(serviceBusRequestService);
+                AsyncWorker.Initialize(
+                    serviceProvider.GetRequiredService<BlobWriter>(),
+                    serviceProvider.GetRequiredService<ILogger<AsyncWorker>>()
+                );
+            }
+            else
+            {
+                startupLogger.LogInformation("Async mode is disabled.");
+            }
+        }
+        catch (Exception ex)
+        {
+            startupLogger.LogError(ex, "Failed to initialize ServiceBusRequestService or AsyncWorker");
+        }
 
         try
         {
