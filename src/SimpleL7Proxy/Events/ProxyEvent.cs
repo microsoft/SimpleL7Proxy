@@ -248,7 +248,7 @@ namespace SimpleL7Proxy.Events
       };
 
       requestTelemetry.Timestamp = DateTimeOffset.UtcNow.Subtract(Duration);
-      requestTelemetry.HttpMethod = Method ?? "GET"; // Default to GET if Method is null
+      requestTelemetry.Properties["HttpMethod"] = Method ?? "GET";
       requestTelemetry.Source = "S7P"; // Custom source identifier
       requestTelemetry.Duration = Duration;
       requestTelemetry.Context.Operation.Id = requestId;

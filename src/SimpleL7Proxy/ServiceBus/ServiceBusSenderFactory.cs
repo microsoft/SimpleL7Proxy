@@ -31,10 +31,19 @@ namespace SimpleL7Proxy.ServiceBus
         {
             _optionsMonitor = optionsMonitor ?? throw new ArgumentNullException(nameof(optionsMonitor));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            if (optionsMonitor.CurrentValue.AsyncModeEnabled)
+            try
             {
-                _client = new ServiceBusClient(optionsMonitor.CurrentValue.AsyncSBConnectionString);
-                _senders = new();
+                if (optionsMonitor.CurrentValue.AsyncModeEnabled)
+                {
+                    _client = new ServiceBusClient(optionsMonitor.CurrentValue.AsyncSBConnectionString);
+                    _senders = new();
+                }
+            } catch (Exception ex)
+            {
+                _logger!.LogError(ex, "Failed to initialize ServiceBusSenderFactory");
+                optionsMonitor.CurrentValue.AsyncModeEnabled = false; // Disable async mode if initialization fails
+                _logger.LogWarning("Async mode disabled due to initialization failure.");
+
             }
         }
 

@@ -31,6 +31,10 @@ public class EventHubClient : IEventClient, IHostedService
 
     public EventHubClient(EventHubConfig config, ILogger<EventHubClient> logger)
     {
+        _connectionString = config.ConnectionString;
+        _eventHubName = config.EventHubName;
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        
         if (string.IsNullOrEmpty(config.ConnectionString) || string.IsNullOrEmpty(config.EventHubName))
         {
             isRunning = false;
@@ -38,9 +42,6 @@ public class EventHubClient : IEventClient, IHostedService
             _batchData = null;
             return;
         }
-        _connectionString = config.ConnectionString;
-        _eventHubName = config.EventHubName;
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     public int Count => _logBuffer.Count;
