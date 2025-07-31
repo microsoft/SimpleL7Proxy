@@ -48,8 +48,10 @@ def handle_client(client_socket):
         response += "x-S7PID: " + s7pid + "\r\n"
         response += "Random-Header: Random-Value\r\n"
         response += "x-Random-Header: Random-Value\r\n"
+        response += "Connection: close\r\n"
+        #response += "Content-Length: 15\r\n"
         response += "\r\n"
-        response += "Hello, world!"
+        response += "Hello, world!\r\n"
 
         # Sleep for a random number from 0ms to 5 seconds
         sleep_time = random.uniform(4, 5)  # Random float between 0 and 0.2 seconds
