@@ -45,6 +45,9 @@ public class BackendOptions
     public List<string> RequiredHeaders { get; set; } = [];
     public int SuccessRate { get; set; }
     public string SuspendedUserConfigUrl { get; set; } = "";
+    // Storage configuration
+    public bool StorageDbEnabled { get; set; } = false;
+    public string StorageDbContainerName { get; set; } = "Requests";
     public List<string> StripHeaders { get; set; } = [];
     public int Timeout { get; set; }
     public string TimeoutHeader { get; set; } = "";

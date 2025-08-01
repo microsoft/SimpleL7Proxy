@@ -18,6 +18,7 @@ using SimpleL7Proxy.User;
 //using SimpleL7Proxy.EventGrid;
 using SimpleL7Proxy.ServiceBus;
 using SimpleL7Proxy.BlobStorage;
+using SimpleL7Proxy.Storage;
 
 
 using System.Net;
@@ -83,13 +84,14 @@ public class Program
         {
             if (options.Value.AsyncModeEnabled)
             {
+                
                 startupLogger.LogInformation("Async mode is enabled. Initializing ServiceBusRequestService and AsyncWorker.");
                 var serviceBusRequestService = serviceProvider.GetRequiredService<IServiceBusRequestService>();
                 RequestData.InitializeServiceBusRequestService(serviceBusRequestService);
-                AsyncWorker.Initialize(
-                    serviceProvider.GetRequiredService<BlobWriter>(),
-                    serviceProvider.GetRequiredService<ILogger<AsyncWorker>>()
-                );
+                // AsyncWorker.Initialize(
+                //     serviceProvider.GetRequiredService<BlobWriter>(),
+                //     serviceProvider.GetRequiredService<ILogger<AsyncWorker>>()
+                // );
             }
             else
             {
@@ -164,11 +166,20 @@ public class Program
 
         services.AddBackendHostConfiguration(startupLogger);
 
-        services.AddSingleton<BlobWriter>(provider =>
+        services.AddSingleton<IBlobWriterFactory, BlobWriterFactory>();
+        services.AddSingleton<IBlobWriter>(provider =>
         {
-            var optionsMonitor = provider.GetRequiredService<IOptionsMonitor<BackendOptions>>();
-            return new BlobWriter(optionsMonitor);
+            var factory = provider.GetRequiredService<IBlobWriterFactory>();
+            return factory.CreateBlobWriter();
         });
+
+        services.AddTransient<IAsyncWorkerFactory, AsyncWorkerFactory>();
+
+        // services.AddSingleton<BlobWriter>(provider =>
+        // {
+        //     var optionsMonitor = provider.GetRequiredService<IOptionsMonitor<BackendOptions>>();
+        //     return new BlobWriter(optionsMonitor);
+        // });
 
         services.AddSingleton<IUserPriorityService, UserPriority>();
         services.AddSingleton<UserProfile>();
@@ -183,6 +194,9 @@ public class Program
         services.AddHostedService<Server>(provider => provider.GetRequiredService<Server>());
 
         // ASYNC RELATED
+        // Add storage service registration
+        services.AddSingleton<IRequestStorageService, StorageDbRequestStorageService>();
+
         services.AddSingleton<ServiceBusSenderFactory>();
         services.AddSingleton<ServiceBusRequestService>();
         services.AddSingleton<IServiceBusRequestService>(sp => sp.GetRequiredService<ServiceBusRequestService>());

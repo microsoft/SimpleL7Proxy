@@ -75,6 +75,8 @@ public static class BackendHostConfigurationExtensions
       options.Revision = backendOptions.Revision;
       options.SuccessRate = backendOptions.SuccessRate;
       options.SuspendedUserConfigUrl = backendOptions.SuspendedUserConfigUrl;
+      options.StorageDbEnabled = backendOptions.StorageDbEnabled;
+      options.StorageDbContainerName = backendOptions.StorageDbContainerName;
       options.StripHeaders = backendOptions.StripHeaders;
       options.TerminationGracePeriodSeconds = backendOptions.TerminationGracePeriodSeconds;
       options.Timeout = backendOptions.Timeout;
@@ -475,6 +477,8 @@ public static class BackendHostConfigurationExtensions
       SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
       SuspendedUserConfigUrl = ReadEnvironmentVariableOrDefault("SuspendedUserConfigUrl", "file:config.json"),
       StripHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("StripHeaders", "")),
+      StorageDbEnabled = ReadEnvironmentVariableOrDefault("StorageDbEnabled", false),
+      StorageDbContainerName = ReadEnvironmentVariableOrDefault("StorageDbContainerName", "Requests"),
       TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
       Timeout = ReadEnvironmentVariableOrDefault("Timeout", 1200000), // 20 minutes
       TimeoutHeader = ReadEnvironmentVariableOrDefault("TimeoutHeader", "S7PTimeout"),

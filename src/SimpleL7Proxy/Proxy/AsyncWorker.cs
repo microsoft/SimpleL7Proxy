@@ -27,13 +27,13 @@ namespace SimpleL7Proxy.Proxy
         private Stream? _hos { get; set; } = null!;
         private string _userId { get; set; } = "";
 
-        private static BlobWriter? _blobWriter;
-        private static ILogger<AsyncWorker>? _logger;
+        private readonly IBlobWriter _blobWriter;
+        private readonly ILogger<AsyncWorker> _logger;
         public string ErrorMessage { get; set; } = "";
         string dataBlobName = "";
         string headerBlobName = "";
 
-        private static JsonSerializerOptions serialize_options = new()
+        private static readonly JsonSerializerOptions SerializeOptions = new()
         {
             WriteIndented = true,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
@@ -41,26 +41,30 @@ namespace SimpleL7Proxy.Proxy
 
 
         // Static constructor to initialize the BlobWriter and Logger
-        public static void Initialize(BlobWriter blobWriter, ILogger<AsyncWorker> logger)
-        {
-            _blobWriter = blobWriter;
-            _logger = logger;
-        }
+        // public static void Initialize(BlobWriter blobWriter, ILogger<AsyncWorker> logger)
+        // {
+        //     _blobWriter = blobWriter;
+        //     _logger = logger;
+        // }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="AsyncWorker"/> class.
         /// </summary>
         /// <param name="data">The request data.</param>
-        /// <param name="blobWriter">The blob writer.</param>
-        public AsyncWorker(RequestData data)
+        /// <param name="blobWriter">The blob writer instance.</param>
+        /// <param name="logger">The logger instance.</param>
+        public AsyncWorker(RequestData data, IBlobWriter blobWriter, ILogger<AsyncWorker> logger)
         {
-            _requestData = data;
+            _requestData = data ?? throw new ArgumentNullException(nameof(data));
+            _blobWriter = blobWriter ?? throw new ArgumentNullException(nameof(blobWriter));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _userId = data.UserID;
+
             if (!data.runAsync)
             {
                 throw new ArgumentException("AsyncWorker can only be used for async requests.");
             }
-            if (_blobWriter?.initClient(_userId, data.BlobContainerName) == false)
+            if (_blobWriter.InitClientAsync(_userId, data.BlobContainerName).GetAwaiter().GetResult() == false)
             {
                 throw new ArgumentException("Failed to initialize BlobWriter for AsyncWorker.");
             }
@@ -130,7 +134,7 @@ namespace SimpleL7Proxy.Proxy
 
                     try
                     {
-                        var message = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(Statusmessage, serialize_options) + "\n");
+                        var message = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(Statusmessage, SerializeOptions) + "\n");
 
                         _requestData.Context!.Response.StatusCode = 202;
                         await _requestData.Context.Response.OutputStream.WriteAsync(message, 0, message.Length).ConfigureAwait(false);
@@ -212,7 +216,7 @@ namespace SimpleL7Proxy.Proxy
 
                     // Serialize the message
                     byte[] serializedMessage = Encoding.UTF8.GetBytes(
-                        JsonSerializer.Serialize(headerMessage, serialize_options) + "\n");
+                        JsonSerializer.Serialize(headerMessage, SerializeOptions) + "\n");
 
                     // Write to the stream
                     using (var bufferStream = new BufferedStream(_hos))

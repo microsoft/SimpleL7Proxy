@@ -1,44 +1,58 @@
 using Azure.Storage;
 using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Specialized;
 using Azure.Storage.Sas;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using System.IO;
 using System.IO;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
-using SimpleL7Proxy.Backend;
 using System.Collections.Concurrent;
+
+using SimpleL7Proxy.Backend;
 
 namespace SimpleL7Proxy.BlobStorage
 {
     /// <summary>
     /// Provides methods for writing to Azure Blob Storage.
     /// </summary>
-    public class BlobWriter
+    public class BlobWriter : IBlobWriter
     {
-        private readonly ConcurrentDictionary< string, BlobContainerClient> _containerClients = new();
+        private static readonly ConcurrentDictionary<string, BlobContainerClient> _containerClients = new();
         //private readonly BlobContainerClient _containerClient = null!;
 
-        public  BlobServiceClient _blobServiceClient = null!;
-        private readonly IOptionsMonitor<BackendOptions> _optionsMonitor;
+        private readonly BlobServiceClient _blobServiceClient;
+        private readonly ILogger<BlobWriter> _logger;
+
+        public bool IsInitialized => _blobServiceClient != null;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="BlobWriter"/> class.
         /// </summary>
-        /// <param name="connectionString">The Azure Storage connection string.</param>
-        /// <param name="containerName">The name of the blob container.</param>
-        public BlobWriter(IOptionsMonitor<BackendOptions> optionsMonitor)
+        /// <param name="blobServiceClient">The blob service client.</param>
+        /// <param name="logger">The logger instance.</param>
+        public BlobWriter(BlobServiceClient blobServiceClient, ILogger<BlobWriter> logger)
         {
-            _optionsMonitor = optionsMonitor;
-            
-            if (optionsMonitor.CurrentValue.AsyncModeEnabled)
-            {
-                _blobServiceClient = new BlobServiceClient(optionsMonitor.CurrentValue.AsyncBlobStorageConnectionString);
-                //_containerClient = blobServiceClient.GetBlobContainerClient(containerName);
-            }
+            _blobServiceClient = blobServiceClient ?? throw new ArgumentNullException(nameof(blobServiceClient));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
-        public bool initClient(string userId, string containerName)
+
+        public async Task<bool> InitClientAsync(string userId, string containerName)
         {
+
+            if (string.IsNullOrEmpty(userId))
+            {
+                _logger.LogWarning("UserId cannot be null or empty");
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(containerName))
+            {
+                _logger.LogWarning("ContainerName cannot be null or empty for userId: {UserId}", userId);
+                return false;
+            }
 
             // Check if the client for this userId already exists
             // Should we check if the writer is valid ? 
@@ -46,11 +60,14 @@ namespace SimpleL7Proxy.BlobStorage
             {
                 // Client already exists, no need to create a new one
                 return true;
-            }   
+            }
 
             try
             {
                 var client = _blobServiceClient.GetBlobContainerClient(containerName);
+                // Ensure container exists
+                await client.CreateIfNotExistsAsync().ConfigureAwait(false);
+
                 if (_containerClients.TryAdd(userId, client))
                 {
                     // Successfully added the client to the dictionary
@@ -78,16 +95,40 @@ namespace SimpleL7Proxy.BlobStorage
             // Get the client for the userId
             if (!_containerClients.TryGetValue(userId, out var _containerClient))
             {
-                throw new InvalidOperationException($"Failed to initialize BlobContainerClient for userId {userId}");
+                throw new InvalidOperationException($"BlobContainerClient not initialized for userId: {userId}. Call InitializeClientAsync first.");
             }
 
             // Only create the container if it does not exist. This is thread-safe and efficient for concurrent calls.
-            await _containerClient.CreateIfNotExistsAsync().ConfigureAwait(false);
+            //await _containerClient.CreateIfNotExistsAsync().ConfigureAwait(false);
 
             var blobClient = _containerClient.GetBlobClient(blobName);
 
             // OpenWriteAsync will create the blob if it does not exist and return a writable stream.
             return await blobClient.OpenWriteAsync(overwrite: true).ConfigureAwait(false);
+        }
+
+        public async Task<bool> DeleteBlobAsync(string userId, string blobName)
+        {
+            if (string.IsNullOrEmpty(userId))
+            {
+                _logger.LogWarning("UserId cannot be null or empty");
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(blobName))
+            {
+                _logger.LogWarning("BlobName cannot be null or empty for userId: {UserId}", userId);
+                return false;
+            }
+
+            // Get the client for the userId
+            if (!_containerClients.TryGetValue(userId, out var _containerClient))
+            {
+                throw new InvalidOperationException($"BlobContainerClient not initialized for userId: {userId}. Call InitializeClientAsync first.");
+            }
+
+            var blobClient = _containerClient.GetBlobClient(blobName);
+            return await blobClient.DeleteIfExistsAsync().ConfigureAwait(false);
         }
 
         /// <summary>
@@ -98,25 +139,38 @@ namespace SimpleL7Proxy.BlobStorage
         /// <returns>The SAS token URL for the blob.</returns>
         public string GenerateSasToken(string userId, string blobName, TimeSpan expiryTime)
         {
+            if (string.IsNullOrEmpty(blobName))
+            {
+                throw new ArgumentException("BlobName cannot be null or empty", nameof(blobName));
+            }
+
             // Get the client for the userId
             if (!_containerClients.TryGetValue(userId, out var _containerClient))
             {
-                throw new InvalidOperationException($"Failed to initialize BlobContainerClient for userId {userId}");
+                throw new InvalidOperationException($"BlobContainerClient not initialized for userId: {userId}. Call InitializeClientAsync first.");
             }
 
-            var blobClient = _containerClient.GetBlobClient(blobName);
-
-            var sasBuilder = new BlobSasBuilder
+            try
             {
-                BlobContainerName = _containerClient.Name,
-                BlobName = blobName,
-                Resource = "b",
-                ExpiresOn = DateTimeOffset.UtcNow.Add(expiryTime)
-            };
-            sasBuilder.SetPermissions(BlobSasPermissions.Read | BlobSasPermissions.Delete);
+                var blobClient = _containerClient.GetBlobClient(blobName);
 
-            var sasUri = blobClient.GenerateSasUri(sasBuilder);
-            return sasUri.ToString();
+                var sasBuilder = new BlobSasBuilder
+                {
+                    BlobContainerName = _containerClient.Name,
+                    BlobName = blobName,
+                    Resource = "b",
+                    ExpiresOn = DateTimeOffset.UtcNow.Add(expiryTime)
+                };
+                sasBuilder.SetPermissions(BlobSasPermissions.Read | BlobSasPermissions.Delete);
+
+                var sasUri = blobClient.GenerateSasUri(sasBuilder);
+                return sasUri.ToString();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to generate SAS token for blob {BlobName} in container {ContainerName}", blobName, _containerClient.Name);
+                throw;
+            }
         }
     }
 }

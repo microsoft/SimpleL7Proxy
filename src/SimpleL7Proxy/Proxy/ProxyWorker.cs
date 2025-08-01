@@ -14,6 +14,7 @@ using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.ServiceBus;
+using SimpleL7Proxy.BlobStorage;
 
 namespace SimpleL7Proxy.Proxy;
 
@@ -34,6 +35,7 @@ public class ProxyWorker
     private readonly BackendOptions _options;
     private readonly TelemetryClient? _telemetryClient;
     private readonly IEventClient _eventClient;
+    private readonly IAsyncWorkerFactory _asyncWorkerFactory; // Just inject the factory
     private readonly ILogger<ProxyWorker> _logger;
     //private readonly ProxyStreamWriter _proxyStreamWriter;
     private IUserPriorityService _userPriority;
@@ -62,6 +64,7 @@ public class ProxyWorker
         IUserPriorityService? userPriority,
         IEventClient eventClient,
         TelemetryClient? telemetryClient,
+        IAsyncWorkerFactory asyncWorkerFactory,
         ILogger<ProxyWorker> logger,
         ProxyStreamWriter proxyStreamWriter,
         CancellationToken cancellationToken)
@@ -70,6 +73,7 @@ public class ProxyWorker
         _requestsQueue = requestsQueue ?? throw new ArgumentNullException(nameof(requestsQueue));
         _backends = backends ?? throw new ArgumentNullException(nameof(backends));
         _eventClient = eventClient;
+        _asyncWorkerFactory = asyncWorkerFactory;
         _logger = logger;
         //_proxyStreamWriter = proxyStreamWriter;
         //_eventHubClient = eventHubClient;
@@ -765,7 +769,7 @@ public class ProxyWorker
                         if (request.runAsync && request.asyncWorker is null)
                         {
                             rTimeout = _options.AsyncTimeout;
-                            request.asyncWorker = new AsyncWorker(request);
+                            request.asyncWorker = await _asyncWorkerFactory.CreateAsync(request);
                             _ = request.asyncWorker.StartAsync();   // don't await this, let it run in parallel
                         }
 
