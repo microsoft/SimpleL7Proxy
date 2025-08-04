@@ -1,4 +1,6 @@
+using System.Reflection.Metadata.Ecma335;
 using Azure.Storage.Blobs;
+using Azure.Identity;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SimpleL7Proxy.Backend;
@@ -30,24 +32,82 @@ namespace SimpleL7Proxy.BlobStorage
         {
             if (!_optionsMonitor.CurrentValue.AsyncModeEnabled)
             {
-                return new NullBlobWriter();
+                _logger.LogInformation("Async mode is disabled, returning NullBlobWriter.");
             }
-
-            var connectionString = _optionsMonitor.CurrentValue.AsyncBlobStorageConnectionString;
-            if (string.IsNullOrEmpty(connectionString) )
+            else if (_optionsMonitor.CurrentValue.AsyncBlobStorageUseMI)
             {
-                _logger.LogError("Invalid blob storage connection string provided");
-                return new NullBlobWriter();
+                var uri = _optionsMonitor.CurrentValue.AsyncBlobStorageAccountUri;
+                if (string.IsNullOrEmpty(uri) || !uri.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogError("AsyncBlobStorageAccountUri is not set. Cannot create BlobWriter.");
+                }
+                else
+                {
+                    _logger.LogInformation("Creating BlobWriter with managed identity for URI: {Uri}", uri);
+                    return CreateBlobWriterWithManagedIdentity(uri);
+                }
+            }
+            else
+            {
+                var connectionString = _optionsMonitor.CurrentValue.AsyncBlobStorageConnectionString;
+                if (string.IsNullOrEmpty(connectionString))
+                {
+                    _logger.LogError("Invalid blob storage connection string provided");
+                }
+                else
+                {
+
+                    try
+                    {
+                        _logger.LogInformation("Creating BlobServiceClient with provided connection string.");
+                        return CreateBlobWriterWithConnectionString(connectionString);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, $"Failed to create BlobServiceClient: {ex.Message}");
+                    }
+                }
             }
 
+            return new NullBlobWriter();
+        }
+
+        private IBlobWriter CreateBlobWriterWithManagedIdentity(string storageAccountUri)
+        {
             try
             {
-                var blobServiceClient = new BlobServiceClient(connectionString);
-                return new BlobWriter(blobServiceClient, _logger);
+                Uri blobServiceUri;
+
+                blobServiceUri = new Uri(storageAccountUri);
+
+                // Use DefaultAzureCredential for managed identity
+                var credential = new DefaultAzureCredential();
+                var blobServiceClient = new BlobServiceClient(blobServiceUri, credential);
+                var blobWriter = new BlobWriter(blobServiceClient, _logger);
+                blobWriter.UsesMI = true; // Set on BlobWriter, not BlobServiceClient
+                _logger.LogInformation("BlobServiceClient created successfully with managed identity for URI: {Uri}", storageAccountUri);
+
+                return blobWriter;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to create BlobServiceClient");
+                _logger.LogError(ex, $"Failed to create BlobServiceClient with managed identity: {ex.Message}");
+                return new NullBlobWriter();
+            }
+        }
+
+        private IBlobWriter CreateBlobWriterWithConnectionString(string connectionString)
+        {
+            try
+            {
+                var blobServiceClient = new BlobServiceClient(connectionString);
+                var blobWriter = new BlobWriter(blobServiceClient, _logger);
+                blobWriter.UsesMI = false; // Set to false for connection string authentication
+                return blobWriter;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Failed to create BlobServiceClient with connection string: {ex.Message}");
                 return new NullBlobWriter();
             }
         }
@@ -70,14 +130,19 @@ namespace SimpleL7Proxy.BlobStorage
             throw new NotSupportedException("Blob storage is not enabled");
         }
 
-        public string GenerateSasToken(string userId, string blobName, TimeSpan expiryTime)
+        public async Task<string> GenerateSasTokenAsync(string userId, string blobName, TimeSpan expiryTime)
         {
+            await Task.CompletedTask;
             throw new NotSupportedException("Blob storage is not enabled");
         }
 
-        public Task<bool> InitClientAsync(string userId, string containerName)
+        public async Task<bool> InitClientAsync(string userId, string containerName)
         {
-            return Task.FromResult(false);
+
+            Console.Error.WriteLine($"NULL BlobWriterFactory: InitClientAsync called for userId: {userId}, containerName: {containerName}");
+            // Blob storage is not enabled, so return false.
+            await Task.CompletedTask;
+            return false;
         }
     }
 }
