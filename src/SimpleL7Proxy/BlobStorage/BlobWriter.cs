@@ -6,7 +6,6 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.IO;
-using System.IO;
 using System.Threading.Tasks;
 using System.Collections.Concurrent;
 
@@ -25,6 +24,8 @@ namespace SimpleL7Proxy.BlobStorage
         private readonly BlobServiceClient _blobServiceClient;
         private readonly ILogger<BlobWriter> _logger;
 
+        public bool UsesMI { get; set; }
+
         public bool IsInitialized => _blobServiceClient != null;
 
         /// <summary>
@@ -41,6 +42,7 @@ namespace SimpleL7Proxy.BlobStorage
 
         public async Task<bool> InitClientAsync(string userId, string containerName)
         {
+            Console.Error.WriteLine($"Initializing BlobContainerClient for userId: {userId}, containerName: {containerName}");
 
             if (string.IsNullOrEmpty(userId))
             {
@@ -53,7 +55,6 @@ namespace SimpleL7Proxy.BlobStorage
                 _logger.LogWarning("ContainerName cannot be null or empty for userId: {UserId}", userId);
                 return false;
             }
-
             // Check if the client for this userId already exists
             // Should we check if the writer is valid ? 
             if (_containerClients.ContainsKey(userId))
@@ -134,10 +135,11 @@ namespace SimpleL7Proxy.BlobStorage
         /// <summary>
         /// Generates a SAS token for the specified blob.
         /// </summary>
+        /// <param name="userId">The user ID.</param>
         /// <param name="blobName">The name of the blob.</param>
         /// <param name="expiryTime">The expiry time for the SAS token.</param>
         /// <returns>The SAS token URL for the blob.</returns>
-        public string GenerateSasToken(string userId, string blobName, TimeSpan expiryTime)
+        public async Task<string> GenerateSasTokenAsync(string userId, string blobName, TimeSpan expiryTime)
         {
             if (string.IsNullOrEmpty(blobName))
             {
@@ -153,18 +155,55 @@ namespace SimpleL7Proxy.BlobStorage
             try
             {
                 var blobClient = _containerClient.GetBlobClient(blobName);
-
                 var sasBuilder = new BlobSasBuilder
                 {
                     BlobContainerName = _containerClient.Name,
                     BlobName = blobName,
                     Resource = "b",
+                    StartsOn = DateTimeOffset.UtcNow.AddMinutes(-5), // Start 5 minutes ago to account for clock skew
                     ExpiresOn = DateTimeOffset.UtcNow.Add(expiryTime)
                 };
                 sasBuilder.SetPermissions(BlobSasPermissions.Read | BlobSasPermissions.Delete);
 
-                var sasUri = blobClient.GenerateSasUri(sasBuilder);
-                return sasUri.ToString();
+                if (UsesMI)
+                {
+                    // Get a user delegation key for the Blob service that's valid for 1 hour
+                    var delegationKeyStartTime = DateTimeOffset.UtcNow;
+                    var delegationKeyExpiryTime = delegationKeyStartTime.Add(TimeSpan.FromHours(1));
+
+                    _logger.LogDebug("Requesting user delegation key for SAS token generation");
+                    var userDelegationKey = await _blobServiceClient
+                        .GetUserDelegationKeyAsync(delegationKeyStartTime, delegationKeyExpiryTime)
+                        .ConfigureAwait(false);
+
+                    // Generate the SAS token using the user delegation key
+                    var sasQueryParameters = sasBuilder.ToSasQueryParameters(userDelegationKey.Value, _blobServiceClient.AccountName);
+                    
+                    // Construct the full SAS URI
+                    var blobUriBuilder = new BlobUriBuilder(blobClient.Uri)
+                    {
+                        Sas = sasQueryParameters
+                    };
+                    
+                    var sasUri = blobUriBuilder.ToUri();
+                    _logger.LogDebug("Successfully generated user delegation SAS token for blob {BlobName}", blobName);
+                    return sasUri.ToString();
+
+                }
+                else
+                {
+                    // Check if we can use account SAS (when using connection string)
+                    if (blobClient.CanGenerateSasUri)
+                    {
+                        var sasUri = blobClient.GenerateSasUri(sasBuilder);
+                        _logger.LogDebug("Successfully generated account SAS token for blob {BlobName}", blobName);
+                        return sasUri.ToString();
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException("Cannot generate SAS token. Either enable managed identity (UsesMI=true) or provide a connection string with account keys.");
+                    }
+                }
             }
             catch (Exception ex)
             {
