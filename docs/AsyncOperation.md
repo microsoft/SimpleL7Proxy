@@ -56,11 +56,15 @@ For development or when using storage account keys:
 
 ```bash
 AsyncBlobStorageConnectionString=<storage-account-connection-string>
+AsyncBlobContainer=<profile field name that contains the client's container name. >
+BlobAccessTimeout=<The numebr of seconds that the blobs will be available for before they are automatically deleted.>
 ```
 
 **Requirements:**
 - The connection string must include account keys with full storage permissions
 - The storage account must allow blob creation and SAS token generation
+- Each client should have their own container and have access assigned to it.
+- Each client can have their own TTL for blob lifetime.  
 
 ### Option B: Managed Identity Authentication (Recommended)
 
