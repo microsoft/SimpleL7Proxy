@@ -4,7 +4,7 @@ using Microsoft.ApplicationInsights.WorkerService;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging; 
 using Microsoft.Extensions.Options;
 using OS = System;
 using System;
@@ -35,6 +35,8 @@ public static class BackendHostConfigurationExtensions
     {
       options.AcceptableStatusCodes = backendOptions.AcceptableStatusCodes;
       options.AsyncBlobStorageConnectionString = backendOptions.AsyncBlobStorageConnectionString;
+      options.AsyncBlobStorageUseMI = backendOptions.AsyncBlobStorageUseMI;
+      options.AsyncBlobStorageAccountUri = backendOptions.AsyncBlobStorageAccountUri;
       options.AsyncClientAllowedFieldName = backendOptions.AsyncClientAllowedFieldName;
       options.AsyncClientBlobFieldname = backendOptions.AsyncClientBlobFieldname;
       options.AsyncClientBlobTimeoutFieldName = backendOptions.AsyncClientBlobTimeoutFieldName;
@@ -435,7 +437,9 @@ public static class BackendHostConfigurationExtensions
     var backendOptions = new BackendOptions
     {
       AcceptableStatusCodes = ReadEnvironmentVariableOrDefault("AcceptableStatusCodes", new int[] { 200, 401, 403, 404, 408, 410, 412, 417, 400 }),
-      AsyncBlobStorageConnectionString = ReadEnvironmentVariableOrDefault("AsyncBlobStorageConnectionString", "example-connection-string"),
+      AsyncBlobStorageConnectionString = ReadEnvironmentVariableOrDefault("AsyncBlobStorageConnectionString", ""),
+      AsyncBlobStorageUseMI = ReadEnvironmentVariableOrDefault("AsyncBlobStorageUseMI", false),
+      AsyncBlobStorageAccountUri = ReadEnvironmentVariableOrDefault("AsyncBlobStorageAccountUri", "https://example.blob.core.windows.net/"),
       AsyncClientAllowedFieldName = ReadEnvironmentVariableOrDefault("AsyncClientAllowedFieldName", "async-allowed"),
       AsyncClientBlobFieldname = ReadEnvironmentVariableOrDefault("AsyncClientBlobFieldname", "async-blobname"),
       AsyncClientBlobTimeoutFieldName = ReadEnvironmentVariableOrDefault("AsyncClientBlobTimeoutFieldName", "async-blobaccess-timeout"),
