@@ -769,7 +769,7 @@ public class ProxyWorker
                         if (request.runAsync && request.asyncWorker is null)
                         {
                             rTimeout = _options.AsyncTimeout;
-                            request.asyncWorker = await _asyncWorkerFactory.CreateAsync(request);
+                            request.asyncWorker = _asyncWorkerFactory.CreateAsync(request);
                             _ = request.asyncWorker.StartAsync();   // don't await this, let it run in parallel
                         }
 
