@@ -340,20 +340,19 @@ public class Server : BackgroundService
                                 Console.WriteLine($"UserID: {rd.UserID}");
 
                             // ASYNC: Determine if the request is allowed async operation
-                            if (doAsync && rd.Headers["AsyncEnabled"] != null && bool.TryParse(rd.Headers["AsyncEnabled"], out var allowed))
+                            if (doAsync && bool.TryParse(rd.Headers["AsyncEnabled"], out var asyncEnabled) && asyncEnabled)
                             {
                                 var clientInfo = _userProfile.GetAsyncParams(rd.UserID);
-                                rd.runAsync = false;
+                                rd.runAsync = clientInfo != null;
 
-                                if (clientInfo != null)
+                                if (rd.runAsync)
                                 {
-                                    rd.AsyncBlobAccessTimeoutSecs = clientInfo.AsyncBlobAccessTimeoutSecs;
-                                                                        
-                                    // Set blob storage and Service Bus information for async processing
-                                    ed["AsyncBlobContainer"] = rd.BlobContainerName = clientInfo.ContainerName;
-                                    ed["AsyncSBTopic"] = rd.SBTopicName = clientInfo.SBTopicName;
+                                    rd.AsyncBlobAccessTimeoutSecs = clientInfo!.AsyncBlobAccessTimeoutSecs;
+                                    rd.BlobContainerName = clientInfo.ContainerName;
+                                    rd.SBTopicName = clientInfo.SBTopicName;
+                                    ed["AsyncBlobContainer"] = clientInfo.ContainerName;
+                                    ed["AsyncSBTopic"] = clientInfo.SBTopicName;
                                     ed["BlobAccessTimeout"] = clientInfo.AsyncBlobAccessTimeoutSecs.ToString();
-                                    rd.runAsync = true;
                                 }
 
                                 if (rd.Debug)
