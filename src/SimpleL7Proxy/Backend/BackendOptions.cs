@@ -4,6 +4,8 @@ public class BackendOptions
 {
     public int[] AcceptableStatusCodes { get; set; } =[];
     public string AsyncBlobStorageConnectionString { get; set; } = "example-connection-string"; 
+    public bool AsyncBlobStorageUseMI {get; set; } = true;
+    public string AsyncBlobStorageAccountUri { get; set; } = "https://mystorageaccount.blob.core.windows.net";
     public string AsyncClientBlobFieldname { get; set; } = "async-blobname";
     public string AsyncClientBlobTimeoutFieldName { get; set; } = "async-blobaccess-timeout";
     public string AsyncClientAllowedFieldName { get; set; } = "async-allowed";
