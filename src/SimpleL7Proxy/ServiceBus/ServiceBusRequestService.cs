@@ -61,6 +61,7 @@ namespace SimpleL7Proxy.ServiceBus
         {
             try
             {
+                //_logger.LogInformation($"Enqueuing status message for UserId: {message.MID}, Status: {message.SBStatus} for Topic: {message.SBTopicName}");
                 _statusQueue.Enqueue(new ServiceBusStatusMessage(message.Guid, message.SBTopicName, message.SBStatus.ToString()));
                 _queueSignal.Release();
 
@@ -88,6 +89,7 @@ namespace SimpleL7Proxy.ServiceBus
                     // Check if there are any messages in the status queue
                     while (_statusQueue.TryDequeue(out var statusMessage))
                     {
+                        //_logger.LogInformation("Need to send status message to topic: {TopicName}", statusMessage.topicName);
                         // Process the status message
                         await _senderFactory.
                             GetSender(statusMessage.topicName).
@@ -109,7 +111,7 @@ namespace SimpleL7Proxy.ServiceBus
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "An error occurred while sending a message to the topic.");
+                _logger.LogError(ex, "An error occurred while sending a message to the topic.: " + ex);
             }
             finally
             {
