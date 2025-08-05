@@ -34,15 +34,19 @@ public static class BackendHostConfigurationExtensions
     services.Configure<BackendOptions>(options =>
     {
       options.AcceptableStatusCodes = backendOptions.AcceptableStatusCodes;
+      options.AsyncBlobStorageAccountUri = backendOptions.AsyncBlobStorageAccountUri;
       options.AsyncBlobStorageConnectionString = backendOptions.AsyncBlobStorageConnectionString;
       options.AsyncBlobStorageUseMI = backendOptions.AsyncBlobStorageUseMI;
-      options.AsyncBlobStorageAccountUri = backendOptions.AsyncBlobStorageAccountUri;
       options.AsyncClientAllowedFieldName = backendOptions.AsyncClientAllowedFieldName;
       options.AsyncClientBlobFieldname = backendOptions.AsyncClientBlobFieldname;
       options.AsyncClientBlobTimeoutFieldName = backendOptions.AsyncClientBlobTimeoutFieldName;
       options.AsyncModeEnabled = backendOptions.AsyncModeEnabled;
       options.AsyncSBConnectionString = backendOptions.AsyncSBConnectionString;
+      options.AsyncSBNamespace = backendOptions.AsyncSBNamespace;
+      options.AsyncSBUseMI = backendOptions.AsyncSBUseMI;
       options.AsyncTimeout = backendOptions.AsyncTimeout;
+      options.AsyncTriggerTimeout = backendOptions.AsyncTriggerTimeout;
+      options.AsyncSBTopicFieldName = backendOptions.AsyncSBTopicFieldName;
       options.CircuitBreakerErrorThreshold = backendOptions.CircuitBreakerErrorThreshold;
       options.CircuitBreakerTimeslice = backendOptions.CircuitBreakerTimeslice;
       options.Client = backendOptions.Client;
@@ -437,16 +441,19 @@ public static class BackendHostConfigurationExtensions
     var backendOptions = new BackendOptions
     {
       AcceptableStatusCodes = ReadEnvironmentVariableOrDefault("AcceptableStatusCodes", new int[] { 200, 401, 403, 404, 408, 410, 412, 417, 400 }),
+      AsyncBlobStorageAccountUri = ReadEnvironmentVariableOrDefault("AsyncBlobStorageAccountUri", "https://example.blob.core.windows.net/"),
       AsyncBlobStorageConnectionString = ReadEnvironmentVariableOrDefault("AsyncBlobStorageConnectionString", ""),
       AsyncBlobStorageUseMI = ReadEnvironmentVariableOrDefault("AsyncBlobStorageUseMI", false),
-      AsyncBlobStorageAccountUri = ReadEnvironmentVariableOrDefault("AsyncBlobStorageAccountUri", "https://example.blob.core.windows.net/"),
       AsyncClientAllowedFieldName = ReadEnvironmentVariableOrDefault("AsyncClientAllowedFieldName", "async-allowed"),
       AsyncClientBlobFieldname = ReadEnvironmentVariableOrDefault("AsyncClientBlobFieldname", "async-blobname"),
       AsyncClientBlobTimeoutFieldName = ReadEnvironmentVariableOrDefault("AsyncClientBlobTimeoutFieldName", "async-blobaccess-timeout"),
       AsyncModeEnabled = ReadEnvironmentVariableOrDefault("AsyncModeEnabled", false),
       AsyncSBConnectionString = ReadEnvironmentVariableOrDefault("AsyncSBConnectionString", "example-sb-connection-string"),
+      AsyncSBNamespace = ReadEnvironmentVariableOrDefault("AsyncSBNamespace", ""),
       AsyncSBTopicFieldName = ReadEnvironmentVariableOrDefault("AsyncSBTopicFieldName", "async-topic"),
+      AsyncSBUseMI = ReadEnvironmentVariableOrDefault("AsyncSBUseMI", false), // Use managed identity for Service Bus
       AsyncTimeout = ReadEnvironmentVariableOrDefault("AsyncTimeout", 30 * 60000),
+      AsyncTriggerTimeout = ReadEnvironmentVariableOrDefault("AsyncTriggerTimeout", 10000),
       CircuitBreakerErrorThreshold = ReadEnvironmentVariableOrDefault("CBErrorThreshold", 50),
       CircuitBreakerTimeslice = ReadEnvironmentVariableOrDefault("CBTimeslice", 60),
       Client = _client,

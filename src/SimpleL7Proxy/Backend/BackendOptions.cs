@@ -11,8 +11,11 @@ public class BackendOptions
     public string AsyncClientAllowedFieldName { get; set; } = "async-allowed";
     public bool AsyncModeEnabled { get; set; } = false;
     public string AsyncSBConnectionString { get; set; } = "example-sb-connection-string";
+    public bool AsyncSBUseMI { get; set; } = false; // Use managed identity for Service Bus
+    public string AsyncSBNamespace { get; set; } = "example-namespace";
     public string AsyncSBTopicFieldName { get; set; } = "async-topic";
     public double AsyncTimeout { get; set; } = 30 * 60000; // 30 minutes
+    public int AsyncTriggerTimeout { get; set; } = 60000; // 1 minute
     public HttpClient? Client { get; set; }
     public string ContainerApp { get; set; } = "";
     public int CircuitBreakerErrorThreshold { get; set; }
