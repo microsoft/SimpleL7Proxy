@@ -92,7 +92,10 @@ public class RequestData : IDisposable, IAsyncDisposable
         // ASYNC
         try
         {
+            // Initialize the OutputStream with the context's response output stream
+            //OutputStream = new AsyncOutputStream(context.Response.OutputStream);
             OutputStream = context.Response.OutputStream;
+
         }
         catch (Exception ex)
         {
@@ -197,17 +200,65 @@ public class RequestData : IDisposable, IAsyncDisposable
             return;
         }
 
+        // Don't dispose asyncWorker here - let DisposeAsyncCore handle it
+        // Just set it to null to avoid double disposal
+        asyncWorker = null;
+
         if (disposing)
         {
             // Dispose managed resources
             FullURL = Path = Method = "";
             Body?.Dispose();
             Body = null;
-            Context?.Request?.InputStream?.Dispose();
-            Context?.Response?.OutputStream?.Dispose();
-            Context?.Response?.Close();
-            OutputStream?.Flush();
-            OutputStream?.Close();
+            try
+            {
+                Context?.Request?.InputStream?.Dispose();
+            }
+            catch (Exception)
+            {
+                // Ignore exceptions during dispose
+                Console.WriteLine("Failed to dispose of request input stream.");
+            }
+
+            try
+            {
+                Context?.Response?.OutputStream?.Dispose();
+            }
+            catch (Exception)
+            {
+                // Ignore exceptions during dispose
+                Console.WriteLine("Failed to dispose of response output stream.");
+            }
+
+            try
+            {
+                Context?.Response?.Close();
+            }
+            catch (Exception)
+            {
+                // Ignore exceptions during dispose
+                Console.WriteLine("Failed to close response context.");
+            }
+
+            try
+            {
+                OutputStream?.Flush();
+            }
+            catch (Exception)
+            {
+                // Ignore exceptions during dispose
+                Console.WriteLine("Failed to flush output stream.");
+            }
+
+            try
+            {
+                OutputStream?.Close();
+            }
+            catch (Exception)
+            {
+                // Ignore exceptions during dispose
+                Console.WriteLine("Failed to close output stream.");
+            }
             Context = null;
         }
     }
@@ -241,6 +292,19 @@ public class RequestData : IDisposable, IAsyncDisposable
             await Body.DisposeAsync();
             Body = null;
         }
+        
+        if (asyncWorker != null)
+        {
+            try
+            {
+                await asyncWorker.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Ignore exceptions during dispose
+            }
+            asyncWorker = null;
+        }
 
         if (Context != null)
         {
@@ -249,7 +313,7 @@ public class RequestData : IDisposable, IAsyncDisposable
                 await Context.Request.InputStream.DisposeAsync();
             }
 
-            try 
+            try
             {
                 if (Context?.Response?.OutputStream != null)
                 {
