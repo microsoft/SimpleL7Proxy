@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Net;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -35,11 +36,13 @@ namespace SimpleL7Proxy.Proxy
         public string ErrorMessage { get; set; } = "";
         string dataBlobName = "";
         string headerBlobName = "";
-
+        private int AsyncTimeout;
         private static readonly JsonSerializerOptions SerializeOptions = new()
         {
             WriteIndented = true,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping // This prevents URL encoding of & characters
+
         };
 
 
@@ -56,7 +59,7 @@ namespace SimpleL7Proxy.Proxy
         /// <param name="data">The request data.</param>
         /// <param name="blobWriter">The blob writer instance.</param>
         /// <param name="logger">The logger instance.</param>
-        public AsyncWorker(RequestData data, IBlobWriter blobWriter, ILogger<AsyncWorker> logger, IRequestStorageService requestStorageService)
+        public AsyncWorker(RequestData data, int AsyncTriggerTimeout, IBlobWriter blobWriter, ILogger<AsyncWorker> logger, IRequestStorageService requestStorageService)
         {
             logger.LogInformation($"AsyncWorker initializing");
             _requestData = data ?? throw new ArgumentNullException(nameof(data));
@@ -64,6 +67,7 @@ namespace SimpleL7Proxy.Proxy
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _requestStorageService = requestStorageService ?? throw new ArgumentNullException(nameof(requestStorageService));
             _userId = data.UserID;
+            AsyncTimeout = AsyncTriggerTimeout;
 
             if (!data.runAsync)
             {
@@ -98,10 +102,11 @@ namespace SimpleL7Proxy.Proxy
         {
             try
             {
+                //_logger.LogInformation($"AsyncWorker: Starting for UserId: {_userId}, Delaying for {AsyncTimeout} ms");
                 // wait state... can be cancelled by Terminate
-                await Task.Delay(_requestData.Timeout, _cancellationTokenSource.Token).ConfigureAwait(false);
+                await Task.Delay(AsyncTimeout, _cancellationTokenSource.Token).ConfigureAwait(false);
 
-
+                //_logger.LogInformation($"AsyncWorker: Delayed for {AsyncTimeout} ms");
                 // Atomically set to running (1) only if not started (0)
                 if (Interlocked.CompareExchange(ref _beginStartup, 1, 0) == 0)
                 {
@@ -187,6 +192,11 @@ namespace SimpleL7Proxy.Proxy
 
                     _logger.LogInformation($"Async: Request MID: {_requestData.MID} Guid: {_requestData.Guid.ToString()} created.");
                     _taskCompletionSource.TrySetResult(true); // Set the task completion source to indicate that the worker has started
+                }
+                else 
+                {
+                    _logger.LogInformation($"AsyncWorker: did not enter the startup section");
+                    // Worker has already started, do nothing
                 }
 
 
