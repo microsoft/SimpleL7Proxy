@@ -6,7 +6,7 @@ namespace SimpleL7Proxy.Proxy
 {
     public interface IAsyncWorkerFactory
     {
-        AsyncWorker CreateAsync(RequestData requestData);
+        AsyncWorker CreateAsync(RequestData requestData, int AsyncTriggerTimeout);
     }
 
     public class AsyncWorkerFactory : IAsyncWorkerFactory
@@ -22,9 +22,9 @@ namespace SimpleL7Proxy.Proxy
             _requestStorageService = requestStorageService;
         }
 
-        public AsyncWorker CreateAsync(RequestData requestData)
+        public AsyncWorker CreateAsync(RequestData requestData, int AsyncTriggerTimeout)
         {
-            var worker = new AsyncWorker(requestData, _blobWriter, _logger, _requestStorageService);
+            var worker = new AsyncWorker(requestData, AsyncTriggerTimeout, _blobWriter, _logger, _requestStorageService);
             return worker;
         }
     }
