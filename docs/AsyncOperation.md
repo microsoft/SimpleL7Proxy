@@ -19,31 +19,59 @@ Set the following environment variable to enable async processing:
 
 ```bash
 AsyncModeEnabled=true
+AsyncTimeout=<milliseconds for request timeout>
 ```
+
+The **AsyncTimeout** parameter defaults to 30 minutes and represents the amount of time an async request is allowed to run for.  Similar to **Timeout** in operation, this parameter controls when the proxy server will abandon a request that has been upgraded to Async. 
 
 ## 2. Azure Service Bus Configuration
 
-The Service Bus sends real-time status updates to client applications as requests are processed. 
+Azure Service Bus is used to send real-time status updates to client applications as requests are processed. Listening to this queue will tell you when your async message has completed processing. There are two authentication methods available:
 
-### Event Types
+### Option A: Connection String Authentication
 
-The following events are published to the Service Bus topic:
-
-- **InQueue** - The message was enqueued for processing
-- **RetryAfterDelay** - The message has been requeued after a delay
-- **ReQueued** - The message has been requeued for retry
-- **Processing** - The message is being processed (sent downstream)
-- **Processed** - The message was successfully processed; blob URIs are available
-- **Failed** - The message failed to process
-- **Expired** - The message has expired
-
-### Environment Variables
+For development or when using Service Bus access keys:
 
 ```bash
 AsyncSBConnectionString=<service-bus-connection-string>
 ```
 
-**Note:** The connection string must have permissions to send messages to the configured topic.
+### Option B: Managed Identity Authentication (Recommended)
+
+For production environments, use managed identity for enhanced security:
+
+```bash
+AsyncSBUseMI=true
+AsyncSBNamespace=<fully-qualified-namespace>
+```
+
+**Requirements:**
+- The connection string must have permissions to send messages to the configured topic
+- The Service Bus namespace must allow message sending operations
+- Each client should have their own topic configured for status updates
+
+**Required Azure RBAC Roles:**
+
+The managed identity (system-assigned or user-assigned) must be granted these roles on the Service Bus namespace:
+
+- **Azure Service Bus Data Sender** - Send messages to queues and topics ( more restrictive )
+- **Azure Service Bus Data Owner** - Full access to Service Bus data operations (alternative to Data Sender)  
+
+#### Clients
+
+Clients will need to be able to read from their own topic.  This topic name is specified in the user profile under the **AsyncSBTopicFieldName** parameter.  i.e., The 
+
+### Event Types
+
+The following events are published to the Service Bus topic:
+
+- **InQueue** - The message was enqueued for processing.
+- **RetryAfterDelay** - The message will delay for a periord of time before being requeued.
+- **ReQueued** - The message has been requeued for processing.
+- **Processing** - The message is being processed (sent downstream)
+- **Processed** - The message was successfully processed; blob URIs are available
+- **Failed** - The message failed to process
+- **Expired** - The message has expired
 
 
 ## 3. Azure Blob Storage Configuration
@@ -57,14 +85,10 @@ For development or when using storage account keys:
 ```bash
 AsyncBlobStorageConnectionString=<storage-account-connection-string>
 AsyncBlobContainer=<profile field name that contains the client's container name. >
+AsyncClientBlobFieldname=user_container_name
+
 BlobAccessTimeout=<The numebr of seconds that the blobs will be available for before they are automatically deleted.>
 ```
-
-**Requirements:**
-- The connection string must include account keys with full storage permissions
-- The storage account must allow blob creation and SAS token generation
-- Each client should have their own container and have access assigned to it.
-- Each client can have their own TTL for blob lifetime.  
 
 ### Option B: Managed Identity Authentication (Recommended)
 
@@ -73,7 +97,15 @@ For production environments, use managed identity for enhanced security:
 ```bash
 AsyncBlobStorageUseMI=true
 AsyncBlobStorageAccountUri=https://<storage-account-name>.blob.core.windows.net
+AsyncClientBlobFieldname=<profile field name that contains the client's container name. >
+BlobAccessTimeout=<The numebr of seconds that the blobs will be available for before they are automatically deleted.>
 ```
+
+**Requirements:**
+- The connection string must include account keys with full storage permissions
+- The storage account must allow blob creation and SAS token generation
+- Each client should have their own container and have access assigned to it.
+- Each client can have their own TTL for blob lifetime.  
 
 **Required Azure RBAC Roles:**
 
@@ -122,7 +154,8 @@ AsyncSBConnectionString=Endpoint=sb://myservicebus.servicebus.windows.net/;Share
 AsyncBlobStorageConnectionString=DefaultEndpointsProtocol=https;AccountName=mystorage;AccountKey=...
 
 # User Profile
-AsyncSBTopicFieldName=user_container_name
+AsyncSBTopicFieldName=user_servicebus_topic_name
+AsyncClientBlobFieldname=user_container_name
 
 # Client Header
 AsyncClientAllowedFieldName=async-allowed
@@ -133,15 +166,17 @@ AsyncClientAllowedFieldName=async-allowed
 # Enable async mode
 AsyncModeEnabled=true
 
-# Service Bus
-AsyncSBConnectionString=Endpoint=sb://myservicebus.servicebus.windows.net/;SharedAccessKeyName=...
+# Service Bus (Managed Identity)
+AsyncSBUseMI=true
+AsyncSBNamespace=myservicebus.servicebus.windows.net
 
 # Blob Storage (Managed Identity)
 AsyncBlobStorageUseMI=true
 AsyncBlobStorageAccountUri=https://mystorage.blob.core.windows.net
 
 # User Profile
-AsyncSBTopicFieldName=user_container_name
+AsyncSBTopicFieldName=user_servicebus_topic_name
+AsyncClientBlobFieldname=user_container_name
 
 # Client Header
 AsyncClientAllowedFieldName=async-allowed
