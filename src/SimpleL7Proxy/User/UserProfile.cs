@@ -308,14 +308,14 @@ public class UserProfile : BackgroundService, IUserProfileService
 
         if (!userProfiles.TryGetValue(userId, out var data))
         {
-            _logger.LogWarning($"User profile for {userId} not found.");
+            _logger.LogWarning($"User profile error: profile for user {userId} not found.");
             return null;
         }
 
         if (!data.TryGetValue(_options.AsyncClientAllowedFieldName, out var asyncAllowed) ||
             !string.Equals(asyncAllowed, "true", StringComparison.OrdinalIgnoreCase))
         {
-            _logger.LogWarning($"Async mode not allowed for user {userId}.");
+            _logger.LogWarning($"User profile error: async mode not allowed for user {userId}.");
             return null;
         }
 
@@ -323,22 +323,23 @@ public class UserProfile : BackgroundService, IUserProfileService
             string.IsNullOrWhiteSpace(containerName) ||
             !IsValidBlobContainerName(containerName))
         {
-            _logger.LogWarning($"Invalid or missing blob container name for user {userId}.");
+            _logger.LogWarning($"User profile error: invalid or missing blob container name for user {userId}: {containerName}.");
             return null;
         }
 
         if (!data.TryGetValue(_options.AsyncSBTopicFieldName, out var topicName) ||
             string.IsNullOrWhiteSpace(topicName) ||
-            !IsValidBlobContainerName(topicName))
+            !IsValidServiceBusTopicName(topicName))
         {
-            _logger.LogWarning($"Invalid or missing Service Bus topic name for user {userId}.");
+            _logger.LogWarning($"User profile error: invalid or missing Service Bus topic name for user {userId}: {topicName}.");
             return null;
         }
+
 
         if (!data.TryGetValue(_options.AsyncClientBlobTimeoutFieldName, out var timeoutStr) ||
             !int.TryParse(timeoutStr, out var timeoutSecs) || timeoutSecs <= 0)
         {
-            _logger.LogWarning($"Invalid or missing async blob access timeout for user {userId}. Using default value of 3600.");
+            _logger.LogWarning($"User profile error: invalid or missing async blob access timeout for user {userId}. Using default value of 3600.");
             timeoutSecs = 3600; // Default to 1 hour if not specified
         }
 
@@ -358,6 +359,21 @@ public class UserProfile : BackgroundService, IUserProfileService
         if (!System.Text.RegularExpressions.Regex.IsMatch(name, "^[a-z0-9-]+$")) return false;
         if (name.StartsWith("-") || name.EndsWith("-")) return false;
         if (name.Contains("--")) return false;
+        return true;
+    }
+
+    /// <summary>
+    /// Validates Azure Service Bus topic name rules.
+    /// </summary>
+    private bool IsValidServiceBusTopicName(string name)
+    {
+        // Azure Service Bus topic names: 1-260 chars, letters, numbers, periods, hyphens, underscores, forward slashes
+        // Cannot start or end with period, hyphen, or forward slash
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        if (name.Length < 1 || name.Length > 260) return false;
+        if (!System.Text.RegularExpressions.Regex.IsMatch(name, "^[a-zA-Z0-9._/-]+$")) return false;
+        if (name.StartsWith(".") || name.StartsWith("-") || name.StartsWith("/")) return false;
+        if (name.EndsWith(".") || name.EndsWith("-") || name.EndsWith("/")) return false;
         return true;
     }
 
