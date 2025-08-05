@@ -475,9 +475,15 @@ public class ProxyWorker
                             // Track the status of the request for circuit breaker
                             _backends.TrackStatus((int)lcontext.Response.StatusCode, requestException);
 
-                            incomingRequest.Dispose(); // Dispose of the request data
+                            try
+                            {
+                                incomingRequest.Dispose(); // Dispose of the request data
+                            }
+                            catch (Exception disposeEx)
+                            {
+                                _logger.LogError($"Failed to dispose of request data: {disposeEx.Message}");
+                            }
                         }
-
                     }
                     catch (Exception e)
                     {
@@ -491,6 +497,8 @@ public class ProxyWorker
                             ["StackTrace"] = e.StackTrace ?? "No Stack Trace"
                         };
                         _logger.LogError($"Error in finally: {e.Message}");
+                        _logger.LogDebug($"Exception details: {e}");
+                        _logger.LogDebug($"Exception details: {e.InnerException}");
                     }
 
                     Interlocked.Decrement(ref states[7]);
@@ -769,7 +777,7 @@ public class ProxyWorker
                         if (request.runAsync && request.asyncWorker is null)
                         {
                             rTimeout = _options.AsyncTimeout;
-                            request.asyncWorker = _asyncWorkerFactory.CreateAsync(request);
+                            request.asyncWorker = _asyncWorkerFactory.CreateAsync(request, _options.AsyncTriggerTimeout);
                             _ = request.asyncWorker.StartAsync();   // don't await this, let it run in parallel
                         }
 
@@ -785,7 +793,7 @@ public class ProxyWorker
                             {
                                 _logger.LogError("AsyncWorker is null, but runAsync is true");
                             }
-                            else if (!await request.asyncWorker.Synchronize())
+                            else if (!await request.asyncWorker.Synchronize()) // Wait for the worker to finish setting up the blob's, etc...
                             {
                                 _logger.LogError($"AsyncWorker failed to setup: {request.asyncWorker.ErrorMessage}");
                             }
@@ -913,8 +921,8 @@ public class ProxyWorker
                             // This will write to either the client or the blob depending on the async timer
                             // await proxyResponse.Content.CopyToAsync(request.Context!.Response.OutputStream).ConfigureAwait(false);
                             requestState = "Stream Proxy Response";
+                            _logger.LogInformation($"BEGIN streaming proxy response: {proxyResponse.StatusCode} ");
                             await proxyResponse.Content.CopyToAsync(request.OutputStream).ConfigureAwait(false);
-                            await request.OutputStream.FlushAsync().ConfigureAwait(false);
                         }
                         catch (IOException e)
                         {
@@ -937,11 +945,14 @@ public class ProxyWorker
                             }
                         }
 
-
-                        if (request.asyncWorker != null)
+                        try
                         {
-                            await request.asyncWorker.DisposeAsync().ConfigureAwait(false);
-                            request.asyncWorker = null;
+                            _logger.LogInformation($"Flushing output stream for {request.FullURL}");
+                            await request.OutputStream.FlushAsync().ConfigureAwait(false);                            
+                        }
+                        catch (Exception e)
+                        {
+                            Console.Error.WriteLine($"Error flushing output stream: {e}");
                         }
 
                         // Log the response if debugging is enabled
