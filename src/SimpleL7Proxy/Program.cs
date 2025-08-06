@@ -44,10 +44,13 @@ public class Program
     {
         Banner.Display();
 
+        var logLevel = GetLogLevelFromEnvironment();
+
         var startupLoggerFactory = LoggerFactory.Create(builder =>
         {
             builder.AddConsole(options => options.FormatterName = "custom");
             builder.AddConsoleFormatter<CustomConsoleFormatter, SimpleConsoleFormatterOptions>();
+            builder.SetMinimumLevel(logLevel);
         });
 
         var startupLogger = startupLoggerFactory.CreateLogger<Program>();
@@ -58,6 +61,9 @@ public class Program
                 logging.ClearProviders();
                 logging.AddConsole(options => options.FormatterName = "custom");
                 logging.AddConsoleFormatter<CustomConsoleFormatter, SimpleConsoleFormatterOptions>();
+
+                logging.SetMinimumLevel(logLevel);
+
             })
             .ConfigureServices((hostContext, services) =>
             {
@@ -82,12 +88,17 @@ public class Program
 
         try
         {
+            ServiceBusRequestService? serviceBusService = null;
+
             if (options.Value.AsyncModeEnabled)
             {
-                
-                startupLogger.LogInformation("Async mode is enabled. Initializing ServiceBusRequestService and AsyncWorker.");
+
+                startupLogger.LogWarning("Async mode is enabled. Initializing ServiceBusRequestService and AsyncWorker.");
                 var serviceBusRequestService = serviceProvider.GetRequiredService<IServiceBusRequestService>();
                 RequestData.InitializeServiceBusRequestService(serviceBusRequestService);
+
+                //_ = serviceBusService.StartAsync(CancellationToken.None);
+
                 // AsyncWorker.Initialize(
                 //     serviceProvider.GetRequiredService<BlobWriter>(),
                 //     serviceProvider.GetRequiredService<ILogger<AsyncWorker>>()
@@ -95,7 +106,7 @@ public class Program
             }
             else
             {
-                startupLogger.LogInformation("Async mode is disabled.");
+                startupLogger.LogWarning("Async mode is disabled.");
             }
         }
         catch (Exception ex)
@@ -109,13 +120,24 @@ public class Program
         }
         catch (OperationCanceledException)
         {
-            startupLogger.LogInformation("Operation was canceled.");
+            startupLogger.LogDebug("framework Host RunAsync Operation was canceled.");
         }
         catch (Exception e)
         {
             // Handle other exceptions that might occur
             startupLogger.LogError($"An unexpected error occurred: {e.Message}");
         }
+    }
+
+    private static LogLevel GetLogLevelFromEnvironment()
+    {
+        var logLevelString = Environment.GetEnvironmentVariable("LOG_LEVEL") ?? "Information";
+        var l =  Enum.TryParse<LogLevel>(logLevelString, true, out var logLevel) ? logLevel : LogLevel.Information;
+
+        // This should always be visible as it's critical startup information
+        Console.WriteLine($"Log level set to: {l}");
+
+        return l;
     }
 
     private static void ConfigureApplicationInsights(IServiceCollection services)
@@ -137,6 +159,7 @@ public class Program
                 config.TelemetryProcessorChainBuilder.Build();
             });
 
+            // Note: logging isn't fully configured yet
             Console.WriteLine("AppInsights initialized with custom request tracking");
         }
     }
