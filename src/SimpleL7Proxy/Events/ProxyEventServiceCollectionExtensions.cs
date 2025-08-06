@@ -11,7 +11,7 @@ public static class ProxyEventServiceCollectionExtensions
     /// <summary>
     /// Registers EventHub and AppInsights event clients and their hosted services.
     /// </summary>
-        public static IServiceCollection AddProxyEventClient(
+    public static IServiceCollection AddProxyEventClient(
         this IServiceCollection services,
         string? eventHubConnectionString,
         string? eventHubName,
