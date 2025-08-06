@@ -104,7 +104,8 @@ public class ProxyWorker
         if (_options.Workers == activeWorkers)
         {
             readyToWork = true;
-            _logger.LogInformation("All workers ready to work");
+            // Always display
+            Console.WriteLine("All workers ready to work");
         }
 
         // Stop the worker if the cancellation token is cancelled and there is no work to do
@@ -287,7 +288,17 @@ public class ProxyWorker
                     }
                     else
                     {
-                        incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Processed;
+
+                        if (incomingRequest.AsyncTriggered)
+                        {
+                            // ASYNC: Set the status to Processed
+                            incomingRequest.SBStatus = ServiceBusMessageStatusEnum.AsyncProcessed;
+                        }
+                        else
+                        {
+                            // SYNCHRONOUS: Set the status to Processed
+                            incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Processed;
+                        }
                     }
 
 
@@ -301,7 +312,9 @@ public class ProxyWorker
 
                     var conlen = pr.ContentHeaders?["Content-Length"] ?? "N/A";
                     var proxyTime = (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
-                    _logger.LogInformation($"Pri: {incomingRequest.Priority}, Stat: {(int)pr.StatusCode}, Len: {conlen}, {pr.FullURL}, Deq: {incomingRequest.DequeueTime.ToLocalTime().ToString("HH:mm:ss")}, Lat: {proxyTime} ms");
+                    _logger.LogCritical("Pri: {Priority}, Stat: {StatusCode}, Len: {ContentLength}, {FullURL}, Deq: {DequeueTime}, Lat: {ProxyTime} ms", 
+                        incomingRequest.Priority, (int)pr.StatusCode, conlen, pr.FullURL, 
+                        incomingRequest.DequeueTime.ToLocalTime().ToString("HH:mm:ss"), proxyTime);
 
                     eventData["Content-Length"] = lcontext.Response?.ContentLength64.ToString() ?? "N/A";
                     eventData["Content-Type"] = lcontext?.Response?.ContentType ?? "N/A";
@@ -338,7 +351,8 @@ public class ProxyWorker
 
                     // Requeue the request 
                     //_requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.Priority2, incomingRequest.EnqueueTime);
-                    _logger.LogInformation($"Requeued request, Pri: {incomingRequest.Priority}, Expires-At: {incomingRequest.ExpiresAtString} Retry-after-ms: {e.RetryAfter}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()}");
+                    _logger.LogCritical("Requeued request, Pri: {Priority}, Expires-At: {ExpiresAt} Retry-after-ms: {RetryAfter}, Q-Len: {QueueLength}, CB: {CircuitBreakerStatus}, Hosts: {ActiveHosts}", 
+                        incomingRequest.Priority, incomingRequest.ExpiresAtString, e.RetryAfter, _requestsQueue.thrdSafeCount, _backends.CheckFailedStatus(), _backends.ActiveHostCount());
                     incomingRequest.Requeued = true;
                     incomingRequest.SkipDispose = true;
 
@@ -363,7 +377,7 @@ public class ProxyWorker
                             0,
                             errorMessage.Length).ConfigureAwait(false);
 
-                        _logger.LogInformation($"Proxy error: {e.Message}");
+                        _logger.LogWarning("Proxy error: {Message}", e.Message);
                     }
                     catch (Exception writeEx)
                     {
@@ -379,7 +393,7 @@ public class ProxyWorker
                 {
                     if (isExpired)
                     {
-                        _logger.LogError("IoException on an exipred request");
+                        _logger.LogError("IoException on an expired request");
                     }
                     else
                     {
@@ -414,11 +428,11 @@ public class ProxyWorker
                 {
                     if (isExpired)
                     {
-                        Console.Error.WriteLine("Exception on an exipred request");
+                        _logger.LogError("Exception on an expired request");
                     }
                     else
                     {
-                        Console.Error.WriteLine("GOT AN ERROR: " + ex.Message);
+                        _logger.LogError("GOT AN ERROR: {Message}", ex.Message);
                         eventData.Status = HttpStatusCode.InternalServerError; // 500 Internal Server Error
                         eventData.Type = EventType.Exception;
                         eventData.Exception = ex;
@@ -426,7 +440,7 @@ public class ProxyWorker
 
                         if (ex.Message == "Cannot access a disposed object." || ex.Message.StartsWith("Unable to write data") || ex.Message.Contains("Broken Pipe")) // The client likely closed the connection
                         {
-                            Console.Error.WriteLine($"Client closed connection: {incomingRequest.FullURL}");
+                            _logger.LogInformation("Client closed connection: {FullURL}", incomingRequest.FullURL);
                             eventData["InnerErrorDetail"] = "Client Disconnected";
                         }
                         else
@@ -497,8 +511,6 @@ public class ProxyWorker
                             ["StackTrace"] = e.StackTrace ?? "No Stack Trace"
                         };
                         _logger.LogError($"Error in finally: {e.Message}");
-                        _logger.LogDebug($"Exception details: {e}");
-                        _logger.LogDebug($"Exception details: {e.InnerException}");
                     }
 
                     Interlocked.Decrement(ref states[7]);
@@ -509,7 +521,7 @@ public class ProxyWorker
 
         Interlocked.Decrement(ref activeWorkers);
 
-        _logger.LogInformation($"Worker {IDstr} stopped.");
+        _logger.LogDebug("Worker {IDstr} stopped.", IDstr);
     }
 
     private void AddIncompleteRequestsToEventData(List<Dictionary<string, string>> incompleteRequests, ConcurrentDictionary<string, string> eventData)
@@ -745,7 +757,7 @@ public class ProxyWorker
                         catch (Exception e)
                         {
                             mediaTypeHeaderValue = new MediaTypeHeaderValue("application/octet-stream") { CharSet = "utf-8" };
-                            _logger.LogInformation($"Invalid charset provided, defaulting to utf-8: {e.Message}");
+                            _logger.LogInformation("Invalid charset provided, defaulting to utf-8: {Message}", e.Message);
                         }
 
                         proxyRequest.Content.Headers.ContentType = mediaTypeHeaderValue;
@@ -829,15 +841,16 @@ public class ProxyWorker
                                     // Read the response body so that we can get the byte length ( DEBUG ONLY )  
                                     //bodyBytes = [];
                                     //await GetProxyResponseAsync(proxyResponse, request, pr).ConfigureAwait(false);
-                                    _logger.LogInformation($"Got: {pr.StatusCode} {pr.FullURL} {pr.ContentHeaders["Content-Length"]} Body: {pr?.Body?.Length} bytes");
-                                    _logger.LogInformation($"< {pr?.Body}");
+                                    _logger.LogDebug("Got: {StatusCode} {FullURL} {ContentLength} Body: {BodyLength} bytes", 
+                                        pr.StatusCode, pr.FullURL, pr.ContentHeaders["Content-Length"], pr?.Body?.Length);
+                                    _logger.LogDebug("< {Body}", pr?.Body);
                                 }
                                 catch (Exception e)
                                 {
-                                    _logger.LogError($"Error reading from backend host: {e.Message}");
+                                    _logger.LogError("Error reading from backend host: {Message}", e.Message);
                                 }
 
-                                _logger.LogInformation($"Trying next host: Response: {proxyResponse.StatusCode}");
+                                _logger.LogDebug("Trying next host: Response: {StatusCode}", proxyResponse.StatusCode);
                             }
 
                             // The request did not succeed, try the next host
@@ -883,11 +896,18 @@ public class ProxyWorker
                             request.SkipDispose = false;
                         }
 
+                        // Strip headers from pr.Headers that are not allowed in the response
+                        foreach (var header in _options.StripHeaders)
+                        {
+                            if (pr.Headers.Get(header) != null)
+                            {
+                                pr.Headers.Remove(header);
+                            }
+                        }
 
                         // ASYNC: If the request was triggered asynchronously, we need to write the response to the async worker blob
                         // TODO: Move to caller to handle writing errors?
                         // Store the response stream in proxyData and return to parent caller
-
                         // WAS ASYNC SYNCHRONIZED?
                         if (request.AsyncTriggered)
                         {
@@ -901,64 +921,56 @@ public class ProxyWorker
                         else
                         {
                             request.Context!.Response.StatusCode = (int)proxyResponse.StatusCode;
-
-                            // Strip headers from pr.Headers that are not allowed in the response
-                            foreach (var header in _options.StripHeaders)
-                            {
-                                if (pr.Headers.Get(header) != null)
-                                {
-                                    pr.Headers.Remove(header);
-                                }
-                            }
                             request.Context.Response.Headers = pr.Headers;
                         }
+                    
 
 
                         // Stream response from the backend to the client / blob depending on async timer 
+                            try
+                            {
+
+                                // This will write to either the client or the blob depending on the async timer
+                                // await proxyResponse.Content.CopyToAsync(request.Context!.Response.OutputStream).ConfigureAwait(false);
+                                requestState = "Stream Proxy Response";
+                                await proxyResponse.Content.CopyToAsync(request.OutputStream).ConfigureAwait(false);
+                            }
+                            catch (IOException e)
+                            {
+                                _logger.LogError("IO Error streaming response: {Message}", e.Message);
+
+                            }
+                            catch (Exception e)
+                            {
+                                if (e.InnerException is IOException ioex)
+                                {
+                                    // This is likely a client disconnect, we can ignore it.
+                                    // We've already returned a status and streamed the response.  Best to continue.
+                                    _logger.LogDebug("Client disconnected while streaming response: {Message}", ioex.Message);
+                                }
+                                else
+                                {
+                                    _logger.LogError("Error streaming response: {InnerException}", e.InnerException);
+                                    throw new ProxyErrorException(ProxyErrorException.ErrorType.ClientDisconnected,
+                                                                  HttpStatusCode.InternalServerError, e.Message);
+                                }
+                            }
+
                         try
                         {
-
-                            // This will write to either the client or the blob depending on the async timer
-                            // await proxyResponse.Content.CopyToAsync(request.Context!.Response.OutputStream).ConfigureAwait(false);
-                            requestState = "Stream Proxy Response";
-                            _logger.LogInformation($"BEGIN streaming proxy response: {proxyResponse.StatusCode} ");
-                            await proxyResponse.Content.CopyToAsync(request.OutputStream).ConfigureAwait(false);
-                        }
-                        catch (IOException e)
-                        {
-                            Console.Error.WriteLine($"IO Error streaming response: {e}");
-
-                        }                        
-                        catch (Exception e)
-                        {
-                            if (e.InnerException is IOException ioex)
-                            {
-                                // This is likely a client disconnect, we can ignore it.
-                                // We've already returned a status and streamed the response.  Best to continue.
-                                _logger.LogWarning($"Client disconnected while streaming response: {ioex.Message}");
-                            }
-                            else
-                            {
-                                Console.Error.WriteLine($"Error streaming response: {e.InnerException}");
-                                throw new ProxyErrorException(ProxyErrorException.ErrorType.ClientDisconnected,
-                                                              HttpStatusCode.InternalServerError, e.Message);
-                            }
-                        }
-
-                        try
-                        {
-                            _logger.LogInformation($"Flushing output stream for {request.FullURL}");
+                            _logger.LogDebug("Flushing output stream for {FullURL}", request.FullURL);
                             await request.OutputStream.FlushAsync().ConfigureAwait(false);                            
                         }
                         catch (Exception e)
                         {
-                            Console.Error.WriteLine($"Error flushing output stream: {e}");
+                            _logger.LogDebug("Unable to flush output stream: {Exception}", e);
                         }
 
                         // Log the response if debugging is enabled
                         if (request.Debug)
                         {
-                            _logger.LogInformation($"Got: {pr.StatusCode} {pr.FullURL} {pr.ContentHeaders["Content-Length"]} Body: {pr?.Body?.Length} bytes");
+                            _logger.LogDebug("Got: {StatusCode} {FullURL} {ContentLength} Body: {BodyLength} bytes", 
+                                pr.StatusCode, pr.FullURL, pr.ContentHeaders["Content-Length"], pr?.Body?.Length);
                         }
                         successfulRequest = true;
                         return pr ?? throw new ArgumentNullException(nameof(pr));
@@ -1046,7 +1058,7 @@ public class ProxyWorker
                     incompleteRequests.Add(miniDict);
 
                     var str = JsonSerializer.Serialize(miniDict);
-                    _logger.LogInformation(str);
+                    _logger.LogDebug(str);
                 }
             }
         }
@@ -1095,9 +1107,8 @@ public class ProxyWorker
         }
         catch (Exception e)
         {
-            Console.WriteLine($"Error writing response: {e.Message}");
             // If we can't write the response, we can only log it
-            _logger.LogError($"Error writing response: {e.Message}");
+            _logger.LogError("Error writing response: {Message}", e.Message);
         }
 
 
@@ -1185,7 +1196,7 @@ public class ProxyWorker
     {
         foreach (var header in headers)
         {
-            _logger.LogInformation($"{prefix} {header.Key} : {string.Join(", ", header.Value)}");
+            _logger.LogDebug("{Prefix} {HeaderKey} : {HeaderValues}", prefix, header.Key, string.Join(", ", header.Value));
         }
     }
     private HttpStatusCode HandleProxyRequestError(
