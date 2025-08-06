@@ -63,7 +63,7 @@ public class EventHubClient : IEventClient, IHostedService
             throw new Exception("Failed to setup EventHubClient.", ex);
         }
 
-        _logger.LogInformation("EventHub Client starting");
+        _logger.LogCritical("EventHub Client starting");
         if (isRunning && _producerClient is not null && _batchData is not null) {
             writerTask = Task.Run(() => EventWriter(workerCancelToken), workerCancelToken);
         }
@@ -97,7 +97,7 @@ public class EventHubClient : IEventClient, IHostedService
 
         try
         {
-            _logger.LogInformation($"EventHubClient: EventWriter running.");
+            _logger.LogCritical($"EventHubClient: EventWriter running.");
             while (!token.IsCancellationRequested)
             {
                 if (GetNextBatch(99) > 0)
@@ -111,7 +111,7 @@ public class EventHubClient : IEventClient, IHostedService
                     await Task.Delay(500, token).ConfigureAwait(false); // Wait for 1/2 second
                 }
             }
-            _logger.LogInformation("EventHubClient: EventWriter exiting");
+            _logger.LogCritical("EventHubClient: EventWriter exiting");
 
         }
         catch (TaskCanceledException)
