@@ -42,7 +42,7 @@ namespace SimpleL7Proxy.BlobStorage
 
         public async Task<bool> InitClientAsync(string userId, string containerName)
         {
-            Console.Error.WriteLine($"Initializing BlobContainerClient for userId: {userId}, containerName: {containerName}");
+            _logger.LogInformation($"Initializing BlobContainerClient for userId: {userId}, containerName: {containerName}");
 
             if (string.IsNullOrEmpty(userId))
             {

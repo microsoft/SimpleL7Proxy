@@ -87,7 +87,7 @@ public class Server : BackgroundService
         _httpListener.Prefixes.Add(_listeningUrl);
 
         var timeoutTime = TimeSpan.FromMilliseconds(_options.Timeout).ToString(@"hh\:mm\:ss\.fff");
-        _logger.LogInformation($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
+        _logger.LogCritical($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
     }
 
     public void BeginShutdown()
@@ -98,7 +98,7 @@ public class Server : BackgroundService
     public Task StopListening(CancellationToken cancellationToken)
     {
         _cancellationTokenSource?.Cancel();
-        _logger.LogInformation("Server stopping.");
+        _logger.LogCritical("Server stopping.");
         return Task.CompletedTask;
     }
 
@@ -118,7 +118,7 @@ public class Server : BackgroundService
             backendStartTask = _backends.WaitForStartup(20);
 
             _httpListener.Start();
-            _logger.LogInformation($"Listening on {_options?.Port}");
+            _logger.LogCritical($"Listening on {_options?.Port}");
             // Additional setup or async start operations can be performed here
 
             _requestsQueue.StartSignaler(cancellationToken);
@@ -527,7 +527,7 @@ public class Server : BackgroundService
                         temp_ed["Message"] = "Enqueued request";
 
                         temp_ed.SendEvent();
-                        _logger.LogInformation($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
+                        _logger.LogCritical($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
                     }
                 }
                 else
