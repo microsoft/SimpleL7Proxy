@@ -31,6 +31,8 @@ namespace SimpleL7Proxy.ServiceBus
             _options = options.Value;
             _senderFactory = senderFactory ?? throw new ArgumentNullException(nameof(senderFactory));
             _logger = logger;
+            
+            _logger.LogInformation("ServiceBus feeder tasks configured: {FeedersCount}", _options.AsyncSBStatusWorkers);
         }
 
         private void OnApplicationStopping()
@@ -84,8 +86,6 @@ namespace SimpleL7Proxy.ServiceBus
             }
         }
 
-        int feeders = 5;
-
         public async Task EventWriter(CancellationToken token)
         {
 
@@ -93,8 +93,8 @@ namespace SimpleL7Proxy.ServiceBus
 
             try
             {
-                Task[] tasks = new Task[feeders];
-                for (int i = 0; i < feeders; i++)
+                Task[] tasks = new Task[_options.AsyncSBStatusWorkers];
+                for (int i = 0; i < _options.AsyncSBStatusWorkers; i++)
                 {
                     // Start a new task for each feeder
                     tasks[i] = Task.Run(() => FeederTask(token), token);

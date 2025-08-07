@@ -44,6 +44,7 @@ public static class BackendHostConfigurationExtensions
       options.AsyncSBConnectionString = backendOptions.AsyncSBConnectionString;
       options.AsyncSBNamespace = backendOptions.AsyncSBNamespace;
       options.AsyncSBUseMI = backendOptions.AsyncSBUseMI;
+      options.AsyncSBStatusWorkers = backendOptions.AsyncSBStatusWorkers;
       options.AsyncTimeout = backendOptions.AsyncTimeout;
       options.AsyncTriggerTimeout = backendOptions.AsyncTriggerTimeout;
       options.AsyncSBTopicFieldName = backendOptions.AsyncSBTopicFieldName;
@@ -452,6 +453,7 @@ public static class BackendHostConfigurationExtensions
       AsyncSBNamespace = ReadEnvironmentVariableOrDefault("AsyncSBNamespace", ""),
       AsyncSBTopicFieldName = ReadEnvironmentVariableOrDefault("AsyncSBTopicFieldName", "async-topic"),
       AsyncSBUseMI = ReadEnvironmentVariableOrDefault("AsyncSBUseMI", false), // Use managed identity for Service Bus
+      AsyncSBStatusWorkers = ReadEnvironmentVariableOrDefault("AsyncSBStatusWorkers", "5"),
       AsyncTimeout = ReadEnvironmentVariableOrDefault("AsyncTimeout", 30 * 60000),
       AsyncTriggerTimeout = ReadEnvironmentVariableOrDefault("AsyncTriggerTimeout", 10000),
       CircuitBreakerErrorThreshold = ReadEnvironmentVariableOrDefault("CBErrorThreshold", 50),
