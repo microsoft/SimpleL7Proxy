@@ -20,9 +20,15 @@ Set the following environment variable to enable async processing:
 ```bash
 AsyncModeEnabled=true
 AsyncTimeout=<milliseconds for request timeout>
+AsyncTriggerTimeout=<milliseconds before async is enabled for the request>
+AsyncSBStatusWorkers=5
 ```
 
-The **AsyncTimeout** parameter defaults to 30 minutes and represents the amount of time an async request is allowed to run for.  Similar to **Timeout** in operation, this parameter controls when the proxy server will abandon a request that has been upgraded to Async. 
+The **AsyncTimeout** parameter defaults to 30 minutes and represents the amount of time an async request is allowed to run for.  Similar to **Timeout** in operation, this parameter controls when the proxy server will abandon a request that has been upgraded to Async.
+
+The **AsyncTriggerTimeout** parameter enables when a request becomes async.  The idea is that fast runnung requests will perform without change.  After this time occurs, the request is converted to async and a response is sent to the caller with details on how to access the data when processing is complete.
+
+The **AsyncSBStatusWorkers** parameter controls the number of workers that can feed data to the service bus.  The default value is 5.  If your service is running under high load, it may make sense to increase this number as the number because the service will attempt to drain all of the in-memory events during a shutdown or resize.
 
 ## 2. Azure Service Bus Configuration
 
