@@ -3,7 +3,7 @@ using SimpleL7Proxy.Events;
 
 namespace SimpleL7Proxy.StreamProcessor
 {
-    public class NullStreamProcessor : IStreamProcessor
+    public class HeaderTokensProcessor : IStreamProcessor
     {
         public Task CopyToAsync(System.Net.Http.HttpContent sourceContent, Stream outputStream, CancellationToken? cancellationToken)
         {
@@ -13,7 +13,8 @@ namespace SimpleL7Proxy.StreamProcessor
 
         public void GetStats(ProxyEvent eventData, HttpResponseHeaders headers)
         {
-            // No stats to collect in a null processor
+            //eventData["CompletionTokens"] = headers.GetValues("X-Completion-Tokens").FirstOrDefault() ?? "0";
+
         }
     }
 }

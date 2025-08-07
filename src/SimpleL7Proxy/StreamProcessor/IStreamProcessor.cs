@@ -1,3 +1,6 @@
+using SimpleL7Proxy.Events;
+using System.Net.Http.Headers;
+
 namespace SimpleL7Proxy.StreamProcessor
 {
     /// <summary>
@@ -18,6 +21,6 @@ namespace SimpleL7Proxy.StreamProcessor
         /// Gets statistics about the stream processing operation.
         /// </summary>
         /// <returns>A dictionary containing processing statistics.</returns>
-        Dictionary<string, string> GetStats();
+        void GetStats(ProxyEvent eventData, HttpResponseHeaders headers);
     }
 }

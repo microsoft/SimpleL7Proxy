@@ -1,5 +1,7 @@
 
 using System.Text.Json.Nodes;
+using System.Net.Http.Headers;
+using SimpleL7Proxy.Events; 
 
 namespace SimpleL7Proxy.StreamProcessor
 {
@@ -141,9 +143,11 @@ namespace SimpleL7Proxy.StreamProcessor
         /// Gets statistics about the stream processing operation.
         /// </summary>
         /// <returns>A dictionary containing processing statistics.</returns>
-        public Dictionary<string, string> GetStats()
+        public void GetStats(ProxyEvent eventData, HttpResponseHeaders headers)
         {
-            return new Dictionary<string, string>(data);
+            eventData["CompletionTokens"]= data["CompletionTokens"];
+            eventData["PromptTokens"]= data["PromptTokens"];
+            eventData["TotalTokens"]= data["TotalTokens"];
         }
     }
 }
