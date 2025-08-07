@@ -15,6 +15,8 @@ using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.ServiceBus;
 using SimpleL7Proxy.BlobStorage;
+using Microsoft.Azure.Amqp.Framing;
+using SimpleL7Proxy.StreamProcessor;
 
 namespace SimpleL7Proxy.Proxy;
 
@@ -288,17 +290,10 @@ public class ProxyWorker
                     }
                     else
                     {
-
-                        if (incomingRequest.AsyncTriggered)
-                        {
-                            // ASYNC: Set the status to Processed
-                            incomingRequest.SBStatus = ServiceBusMessageStatusEnum.AsyncProcessed;
-                        }
-                        else
-                        {
-                            // SYNCHRONOUS: Set the status to Processed
-                            incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Processed;
-                        }
+                        // Set the appropriate status based on whether the request was async or sync
+                        incomingRequest.SBStatus = incomingRequest.AsyncTriggered 
+                            ? ServiceBusMessageStatusEnum.AsyncProcessed 
+                            : ServiceBusMessageStatusEnum.Processed;
                     }
 
 
@@ -923,43 +918,69 @@ public class ProxyWorker
                             request.Context!.Response.StatusCode = (int)proxyResponse.StatusCode;
                             request.Context.Response.Headers = pr.Headers;
                         }
-                    
 
-
-                        // Stream response from the backend to the client / blob depending on async timer 
-                            try
+                        var processWith = "Inline";
+                        if ((int)proxyResponse.StatusCode == 200 && proxyResponse.Headers.TryGetValues("TOKENPROCESSOR", out var processorValues))
+                        {
+                            var tokenProcessor = processorValues.FirstOrDefault();
+                            if (!string.IsNullOrEmpty(tokenProcessor))
                             {
+                                // Use the token processor for further processing
+                                processWith = tokenProcessor;
+                            }
+                        }
 
-                                // This will write to either the client or the blob depending on the async timer
-                                // await proxyResponse.Content.CopyToAsync(request.Context!.Response.OutputStream).ConfigureAwait(false);
-                                requestState = "Stream Proxy Response";
+                        requestState = "Stream Proxy Response : " + processWith;
+
+                        // Stream response from the backend to the client / blob depending on async timer
+                        IStreamProcessor processor = new NullStreamProcessor();
+                        try
+                        {
+                            if (processWith == "Inline")
+                            {
                                 await proxyResponse.Content.CopyToAsync(request.OutputStream).ConfigureAwait(false);
                             }
-                            catch (IOException e)
+                            else
                             {
-                                _logger.LogError("IO Error streaming response: {Message}", e.Message);
+                                if (processWith == "OpenAI")
+                                    processor = new OpenAIProcessor();
+                                else
+                                    processor = new SimpleL7Proxy.StreamProcessor.DefaultStreamProcessor();
+
+                                await processor.CopyToAsync(proxyResponse.Content, request.OutputStream, null).ConfigureAwait(false);
 
                             }
-                            catch (Exception e)
+                            // This will write to either the client or the blob depending on the async timer
+                        }
+                        catch (IOException e)
+                        {
+                            _logger.LogError("IO Error streaming response: {Message}", e.Message);
+
+                        }
+                        catch (Exception e)
+                        {
+                            if (e.InnerException is IOException ioex)
                             {
-                                if (e.InnerException is IOException ioex)
-                                {
-                                    // This is likely a client disconnect, we can ignore it.
-                                    // We've already returned a status and streamed the response.  Best to continue.
-                                    _logger.LogDebug("Client disconnected while streaming response: {Message}", ioex.Message);
-                                }
-                                else
-                                {
-                                    _logger.LogError("Error streaming response: {InnerException}", e.InnerException);
-                                    throw new ProxyErrorException(ProxyErrorException.ErrorType.ClientDisconnected,
-                                                                  HttpStatusCode.InternalServerError, e.Message);
-                                }
+                                // This is likely a client disconnect, we can ignore it.
+                                // We've already returned a status and streamed the response.  Best to continue.
+                                _logger.LogDebug("Client disconnected while streaming response: {Message}", ioex.Message);
                             }
+                            else
+                            {
+                                _logger.LogError("Error streaming response: {InnerException}", e.InnerException);
+                                throw new ProxyErrorException(ProxyErrorException.ErrorType.ClientDisconnected,
+                                                              HttpStatusCode.InternalServerError, e.Message);
+                            }
+                        }
+                        finally
+                        {
+                            _logger.LogCritical("Stream processing stats: {Stats}", processor.GetStats());
+                        }
 
                         try
                         {
                             _logger.LogDebug("Flushing output stream for {FullURL}", request.FullURL);
-                            await request.OutputStream.FlushAsync().ConfigureAwait(false);                            
+                            await request.OutputStream.FlushAsync().ConfigureAwait(false);
                         }
                         catch (Exception e)
                         {

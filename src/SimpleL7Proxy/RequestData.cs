@@ -58,7 +58,10 @@ public class RequestData : IDisposable, IAsyncDisposable
         set
         {
             _sbStatus = value;
-            SBRequestService?.updateStatus(this);
+            if (runAsync)
+            {
+                SBRequestService?.updateStatus(this);
+            }
         }
     }
     // Method to initialize the static variable from DI
@@ -227,7 +230,7 @@ public class RequestData : IDisposable, IAsyncDisposable
             catch (Exception)
             {
                 // Ignore exceptions during dispose
-                Console.WriteLine("Failed to dispose of response output stream.");
+                //Console.WriteLine("Failed to dispose of response output stream.");
             }
 
             try
