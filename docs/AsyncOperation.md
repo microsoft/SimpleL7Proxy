@@ -1,42 +1,53 @@
 # Async Operation Configuration
 
-This document describes how to configure the proxy for asynchronous operation mode. When enabled, the proxy can handle requests asynchronously, providing status updates via Azure Service Bus and storing request/response data in Azure Blob Storage.
+This document describes how to configure the proxy for asynchronous operation mode. When enabled, the proxy can handle requests asynchronously, providing status updates via Azure ServiceBus and storing request/response data in Azure Blob Storage.
 
 ## Overview
 
-To enable async operation, the proxy requires:
+To enable async operation, the proxy requires the following configuration changes:
 
 1. **Async Mode** - Enable the async processing feature
-2. **Azure Service Bus** - For sending status notifications to clients
+2. **Azure ServiceBus** - For sending status notifications to clients
 3. **Azure Blob Storage** - For storing request and response data
-4. **Request Headers** - Each request must include appropriate headers to enable async processing
+4. **User profile fields** - Configurtion parameters needed for each client.
+5. **Request Headers** - Each request must include appropriate headers to enable async processing
 
 All configuration is done via environment variables.
 
 ## 1. Enable Async Mode
 
-Set the following environment variable to enable async processing:
+Set the following environment variables to enable async processing:
 
 ```bash
+AsyncClientAllowedFieldName=async-allowed
 AsyncModeEnabled=true
 AsyncTimeout=<milliseconds for request timeout>
 AsyncTriggerTimeout=<milliseconds before async is enabled for the request>
+AsyncClientBlobFieldname=profile field name that contains the clients container name
+AsyncClientBlobTimeoutFieldName=profile field name that contains the blob timeout in seconds
 AsyncSBStatusWorkers=5
+AsyncSBTopicFieldName=profile field name that contains the ServiceBus topic name
 ```
 
-The **AsyncTimeout** parameter defaults to 30 minutes and represents the amount of time an async request is allowed to run for.  Similar to **Timeout** in operation, this parameter controls when the proxy server will abandon a request that has been upgraded to Async.
+**Configuration Details:**
 
-The **AsyncTriggerTimeout** parameter enables when a request becomes async.  The idea is that fast runnung requests will perform without change.  After this time occurs, the request is converted to async and a response is sent to the caller with details on how to access the data when processing is complete.
+- **AsyncClientAllowedFieldName**: The header name that clients send to enable async processing for a request. If the header is missing or set to false, async mode will not be triggered.
 
-The **AsyncSBStatusWorkers** parameter controls the number of workers that can feed data to the service bus.  The default value is 5.  If your service is running under high load, it may make sense to increase this number as the number because the service will attempt to drain all of the in-memory events during a shutdown or resize.
+- **AsyncTimeout**: Maximum time (in milliseconds) an async request is allowed to run. Defaults to 30 minutes. Similar to the standard `Timeout` parameter, this controls when the proxy server will abandon a request that has been upgraded to async.
 
-## 2. Azure Service Bus Configuration
+- **AsyncTriggerTimeout**: Time (in milliseconds) after which a request becomes async. Fast-running requests will complete normally. After this timeout, the request is converted to async mode and an immediate response is sent to the caller with details on how to access the data when processing completes.
 
-Azure Service Bus is used to send real-time status updates to client applications as requests are processed. Listening to this queue will tell you when your async message has completed processing. There are two authentication methods available:
+- **AsyncSBStatusWorkers**: Number of worker tasks that feed data to ServiceBus. Default value is 5. Under high load, consider increasing this number to help drain in-memory events during shutdown or resize operations.
+
+
+
+## 2. Azure ServiceBus Configuration
+
+Azure ServiceBus is used to send real-time status updates to client applications as requests are processed. Listening to this topic will tell you when your async message has completed processing. On the proxy side, there are two authentication methods available shown below. In addition, a topic needs to be specified; however, since topics are specific to each client (clients cannot see each other's topics), the topic is specified in the user profile for that client.
 
 ### Option A: Connection String Authentication
 
-For development or when using Service Bus access keys:
+For development or when using ServiceBus access keys:
 
 ```bash
 AsyncSBConnectionString=<service-bus-connection-string>
@@ -53,26 +64,26 @@ AsyncSBNamespace=<fully-qualified-namespace>
 
 **Requirements:**
 - The connection string must have permissions to send messages to the configured topic
-- The Service Bus namespace must allow message sending operations
+- The ServiceBus namespace must allow message sending operations
 - Each client should have their own topic configured for status updates
 
 **Required Azure RBAC Roles:**
 
-The managed identity (system-assigned or user-assigned) must be granted these roles on the Service Bus namespace:
+The managed identity (system-assigned or user-assigned) must be granted these roles on the ServiceBus namespace:
 
-- **Azure Service Bus Data Sender** - Send messages to queues and topics ( more restrictive )
-- **Azure Service Bus Data Owner** - Full access to Service Bus data operations (alternative to Data Sender)  
+- **Azure ServiceBus Data Sender** - Send messages to queues and topics ( more restrictive )
+- **Azure ServiceBus Data Owner** - Full access to ServiceBus data operations (alternative to Data Sender)  
 
 #### Clients
 
-Clients will need to be able to read from their own topic.  This topic name is specified in the user profile under the **AsyncSBTopicFieldName** parameter.  i.e., The 
+Clients will need to be able to read from their own topic. This topic name is specified in the user profile under the **AsyncSBTopicFieldName** parameter. 
 
 ### Event Types
 
-The following events are published to the Service Bus topic:
+The following events are published to the ServiceBus topic:
 
 - **InQueue** - The message was enqueued for processing.
-- **RetryAfterDelay** - The message will delay for a periord of time before being requeued.
+- **RetryAfterDelay** - The message will delay for a period of time before being requeued.
 - **ReQueued** - The message has been requeued for processing.
 - **Processing** - The message is being processed (sent downstream)
 - **Processed** - The message was successfully processed; blob URIs are available
@@ -91,9 +102,6 @@ For development or when using storage account keys:
 ```bash
 AsyncBlobStorageConnectionString=<storage-account-connection-string>
 AsyncBlobContainer=<profile field name that contains the client's container name. >
-AsyncClientBlobFieldname=user_container_name
-
-BlobAccessTimeout=<The numebr of seconds that the blobs will be available for before they are automatically deleted.>
 ```
 
 ### Option B: Managed Identity Authentication (Recommended)
@@ -103,8 +111,6 @@ For production environments, use managed identity for enhanced security:
 ```bash
 AsyncBlobStorageUseMI=true
 AsyncBlobStorageAccountUri=https://<storage-account-name>.blob.core.windows.net
-AsyncClientBlobFieldname=<profile field name that contains the client's container name. >
-BlobAccessTimeout=<The numebr of seconds that the blobs will be available for before they are automatically deleted.>
 ```
 
 **Requirements:**
@@ -121,29 +127,32 @@ The managed identity (system-assigned or user-assigned) must be granted these ro
 - **Storage Blob Delegator** - Generate user delegation SAS tokens
 - **Storage Account Contributor** - Manage storage account properties
 
-**User Profile Configuration:**
+## 4. User Profile Configuration
+
+The following parameters need to be defined for each user in the user profile:
 
 ```bash
-AsyncSBTopicFieldName=<user-profile-field-name>
+<AsyncClientBlobFieldname>=<container-name>  # The container name that the client has access to. Async processed results are stored here.
+<AsyncClientBlobTimeoutFieldName>=<seconds>  # The number of seconds that blobs will be available before automatic deletion.
+<AsyncSBTopicFieldName>=<topic-name>         # The topic name that status updates for this user will be sent to. The client will need a subscription to this topic to read.
 ```
 
-This field in the user profile determines the blob container folder structure. Users need access to their designated folder.
+Each user's client service principal will need to be granted access to the Blob container and the ServiceBus topic. 
 
-## 4. Client Request Configuration
+
+## 5. Client Request Configuration
 
 ### Enable Async Processing Per Request
 
 Each incoming request must include a header to enable async processing:
 
 ```bash
-AsyncClientAllowedFieldName=async-allowed
+<AsyncClientAllowedFieldName>: true
 ```
-
-**Default behavior:** If not specified, the header name defaults to `"async-allowed"`
 
 **Usage:** Clients must send requests with the header set to `"true"`:
 ```http
-async-allowed: true
+curl https://proxy.domain.com/do_something -H "async-allowed: true" 
 ```
 
 ## Complete Configuration Example
@@ -153,7 +162,7 @@ async-allowed: true
 # Enable async mode
 AsyncModeEnabled=true
 
-# Service Bus
+# ServiceBus
 AsyncSBConnectionString=Endpoint=sb://myservicebus.servicebus.windows.net/;SharedAccessKeyName=...
 
 # Blob Storage (Connection String)
@@ -172,7 +181,7 @@ AsyncClientAllowedFieldName=async-allowed
 # Enable async mode
 AsyncModeEnabled=true
 
-# Service Bus (Managed Identity)
+# ServiceBus (Managed Identity)
 AsyncSBUseMI=true
 AsyncSBNamespace=myservicebus.servicebus.windows.net
 
@@ -201,7 +210,7 @@ AsyncClientAllowedFieldName=async-allowed
 
 1. **"Failed to create SAS token"** - Ensure the managed identity has the Storage Blob Delegator role
 2. **"BlobContainerClient not initialized"** - Check that InitClientAsync was called after AsyncWorker construction
-3. **Service Bus connection failures** - Verify the connection string has send permissions for the topic
+3. **ServiceBus connection failures** - Verify the connection string has send permissions for the topic
 4. **Access denied errors** - Confirm RBAC roles are assigned to the correct managed identity
 5. **Network access** - Confirm that the networking for the Storage account allows your applications to have access.
 
@@ -223,15 +232,15 @@ AsyncClientAllowedFieldName=async-allowed
 | `Error initializing BlobContainerClient for userId {userId}` | Container client initialization failed | Check storage account permissions and container existence |
 | `Blob storage is not enabled` | NullBlobWriter being used | Enable async mode with `AsyncModeEnabled=true` |
 
-#### Service Bus Errors
+#### ServiceBus Errors
 
 | Error Message | Cause | Solution |
 |---------------|-------|----------|
-| `Failed to initialize ServiceBusSenderFactory` | Service Bus initialization failed | Verify `AsyncSBConnectionString` is valid and has send permissions |
+| `Failed to initialize ServiceBusSenderFactory` | ServiceBus initialization failed | Verify `AsyncSBConnectionString` is valid and has send permissions |
 | `Topic name cannot be null or empty` | Missing topic name parameter | Ensure topic name is configured in user profile field |
 | `Failed to enqueue message to the status queue` | Internal queue operation failed | Check memory and system resources |
-| `An error occurred while sending a message to the topic` | Service Bus send operation failed | Verify Service Bus connection and topic permissions |
-| `Error while flushing service bus. Continuing` | Error during shutdown flush | Non-critical error during cleanup, check Service Bus connectivity |
+| `An error occurred while sending a message to the topic` | ServiceBus send operation failed | Verify ServiceBus connection and topic permissions |
+| `Error while flushing ServiceBus. Continuing` | Error during shutdown flush | Non-critical error during cleanup, check ServiceBus connectivity |
 
 #### Configuration Errors
 
@@ -253,8 +262,8 @@ AsyncClientAllowedFieldName=async-allowed
    - Confirm the managed identity appears in the storage account's Access Control (IAM)
    - Test blob operations using Azure CLI with the same identity
 
-3. **Service Bus Connectivity**:
-   - Test the connection string using Service Bus Explorer
+3. **ServiceBus Connectivity**:
+   - Test the connection string using ServiceBus Explorer
    - Verify topic exists and has appropriate permissions
 
 4. **Environment Variables**:
@@ -274,6 +283,6 @@ AsyncClientAllowedFieldName=async-allowed
 ### Performance Considerations
 
 - **SAS Token Caching**: User delegation keys are cached for 1 hour to reduce API calls
-- **Service Bus Batching**: Messages are processed in batches for better throughput
+- **ServiceBus Batching**: Messages are processed in batches for better throughput
 - **Container Client Reuse**: Container clients are cached per user to avoid recreation overhead 
 
