@@ -221,7 +221,7 @@ public class ProxyWorker
 
                     try
                     {
-                        pr = await ProxyToBackEndAsync(incomingRequest).ConfigureAwait(false);
+                        pr = await ProxyToBackEndAsync(incomingRequest, eventData).ConfigureAwait(false);
                     }
                     finally
                     {
@@ -622,7 +622,7 @@ public class ProxyWorker
     // }
 
     //DateTime requestDate, string method, string path, WebHeaderCollection headers, Stream body)//HttpListenerResponse downStreamResponse)
-    public async Task<ProxyData> ProxyToBackEndAsync(RequestData request)
+    public async Task<ProxyData> ProxyToBackEndAsync(RequestData request, ProxyEvent eventData)
     {
         if (request == null) throw new ArgumentNullException(nameof(request), "Request cannot be null.");
         if (request.Body == null) throw new ArgumentNullException(nameof(request.Body), "Request body cannot be null.");
@@ -942,10 +942,11 @@ public class ProxyWorker
                             }
                             else
                             {
-                                if (processWith == "OpenAI")
-                                    processor = new OpenAIProcessor();
-                                else
-                                    processor = new SimpleL7Proxy.StreamProcessor.DefaultStreamProcessor();
+                                var processorType = Type.GetType($"SimpleL7Proxy.StreamProcessor.{processWith}Processor");
+                                if (processorType != null)
+                                {
+                                    processor = Activator.CreateInstance(processorType) as IStreamProcessor ?? new NullStreamProcessor();
+                                }
 
                                 await processor.CopyToAsync(proxyResponse.Content, request.OutputStream, null).ConfigureAwait(false);
 
@@ -974,7 +975,7 @@ public class ProxyWorker
                         }
                         finally
                         {
-                            _logger.LogCritical("Stream processing stats: {Stats}", processor.GetStats());
+                            processor.GetStats(eventData, proxyResponse.Headers);
                         }
 
                         try
