@@ -170,7 +170,7 @@ public class Program
 
         // Register TelemetryClient
         services.AddSingleton<TelemetryClient>();
-        var log_to_file = false;
+        bool.TryParse(Environment.GetEnvironmentVariable("LOGTOFILE"), out var log_to_file);
 
         if (log_to_file)
         {
