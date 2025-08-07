@@ -88,7 +88,7 @@ public class Backends : IBackendService
 
   public Task Stop()
   {
-    _logger.LogInformation("Stopping backend.");
+    _logger.LogCritical("Stopping backend.");
     _cancellationTokenSource.Cancel();
 
     return PollerTask ?? Task.CompletedTask;
@@ -106,7 +106,7 @@ public class Backends : IBackendService
       GetToken();
     }
 
-    _logger.LogInformation("Backend service started.");
+    _logger.LogCritical("Backend service started.");
   }
 
   private readonly List<DateTime> hostFailureTimes = [];
@@ -198,7 +198,7 @@ public class Backends : IBackendService
       }
       else
       {
-        _logger.LogInformation($"Backend Poller started in {(DateTime.Now - start).TotalSeconds} seconds.");
+        _logger.LogCritical($"Backend Poller started in {(DateTime.Now - start).TotalSeconds} seconds.");
         return;
       }
     }
@@ -213,7 +213,7 @@ public class Backends : IBackendService
     {
       var intervalTime = TimeSpan.FromMilliseconds(_options.PollInterval).ToString(@"hh\:mm\:ss");
       var timeoutTime = TimeSpan.FromMilliseconds(_options.PollTimeout).ToString(@"hh\:mm\:ss\.fff");
-      _logger.LogInformation($"Starting Backend Poller: Interval: {intervalTime}, SuccessRate: {_successRate}, Timeout: {timeoutTime}");
+      _logger.LogCritical($"Starting Backend Poller: Interval: {intervalTime}, SuccessRate: {_successRate}, Timeout: {timeoutTime}");
 
       _client.Timeout = TimeSpan.FromMilliseconds(_options.PollTimeout);
 
@@ -245,7 +245,7 @@ public class Backends : IBackendService
         }
       }
 
-      _logger.LogInformation("Backend Poller stopped.");
+      _logger.LogCritical("Backend Poller stopped.");
     }
   }
 
@@ -502,14 +502,14 @@ public class Backends : IBackendService
 
             if (timeout < 500)
             {
-              _logger.LogInformation($"Auth Token is about to expire. Retrying in {timeout} ms.");
+              _logger.LogCritical($"Auth Token is about to expire. Retrying in {timeout} ms.");
               await Task.Delay((int)timeout, _cancellationToken);
             }
             else
             {
               // Calculate the time to refresh the token, 100 ms before it expires
               var refreshTime = timeout - 100;
-              _logger.LogInformation($"Auth Token expires on: {AuthToken.Value.ExpiresOn} Refresh in: {FormatMilliseconds(refreshTime)} (100 ms grace)");
+              _logger.LogCritical($"Auth Token expires on: {AuthToken.Value.ExpiresOn} Refresh in: {FormatMilliseconds(refreshTime)} (100 ms grace)");
               // Wait for the calculated refresh time or until a cancellation is requested
               await Task.Delay((int)refreshTime, _cancellationToken);
             }
@@ -517,7 +517,7 @@ public class Backends : IBackendService
           else
           {
             // Handle the case where the token is null
-            _logger.LogInformation("Auth Token is null. Retrying in 10 seconds.");
+            _logger.LogError("Auth Token is null. Retrying in 10 seconds.");
             await Task.Delay(TimeSpan.FromMilliseconds(10000), _cancellationToken);
           }
 

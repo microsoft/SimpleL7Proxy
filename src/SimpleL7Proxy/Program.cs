@@ -18,6 +18,7 @@ using SimpleL7Proxy.User;
 //using SimpleL7Proxy.EventGrid;
 using SimpleL7Proxy.ServiceBus;
 using SimpleL7Proxy.BlobStorage;
+using SimpleL7Proxy.Storage;
 
 
 using System.Net;
@@ -43,10 +44,13 @@ public class Program
     {
         Banner.Display();
 
+        var logLevel = GetLogLevelFromEnvironment();
+
         var startupLoggerFactory = LoggerFactory.Create(builder =>
         {
             builder.AddConsole(options => options.FormatterName = "custom");
             builder.AddConsoleFormatter<CustomConsoleFormatter, SimpleConsoleFormatterOptions>();
+            builder.SetMinimumLevel(logLevel);
         });
 
         var startupLogger = startupLoggerFactory.CreateLogger<Program>();
@@ -57,6 +61,9 @@ public class Program
                 logging.ClearProviders();
                 logging.AddConsole(options => options.FormatterName = "custom");
                 logging.AddConsoleFormatter<CustomConsoleFormatter, SimpleConsoleFormatterOptions>();
+
+                logging.SetMinimumLevel(logLevel);
+
             })
             .ConfigureServices((hostContext, services) =>
             {
@@ -81,19 +88,25 @@ public class Program
 
         try
         {
+            ServiceBusRequestService? serviceBusService = null;
+
             if (options.Value.AsyncModeEnabled)
             {
-                startupLogger.LogInformation("Async mode is enabled. Initializing ServiceBusRequestService and AsyncWorker.");
+
+                startupLogger.LogWarning("Async mode is enabled. Initializing ServiceBusRequestService and AsyncWorker.");
                 var serviceBusRequestService = serviceProvider.GetRequiredService<IServiceBusRequestService>();
                 RequestData.InitializeServiceBusRequestService(serviceBusRequestService);
-                AsyncWorker.Initialize(
-                    serviceProvider.GetRequiredService<BlobWriter>(),
-                    serviceProvider.GetRequiredService<ILogger<AsyncWorker>>()
-                );
+
+                //_ = serviceBusService.StartAsync(CancellationToken.None);
+
+                // AsyncWorker.Initialize(
+                //     serviceProvider.GetRequiredService<BlobWriter>(),
+                //     serviceProvider.GetRequiredService<ILogger<AsyncWorker>>()
+                // );
             }
             else
             {
-                startupLogger.LogInformation("Async mode is disabled.");
+                startupLogger.LogWarning("Async mode is disabled.");
             }
         }
         catch (Exception ex)
@@ -107,13 +120,24 @@ public class Program
         }
         catch (OperationCanceledException)
         {
-            startupLogger.LogInformation("Operation was canceled.");
+            startupLogger.LogDebug("framework Host RunAsync Operation was canceled.");
         }
         catch (Exception e)
         {
             // Handle other exceptions that might occur
             startupLogger.LogError($"An unexpected error occurred: {e.Message}");
         }
+    }
+
+    private static LogLevel GetLogLevelFromEnvironment()
+    {
+        var logLevelString = Environment.GetEnvironmentVariable("LOG_LEVEL") ?? "Information";
+        var l =  Enum.TryParse<LogLevel>(logLevelString, true, out var logLevel) ? logLevel : LogLevel.Information;
+
+        // This should always be visible as it's critical startup information
+        Console.WriteLine($"Log level set to: {l}");
+
+        return l;
     }
 
     private static void ConfigureApplicationInsights(IServiceCollection services)
@@ -135,6 +159,7 @@ public class Program
                 config.TelemetryProcessorChainBuilder.Build();
             });
 
+            // Note: logging isn't fully configured yet
             Console.WriteLine("AppInsights initialized with custom request tracking");
         }
     }
@@ -145,7 +170,7 @@ public class Program
 
         // Register TelemetryClient
         services.AddSingleton<TelemetryClient>();
-        var log_to_file = false;
+        bool.TryParse(Environment.GetEnvironmentVariable("LOGTOFILE"), out var log_to_file);
 
         if (log_to_file)
         {
@@ -164,11 +189,20 @@ public class Program
 
         services.AddBackendHostConfiguration(startupLogger);
 
-        services.AddSingleton<BlobWriter>(provider =>
+        services.AddSingleton<IBlobWriterFactory, BlobWriterFactory>();
+        services.AddSingleton<IBlobWriter>(provider =>
         {
-            var optionsMonitor = provider.GetRequiredService<IOptionsMonitor<BackendOptions>>();
-            return new BlobWriter(optionsMonitor);
+            var factory = provider.GetRequiredService<IBlobWriterFactory>();
+            return factory.CreateBlobWriter();
         });
+
+        services.AddTransient<IAsyncWorkerFactory, AsyncWorkerFactory>();
+
+        // services.AddSingleton<BlobWriter>(provider =>
+        // {
+        //     var optionsMonitor = provider.GetRequiredService<IOptionsMonitor<BackendOptions>>();
+        //     return new BlobWriter(optionsMonitor);
+        // });
 
         services.AddSingleton<IUserPriorityService, UserPriority>();
         services.AddSingleton<UserProfile>();
@@ -183,6 +217,9 @@ public class Program
         services.AddHostedService<Server>(provider => provider.GetRequiredService<Server>());
 
         // ASYNC RELATED
+        // Add storage service registration
+        services.AddSingleton<IRequestStorageService, StorageDbRequestStorageService>();
+
         services.AddSingleton<ServiceBusSenderFactory>();
         services.AddSingleton<ServiceBusRequestService>();
         services.AddSingleton<IServiceBusRequestService>(sp => sp.GetRequiredService<ServiceBusRequestService>());

@@ -87,7 +87,7 @@ public class Server : BackgroundService
         _httpListener.Prefixes.Add(_listeningUrl);
 
         var timeoutTime = TimeSpan.FromMilliseconds(_options.Timeout).ToString(@"hh\:mm\:ss\.fff");
-        _logger.LogInformation($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
+        _logger.LogCritical($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
     }
 
     public void BeginShutdown()
@@ -98,7 +98,7 @@ public class Server : BackgroundService
     public Task StopListening(CancellationToken cancellationToken)
     {
         _cancellationTokenSource?.Cancel();
-        _logger.LogInformation("Server stopping.");
+        _logger.LogCritical("Server stopping.");
         return Task.CompletedTask;
     }
 
@@ -118,7 +118,7 @@ public class Server : BackgroundService
             backendStartTask = _backends.WaitForStartup(20);
 
             _httpListener.Start();
-            _logger.LogInformation($"Listening on {_options?.Port}");
+            _logger.LogCritical($"Listening on {_options?.Port}");
             // Additional setup or async start operations can be performed here
 
             _requestsQueue.StartSignaler(cancellationToken);
@@ -340,20 +340,19 @@ public class Server : BackgroundService
                                 Console.WriteLine($"UserID: {rd.UserID}");
 
                             // ASYNC: Determine if the request is allowed async operation
-                            if (doAsync && rd.Headers["AsyncEnabled"] != null && bool.TryParse(rd.Headers["AsyncEnabled"], out var allowed))
+                            if (doAsync && bool.TryParse(rd.Headers["AsyncEnabled"], out var asyncEnabled) && asyncEnabled)
                             {
                                 var clientInfo = _userProfile.GetAsyncParams(rd.UserID);
-                                rd.runAsync = false;
+                                rd.runAsync = clientInfo != null;
 
-                                if (clientInfo != null)
+                                if (rd.runAsync)
                                 {
-                                    rd.AsyncBlobAccessTimeoutSecs = clientInfo.AsyncBlobAccessTimeoutSecs;
-                                                                        
-                                    // Set blob storage and Service Bus information for async processing
-                                    ed["AsyncBlobContainer"] = rd.BlobContainerName = clientInfo.ContainerName;
-                                    ed["AsyncSBTopic"] = rd.SBTopicName = clientInfo.SBTopicName;
+                                    rd.AsyncBlobAccessTimeoutSecs = clientInfo!.AsyncBlobAccessTimeoutSecs;
+                                    rd.BlobContainerName = clientInfo.ContainerName;
+                                    rd.SBTopicName = clientInfo.SBTopicName;
+                                    ed["AsyncBlobContainer"] = clientInfo.ContainerName;
+                                    ed["AsyncSBTopic"] = clientInfo.SBTopicName;
                                     ed["BlobAccessTimeout"] = clientInfo.AsyncBlobAccessTimeoutSecs.ToString();
-                                    rd.runAsync = true;
                                 }
 
                                 if (rd.Debug)
@@ -528,7 +527,7 @@ public class Server : BackgroundService
                         temp_ed["Message"] = "Enqueued request";
 
                         temp_ed.SendEvent();
-                        _logger.LogInformation($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
+                        _logger.LogCritical($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
                     }
                 }
                 else

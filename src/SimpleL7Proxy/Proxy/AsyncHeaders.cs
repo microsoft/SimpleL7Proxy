@@ -8,7 +8,7 @@ namespace SimpleL7Proxy.Proxy
     /// </summary>
     public class AsyncHeaders
     {
-        public required WebHeaderCollection Headers { get; set; }
+        public required Dictionary<string, string> Headers { get; set; }
         public required string UserId { get; set; }
         public required string MID { get; set; }
         public required string Guid { get; set; } 

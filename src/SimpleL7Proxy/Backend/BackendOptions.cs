@@ -4,13 +4,19 @@ public class BackendOptions
 {
     public int[] AcceptableStatusCodes { get; set; } =[];
     public string AsyncBlobStorageConnectionString { get; set; } = "example-connection-string"; 
+    public bool AsyncBlobStorageUseMI {get; set; } = true;
+    public string AsyncBlobStorageAccountUri { get; set; } = "https://mystorageaccount.blob.core.windows.net";
     public string AsyncClientBlobFieldname { get; set; } = "async-blobname";
     public string AsyncClientBlobTimeoutFieldName { get; set; } = "async-blobaccess-timeout";
     public string AsyncClientAllowedFieldName { get; set; } = "async-allowed";
     public bool AsyncModeEnabled { get; set; } = false;
     public string AsyncSBConnectionString { get; set; } = "example-sb-connection-string";
+    public bool AsyncSBUseMI { get; set; } = false; // Use managed identity for Service Bus
+    public string AsyncSBNamespace { get; set; } = "example-namespace";
+    public int AsyncSBStatusWorkers { get; set; } = 5;
     public string AsyncSBTopicFieldName { get; set; } = "async-topic";
     public double AsyncTimeout { get; set; } = 30 * 60000; // 30 minutes
+    public int AsyncTriggerTimeout { get; set; } = 60000; // 1 minute
     public HttpClient? Client { get; set; }
     public string ContainerApp { get; set; } = "";
     public int CircuitBreakerErrorThreshold { get; set; }
@@ -45,6 +51,9 @@ public class BackendOptions
     public List<string> RequiredHeaders { get; set; } = [];
     public int SuccessRate { get; set; }
     public string SuspendedUserConfigUrl { get; set; } = "";
+    // Storage configuration
+    public bool StorageDbEnabled { get; set; } = false;
+    public string StorageDbContainerName { get; set; } = "Requests";
     public List<string> StripHeaders { get; set; } = [];
     public int Timeout { get; set; }
     public string TimeoutHeader { get; set; } = "";

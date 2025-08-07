@@ -24,9 +24,18 @@ namespace SimpleL7Proxy.ServiceBus
         Processing,
 
         /// <summary>
+        /// The message is being processed asynchronously.
+        /// </summary>
+        AsyncProcessing,
+        /// <summary>
         /// The message has been successfully processed.
         /// </summary>
         Processed,
+
+        /// <summary>
+        /// The message has been processed asynchronously.
+        /// 
+        AsyncProcessed,
 
         /// <summary>
         /// The message has failed to process.
