@@ -245,13 +245,14 @@ public class Server : BackgroundService
                             }
 
                             rd.UserID = "";
-
+                            var profileUserID = "";
                             // Lookup the user profile and add the headers to the request
                             if (doUserProfile)
                             {
                                 var requestUser = rd.Headers[_options.UserProfileHeader];
                                 if (!string.IsNullOrEmpty(requestUser))
                                 {
+                                    profileUserID = requestUser;
                                     var headers = _userProfile.GetUserProfile(requestUser);
 
                                     if (headers != null && headers.Count > 0)
@@ -342,7 +343,7 @@ public class Server : BackgroundService
                             // ASYNC: Determine if the request is allowed async operation
                             if (doAsync && bool.TryParse(rd.Headers["AsyncEnabled"], out var asyncEnabled) && asyncEnabled)
                             {
-                                var clientInfo = _userProfile.GetAsyncParams(rd.UserID);
+                                var clientInfo = _userProfile.GetAsyncParams(profileUserID);
                                 rd.runAsync = clientInfo != null;
 
                                 if (rd.runAsync)
