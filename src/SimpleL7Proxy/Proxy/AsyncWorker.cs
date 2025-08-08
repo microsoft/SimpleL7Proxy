@@ -166,7 +166,7 @@ namespace SimpleL7Proxy.Proxy
                     AsyncMessage Statusmessage = new()
                     {
                         Status = 202,
-                        Message = "Your request has been accepted for async processing.  You can view the status on the event hub. The final result will be available at the HeaderBlobUri.",
+                        Message = "Your request has been accepted for async processing.  You can view the status on the service bus topic. The final result will be available at the HeaderBlobUri.",
                         MID = _requestData.MID,
                         UserId = _requestData.UserID,
                         Guid = _requestData.Guid.ToString(),

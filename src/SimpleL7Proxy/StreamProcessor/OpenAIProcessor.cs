@@ -119,15 +119,15 @@ namespace SimpleL7Proxy.StreamProcessor
                         var usage = jsonNode["usage"];
                         if (usage != null)
                         {
-                            data["CompletionTokens"] = usage["completion_tokens"]?.GetValue<int>().ToString() ?? "0";
-                            data["PromptTokens"] = usage["prompt_tokens"]?.GetValue<int>().ToString() ?? "0";
-                            data["TotalTokens"] = usage["total_tokens"]?.GetValue<int>().ToString() ?? "0";
+                            data["Completion_Tokens"] = usage["completion_tokens"]?.GetValue<int>().ToString() ?? "0";
+                            data["Prompt_Tokens"] = usage["prompt_tokens"]?.GetValue<int>().ToString() ?? "0";
+                            data["Total_Tokens"] = usage["total_tokens"]?.GetValue<int>().ToString() ?? "0";
                         }
                         else
                         {
-                            data["CompletionTokens"] = "0";
-                            data["PromptTokens"] = "0";
-                            data["TotalTokens"] = "0";
+                            data["Completion_Tokens"] = "0";
+                            data["Prompt_Tokens"] = "0";
+                            data["Total_Tokens"] = "0";
                         }
                     }
                 }
@@ -145,9 +145,9 @@ namespace SimpleL7Proxy.StreamProcessor
         /// <returns>A dictionary containing processing statistics.</returns>
         public void GetStats(ProxyEvent eventData, HttpResponseHeaders headers)
         {
-            eventData["CompletionTokens"]= data["CompletionTokens"];
-            eventData["PromptTokens"]= data["PromptTokens"];
-            eventData["TotalTokens"]= data["TotalTokens"];
+            eventData["Completion_Tokens"]= data["Completion_Tokens"];
+            eventData["Prompt_Tokens"]= data["Prompt_Tokens"];
+            eventData["Total_Tokens"]= data["Total_Tokens"];
         }
     }
 }
