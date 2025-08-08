@@ -1,5 +1,11 @@
 # Release Notes #
 
+## V2.2.4.p1
+
+* Bug Fix: User UserProfileHeader rather than UserID when looking up asyncmode
+* Bug Fix: log Completion-Tokens instead of CompletionTokens, Prompt_Tokens.... and Total_Tokens...
+* Bug Fix: Correct text in async response to use service bus instead of event hub.
+
 ## V2.2.4
 Proxy:
 * Bug fix: for server disconnects without sending Content-Length header.
