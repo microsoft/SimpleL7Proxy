@@ -47,7 +47,7 @@ namespace SimpleL7Proxy.ServiceBus
                             !fullyQualifiedNamespace.EndsWith(".servicebus.windows.net", StringComparison.OrdinalIgnoreCase))
                         {
                             options.AsyncModeEnabled = false; // Disable async mode if namespace is not set
-                            _logger.LogWarning("Async mode disabled due to missing or invalid AsyncSBNamespace configuration.");
+                            _logger.LogCritical("Async mode disabled due to missing or invalid AsyncSBNamespace configuration.");
                         }
 
                         _client = CreateServiceBusClientWithManagedIdentity(fullyQualifiedNamespace);
@@ -59,7 +59,7 @@ namespace SimpleL7Proxy.ServiceBus
                             !connectionString.Contains("Endpoint=", StringComparison.OrdinalIgnoreCase))
                         {
                             options.AsyncModeEnabled = false; // Disable async mode if connection string is not set
-                            _logger.LogWarning("Async mode disabled due to missing or invalid AsyncSBConnectionString configuration.");
+                            _logger.LogCritical("Async mode disabled due to missing or invalid AsyncSBConnectionString configuration.");
                         }
                         else
                         {
@@ -71,7 +71,7 @@ namespace SimpleL7Proxy.ServiceBus
             {
                 _logger!.LogError(ex, "Failed to initialize ServiceBusSenderFactory");
                 options.AsyncModeEnabled = false; // Disable async mode if initialization fails
-                _logger.LogWarning("Async mode disabled due to initialization failure.");
+                _logger.LogCritical("Async mode disabled due to initialization failure.");
             }
         }
 

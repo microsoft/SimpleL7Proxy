@@ -32,7 +32,7 @@ namespace SimpleL7Proxy.BlobStorage
         {
             if (!_optionsMonitor.CurrentValue.AsyncModeEnabled)
             {
-                _logger.LogInformation("Async mode is disabled, returning NullBlobWriter.");
+                _logger.LogError("Async mode is disabled, returning NullBlobWriter.");
             }
             else if (_optionsMonitor.CurrentValue.AsyncBlobStorageUseMI)
             {

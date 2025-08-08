@@ -106,7 +106,7 @@ public class Program
             }
             else
             {
-                startupLogger.LogWarning("Async mode is disabled.");
+                startupLogger.LogError("Async mode is disabled.");
             }
         }
         catch (Exception ex)
