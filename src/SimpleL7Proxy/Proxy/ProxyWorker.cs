@@ -855,17 +855,10 @@ public class ProxyWorker
                         host.AddPxLatency((responseDate - ProxyStartDate).TotalMilliseconds);
                         bodyBytes = [];
 
-                        Interlocked.Increment(ref states[4]);
-
+                        //Interlocked.Increment(ref states[4]);
                         // Read the response
                         //await GetProxyResponseAsync(proxyResponse, request, pr).ConfigureAwait(false);
-
-                        pr.Headers["x-BackendHost"] = requestSummary["Backend-Host"] = pr.BackendHostname;
-                        pr.Headers["x-Request-Queue-Duration"] = requestSummary["Request-Queue-Duration"] = request.Headers["x-Request-Queue-Duration"] ?? "N/A";
-                        pr.Headers["x-Request-Process-Duration"] = requestSummary["Request-Process-Duration"] = request.Headers["x-Request-Process-Duration"] ?? "N/A";
-                        pr.Headers["x-Total-Latency"] = requestSummary["Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3");
-
-                        Interlocked.Decrement(ref states[4]);
+                        //Interlocked.Decrement(ref states[4]);
 
                         if ((int)proxyResponse.StatusCode == 429 && proxyResponse.Headers.TryGetValues("S7PREQUEUE", out var values))
                         {
@@ -890,6 +883,14 @@ public class ProxyWorker
                             // request was successful, so we can disable the skip
                             request.SkipDispose = false;
                         }
+
+                        // copy headers from the response to the ProxyData object
+                        CopyResponseHeaders(proxyResponse, pr);
+
+                        pr.Headers["x-BackendHost"] = requestSummary["Backend-Host"] = pr.BackendHostname;
+                        pr.Headers["x-Request-Queue-Duration"] = requestSummary["Request-Queue-Duration"] = request.Headers["x-Request-Queue-Duration"] ?? "N/A";
+                        pr.Headers["x-Request-Process-Duration"] = requestSummary["Request-Process-Duration"] = request.Headers["x-Request-Process-Duration"] ?? "N/A";
+                        pr.Headers["x-Total-Latency"] = requestSummary["Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3");
 
                         // Strip headers from pr.Headers that are not allowed in the response
                         foreach (var header in _options.StripHeaders)
@@ -919,39 +920,66 @@ public class ProxyWorker
                             request.Context.Response.Headers = pr.Headers;
                         }
 
-                        var processWith = "Inline";
+                        var processWith = "Default";
                         if ((int)proxyResponse.StatusCode == 200 && proxyResponse.Headers.TryGetValues("TOKENPROCESSOR", out var processorValues))
                         {
-                            var tokenProcessor = processorValues.FirstOrDefault();
+                            var tokenProcessor = processorValues.FirstOrDefault()?.Trim();
                             if (!string.IsNullOrEmpty(tokenProcessor))
                             {
-                                // Use the token processor for further processing
+                                if (tokenProcessor.EndsWith("Processor", StringComparison.OrdinalIgnoreCase))
+                                    tokenProcessor = tokenProcessor[..^"Processor".Length];
                                 processWith = tokenProcessor;
                             }
+                        }
+
+                        // Auto-select processor for SSE content if none specified
+                        var mediaType = proxyResponse.Content.Headers.ContentType?.MediaType;
+                        if (processWith.Equals("Default", StringComparison.OrdinalIgnoreCase)
+                            && !string.IsNullOrEmpty(mediaType)
+                            && mediaType.Equals("text/event-stream", StringComparison.OrdinalIgnoreCase))
+                        {
+                            processWith = "OpenAI";
+                        }
+
+                        // Normalize aliases
+                        if (processWith.Equals("Inline", StringComparison.OrdinalIgnoreCase))
+                        {
+                            processWith = "Default";
                         }
 
                         requestState = "Stream Proxy Response : " + processWith;
 
                         // Stream response from the backend to the client / blob depending on async timer
                         IStreamProcessor processor = new NullStreamProcessor();
+                        _logger.LogInformation("Streaming response with processor. Requested: {Requested}, ContentType: {ContentType}", processWith, mediaType);
                         try
                         {
-                            if (processWith == "Inline")
+                            string resolved = processWith;
+                            if (!processors.TryGetValue(processWith, out var factory))
                             {
-                                await proxyResponse.Content.CopyToAsync(request.OutputStream).ConfigureAwait(false);
+                                _logger.LogWarning("Unknown processor requested: {Requested}. Falling back to default.", processWith);
+                                factory = processors["Default"];
+                                resolved = "Default";
                             }
-                            else
+
+                            // Instantiate once so we can collect stats later
+                            try
                             {
-                                var processorType = Type.GetType($"SimpleL7Proxy.StreamProcessor.{processWith}Processor");
-                                if (processorType != null)
-                                {
-                                    processor = Activator.CreateInstance(processorType) as IStreamProcessor ?? new NullStreamProcessor();
-                                }
-
-                                await processor.CopyToAsync(proxyResponse.Content, request.OutputStream, null).ConfigureAwait(false);
-
+                                processor = factory();
                             }
-                            // This will write to either the client or the blob depending on the async timer
+                            catch (Exception pex)
+                            {
+                                _logger.LogWarning("Processor '{Requested}' failed to construct. Falling back to default. Error: {Message}", processWith, pex.Message);
+                                processor = processors["Default"]();
+                                resolved = "Default";
+                            }
+
+                            _logger.LogInformation("Resolved processor: {Resolved}", resolved);
+
+                            await processor.CopyToAsync(proxyResponse.Content,
+                                                        request.OutputStream,
+                                                        _cancellationToken).ConfigureAwait(false);
+
                         }
                         catch (IOException e)
                         {
@@ -968,14 +996,21 @@ public class ProxyWorker
                             }
                             else
                             {
-                                _logger.LogError("Error streaming response: {InnerException}", e.InnerException);
+                                _logger.LogError("Error streaming response: {Error}", e);
                                 throw new ProxyErrorException(ProxyErrorException.ErrorType.ClientDisconnected,
                                                               HttpStatusCode.InternalServerError, e.Message);
                             }
                         }
                         finally
                         {
-                            processor.GetStats(eventData, proxyResponse.Headers);
+                            try
+                            {
+                                processor.GetStats(eventData, proxyResponse.Headers);
+                            }
+                            catch (Exception statsEx)
+                            {
+                                _logger.LogDebug("Processor stats collection failed: {Message}", statsEx.Message);
+                            }
                         }
 
                         try
@@ -1146,6 +1181,12 @@ public class ProxyWorker
         };
     }
 
+    private static readonly Dictionary<string, Func<IStreamProcessor>> processors = new Dictionary<string, Func<IStreamProcessor>>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["OpenAI"] = static () => new OpenAIProcessor(),
+        ["Default"] = static () => new DefaultStreamProcessor(),
+        ["Null"] = static () => new NullStreamProcessor(),
+    };
     private static void GenerateErrorMessage(List<Dictionary<string, string>> incompleteRequests, out StringBuilder sb, out bool statusMatches, out int currentStatusCode)
     {
         sb = new StringBuilder();
@@ -1174,7 +1215,7 @@ public class ProxyWorker
         if (statusCodes.Count > 0)
         {
 
-           // Console.WriteLine($"Status Codes: {string.Join(", ", statusCodes)}");
+            // Console.WriteLine($"Status Codes: {string.Join(", ", statusCodes)}");
 
             // If all status codes are 408 or 412, use the latest (last) one
             if (statusCodes.All(s => s == 408 || s == 412 || s == 429))
@@ -1211,6 +1252,38 @@ public class ProxyWorker
             {
                 targetMessage?.Headers.TryAddWithoutValidation(key, sourceHeaders[key]);
             }
+        }
+    }
+
+    private static void CopyResponseHeaders(HttpResponseMessage response, ProxyData pr)
+    {
+        // Exclude hop-by-hop and restricted headers that HttpListener manages
+        var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Content-Length","Transfer-Encoding","Connection","Proxy-Connection","Keep-Alive","Upgrade","Trailer","TE","Date","Server"
+        };
+
+        // Response headers
+        foreach (var header in response.Headers)
+        {
+            if (excluded.Contains(header.Key)) continue;
+            pr.Headers[header.Key] = string.Join(", ", header.Value);
+        }
+
+        // Content headers
+        foreach (var header in response.Content.Headers)
+        {
+            if (header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase))
+            {
+                pr.ContentHeaders[header.Key] = string.Join(", ", header.Value);
+                continue;
+            }
+
+            if (!excluded.Contains(header.Key))
+            {
+                pr.Headers[header.Key] = string.Join(", ", header.Value);
+            }
+            pr.ContentHeaders[header.Key] = string.Join(", ", header.Value);
         }
     }
 
