@@ -331,14 +331,14 @@ public class ProxyWorker
                     {
                         // we shouldn't need to create a copy of the incomingRequest because we are skipping the dispose.
                         // Requeue the request after the retry-after value
-                        incomingRequest.SBStatus = ServiceBusMessageStatusEnum.RetryAfterDelay;
+                        incomingRequest.SBStatus = ServiceBusMessageStatusEnum.RetryScheduled;
 
                         Interlocked.Decrement(ref states[7]);
                         await Task.Delay(e.RetryAfter).ConfigureAwait(false);
                         Interlocked.Increment(ref states[7]);
 
 
-                        incomingRequest.SBStatus = ServiceBusMessageStatusEnum.ReQueued;
+                        incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Requeued;
                         _requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.Priority2, incomingRequest.EnqueueTime);
                     });
 
@@ -793,18 +793,6 @@ public class ProxyWorker
                         using var proxyResponse = await _options.Client!.SendAsync(
                             proxyRequest, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
 
-                        // ASYNC: We got a response back, Synchronize with the asyncWorker 
-                        if ((int)proxyResponse.StatusCode == 200 && request.runAsync)
-                        {
-                            if (request.asyncWorker == null)
-                            {
-                                _logger.LogError("AsyncWorker is null, but runAsync is true");
-                            }
-                            else if (!await request.asyncWorker.Synchronize()) // Wait for the worker to finish setting up the blob's, etc...
-                            {
-                                _logger.LogError($"AsyncWorker failed to setup: {request.asyncWorker.ErrorMessage}");
-                            }
-                        }
 
                         var responseDate = DateTime.UtcNow;
                         lastStatusCode = proxyResponse.StatusCode;
@@ -822,6 +810,21 @@ public class ProxyWorker
                             BackendHostname = host.Host
                         };
 
+                        // ASYNC: We got a response back, Synchronize with the asyncWorker 
+                        if ((int)proxyResponse.StatusCode == 200 && request.runAsync)
+                        {
+                            if (request.asyncWorker == null)
+                            {
+                                _logger.LogError("AsyncWorker is null, but runAsync is true");
+                            }
+                            else if (!await request.asyncWorker.Synchronize()) // Wait for the worker to finish setting up the blob's, etc...
+                            {
+                                pr.Headers["x-Async-Error"] = request.asyncWorker.ErrorMessage;
+                                request.SBStatus = ServiceBusMessageStatusEnum.AsyncProcessingError;
+                                
+                                //_logger.LogError($"AsyncWorker failed to setup: {request.asyncWorker.ErrorMessage}");
+                            }
+                        }
 
                         // Check if the status code of the response is in the set of allowed status codes, else try the next host
                         var intCode = (int)proxyResponse.StatusCode;
@@ -974,7 +977,7 @@ public class ProxyWorker
                                 resolved = "Default";
                             }
 
-                            _logger.LogInformation("Resolved processor: {Resolved}", resolved);
+                            _logger.LogDebug("Resolved processor: {Resolved}", resolved);
 
                             await processor.CopyToAsync(proxyResponse.Content,
                                                         request.OutputStream,
