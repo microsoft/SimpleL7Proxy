@@ -19,6 +19,7 @@ namespace SimpleL7Proxy.Proxy
 {
     /// <summary>
     /// Represents an asynchronous worker that performs a task and disappears after completion.
+    /// Review DISPOSAL_ARCHITECTURE.MD in the root for details on disposal flow
     /// </summary>
     public class AsyncWorker : IAsyncDisposable
     {
@@ -343,7 +344,6 @@ namespace SimpleL7Proxy.Proxy
                 try
                 {
                     await _hos.FlushAsync().ConfigureAwait(false);
-                    _hos.Close();
                     _hos.Dispose();
                 }
                 catch (ObjectDisposedException)

@@ -11,12 +11,14 @@ using System.Collections.Concurrent;
 
 using SimpleL7Proxy.Backend;
 
+// Review DISPOSAL_ARCHITECTURE.MD in the root for details on disposal flow
+
 namespace SimpleL7Proxy.BlobStorage
 {
     /// <summary>
     /// Provides methods for writing to Azure Blob Storage.
     /// </summary>
-    public class BlobWriter : IBlobWriter
+    public class BlobWriter : IBlobWriter, IDisposable
     {
         private static readonly ConcurrentDictionary<string, BlobContainerClient> _containerClients = new();
         //private readonly BlobContainerClient _containerClient = null!;
@@ -27,6 +29,8 @@ namespace SimpleL7Proxy.BlobStorage
         public bool UsesMI { get; set; }
 
         public bool IsInitialized => _blobServiceClient != null;
+        private bool _disposed = false;
+
 
         /// <summary>
         /// Initializes a new instance of the <see cref="BlobWriter"/> class.
@@ -77,7 +81,7 @@ namespace SimpleL7Proxy.BlobStorage
             }
             catch (Exception ex)
             {
-                
+
                 throw new BlobWriterException($"Failed to initialize BlobContainerClient for userId: {userId}, containerName: {containerName}", ex)
                 {
                     Operation = "InitClientAsync",
@@ -195,13 +199,13 @@ namespace SimpleL7Proxy.BlobStorage
 
                     // Generate the SAS token using the user delegation key
                     var sasQueryParameters = sasBuilder.ToSasQueryParameters(userDelegationKey.Value, _blobServiceClient.AccountName);
-                    
+
                     // Construct the full SAS URI
                     var blobUriBuilder = new BlobUriBuilder(blobClient.Uri)
                     {
                         Sas = sasQueryParameters
                     };
-                    
+
                     var sasUri = blobUriBuilder.ToUri();
                     _logger.LogDebug("Successfully generated user delegation SAS token for blob {BlobName}", blobName);
                     return sasUri.ToString();
@@ -234,5 +238,23 @@ namespace SimpleL7Proxy.BlobStorage
                 };
             }
         }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!_disposed)
+            {
+                if (disposing)
+                {
+                }
+                _disposed = true;
+            }
+        }
+
     }
 }
