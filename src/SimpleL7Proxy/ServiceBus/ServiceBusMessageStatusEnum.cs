@@ -6,22 +6,27 @@ namespace SimpleL7Proxy.ServiceBus
         /// <summary>
         /// The message is in the queue.
         /// </summary>
-        InQueue,
+        Queued,
+
+        /// <summary>
+        /// The message has been scheduled to retry after a delay.
+        /// </summary>
+        RetryScheduled,
 
         /// <summary>
         /// The message has been requeued.
         /// </summary>
-        RetryAfterDelay,
-
-        /// <summary>
-        /// The message has been requeued.
-        /// </summary>
-        ReQueued,
+        Requeued,
 
         /// <summary>
         /// The message is being processed.
         /// </summary>
         Processing,
+
+        /// <summary>
+        /// The message could not be processed asynchronously due to an error.
+        /// </summary>
+        AsyncProcessingError,
 
         /// <summary>
         /// The message is being processed asynchronously.
@@ -34,7 +39,7 @@ namespace SimpleL7Proxy.ServiceBus
 
         /// <summary>
         /// The message has been processed asynchronously.
-        /// 
+        /// </summary>
         AsyncProcessed,
 
         /// <summary>
