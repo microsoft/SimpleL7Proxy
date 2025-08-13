@@ -151,6 +151,7 @@ namespace SimpleL7Proxy.Proxy
                         {
                             Type = EventType.Exception,
                             ["Error"] = ErrorMessage,
+                            ["Operation"] = operation,
                             Exception = blobEx
                         };
  
