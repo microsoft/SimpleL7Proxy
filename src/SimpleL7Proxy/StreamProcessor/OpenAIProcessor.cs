@@ -1,134 +1,42 @@
 
 using System.Text.Json.Nodes;
 using System.Net.Http.Headers;
-using SimpleL7Proxy.Events; 
+using SimpleL7Proxy.Events;
 
 namespace SimpleL7Proxy.StreamProcessor
 {
     /// <summary>
     /// Stream processor implementation for OpenAI-specific stream processing.
+    /// Extracts token usage statistics from the last line of OpenAI streaming responses.
     /// </summary>
-    public class OpenAIProcessor : IStreamProcessor
+    public class OpenAIProcessor : JsonStreamProcessor
     {
-        private Dictionary<string, string> data;
-
-        public OpenAIProcessor()
-        {
-            data = new();
-        }
-
         /// <summary>
-        /// Copies content from the source stream to the destination output stream.
-        /// </summary>
-        /// <param name="sourceStream">The source stream to read from.</param>
-        /// <param name="outputStream">The destination stream to write to.</param>
-        /// <param name="cancellationToken">The cancellation token to cancel the operation.</param>
-        /// <returns>A task representing the asynchronous copy operation.</returns>
-        public async Task CopyToAsync(System.Net.Http.HttpContent sourceContent, Stream outputStream, CancellationToken? cancellationToken)
-        {
-            var lastLineBuilder = new List<string>();
-            string lastLine = string.Empty;
-            string last2ndLine = string.Empty;
-
-            try
-            {
-                using var sourceStream = await sourceContent.ReadAsStreamAsync().ConfigureAwait(false);
-                using var reader = new StreamReader(sourceStream);
-                using var writer = new StreamWriter(outputStream) { AutoFlush = true };
-
-                string? currentLine;
-
-                // Stream all content immediately while collecting lines for last line detection
-                while ((currentLine = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
-                {
-                    cancellationToken?.ThrowIfCancellationRequested();
-
-                    // Write each line immediately - no delays
-                    await writer.WriteLineAsync(currentLine).ConfigureAwait(false);
-
-                    // Keep track of lines for last line processing
-                    //lastLineBuilder.Add(currentLine);
-                    if (currentLine?.Length > 6) {
-                        last2ndLine = lastLine;
-                        lastLine = currentLine;
-                    }
-                }
-            }
-            catch (IOException e)
-            {
-                if (!e.Message.Contains("Connection reset by peer"))
-                {
-                    data["LastError"] = e.Message;
-                    throw;
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                data["LastError"] = "Operation was cancelled";
-                throw;
-            }
-            catch (Exception e)
-            {
-                data["LastError"] = $"Unexpected error: {e.Message}";
-                throw;
-            }
-            finally
-            {
-
-                var lineToProcess = lastLine.Contains("data: [DONE]") ? last2ndLine : lastLine;
-                
-                // Only process the last line for statistics/parsing after stream has terminated
-                if (!string.IsNullOrEmpty(lineToProcess))
-                {
-                    try
-                    {
-                        ProcessLastLine(lineToProcess);
-                    }
-                    catch (Exception ex)
-                    {
-                        data["LastLineProcessingError"] = ex.Message;
-                    }
-                }
-                else
-                {
-                    Console.WriteLine("No content received from source stream.");
-                }
-            }
-        }
-        
-        /// <summary>
-        /// Processes the last line to extract statistics and information.
+        /// Processes the last line to extract OpenAI-specific statistics.
+        /// Looks for usage.completion_tokens, usage.prompt_tokens, and usage.total_tokens.
         /// </summary>
         /// <param name="lastLine">The last line from the stream.</param>
-        private void ProcessLastLine(string lastLine)
+        protected override void ProcessLastLine(string lastLine)
         {
             try
             {
-                // Parse JSON to extract OpenAI usage information
-                if (!string.IsNullOrWhiteSpace(lastLine))
+                var jsonNode = ParseJsonLine(lastLine);
+                if (jsonNode != null)
                 {
-                    // Line starts with data: so we need to remove that prefix
-                    if (lastLine.StartsWith("data: ", StringComparison.OrdinalIgnoreCase))
+                    // Extract usage statistics
+                    var usage = jsonNode["usage"];
+                    if (usage != null)
                     {
-                        lastLine = lastLine.Substring(6).Trim();
+                        data["Completion_Tokens"] = ExtractTokenCount(usage, "completion_tokens");
+                        data["Prompt_Tokens"] = ExtractTokenCount(usage, "prompt_tokens");
+                        data["Total_Tokens"] = ExtractTokenCount(usage, "total_tokens");
                     }
-                    var jsonNode = JsonNode.Parse(lastLine);
-                    if (jsonNode != null)
+                    else
                     {
-                        // Extract usage statistics
-                        var usage = jsonNode["usage"];
-                        if (usage != null)
-                        {
-                            data["Completion_Tokens"] = usage["completion_tokens"]?.GetValue<int>().ToString() ?? "0";
-                            data["Prompt_Tokens"] = usage["prompt_tokens"]?.GetValue<int>().ToString() ?? "0";
-                            data["Total_Tokens"] = usage["total_tokens"]?.GetValue<int>().ToString() ?? "0";
-                        }
-                        else
-                        {
-                            data["Completion_Tokens"] = "0";
-                            data["Prompt_Tokens"] = "0";
-                            data["Total_Tokens"] = "0";
-                        }
+                        // Set defaults if usage is not present
+                        data["Completion_Tokens"] = "0";
+                        data["Prompt_Tokens"] = "0";
+                        data["Total_Tokens"] = "0";
                     }
                 }
             }
@@ -140,14 +48,25 @@ namespace SimpleL7Proxy.StreamProcessor
         }
 
         /// <summary>
-        /// Gets statistics about the stream processing operation.
+        /// Populates event data with OpenAI-specific statistics.
         /// </summary>
-        /// <returns>A dictionary containing processing statistics.</returns>
-        public void GetStats(ProxyEvent eventData, HttpResponseHeaders headers)
+        protected override void PopulateEventData(ProxyEvent eventData, HttpResponseHeaders headers)
         {
-            eventData["Completion_Tokens"]= data["Completion_Tokens"];
-            eventData["Prompt_Tokens"]= data["Prompt_Tokens"];
-            eventData["Total_Tokens"]= data["Total_Tokens"];
+            // Transfer the specific OpenAI fields we care about
+            if (data.ContainsKey("Completion_Tokens"))
+                eventData["Completion_Tokens"] = data["Completion_Tokens"];
+            if (data.ContainsKey("Prompt_Tokens"))
+                eventData["Prompt_Tokens"] = data["Prompt_Tokens"];
+            if (data.ContainsKey("Total_Tokens"))
+                eventData["Total_Tokens"] = data["Total_Tokens"];
+
+            // Also include any error information
+            if (data.ContainsKey("ParseError"))
+                eventData["ParseError"] = data["ParseError"];
+            if (data.ContainsKey("LastError"))
+                eventData["LastError"] = data["LastError"];
+            if (data.ContainsKey("LastLineProcessingError"))
+                eventData["LastLineProcessingError"] = data["LastLineProcessingError"];
         }
     }
 }
