@@ -1,37 +1,33 @@
-
-using System.Text.Json.Nodes;
 using System.Net.Http.Headers;
-using SimpleL7Proxy.Events; 
+using SimpleL7Proxy.Events;
 
 namespace SimpleL7Proxy.StreamProcessor
 {
     /// <summary>
-    /// Stream processor implementation for Anthropic-specific stream processing.
+    /// Default stream processor implementation that simply copies content without processing.
+    /// Suitable for APIs that don't require specific JSON parsing or statistics extraction.
     /// </summary>
-    public class DefaultStreamProcessor : IStreamProcessor
+    public class DefaultStreamProcessor : BaseStreamProcessor
     {
         /// <summary>
-        /// Copies content from the source stream to the destination output stream.
+        /// Copies content from source to destination without any processing.
         /// </summary>
-        /// <param name="sourceStream">The source stream to read from.</param>
-        /// <param name="outputStream">The destination stream to write to.</param>
-        /// <param name="cancellationToken">The cancellation token to cancel the operation.</param>
-        /// <returns>A task representing the asynchronous copy operation.</returns>
-        public async Task CopyToAsync(System.Net.Http.HttpContent sourceContent, Stream outputStream, CancellationToken? cancellationToken)
+        public override async Task CopyToAsync(System.Net.Http.HttpContent sourceContent, Stream outputStream, CancellationToken? cancellationToken)
         {
             if (cancellationToken != null)
                 await sourceContent.CopyToAsync(outputStream, cancellationToken.Value).ConfigureAwait(false);
             else
                 await sourceContent.CopyToAsync(outputStream).ConfigureAwait(false);
-
         }
 
         /// <summary>
-        /// Gets statistics about the stream processing operation.
+        /// No statistics are extracted by the default processor.
         /// </summary>
-        /// <returns>A dictionary containing processing statistics.</returns>
-        public void GetStats(ProxyEvent eventData, HttpResponseHeaders headers)
+        public override void GetStats(ProxyEvent eventData, HttpResponseHeaders headers)
         {
+            // No stats to collect in default processor
         }
+
+        // No need to override Dispose - base class handles it with no additional resources
     }
 }
