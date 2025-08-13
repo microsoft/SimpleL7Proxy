@@ -441,7 +441,7 @@ public class Server : BackgroundService
                             // ASYNC: If the request is allowed to run async, set the status
                             if (!notEnqued && doAsync)
                             {
-                                rd.SBStatus = ServiceBusMessageStatusEnum.InQueue;
+                                rd.SBStatus = ServiceBusMessageStatusEnum.Queued;
                             }
 
                         }
