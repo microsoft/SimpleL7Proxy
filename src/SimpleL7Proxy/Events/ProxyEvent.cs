@@ -10,6 +10,7 @@ namespace SimpleL7Proxy.Events
 
   public enum EventType
   {
+    AsyncProcessing,
     Backend,
     BackendRequest,
     CircuitBreakerError,
