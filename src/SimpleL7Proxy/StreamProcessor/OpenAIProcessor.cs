@@ -12,37 +12,33 @@ namespace SimpleL7Proxy.StreamProcessor
     public class OpenAIProcessor : JsonStreamProcessor
     {
         /// <summary>
-        /// Processes the last line to extract OpenAI-specific statistics.
+        /// Processes the last lines to extract OpenAI-specific statistics.
         /// Looks for usage.completion_tokens, usage.prompt_tokens, and usage.total_tokens.
         /// </summary>
-        /// <param name="lastLine">The last line from the stream.</param>
-        protected override void ProcessLastLine(string lastLine)
+        /// <param name="lastLines">Array of the last significant lines from the stream.</param>
+        /// <param name="primaryLine">The primary line to process.</param>
+
+        protected override void ProcessLastLines(string[] lastLines, string primaryLine)
         {
             try
             {
-                var jsonNode = ParseJsonLine(lastLine);
-                if (jsonNode != null)
+                var jsonNode = ParseJsonLine(primaryLine);
+                if (jsonNode?["usage"] is JsonObject usage)
                 {
-                    // Extract usage statistics
-                    var usage = jsonNode["usage"];
-                    if (usage != null)
-                    {
-                        data["Completion_Tokens"] = ExtractTokenCount(usage, "completion_tokens");
-                        data["Prompt_Tokens"] = ExtractTokenCount(usage, "prompt_tokens");
-                        data["Total_Tokens"] = ExtractTokenCount(usage, "total_tokens");
-                    }
-                    else
-                    {
-                        // Set defaults if usage is not present
-                        data["Completion_Tokens"] = "0";
-                        data["Prompt_Tokens"] = "0";
-                        data["Total_Tokens"] = "0";
-                    }
+                    data["Completion_Tokens"] = ExtractTokenCount(usage, "completion_tokens");
+                    data["Prompt_Tokens"] = ExtractTokenCount(usage, "prompt_tokens");
+                    data["Total_Tokens"] = ExtractTokenCount(usage, "total_tokens");
+                }
+                else
+                {
+                    // Set defaults if usage is not present
+                    data["Completion_Tokens"] = "0";
+                    data["Prompt_Tokens"] = "0";
+                    data["Total_Tokens"] = "0";
                 }
             }
             catch (Exception ex)
             {
-                // Not able to parse the last line, log the error
                 data["ParseError"] = ex.Message;
             }
         }
@@ -53,20 +49,16 @@ namespace SimpleL7Proxy.StreamProcessor
         protected override void PopulateEventData(ProxyEvent eventData, HttpResponseHeaders headers)
         {
             // Transfer the specific OpenAI fields we care about
-            if (data.ContainsKey("Completion_Tokens"))
-                eventData["Completion_Tokens"] = data["Completion_Tokens"];
-            if (data.ContainsKey("Prompt_Tokens"))
-                eventData["Prompt_Tokens"] = data["Prompt_Tokens"];
-            if (data.ContainsKey("Total_Tokens"))
-                eventData["Total_Tokens"] = data["Total_Tokens"];
+            if (data.TryGetValue("Completion_Tokens", out var completionTokens))
+                eventData["Usage.Completion_Tokens"] = completionTokens;
+            if (data.TryGetValue("Prompt_Tokens", out var promptTokens))
+                eventData["Usage.Prompt_Tokens"] = promptTokens;
+            if (data.TryGetValue("Total_Tokens", out var totalTokens))
+                eventData["Usage.Total_Tokens"] = totalTokens;
 
-            // Also include any error information
-            if (data.ContainsKey("ParseError"))
-                eventData["ParseError"] = data["ParseError"];
-            if (data.ContainsKey("LastError"))
-                eventData["LastError"] = data["LastError"];
-            if (data.ContainsKey("LastLineProcessingError"))
-                eventData["LastLineProcessingError"] = data["LastLineProcessingError"];
+            // Include error information if present
+            if (data.TryGetValue("ParseError", out var parseError))
+                eventData["Usage.ParseError"] = parseError;
         }
     }
 }

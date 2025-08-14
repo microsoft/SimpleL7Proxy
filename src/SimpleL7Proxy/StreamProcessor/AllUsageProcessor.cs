@@ -12,32 +12,34 @@ namespace SimpleL7Proxy.StreamProcessor
     public class AllUsageProcessor : JsonStreamProcessor
     {
         /// <summary>
-        /// Processes the last line to extract comprehensive statistics from the JSON response.
+        /// Processes the last lines to extract comprehensive statistics from the JSON response.
         /// Recursively extracts all fields using dot notation for nested objects.
         /// </summary>
-        /// <param name="lastLine">The last line from the stream.</param>
-        protected override void ProcessLastLine(string lastLine)
+        /// <param name="lastLines">Array of the last significant lines from the stream.</param>
+        /// <param name="primaryLine">The primary line to process.</param>
+        /// <summary>
+        /// Processes the last lines to extract comprehensive statistics from the JSON response.
+        /// Extracts all fields using dot notation for nested objects.
+        /// </summary>
+        /// <param name="lastLines">Array of the last significant lines from the stream.</param>
+        /// <param name="primaryLine">The primary line to process.</param>
+        protected override void ProcessLastLines(string[] lastLines, string primaryLine)
         {
             try
             {
-                var jsonNode = ParseJsonLine(lastLine);
+                var jsonNode = ParseJsonLine(primaryLine);
                 if (jsonNode != null)
                 {
-                    // Extract all fields from the entire JSON response
                     ExtractAllFields(jsonNode, "");
 
-                    // Ensure usage fields have defaults if not present
-                    if (!data.ContainsKey("usage.completion_tokens"))
-                        data["usage.completion_tokens"] = "0";
-                    if (!data.ContainsKey("usage.prompt_tokens"))
-                        data["usage.prompt_tokens"] = "0";
-                    if (!data.ContainsKey("usage.total_tokens"))
-                        data["usage.total_tokens"] = "0";
+                    // Set defaults for required usage fields
+                    data.TryAdd("Completion_Tokens", "0");
+                    data.TryAdd("Prompt_Tokens", "0");
+                    data.TryAdd("Total_Tokens", "0");
                 }
             }
             catch (Exception ex)
             {
-                // Not able to parse the last line, log the error
                 data["ParseError"] = ex.Message;
             }
         }
@@ -50,79 +52,56 @@ namespace SimpleL7Proxy.StreamProcessor
             // Copy all captured data to the event data
             foreach (var kvp in data)
             {
-                eventData[kvp.Key] = kvp.Value;
-            }
-
-            // For backward compatibility, also set the legacy field names if they exist
-            if (data.ContainsKey("usage.completion_tokens"))
-                eventData["Completion_Tokens"] = data["usage.completion_tokens"];
-            if (data.ContainsKey("usage.prompt_tokens"))
-                eventData["Prompt_Tokens"] = data["usage.prompt_tokens"];
-            if (data.ContainsKey("usage.total_tokens"))
-                eventData["Total_Tokens"] = data["usage.total_tokens"];
-
-            // Extract finish reason from choices if available
-            var finishReasonKey = data.Keys.FirstOrDefault(k => k.EndsWith(".finish_reason"));
-            if (!string.IsNullOrEmpty(finishReasonKey))
-                eventData["Finish_Reason"] = data[finishReasonKey];
-
-            // Count total choices
-            var choicesCount = data.Keys.Count(k => k.StartsWith("choices[") && k.Contains("].index"));
-            if (choicesCount > 0)
-                eventData["Choices_Count"] = choicesCount.ToString();
-
-            // Extract any additional usage details that might be present
-            var usageKeys = data.Keys.Where(k => k.StartsWith("usage.") && !k.Contains("completion_tokens") && !k.Contains("prompt_tokens") && !k.Contains("total_tokens"));
-            foreach (var key in usageKeys)
-            {
-                var legacyKey = key.Substring(6); // Remove "usage." prefix
-                var formattedKey = string.Join("_", legacyKey.Split('.', '[', ']').Where(s => !string.IsNullOrEmpty(s)).Select(s => char.ToUpper(s[0]) + s.Substring(1).ToLower()));
-                eventData[$"Usage_{formattedKey}"] = data[key];
+                // Convert key to PascalCase: usage.foo_bar => Usage.Foo_Bar
+                var convertedKey = ConvertToPascalCase(kvp.Key);
+                eventData[convertedKey] = kvp.Value;
             }
         }
 
         /// <summary>
-        /// Recursively extracts all fields from a JSON node, preserving hierarchy with dot notation.
+        /// Simplified extraction for simple JSON with few fields and 1-2 layers deep.
+        /// Converts all values to strings for consistent data handling.
         /// </summary>
         /// <param name="node">The JSON node to extract fields from.</param>
         /// <param name="prefix">The prefix for the field names (hierarchy path).</param>
         private void ExtractAllFields(JsonNode? node, string prefix)
         {
-            if (node == null) return;
+            if (node is not JsonObject jsonObject) return;
 
-            switch (node)
+            foreach (var (key, value) in jsonObject)
             {
-                case JsonObject jsonObject:
-                    foreach (var kvp in jsonObject)
-                    {
-                        var fieldName = string.IsNullOrEmpty(prefix) ? kvp.Key : $"{prefix}.{kvp.Key}";
-                        ExtractAllFields(kvp.Value, fieldName);
-                    }
-                    break;
+                if (value == null) continue;
 
-                case JsonArray jsonArray:
-                    for (int i = 0; i < jsonArray.Count; i++)
-                    {
-                        var fieldName = string.IsNullOrEmpty(prefix) ? $"[{i}]" : $"{prefix}[{i}]";
-                        ExtractAllFields(jsonArray[i], fieldName);
-                    }
-                    break;
+                var fieldName = string.IsNullOrEmpty(prefix) ? key : $"{prefix}.{key}";
 
-                case JsonValue jsonValue:
-                    // Extract the actual value and store it as a string
-                    var value = jsonValue.GetValue<object>();
-                    if (!string.IsNullOrEmpty(prefix))
-                    {
-                        data[prefix] = value?.ToString() ?? "null";
-                    }
-                    break;
+                switch (value)
+                {
+                    case JsonValue jsonValue:
+                        data[fieldName] = jsonValue.ToString();
+                        break;
 
-                default:
-                    if (!string.IsNullOrEmpty(prefix))
-                    {
-                        data[prefix] = node.ToString();
-                    }
-                    break;
+                    case JsonObject nestedObject:
+                        foreach (var (nestedKey, nestedValue) in nestedObject)
+                        {
+                            if (nestedValue is JsonValue nestedJsonValue)
+                                data[$"{fieldName}.{nestedKey}"] = nestedJsonValue.ToString();
+                        }
+                        break;
+
+                    case JsonArray jsonArray:
+                        for (int i = 0; i < jsonArray.Count; i++)
+                        {
+                            if (jsonArray[i] is JsonObject arrayObject)
+                            {
+                                foreach (var (arrayKey, arrayValue) in arrayObject)
+                                {
+                                    if (arrayValue is JsonValue arrayJsonValue)
+                                        data[$"{fieldName}[{i}].{arrayKey}"] = arrayJsonValue.ToString();
+                                }
+                            }
+                        }
+                        break;
+                }
             }
         }
     }

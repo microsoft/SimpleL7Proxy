@@ -956,19 +956,19 @@ public class ProxyWorker
                             && !string.IsNullOrEmpty(mediaType)
                             && mediaType.Equals("text/event-stream", StringComparison.OrdinalIgnoreCase))
                         {
-                            processWith = "OpenAI";
+                            processWith = "DefaultStream";
                         }
 
                         // Normalize aliases
                         if (processWith.Equals("Inline", StringComparison.OrdinalIgnoreCase))
                         {
-                            processWith = "Default";
+                            processWith = "DefaultStream";
                         }
 
                         requestState = "Stream Proxy Response : " + processWith;
 
                         // Stream response from the backend to the client / blob depending on async timer
-                        IStreamProcessor processor = new NullStreamProcessor();
+                        IStreamProcessor processor = new DefaultStreamProcessor();
                         _logger.LogInformation("Streaming response with processor. Requested: {Requested}, ContentType: {ContentType}", processWith, mediaType);
                         try
                         {
@@ -976,8 +976,8 @@ public class ProxyWorker
                             if (!processors.TryGetValue(processWith, out var factory))
                             {
                                 _logger.LogWarning("Unknown processor requested: {Requested}. Falling back to default.", processWith);
-                                factory = processors["Default"];
-                                resolved = "Default";
+                                factory = processors["DefaultStream"];
+                                resolved = "DefaultStream";
                             }
 
                             // Instantiate once so we can collect stats later
@@ -988,8 +988,8 @@ public class ProxyWorker
                             catch (Exception pex)
                             {
                                 _logger.LogWarning("Processor '{Requested}' failed to construct. Falling back to default. Error: {Message}", processWith, pex.Message);
-                                processor = processors["Default"]();
-                                resolved = "Default";
+                                processor = processors["DefaultStream"]();
+                                resolved = "DefaultStream";
                             }
 
                             _logger.LogDebug("Resolved processor: {Resolved}", resolved);
@@ -1236,8 +1236,7 @@ public class ProxyWorker
     {
         ["OpenAI"] = static () => new OpenAIProcessor(),
         ["AllUsage"] = static () => new AllUsageProcessor(),
-        ["Default"] = static () => new DefaultStreamProcessor(),
-        ["Null"] = static () => new NullStreamProcessor(),
+        ["DefaultStream"] = static () => new DefaultStreamProcessor(),
     };
     private static void GenerateErrorMessage(List<Dictionary<string, string>> incompleteRequests, out StringBuilder sb, out bool statusMatches, out int currentStatusCode)
     {
