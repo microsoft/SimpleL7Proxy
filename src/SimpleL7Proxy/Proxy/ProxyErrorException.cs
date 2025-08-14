@@ -13,8 +13,11 @@ public class ProxyErrorException(ProxyErrorException.ErrorType type, HttpStatusC
         BackendDisconnected,
         IncompleteHeaders,
         InvalidHeader,
-        DisallowedAppID
-    }
+        DisallowedAppID,
+        UnknownProfile,
+        AsyncWorkerError
+    } 
+    
     public ErrorType Type { get; set; } = type;
     public HttpStatusCode StatusCode { get; set; } = statusCode;
 

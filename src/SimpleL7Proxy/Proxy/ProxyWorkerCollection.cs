@@ -22,19 +22,20 @@ public class ProxyWorkerCollection : BackgroundService
   private readonly TelemetryClient _telemetryClient;
   private readonly ILogger<ProxyWorker> _logger;
   private readonly ProxyStreamWriter _proxyStreamWriter;
-
+  private readonly IAsyncWorkerFactory _asyncWorkerFactory;
   private readonly List<ProxyWorker> _workers;
   private static readonly List<Task> _tasks = [];
 
   public ProxyWorkerCollection(
-    IOptions<BackendOptions> backendOptions, 
-    IConcurrentPriQueue<RequestData> queue, 
+    IOptions<BackendOptions> backendOptions,
+    IConcurrentPriQueue<RequestData> queue,
     IBackendService backends,
     IUserPriorityService userPriorityService,
     IUserProfileService userProfileService,
     IEventClient eventClient,
     TelemetryClient telemetryClient,
     ILogger<ProxyWorker> logger,
+    IAsyncWorkerFactory asyncWorkerFactory,
     ProxyStreamWriter proxyStreamWriter)
   {
     _backendOptions = backendOptions.Value;
@@ -46,6 +47,7 @@ public class ProxyWorkerCollection : BackgroundService
     _proxyStreamWriter = proxyStreamWriter;
     _userPriorityService = userPriorityService;
     _userProfileService = userProfileService;
+    _asyncWorkerFactory = asyncWorkerFactory;
 
     _workers = [];
   }
@@ -54,7 +56,7 @@ public class ProxyWorkerCollection : BackgroundService
   {
 
     var workerPriorities = new Dictionary<int, int>(_backendOptions.PriorityWorkers);
-    Console.WriteLine($"Worker Priorities: {string.Join(",", workerPriorities)}");
+    _logger.LogInformation($"Worker Priorities: {string.Join(",", workerPriorities)}");
 
     // The loop creates a number of workers based on backendOptions.Workers.
     // The first worker (wrkrNum == 0) is always a probe worker with priority 0.
@@ -92,6 +94,7 @@ public class ProxyWorkerCollection : BackgroundService
         _userPriorityService,
         _eventClient,
         _telemetryClient,
+        _asyncWorkerFactory,
         _logger,
         _proxyStreamWriter,
         cancellationToken));

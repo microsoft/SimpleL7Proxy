@@ -1,4 +1,14 @@
-{"temperature":1,"top_p":1,"stream":false,"stop":null,"max_tokens":4096,"presence_penalty":0,"frequency_penalty":0, 
+{
+  "temperature": 1,
+  "top_p": 1,
+  "stream": true,
+  "stream_options": {
+     "include_usage": true
+  },
+  "stop": null,
+  "max_tokens": 4096,
+  "presence_penalty": 0,
+  "frequency_penalty": 0,
   "messages": [
     {
       "role": "system",
@@ -6,7 +16,7 @@
     },
     {
       "role": "user",
-      "content": "Tell me a joke about Azure API Management Service, please."
+      "content": "Create a 4000 word essay about why AI will change the world as we know it."
     }
   ]
 }

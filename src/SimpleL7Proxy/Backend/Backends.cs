@@ -40,6 +40,7 @@ public class Backends : IBackendService
   CancellationTokenSource workerCancelTokenSource = new CancellationTokenSource();
   private readonly TelemetryClient _telemetryClient;
   private readonly ILogger<Backends> _logger;
+  private static readonly ProxyEvent staticEvent = new ProxyEvent() { Type = EventType.Backend };
 
   private Task? PollerTask;
   //public Backends(List<BackendHost> hosts, HttpClient client, int interval, int successRate)
@@ -87,7 +88,7 @@ public class Backends : IBackendService
 
   public Task Stop()
   {
-    _logger.LogInformation("Stopping backend.");
+    _logger.LogCritical("Stopping backend.");
     _cancellationTokenSource.Cancel();
 
     return PollerTask ?? Task.CompletedTask;
@@ -105,7 +106,7 @@ public class Backends : IBackendService
       GetToken();
     }
 
-    _logger.LogInformation("Backend service started.");
+    _logger.LogCritical("Backend service started.");
   }
 
   private readonly List<DateTime> hostFailureTimes = [];
@@ -117,7 +118,6 @@ public class Backends : IBackendService
   public List<BackendHostHealth> GetActiveHosts() => _activeHosts;
   public int ActiveHostCount() => _activeHosts.Count;
 
-  static Dictionary<string, string> logerror = new Dictionary<string, string>() { { "Type", "CircuitBreaker-Error-Event" } };
   public void TrackStatus(int code, bool wasException)
   {
     if (allowableCodes.Contains(code) && !wasException)
@@ -134,12 +134,16 @@ public class Backends : IBackendService
     }
 
     hostFailureTimes2.Enqueue(now);
-    logerror["Code"] = code.ToString();
-    logerror["Time"] = now.ToString();
-    logerror["WasException"] = wasException.ToString();
-    logerror["Count"] = hostFailureTimes2.Count.ToString();
+    ProxyEvent logerror = new ProxyEvent()
+    {
+      ["Code"] = code.ToString(),
+      ["Time"] = now.ToString(),
+      ["WasException"] = wasException.ToString(),
+      ["Count"] = hostFailureTimes2.Count.ToString(),
+      Type = EventType.CircuitBreakerError
+    };
 
-    SendEventData(logerror);
+    logerror.SendEvent();
   }
 
   public List<BackendHostHealth> GetHosts() => _backendHosts;
@@ -194,7 +198,7 @@ public class Backends : IBackendService
       }
       else
       {
-        _logger.LogInformation($"Backend Poller started in {(DateTime.Now - start).TotalSeconds} seconds.");
+        _logger.LogCritical($"Backend Poller started in {(DateTime.Now - start).TotalSeconds} seconds.");
         return;
       }
     }
@@ -209,7 +213,7 @@ public class Backends : IBackendService
     {
       var intervalTime = TimeSpan.FromMilliseconds(_options.PollInterval).ToString(@"hh\:mm\:ss");
       var timeoutTime = TimeSpan.FromMilliseconds(_options.PollTimeout).ToString(@"hh\:mm\:ss\.fff");
-      _logger.LogInformation($"Starting Backend Poller: Interval: {intervalTime}, SuccessRate: {_successRate}, Timeout: {timeoutTime}");
+      _logger.LogCritical($"Starting Backend Poller: Interval: {intervalTime}, SuccessRate: {_successRate}, Timeout: {timeoutTime}");
 
       _client.Timeout = TimeSpan.FromMilliseconds(_options.PollTimeout);
 
@@ -241,7 +245,7 @@ public class Backends : IBackendService
         }
       }
 
-      _logger.LogInformation("Backend Poller stopped.");
+      _logger.LogCritical("Backend Poller stopped.");
     }
   }
 
@@ -294,102 +298,100 @@ public class Backends : IBackendService
   private async Task<bool> GetHostStatus(BackendHostHealth host, HttpClient client)
   {
     double latency = 0;
-
     ProxyEvent probeData = new()
     {
-      EventData =
-      {
-        ["ProxyHost"] = _options.HostName,
-        ["Backend-Host"] = host.Host,
-        ["Port"] = host.Port.ToString(),
-        ["Path"] = host.ProbePath
-      }
+      ["ProxyHost"] = _options.HostName,
+      ["Backend-Host"] = host.Host,
+      ["Port"] = host.Port.ToString(),
+      ["Path"] = host.ProbePath,
+      Type = EventType.Poller
     };
 
-    try {
-      if (_debug)
-        _logger.LogDebug($"Checking host {host.Url + host.ProbePath}");
+    try
+    {
 
-      HttpRequestMessage request = new(HttpMethod.Get, host.ProbeUrl);
-      if (_options.UseOAuth) {
+      if (_debug)
+        staticEvent.WriteOutput($"Checking host {host.Url + host.ProbePath}");
+
+
+      var request = new HttpRequestMessage(HttpMethod.Get, host.ProbeUrl);
+      if (_options.UseOAuth)
+      {
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", OAuth2Token());
       }
 
       var stopwatch = Stopwatch.StartNew();
 
-      try {
-          // send and read the entire response
-          var response = await client.SendAsync(request, _cancellationToken);
-          var responseBody = await response.Content.ReadAsStringAsync(_cancellationToken);
-                    
-          stopwatch.Stop();
+      try
+      {
+        // send and read the entire response
+        var response = await client.SendAsync(request, _cancellationToken);
+        var responseBody = await response.Content.ReadAsStringAsync(_cancellationToken);
+        response.EnsureSuccessStatusCode();
 
-          latency = stopwatch.Elapsed.TotalMilliseconds;
+        probeData["Code"] = response.StatusCode.ToString();
+        _isRunning = true;
 
-          // Update the host with the new latency
-          host.AddLatency(latency);
+        // If the response is successful, add the host to the active hosts
+        return response.IsSuccessStatusCode;
+      }
+      finally
+      {
+        stopwatch.Stop();
+        latency = stopwatch.Elapsed.TotalMilliseconds;
 
-          probeData.EventData["Latency"] = latency.ToString() + " ms";
-          probeData.EventData["Code"] = response.StatusCode.ToString();
-          probeData.EventData["Type"] = "Poller";
-          //probeData.EventData["Host"] = host.Host;
-          probeData.EventData["ID"] = _options.IDStr;
-
-          response.EnsureSuccessStatusCode();
-
-          _isRunning = true;
-
-          // If the response is successful, add the host to the active hosts
-          return response.IsSuccessStatusCode;
-        } finally {
-          stopwatch.Stop();
-          latency = stopwatch.Elapsed.TotalMilliseconds;
-          probeData.EventData["Latency"] = latency.ToString() + " ms";
-        }
+        // Update the host with the new latency
+        host.AddLatency(latency);
+        probeData["Latency"] = latency.ToString() + " ms";
+      }
     }
     catch (UriFormatException e)
     {
-      _telemetryClient?.TrackException(e);
-      _logger.LogError($"Poller: Could not check probe: {e.Message}");
-      probeData.EventData["Type"] = "Uri Format Exception";
-      probeData.EventData["Code"] = "-";
+      // WriteOutput($"Poller: Could not check probe: {e.Message}");
+      probeData.Type = EventType.Exception;
+      probeData.Exception = e;
+      //"S7P-Uri Format Exception";
+      probeData["Code"] = "-";
     }
-    catch (System.Threading.Tasks.TaskCanceledException)
+    catch (System.Threading.Tasks.TaskCanceledException e)
     {
-      _logger.LogError($"Poller: Host Timeout: {host.Host}");
-      probeData.EventData["Type"] = "TaskCanceledException";
-      probeData.EventData["Code"] = "-";
-      probeData.EventData["Timeout"] = client.Timeout.TotalMilliseconds.ToString();
+      // WriteOutput($"Poller: Host Timeout: {host.host}");
+      probeData.Type = EventType.Exception;
+      probeData.Exception = e;
+      probeData["Code"] = "-";
+      probeData["Timeout"] = client.Timeout.TotalMilliseconds.ToString();
     }
     catch (HttpRequestException e)
     {
-      _telemetryClient?.TrackException(e);
-      _logger.LogError($"Poller: Host {host.Host} is down with exception: {e.Message}");
-      probeData.EventData["Type"] = "HttpRequestException";
-      probeData.EventData["Code"] = "-";
+      // WriteOutput($"Poller: Host {host.host} is down with exception: {e.Message}");
+      probeData.Type = EventType.Exception;
+      probeData.Exception = e;
+      probeData["Code"] = "-";
     }
     catch (OperationCanceledException)
     {
       // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
-      _logger.LogInformation("Poller: Operation was canceled. Stopping the server.");
+      staticEvent.WriteOutput("Poller: Stopping the server.");
       throw; // Exit the loop
     }
     catch (System.Net.Sockets.SocketException e)
     {
-      _logger.LogError($"Poller: Host {host.Host} is down:  {e.Message}");
-      probeData.EventData["Type"] = "SocketException";
-      probeData.EventData["Code"] = "-";
+      // WriteOutput($"Poller: Host {host.host} is down:  {e.Message}");
+      probeData.Type = EventType.Exception;
+      probeData.Exception = e;
+      probeData["Code"] = "-";
     }
     catch (Exception e)
     {
-      _telemetryClient?.TrackException(e);
-      _logger.LogError($"Poller: Error: {e.Message}");
-      probeData.EventData["Type"] = "Exception " + e.Message;
-      probeData.EventData["Code"] = "-";
+      // Program.telemetryClient?.TrackException(e);
+      // WriteErrorOutput($"Poller: Error: {e.Message}");
+      probeData.Type = EventType.Exception;
+      probeData.Exception = e;
+      probeData["Code"] = "-";
     }
     finally
     {
-      _eventClient.SendData(probeData);
+      probeData.SendEvent();
     }
 
     return false;
@@ -398,16 +400,27 @@ public class Backends : IBackendService
   // Filter the active hosts based on the success rate
   private void FilterActiveHosts()
   {
-    //Console.WriteLine("Filtering active hosts");
-    _activeHosts = _backendHosts
-        .Where(h => h.SuccessRate() > _successRate)
-        .Select(h =>
-        {
-          h.CalculatedAverageLatency = h.AverageLatency();
-          return h;
-        })
-        .OrderBy(h => h.CalculatedAverageLatency)
-        .ToList();
+    var hosts = _backendHosts
+            .Where(h => h.SuccessRate() > _successRate)
+            .Select(h =>
+            {
+              h.CalculatedAverageLatency = h.AverageLatency();
+              return h;
+            });
+
+    switch (_options.LoadBalanceMode)
+    {
+      case Constants.Latency:
+        _activeHosts = hosts.OrderBy(h => h.CalculatedAverageLatency).ToList();
+        break;
+      case Constants.RoundRobin:
+        _activeHosts = hosts.ToList();  // roundrobin is handled in proxyWroker
+        break;
+      default:
+        _activeHosts = hosts.OrderBy(_ => Guid.NewGuid()).ToList();
+
+        break;
+    }
   }
 
   public string HostStatus { get; set; } = "-";
@@ -415,10 +428,20 @@ public class Backends : IBackendService
   // Display the status of the hosts
   private void DisplayHostStatus()
   {
-    StringBuilder sb = new();
+    ProxyEvent statusEvent = new ProxyEvent
+    {
+      Type = EventType.Backend,
+      ["Timestamp"] = DateTime.UtcNow.ToString("o"),
+      ["LoadBalanceMode"] = _options.LoadBalanceMode,
+      ["ActiveHostsCount"] = ActiveHostCount().ToString(),
+      ["SuccessRate"] = _successRate.ToString()
+    };
+
+    StringBuilder sb = new StringBuilder();
     sb.Append("\n\n============ Host Status =========\n");
 
     int txActivity = 0;
+    int counter = 0;
 
     var statusIndicator = string.Empty;
     if (_backendHosts != null)
@@ -428,26 +451,29 @@ public class Backends : IBackendService
         var roundedLatency = Math.Round(host.AverageLatency(), 3);
         var successRatePercentage = Math.Round(host.SuccessRate() * 100, 2);
         var hoststatus = host.GetStatus(out int calls, out int errors, out double average);
+
+        counter++;
         txActivity += calls;
         txActivity += errors;
 
         sb.Append($"{statusIndicator} Host: {host.Url} Lat: {roundedLatency}ms Succ: {successRatePercentage}% {hoststatus}\n");
+
+        statusEvent[$"{counter}-Host"] = host.ToString();
+        statusEvent[$"{counter}-Latency"] = roundedLatency.ToString();
+        statusEvent[$"{counter}-SuccessRate"] = successRatePercentage.ToString();
+        statusEvent[$"{counter}-Calls"] = calls.ToString();
+        statusEvent[$"{counter}-Errors"] = errors.ToString();
+        statusEvent[$"{counter}-Average"] = average.ToString();
+        statusEvent[$"{counter}-Status"] = statusIndicator;
       }
 
+    statusEvent.SendEvent();
 
     _lastStatusDisplay = DateTime.Now;
     HostStatus = sb.ToString();
 
-    if (statusIndicator.StartsWith("Good"))
-    {
-      _logger.LogInformation(HostStatus);
-    }
-    else
-    {
-      _logger.LogError(HostStatus);
-    }
-
-    if (txActivity == 0 && (DateTime.Now - _lastGCTime).TotalSeconds > 60 * 15)
+    //Console.WriteLine($"Total Transactions: {txActivity}   Time to go: {DateTime.Now - _lastGCTime}" );
+    if (txActivity == 0 && (DateTime.Now - _lastGCTime).TotalSeconds > (60 * 15))
     {
       // Force garbage collection
       //Console.WriteLine("Running garbage collection");
@@ -455,12 +481,6 @@ public class Backends : IBackendService
       GC.WaitForPendingFinalizers();
       _lastGCTime = DateTime.Now;
     }
-  }
-
-  private void SendEventData(Dictionary<string, string> eventData)//string urlWithPath, HttpStatusCode statusCode, DateTime requestDate, DateTime responseDate)
-  {
-    string jsonData = JsonSerializer.Serialize(eventData);
-    _eventClient?.SendData(jsonData);
   }
 
   // Fetches the OAuth2 Token as a seperate task. The token is fetched and updated 100ms before it expires. 
@@ -482,14 +502,14 @@ public class Backends : IBackendService
 
             if (timeout < 500)
             {
-              _logger.LogInformation($"Auth Token is about to expire. Retrying in {timeout} ms.");
+              _logger.LogCritical($"Auth Token is about to expire. Retrying in {timeout} ms.");
               await Task.Delay((int)timeout, _cancellationToken);
             }
             else
             {
               // Calculate the time to refresh the token, 100 ms before it expires
               var refreshTime = timeout - 100;
-              _logger.LogInformation($"Auth Token expires on: {AuthToken.Value.ExpiresOn} Refresh in: {FormatMilliseconds(refreshTime)} (100 ms grace)");
+              _logger.LogCritical($"Auth Token expires on: {AuthToken.Value.ExpiresOn} Refresh in: {FormatMilliseconds(refreshTime)} (100 ms grace)");
               // Wait for the calculated refresh time or until a cancellation is requested
               await Task.Delay((int)refreshTime, _cancellationToken);
             }
@@ -497,21 +517,34 @@ public class Backends : IBackendService
           else
           {
             // Handle the case where the token is null
-            _logger.LogDebug("Auth Token is null. Retrying in 10 seconds.");
+            _logger.LogError("Auth Token is null. Retrying in 10 seconds.");
             await Task.Delay(TimeSpan.FromMilliseconds(10000), _cancellationToken);
           }
 
         }
       }
-      catch (OperationCanceledException)
+      catch (OperationCanceledException e)
       {
-        // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
-        _logger.LogInformation("Exiting fetching Auth Token: Operation was canceled.");
+        ProxyEvent logEvent = new ProxyEvent
+        {
+          Type = EventType.Exception,
+          Exception = e,
+          ["Message"] = "Auth Token fetching operation was canceled.",
+          ["OAuthAudience"] = _options.OAuthAudience
+        };
+        logEvent.SendEvent();
       }
       catch (Exception e)
       {
-        // Handle any unexpected errors that occur during token fetching
-        _logger.LogError($"An unexpected error occurred while fetching Auth Token: {e.Message}");
+        ProxyEvent logEvent = new ProxyEvent
+        {
+          Type = EventType.Exception,
+          Exception = e,
+          ["Message"] = $"An error occurred while fetching Auth Token: {e.Message}",
+          ["OAuthAudience"] = _options.OAuthAudience
+        };
+        logEvent.SendEvent();
+
       }
     }, _cancellationToken);
   }
@@ -532,54 +565,44 @@ public class Backends : IBackendService
     {
       var options = new DefaultAzureCredentialOptions();
 
-      if (_options.UseOAuthGov == true) {
-          options.AuthorityHost =AzureAuthorityHosts.AzureGovernment;
-          //options = new DefaultAzureCredentialOptions { AuthorityHost = AzureAuthorityHosts.AzureGovernment };
+      if (_options.UseOAuthGov == true)
+      {
+        options.AuthorityHost = AzureAuthorityHosts.AzureGovernment;
+        //options = new DefaultAzureCredentialOptions { AuthorityHost = AzureAuthorityHosts.AzureGovernment };
       }
 
       var credential = new DefaultAzureCredential(options);
-      TokenRequestContext context = new([_options.OAuthAudience]);
-      return await credential.GetTokenAsync(context);
+      var context = new TokenRequestContext(new[] { _options.OAuthAudience });
+      var token = await credential.GetTokenAsync(context);
+
+      return token;
     }
     catch (AuthenticationFailedException ex)
     {
-      _logger.LogError($"Authentication failed: {ex.Message}");
+      var logEvent = new ProxyEvent
+      {
+        Type = EventType.Exception,
+        Exception = ex,
+        ["Message"] = $"Authentication failed: {ex.Message}",
+        ["OAuthAudience"] = _options.OAuthAudience
+      };
+      logEvent.SendEvent();
       // Handle the exception as needed, e.g., return a default value or rethrow the exception
       throw;
     }
     catch (Exception ex)
     {
-      _logger.LogError($"An unexpected error occurred: {ex.Message}");
+      ProxyEvent logEvent = new ProxyEvent
+      {
+        Type = EventType.Exception,
+        Exception = ex,
+        ["Message"] = $"An unexpected error occurred while fetching the token: {ex.Message}",
+        ["OAuthAudience"] = _options.OAuthAudience
+      };
+      logEvent.SendEvent();
+
       // Handle other potential exceptions
       throw;
     }
   }
-
-  // private void WriteOutput(string data = "", Dictionary<string, string>? eventData = null)
-  // {
-  //   // Log the data to the console
-  //   if (!string.IsNullOrEmpty(data))
-  //   {
-  //     Console.WriteLine(data);
-
-  //     // if eventData is null, create a new dictionary and add the message to it
-  //     if (eventData == null)
-  //     {
-  //       eventData = new Dictionary<string, string>();
-  //       eventData.Add("Message", data);
-  //     }
-  //   }
-
-  //   if (eventData == null)
-  //     eventData = new Dictionary<string, string>();
-
-  //   if (!eventData.TryGetValue("Type", out var typeValue))
-  //   {
-  //     eventData["Type"] = "S7P-Backend-Status";
-  //   }
-
-  //   string jsonData = JsonSerializer.Serialize(eventData);
-  //   _eventHubClient?.SendData(jsonData);
-  // }
-
 }

@@ -3,14 +3,20 @@ using Azure.Messaging.EventHubs.Producer;
 using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using System.Threading.Tasks;
 
 namespace SimpleL7Proxy.Events;
-public class EventHubClient : IEventClient
+
+public class EventHubClient : IEventClient, IHostedService
 {
 
-    private readonly EventHubProducerClient? _producerClient;
+    private readonly string? _connectionString;
+    private readonly string? _eventHubName;
+    private EventHubProducerClient? _producerClient;
     private EventDataBatch? _batchData;
+    private readonly ILogger<EventHubClient> _logger;
     private readonly CancellationTokenSource cancellationTokenSource = new();
     private CancellationToken workerCancelToken;
     private bool isRunning = false;
@@ -21,46 +27,51 @@ public class EventHubClient : IEventClient
     public bool IsRunning { get => isRunning; set => isRunning = value; }
     public int GetEntryCount() => entryCount;
     private static int entryCount = 0;
+    //public EventHubClient(string connectionString, string eventHubName, ILogger<EventHubClient>? logger = null)
 
-    public EventHubClient(string connectionString, string eventHubName)
+    public EventHubClient(EventHubConfig config, ILogger<EventHubClient> logger)
     {
-        if (string.IsNullOrEmpty(connectionString) || string.IsNullOrEmpty(eventHubName))
+        _connectionString = config.ConnectionString;
+        _eventHubName = config.EventHubName;
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        
+        if (string.IsNullOrEmpty(config.ConnectionString) || string.IsNullOrEmpty(config.EventHubName))
         {
             isRunning = false;
             _producerClient = null;
             _batchData = null;
             return;
         }
-
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        try
-        {
-            _producerClient = new EventHubProducerClient(connectionString, eventHubName);
-            _batchData = _producerClient.CreateBatchAsync(cts.Token).Result;
-            workerCancelToken = cancellationTokenSource.Token;
-            isRunning = true;
-        }
-        catch (OperationCanceledException)
-        {
-            throw new TimeoutException("EventHubClient setup timed out.");
-        }
-        catch (Exception ex)
-        {
-            throw new Exception("Failed to setup EventHubClient.", ex);
-        }
     }
 
     public int Count => _logBuffer.Count;
 
-    public Task StartTimer()
-    {
-
-        if (isRunning && _producerClient is not null && _batchData is not null)
-        {
-            writerTask = Task.Run(() => EventWriter(workerCancelToken));
-            return writerTask;
+    public async Task StartAsync(CancellationToken cancellationToken) {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        try {
+            _producerClient = new EventHubProducerClient(_connectionString, _eventHubName);
+            _batchData = await _producerClient.CreateBatchAsync(cts.Token).ConfigureAwait(false);
+            workerCancelToken = cancellationTokenSource.Token;
+            isRunning = true;
+        }
+        catch (OperationCanceledException) {
+            _logger.LogError("EventHubClient setup timed out");
+            throw new TimeoutException("EventHubClient setup timed out.");
+        }
+        catch (Exception ex) {
+            _logger.LogError(ex, "Failed to setup EventHubClient");
+            throw new Exception("Failed to setup EventHubClient.", ex);
         }
 
+        _logger.LogCritical("EventHub Client starting");
+        if (isRunning && _producerClient is not null && _batchData is not null) {
+            writerTask = Task.Run(() => EventWriter(workerCancelToken), workerCancelToken);
+        }
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        StopTimer();
         return Task.CompletedTask;
     }
 
@@ -69,14 +80,14 @@ public class EventHubClient : IEventClient
     public void StopTimer()
     {
         isShuttingDown = true;
+        while (isRunning && _logBuffer.Count > 0)
+        {
+            Task.Delay(100).Wait();
+        }
+
         cancellationTokenSource.Cancel();
-
-        Console.WriteLine("EventHubClient: Stopping EventWriter..." + isRunning + "  " + _logBuffer.Count);
-        // wait for the queue to empty
-
-        writerTask?.Wait();
-
         isRunning = false;
+        writerTask?.Wait();
     }
 
     public async Task EventWriter(CancellationToken token)
@@ -86,9 +97,9 @@ public class EventHubClient : IEventClient
 
         try
         {
+            _logger.LogCritical($"EventHubClient: EventWriter running.");
             while (!token.IsCancellationRequested)
             {
-                Console.WriteLine($"EventHubClient: EventWriter running... {isRunning}  {_logBuffer.Count}");
                 if (GetNextBatch(99) > 0)
                 {
                     await _producerClient.SendAsync(_batchData).ConfigureAwait(false);
@@ -100,7 +111,7 @@ public class EventHubClient : IEventClient
                     await Task.Delay(500, token).ConfigureAwait(false); // Wait for 1/2 second
                 }
             }
-            Console.WriteLine("EventHubClient: EventWriter exiting");
+            _logger.LogCritical("EventHubClient: EventWriter exiting");
 
         }
         catch (TaskCanceledException)
@@ -150,7 +161,7 @@ public class EventHubClient : IEventClient
             else
             {
                 _logBuffer.Enqueue(log);
-                Console.WriteLine("Failed to add log to batchData.");
+                _logger.LogError("Failed to add log to batchData.");
             }
         }
 
@@ -171,11 +182,27 @@ public class EventHubClient : IEventClient
         _logBuffer.Enqueue(value);
     }
 
+    // public void SendData(Dictionary<string, string> data)
+    // {
+    //     if (!isRunning || isShuttingDown) return;
+
+    //     string jsonData = JsonSerializer.Serialize(data);
+    //     SendData(jsonData);
+    // }
+
     public void SendData(ProxyEvent proxyEvent)
     {
         if (!isRunning || isShuttingDown) return;
 
-        string jsonData = JsonSerializer.Serialize(proxyEvent.EventData);
+        string jsonData = JsonSerializer.Serialize(proxyEvent);
         SendData(jsonData);
     }
+
+    // public void SendData(ConcurrentDictionary<string, string> eventData, string? name = null)
+    // {
+    //     if (!isRunning || isShuttingDown) return;
+
+    //     string jsonData = JsonSerializer.Serialize(eventData);
+    //     SendData(jsonData);
+    // }
 }

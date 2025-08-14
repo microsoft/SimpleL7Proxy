@@ -45,14 +45,6 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
     // Thread-safe Count property
     public int thrdSafeCount { get { return _priorityQueue.Count; } }
 
-    public int Count
-    {
-        get
-        {
-            return _priorityQueue.Count;
-        }
-    }
-
     private string enqueue_status = "Not started";
 
     public bool Enqueue(T item, int priority, int priority2, DateTime timestamp, bool allowOverflow = false)

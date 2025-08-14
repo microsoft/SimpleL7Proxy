@@ -3,11 +3,26 @@
         "userId": "123456",
         "S7PPriorityKey": "12345",
         "Header1": "Value1",
-        "Header2": "Value2"
+        "Header2": "Value2",
+        "fofo": "fofo",
+        "internal-fofo2": "fofo2",
+        "async-blobname": "data",
+        "async-topic": "status",
+        "async-allowed": true
+    },
+    {
+        "userId": "123455",
+        "S7PPriorityKey": "12345",
+        "Header1": "Value1",
+        "Header2": "Value2",
+        "async-blobname": "data-12355",
+        "async-topic": "status-12355",
+        "async-allowed": true
     },
     {
         "userId": "123457",
-        "Header1": "Value-1",
-        "Header2": "Value-2"
+        "Header1": "Value1",
+        "Header2": "Value2",
+        "AsyncEnabled": false
     }
 ]

@@ -12,20 +12,21 @@ namespace SimpleL7Proxy.User;
 
 public class UserProfile : BackgroundService, IUserProfileService
 {
-    private readonly string _lookupHeaderName;
+    private readonly string _UserIDFieldName;
 
     private readonly BackendOptions _options;
     private readonly ILogger<Server> _logger;
+    private Dictionary<string, AsyncClientInfo> _userInformation = new();
 
     private Dictionary<string, Dictionary<string, string>> userProfiles = new Dictionary<string, Dictionary<string, string>>();
     private List<string> suspendedUserProfiles = new List<string>();
     private List<string> authAppIDs = new List<string>();
-    
+
     public UserProfile(IOptions<BackendOptions> options, ILogger<Server> logger)
     {
         _options = options.Value;
         _logger = logger;
-        _lookupHeaderName = _options.LookupHeaderName;
+        _UserIDFieldName = _options.UserIDFieldName;
     }
     public enum ParsingMode
     {
@@ -42,7 +43,7 @@ public class UserProfile : BackgroundService, IUserProfileService
     CancellationTokenSource? _cancellationTokenSource;
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
-    { 
+    {
         _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         stoppingToken.Register(() =>
         {
@@ -72,7 +73,7 @@ public class UserProfile : BackgroundService, IUserProfileService
             catch (Exception e)
             {
                 // Log error
-                Console.WriteLine($"Error reading user config: {e.Message}");
+                _logger.LogInformation($"Error reading user config: {e.Message}");
             }
 
             await Task.Delay(3600000, cancellationToken);
@@ -83,7 +84,7 @@ public class UserProfile : BackgroundService, IUserProfileService
     {
         if (string.IsNullOrEmpty(_options.UserConfigUrl))
         {
-            Console.WriteLine($"{config} is not set.");
+            _logger.LogInformation($"{config} is not set.");
             return;
         }
         // Read user config from URL
@@ -104,12 +105,12 @@ public class UserProfile : BackgroundService, IUserProfileService
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error reading user config file: {ex.Message}");
+                    _logger.LogError($"Error reading user config file: {ex.Message}");
                 }
             }
             else
             {
-                Console.WriteLine($"{config} file: {location.Substring(5)} not found or not a JSON file");
+                _logger.LogInformation($"{config} file: {location.Substring(5)} not found or not a JSON file");
             }
         }
         else
@@ -123,7 +124,7 @@ public class UserProfile : BackgroundService, IUserProfileService
                 }
                 catch (HttpRequestException e)
                 {
-                    Console.WriteLine($"Error reading user config from URL {location}: {e.Message}");
+                    _logger.LogError($"Error reading user config from URL {location}: {e.Message}");
                 }
             }
         }
@@ -158,7 +159,7 @@ public class UserProfile : BackgroundService, IUserProfileService
 
         if (string.IsNullOrWhiteSpace(fileContent))
         {
-            Console.WriteLine("No user config provided to parse.");
+            _logger.LogInformation("No user config provided to parse.");
             return;
         }
 
@@ -168,14 +169,14 @@ public class UserProfile : BackgroundService, IUserProfileService
 
             if (userConfig.ValueKind != JsonValueKind.Array)
             {
-                Console.WriteLine($"User config is not an array. Skipping...");
+                _logger.LogInformation($"User config is not an array. Skipping...");
                 return;
             }
 
             string lookupFieldName = "";
-            if (mode == ParsingMode.SuspendedUserMode || mode == ParsingMode.profileMode )
+            if (mode == ParsingMode.SuspendedUserMode || mode == ParsingMode.profileMode)
             {
-                lookupFieldName = _lookupHeaderName;
+                lookupFieldName = _UserIDFieldName;
             }
             else if (mode == ParsingMode.AuthAppIDMode)
             {
@@ -190,12 +191,14 @@ public class UserProfile : BackgroundService, IUserProfileService
                     var entityId = entityElement.GetString() ?? string.Empty;
                     if (!string.IsNullOrEmpty(entityId))
                     {
-                        if (mode == ParsingMode.SuspendedUserMode) {
+                        if (mode == ParsingMode.SuspendedUserMode)
+                        {
                             localSuspendedUserProfiles.Add(entityId);
                             continue;
                         }
 
-                        if (mode == ParsingMode.AuthAppIDMode) {
+                        if (mode == ParsingMode.AuthAppIDMode)
+                        {
                             if (profile.TryGetProperty(_options.ValidateAuthAppFieldName, out JsonElement authAppIdElement))
                             {
                                 string authAppId = authAppIdElement.GetString() ?? string.Empty;
@@ -207,12 +210,13 @@ public class UserProfile : BackgroundService, IUserProfileService
                             continue;
                         }
 
-                        if (mode == ParsingMode.profileMode) {
+                        if (mode == ParsingMode.profileMode)
+                        {
 
                             Dictionary<string, string> kvPairs = new Dictionary<string, string>();
                             foreach (var property in profile.EnumerateObject())
                             {
-                                if (!property.Name.Equals(_lookupHeaderName, StringComparison.OrdinalIgnoreCase))
+                                if (!property.Name.Equals(_UserIDFieldName, StringComparison.OrdinalIgnoreCase))
                                 {
                                     kvPairs[property.Name] = property.Value.ToString();
                                 }
@@ -222,7 +226,7 @@ public class UserProfile : BackgroundService, IUserProfileService
                     }
                     else
                     {
-                        Console.WriteLine($"Profile field is missing {_lookupHeaderName}. Skipping...");
+                        _logger.LogInformation($"Profile field is missing {_UserIDFieldName}. Skipping...");
                     }
                 }
             }
@@ -249,11 +253,11 @@ public class UserProfile : BackgroundService, IUserProfileService
                 entityValue = userProfiles.Count;
             }
 
-            Console.WriteLine($"Successfully parsed {entityName}.  Found {entityValue} user entities.");
+            _logger.LogInformation($"Successfully parsed {entityName}.  Found {entityValue} user entities.");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error parsing user config: {ex.Message}");
+            _logger.LogError($"Error parsing user config: {ex.Message}");
         }
     }
 
@@ -279,6 +283,98 @@ public class UserProfile : BackgroundService, IUserProfileService
 
         // Check if the authAppId is in the list of valid authAppIDs
         return authAppIDs.Contains(authAppId);
+    }
+
+    // public bool AsyncAllowed(string UserId)
+    // {
+    //     if (userProfiles.ContainsKey(UserId))
+    //     {
+    //         var data = userProfiles[UserId];
+    //         if (data.TryGetValue(_options.AsyncClientAllowedFieldName, out string? asyncAllowed))
+    //         {
+    //             return asyncAllowed.Equals("true", StringComparison.OrdinalIgnoreCase);
+    //         }
+    //     }
+
+    //     return false;
+    // }
+
+    public AsyncClientInfo? GetAsyncParams(string userId)
+    {
+        if (_userInformation.TryGetValue(userId, out var cachedInfo))
+        {
+            return cachedInfo;
+        }
+
+        if (!userProfiles.TryGetValue(userId, out var data))
+        {
+            _logger.LogWarning($"User profile error: profile for user {userId} not found.");
+            return null;
+        }
+
+        if (!data.TryGetValue(_options.AsyncClientAllowedFieldName, out var asyncAllowed) ||
+            !string.Equals(asyncAllowed, "true", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning($"User profile error: async mode not allowed for user {userId}.");
+            return null;
+        }
+
+        if (!data.TryGetValue(_options.AsyncClientBlobFieldname, out var containerName) ||
+            string.IsNullOrWhiteSpace(containerName) ||
+            !IsValidBlobContainerName(containerName))
+        {
+            _logger.LogWarning($"User profile error: invalid or missing blob container name for user {userId}: {containerName}.");
+            return null;
+        }
+
+        if (!data.TryGetValue(_options.AsyncSBTopicFieldName, out var topicName) ||
+            string.IsNullOrWhiteSpace(topicName) ||
+            !IsValidServiceBusTopicName(topicName))
+        {
+            _logger.LogWarning($"User profile error: invalid or missing Service Bus topic name for user {userId}: {topicName}.");
+            return null;
+        }
+
+
+        if (!data.TryGetValue(_options.AsyncClientBlobTimeoutFieldName, out var timeoutStr) ||
+            !int.TryParse(timeoutStr, out var timeoutSecs) || timeoutSecs <= 0)
+        {
+            _logger.LogWarning($"User profile error: invalid or missing async blob access timeout for user {userId}. Using default value of 3600.");
+            timeoutSecs = 3600; // Default to 1 hour if not specified
+        }
+
+        cachedInfo = new AsyncClientInfo(userId, containerName, topicName, timeoutSecs);
+        _userInformation[userId] = cachedInfo;
+        return cachedInfo;
+    }
+
+    /// <summary>
+    /// Validates Azure blob container name rules.
+    /// </summary>
+    private bool IsValidBlobContainerName(string name)
+    {
+        // Azure container names must be lowercase, 3-63 chars, and only letters, numbers, and dashes
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        if (name.Length < 3 || name.Length > 63) return false;
+        if (!System.Text.RegularExpressions.Regex.IsMatch(name, "^[a-z0-9-]+$")) return false;
+        if (name.StartsWith("-") || name.EndsWith("-")) return false;
+        if (name.Contains("--")) return false;
+        return true;
+    }
+
+    /// <summary>
+    /// Validates Azure Service Bus topic name rules.
+    /// </summary>
+    private bool IsValidServiceBusTopicName(string name)
+    {
+        // Azure Service Bus topic names: 1-260 chars, letters, numbers, periods, hyphens, underscores, forward slashes
+        // Cannot start or end with period, hyphen, or forward slash
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        if (name.Length < 1 || name.Length > 260) return false;
+        if (!System.Text.RegularExpressions.Regex.IsMatch(name, "^[a-zA-Z0-9._/-]+$")) return false;
+        if (name.StartsWith(".") || name.StartsWith("-") || name.StartsWith("/")) return false;
+        if (name.EndsWith(".") || name.EndsWith("-") || name.EndsWith("/")) return false;
+        return true;
     }
 
 }
