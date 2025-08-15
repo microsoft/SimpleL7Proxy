@@ -799,7 +799,12 @@ public class ProxyWorker
                         if (request.runAsync && request.asyncWorker is null)
                         {
                             rTimeout = _options.AsyncTimeout;
-                            request.asyncWorker = _asyncWorkerFactory.CreateAsync(request, _options.AsyncTriggerTimeout);
+
+                            // adjust for time spent in the queue
+                            var timeLeft = _options.AsyncTriggerTimeout - (int) (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds;
+                            timeLeft = Math.Max(1, timeLeft);   // either 1ms or whatever is left of the timeout
+
+                            request.asyncWorker = _asyncWorkerFactory.CreateAsync(request, timeLeft);
                             _ = request.asyncWorker.StartAsync();   // don't await this, let it run in parallel
                         }
 
