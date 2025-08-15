@@ -11,12 +11,14 @@ using System.Collections.Concurrent;
 
 using SimpleL7Proxy.Backend;
 
+// Review DISPOSAL_ARCHITECTURE.MD in the root for details on disposal flow
+
 namespace SimpleL7Proxy.BlobStorage
 {
     /// <summary>
     /// Provides methods for writing to Azure Blob Storage.
     /// </summary>
-    public class BlobWriter : IBlobWriter
+    public class BlobWriter : IBlobWriter, IDisposable
     {
         private static readonly ConcurrentDictionary<string, BlobContainerClient> _containerClients = new();
         //private readonly BlobContainerClient _containerClient = null!;
@@ -27,6 +29,8 @@ namespace SimpleL7Proxy.BlobStorage
         public bool UsesMI { get; set; }
 
         public bool IsInitialized => _blobServiceClient != null;
+        private bool _disposed = false;
+
 
         /// <summary>
         /// Initializes a new instance of the <see cref="BlobWriter"/> class.
@@ -42,7 +46,6 @@ namespace SimpleL7Proxy.BlobStorage
 
         public async Task<bool> InitClientAsync(string userId, string containerName)
         {
-            _logger.LogInformation($"Initializing BlobContainerClient for userId: {userId}, containerName: {containerName}");
 
             if (string.IsNullOrEmpty(userId))
             {
@@ -62,6 +65,7 @@ namespace SimpleL7Proxy.BlobStorage
                 // Client already exists, no need to create a new one
                 return true;
             }
+            _logger.LogDebug("BlobWriter: Initializing for UserId: {UserId}, BlobContainerName: {BlobContainerName}", userId, containerName);
 
             try
             {
@@ -77,8 +81,15 @@ namespace SimpleL7Proxy.BlobStorage
             }
             catch (Exception ex)
             {
+
+                throw new BlobWriterException($"Failed to initialize BlobContainerClient for userId: {userId}, containerName: {containerName}", ex)
+                {
+                    Operation = "InitClientAsync",
+                    ContainerName = containerName,
+                    UserId = userId
+                };
                 // Log the exception or handle it as needed
-                Console.WriteLine($"Error initializing BlobContainerClient for userId {userId}: {ex.Message}");
+                //Console.WriteLine($"Error initializing BlobContainerClient for userId {userId}: {ex.Message}");
 
             }
 
@@ -96,7 +107,12 @@ namespace SimpleL7Proxy.BlobStorage
             // Get the client for the userId
             if (!_containerClients.TryGetValue(userId, out var _containerClient))
             {
-                throw new InvalidOperationException($"BlobContainerClient not initialized for userId: {userId}. Call InitializeClientAsync first.");
+                throw new BlobWriterException($"BlobContainerClient not initialized for userId: {userId}. Call InitializeClientAsync first.")
+                {
+                    Operation = "CreateBlobAndGetOutputStreamAsync",
+                    BlobName = blobName,
+                    UserId = userId
+                };
             }
 
             // Only create the container if it does not exist. This is thread-safe and efficient for concurrent calls.
@@ -149,7 +165,12 @@ namespace SimpleL7Proxy.BlobStorage
             // Get the client for the userId
             if (!_containerClients.TryGetValue(userId, out var _containerClient))
             {
-                throw new InvalidOperationException($"BlobContainerClient not initialized for userId: {userId}. Call InitializeClientAsync first.");
+                throw new BlobWriterException($"BlobContainerClient not initialized for userId: {userId}. Call InitializeClientAsync first.")
+                {
+                    Operation = "GenerateSasTokenAsync",
+                    BlobName = blobName,
+                    UserId = userId
+                };
             }
 
             try
@@ -178,13 +199,13 @@ namespace SimpleL7Proxy.BlobStorage
 
                     // Generate the SAS token using the user delegation key
                     var sasQueryParameters = sasBuilder.ToSasQueryParameters(userDelegationKey.Value, _blobServiceClient.AccountName);
-                    
+
                     // Construct the full SAS URI
                     var blobUriBuilder = new BlobUriBuilder(blobClient.Uri)
                     {
                         Sas = sasQueryParameters
                     };
-                    
+
                     var sasUri = blobUriBuilder.ToUri();
                     _logger.LogDebug("Successfully generated user delegation SAS token for blob {BlobName}", blobName);
                     return sasUri.ToString();
@@ -208,8 +229,32 @@ namespace SimpleL7Proxy.BlobStorage
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to generate SAS token for blob {BlobName} in container {ContainerName}", blobName, _containerClient.Name);
-                throw;
+                throw new BlobWriterException($"Failed to generate SAS token for blob {blobName} in container {_containerClient.Name}", ex)
+                {
+                    Operation = "GenerateSasTokenAsync",
+                    BlobName = blobName,
+                    ContainerName = _containerClient.Name,
+                    UserId = userId
+                };
             }
         }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!_disposed)
+            {
+                if (disposing)
+                {
+                }
+                _disposed = true;
+            }
+        }
+
     }
 }

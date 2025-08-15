@@ -20,6 +20,8 @@ using SimpleL7Proxy.StreamProcessor;
 
 namespace SimpleL7Proxy.Proxy;
 
+// Review DISPOSAL_ARCHITECTURE.MD in the root for details on disposal flow
+
 // The ProxyWorker class has the following main objectives:
 // 1. Read incoming requests from the queue, prioritizing the highest priority requests.
 // 2. Proxy the request to the backend with the lowest latency.
@@ -291,8 +293,8 @@ public class ProxyWorker
                     else
                     {
                         // Set the appropriate status based on whether the request was async or sync
-                        incomingRequest.SBStatus = incomingRequest.AsyncTriggered 
-                            ? ServiceBusMessageStatusEnum.AsyncProcessed 
+                        incomingRequest.SBStatus = incomingRequest.AsyncTriggered
+                            ? ServiceBusMessageStatusEnum.AsyncProcessed
                             : ServiceBusMessageStatusEnum.Processed;
                     }
 
@@ -307,8 +309,8 @@ public class ProxyWorker
 
                     var conlen = pr.ContentHeaders?["Content-Length"] ?? "N/A";
                     var proxyTime = (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
-                    _logger.LogCritical("Pri: {Priority}, Stat: {StatusCode}, Len: {ContentLength}, {FullURL}, Deq: {DequeueTime}, Lat: {ProxyTime} ms", 
-                        incomingRequest.Priority, (int)pr.StatusCode, conlen, pr.FullURL, 
+                    _logger.LogCritical("Pri: {Priority}, Stat: {StatusCode}, Len: {ContentLength}, {FullURL}, Deq: {DequeueTime}, Lat: {ProxyTime} ms",
+                        incomingRequest.Priority, (int)pr.StatusCode, conlen, pr.FullURL,
                         incomingRequest.DequeueTime.ToLocalTime().ToString("HH:mm:ss"), proxyTime);
 
                     eventData["Content-Length"] = lcontext.Response?.ContentLength64.ToString() ?? "N/A";
@@ -331,14 +333,14 @@ public class ProxyWorker
                     {
                         // we shouldn't need to create a copy of the incomingRequest because we are skipping the dispose.
                         // Requeue the request after the retry-after value
-                        incomingRequest.SBStatus = ServiceBusMessageStatusEnum.RetryAfterDelay;
+                        incomingRequest.SBStatus = ServiceBusMessageStatusEnum.RetryScheduled;
 
                         Interlocked.Decrement(ref states[7]);
                         await Task.Delay(e.RetryAfter).ConfigureAwait(false);
                         Interlocked.Increment(ref states[7]);
 
 
-                        incomingRequest.SBStatus = ServiceBusMessageStatusEnum.ReQueued;
+                        incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Requeued;
                         _requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.Priority2, incomingRequest.EnqueueTime);
                     });
 
@@ -346,7 +348,7 @@ public class ProxyWorker
 
                     // Requeue the request 
                     //_requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.Priority2, incomingRequest.EnqueueTime);
-                    _logger.LogCritical("Requeued request, Pri: {Priority}, Expires-At: {ExpiresAt} Retry-after-ms: {RetryAfter}, Q-Len: {QueueLength}, CB: {CircuitBreakerStatus}, Hosts: {ActiveHosts}", 
+                    _logger.LogCritical("Requeued request, Pri: {Priority}, Expires-At: {ExpiresAt} Retry-after-ms: {RetryAfter}, Q-Len: {QueueLength}, CB: {CircuitBreakerStatus}, Hosts: {ActiveHosts}",
                         incomingRequest.Priority, incomingRequest.ExpiresAtString, e.RetryAfter, _requestsQueue.thrdSafeCount, _backends.CheckFailedStatus(), _backends.ActiveHostCount());
                     incomingRequest.Requeued = true;
                     incomingRequest.SkipDispose = true;
@@ -483,6 +485,19 @@ public class ProxyWorker
 
                             // Track the status of the request for circuit breaker
                             _backends.TrackStatus((int)lcontext.Response.StatusCode, requestException);
+
+                            if (incomingRequest.AsyncTriggered && incomingRequest.asyncWorker != null)
+                            {
+                                try
+                                {
+                                    await incomingRequest.asyncWorker.DisposeAsync().ConfigureAwait(false);
+                                    incomingRequest.asyncWorker = null;
+                                }
+                                catch (Exception asyncDisposeEx)
+                                {
+                                    _logger.LogError("Failed to dispose AsyncWorker: {Message}", asyncDisposeEx.Message);
+                                }
+                            }
 
                             try
                             {
@@ -784,7 +799,12 @@ public class ProxyWorker
                         if (request.runAsync && request.asyncWorker is null)
                         {
                             rTimeout = _options.AsyncTimeout;
-                            request.asyncWorker = _asyncWorkerFactory.CreateAsync(request, _options.AsyncTriggerTimeout);
+
+                            // adjust for time spent in the queue
+                            var timeLeft = _options.AsyncTriggerTimeout - (int) (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds;
+                            timeLeft = Math.Max(1, timeLeft);   // either 1ms or whatever is left of the timeout
+
+                            request.asyncWorker = _asyncWorkerFactory.CreateAsync(request, timeLeft);
                             _ = request.asyncWorker.StartAsync();   // don't await this, let it run in parallel
                         }
 
@@ -793,18 +813,6 @@ public class ProxyWorker
                         using var proxyResponse = await _options.Client!.SendAsync(
                             proxyRequest, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
 
-                        // ASYNC: We got a response back, Synchronize with the asyncWorker 
-                        if ((int)proxyResponse.StatusCode == 200 && request.runAsync)
-                        {
-                            if (request.asyncWorker == null)
-                            {
-                                _logger.LogError("AsyncWorker is null, but runAsync is true");
-                            }
-                            else if (!await request.asyncWorker.Synchronize()) // Wait for the worker to finish setting up the blob's, etc...
-                            {
-                                _logger.LogError($"AsyncWorker failed to setup: {request.asyncWorker.ErrorMessage}");
-                            }
-                        }
 
                         var responseDate = DateTime.UtcNow;
                         lastStatusCode = proxyResponse.StatusCode;
@@ -822,6 +830,21 @@ public class ProxyWorker
                             BackendHostname = host.Host
                         };
 
+                        // ASYNC: We got a response back, Synchronize with the asyncWorker 
+                        if ((int)proxyResponse.StatusCode == 200 && request.runAsync)
+                        {
+                            if (request.asyncWorker == null)
+                            {
+                                _logger.LogError("AsyncWorker is null, but runAsync is true");
+                            }
+                            else if (!await request.asyncWorker.Synchronize()) // Wait for the worker to finish setting up the blob's, etc...
+                            {
+                                pr.Headers["x-Async-Error"] = request.asyncWorker.ErrorMessage;
+                                request.SBStatus = ServiceBusMessageStatusEnum.AsyncProcessingError;
+
+                                //_logger.LogError($"AsyncWorker failed to setup: {request.asyncWorker.ErrorMessage}");
+                            }
+                        }
 
                         // Check if the status code of the response is in the set of allowed status codes, else try the next host
                         var intCode = (int)proxyResponse.StatusCode;
@@ -836,7 +859,7 @@ public class ProxyWorker
                                     // Read the response body so that we can get the byte length ( DEBUG ONLY )  
                                     //bodyBytes = [];
                                     //await GetProxyResponseAsync(proxyResponse, request, pr).ConfigureAwait(false);
-                                    _logger.LogDebug("Got: {StatusCode} {FullURL} {ContentLength} Body: {BodyLength} bytes", 
+                                    _logger.LogDebug("Got: {StatusCode} {FullURL} {ContentLength} Body: {BodyLength} bytes",
                                         pr.StatusCode, pr.FullURL, pr.ContentHeaders["Content-Length"], pr?.Body?.Length);
                                     _logger.LogDebug("< {Body}", pr?.Body);
                                 }
@@ -855,17 +878,10 @@ public class ProxyWorker
                         host.AddPxLatency((responseDate - ProxyStartDate).TotalMilliseconds);
                         bodyBytes = [];
 
-                        Interlocked.Increment(ref states[4]);
-
+                        //Interlocked.Increment(ref states[4]);
                         // Read the response
                         //await GetProxyResponseAsync(proxyResponse, request, pr).ConfigureAwait(false);
-
-                        pr.Headers["x-BackendHost"] = requestSummary["Backend-Host"] = pr.BackendHostname;
-                        pr.Headers["x-Request-Queue-Duration"] = requestSummary["Request-Queue-Duration"] = request.Headers["x-Request-Queue-Duration"] ?? "N/A";
-                        pr.Headers["x-Request-Process-Duration"] = requestSummary["Request-Process-Duration"] = request.Headers["x-Request-Process-Duration"] ?? "N/A";
-                        pr.Headers["x-Total-Latency"] = requestSummary["Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3");
-
-                        Interlocked.Decrement(ref states[4]);
+                        //Interlocked.Decrement(ref states[4]);
 
                         if ((int)proxyResponse.StatusCode == 429 && proxyResponse.Headers.TryGetValues("S7PREQUEUE", out var values))
                         {
@@ -890,6 +906,14 @@ public class ProxyWorker
                             // request was successful, so we can disable the skip
                             request.SkipDispose = false;
                         }
+
+                        // copy headers from the response to the ProxyData object
+                        CopyResponseHeaders(proxyResponse, pr);
+
+                        pr.Headers["x-BackendHost"] = requestSummary["Backend-Host"] = pr.BackendHostname;
+                        pr.Headers["x-Request-Queue-Duration"] = requestSummary["Request-Queue-Duration"] = request.Headers["x-Request-Queue-Duration"] ?? "N/A";
+                        pr.Headers["x-Request-Process-Duration"] = requestSummary["Request-Process-Duration"] = request.Headers["x-Request-Process-Duration"] ?? "N/A";
+                        pr.Headers["x-Total-Latency"] = requestSummary["Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3");
 
                         // Strip headers from pr.Headers that are not allowed in the response
                         foreach (var header in _options.StripHeaders)
@@ -919,39 +943,73 @@ public class ProxyWorker
                             request.Context.Response.Headers = pr.Headers;
                         }
 
-                        var processWith = "Inline";
+                        var processWith = "Default";
                         if ((int)proxyResponse.StatusCode == 200 && proxyResponse.Headers.TryGetValues("TOKENPROCESSOR", out var processorValues))
                         {
-                            var tokenProcessor = processorValues.FirstOrDefault();
+                            var tokenProcessor = processorValues.FirstOrDefault()?.Trim();
                             if (!string.IsNullOrEmpty(tokenProcessor))
                             {
-                                // Use the token processor for further processing
+                                if (tokenProcessor.EndsWith("Processor", StringComparison.OrdinalIgnoreCase))
+                                    tokenProcessor = tokenProcessor[..^"Processor".Length];
                                 processWith = tokenProcessor;
                             }
+                        }
+
+                        // Auto-select processor for SSE content if none specified
+                        var mediaType = proxyResponse.Content.Headers.ContentType?.MediaType;
+                        if (processWith.Equals("Default", StringComparison.OrdinalIgnoreCase)
+                            && !string.IsNullOrEmpty(mediaType)
+                            && mediaType.Equals("text/event-stream", StringComparison.OrdinalIgnoreCase))
+                        {
+                            processWith = "DefaultStream";
+                        }
+
+                        // Normalize aliases
+                        if (processWith.Equals("Inline", StringComparison.OrdinalIgnoreCase))
+                        {
+                            processWith = "DefaultStream";
                         }
 
                         requestState = "Stream Proxy Response : " + processWith;
 
                         // Stream response from the backend to the client / blob depending on async timer
-                        IStreamProcessor processor = new NullStreamProcessor();
+                        IStreamProcessor processor = new DefaultStreamProcessor();
+                        _logger.LogInformation("Streaming response with processor. Requested: {Requested}, ContentType: {ContentType}", processWith, mediaType);
                         try
                         {
-                            if (processWith == "Inline")
+                            string resolved = processWith;
+                            if (!processors.TryGetValue(processWith, out var factory))
                             {
-                                await proxyResponse.Content.CopyToAsync(request.OutputStream).ConfigureAwait(false);
+                                _logger.LogWarning("Unknown processor requested: {Requested}. Falling back to default.", processWith);
+                                factory = processors["DefaultStream"];
+                                resolved = "DefaultStream";
+                            }
+
+                            // Instantiate once so we can collect stats later
+                            try
+                            {
+                                processor = factory();
+                            }
+                            catch (Exception pex)
+                            {
+                                _logger.LogWarning("Processor '{Requested}' failed to construct. Falling back to default. Error: {Message}", processWith, pex.Message);
+                                processor = processors["DefaultStream"]();
+                                resolved = "DefaultStream";
+                            }
+
+                            _logger.LogDebug("Resolved processor: {Resolved}", resolved);
+
+                            if (request.OutputStream != null)
+                            {
+                                await processor.CopyToAsync(proxyResponse.Content,
+                                                            request.OutputStream,
+                                                            _cancellationToken).ConfigureAwait(false);
                             }
                             else
                             {
-                                var processorType = Type.GetType($"SimpleL7Proxy.StreamProcessor.{processWith}Processor");
-                                if (processorType != null)
-                                {
-                                    processor = Activator.CreateInstance(processorType) as IStreamProcessor ?? new NullStreamProcessor();
-                                }
-
-                                await processor.CopyToAsync(proxyResponse.Content, request.OutputStream, null).ConfigureAwait(false);
-
+                                _logger.LogError("OutputStream is null, cannot stream response");
                             }
-                            // This will write to either the client or the blob depending on the async timer
+
                         }
                         catch (IOException e)
                         {
@@ -968,20 +1026,50 @@ public class ProxyWorker
                             }
                             else
                             {
-                                _logger.LogError("Error streaming response: {InnerException}", e.InnerException);
+                                _logger.LogError("Error streaming response: {Error}", e);
                                 throw new ProxyErrorException(ProxyErrorException.ErrorType.ClientDisconnected,
                                                               HttpStatusCode.InternalServerError, e.Message);
                             }
                         }
                         finally
                         {
-                            processor.GetStats(eventData, proxyResponse.Headers);
+                            try
+                            {
+                                processor.GetStats(eventData, proxyResponse.Headers);
+                            }
+                            catch (Exception statsEx)
+                            {
+                                _logger.LogDebug("Processor stats collection failed: {Message}", statsEx.Message);
+                            }
+                            finally
+                            {
+                                // Ensure processor is disposed if it implements IDisposable
+                                if (processor is IDisposable disposableProcessor)
+                                {
+                                    try
+                                    {
+                                        disposableProcessor.Dispose();
+                                    }
+                                    catch (Exception processorDisposeEx)
+                                    {
+                                        _logger.LogDebug("Processor disposal failed: {Message}", processorDisposeEx.Message);
+                                    }
+                                }
+                            }
                         }
 
                         try
                         {
                             _logger.LogDebug("Flushing output stream for {FullURL}", request.FullURL);
-                            await request.OutputStream.FlushAsync().ConfigureAwait(false);
+                            if (request.OutputStream != null)
+                            {
+                                await request.OutputStream.FlushAsync().ConfigureAwait(false);
+
+                                if (request.OutputStream is BufferedStream bufferedStream)
+                                {
+                                    await bufferedStream.FlushAsync().ConfigureAwait(false);
+                                }
+                            }
                         }
                         catch (Exception e)
                         {
@@ -991,7 +1079,7 @@ public class ProxyWorker
                         // Log the response if debugging is enabled
                         if (request.Debug)
                         {
-                            _logger.LogDebug("Got: {StatusCode} {FullURL} {ContentLength} Body: {BodyLength} bytes", 
+                            _logger.LogDebug("Got: {StatusCode} {FullURL} {ContentLength} Body: {BodyLength} bytes",
                                 pr.StatusCode, pr.FullURL, pr.ContentHeaders["Content-Length"], pr?.Body?.Length);
                         }
                         successfulRequest = true;
@@ -1090,7 +1178,7 @@ public class ProxyWorker
         // If we get here, then no hosts were able to handle the request
 
         if (retryAfter.Count > 0)
-        {           
+        {
             // If we have retry after values, return the smallest one
             var exc = retryAfter.MinBy(x => x.RetryAfter);
             if (exc != null)
@@ -1120,11 +1208,14 @@ public class ProxyWorker
             request.Context.Response.Headers["x-MID"] = request.MID;
             request.Context.Response.Headers["Attempts"] = request.Attempts.ToString();
 
-            await request.OutputStream.WriteAsync(
-                Encoding.UTF8.GetBytes(sb.ToString()),
-                0,
-                sb.Length).ConfigureAwait(false);
-            await request.OutputStream.FlushAsync().ConfigureAwait(false);
+            if (request.OutputStream != null)
+            {
+                await request.OutputStream.WriteAsync(
+                    Encoding.UTF8.GetBytes(sb.ToString()),
+                    0,
+                    sb.Length).ConfigureAwait(false);
+                await request.OutputStream.FlushAsync().ConfigureAwait(false);
+            }
 
         }
         catch (Exception e)
@@ -1146,6 +1237,12 @@ public class ProxyWorker
         };
     }
 
+    private static readonly Dictionary<string, Func<IStreamProcessor>> processors = new Dictionary<string, Func<IStreamProcessor>>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["OpenAI"] = static () => new OpenAIProcessor(),
+        ["AllUsage"] = static () => new AllUsageProcessor(),
+        ["DefaultStream"] = static () => new DefaultStreamProcessor(),
+    };
     private static void GenerateErrorMessage(List<Dictionary<string, string>> incompleteRequests, out StringBuilder sb, out bool statusMatches, out int currentStatusCode)
     {
         sb = new StringBuilder();
@@ -1174,7 +1271,7 @@ public class ProxyWorker
         if (statusCodes.Count > 0)
         {
 
-           // Console.WriteLine($"Status Codes: {string.Join(", ", statusCodes)}");
+            // Console.WriteLine($"Status Codes: {string.Join(", ", statusCodes)}");
 
             // If all status codes are 408 or 412, use the latest (last) one
             if (statusCodes.All(s => s == 408 || s == 412 || s == 429))
@@ -1211,6 +1308,38 @@ public class ProxyWorker
             {
                 targetMessage?.Headers.TryAddWithoutValidation(key, sourceHeaders[key]);
             }
+        }
+    }
+
+    private static void CopyResponseHeaders(HttpResponseMessage response, ProxyData pr)
+    {
+        // Exclude hop-by-hop and restricted headers that HttpListener manages
+        var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Content-Length","Transfer-Encoding","Connection","Proxy-Connection","Keep-Alive","Upgrade","Trailer","TE","Date","Server"
+        };
+
+        // Response headers
+        foreach (var header in response.Headers)
+        {
+            if (excluded.Contains(header.Key)) continue;
+            pr.Headers[header.Key] = string.Join(", ", header.Value);
+        }
+
+        // Content headers
+        foreach (var header in response.Content.Headers)
+        {
+            if (header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase))
+            {
+                pr.ContentHeaders[header.Key] = string.Join(", ", header.Value);
+                continue;
+            }
+
+            if (!excluded.Contains(header.Key))
+            {
+                pr.Headers[header.Key] = string.Join(", ", header.Value);
+            }
+            pr.ContentHeaders[header.Key] = string.Join(", ", header.Value);
         }
     }
 

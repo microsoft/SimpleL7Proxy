@@ -441,7 +441,7 @@ public static class BackendHostConfigurationExtensions
     // Create and return a BackendOptions object populated with values from environment variables or default values.
     var backendOptions = new BackendOptions
     {
-      AcceptableStatusCodes = ReadEnvironmentVariableOrDefault("AcceptableStatusCodes", new int[] { 200, 401, 403, 404, 408, 410, 412, 417, 400 }),
+      AcceptableStatusCodes = ReadEnvironmentVariableOrDefault("AcceptableStatusCodes", new int[] { 200, 202, 401, 403, 404, 408, 410, 412, 417, 400 }),
       AsyncBlobStorageAccountUri = ReadEnvironmentVariableOrDefault("AsyncBlobStorageAccountUri", "https://example.blob.core.windows.net/"),
       AsyncBlobStorageConnectionString = ReadEnvironmentVariableOrDefault("AsyncBlobStorageConnectionString", ""),
       AsyncBlobStorageUseMI = ReadEnvironmentVariableOrDefault("AsyncBlobStorageUseMI", false),

@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 
 using SimpleL7Proxy;
 using SimpleL7Proxy.BlobStorage;
+using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Storage;
 using SimpleL7Proxy.ServiceBus;
 
@@ -18,6 +19,7 @@ namespace SimpleL7Proxy.Proxy
 {
     /// <summary>
     /// Represents an asynchronous worker that performs a task and disappears after completion.
+    /// Review DISPOSAL_ARCHITECTURE.MD in the root for details on disposal flow
     /// </summary>
     public class AsyncWorker : IAsyncDisposable
     {
@@ -85,7 +87,6 @@ namespace SimpleL7Proxy.Proxy
         /// <returns>A task that represents the asynchronous initialization operation.</returns>
         public async Task<bool> InitializeAsync()
         {
-            _logger.LogDebug("AsyncWorker: Initializing for UserId: {UserId}, BlobContainerName: {BlobContainerName}", _userId, _requestData.BlobContainerName);
             var result = await _blobWriter.InitClientAsync(_userId, _requestData.BlobContainerName).ConfigureAwait(false);
             if (!result)
             {
@@ -105,7 +106,10 @@ namespace SimpleL7Proxy.Proxy
             {
                 //_logger.LogInformation($"AsyncWorker: Starting for UserId: {_userId}, Delaying for {AsyncTimeout} ms");
                 // wait state... can be cancelled by Terminate
-                await Task.Delay(AsyncTimeout, _cancellationTokenSource.Token).ConfigureAwait(false);
+                if (AsyncTimeout > 10)
+                {
+                    await Task.Delay(AsyncTimeout, _cancellationTokenSource.Token).ConfigureAwait(false);
+                }
 
                 //_logger.LogInformation($"AsyncWorker: Delayed for {AsyncTimeout} ms");
                 // Atomically set to running (1) only if not started (0)
@@ -113,12 +117,14 @@ namespace SimpleL7Proxy.Proxy
                 {
                     _requestData.SBStatus = ServiceBusMessageStatusEnum.AsyncProcessing;
                     _logger.LogDebug("AsyncWorker: Starting for MID: {MID} Guid: {Guid}", _requestData.MID, _requestData.Guid.ToString());
+                    var operation = "Initialize";
                     try
                     {
                         await InitializeAsync().ConfigureAwait(false);
                         dataBlobName = _requestData.Guid.ToString();
                         headerBlobName = dataBlobName + "-Headers";
 
+                        operation = "Create Blobs ";
                         // Run blob operations in parallel, storage operation separately since it has different return type
                         var (dataStreamTask, headerStreamTask) = (
                             _blobWriter.CreateBlobAndGetOutputStreamAsync(_userId, dataBlobName),
@@ -130,6 +136,7 @@ namespace SimpleL7Proxy.Proxy
                         // Wait for all to complete
                         await Task.WhenAll(dataStreamTask, headerStreamTask, storageTask).ConfigureAwait(false);
 
+                        operation = "Get Streams";
                         // Get the results
                         var dataStream = await dataStreamTask;
                         var headerStream = await headerStreamTask;
@@ -138,12 +145,22 @@ namespace SimpleL7Proxy.Proxy
                         _hos = headerStream;
 
                     }
-                    catch (Exception blobEx)
+                    catch (BlobWriterException blobEx)
                     {
-                        _logger.LogError("Failed to create blob: {Message}", blobEx.Message);
-                        _logger.LogDebug("Exception details: {Exception}", blobEx);
-                        _taskCompletionSource.TrySetResult(false);
+                        ErrorMessage = $"Failed to create blob: {blobEx.Message}";
+                        _logger.LogError(ErrorMessage);
 
+                        ProxyEvent blobData = new()
+                        {
+                            Type = EventType.Exception,
+                            ["Error"] = ErrorMessage,
+                            ["Operation"] = operation,
+                            Exception = blobEx
+                        };
+ 
+                        blobData.SendEvent();
+
+                        _taskCompletionSource.TrySetResult(false);
                         return;
                     }
                     // create a SAS token for the blob
@@ -329,7 +346,6 @@ namespace SimpleL7Proxy.Proxy
                 try
                 {
                     await _hos.FlushAsync().ConfigureAwait(false);
-                    _hos.Close();
                     _hos.Dispose();
                 }
                 catch (ObjectDisposedException)
@@ -385,9 +401,6 @@ namespace SimpleL7Proxy.Proxy
 
             if (!_requestData.AsyncTriggered)
             {
-                ErrorMessage = "AsyncWorker failed to start.";
-                _logger.LogError(ErrorMessage);
-
                 await DisposeAsync().ConfigureAwait(false);
 
                 return false; // Worker failed to start

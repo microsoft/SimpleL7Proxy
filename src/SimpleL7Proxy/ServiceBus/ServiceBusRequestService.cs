@@ -26,6 +26,10 @@ namespace SimpleL7Proxy.ServiceBus
         private bool isShuttingDown = false;
         private Task? writerTask;
 
+        // Batch tuning
+        private const int MaxDrainPerCycle = 50; // max messages to drain from queue per cycle
+        private const int CoalesceDelayMs = 25;    // small delay to coalesce bursts (when not shutting down)
+
         public ServiceBusRequestService(IOptions<BackendOptions> options, ServiceBusSenderFactory senderFactory, ILogger<ServiceBusRequestService> logger)
         {
             _options = options.Value;
@@ -73,7 +77,7 @@ namespace SimpleL7Proxy.ServiceBus
         {
             try
             {
-                //_logger.LogInformation($"Enqueuing status message for UserId: {message.MID}, Status: {message.SBStatus} for Topic: {message.SBTopicName}");
+                _logger.LogDebug($"Enqueuing status message for UserId: {message.MID}, Status: {message.SBStatus} for Topic: {message.SBTopicName}");
                 _statusQueue.Enqueue(new ServiceBusStatusMessage(message.Guid, message.SBTopicName, message.SBStatus.ToString()));
                 _queueSignal.Release();
 
@@ -93,14 +97,7 @@ namespace SimpleL7Proxy.ServiceBus
 
             try
             {
-                Task[] tasks = new Task[_options.AsyncSBStatusWorkers];
-                for (int i = 0; i < _options.AsyncSBStatusWorkers; i++)
-                {
-                    // Start a new task for each feeder
-                    tasks[i] = Task.Run(() => FeederTask(token), token);
-                }
-
-                await Task.WhenAll(tasks).ConfigureAwait(false);
+                await Task.Run(() => FeederTask(token), token).ConfigureAwait(false);
             }
             catch (TaskCanceledException)
             {
@@ -118,23 +115,28 @@ namespace SimpleL7Proxy.ServiceBus
             }
             finally
             {
-                // Flush all items
-
+                // Flush all items in batches
                 var cts = new CancellationTokenSource().Token;
+
+                var drained = new List<ServiceBusStatusMessage>();
                 while (_statusQueue.TryDequeue(out var statusMessage))
                 {
-                    if (_statusQueue.Count() % 100 == 0)
-                        _logger.LogInformation($"{_statusQueue.Count()} items remain to be flushed.");
+                    drained.Add(statusMessage);
+                }
 
-                    try
+                if (drained.Count > 0)
+                {
+                    var byTopic = GroupByTopic(drained);
+                    foreach (var kvp in byTopic)
                     {
-                        await _senderFactory.
-                            GetSender(statusMessage.topicName).
-                            SendMessageAsync(new ServiceBusMessage(JsonSerializer.Serialize(statusMessage)), cts);
-                    }
-                    catch (Exception e)
-                    {
-                        _logger.LogError(e, "Error while flushing service bus.  Continuing." + e);
+                        try
+                        {
+                            await SendBatchesForTopicAsync(kvp.Key, kvp.Value, cts).ConfigureAwait(false);
+                        }
+                        catch (Exception e)
+                        {
+                            _logger.LogError(e, "Error while flushing service bus. Continuing.");
+                        }
                     }
                 }
             }
@@ -151,20 +153,80 @@ namespace SimpleL7Proxy.ServiceBus
                     await _queueSignal.WaitAsync(token).ConfigureAwait(false);
                 }
 
-                // Check if there are any messages in the status queue
-                while (_statusQueue.TryDequeue(out var statusMessage))
+                // Optionally coalesce a short burst
+                if (!isShuttingDown)
                 {
-                    //_logger.LogInformation("Need to send status message to topic: {TopicName}", statusMessage.topicName);
-                    // Process the status message
-                    await _senderFactory.
-                        GetSender(statusMessage.topicName).
-                        SendMessageAsync(new ServiceBusMessage(JsonSerializer.Serialize(statusMessage)), token);
+                    try { await Task.Delay(CoalesceDelayMs, token).ConfigureAwait(false); } catch { /* ignore */ }
+                }
 
-                    if (!isShuttingDown)
+                // Drain up to MaxDrainPerCycle messages
+                var drained = new List<ServiceBusStatusMessage>(MaxDrainPerCycle);
+                while (drained.Count < MaxDrainPerCycle && _statusQueue.TryDequeue(out var statusMessage))
+                {
+                    drained.Add(statusMessage);
+                }
+
+                if (drained.Count == 0) continue;
+
+                var byTopic = GroupByTopic(drained);
+
+                foreach (var kvp in byTopic)
+                {
+                    await SendBatchesForTopicAsync(kvp.Key, kvp.Value, token).ConfigureAwait(false);
+                }
+            }
+        }
+
+        private static Dictionary<string, List<ServiceBusStatusMessage>> GroupByTopic(List<ServiceBusStatusMessage> items)
+        {
+            var map = new Dictionary<string, List<ServiceBusStatusMessage>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in items)
+            {
+                if (!map.TryGetValue(item.topicName, out var list))
+                {
+                    list = new List<ServiceBusStatusMessage>();
+                    map[item.topicName] = list;
+                }
+                list.Add(item);
+            }
+            return map;
+        }
+
+        private async Task SendBatchesForTopicAsync(string topicName, List<ServiceBusStatusMessage> items, CancellationToken token)
+        {
+            var sender = _senderFactory.GetSender(topicName);
+            ServiceBusMessageBatch? currentBatch = null;
+            try
+            {
+                currentBatch = await sender.CreateMessageBatchAsync(token).ConfigureAwait(false);
+
+                foreach (var item in items)
+                {
+                    var message = new ServiceBusMessage(JsonSerializer.Serialize(item));
+
+                    if (!currentBatch.TryAddMessage(message))
                     {
-                        await Task.Delay(100, token).ConfigureAwait(false); // Wait for 1/10 second
+                        // Send the full batch and start a new one
+                        await sender.SendMessagesAsync(currentBatch, token).ConfigureAwait(false);
+                        currentBatch.Dispose();
+                        currentBatch = await sender.CreateMessageBatchAsync(token).ConfigureAwait(false);
+
+                        if (!currentBatch.TryAddMessage(message))
+                        {
+                            // Single message too large for an empty batch
+                            _logger.LogError("Message too large to add to batch for topic {TopicName}. Dropping.", topicName);
+                        }
                     }
                 }
+
+                if (currentBatch.Count > 0)
+                {
+                    await sender.SendMessagesAsync(currentBatch, token).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                currentBatch?.Dispose();
             }
         }
 

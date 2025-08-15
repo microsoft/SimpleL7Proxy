@@ -6,7 +6,7 @@ namespace SimpleL7Proxy.StreamProcessor
     /// <summary>
     /// Interface for processing streams with source and destination stream support.
     /// </summary>
-    public interface IStreamProcessor
+    public interface IStreamProcessor : IDisposable
     {
         /// <summary>
         /// Copies data from the source stream to the destination output stream asynchronously.

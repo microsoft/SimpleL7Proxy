@@ -3,13 +3,13 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Net;
 using System.Threading.Tasks;
-using Microsoft.Azure.Amqp;
 using SimpleL7Proxy.ServiceBus;
 using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Events;
-// This class represents the request received from the upstream client.
 
+// Review DISPOSAL_ARCHITECTURE.MD in the root for details on disposal flow
+// This class represents the request received from the upstream client.
 public class RequestData : IDisposable, IAsyncDisposable
 {
     // Static variable to hold the IServiceBusRequestService instance
@@ -37,7 +37,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     public int Timeout { get; set; }  // calculated timeout in milliseconds
     public List<Dictionary<string, string>> incompleteRequests = new();
     public ProxyEvent EventData = new();
-    public Stream OutputStream {get; set;}
+    public Stream? OutputStream { get; set; }
     public Stream? Body { get; private set; }
     public string BlobContainerName { get; set; } = "";
     public string ExpireReason { get; set; } = "";
@@ -65,7 +65,7 @@ public class RequestData : IDisposable, IAsyncDisposable
         }
     }
     // Method to initialize the static variable from DI
-    public static void InitializeServiceBusRequestService(IServiceBusRequestService serviceBusRequestService )
+    public static void InitializeServiceBusRequestService(IServiceBusRequestService serviceBusRequestService)
     {
         if (SBRequestService == null)
         {
@@ -129,7 +129,7 @@ public class RequestData : IDisposable, IAsyncDisposable
         return BodyBytes;
     }
 
-    public void CalculateExpiration(int defaultTTLSecs, string TtlHeaderName )
+    public void CalculateExpiration(int defaultTTLSecs, string TtlHeaderName)
     {
         //Console.WriteLine($"Calculating TTL for {request.Headers["S7PTTL"]} {request.TTLSeconds}");
 
@@ -145,10 +145,10 @@ public class RequestData : IDisposable, IAsyncDisposable
                 // Absolute TTL in seconds
                 ExpiresAt = DateTimeOffset.FromUnixTimeSeconds(absoluteSeconds).UtcDateTime;
             }
-            else if (float.TryParse(ttlString, out float relativeSeconds ))
+            else if (float.TryParse(ttlString, out float relativeSeconds))
             {
                 // Relative TTL in seconds ( e.g.  2.5s => 2500 ms)
-                ExpiresAt = EnqueueTime.AddMilliseconds(relativeSeconds * 1000 );
+                ExpiresAt = EnqueueTime.AddMilliseconds(relativeSeconds * 1000);
             }
             else if (DateTimeOffset.TryParse(ttlString, out var ttlOffset))
             {
@@ -163,7 +163,7 @@ public class RequestData : IDisposable, IAsyncDisposable
                     ExpiresAt = ttlOffset.ToUniversalTime().UtcDateTime;
                 }
             }
-            else 
+            else
             {
                 throw new ProxyErrorException(ProxyErrorException.ErrorType.InvalidTTL,
                                               HttpStatusCode.BadRequest,
@@ -176,7 +176,7 @@ public class RequestData : IDisposable, IAsyncDisposable
             ExpireReason = (defaultTTLSecs > 0) ? $"Default TTL: {defaultTTLSecs} secs" : $"Default Timeout: {defaultTimeout} ms";
             ExpiresAt = EnqueueTime.AddMilliseconds(ttlMsToUse);
         }
-        
+
         ExpiresAtString = ExpiresAt.ToString("yyyy-MM-ddTHH:mm:ssZ");
     }
 
@@ -192,34 +192,40 @@ public class RequestData : IDisposable, IAsyncDisposable
 
         Dispose(true);
         GC.SuppressFinalize(this);
-    
+
     }
 
     protected virtual void Dispose(bool disposing)
     {
         if (SkipDispose)
         {
-            //Console.WriteLine("RequestData: Dispose called but SkipDispose is true. =================");
             return;
         }
-
-        // Don't dispose asyncWorker here - let DisposeAsyncCore handle it
-        // Just set it to null to avoid double disposal
-        asyncWorker = null;
 
         if (disposing)
         {
             // Dispose managed resources
             FullURL = Path = Method = "";
-            Body?.Dispose();
-            Body = null;
+
+            try
+            {
+                Body?.Dispose();
+            }
+            catch (Exception)
+            {
+                Console.WriteLine("Failed to dispose of request body stream.");
+            }
+            finally
+            {
+                Body = null;
+            }
+
             try
             {
                 Context?.Request?.InputStream?.Dispose();
             }
             catch (Exception)
             {
-                // Ignore exceptions during dispose
                 Console.WriteLine("Failed to dispose of request input stream.");
             }
 
@@ -230,7 +236,6 @@ public class RequestData : IDisposable, IAsyncDisposable
             catch (Exception)
             {
                 // Ignore exceptions during dispose
-                //Console.WriteLine("Failed to dispose of response output stream.");
             }
 
             try
@@ -239,29 +244,30 @@ public class RequestData : IDisposable, IAsyncDisposable
             }
             catch (Exception)
             {
-                // Ignore exceptions during dispose
                 Console.WriteLine("Failed to close response context.");
             }
 
             try
             {
-                OutputStream?.Flush();
+                if (OutputStream != null && OutputStream != Context?.Response?.OutputStream)
+                {
+                    OutputStream.Flush();
+                    OutputStream.Dispose();
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+                // Ignore if the stream was already disposed
             }
             catch (Exception)
             {
-                // Ignore exceptions during dispose
-                Console.WriteLine("Failed to flush output stream.");
+                Console.WriteLine("Failed to dispose output stream.");
+            }
+            finally
+            {
+                OutputStream = null;
             }
 
-            try
-            {
-                OutputStream?.Close();
-            }
-            catch (Exception)
-            {
-                // Ignore exceptions during dispose
-                Console.WriteLine("Failed to close output stream.");
-            }
             Context = null;
         }
     }
@@ -276,60 +282,109 @@ public class RequestData : IDisposable, IAsyncDisposable
 
         await DisposeAsyncCore();
 
-        // Dispose of unmanaged resources
-        Dispose(false);
         GC.SuppressFinalize(this);
     }
 
     protected virtual async ValueTask DisposeAsyncCore()
     {
-
-
         if (SkipDispose)
         {
             return;
         }
 
-        if (Body != null)
-        {
-            await Body.DisposeAsync();
-            Body = null;
-        }
-        
+        // Always dispose AsyncWorker if it was created
         if (asyncWorker != null)
         {
             try
             {
                 await asyncWorker.DisposeAsync().ConfigureAwait(false);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // Ignore exceptions during dispose
+                Console.WriteLine($"Failed to dispose AsyncWorker: {ex.Message}");
             }
-            asyncWorker = null;
+            finally
+            {
+                asyncWorker = null;
+            }
         }
 
+        // Dispose Body stream
+        if (Body != null)
+        {
+            try
+            {
+                await Body.DisposeAsync();
+            }
+            catch (Exception)
+            {
+                Console.WriteLine("Failed to dispose of request body stream.");
+            }
+            finally
+            {
+                Body = null;
+            }
+        }
+
+        // Dispose Context streams
         if (Context != null)
         {
-            if (Context.Request?.InputStream != null)
+            try
             {
-                await Context.Request.InputStream.DisposeAsync();
+                if (Context.Request?.InputStream != null)
+                {
+                    await Context.Request.InputStream.DisposeAsync();
+                }
+            }
+            catch (Exception)
+            {
+                Console.WriteLine("Failed to dispose of request input stream.");
             }
 
             try
             {
-                if (Context?.Response?.OutputStream != null)
+                if (Context.Response?.OutputStream != null)
                 {
                     await Context.Response.OutputStream.DisposeAsync();
                 }
             }
             catch (Exception)
             {
-                // Ignore exceptions
+                // Ignore exceptions during dispose
             }
 
-            Context?.Response?.Close();
+            try
+            {
+                Context.Response?.Close();
+            }
+            catch (Exception)
+            {
+                Console.WriteLine("Failed to close response context.");
+            }
+
             Context = null;
+        }
+
+        // Dispose OutputStream if different from Context.Response.OutputStream
+        if (OutputStream != null && OutputStream != Context?.Response?.OutputStream)
+        {
+            try
+            {
+                await OutputStream.FlushAsync();
+                await OutputStream.DisposeAsync();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Ignore if the stream was already disposed
+            }
+            catch (Exception)
+            {
+                Console.WriteLine("Failed to dispose output stream.");
+            }
+            finally
+            {
+                OutputStream = null;
+            }
         }
     }
 

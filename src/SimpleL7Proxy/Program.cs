@@ -88,7 +88,7 @@ public class Program
 
         try
         {
-            ServiceBusRequestService? serviceBusService = null;
+            //ServiceBusRequestService? serviceBusService = null;
 
             if (options.Value.AsyncModeEnabled)
             {
