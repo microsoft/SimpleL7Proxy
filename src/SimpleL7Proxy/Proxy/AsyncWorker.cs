@@ -87,7 +87,6 @@ namespace SimpleL7Proxy.Proxy
         /// <returns>A task that represents the asynchronous initialization operation.</returns>
         public async Task<bool> InitializeAsync()
         {
-            _logger.LogDebug("AsyncWorker: Initializing for UserId: {UserId}, BlobContainerName: {BlobContainerName}", _userId, _requestData.BlobContainerName);
             var result = await _blobWriter.InitClientAsync(_userId, _requestData.BlobContainerName).ConfigureAwait(false);
             if (!result)
             {
@@ -107,7 +106,10 @@ namespace SimpleL7Proxy.Proxy
             {
                 //_logger.LogInformation($"AsyncWorker: Starting for UserId: {_userId}, Delaying for {AsyncTimeout} ms");
                 // wait state... can be cancelled by Terminate
-                await Task.Delay(AsyncTimeout, _cancellationTokenSource.Token).ConfigureAwait(false);
+                if (AsyncTimeout > 10)
+                {
+                    await Task.Delay(AsyncTimeout, _cancellationTokenSource.Token).ConfigureAwait(false);
+                }
 
                 //_logger.LogInformation($"AsyncWorker: Delayed for {AsyncTimeout} ms");
                 // Atomically set to running (1) only if not started (0)
