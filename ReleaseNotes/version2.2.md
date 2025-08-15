@@ -1,5 +1,20 @@
 # Release Notes #
 
+Proxy:
+
+* Bug Fix: Missing response headers
+* Bug Fix: Missing content when TOKENPROCESSOR was unknown
+* Implement batch processing for service bus events, ensure in order upload of events 
+* Add AsyncProcessingError to servicebus in case of error
+* Add x-Async-Error to response headers in case of processing error
+* Log Exceptions for failure to create Blob during async processing
+* Drain upto 50 SB events at a time instead of a single event.
+* Implement AllUsageProcessor, refactor code to simplyfy creating future parsers
+* Remove < 10ms delay for async startup
+* Calculate delay based on enqueue time to when triggering async
+
+
+
 ## V2.2.4.p1
 
 * Bug Fix: User UserProfileHeader rather than UserID when looking up asyncmode
