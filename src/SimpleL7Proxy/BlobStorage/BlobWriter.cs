@@ -46,7 +46,6 @@ namespace SimpleL7Proxy.BlobStorage
 
         public async Task<bool> InitClientAsync(string userId, string containerName)
         {
-            _logger.LogInformation($"Initializing BlobContainerClient for userId: {userId}, containerName: {containerName}");
 
             if (string.IsNullOrEmpty(userId))
             {
@@ -66,6 +65,7 @@ namespace SimpleL7Proxy.BlobStorage
                 // Client already exists, no need to create a new one
                 return true;
             }
+            _logger.LogDebug("BlobWriter: Initializing for UserId: {UserId}, BlobContainerName: {BlobContainerName}", userId, containerName);
 
             try
             {
