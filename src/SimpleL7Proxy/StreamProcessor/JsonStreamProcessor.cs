@@ -65,16 +65,18 @@ namespace SimpleL7Proxy.StreamProcessor
                     cancellationToken?.ThrowIfCancellationRequested();
 
                     // Write each line immediately - no delays
-                    await writer.WriteLineAsync(currentLine).ConfigureAwait(false);
+                    Task t = writer.WriteLineAsync(currentLine);
 
-                    // Keep meaningful lines (skip very short lines and [DONE])
-                    if (currentLine.Length > 6 && !currentLine.Contains("data: [DONE]"))
+                    // Only process through lines that could have usage in them
+                    if (currentLine.Length > 20)
                     {
                         lastLines[currentIndex] = currentLine;
                         currentIndex = (currentIndex + 1) % 6; // Wrap around
                         lineCount++;
                     }
-                }
+                    
+                    await t.ConfigureAwait(false);
+                 }
             }
             catch (IOException e)
             {
@@ -102,23 +104,23 @@ namespace SimpleL7Proxy.StreamProcessor
                 {
                     try
                     {
-                        // Walk through lines to find the one with usage data
-                        var validLines = GetLastLinesInOrder(lastLines, currentIndex, lineCount);
-                        string? usageLine = null;
+                        // // Walk through lines to find the one with usage data
+                        // var validLines = GetLastLinesInOrder(lastLines, currentIndex, lineCount);
+                        // string? usageLine = null;
                         
-                        // Look through lines starting from most recent, going backwards
-                        foreach (var line in validLines)
-                        {
-                            if (line.Contains("usage", StringComparison.OrdinalIgnoreCase))
-                            {
-                                usageLine = line;
-                                break; // Found the line with usage
-                            }
-                        }
+                        // // Look through lines starting from most recent, going backwards
+                        // foreach (var line in validLines)
+                        // {
+                        //     if (line.Contains("usage", StringComparison.OrdinalIgnoreCase))
+                        //     {
+                        //         usageLine = line;
+                        //         break; // Found the line with usage
+                        //     }
+                        // }
                         
-                        // Fall back to most recent line if no usage found
-                        var primaryLine = usageLine ?? validLines[0];
-                        ProcessLastLines(validLines, primaryLine);
+                        // // Fall back to most recent line if no usage found
+                        // var primaryLine = usageLine ?? validLines[0];
+                        // ProcessLastLines(validLines, primaryLine);
                     }
                     catch (Exception ex)
                     {
@@ -189,7 +191,7 @@ namespace SimpleL7Proxy.StreamProcessor
         /// </summary>
         public override void GetStats(ProxyEvent eventData, HttpResponseHeaders headers)
         {
-            PopulateEventData(eventData, headers);
+            // PopulateEventData(eventData, headers);
         }
 
         /// <summary>
