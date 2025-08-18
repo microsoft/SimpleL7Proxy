@@ -55,7 +55,7 @@ namespace SimpleL7Proxy.StreamProcessor
             {
                 using var sourceStream = await sourceContent.ReadAsStreamAsync().ConfigureAwait(false);
                 using var reader = new StreamReader(sourceStream);
-                using var writer = new StreamWriter(outputStream) { AutoFlush = true };
+                using var writer = new StreamWriter(outputStream, bufferSize: 4096, leaveOpen: true);
 
                 string? currentLine;
 
@@ -104,23 +104,24 @@ namespace SimpleL7Proxy.StreamProcessor
                 {
                     try
                     {
-                        // // Walk through lines to find the one with usage data
-                        // var validLines = GetLastLinesInOrder(lastLines, currentIndex, lineCount);
-                        // string? usageLine = null;
+                        // Walk through lines to find the one with usage data
+                        var validLines = GetLastLinesInOrder(lastLines, currentIndex, lineCount);
+                        string? usageLine = null;
                         
-                        // // Look through lines starting from most recent, going backwards
-                        // foreach (var line in validLines)
-                        // {
-                        //     if (line.Contains("usage", StringComparison.OrdinalIgnoreCase))
-                        //     {
-                        //         usageLine = line;
-                        //         break; // Found the line with usage
-                        //     }
-                        // }
+                        // Look through lines starting from most recent, going backwards
+                        foreach (var line in validLines)
+                        {
+                            //if (line.Contains("usage", StringComparison.OrdinalIgnoreCase))
+                            if (line.IndexOf("usage", StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                usageLine = line;
+                                break; // Found the line with usage
+                            }
+                        }
                         
-                        // // Fall back to most recent line if no usage found
-                        // var primaryLine = usageLine ?? validLines[0];
-                        // ProcessLastLines(validLines, primaryLine);
+                        // Fall back to most recent line if no usage found
+                        var primaryLine = usageLine ?? validLines[0];
+                        ProcessLastLines(validLines, primaryLine);
                     }
                     catch (Exception ex)
                     {
@@ -160,11 +161,18 @@ namespace SimpleL7Proxy.StreamProcessor
         /// </summary>
         public static string ConvertToPascalCase(string key)
         {
-            var parts = key.Split('.', '[', ']')
-                .Where(part => !string.IsNullOrEmpty(part))
-                .Select(part => ConvertWordToPascalCase(part));
-            
-            return string.Join(".", parts);
+            var splitParts = key.Split('.', '[', ']');
+            var resultParts = new List<string>(splitParts.Length);
+
+            foreach (var part in splitParts)
+            {
+                if (!string.IsNullOrEmpty(part))
+                {
+                    resultParts.Add(ConvertWordToPascalCase(part));
+                }
+            }
+
+            return string.Join(".", resultParts);
         }
 
         /// <summary>
@@ -191,7 +199,7 @@ namespace SimpleL7Proxy.StreamProcessor
         /// </summary>
         public override void GetStats(ProxyEvent eventData, HttpResponseHeaders headers)
         {
-            // PopulateEventData(eventData, headers);
+            PopulateEventData(eventData, headers);
         }
 
         /// <summary>
