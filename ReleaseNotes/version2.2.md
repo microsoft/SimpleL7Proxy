@@ -1,7 +1,13 @@
 # Release Notes #
 
+## V2.2.4.p3
 Proxy:
+* Performance improvements in stream parsing
+* Uncomment parsing code 
 
+
+## V2.2.4.p2
+Proxy:
 * Bug Fix: Missing response headers
 * Bug Fix: Missing content when TOKENPROCESSOR was unknown
 * Implement batch processing for service bus events, ensure in order upload of events 
