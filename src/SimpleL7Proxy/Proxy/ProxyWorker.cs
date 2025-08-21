@@ -49,6 +49,15 @@ public class ProxyWorker
     public static int activeWorkers = 0;
     private static bool readyToWork = false;
     private static Guid? LastHostGuid;
+
+    private static readonly IStreamProcessor DefaultStreamProcessor = new DefaultStreamProcessor();
+
+    private static readonly Dictionary<string, Func<IStreamProcessor>> processors = new Dictionary<string, Func<IStreamProcessor>>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["OpenAI"] = static () => new OpenAIProcessor(),
+        ["AllUsage"] = static () => new AllUsageProcessor(),
+        ["DefaultStream"] = static () => DefaultStreamProcessor, // this one doesn't have any local fields
+    };
     static string[] backendKeys = new[] { "Backend-Host", "Host-URL", "Status", "Duration", "Error", "Message", "Request-Date" };
 
     private static int[] states = [0, 0, 0, 0, 0, 0, 0, 0];
@@ -241,7 +250,7 @@ public class ProxyWorker
                             eventData["Average-Backend-Probe-Latency"] =
                                 pr.CalculatedHostLatency != 0 ? pr.CalculatedHostLatency.ToString("F3") + " ms" : "N/A";
                             if (pr.Headers != null)
-                                pr.Headers["x-Atthempts"] = incomingRequest.Attempts.ToString();
+                                pr.Headers["x-Attempts"] = incomingRequest.Attempts.ToString();
                         }
                         Interlocked.Decrement(ref states[2]);
                     }
@@ -831,7 +840,8 @@ public class ProxyWorker
                         };
 
                         // ASYNC: We got a response back, Synchronize with the asyncWorker 
-                        if ((int)proxyResponse.StatusCode == 200 && request.runAsync)
+                        //if ((int)proxyResponse.StatusCode == 200 && request.runAsync)
+                        if (request.runAsync)
                         {
                             if (request.asyncWorker == null)
                             {
@@ -848,7 +858,7 @@ public class ProxyWorker
 
                         // Check if the status code of the response is in the set of allowed status codes, else try the next host
                         var intCode = (int)proxyResponse.StatusCode;
-                        if ((intCode > 300 && intCode < 400) || intCode == 412 || intCode >= 500)
+                        if ((intCode > 300 && intCode < 400) || intCode == 404 || intCode == 412 || intCode >= 500)
                         {
                             requestState = "Call unsuccessful";
 
@@ -943,93 +953,54 @@ public class ProxyWorker
                             request.Context.Response.Headers = pr.Headers;
                         }
 
-                        var processWith = "Default";
-                        if ((int)proxyResponse.StatusCode == 200 && proxyResponse.Headers.TryGetValues("TOKENPROCESSOR", out var processorValues))
-                        {
-                            var tokenProcessor = processorValues.FirstOrDefault()?.Trim();
-                            if (!string.IsNullOrEmpty(tokenProcessor))
-                            {
-                                if (tokenProcessor.EndsWith("Processor", StringComparison.OrdinalIgnoreCase))
-                                    tokenProcessor = tokenProcessor[..^"Processor".Length];
-                                processWith = tokenProcessor;
-                            }
-                        }
+                        // Determine processor to use for streaming
+                        string processWith = GetProcessorName(proxyResponse);
+                        string mediaType = proxyResponse.Content.Headers.ContentType?.MediaType ?? string.Empty;
 
-                        // Auto-select processor for SSE content if none specified
-                        var mediaType = proxyResponse.Content.Headers.ContentType?.MediaType;
-                        if (processWith.Equals("Default", StringComparison.OrdinalIgnoreCase)
-                            && !string.IsNullOrEmpty(mediaType)
-                            && mediaType.Equals("text/event-stream", StringComparison.OrdinalIgnoreCase))
-                        {
-                            processWith = "DefaultStream";
-                        }
-
-                        // Normalize aliases
-                        if (processWith.Equals("Inline", StringComparison.OrdinalIgnoreCase))
+                        // Auto-select processor for SSE content if none specified or for "Inline" alias
+                        if ((processWith.Equals("Default", StringComparison.OrdinalIgnoreCase) && 
+                            mediaType.Equals("text/event-stream", StringComparison.OrdinalIgnoreCase)) ||
+                            processWith.Equals("Inline", StringComparison.OrdinalIgnoreCase))
                         {
                             processWith = "DefaultStream";
                         }
 
                         requestState = "Stream Proxy Response : " + processWith;
 
-                        // Stream response from the backend to the client / blob depending on async timer
-                        IStreamProcessor processor = new DefaultStreamProcessor();
+                        // Stream response from backend to client/blob
                         _logger.LogInformation("Streaming response with processor. Requested: {Requested}, ContentType: {ContentType}", processWith, mediaType);
+
+                        IStreamProcessor processor = ResolveStreamProcessor(processWith, out string resolvedProcessor);
                         try
                         {
-                            string resolved = processWith;
-                            if (!processors.TryGetValue(processWith, out var factory))
-                            {
-                                _logger.LogWarning("Unknown processor requested: {Requested}. Falling back to default.", processWith);
-                                factory = processors["DefaultStream"];
-                                resolved = "DefaultStream";
-                            }
-
-                            // Instantiate once so we can collect stats later
-                            try
-                            {
-                                processor = factory();
-                            }
-                            catch (Exception pex)
-                            {
-                                _logger.LogWarning("Processor '{Requested}' failed to construct. Falling back to default. Error: {Message}", processWith, pex.Message);
-                                processor = processors["DefaultStream"]();
-                                resolved = "DefaultStream";
-                            }
-
-                            _logger.LogDebug("Resolved processor: {Resolved}", resolved);
+                            _logger.LogDebug("Resolved processor: {Resolved}", resolvedProcessor);
 
                             if (request.OutputStream != null)
                             {
-                                await processor.CopyToAsync(proxyResponse.Content,
-                                                            request.OutputStream,
-                                                            _cancellationToken).ConfigureAwait(false);
+                                await processor.CopyToAsync(proxyResponse.Content, request.OutputStream, _cancellationToken).ConfigureAwait(false);
                             }
                             else
                             {
                                 _logger.LogError("OutputStream is null, cannot stream response");
                             }
-
                         }
                         catch (IOException e)
                         {
                             _logger.LogError("IO Error streaming response: {Message}", e.Message);
 
                         }
-                        catch (Exception e)
+                        catch (Exception ex) when (ex.InnerException is IOException ioEx)
                         {
-                            if (e.InnerException is IOException ioex)
-                            {
-                                // This is likely a client disconnect, we can ignore it.
-                                // We've already returned a status and streamed the response.  Best to continue.
-                                _logger.LogDebug("Client disconnected while streaming response: {Message}", ioex.Message);
-                            }
-                            else
-                            {
-                                _logger.LogError("Error streaming response: {Error}", e);
-                                throw new ProxyErrorException(ProxyErrorException.ErrorType.ClientDisconnected,
-                                                              HttpStatusCode.InternalServerError, e.Message);
-                            }
+                            // Most likely a client disconnect, log at debug level
+                            _logger.LogDebug("Client disconnected while streaming response: {Message}", ioEx.Message);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError("Error streaming response: {Error}", ex);
+                            throw new ProxyErrorException(
+                                ProxyErrorException.ErrorType.ClientDisconnected,
+                                HttpStatusCode.InternalServerError,
+                                ex.Message);
                         }
                         finally
                         {
@@ -1043,13 +1014,9 @@ public class ProxyWorker
                             }
                             finally
                             {
-                                // Ensure processor is disposed if it implements IDisposable
                                 if (processor is IDisposable disposableProcessor)
                                 {
-                                    try
-                                    {
-                                        disposableProcessor.Dispose();
-                                    }
+                                    try { disposableProcessor.Dispose(); }
                                     catch (Exception processorDisposeEx)
                                     {
                                         _logger.LogDebug("Processor disposal failed: {Message}", processorDisposeEx.Message);
@@ -1237,12 +1204,45 @@ public class ProxyWorker
         };
     }
 
-    private static readonly Dictionary<string, Func<IStreamProcessor>> processors = new Dictionary<string, Func<IStreamProcessor>>(StringComparer.OrdinalIgnoreCase)
+    private string GetProcessorName(HttpResponseMessage proxyResponse)
     {
-        ["OpenAI"] = static () => new OpenAIProcessor(),
-        ["AllUsage"] = static () => new AllUsageProcessor(),
-        ["DefaultStream"] = static () => new DefaultStreamProcessor(),
-    };
+        if ((int)proxyResponse.StatusCode == 200 && proxyResponse.Headers.TryGetValues("TOKENPROCESSOR", out var processorValues))
+        {
+            var tokenProcessor = processorValues.FirstOrDefault()?.Trim();
+            if (!string.IsNullOrEmpty(tokenProcessor))
+            {
+                if (tokenProcessor.EndsWith("Processor", StringComparison.OrdinalIgnoreCase))
+                    tokenProcessor = tokenProcessor[..^"Processor".Length];
+                return tokenProcessor;
+            }
+        }
+        return "Default";
+    }
+
+    private IStreamProcessor ResolveStreamProcessor(string processWith, out string resolved)
+    {
+        if (!processors.TryGetValue(processWith, out var factory))
+        {
+            _logger.LogWarning("Unknown processor requested: {Requested}. Falling back to default.", processWith);
+            factory = processors["DefaultStream"];
+            resolved = "DefaultStream";
+        }
+        else
+        {
+            resolved = processWith;
+        }
+
+        try
+        {
+            return factory();
+        }
+        catch (Exception pex)
+        {
+            _logger.LogWarning("Processor '{Requested}' failed to construct. Falling back to default. Error: {Message}", processWith, pex.Message);
+            resolved = "DefaultStream";
+            return processors["DefaultStream"]();
+        }
+    }
     private static void GenerateErrorMessage(List<Dictionary<string, string>> incompleteRequests, out StringBuilder sb, out bool statusMatches, out int currentStatusCode)
     {
         sb = new StringBuilder();
