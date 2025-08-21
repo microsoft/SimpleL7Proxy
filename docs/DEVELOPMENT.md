@@ -135,7 +135,7 @@ export AsyncBlobStorageConnectionString="your-blob-connection-string"
 export AsyncSBConnectionString="your-servicebus-connection-string"
 
 # Test async request
-curl -H "AsyncEnabled: true" -H "X-UserID: test-user" http://localhost:8080/async-test
+curl -H "AsyncMode: true" -H "X-UserID: test-user" http://localhost:8080/async-test
 ```
 
 ## Debugging

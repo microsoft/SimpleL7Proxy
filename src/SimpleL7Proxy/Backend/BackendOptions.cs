@@ -6,15 +6,12 @@ public class BackendOptions
     public string AsyncBlobStorageConnectionString { get; set; } = "example-connection-string"; 
     public bool AsyncBlobStorageUseMI {get; set; } = true;
     public string AsyncBlobStorageAccountUri { get; set; } = "https://mystorageaccount.blob.core.windows.net";
-    public string AsyncClientBlobFieldname { get; set; } = "async-blobname";
-    public string AsyncClientBlobTimeoutFieldName { get; set; } = "async-blobaccess-timeout";
-    public string AsyncClientAllowedFieldName { get; set; } = "async-allowed";
+    public string AsyncClientRequestHeader { get; set; } = "AsyncMode";
+    public string AsyncClientConfigFieldName { get; set; } = "async-config";
     public bool AsyncModeEnabled { get; set; } = false;
     public string AsyncSBConnectionString { get; set; } = "example-sb-connection-string";
     public bool AsyncSBUseMI { get; set; } = false; // Use managed identity for Service Bus
     public string AsyncSBNamespace { get; set; } = "example-namespace";
-    public int AsyncSBStatusWorkers { get; set; } = 5;
-    public string AsyncSBTopicFieldName { get; set; } = "async-topic";
     public double AsyncTimeout { get; set; } = 30 * 60000; // 30 minutes
     public int AsyncTriggerTimeout { get; set; } = 60000; // 1 minute
     public HttpClient? Client { get; set; }

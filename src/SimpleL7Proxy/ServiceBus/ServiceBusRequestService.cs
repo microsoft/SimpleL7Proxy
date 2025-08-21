@@ -36,7 +36,7 @@ namespace SimpleL7Proxy.ServiceBus
             _senderFactory = senderFactory ?? throw new ArgumentNullException(nameof(senderFactory));
             _logger = logger;
             
-            _logger.LogInformation("ServiceBus feeder tasks configured: {FeedersCount}", _options.AsyncSBStatusWorkers);
+            _logger.LogInformation("ServiceBus feeder tasks configured:");
         }
 
         private void OnApplicationStopping()

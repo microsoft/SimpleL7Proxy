@@ -34,9 +34,7 @@ Each user profile is a JSON object with the following structure:
     "S7PPriorityKey": "priority-key-value",
     "Header1": "Custom header value",
     "Header2": "Another custom value",
-    "async-blobname": "user-specific-blob-container",
-    "async-topic": "user-specific-servicebus-topic",
-    "async-allowed": true
+    "async-config": enabled=true, blobcontainer=<user-specific-blob-container>, topic=<user-specific-servicebus-topic>
 }
 ```
 
@@ -50,7 +48,7 @@ Each user profile is a JSON object with the following structure:
 - **Custom Headers**: Any additional key-value pairs become headers applied to requests
 - **async-blobname**: Azure Blob Storage container name for async processing
 - **async-topic**: Azure Service Bus topic for async notifications
-- **async-allowed**: Boolean flag enabling async processing for this user
+- **async-config**: a 3 tuple:  enabled=<true|false>, blobcontainer=<client blob container name>, topic=<client topic>
 
 ## Example Configuration File
 
@@ -63,9 +61,7 @@ Here's a complete example of a user profiles configuration file:
         "S7PPriorityKey": "12345",
         "Department": "Engineering",
         "Region": "US-East",
-        "async-blobname": "premium-data",
-        "async-topic": "premium-status",
-        "async-allowed": true,
+        "async-config": "enabled=true, blobcontainer=premium-data, topic=premium-status"
         "async-blobaccess-timeout": 3600
     },
     {
@@ -75,19 +71,19 @@ Here's a complete example of a user profiles configuration file:
         "Region": "EU-West", 
         "async-blobname": "standard-data",
         "async-topic": "standard-status",
-        "async-allowed": true,
+        "async-config": "enabled=true, blobcontainer=standard-data, topic=standard-status"
         "async-blobaccess-timeout": 1800
     },
     {
         "userId": "basic-user-789",
         "Department": "Support",
         "Region": "US-West",
-        "async-allowed": false
+        "async-config": "enabled=false"
     },
     {
         "userId": "suspended-user-999",
         "Status": "Suspended",
-        "async-allowed": false
+        "async-config": "enabled=false"
     }
 ]
 ```
@@ -136,16 +132,14 @@ For users with async capabilities, additional fields control the behavior:
 
 | Field | Description | Example |
 |-------|-------------|---------|
-| **async-allowed** | Enable async processing | true/false |
-| **async-blobname** | Blob container for results | "user-data-container" |
-| **async-topic** | Service Bus topic for notifications | "user-notifications" |
+| **async-config** | async processing parameters: enabled, containername, topic | enabled=true/false, containername=<name>, topic=<name> |
 | **async-blobaccess-timeout** | Blob access timeout in seconds | 3600 |
 
 ### Async Request Example
 
 ```bash
 curl -H "userId: premium-user-123" \
-     -H "AsyncEnabled: true" \
+     -H "AsyncMode: true" \
      -H "Content-Type: application/json" \
      -d '{"query": "process this async"}' \
      http://localhost:8000/api/long-running-task
@@ -193,7 +187,7 @@ Response:
 - Confirm profiles file has been reloaded (check timestamp)
 
 **Async not working:**
-- Verify `async-allowed: true` in user profile
+- Verify `async-config: true` in present with all three values: enabled, containername and topic.  Verify access.
 - Check Azure Storage and Service Bus connections
 - Confirm `AsyncModeEnabled=true` at service level
 
