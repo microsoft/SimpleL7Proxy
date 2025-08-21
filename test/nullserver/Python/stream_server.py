@@ -95,6 +95,45 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"Hello, world!")
             return
+        
+        if parsed_path.path == '/openai':
+
+            request_sequence = self.headers.get('x-Request-Sequence', 'N/A')
+            queue_time = self.headers.get('x-Request-Queue-Duration', 'N/A')
+            process_time = self.headers.get('x-Request-Process-Duration', 'N/A')
+            s7pid = self.headers.get('x-S7PID', 'N/A')
+
+            sleep_time = random.uniform(.4, .7)  # Random sleep time 
+            time.sleep(sleep_time)
+            
+            self.send_response(200)
+            self.send_header("x-Request-Sequence", request_sequence)
+            self.send_header("x-Request-Queue-Duration", queue_time)
+            self.send_header("x-Request-Process-Duration", process_time)
+            self.send_header("x-S7PID", s7pid)
+            self.send_header("Random-Header", "Random-Value")
+            self.send_header("x-Random-Header", "Random-Value")
+            self.send_header('Content-Type', 'text/event-stream')
+            self.send_header('Cache-Control', 'no-cache')
+            self.send_header('Transfer-Encoding', 'chunked')
+            self.end_headers()
+
+            file_path = 'openAI.txt'
+            with open(file_path, 'r') as file:
+                for line in file:
+                    chunk = line.encode('utf-8')
+                    chunk_length = f"{len(chunk):X}\r\n".encode('utf-8')
+                    self.wfile.write(chunk_length)
+                    self.wfile.write(chunk)
+                    self.wfile.write(b"\r\n")
+                    self.wfile.flush()
+                    time.sleep(.02)
+
+            # Send the zero-length chunk to indicate the end of the response
+            self.wfile.write(b"0\r\n\r\n")
+            self.wfile.flush()
+            return
+
 
         # Default response
 
@@ -109,6 +148,7 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         time.sleep(sleep_time)
 
         print(f"Request: {parsed_path.path}  Sequence: {request_sequence} QueueTime: {queue_time} ProcessTime: {process_time} ID: {s7pid}")
+
 
         # Send response
         self.send_response(200)
