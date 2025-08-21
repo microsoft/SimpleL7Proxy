@@ -108,8 +108,7 @@
             }
 
             backendLog += " REQUEST PRIORITY: " + requestPriority +
-                "  REQUEST-HEADERS: " +
-                string.Join(", ",
+                    "  REQUEST-HEADERS: " +   string.Join(", ",
                     context.Request.Headers
                         .Where(h => !string.Equals(h.Key, "api-key", StringComparison.OrdinalIgnoreCase) &&
                                     !string.Equals(h.Key, "Authorization", StringComparison.OrdinalIgnoreCase))
@@ -346,8 +345,6 @@
                         // we're multi-processing, so we need to set the retryAfter to the max of the current and the new one
                         var newRetryAfter = DateTime.UtcNow.AddSeconds(retryAfterSeconds);
                         if (newRetryAfter > backend["retryAfter"].Value<DateTime>()) {
-                            backend["oldTime"] = DateTime.UtcNow;
-                            backend["oldRetryAfter"] = retryAfterSeconds;
                             backend["retryAfter"] = newRetryAfter;
                         }
 
