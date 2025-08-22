@@ -57,6 +57,7 @@ public class ProxyWorker
         ["OpenAI"] = static () => new OpenAIProcessor(),
         ["AllUsage"] = static () => new AllUsageProcessor(),
         ["DefaultStream"] = static () => DefaultStreamProcessor, // this one doesn't have any local fields
+        ["MultiLineAllUsage"] = static () => new MultiLineAllUsageProcessor()
     };
     static string[] backendKeys = new[] { "Backend-Host", "Host-URL", "Status", "Duration", "Error", "Message", "Request-Date" };
 
