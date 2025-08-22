@@ -58,51 +58,5 @@ namespace SimpleL7Proxy.StreamProcessor
             }
         }
 
-        /// <summary>
-        /// Simplified extraction for simple JSON with few fields and 1-2 layers deep.
-        /// Converts all values to strings for consistent data handling.
-        /// </summary>
-        /// <param name="node">The JSON node to extract fields from.</param>
-        /// <param name="prefix">The prefix for the field names (hierarchy path).</param>
-        private void ExtractAllFields(JsonNode? node, string prefix)
-        {
-            if (node is not JsonObject jsonObject) return;
-
-            foreach (var (key, value) in jsonObject)
-            {
-                if (value == null) continue;
-
-                var fieldName = string.IsNullOrEmpty(prefix) ? key : $"{prefix}.{key}";
-
-                switch (value)
-                {
-                    case JsonValue jsonValue:
-                        data[fieldName] = jsonValue.ToString();
-                        break;
-
-                    case JsonObject nestedObject:
-                        foreach (var (nestedKey, nestedValue) in nestedObject)
-                        {
-                            if (nestedValue is JsonValue nestedJsonValue)
-                                data[$"{fieldName}.{nestedKey}"] = nestedJsonValue.ToString();
-                        }
-                        break;
-
-                    case JsonArray jsonArray:
-                        for (int i = 0; i < jsonArray.Count; i++)
-                        {
-                            if (jsonArray[i] is JsonObject arrayObject)
-                            {
-                                foreach (var (arrayKey, arrayValue) in arrayObject)
-                                {
-                                    if (arrayValue is JsonValue arrayJsonValue)
-                                        data[$"{fieldName}[{i}].{arrayKey}"] = arrayJsonValue.ToString();
-                                }
-                            }
-                        }
-                        break;
-                }
-            }
-        }
     }
 }
