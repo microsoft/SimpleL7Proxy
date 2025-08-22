@@ -14,7 +14,7 @@ using SimpleL7Proxy.Events;
  * 
  * STREAMING PATTERN:
  * - Streams all content immediately while collecting lines for processing
- * - Captures last 6 meaningful lines for statistics extraction (skips [DONE] markers)
+ * - Captures last <MaxLines> meaningful lines for statistics extraction (skips [DONE] markers)
  * - Uses efficient circular buffer instead of queue for better performance
  * - Handles "data: [DONE]" termination pattern common in streaming APIs
  * - Uses consistent exception handling and error data storage
@@ -25,7 +25,7 @@ using SimpleL7Proxy.Events;
  * - Handles disposal of data dictionary properly
  * 
  * TEMPLATE METHODS:
- * - ProcessLastLines: Override to implement specific JSON parsing logic with access to last 6 lines
+ * - ProcessLastLines: Override to implement specific JSON parsing logic with access to last <MaxLines> lines
  * - ProcessLastLine: Legacy method for backward compatibility (calls ProcessLastLines)
  * - PopulateEventData: Override to customize how statistics are transferred to events
  * - ShouldIgnoreException: Override to customize exception handling logic
@@ -41,13 +41,16 @@ namespace SimpleL7Proxy.StreamProcessor
     public abstract class JsonStreamProcessor : BaseStreamProcessor
     {
         protected Dictionary<string, string> data = new();
+        protected virtual int MaxLines { get; } = 10; 
+        protected virtual int MinLineLength { get; } = 20;
 
         /// <summary>
         /// Implements the common streaming pattern used by JSON-based processors.
         /// </summary>
         public override async Task CopyToAsync(System.Net.Http.HttpContent sourceContent, Stream outputStream, CancellationToken? cancellationToken)
         {
-            var lastLines = new string[6]; // Fixed array for last 6 lines
+
+            var lastLines = new string[MaxLines]; // Fixed array for last 6 lines
             int currentIndex = 0; // Current write position
             int lineCount = 0;    // Total lines written
 
@@ -68,15 +71,15 @@ namespace SimpleL7Proxy.StreamProcessor
                     Task t = writer.WriteLineAsync(currentLine);
 
                     // Only process through lines that could have usage in them
-                    if (currentLine.Length > 20)
+                    if (currentLine.Length > MinLineLength)
                     {
                         lastLines[currentIndex] = currentLine;
-                        currentIndex = (currentIndex + 1) % 6; // Wrap around
+                        currentIndex = (currentIndex + 1) % MaxLines; // Wrap around
                         lineCount++;
                     }
-                    
+
                     await t.ConfigureAwait(false);
-                 }
+                }
             }
             catch (IOException e)
             {
@@ -107,18 +110,18 @@ namespace SimpleL7Proxy.StreamProcessor
                         // Walk through lines to find the one with usage data
                         var validLines = GetLastLinesInOrder(lastLines, currentIndex, lineCount);
                         string? usageLine = null;
-                        
+
                         // Look through lines starting from most recent, going backwards
-                        foreach (var line in validLines)
+                        for (int i = validLines.Length - 1; i >= 0; i--)
                         {
-                            //if (line.Contains("usage", StringComparison.OrdinalIgnoreCase))
+                            var line = validLines[i];
                             if (line.IndexOf("usage", StringComparison.OrdinalIgnoreCase) >= 0)
                             {
                                 usageLine = line;
                                 break; // Found the line with usage
                             }
                         }
-                        
+
                         // Fall back to most recent line if no usage found
                         var primaryLine = usageLine ?? validLines[0];
                         ProcessLastLines(validLines, primaryLine);
@@ -136,23 +139,32 @@ namespace SimpleL7Proxy.StreamProcessor
         }
 
         /// <summary>
-        /// Simple helper to get lines from array in reverse chronological order.
-        /// Index 0 = most recent line, Index 1 = second most recent, etc.
+        /// Simple helper to get lines from array in chronological order.
+        /// Index 0 = most least line, Index 1 = second least recent, etc.
         /// </summary>
-        private static string[] GetLastLinesInOrder(string[] buffer, int writeIndex, int totalLines)
+        private string[] GetLastLinesInOrder(string[] buffer, int writeIndex, int totalLines)
         {
-            var count = Math.Min(totalLines, buffer.Length);
-            var result = new string[count];
-            
-            // Start from most recent line and work backwards
-            var mostRecentIndex = (writeIndex - 1 + buffer.Length) % buffer.Length;
-            
-            for (int i = 0; i < count; i++)
+
+            string[] result;
+
+            // If we have fewer lines than the buffer size, just return what we have
+            if (writeIndex < MaxLines)
             {
-                var bufferIndex = (mostRecentIndex - i + buffer.Length) % buffer.Length;
+                result = new string[writeIndex];
+                Array.Copy(buffer, result, writeIndex);
+                return result;
+            }
+
+            result = new string[MaxLines];
+
+            // Start from the oldest line and work forward
+            // The oldest line is at writeIndex % buffer.Length
+            for (int i = 0; i < MaxLines; i++)
+            {
+                var bufferIndex = (writeIndex + i) % buffer.Length;
                 result[i] = buffer[bufferIndex];
             }
-            
+
             return result;
         }
 
@@ -206,7 +218,7 @@ namespace SimpleL7Proxy.StreamProcessor
         /// Template method for processing the last lines of JSON content.
         /// Derived classes must implement this to extract specific statistics.
         /// </summary>
-        /// <param name="lastLines">Array of the last significant lines from the stream (up to 6 lines).</param>
+        /// <param name="lastLines">Array of the last significant lines from the stream (up to <MaxLines> lines).</param>
         /// <param name="primaryLine">The primary line to process (typically the last non-[DONE] line).</param>
         protected abstract void ProcessLastLines(string[] lastLines, string primaryLine);
 
@@ -270,6 +282,53 @@ namespace SimpleL7Proxy.StreamProcessor
             catch
             {
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Simplified extraction for simple JSON with few fields and 1-2 layers deep.
+        /// Converts all values to strings for consistent data handling.
+        /// </summary>
+        /// <param name="node">The JSON node to extract fields from.</param>
+        /// <param name="prefix">The prefix for the field names (hierarchy path).</param>
+        public void ExtractAllFields(JsonNode? node, string prefix)
+        {
+            if (node is not JsonObject jsonObject) return;
+
+            foreach (var (key, value) in jsonObject)
+            {
+                if (value == null) continue;
+
+                var fieldName = string.IsNullOrEmpty(prefix) ? key : $"{prefix}.{key}";
+
+                switch (value)
+                {
+                    case JsonValue jsonValue:
+                        data[fieldName] = jsonValue.ToString();
+                        break;
+
+                    case JsonObject nestedObject:
+                        foreach (var (nestedKey, nestedValue) in nestedObject)
+                        {
+                            if (nestedValue is JsonValue nestedJsonValue)
+                                data[$"{fieldName}.{nestedKey}"] = nestedJsonValue.ToString();
+                        }
+                        break;
+
+                    case JsonArray jsonArray:
+                        for (int i = 0; i < jsonArray.Count; i++)
+                        {
+                            if (jsonArray[i] is JsonObject arrayObject)
+                            {
+                                foreach (var (arrayKey, arrayValue) in arrayObject)
+                                {
+                                    if (arrayValue is JsonValue arrayJsonValue)
+                                        data[$"{fieldName}[{i}].{arrayKey}"] = arrayJsonValue.ToString();
+                                }
+                            }
+                        }
+                        break;
+                }
             }
         }
 

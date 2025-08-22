@@ -8,6 +8,9 @@ As an example, SimpleL7Proxy can serve as an intelligent router to Azure API Man
 
 **Note:** If you are looking for the high performance APIM policy, see **[High perf APIM policy](test/APIM-Policy/readme.md)**.
 
+# Arch Diagram
+![Architecture Diagram](arch.png)
+
 ## Getting Started Quickly
 
 Want to try SimpleL7Proxy right now? You can have it running in under 5 minutes with dummy backends:

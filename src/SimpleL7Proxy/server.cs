@@ -341,7 +341,7 @@ public class Server : BackgroundService
                                 Console.WriteLine($"UserID: {rd.UserID}");
 
                             // ASYNC: Determine if the request is allowed async operation
-                            if (doAsync && bool.TryParse(rd.Headers["AsyncEnabled"], out var asyncEnabled) && asyncEnabled)
+                            if (doAsync && bool.TryParse(rd.Headers[_options.AsyncClientRequestHeader], out var asyncEnabled) && asyncEnabled)
                             {
                                 var clientInfo = _userProfile.GetAsyncParams(profileUserID);
                                 rd.runAsync = clientInfo != null;

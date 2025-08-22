@@ -2,6 +2,7 @@
 using System.Text.Json.Nodes;
 using System.Net.Http.Headers;
 using SimpleL7Proxy.Events;
+using System.Text.RegularExpressions;
 
 namespace SimpleL7Proxy.StreamProcessor
 {
@@ -9,8 +10,12 @@ namespace SimpleL7Proxy.StreamProcessor
     /// Stream processor implementation that extracts comprehensive usage statistics
     /// from JSON streaming responses, capturing all fields in the response.
     /// </summary>
-    public class AllUsageProcessor : JsonStreamProcessor
+    public class MultiLineAllUsageProcessor : JsonStreamProcessor
     {
+
+        protected override int MaxLines => 30;
+        protected override int MinLineLength => 4;
+
         /// <summary>
         /// Processes the last lines to extract comprehensive statistics from the JSON response.
         /// Recursively extracts all fields using dot notation for nested objects.
@@ -25,9 +30,26 @@ namespace SimpleL7Proxy.StreamProcessor
         /// <param name="primaryLine">The primary line to process.</param>
         protected override void ProcessLastLines(string[] lastLines, string primaryLine)
         {
-            try
+
+            //  the usage JSON is spread over multiple lines.  We need to know where it starts and end.
+            int startIndex = Array.IndexOf(lastLines, primaryLine);
+            var input = string.Join(" ", lastLines[startIndex..]);
+
+            // Use a regex to extract the json.
+            var jsonPattern = @"""[uU]sage"":\s*(\{(?:[^{}]|(?<open>\{)|(?<-open>\}))*\}(?(open)(?!)))";
+            var match = Regex.Match(input, jsonPattern, RegexOptions.Singleline);
+            var jsonBlock = String.Empty;
+
+            if (match.Success)
             {
-                var jsonNode = ParseJsonLine(primaryLine);
+                jsonBlock = @"{""usage"": " + match.Groups[1].Value + @"}"; // This is the JSON object after "usage"
+            }
+
+            // Extract the JSON block
+            //jsonBlock = string.Join("\n", lastLines[startIndex..(endIndex + 1)]);
+            try 
+            {
+                var jsonNode = ParseJsonLine(jsonBlock);
                 if (jsonNode != null)
                 {
                     ExtractAllFields(jsonNode, "");

@@ -95,14 +95,47 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"Hello, world!")
             return
+        
+        if parsed_path.path == '/openai':
+            sleep_time = random.uniform(.4, .7)  # Random sleep time 
+            time.sleep(sleep_time)
+            
+            request_sequence, queue_time, process_time, s7pid = self.extract_request_headers()
+            self.send_response(200)
+            self.set_streaming_response_headers(request_sequence, queue_time, process_time, s7pid)
+            self.send_header('TOKENPROCESSOR', 'OpenAI')
+            self.end_headers()
+
+            self.stream_file_contents("openAI.txt")
+
+            # Send the zero-length chunk to indicate the end of the response
+            self.wfile.write(b"0\r\n\r\n")
+            self.wfile.flush()
+            return
+
+        if parsed_path.path == '/multiline':
+            sleep_time = random.uniform(.4, .7)  # Random sleep time 
+            time.sleep(sleep_time)
+
+            request_sequence, queue_time, process_time, s7pid = self.extract_request_headers()
+            self.send_response(200)
+            self.set_streaming_response_headers(request_sequence, queue_time, process_time, s7pid)
+            self.send_header('TOKENPROCESSOR', 'MultiLineAllUsage')
+
+            self.end_headers()
+
+            self.stream_file_contents("multiline.txt")
+
+            # Send the zero-length chunk to indicate the end of the response
+            self.wfile.write(b"0\r\n\r\n")
+            self.wfile.flush()
+            return
+
 
         # Default response
 
         # Extract specific headers
-        request_sequence = self.headers.get('x-Request-Sequence', 'N/A')
-        queue_time = self.headers.get('x-Request-Queue-Duration', 'N/A')
-        process_time = self.headers.get('x-Request-Process-Duration', 'N/A')
-        s7pid = self.headers.get('x-S7PID', 'N/A')
+        request_sequence, queue_time, process_time, s7pid = self.extract_request_headers()
 
         # Sleep for a random number from 4 to 5 seconds
         sleep_time = random.uniform(60, 65)  # Random sleep time 
@@ -112,6 +145,26 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
 
         # Send response
         self.send_response(200)
+        self.set_streaming_response_headers(request_sequence, queue_time, process_time, s7pid)
+        self.end_headers()
+
+        time.sleep(1)
+        # Stream file contents line by line with a 1-second delay
+        self.stream_file_contents("stream_data.txt")
+
+
+        # Send the zero-length chunk to indicate the end of the response
+        self.wfile.write(b"0\r\n\r\n")
+        self.wfile.flush()
+
+    def extract_request_headers(self):
+        request_sequence = self.headers.get('x-Request-Sequence', 'N/A')
+        queue_time = self.headers.get('x-Request-Queue-Duration', 'N/A')
+        process_time = self.headers.get('x-Request-Process-Duration', 'N/A')
+        s7pid = self.headers.get('x-S7PID', 'N/A')
+        return request_sequence,queue_time,process_time,s7pid
+    
+    def set_streaming_response_headers(self, request_sequence, queue_time, process_time, s7pid):
         self.send_header("x-Request-Sequence", request_sequence)
         self.send_header("x-Request-Queue-Duration", queue_time)
         self.send_header("x-Request-Process-Duration", process_time)
@@ -121,27 +174,17 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         self.send_header('Content-Type', 'text/event-stream')
         self.send_header('Cache-Control', 'no-cache')
         self.send_header('Transfer-Encoding', 'chunked')
-        self.end_headers()
 
-        # Initialize repeat_count attribute
-        self.repeat_count = 1  # Set to desired repeat count
-
-        # Stream file contents line by line with a 1-second delay
-        file_path = 'stream_data.txt'
-        with open(file_path, 'r') as file:
+    def stream_file_contents(self, filename):
+        with open(filename, 'r') as file:
             for line in file:
-                response_message = json.dumps({"choices": [{"delta": {"content": line.strip()}}]})
-                chunk = f"data: {response_message}\n\n".encode('utf-8')
+                chunk = line.encode('utf-8')
                 chunk_length = f"{len(chunk):X}\r\n".encode('utf-8')
                 self.wfile.write(chunk_length)
                 self.wfile.write(chunk)
                 self.wfile.write(b"\r\n")
                 self.wfile.flush()
-                time.sleep(1)
-
-        # Send the zero-length chunk to indicate the end of the response
-        self.wfile.write(b"0\r\n\r\n")
-        self.wfile.flush()
+                time.sleep(.02)
 
 class ThreadedTCPServer(ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True

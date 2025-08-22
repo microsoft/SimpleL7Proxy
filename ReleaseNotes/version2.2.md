@@ -1,5 +1,21 @@
 # Release Notes #
 
+Repo:
+* Documentation updates
+
+Proxy:
+* Consolidated async profile configuration into a single filed:  AsyncClientConfigFieldName
+* Removed unused configuration: AsyncSBStatusWorkers
+* Updated documentation explainations
+* Bug fix for 404 exception
+* Refactor stream processor selector
+* Added multi line all token processor 
+
+Policy:
+* Remove unused variables
+* Added x-ms-client-request-id to help debug with OpenAI in the future
+
+
 ## V2.2.4.p3
 Proxy:
 * Performance improvements in stream parsing
