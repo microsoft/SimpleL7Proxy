@@ -15,18 +15,21 @@ public class UserProfile : BackgroundService, IUserProfileService
     private readonly string _UserIDFieldName;
 
     private readonly BackendOptions _options;
-    private readonly ILogger<Server> _logger;
+    private readonly ILogger<UserProfile> _logger;
     private Dictionary<string, AsyncClientInfo> _userInformation = new();
 
     private Dictionary<string, Dictionary<string, string>> userProfiles = new Dictionary<string, Dictionary<string, string>>();
     private List<string> suspendedUserProfiles = new List<string>();
     private List<string> authAppIDs = new List<string>();
 
-    public UserProfile(IOptions<BackendOptions> options, ILogger<Server> logger)
+    public UserProfile(IOptions<BackendOptions> options, ILogger<UserProfile> logger)
     {
         _options = options.Value;
         _logger = logger;
         _UserIDFieldName = _options.UserIDFieldName;
+        _userInformation[Constants.Server] = new AsyncClientInfo(Constants.Server, Constants.Server, Constants.Server, 3600);
+
+        _logger.LogDebug("UserProfile service starting");
     }
     public enum ParsingMode
     {
@@ -376,7 +379,7 @@ public class UserProfile : BackgroundService, IUserProfileService
     /// </summary>
     private bool IsValidBlobContainerName(string name, out string validatedName)
     {
-        validatedName = null;
+        validatedName = String.Empty;
 
         // Azure container names must be lowercase, 3-63 chars, and only letters, numbers, and dashes
         if (string.IsNullOrWhiteSpace(name)) return false;
@@ -393,7 +396,7 @@ public class UserProfile : BackgroundService, IUserProfileService
     /// </summary>
     private bool IsValidServiceBusTopicName(string name, out string validatedName)
     {
-        validatedName = null;
+        validatedName = String.Empty;
 
         // Azure Service Bus topic names: 1-260 chars, letters, numbers, periods, hyphens, underscores, forward slashes
         // Cannot start or end with period, hyphen, or forward slash
