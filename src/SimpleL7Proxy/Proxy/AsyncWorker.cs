@@ -12,7 +12,7 @@ using Microsoft.Extensions.Logging;
 using SimpleL7Proxy;
 using SimpleL7Proxy.BlobStorage;
 using SimpleL7Proxy.Events;
-using SimpleL7Proxy.Storage;
+using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.ServiceBus;
 
 namespace SimpleL7Proxy.Proxy
@@ -35,7 +35,7 @@ namespace SimpleL7Proxy.Proxy
 
         private readonly IBlobWriter _blobWriter;
         private readonly ILogger<AsyncWorker> _logger;
-        private readonly IRequestStorageService _requestStorageService;
+        private readonly IRequestDataBackupService _requestBackupService;
         public string ErrorMessage { get; set; } = "";
         string dataBlobName = "";
         string headerBlobName = "";
@@ -62,12 +62,12 @@ namespace SimpleL7Proxy.Proxy
         /// <param name="data">The request data.</param>
         /// <param name="blobWriter">The blob writer instance.</param>
         /// <param name="logger">The logger instance.</param>
-        public AsyncWorker(RequestData data, int AsyncTriggerTimeout, IBlobWriter blobWriter, ILogger<AsyncWorker> logger, IRequestStorageService requestStorageService)
+        public AsyncWorker(RequestData data, int AsyncTriggerTimeout, IBlobWriter blobWriter, ILogger<AsyncWorker> logger, IRequestDataBackupService requestBackupService)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _requestData = data ?? throw new ArgumentNullException(nameof(data));
             _blobWriter = blobWriter ?? throw new ArgumentNullException(nameof(blobWriter));
-            _requestStorageService = requestStorageService ?? throw new ArgumentNullException(nameof(requestStorageService));
+            _requestBackupService = requestBackupService ?? throw new ArgumentNullException(nameof(requestBackupService));
             _userId = data.UserID;
             AsyncTimeout = AsyncTriggerTimeout;
 
@@ -131,7 +131,7 @@ namespace SimpleL7Proxy.Proxy
                             _blobWriter.CreateBlobAndGetOutputStreamAsync(_userId, headerBlobName)
                         );
 
-                        var storageTask = _requestStorageService.StoreRequestAsync(_requestData);
+                        var storageTask = _requestBackupService.BackupAsync(_requestData);
 
                         // Wait for all to complete
                         await Task.WhenAll(dataStreamTask, headerStreamTask, storageTask).ConfigureAwait(false);
