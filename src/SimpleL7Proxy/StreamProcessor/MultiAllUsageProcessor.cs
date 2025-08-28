@@ -57,7 +57,7 @@ namespace SimpleL7Proxy.StreamProcessor
                 var jsonNode = ParseJsonLine(jsonBlock);
                 if (jsonNode != null)
                 {
-                    ExtractAllFields(jsonNode, "");
+                    ExtractAllFields(jsonNode, "Usage");
 
                     // Set defaults for required usage fields
                     data.TryAdd("Completion_Tokens", "0");
