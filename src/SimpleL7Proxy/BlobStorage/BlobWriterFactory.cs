@@ -26,6 +26,7 @@ namespace SimpleL7Proxy.BlobStorage
         {
             _optionsMonitor = optionsMonitor;
             _logger = logger;
+            _logger.LogDebug("Starting BlobWriter factory");
         }
 
         public IBlobWriter CreateBlobWriter()
@@ -143,6 +144,11 @@ namespace SimpleL7Proxy.BlobStorage
             // Blob storage is not enabled, so return false.
             await Task.CompletedTask;
             return false;
+        }
+
+        public Task<Stream> ReadBlobAsStreamAsync(string userId, string blobName)
+        {
+            throw new NotSupportedException("Blob storage is not enabled");
         }
     }
 }

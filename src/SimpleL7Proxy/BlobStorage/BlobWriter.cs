@@ -41,6 +41,7 @@ namespace SimpleL7Proxy.BlobStorage
         {
             _blobServiceClient = blobServiceClient ?? throw new ArgumentNullException(nameof(blobServiceClient));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _logger.LogDebug("Starting BlobWriter service");
         }
 
 
@@ -63,6 +64,7 @@ namespace SimpleL7Proxy.BlobStorage
             if (_containerClients.ContainsKey(userId))
             {
                 // Client already exists, no need to create a new one
+                _logger.LogDebug("BlobWriter: Client already initialized for UserId: {UserId}, BlobContainerName: {BlobContainerName}", userId, containerName);
                 return true;
             }
             _logger.LogDebug("BlobWriter: Initializing for UserId: {UserId}, BlobContainerName: {BlobContainerName}", userId, containerName);
@@ -84,7 +86,7 @@ namespace SimpleL7Proxy.BlobStorage
 
                 throw new BlobWriterException($"Failed to initialize BlobContainerClient for userId: {userId}, containerName: {containerName}", ex)
                 {
-                    Operation = "InitClientAsync",
+                    Operation = "InitClientAsync: CreateIfNotExistsAsync",
                     ContainerName = containerName,
                     UserId = userId
                 };
@@ -123,6 +125,36 @@ namespace SimpleL7Proxy.BlobStorage
             // OpenWriteAsync will create the blob if it does not exist and return a writable stream.
             return await blobClient.OpenWriteAsync(overwrite: true).ConfigureAwait(false);
         }
+
+        public async Task<Stream> ReadBlobAsStreamAsync(string userId, string blobName)
+        {
+            // Get the client for the userId
+            if (!_containerClients.TryGetValue(userId, out var _containerClient))
+            {
+                throw new BlobWriterException($"BlobContainerClient not initialized for userId: {userId}. Call InitializeClientAsync first.")
+                {
+                    Operation = "ReadBlobAsStreamAsync",
+                    BlobName = blobName,
+                    UserId = userId
+                };
+            }
+
+            try
+            {
+                var blobClient = _containerClient.GetBlobClient(blobName);
+                return await blobClient.OpenReadAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                throw new BlobWriterException($"Failed to read blob as stream for userId: {userId}, blobName: {blobName}", ex)
+                {
+                    Operation = "ReadBlobAsStreamAsync",
+                    BlobName = blobName,
+                    UserId = userId
+                };
+            }
+        }
+
 
         public async Task<bool> DeleteBlobAsync(string userId, string blobName)
         {

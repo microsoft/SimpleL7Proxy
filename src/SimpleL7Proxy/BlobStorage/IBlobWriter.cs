@@ -6,6 +6,7 @@ namespace SimpleL7Proxy.BlobStorage
     public interface IBlobWriter
     {
         Task<Stream> CreateBlobAndGetOutputStreamAsync(string userId, string blobName);
+        Task<Stream> ReadBlobAsStreamAsync(string userId, string blobName);
         Task<bool> DeleteBlobAsync(string userId, string blobName);
         Task<string> GenerateSasTokenAsync(string userId, string blobName, TimeSpan expiryTime);
         Task<bool> InitClientAsync(string userId, string containerName);
