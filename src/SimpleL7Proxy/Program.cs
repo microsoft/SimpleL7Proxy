@@ -18,7 +18,7 @@ using SimpleL7Proxy.User;
 //using SimpleL7Proxy.EventGrid;
 using SimpleL7Proxy.ServiceBus;
 using SimpleL7Proxy.BlobStorage;
-using SimpleL7Proxy.Storage;
+using SimpleL7Proxy.DTO;
 
 
 using System.Net;
@@ -40,6 +40,7 @@ namespace SimpleL7Proxy;
 
 public class Program
 {
+    
     public static async Task Main(string[] args)
     {
         Banner.Display();
@@ -69,7 +70,6 @@ public class Program
             {
                 ConfigureApplicationInsights(services);
                 ConfigureDependencyInjection(services, startupLogger);
-
             });
 
 
@@ -85,7 +85,7 @@ public class Program
         // Initialize ProxyEvent with BackendOptions
 
         ProxyEvent.Initialize(options, eventHubClient, telemetryClient);
-
+    
         try
         {
             //ServiceBusRequestService? serviceBusService = null;
@@ -111,7 +111,7 @@ public class Program
         }
         catch (Exception ex)
         {
-            startupLogger.LogError(ex, "Failed to initialize ServiceBusRequestService or AsyncWorker");
+            startupLogger.LogError(ex, "Failed to initialize ServiceBusRequestService");
         }
 
         try
@@ -125,7 +125,7 @@ public class Program
         catch (Exception e)
         {
             // Handle other exceptions that might occur
-            startupLogger.LogError($"An unexpected error occurred: {e.Message}");
+            startupLogger.LogError($"Main: An unexpected error occurred: {e.Message}");
         }
     }
 
@@ -212,13 +212,13 @@ public class Program
         services.AddSingleton<Server>();
         services.AddSingleton<ConcurrentSignal<RequestData>>();
         services.AddSingleton<IConcurrentPriQueue<RequestData>, ConcurrentPriQueue<RequestData>>();
-        services.AddSingleton<ProxyStreamWriter>();
+        //services.AddSingleton<ProxyStreamWriter>();
         services.AddSingleton<IBackendHostHealthCollection, BackendHostHealthCollection>();
         services.AddHostedService<Server>(provider => provider.GetRequiredService<Server>());
 
         // ASYNC RELATED
         // Add storage service registration
-        services.AddSingleton<IRequestStorageService, StorageDbRequestStorageService>();
+        services.AddSingleton<IRequestDataBackupService, RequestDataBackupService>();
 
         services.AddSingleton<ServiceBusSenderFactory>();
         services.AddSingleton<ServiceBusRequestService>();
