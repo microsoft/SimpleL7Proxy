@@ -108,11 +108,21 @@ namespace SimpleL7Proxy.StreamProcessor
                     try
                     {
                         // Walk through lines to find the one with usage data
-                        var validLines = GetLastLinesInOrder(lastLines, currentIndex, lineCount);
+                        // copy from currentIndex to the end into the buffer
+                        var validLines = new string[Math.Min(lineCount, MaxLines)];
+
+                        if ( lineCount >= MaxLines) {
+                        Array.Copy(lastLines, currentIndex, validLines, 0, MaxLines - currentIndex);
+                        Array.Copy(lastLines, 0, validLines, MaxLines - currentIndex, currentIndex);
+                        } 
+                        else {
+                            Array.Copy(lastLines, 0, validLines, 0, lineCount);
+                        }
+
                         string? usageLine = null;
 
-                        // Look through lines starting from most recent, going backwards
-                        for (int i = validLines.Length - 1; i >= 0; i--)
+                        // Loop through lines starting from most recent, going backwards
+                        for (int i = 0; i < validLines.Length; i++)
                         {
                             var line = validLines[i];
                             if (line.IndexOf("usage", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -136,36 +146,6 @@ namespace SimpleL7Proxy.StreamProcessor
                     Console.WriteLine("No content received from source stream.");
                 }
             }
-        }
-
-        /// <summary>
-        /// Simple helper to get lines from array in chronological order.
-        /// Index 0 = most least line, Index 1 = second least recent, etc.
-        /// </summary>
-        private string[] GetLastLinesInOrder(string[] buffer, int writeIndex, int totalLines)
-        {
-
-            string[] result;
-
-            // If we have fewer lines than the buffer size, just return what we have
-            if (writeIndex < MaxLines)
-            {
-                result = new string[writeIndex];
-                Array.Copy(buffer, result, writeIndex);
-                return result;
-            }
-
-            result = new string[MaxLines];
-
-            // Start from the oldest line and work forward
-            // The oldest line is at writeIndex % buffer.Length
-            for (int i = 0; i < MaxLines; i++)
-            {
-                var bufferIndex = (writeIndex + i) % buffer.Length;
-                result[i] = buffer[bufferIndex];
-            }
-
-            return result;
         }
 
         /// <summary>
@@ -308,11 +288,8 @@ namespace SimpleL7Proxy.StreamProcessor
                         break;
 
                     case JsonObject nestedObject:
-                        foreach (var (nestedKey, nestedValue) in nestedObject)
-                        {
-                            if (nestedValue is JsonValue nestedJsonValue)
-                                data[$"{fieldName}.{nestedKey}"] = nestedJsonValue.ToString();
-                        }
+                        ExtractAllFields(nestedObject, fieldName);
+
                         break;
 
                     case JsonArray jsonArray:
