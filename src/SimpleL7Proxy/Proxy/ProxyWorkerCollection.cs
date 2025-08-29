@@ -21,7 +21,7 @@ public class ProxyWorkerCollection : BackgroundService
   private readonly IEventClient _eventClient;
   private readonly TelemetryClient _telemetryClient;
   private readonly ILogger<ProxyWorker> _logger;
-  private readonly ProxyStreamWriter _proxyStreamWriter;
+  //private readonly ProxyStreamWriter _proxyStreamWriter;
   private readonly IAsyncWorkerFactory _asyncWorkerFactory;
   private readonly List<ProxyWorker> _workers;
   private static readonly List<Task> _tasks = [];
@@ -35,8 +35,8 @@ public class ProxyWorkerCollection : BackgroundService
     IEventClient eventClient,
     TelemetryClient telemetryClient,
     ILogger<ProxyWorker> logger,
-    IAsyncWorkerFactory asyncWorkerFactory,
-    ProxyStreamWriter proxyStreamWriter)
+    IAsyncWorkerFactory asyncWorkerFactory)
+    //,ProxyStreamWriter proxyStreamWriter)
   {
     _backendOptions = backendOptions.Value;
     _queue = queue;
@@ -44,7 +44,7 @@ public class ProxyWorkerCollection : BackgroundService
     _eventClient = eventClient;
     _telemetryClient = telemetryClient;
     _logger = logger;
-    _proxyStreamWriter = proxyStreamWriter;
+    //_proxyStreamWriter = proxyStreamWriter;
     _userPriorityService = userPriorityService;
     _userProfileService = userProfileService;
     _asyncWorkerFactory = asyncWorkerFactory;
@@ -96,7 +96,7 @@ public class ProxyWorkerCollection : BackgroundService
         _telemetryClient,
         _asyncWorkerFactory,
         _logger,
-        _proxyStreamWriter,
+        //_proxyStreamWriter,
         cancellationToken));
     }
 

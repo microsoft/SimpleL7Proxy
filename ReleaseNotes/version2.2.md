@@ -1,5 +1,13 @@
 # Release Notes #
 
+## V2.2.p5
+
+Proxy:
+* bug fix: token processing issues for multiline processor
+* Implement backup and delete for incoming requests into blob storage using DTO model.
+
+## V2.2.p4
+
 Repo:
 * Documentation updates
 

@@ -84,6 +84,8 @@ public class Backends : IBackendService
     FailureThreshold = bo.CircuitBreakerErrorThreshold;
     FailureTimeFrame = bo.CircuitBreakerTimeslice;
     allowableCodes = bo.AcceptableStatusCodes;
+
+    _logger.LogDebug("Backends service starting");
   }
 
   public Task Stop()
@@ -240,7 +242,7 @@ public class Backends : IBackendService
           }
           catch (Exception e)
           {
-            _logger.LogError($"An unexpected error occurred: {e.Message}");
+            _logger.LogError($"Backends: An unexpected error occurred: {e.Message}");
           }
         }
       }
@@ -596,7 +598,7 @@ public class Backends : IBackendService
       {
         Type = EventType.Exception,
         Exception = ex,
-        ["Message"] = $"An unexpected error occurred while fetching the token: {ex.Message}",
+        ["Message"] = $"Get Token: An unexpected error occurred while fetching the token: {ex.Message}",
         ["OAuthAudience"] = _options.OAuthAudience
       };
       logEvent.SendEvent();

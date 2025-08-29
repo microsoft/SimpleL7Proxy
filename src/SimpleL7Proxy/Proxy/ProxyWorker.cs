@@ -15,7 +15,6 @@ using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.ServiceBus;
 using SimpleL7Proxy.BlobStorage;
-using Microsoft.Azure.Amqp.Framing;
 using SimpleL7Proxy.StreamProcessor;
 
 namespace SimpleL7Proxy.Proxy;
@@ -80,7 +79,7 @@ public class ProxyWorker
         TelemetryClient? telemetryClient,
         IAsyncWorkerFactory asyncWorkerFactory,
         ILogger<ProxyWorker> logger,
-        ProxyStreamWriter proxyStreamWriter,
+        //ProxyStreamWriter proxyStreamWriter,
         CancellationToken cancellationToken)
     {
         _cancellationToken = cancellationToken;

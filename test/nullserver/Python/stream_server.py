@@ -95,9 +95,9 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"Hello, world!")
             return
-        
-        if parsed_path.path == '/openai':
-            sleep_time = random.uniform(.4, .7)  # Random sleep time 
+
+        if parsed_path.path.startswith('/openai'):
+            sleep_time = random.uniform(5, 6)  # Random sleep time
             time.sleep(sleep_time)
             
             request_sequence, queue_time, process_time, s7pid = self.extract_request_headers()
@@ -113,6 +113,23 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.flush()
             return
 
+        if parsed_path.path == '/openai-ml':
+            sleep_time = random.uniform(.4, .7)  # Random sleep time 
+            time.sleep(sleep_time)
+            
+            request_sequence, queue_time, process_time, s7pid = self.extract_request_headers()
+            self.send_response(200)
+            self.set_streaming_response_headers(request_sequence, queue_time, process_time, s7pid)
+            self.send_header('TOKENPROCESSOR', 'MultiLineAllUsage')
+            self.end_headers()
+
+            self.stream_file_contents("openAI.txt")
+
+            # Send the zero-length chunk to indicate the end of the response
+            self.wfile.write(b"0\r\n\r\n")
+            self.wfile.flush()
+            return
+        
         if parsed_path.path == '/multiline':
             sleep_time = random.uniform(.4, .7)  # Random sleep time 
             time.sleep(sleep_time)
@@ -131,6 +148,33 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.flush()
             return
 
+        if parsed_path.path.startswith('/file/'):
+        
+            filename= parsed_path.path[len('/file/'):]
+            # make  sure the file exists
+
+            if not os.path.exists(filename):
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(b"File not found")
+                return
+
+            sleep_time = random.uniform(.4, .7)  # Random sleep time
+            time.sleep(sleep_time)
+
+            request_sequence, queue_time, process_time, s7pid = self.extract_request_headers()
+            self.send_response(200)
+            self.set_streaming_response_headers(request_sequence, queue_time, process_time, s7pid)
+            self.send_header('TOKENPROCESSOR', 'MultiLineAllUsage')
+
+            self.end_headers()
+
+            self.stream_file_contents(filename)
+
+            # Send the zero-length chunk to indicate the end of the response
+            self.wfile.write(b"0\r\n\r\n")
+            self.wfile.flush()
+            return
 
         # Default response
 
@@ -184,7 +228,7 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
                 self.wfile.write(chunk)
                 self.wfile.write(b"\r\n")
                 self.wfile.flush()
-                time.sleep(.02)
+                time.sleep(.01)
 
 class ThreadedTCPServer(ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True

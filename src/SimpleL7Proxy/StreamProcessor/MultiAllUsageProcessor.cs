@@ -1,6 +1,7 @@
 
 using System.Text.Json.Nodes;
 using System.Net.Http.Headers;
+using Microsoft.Extensions.Logging;
 using SimpleL7Proxy.Events;
 using System.Text.RegularExpressions;
 
@@ -14,7 +15,7 @@ namespace SimpleL7Proxy.StreamProcessor
     {
 
         protected override int MaxLines => 30;
-        protected override int MinLineLength => 4;
+        protected override int MinLineLength => 1;
 
         /// <summary>
         /// Processes the last lines to extract comprehensive statistics from the JSON response.
@@ -44,20 +45,24 @@ namespace SimpleL7Proxy.StreamProcessor
             {
                 jsonBlock = @"{""usage"": " + match.Groups[1].Value + @"}"; // This is the JSON object after "usage"
             }
+            else
+            {
+                Console.WriteLine("Couldn't parse it");
+            }
 
             // Extract the JSON block
             //jsonBlock = string.Join("\n", lastLines[startIndex..(endIndex + 1)]);
-            try 
+            try
             {
                 var jsonNode = ParseJsonLine(jsonBlock);
                 if (jsonNode != null)
                 {
-                    ExtractAllFields(jsonNode, "");
+                    ExtractAllFields(jsonNode, "Usage");
 
-                    // Set defaults for required usage fields
-                    data.TryAdd("Completion_Tokens", "0");
-                    data.TryAdd("Prompt_Tokens", "0");
-                    data.TryAdd("Total_Tokens", "0");
+                    // // Set defaults for required usage fields
+                    // data.TryAdd("Completion_Tokens", "0");
+                    // data.TryAdd("Prompt_Tokens", "0");
+                    // data.TryAdd("Total_Tokens", "0");
                 }
             }
             catch (Exception ex)
