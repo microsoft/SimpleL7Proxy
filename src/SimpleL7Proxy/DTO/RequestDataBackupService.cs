@@ -39,31 +39,42 @@ namespace SimpleL7Proxy.DTO
 
             try
             {
+                _logger.LogDebug($"Backing up request {requestData.Guid}");
                 using Stream stream = await _blobWriter.CreateBlobAndGetOutputStreamAsync(Constants.Server, requestData.Guid.ToString());
                 using var writer = new BufferedStream(stream);
                 operation = "Serializing request data";
-                var json = JsonSerializer.Serialize(requestData);
+                var dto = new RequestDataDtoV1(requestData);
+                var json = JsonSerializer.Serialize(dto, new JsonSerializerOptions
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    WriteIndented = false
+                });
                 var jsonBytes = System.Text.Encoding.UTF8.GetBytes(json);
 
-                Console.WriteLine($"Backing up request {requestData.Guid} with size {jsonBytes.Length} bytes:   Content: {json}");
+                _logger.LogDebug($"Backing up request {requestData.Guid} with size {jsonBytes.Length} bytes:   Content: {json}");
                 operation = "Writing to blob";
                 await writer.WriteAsync(jsonBytes, 0, jsonBytes.Length);
                 await writer.FlushAsync();
             }
-            catch (Exception ex) when (operation == "Creating blob")
+            catch (Exception ex)
             {
-                Console.WriteLine($"Error occurred while {operation}: {ex.Message}");
+                _logger.LogError($"Error occurred while {operation}: {ex.Message}");
                 throw;
             }
-            catch (Exception ex) when (operation == "Serializing request data")
+        }
+
+        public async Task<bool> DeleteBackupAsync(string blobname)
+        {
+            try
             {
-                Console.WriteLine($"Error occurred while {operation}: {ex.Message}");
-                throw;
+                _logger.LogDebug($"Deleting backup for blob {blobname}");
+                await _blobWriter.DeleteBlobAsync(Constants.Server, blobname);
+                return true;
             }
-            catch (Exception ex) when (operation == "Writing to blob")
+            catch (Exception ex)
             {
-                Console.WriteLine($"Error occurred while {operation}: {ex.Message}");   
-                throw;
+                _logger.LogError($"Error occurred while deleting backup for blob {blobname}: {ex.Message}");
+                return false;
             }
         }
     }

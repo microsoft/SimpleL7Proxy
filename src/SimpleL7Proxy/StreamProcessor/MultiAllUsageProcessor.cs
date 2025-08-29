@@ -59,10 +59,10 @@ namespace SimpleL7Proxy.StreamProcessor
                 {
                     ExtractAllFields(jsonNode, "Usage");
 
-                    // Set defaults for required usage fields
-                    data.TryAdd("Completion_Tokens", "0");
-                    data.TryAdd("Prompt_Tokens", "0");
-                    data.TryAdd("Total_Tokens", "0");
+                    // // Set defaults for required usage fields
+                    // data.TryAdd("Completion_Tokens", "0");
+                    // data.TryAdd("Prompt_Tokens", "0");
+                    // data.TryAdd("Total_Tokens", "0");
                 }
             }
             catch (Exception ex)

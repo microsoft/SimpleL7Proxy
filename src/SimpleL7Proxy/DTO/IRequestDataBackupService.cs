@@ -4,6 +4,8 @@ namespace SimpleL7Proxy.DTO
     {
         Task BackupAsync(RequestData requestData);
         Task<RequestDataDtoV1?> RestoreAsync(string blobname);
+
+        Task<bool> DeleteBackupAsync(string blobname);
         // void ApplyToRequestData(RequestData requestData, RequestDataDtoV1 dto);
     }
 }

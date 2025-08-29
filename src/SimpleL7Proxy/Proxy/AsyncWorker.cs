@@ -421,6 +421,10 @@ namespace SimpleL7Proxy.Proxy
 
         public async ValueTask DisposeAsync()
         {
+
+            // remove backup
+            await _blobWriter.DeleteBlobAsync(Constants.Server, _requestData.Guid.ToString()).ConfigureAwait(false);
+
             // Dispose managed resources
             await ResetStreamAsync().ConfigureAwait(false);
 
