@@ -14,6 +14,9 @@ using SimpleL7Proxy.BlobStorage;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.ServiceBus;
+using Shared.RequestAPI.Models;
+using SimpleL7Proxy.BackupAPI;
+using System.Data.Common;
 
 namespace SimpleL7Proxy.Proxy
 {
@@ -36,10 +39,12 @@ namespace SimpleL7Proxy.Proxy
         private readonly IBlobWriter _blobWriter;
         private readonly ILogger<AsyncWorker> _logger;
         private readonly IRequestDataBackupService _requestBackupService;
+        private readonly IBackupAPIService _backupAPIService;
         public string ErrorMessage { get; set; } = "";
         string dataBlobName = "";
         string headerBlobName = "";
         private int AsyncTimeout;
+        private RequestAPIDocument? _requestAPIDocument; 
         private static readonly JsonSerializerOptions SerializeOptions = new()
         {
             WriteIndented = true,
@@ -62,13 +67,14 @@ namespace SimpleL7Proxy.Proxy
         /// <param name="data">The request data.</param>
         /// <param name="blobWriter">The blob writer instance.</param>
         /// <param name="logger">The logger instance.</param>
-        public AsyncWorker(RequestData data, int AsyncTriggerTimeout, IBlobWriter blobWriter, ILogger<AsyncWorker> logger, IRequestDataBackupService requestBackupService)
+        public AsyncWorker(RequestData data, int AsyncTriggerTimeout, IBlobWriter blobWriter, ILogger<AsyncWorker> logger, IRequestDataBackupService requestBackupService, IBackupAPIService backupAPIService)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _requestData = data ?? throw new ArgumentNullException(nameof(data));
             _blobWriter = blobWriter ?? throw new ArgumentNullException(nameof(blobWriter));
             _requestBackupService = requestBackupService ?? throw new ArgumentNullException(nameof(requestBackupService));
-            _userId = data.UserID;
+            _backupAPIService = backupAPIService ?? throw new ArgumentNullException(nameof(backupAPIService));
+            _userId = data.profileUserId;
             AsyncTimeout = AsyncTriggerTimeout;
 
             _logger.LogDebug("AsyncWorker initializing");
@@ -120,6 +126,9 @@ namespace SimpleL7Proxy.Proxy
                     var operation = "Initialize";
                     try
                     {
+                        _requestAPIDocument = RequestDataConverter.ToRequestAPIDocument(_requestData);
+                        _backupAPIService.UpdateStatus(_requestAPIDocument);
+
                         await InitializeAsync().ConfigureAwait(false);
                         dataBlobName = _requestData.Guid.ToString();
                         headerBlobName = dataBlobName + "-Headers";
@@ -422,8 +431,13 @@ namespace SimpleL7Proxy.Proxy
         public async ValueTask DisposeAsync()
         {
 
+            if (_requestAPIDocument != null) {
+                _requestAPIDocument.status = RequestAPIStatusEnum.Completed;
+                _backupAPIService.UpdateStatus(_requestAPIDocument);
+            }
+
             // remove backup
-            await _blobWriter.DeleteBlobAsync(Constants.Server, _requestData.Guid.ToString()).ConfigureAwait(false);
+                await _blobWriter.DeleteBlobAsync(Constants.Server, _requestData.Guid.ToString()).ConfigureAwait(false);
 
             // Dispose managed resources
             await ResetStreamAsync().ConfigureAwait(false);
