@@ -19,6 +19,7 @@ using SimpleL7Proxy.User;
 using SimpleL7Proxy.ServiceBus;
 using SimpleL7Proxy.BlobStorage;
 using SimpleL7Proxy.DTO;
+using SimpleL7Proxy.BackupAPI;
 
 
 using System.Net;
@@ -224,6 +225,9 @@ public class Program
         services.AddSingleton<ServiceBusRequestService>();
         services.AddSingleton<IServiceBusRequestService>(sp => sp.GetRequiredService<ServiceBusRequestService>());
         services.AddHostedService(sp => sp.GetRequiredService<ServiceBusRequestService>());
+
+        services.AddSingleton<IBackupAPIService, BackupAPIService>();
+        services.AddHostedService(sp => (BackupAPIService)sp.GetRequiredService<IBackupAPIService>());
 
         services.AddHostedService<ProxyWorkerCollection>();
         services.AddTransient(source => new CancellationTokenSource());
