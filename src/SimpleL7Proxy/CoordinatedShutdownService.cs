@@ -7,6 +7,7 @@ using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.ServiceBus;
+using SimpleL7Proxy.BackupAPI;
 
 namespace SimpleL7Proxy;
 
@@ -19,6 +20,7 @@ public class CoordinatedShutdownService : IHostedService
     private readonly BackendOptions _options;
     private readonly IEventClient? _eventClient;
     private readonly IServiceBusRequestService _serviceBusRequestService;
+    private readonly IBackupAPIService _backupAPIService;
     private readonly IConcurrentPriQueue<RequestData> _queue;
     private readonly IBackendService _backends;
 
@@ -29,6 +31,7 @@ public class CoordinatedShutdownService : IHostedService
         IBackendService backends,
         IEventClient? eventClient,
         IServiceBusRequestService serviceBusRequestService,
+        IBackupAPIService backupAPIService,
         ILogger<CoordinatedShutdownService> logger,
         Server server)
     {
@@ -38,7 +41,8 @@ public class CoordinatedShutdownService : IHostedService
         _queue = queue;
         _backends = backends;
         _eventClient = eventClient;
-        _serviceBusRequestService = serviceBusRequestService; 
+        _serviceBusRequestService = serviceBusRequestService;
+        _backupAPIService = backupAPIService;
         _options = backendOptions.Value;
     }
 
@@ -92,6 +96,7 @@ public class CoordinatedShutdownService : IHostedService
         };
         data.SendEvent();
 
+        _backupAPIService?.StopAsync(cancellationToken).ConfigureAwait(false);
         _serviceBusRequestService?.StopAsync(cancellationToken).ConfigureAwait(false);
         _eventClient?.StopTimer();
         //await Task.CompletedTask;
