@@ -1,12 +1,22 @@
 # Release Notes #
+## v2.2.5
 
-## V2.2.p5
+API:
+* Created initial version of API with support for new, update
+
+Proxy:
+* added ProfileUserID to requestData
+* Track requests by calling the API for new and completed requests
+* Added BackupAPI Service 
+* Add code to cancel async operation and update status to NEEDS TO BE REPROCESSED on shutdown
+
+## V2.2.4.p5
 
 Proxy:
 * bug fix: token processing issues for multiline processor
 * Implement backup and delete for incoming requests into blob storage using DTO model.
 
-## V2.2.p4
+## V2.2.4.p4
 
 Repo:
 * Documentation updates

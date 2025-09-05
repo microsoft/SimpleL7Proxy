@@ -14,8 +14,6 @@ namespace SimpleL7Proxy.DTO
         public DateTime EnqueueTime { get; set; }
         public DateTime DequeueTime { get; set; }
         public DateTime ExpiresAt { get; set; }
-        public string ExpiresAtString { get; set; }
-        public string ExpireReason { get; set; }
         public int Priority { get; set; }
         public int Priority2 { get; set; }
         public int Timeout { get; set; }
@@ -23,7 +21,6 @@ namespace SimpleL7Proxy.DTO
         public string MID { get; set; }
         public string ParentId { get; set; }
         public string UserID { get; set; }
-        public bool AsyncTriggered { get; set; }
         public bool Requeued { get; set; }
         public string SBTopicName { get; set; }
         public string BlobContainerName { get; set; }
@@ -42,8 +39,6 @@ namespace SimpleL7Proxy.DTO
             EnqueueTime = data.EnqueueTime;
             DequeueTime = data.DequeueTime;
             ExpiresAt = data.ExpiresAt;
-            ExpiresAtString = data.ExpiresAtString;
-            ExpireReason = data.ExpireReason;
             Priority = data.Priority;
             Priority2 = data.Priority2;
             Timeout = data.Timeout;
@@ -51,7 +46,6 @@ namespace SimpleL7Proxy.DTO
             MID = data.MID;
             ParentId = data.ParentId;
             UserID = data.UserID;
-            AsyncTriggered = data.AsyncTriggered;
             Requeued = data.Requeued;
             SBTopicName = data.SBTopicName;
             BlobContainerName = data.BlobContainerName;
@@ -76,8 +70,6 @@ namespace SimpleL7Proxy.DTO
             Method = string.Empty;
             Path = string.Empty;
             FullURL = string.Empty;
-            ExpiresAtString = string.Empty;
-            ExpireReason = string.Empty;
             MID = string.Empty;
             ParentId = string.Empty;
             UserID = string.Empty;

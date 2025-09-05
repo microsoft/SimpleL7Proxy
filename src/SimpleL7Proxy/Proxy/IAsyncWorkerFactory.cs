@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using SimpleL7Proxy.BlobStorage;
 using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.BackupAPI;
 
 namespace SimpleL7Proxy.Proxy
 {
@@ -16,17 +17,21 @@ namespace SimpleL7Proxy.Proxy
         private readonly IBlobWriter _blobWriter;
         private readonly ILogger<AsyncWorker> _logger;  
         private readonly IRequestDataBackupService _requestBackupService;
+        private readonly IBackupAPIService _backupAPIService;
+
         private readonly BackendOptions _backendOptions;
 
         public AsyncWorkerFactory(IBlobWriter blobWriter,
                                   ILogger<AsyncWorker> logger,
                                   IRequestDataBackupService requestBackupService,
-                                  IOptions<BackendOptions> backendOptions)
+                                  IOptions<BackendOptions> backendOptions,
+                                  IBackupAPIService backupAPIService)
         {
             _blobWriter = blobWriter;
             _logger = logger;
             _requestBackupService = requestBackupService;
             _backendOptions = backendOptions.Value;
+            _backupAPIService = backupAPIService;   
             try
             {
                 _blobWriter.InitClientAsync(Constants.Server, Constants.Server).GetAwaiter().GetResult();
@@ -41,7 +46,7 @@ namespace SimpleL7Proxy.Proxy
 
         public AsyncWorker CreateAsync(RequestData requestData, int AsyncTriggerTimeout)
         {
-            var worker = new AsyncWorker(requestData, AsyncTriggerTimeout, _blobWriter, _logger, _requestBackupService);
+            var worker = new AsyncWorker(requestData, AsyncTriggerTimeout, _blobWriter, _logger, _requestBackupService, _backupAPIService);
             return worker;
         }
     }

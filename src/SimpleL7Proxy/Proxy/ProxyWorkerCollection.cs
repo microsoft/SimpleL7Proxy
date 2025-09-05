@@ -23,8 +23,8 @@ public class ProxyWorkerCollection : BackgroundService
   private readonly ILogger<ProxyWorker> _logger;
   //private readonly ProxyStreamWriter _proxyStreamWriter;
   private readonly IAsyncWorkerFactory _asyncWorkerFactory;
-  private readonly List<ProxyWorker> _workers;
-  private static readonly List<Task> _tasks = [];
+  private static readonly List<ProxyWorker> _workers = new();
+  private static readonly List<Task> _tasks = new();
 
   public ProxyWorkerCollection(
     IOptions<BackendOptions> backendOptions,
@@ -36,7 +36,7 @@ public class ProxyWorkerCollection : BackgroundService
     TelemetryClient telemetryClient,
     ILogger<ProxyWorker> logger,
     IAsyncWorkerFactory asyncWorkerFactory)
-    //,ProxyStreamWriter proxyStreamWriter)
+  //,ProxyStreamWriter proxyStreamWriter)
   {
     _backendOptions = backendOptions.Value;
     _queue = queue;
@@ -48,8 +48,6 @@ public class ProxyWorkerCollection : BackgroundService
     _userPriorityService = userPriorityService;
     _userProfileService = userProfileService;
     _asyncWorkerFactory = asyncWorkerFactory;
-
-    _workers = [];
   }
 
   protected override Task ExecuteAsync(CancellationToken cancellationToken)
@@ -69,19 +67,19 @@ public class ProxyWorkerCollection : BackgroundService
       // Determine the priority for this worker
       if (wrkrNum == 0)
       {
-          workerPriority = 0; // Probe worker
+        workerPriority = 0; // Probe worker
       }
       else
       {
-          workerPriority = workerPriorities.FirstOrDefault(kvp => kvp.Value > 0).Key;
-          if (workerPriority != 0)
-          {
-              workerPriorities[workerPriority]--;
-          }
-          else
-          {
-              workerPriority = Constants.AnyPriority;
-          }
+        workerPriority = workerPriorities.FirstOrDefault(kvp => kvp.Value > 0).Key;
+        if (workerPriority != 0)
+        {
+          workerPriorities[workerPriority]--;
+        }
+        else
+        {
+          workerPriority = Constants.AnyPriority;
+        }
       }
 
       _workers.Add(new(
@@ -106,7 +104,15 @@ public class ProxyWorkerCollection : BackgroundService
     return Task.WhenAll(_tasks);
   }
 
-  public static List<Task>  GetAllTasks()
+  public static void ExpelAsyncRequests()
+  {
+    foreach (var worker in _workers)
+    {
+      worker.ExpelAsyncRequest();
+    }
+  }
+
+  public static List<Task> GetAllTasks()
   {
     return _tasks;
   }

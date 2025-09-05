@@ -4,11 +4,27 @@ using System.Linq;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Shared.RequestAPI.Models;
 
 namespace SimpleL7Proxy.DTO
 {
     public static class RequestDataConverter
     {
+        public static RequestAPIDocument ToRequestAPIDocument(this RequestData data)
+        {
+            return new RequestAPIDocument
+            {
+                id = data.Guid.ToString(),
+                guid = data.Guid.ToString(),
+                createdAt = data.EnqueueTime,
+                isAsync = true,
+                //isBackground = data.IsBackground,
+                priority1 = data.Priority,
+                priority2 = data.Priority2,
+                userID = data.profileUserId,
+                status = RequestAPIStatusEnum.New
+            };
+        }
 
         public static RequestDataDtoV1? Deserialize(string json)
         {

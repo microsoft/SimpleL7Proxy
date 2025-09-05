@@ -34,6 +34,7 @@ public static class BackendHostConfigurationExtensions
     services.Configure<BackendOptions>(options =>
     {
       options.AcceptableStatusCodes = backendOptions.AcceptableStatusCodes;
+      options.AsyncBackupAPIURL = backendOptions.AsyncBackupAPIURL;
       options.AsyncBlobStorageAccountUri = backendOptions.AsyncBlobStorageAccountUri;
       options.AsyncBlobStorageConnectionString = backendOptions.AsyncBlobStorageConnectionString;
       options.AsyncBlobStorageUseMI = backendOptions.AsyncBlobStorageUseMI;
@@ -439,6 +440,7 @@ public static class BackendHostConfigurationExtensions
     var backendOptions = new BackendOptions
     {
       AcceptableStatusCodes = ReadEnvironmentVariableOrDefault("AcceptableStatusCodes", new int[] { 200, 202, 401, 403, 404, 408, 410, 412, 417, 400 }),
+      AsyncBackupAPIURL = ReadEnvironmentVariableOrDefault("AsyncBackupAPIURL", "http://localhost:7071"),
       AsyncBlobStorageAccountUri = ReadEnvironmentVariableOrDefault("AsyncBlobStorageAccountUri", "https://example.blob.core.windows.net/"),
       AsyncBlobStorageConnectionString = ReadEnvironmentVariableOrDefault("AsyncBlobStorageConnectionString", ""),
       AsyncBlobStorageUseMI = ReadEnvironmentVariableOrDefault("AsyncBlobStorageUseMI", false),

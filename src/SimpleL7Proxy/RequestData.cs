@@ -50,6 +50,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     public bool Requeued { get; set; } = false;
     public string SBTopicName { get; set; } = "";
     public string UserID { get; set; } = "";
+    public string profileUserId { get; set; } = "";
     public WebHeaderCollection Headers { get; private set; }
 
     public ServiceBusMessageStatusEnum SBStatus
@@ -297,7 +298,7 @@ public class RequestData : IDisposable, IAsyncDisposable
         {
             try
             {
-                await asyncWorker.DisposeAsync().ConfigureAwait(false);
+                await asyncWorker.DisposeAsync(true).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

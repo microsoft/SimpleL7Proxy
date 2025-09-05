@@ -14,6 +14,9 @@ using SimpleL7Proxy.BlobStorage;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.ServiceBus;
+using Shared.RequestAPI.Models;
+using SimpleL7Proxy.BackupAPI;
+using System.Data.Common;
 
 namespace SimpleL7Proxy.Proxy
 {
@@ -36,10 +39,12 @@ namespace SimpleL7Proxy.Proxy
         private readonly IBlobWriter _blobWriter;
         private readonly ILogger<AsyncWorker> _logger;
         private readonly IRequestDataBackupService _requestBackupService;
+        private readonly IBackupAPIService _backupAPIService;
         public string ErrorMessage { get; set; } = "";
         string dataBlobName = "";
         string headerBlobName = "";
         private int AsyncTimeout;
+        private RequestAPIDocument? _requestAPIDocument; 
         private static readonly JsonSerializerOptions SerializeOptions = new()
         {
             WriteIndented = true,
@@ -48,27 +53,20 @@ namespace SimpleL7Proxy.Proxy
 
         };
 
-
-        // Static constructor to initialize the BlobWriter and Logger
-        // public static void Initialize(BlobWriter blobWriter, ILogger<AsyncWorker> logger)
-        // {
-        //     _blobWriter = blobWriter;
-        //     _logger = logger;
-        // }
-
         /// <summary>
         /// Initializes a new instance of the <see cref="AsyncWorker"/> class.
         /// </summary>
         /// <param name="data">The request data.</param>
         /// <param name="blobWriter">The blob writer instance.</param>
         /// <param name="logger">The logger instance.</param>
-        public AsyncWorker(RequestData data, int AsyncTriggerTimeout, IBlobWriter blobWriter, ILogger<AsyncWorker> logger, IRequestDataBackupService requestBackupService)
+        public AsyncWorker(RequestData data, int AsyncTriggerTimeout, IBlobWriter blobWriter, ILogger<AsyncWorker> logger, IRequestDataBackupService requestBackupService, IBackupAPIService backupAPIService)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _requestData = data ?? throw new ArgumentNullException(nameof(data));
             _blobWriter = blobWriter ?? throw new ArgumentNullException(nameof(blobWriter));
             _requestBackupService = requestBackupService ?? throw new ArgumentNullException(nameof(requestBackupService));
-            _userId = data.UserID;
+            _backupAPIService = backupAPIService ?? throw new ArgumentNullException(nameof(backupAPIService));
+            _userId = data.profileUserId;
             AsyncTimeout = AsyncTriggerTimeout;
 
             _logger.LogDebug("AsyncWorker initializing");
@@ -120,6 +118,9 @@ namespace SimpleL7Proxy.Proxy
                     var operation = "Initialize";
                     try
                     {
+                        _requestAPIDocument = RequestDataConverter.ToRequestAPIDocument(_requestData);
+                        _backupAPIService.UpdateStatus(_requestAPIDocument);
+
                         await InitializeAsync().ConfigureAwait(false);
                         dataBlobName = _requestData.Guid.ToString();
                         headerBlobName = dataBlobName + "-Headers";
@@ -401,7 +402,7 @@ namespace SimpleL7Proxy.Proxy
 
             if (!_requestData.AsyncTriggered)
             {
-                await DisposeAsync().ConfigureAwait(false);
+                await DisposeAsync(false).ConfigureAwait(false);
 
                 return false; // Worker failed to start
             }
@@ -418,9 +419,41 @@ namespace SimpleL7Proxy.Proxy
             return _beginStartup == 1;
         }
 
-
-        public async ValueTask DisposeAsync()
+        public async Task AbortAsync()
         {
+            if (Interlocked.CompareExchange(ref _beginStartup, -1, 0) == 0)
+            {
+                // unlikely to occur
+                _logger.LogError("Worker was not started, so we terminated it.");
+                _cancellationTokenSource?.Cancel();
+
+            }
+
+            if (_requestAPIDocument != null)
+            {
+                // should be always happening
+                _requestAPIDocument.status = RequestAPIStatusEnum.NeedsReprocessing;
+                _backupAPIService.UpdateStatus(_requestAPIDocument);
+            }
+            else
+            {
+                // unlikely to occur
+                _logger.LogError("Worker was started but no RequestAPIDocument was found to update.");
+            }
+
+            await DisposeAsync(false).ConfigureAwait(false);
+        }
+
+        public async ValueTask DisposeAsync() => await DisposeAsync(false).ConfigureAwait(false);
+
+        public async ValueTask DisposeAsync(bool sendCompletedStatus)
+        {
+
+            if (_requestAPIDocument != null && sendCompletedStatus)
+            {
+                _requestAPIDocument.status = RequestAPIStatusEnum.Completed;
+                _backupAPIService.UpdateStatus(_requestAPIDocument);
+            }
 
             // remove backup
             await _blobWriter.DeleteBlobAsync(Constants.Server, _requestData.Guid.ToString()).ConfigureAwait(false);
@@ -433,7 +466,8 @@ namespace SimpleL7Proxy.Proxy
             {
                 _cancellationTokenSource?.Cancel();
                 _cancellationTokenSource?.Dispose();
-            } catch (ObjectDisposedException)
+            }
+            catch (ObjectDisposedException)
             {
                 // Cancellation token source was already disposed, ignore
             }
