@@ -25,6 +25,7 @@ namespace SimpleL7Proxy.ServiceBus
         private bool isRunning = false;
         private bool isShuttingDown = false;
         private Task? writerTask;
+        CancellationTokenSource? _cancellationTokenSource;
 
         // Batch tuning
         private const int MaxDrainPerCycle = 50; // max messages to drain from queue per cycle
@@ -44,7 +45,6 @@ namespace SimpleL7Proxy.ServiceBus
             _cancellationTokenSource?.Cancel();
         }
 
-        CancellationTokenSource? _cancellationTokenSource;
 
 
         //protected override Task ExecuteAsync(CancellationToken stoppingToken)
