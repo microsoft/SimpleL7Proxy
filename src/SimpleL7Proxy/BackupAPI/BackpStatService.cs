@@ -20,6 +20,8 @@ namespace SimpleL7Proxy.BackupAPI
 {
     public class BackupAPIService : IHostedService, IBackupAPIService
     {
+        string _backupAPIURL = "http://localhost:7071";
+
         private readonly BackendOptions _options;
         private readonly ILogger<BackupAPIService> _logger;
         public static readonly ConcurrentQueue<RequestAPIDocument> _statusQueue = new();
@@ -36,6 +38,22 @@ namespace SimpleL7Proxy.BackupAPI
         {
             _options = options.Value;
             _logger = logger;
+            if (string.IsNullOrWhiteSpace(_backupAPIURL))
+            {
+                _logger.LogError("Backup API URL is not configured. Please set AsyncBackupAPIURL in BackendOptions.");
+                _options.AsyncModeEnabled = false;
+            }
+            else
+            {
+                _backupAPIURL = _options.AsyncBackupAPIURL;
+                if (_backupAPIURL.EndsWith("/"))
+                {
+                    _backupAPIURL = _backupAPIURL.TrimEnd('/');
+                }
+
+                _logger.LogInformation($"Backup API Service initialized with URL: {_backupAPIURL}");
+
+            }
         }
 
 
@@ -181,7 +199,7 @@ namespace SimpleL7Proxy.BackupAPI
         private static AccessToken _accessToken;
         private int _processingState = 0; // 0 = not waiting, 1 = waiting for signal
 
-        private static async Task<AccessToken> GetAccessToken(string url)
+        private async Task<AccessToken> GetAccessToken()
         {
             if (_accessToken.ExpiresOn > DateTimeOffset.UtcNow.AddMinutes(5))
             {
@@ -190,12 +208,11 @@ namespace SimpleL7Proxy.BackupAPI
 
             var credential = new DefaultAzureCredential();
             _accessToken = await credential.GetTokenAsync(
-                new TokenRequestContext(new[] { url }));
+                new TokenRequestContext(new[] { _backupAPIURL + "/.default" })).ConfigureAwait(false);
 
             return _accessToken;
         }
 
-        string url = "http://localhost:7071";
         static readonly JsonSerializerOptions jsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -213,7 +230,7 @@ namespace SimpleL7Proxy.BackupAPI
 
             if (needsToken)
             {
-                var token = await GetAccessToken(url);
+                var token = await GetAccessToken().ConfigureAwait(false);
                 httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token.Token);
             }
 
@@ -226,13 +243,13 @@ namespace SimpleL7Proxy.BackupAPI
                 if (item.status == RequestAPIStatusEnum.New)
                 {
                     jsonContent = JsonSerializer.Serialize(item, jsonOptions);
-                    uri = $"{url}/api/new/{item.id}";
+                    uri = $"{_backupAPIURL}/api/new/{item.id}";
                 }
                 else
                 {
                     // Handle other statuses
                     jsonContent = $"{{\"status\":\"{item.status}\"}}";
-                    uri = $"{url}/api/update/{item.id}";
+                    uri = $"{_backupAPIURL}/api/update/{item.id}";
                 }
 
                 var httpContent = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json");

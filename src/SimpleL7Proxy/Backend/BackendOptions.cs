@@ -3,6 +3,7 @@ namespace SimpleL7Proxy.Backend;
 public class BackendOptions
 {
     public int[] AcceptableStatusCodes { get; set; } =[];
+    public string AsyncBackupAPIURL { get; set; } = "http://localhost:7071";
     public string AsyncBlobStorageConnectionString { get; set; } = "example-connection-string"; 
     public bool AsyncBlobStorageUseMI {get; set; } = true;
     public string AsyncBlobStorageAccountUri { get; set; } = "https://mystorageaccount.blob.core.windows.net";
