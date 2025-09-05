@@ -48,6 +48,8 @@ public class ProxyWorker
     public static int activeWorkers = 0;
     private static bool readyToWork = false;
     private static Guid? LastHostGuid;
+    private CancellationTokenSource? AsyncExpelSource;
+    private bool asyncExpelInProgress = false;
 
     private static readonly IStreamProcessor DefaultStreamProcessor = new DefaultStreamProcessor();
 
@@ -236,21 +238,24 @@ public class ProxyWorker
                     }
                     finally
                     {
-                        eventData["Url"] = incomingRequest.FullURL;
-                        var timeTaken = DateTime.UtcNow - incomingRequest.EnqueueTime;
-                        eventData.Duration = timeTaken;
-                        eventData["Total-Latency"] = timeTaken.TotalMilliseconds.ToString("F3");
-                        eventData["Attempts"] = incomingRequest.Attempts.ToString();
-                        if (pr != null)
+                        if (!asyncExpelInProgress)
                         {
-                            eventData["Backend-Host"] = !string.IsNullOrEmpty(pr.BackendHostname) ? pr.BackendHostname : "N/A";
-                            eventData["Response-Latency"] =
-                                pr.ResponseDate != default && incomingRequest.DequeueTime != default
-                                    ? (pr.ResponseDate - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3") : "N/A";
-                            eventData["Average-Backend-Probe-Latency"] =
-                                pr.CalculatedHostLatency != 0 ? pr.CalculatedHostLatency.ToString("F3") + " ms" : "N/A";
-                            if (pr.Headers != null)
-                                pr.Headers["x-Attempts"] = incomingRequest.Attempts.ToString();
+                            eventData["Url"] = incomingRequest.FullURL;
+                            var timeTaken = DateTime.UtcNow - incomingRequest.EnqueueTime;
+                            eventData.Duration = timeTaken;
+                            eventData["Total-Latency"] = timeTaken.TotalMilliseconds.ToString("F3");
+                            eventData["Attempts"] = incomingRequest.Attempts.ToString();
+                            if (pr != null)
+                            {
+                                eventData["Backend-Host"] = !string.IsNullOrEmpty(pr.BackendHostname) ? pr.BackendHostname : "N/A";
+                                eventData["Response-Latency"] =
+                                    pr.ResponseDate != default && incomingRequest.DequeueTime != default
+                                        ? (pr.ResponseDate - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3") : "N/A";
+                                eventData["Average-Backend-Probe-Latency"] =
+                                    pr.CalculatedHostLatency != 0 ? pr.CalculatedHostLatency.ToString("F3") + " ms" : "N/A";
+                                if (pr.Headers != null)
+                                    pr.Headers["x-Attempts"] = incomingRequest.Attempts.ToString();
+                            }
                         }
                         Interlocked.Decrement(ref states[2]);
                     }
@@ -430,6 +435,16 @@ public class ProxyWorker
                         }
                     }
                 }
+                catch (TaskCanceledException)
+                {
+                    if (asyncExpelInProgress)
+                    {
+                        _logger.LogError("Async expel operation for request: {FullURL}", incomingRequest.FullURL);
+                    }
+                    else
+                    {
+                    }
+                }
                 catch (Exception ex)
                 {
                     if (isExpired)
@@ -483,7 +498,7 @@ public class ProxyWorker
                     try
                     {
                         // Don't track the request yet if it was retried.
-                        if (!incomingRequest.Requeued)
+                        if (!incomingRequest.Requeued && !asyncExpelInProgress)
                         {
                             if (workerState != "Cleanup")
                                 eventData["WorkerState"] = workerState;
@@ -499,7 +514,7 @@ public class ProxyWorker
                             {
                                 try
                                 {
-                                    await incomingRequest.asyncWorker.DisposeAsync().ConfigureAwait(false);
+                                    await incomingRequest.asyncWorker.DisposeAsync(true).ConfigureAwait(false);
                                     incomingRequest.asyncWorker = null;
                                 }
                                 catch (Exception asyncDisposeEx)
@@ -626,26 +641,18 @@ public class ProxyWorker
                 break;
         }
     }
-    // // Method to replace or add a header
-    // void ReplaceOrAddHeader(WebHeaderCollection headers, string headerName, string headerValue)
-    // {
-    //     if (headers[headerName] != null)
-    //     {
-    //         headers.Remove(headerName);
-    //     }
-    //     headers.Add(headerName, headerValue);
-    // }
 
-    // private async Task WriteDataToStreamAsync(HttpListenerContext context,
-    //                                           ProxyData pr,
-    //                                           CancellationToken token)
-    // {
-    //     HttpListenerResponseWrapper listener = new(context.Response);
-    //     await _proxyStreamWriter.WriteDataToStreamAsync(listener, pr, token);
+    public void ExpelAsyncRequest()
+    {
+        if (AsyncExpelSource != null)
+        {
+            asyncExpelInProgress = true;
+            _logger.LogDebug("Expelling async request in progress, cancelling the token.");
+            AsyncExpelSource.Cancel();
+        }
 
-    // }
+    }
 
-    //DateTime requestDate, string method, string path, WebHeaderCollection headers, Stream body)//HttpListenerResponse downStreamResponse)
     public async Task<ProxyData> ProxyToBackEndAsync(RequestData request, ProxyEvent eventData)
     {
         if (request == null) throw new ArgumentNullException(nameof(request), "Request cannot be null.");
@@ -803,22 +810,31 @@ public class ProxyWorker
 
                         // ASYNC: Calculate the timeout, start async worker
                         double rTimeout = request.Timeout;
-
+                        CancellationTokenSource cts;
+                        asyncExpelInProgress = false;
                         // determine if request will run async or sync
                         if (request.runAsync && request.asyncWorker is null)
                         {
                             rTimeout = _options.AsyncTimeout;
 
                             // adjust for time spent in the queue
-                            var timeLeft = _options.AsyncTriggerTimeout - (int) (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds;
+                            var timeLeft = _options.AsyncTriggerTimeout - (int)(DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds;
                             timeLeft = Math.Max(1, timeLeft);   // either 1ms or whatever is left of the timeout
 
                             request.asyncWorker = _asyncWorkerFactory.CreateAsync(request, timeLeft);
                             _ = request.asyncWorker.StartAsync();   // don't await this, let it run in parallel
+
+                            AsyncExpelSource = new CancellationTokenSource(TimeSpan.FromMilliseconds(rTimeout));
+                            cts = AsyncExpelSource;
+                        }
+                        else
+                        {
+                            AsyncExpelSource = null;
+                            cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(rTimeout));
                         }
 
                         // SEND THE REQUEST TO THE BACKEND USING THE APROPRIATE TIMEOUT
-                        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(rTimeout));
+                        //using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(rTimeout));
                         using var proxyResponse = await _options.Client!.SendAsync(
                             proxyRequest, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
 
@@ -958,7 +974,7 @@ public class ProxyWorker
                         string mediaType = proxyResponse.Content.Headers.ContentType?.MediaType ?? string.Empty;
 
                         // Auto-select processor for SSE content if none specified or for "Inline" alias
-                        if ((processWith.Equals("Default", StringComparison.OrdinalIgnoreCase) && 
+                        if ((processWith.Equals("Default", StringComparison.OrdinalIgnoreCase) &&
                             mediaType.Equals("text/event-stream", StringComparison.OrdinalIgnoreCase)) ||
                             processWith.Equals("Inline", StringComparison.OrdinalIgnoreCase))
                         {
@@ -1077,27 +1093,46 @@ public class ProxyWorker
             }
             catch (TaskCanceledException)
             {
-                // 408 Request Timeout
 
-                requestAttempt.Status = HttpStatusCode.RequestTimeout;
-                requestAttempt["Expires-At"] = request.ExpiresAt.ToString("o");
-                requestAttempt["MaxTimeout"] = _options.Timeout.ToString();
-                requestAttempt["Request-Date"] = ProxyStartDate.ToString("o");
-                requestAttempt["Request-Timeout"] = request.Timeout.ToString() + " ms";
-                requestAttempt["Error"] = "Request Timed out";
-                requestAttempt["Message"] = "Operation TIMEOUT";
+                if (asyncExpelInProgress)
+                {
+                    if (request.asyncWorker != null)
+                    {
+                        await request.asyncWorker.AbortAsync().ConfigureAwait(false);
+                        request.asyncWorker = null;
+                    }
 
-                continue;
+                    requestAttempt.Status = HttpStatusCode.Conflict;
+                    requestAttempt["Error"] = "Request being expelled";
+                    requestAttempt["Message"] = "Request will rehydrate on startup";
+
+                    throw;
+                }
+                else
+                {
+                    // 408 Request Timeout
+
+                    requestAttempt.Status = HttpStatusCode.RequestTimeout;
+                    requestAttempt["Expires-At"] = request.ExpiresAt.ToString("o");
+                    requestAttempt["MaxTimeout"] = _options.Timeout.ToString();
+                    requestAttempt["Request-Date"] = ProxyStartDate.ToString("o");
+                    requestAttempt["Request-Timeout"] = request.Timeout.ToString() + " ms";
+                    requestAttempt["Error"] = "Request Timed out";
+                    requestAttempt["Message"] = "Operation TIMEOUT";
+
+                    continue;
+                }
             }
             catch (OperationCanceledException)
             {
-                // 408 Request Timeout
 
+                // 408 Request Timeout
                 requestAttempt.Status = HttpStatusCode.RequestTimeout;
                 requestAttempt["Error"] = "Request Cancelled";
                 requestAttempt["Message"] = "Operation CANCELLED";
 
                 continue;
+
             }
             catch (HttpRequestException e)
             {

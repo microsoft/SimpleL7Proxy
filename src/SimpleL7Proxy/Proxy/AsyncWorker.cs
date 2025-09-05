@@ -53,14 +53,6 @@ namespace SimpleL7Proxy.Proxy
 
         };
 
-
-        // Static constructor to initialize the BlobWriter and Logger
-        // public static void Initialize(BlobWriter blobWriter, ILogger<AsyncWorker> logger)
-        // {
-        //     _blobWriter = blobWriter;
-        //     _logger = logger;
-        // }
-
         /// <summary>
         /// Initializes a new instance of the <see cref="AsyncWorker"/> class.
         /// </summary>
@@ -410,7 +402,7 @@ namespace SimpleL7Proxy.Proxy
 
             if (!_requestData.AsyncTriggered)
             {
-                await DisposeAsync().ConfigureAwait(false);
+                await DisposeAsync(false).ConfigureAwait(false);
 
                 return false; // Worker failed to start
             }
@@ -427,17 +419,44 @@ namespace SimpleL7Proxy.Proxy
             return _beginStartup == 1;
         }
 
+        public async Task AbortAsync()
+        {
+            if (Interlocked.CompareExchange(ref _beginStartup, -1, 0) == 0)
+            {
+                // unlikely to occur
+                _logger.LogError("Worker was not started, so we terminated it.");
+                _cancellationTokenSource?.Cancel();
 
-        public async ValueTask DisposeAsync()
+            }
+
+            if (_requestAPIDocument != null)
+            {
+                // should be always happening
+                _requestAPIDocument.status = RequestAPIStatusEnum.NeedsReprocessing;
+                _backupAPIService.UpdateStatus(_requestAPIDocument);
+            }
+            else
+            {
+                // unlikely to occur
+                _logger.LogError("Worker was started but no RequestAPIDocument was found to update.");
+            }
+
+            await DisposeAsync(false).ConfigureAwait(false);
+        }
+
+        public async ValueTask DisposeAsync() => await DisposeAsync(false).ConfigureAwait(false);
+
+        public async ValueTask DisposeAsync(bool sendCompletedStatus)
         {
 
-            if (_requestAPIDocument != null) {
+            if (_requestAPIDocument != null && sendCompletedStatus)
+            {
                 _requestAPIDocument.status = RequestAPIStatusEnum.Completed;
                 _backupAPIService.UpdateStatus(_requestAPIDocument);
             }
 
             // remove backup
-                await _blobWriter.DeleteBlobAsync(Constants.Server, _requestData.Guid.ToString()).ConfigureAwait(false);
+            await _blobWriter.DeleteBlobAsync(Constants.Server, _requestData.Guid.ToString()).ConfigureAwait(false);
 
             // Dispose managed resources
             await ResetStreamAsync().ConfigureAwait(false);
@@ -447,7 +466,8 @@ namespace SimpleL7Proxy.Proxy
             {
                 _cancellationTokenSource?.Cancel();
                 _cancellationTokenSource?.Dispose();
-            } catch (ObjectDisposedException)
+            }
+            catch (ObjectDisposedException)
             {
                 // Cancellation token source was already disposed, ignore
             }

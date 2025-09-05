@@ -54,6 +54,8 @@ public class CoordinatedShutdownService : IHostedService
         _logger.LogInformation($"Waiting for tasks to complete for maximum {_options.TerminationGracePeriodSeconds} seconds");
         await _queue.StopAsync();
 
+        ProxyWorkerCollection.ExpelAsyncRequests();  // backup all async requests
+
         var timeoutTask = Task.Delay(_options.TerminationGracePeriodSeconds * 1000);
         var allTasksComplete = Task.WhenAll(ProxyWorkerCollection.GetAllTasks());
         var completedTask = await Task.WhenAny(allTasksComplete, timeoutTask);

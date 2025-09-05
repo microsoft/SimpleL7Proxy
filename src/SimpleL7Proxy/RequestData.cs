@@ -298,7 +298,7 @@ public class RequestData : IDisposable, IAsyncDisposable
         {
             try
             {
-                await asyncWorker.DisposeAsync().ConfigureAwait(false);
+                await asyncWorker.DisposeAsync(true).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

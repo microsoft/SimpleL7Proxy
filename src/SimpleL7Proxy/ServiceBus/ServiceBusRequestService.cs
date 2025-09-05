@@ -109,6 +109,10 @@ namespace SimpleL7Proxy.ServiceBus
                 // Operation was canceled, exit gracefully
                 _logger.LogInformation($"ServiceBusRequestService shutdown initiated: {_statusQueue.Count()} items need to be flushed.");
             }
+            catch (UnauthorizedAccessException)
+            {
+                _logger.LogError("ServiceBusRequestService encountered an UnauthorizedAccessException. Check Service Bus connection string and permissions.");
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "An error occurred while sending a message to the topic.: " + ex);
