@@ -36,8 +36,6 @@ namespace SimpleL7Proxy.BackupAPI
         {
             _options = options.Value;
             _logger = logger;
-
-            _logger.LogInformation("Backup API feeder configured:");
         }
 
 
