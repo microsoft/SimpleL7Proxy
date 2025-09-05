@@ -31,7 +31,7 @@ namespace SimpleL7Proxy.BackupAPI
 
         // Batch tuning
         private const int MaxDrainPerCycle = 50; // max messages to drain from queue per cycle
-        private const int CoalesceDelayMs = 25;    // small delay to coalesce bursts (when not shutting down)
+        private static readonly TimeSpan FlushIntervalMs = TimeSpan.FromMilliseconds(1000);    // small delay to coalesce bursts (when not shutting down)
 
         public BackupAPIService(IOptions<BackendOptions> options, ILogger<BackupAPIService> logger)
         {
@@ -67,6 +67,7 @@ namespace SimpleL7Proxy.BackupAPI
         public Task StopAsync(CancellationToken cancellationToken)
         {
             isRunning = false;
+            isShuttingDown = true;
             return Task.CompletedTask;
         }
 
@@ -112,7 +113,7 @@ namespace SimpleL7Proxy.BackupAPI
             }
             finally
             {
-                // Flush all items in batches
+                // Flush all items in batches : should never be the case 
                 var cts = new CancellationTokenSource().Token;
 
                 var drained = new List<RequestAPIDocument>();
@@ -137,35 +138,54 @@ namespace SimpleL7Proxy.BackupAPI
             _logger.LogInformation("Backup API service is stopping.");
         }
 
+        DateTime _lastDrainTime = DateTime.UtcNow;
+
         private async Task FeederTask(CancellationToken token)
         {
-            while (!token.IsCancellationRequested)
+            var drained = new List<RequestAPIDocument>(MaxDrainPerCycle);
+            while (!isShuttingDown || !_statusQueue.IsEmpty)
             {
-                if (!isShuttingDown && _statusQueue.IsEmpty)
+
+                // don't repeat this loop more than once every FlushIntervalMs unless we are shutting down
+                var delta = DateTime.UtcNow - _lastDrainTime;
+                if (delta < FlushIntervalMs && !isShuttingDown && !token.IsCancellationRequested)
+                {
+                    delta = FlushIntervalMs - delta;
+                    _logger.LogError($"Waiting for coalescing delay of {delta.TotalMilliseconds} ms before next drain cycle.");
+                    await Task.Delay(delta, token).ConfigureAwait(false);
+                }
+                _lastDrainTime = DateTime.UtcNow;
+
+                // Drain all available items before waiting
+                while (_statusQueue.TryDequeue(out var item))
+                {
+                    // Process item (e.g., add to batch, send, etc.)
+                    drained.Add(item);
+                    if (drained.Count >= MaxDrainPerCycle)
+                    {
+                        await SendBatch(drained, token).ConfigureAwait(false);
+                        drained.Clear();
+                    }
+                }
+
+                // If any remain after draining, process them
+                if (drained.Count > 0)
+                {
+                    await SendBatch(drained, token).ConfigureAwait(false);
+                    drained.Clear();
+                }
+
+                // Now wait for a signal before next round
+                while (_statusQueue.IsEmpty && !token.IsCancellationRequested)
                 {
                     await _queueSignal.WaitAsync(token).ConfigureAwait(false);
                 }
-
-                // Optionally coalesce a short burst
-                if (!isShuttingDown)
-                {
-                    try { await Task.Delay(CoalesceDelayMs, token).ConfigureAwait(false); } catch { /* ignore */ }
-                }
-
-                // Drain up to MaxDrainPerCycle messages
-                var drained = new List<RequestAPIDocument>(MaxDrainPerCycle);
-                while (drained.Count < MaxDrainPerCycle && _statusQueue.TryDequeue(out var statusMessage))
-                {
-                    drained.Add(statusMessage);
-                }
-
-                if (drained.Count == 0) continue;
-
-                await SendBatch(drained, token).ConfigureAwait(false);
+                _logger.LogError($"Loop: cancelRequest: {token.IsCancellationRequested}, queueCount: {_statusQueue.Count}");
             }
         }
 
         private static AccessToken _accessToken;
+        private int _processingState = 0; // 0 = not waiting, 1 = waiting for signal
 
         private static async Task<AccessToken> GetAccessToken(string url)
         {
@@ -222,9 +242,18 @@ namespace SimpleL7Proxy.BackupAPI
                 }
 
                 var httpContent = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json");
-                var response = await httpClient.PostAsync(uri, httpContent, cancelToken);
-                response.EnsureSuccessStatusCode();
-                var content = await response.Content.ReadAsStringAsync();
+                try
+                {
+                    var response = await httpClient.PostAsync(uri, httpContent, cancelToken);
+                    response.EnsureSuccessStatusCode();
+                    var content = await response.Content.ReadAsStringAsync();
+                }
+                catch (Exception ex)
+                {
+                    // there was a problem sending,  requeue the message for retry later
+                    _logger.LogError(ex, $"Error sending message to Backup API for UserId: {item.userID}, Status: {item.status}. Requeuing message.");
+                    _statusQueue.Enqueue(item);
+                }
             }
         }
     }
