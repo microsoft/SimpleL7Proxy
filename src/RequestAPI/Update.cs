@@ -55,23 +55,25 @@ public class Update
                 };
 
                 RequestAPIDocument? requestInput = JsonSerializer.Deserialize<RequestAPIDocument>(requestBody, jsonOptions);
+                var newDocument = new RequestAPIDocument();
                 if (requestInput != null)
                 {
-                    existingDocument.status = requestInput.status ?? existingDocument.status;
-                    existingDocument.guid = requestId;
-                    existingDocument.mid = requestInput.mid ?? existingDocument.mid;
-                    existingDocument.isAsync = requestInput.isAsync ?? existingDocument.isAsync;
-                    existingDocument.isBackground = requestInput.isBackground ?? existingDocument.isBackground;
-                    existingDocument.createdAt = requestInput.createdAt ?? existingDocument.createdAt;
-                    existingDocument.userID = requestInput.userID ?? existingDocument.userID;
-                    existingDocument.priority1 = requestInput.priority1 ?? existingDocument.priority1;
-                    existingDocument.priority2 = requestInput.priority2 ?? existingDocument.priority2;
+                    newDocument.status = requestInput.status ?? existingDocument.status;
+                    newDocument.guid = requestId;
+                    newDocument.id = existingDocument.id;
+                    newDocument.mid = requestInput.mid ?? existingDocument.mid;
+                    newDocument.isAsync = requestInput.isAsync ?? existingDocument.isAsync;
+                    newDocument.isBackground = requestInput.isBackground ?? existingDocument.isBackground;
+                    newDocument.createdAt = requestInput.createdAt ?? existingDocument.createdAt;
+                    newDocument.userID = requestInput.userID ?? existingDocument.userID;
+                    newDocument.priority1 = requestInput.priority1 ?? existingDocument.priority1;
+                    newDocument.priority2 = requestInput.priority2 ?? existingDocument.priority2;
 
                     _logger.LogInformation("Updating document with ID: {Id}, MID: {Mid} and status: {Status}",
-                        existingDocument.id, existingDocument.mid, existingDocument.status);
+                        newDocument.id, newDocument.mid, newDocument.status);
 
                     // The output binding will automatically save this to Cosmos DB
-                    return existingDocument;
+                    return newDocument;
                 }
             }
             catch (JsonException ex)
