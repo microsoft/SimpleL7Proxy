@@ -24,7 +24,6 @@ namespace SimpleL7Proxy.BackupAPI
         private readonly ILogger<BackupAPIService> _logger;
         public static readonly ConcurrentQueue<RequestAPIDocument> _statusQueue = new();
         private readonly SemaphoreSlim _queueSignal = new SemaphoreSlim(0);
-        private bool isRunning = false;
         private bool isShuttingDown = false;
         private Task? writerTask;
         CancellationTokenSource? _cancellationTokenSource;
@@ -53,8 +52,6 @@ namespace SimpleL7Proxy.BackupAPI
                     _logger.LogCritical("Backup API service stopping.");
                 });
 
-                isRunning = true;
-
                 // Start the writer task but DON'T await it
                 writerTask = Task.Run(() => EventWriter(_cancellationTokenSource.Token), _cancellationTokenSource.Token);
 
@@ -66,7 +63,6 @@ namespace SimpleL7Proxy.BackupAPI
 
         public Task StopAsync(CancellationToken cancellationToken)
         {
-            isRunning = false;
             isShuttingDown = true;
             return Task.CompletedTask;
         }
@@ -109,7 +105,7 @@ namespace SimpleL7Proxy.BackupAPI
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "An error occurred while sending a message to the topic.: " + ex);
+                _logger.LogError(ex, "An error occurred while calling Backup API.: " + ex);
             }
             finally
             {
@@ -180,7 +176,7 @@ namespace SimpleL7Proxy.BackupAPI
                 {
                     await _queueSignal.WaitAsync(token).ConfigureAwait(false);
                 }
-                _logger.LogError($"Loop: cancelRequest: {token.IsCancellationRequested}, queueCount: {_statusQueue.Count}");
+                _logger.LogDebug($"Loop: cancelRequest: {token.IsCancellationRequested}, queueCount: {_statusQueue.Count}");
             }
         }
 
