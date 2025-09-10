@@ -155,5 +155,16 @@ namespace SimpleL7Proxy.ServiceBus
             }
             return _senders[topicName];
         }
+
+        public ServiceBusSender GetQueueSender(string queueName)
+        {
+            if (string.IsNullOrWhiteSpace(queueName))
+            {
+                throw new ArgumentException("Queue name cannot be null or empty.", nameof(queueName));
+            }
+
+            var sender = _client.CreateSender(queueName);
+            return sender;
+        }
     }
 }
