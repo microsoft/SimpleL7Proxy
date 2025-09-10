@@ -23,68 +23,86 @@ public class Update
         _logger = logger;
     }
 
+    // NOT USED
+
     [Function("Update")]
     [CosmosDBOutput("%CosmosDb:DatabaseName%", "%CosmosDb:ContainerName%",
-        Connection = "CosmosDbConnection", PartitionKey = "/id")]
+    Connection = "CosmosDbConnection", PartitionKey = "{requestId}")]
     public async Task<RequestAPIDocument?> Run(
-        [HttpTrigger(AuthorizationLevel.Function, "post", Route = "update/{requestId}")] HttpRequestData req,
-        [CosmosDBInput("%CosmosDb:DatabaseName%", "%CosmosDb:ContainerName%",
-            Connection = "CosmosDbConnection", Id = "{requestId}", PartitionKey = "{requestId}")] RequestAPIDocument? existingDocument,
-            string requestId)
+    [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "update/{requestId}")] HttpRequestData req,
+    [CosmosDBInput("%CosmosDb:DatabaseName%", "%CosmosDb:ContainerName%",
+        Connection = "CosmosDbConnection", Id = "{requestId}", PartitionKey = "{requestId}")] RequestAPIDocument? existingDocument,
+    string requestId)
     {
-        _logger.LogInformation($"New Request - {requestId}");
-        // parse inbound request
+        _logger.LogInformation($"Update Request - {requestId}");
+
+        if (existingDocument == null)
+        {
+            var notFound = req.CreateResponse(HttpStatusCode.NotFound);
+            await notFound.WriteStringAsync($"Document with ID {requestId} not found");
+            throw new Exception($"Document with ID {requestId} not found");
+        }
+
         string requestBody;
         using (var reader = new StreamReader(req.Body))
         {
             requestBody = await reader.ReadToEndAsync();
         }
 
-        if (!string.IsNullOrWhiteSpace(requestBody))
+        if (string.IsNullOrWhiteSpace(requestBody))
         {
-            try
-            {
-
-                var jsonOptions = new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true,
-                    DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
-                    AllowTrailingCommas = true,
-                    ReadCommentHandling = JsonCommentHandling.Skip,
-                    Converters = { new CaseInsensitiveEnumConverter<RequestAPIStatusEnum>() }
-                };
-
-                RequestAPIDocument? requestInput = JsonSerializer.Deserialize<RequestAPIDocument>(requestBody, jsonOptions);
-                var newDocument = new RequestAPIDocument();
-                if (requestInput != null)
-                {
-                    newDocument.status = requestInput.status ?? existingDocument.status;
-                    newDocument.guid = requestId;
-                    newDocument.id = existingDocument.id;
-                    newDocument.mid = requestInput.mid ?? existingDocument.mid;
-                    newDocument.isAsync = requestInput.isAsync ?? existingDocument.isAsync;
-                    newDocument.isBackground = requestInput.isBackground ?? existingDocument.isBackground;
-                    newDocument.createdAt = requestInput.createdAt ?? existingDocument.createdAt;
-                    newDocument.userID = requestInput.userID ?? existingDocument.userID;
-                    newDocument.priority1 = requestInput.priority1 ?? existingDocument.priority1;
-                    newDocument.priority2 = requestInput.priority2 ?? existingDocument.priority2;
-
-                    _logger.LogInformation("Updating document with ID: {Id}, MID: {Mid} and status: {Status}",
-                        newDocument.id, newDocument.mid, newDocument.status);
-
-                    // The output binding will automatically save this to Cosmos DB
-                    return newDocument;
-                }
-            }
-            catch (JsonException ex)
-            {
-                _logger.LogError(ex, "Failed to parse request body");
-                throw new ArgumentException("Invalid JSON in request body", ex);
-            }
+            var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
+            await badRequest.WriteStringAsync("Request body cannot be empty");
+            throw new Exception("Request body cannot be empty");
         }
 
-        return null;
+        try
+        {
+            var jsonOptions = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                AllowTrailingCommas = true,
+                ReadCommentHandling = JsonCommentHandling.Skip,
+                Converters = { new CaseInsensitiveEnumConverter<RequestAPIStatusEnum>() }
+            };
 
+            RequestAPIDocument? requestInput = JsonSerializer.Deserialize<RequestAPIDocument>(requestBody, jsonOptions);
+            if (requestInput == null)
+            {
+                var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
+                await badRequest.WriteStringAsync("Invalid request format");
+                throw new Exception("Invalid request format");
+            }
+
+            var newDocument = new RequestAPIDocument
+            {
+                status = requestInput.status ?? existingDocument.status,
+                guid = requestId,
+                id = existingDocument.id,
+                mid = requestInput.mid ?? existingDocument.mid,
+                isAsync = requestInput.isAsync ?? existingDocument.isAsync,
+                isBackground = requestInput.isBackground ?? existingDocument.isBackground,
+                createdAt = requestInput.createdAt ?? existingDocument.createdAt,
+                userID = requestInput.userID ?? existingDocument.userID,
+                priority1 = requestInput.priority1 ?? existingDocument.priority1,
+                priority2 = requestInput.priority2 ?? existingDocument.priority2
+            };
+
+            _logger.LogInformation("Updating document with ID: {Id}, MID: {Mid} and status: {Status}",
+                newDocument.id, newDocument.mid, newDocument.status);
+
+            var response = req.CreateResponse(HttpStatusCode.OK);
+            await response.WriteAsJsonAsync(newDocument);
+
+            return newDocument;
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "Failed to parse request body");
+            var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
+            await badRequest.WriteStringAsync("Invalid JSON in request body");
+            throw new Exception("Invalid JSON in request body", ex);
+        }
     }
-
 }

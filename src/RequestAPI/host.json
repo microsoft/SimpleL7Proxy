@@ -7,6 +7,20 @@
                 "excludedTypes": "Request"
             },
             "enableLiveMetricsFilters": true
+        },
+        "logLevel": {
+            "default": "Information",
+            "Host.Results": "Information",
+            "Function": "Information",
+            "Host.Aggregator": "Information"
+        }
+    },
+    "extensions": {
+        "http": {
+            "routePrefix": "api",
+            "maxOutstandingRequests": 200,
+            "maxConcurrentRequests": 100,
+            "dynamicThrottlesEnabled": true
         }
     }
 }
