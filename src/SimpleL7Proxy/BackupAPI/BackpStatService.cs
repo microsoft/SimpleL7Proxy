@@ -4,23 +4,22 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
-using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using Azure.Messaging.ServiceBus;
 
 using SimpleL7Proxy.Backend;
 using Shared.RequestAPI.Models;
 using System.Security.Policy;
+using SimpleL7Proxy.ServiceBus;
 
 
 namespace SimpleL7Proxy.BackupAPI
 {
     public class BackupAPIService : IHostedService, IBackupAPIService
     {
-        string _backupAPIURL = "http://localhost:7071";
 
         private readonly BackendOptions _options;
         private readonly ILogger<BackupAPIService> _logger;
@@ -29,31 +28,17 @@ namespace SimpleL7Proxy.BackupAPI
         private bool isShuttingDown = false;
         private Task? writerTask;
         CancellationTokenSource? _cancellationTokenSource;
+        private readonly ServiceBusSenderFactory _senderFactory;
 
         // Batch tuning
         private const int MaxDrainPerCycle = 50; // max messages to drain from queue per cycle
         private static readonly TimeSpan FlushIntervalMs = TimeSpan.FromMilliseconds(1000);    // small delay to coalesce bursts (when not shutting down)
 
-        public BackupAPIService(IOptions<BackendOptions> options, ILogger<BackupAPIService> logger)
+        public BackupAPIService(IOptions<BackendOptions> options, ServiceBusSenderFactory senderFactory,ILogger<BackupAPIService> logger)
         {
             _options = options.Value;
+            _senderFactory = senderFactory;
             _logger = logger;
-            if (string.IsNullOrWhiteSpace(_backupAPIURL))
-            {
-                _logger.LogError("Backup API URL is not configured. Please set AsyncBackupAPIURL in BackendOptions.");
-                _options.AsyncModeEnabled = false;
-            }
-            else
-            {
-                _backupAPIURL = _options.AsyncBackupAPIURL;
-                if (_backupAPIURL.EndsWith("/"))
-                {
-                    _backupAPIURL = _backupAPIURL.TrimEnd('/');
-                }
-
-                _logger.LogInformation($"Backup API Service initialized with URL: {_backupAPIURL}");
-
-            }
         }
 
 
@@ -61,7 +46,6 @@ namespace SimpleL7Proxy.BackupAPI
         {
             if (_options.AsyncModeEnabled)
             {
-                _logger.LogCritical("Backup API service starting...");
                 _cancellationTokenSource = new CancellationTokenSource();
                 _cancellationTokenSource.Token.Register(() =>
                 {
@@ -163,7 +147,7 @@ namespace SimpleL7Proxy.BackupAPI
                 if (delta < FlushIntervalMs && !isShuttingDown && !token.IsCancellationRequested)
                 {
                     delta = FlushIntervalMs - delta;
-                    _logger.LogError($"Waiting for coalescing delay of {delta.TotalMilliseconds} ms before next drain cycle.");
+                    _logger.LogInformation($"Waiting for coalescing delay of {delta.TotalMilliseconds} ms before next drain cycle.");
                     await Task.Delay(delta, token).ConfigureAwait(false);
                 }
                 _lastDrainTime = DateTime.UtcNow;
@@ -171,6 +155,7 @@ namespace SimpleL7Proxy.BackupAPI
                 // Drain all available items before waiting
                 while (_statusQueue.TryDequeue(out var item))
                 {
+
                     // Process item (e.g., add to batch, send, etc.)
                     drained.Add(item);
                     if (drained.Count >= MaxDrainPerCycle)
@@ -196,23 +181,6 @@ namespace SimpleL7Proxy.BackupAPI
             }
         }
 
-        private static AccessToken _accessToken;
-        private int _processingState = 0; // 0 = not waiting, 1 = waiting for signal
-
-        private async Task<AccessToken> GetAccessToken()
-        {
-            if (_accessToken.ExpiresOn > DateTimeOffset.UtcNow.AddMinutes(5))
-            {
-                return _accessToken;
-            }
-
-            var credential = new DefaultAzureCredential();
-            _accessToken = await credential.GetTokenAsync(
-                new TokenRequestContext(new[] { _backupAPIURL + "/.default" })).ConfigureAwait(false);
-
-            return _accessToken;
-        }
-
         static readonly JsonSerializerOptions jsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -222,49 +190,43 @@ namespace SimpleL7Proxy.BackupAPI
             Converters = { new CaseInsensitiveEnumConverter<RequestAPIStatusEnum>() }
         };
 
-        private bool needsToken = false;
 
-        private async Task SendBatch(List<RequestAPIDocument> items, CancellationToken cancelToken)
+        private async Task SendBatch(List<RequestAPIDocument> items, CancellationToken token)
         {
-            using var httpClient = new HttpClient();
+            var sender = _senderFactory.GetQueueSender(_options.AsyncSBQueue);
 
-            if (needsToken)
+            ServiceBusMessageBatch? currentBatch = null;
+            try
             {
-                var token = await GetAccessToken().ConfigureAwait(false);
-                httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token.Token);
+                currentBatch = await sender.CreateMessageBatchAsync(token).ConfigureAwait(false);
+
+                foreach (var item in items)
+                {
+                    var message = new ServiceBusMessage(JsonSerializer.Serialize(item, jsonOptions));
+
+                    if (!currentBatch.TryAddMessage(message))
+                    {
+                        // Send the full batch and start a new one
+                        await sender.SendMessagesAsync(currentBatch, token).ConfigureAwait(false);
+                        currentBatch.Dispose();
+                        currentBatch = await sender.CreateMessageBatchAsync(token).ConfigureAwait(false);
+
+                        if (!currentBatch.TryAddMessage(message))
+                        {
+                            // Single message too large for an empty batch
+                            _logger.LogError("Message too large to add to batch for topic {TopicName}. Dropping.", "backupapi");
+                        }
+                    }
+                }
+
+                if (currentBatch.Count > 0)
+                {
+                    await sender.SendMessagesAsync(currentBatch, token).ConfigureAwait(false);
+                }
             }
-
-            foreach (var item in items)
+            finally
             {
-
-                string jsonContent;
-                string uri;
-
-                if (item.status == RequestAPIStatusEnum.New)
-                {
-                    jsonContent = JsonSerializer.Serialize(item, jsonOptions);
-                    uri = $"{_backupAPIURL}/api/new/{item.id}";
-                }
-                else
-                {
-                    // Handle other statuses
-                    jsonContent = $"{{\"status\":\"{item.status}\"}}";
-                    uri = $"{_backupAPIURL}/api/update/{item.id}";
-                }
-
-                var httpContent = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json");
-                try
-                {
-                    var response = await httpClient.PostAsync(uri, httpContent, cancelToken);
-                    response.EnsureSuccessStatusCode();
-                    var content = await response.Content.ReadAsStringAsync();
-                }
-                catch (Exception ex)
-                {
-                    // there was a problem sending,  requeue the message for retry later
-                    _logger.LogError(ex, $"Error sending message to Backup API for UserId: {item.userID}, Status: {item.status}. Requeuing message.");
-                    _statusQueue.Enqueue(item);
-                }
+                currentBatch?.Dispose();
             }
         }
     }

@@ -3,7 +3,6 @@ namespace SimpleL7Proxy.Backend;
 public class BackendOptions
 {
     public int[] AcceptableStatusCodes { get; set; } =[];
-    public string AsyncBackupAPIURL { get; set; } = "http://localhost:7071";
     public string AsyncBlobStorageConnectionString { get; set; } = "example-connection-string"; 
     public bool AsyncBlobStorageUseMI {get; set; } = true;
     public string AsyncBlobStorageAccountUri { get; set; } = "https://mystorageaccount.blob.core.windows.net";
@@ -11,6 +10,7 @@ public class BackendOptions
     public string AsyncClientConfigFieldName { get; set; } = "async-config";
     public bool AsyncModeEnabled { get; set; } = false;
     public string AsyncSBConnectionString { get; set; } = "example-sb-connection-string";
+    public string AsyncSBQueue { get; set; } = "requeststatus";
     public bool AsyncSBUseMI { get; set; } = false; // Use managed identity for Service Bus
     public string AsyncSBNamespace { get; set; } = "example-namespace";
     public double AsyncTimeout { get; set; } = 30 * 60000; // 30 minutes
