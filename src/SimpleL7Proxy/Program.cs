@@ -20,6 +20,7 @@ using SimpleL7Proxy.ServiceBus;
 using SimpleL7Proxy.BlobStorage;
 using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.BackupAPI;
+using SimpleL7Proxy.Feeder;
 
 
 using System.Net;
@@ -221,13 +222,16 @@ public class Program
         // Add storage service registration
         services.AddSingleton<IRequestDataBackupService, RequestDataBackupService>();
 
-        services.AddSingleton<ServiceBusSenderFactory>();
+        services.AddSingleton<ServiceBusFactory>();
         services.AddSingleton<ServiceBusRequestService>();
         services.AddSingleton<IServiceBusRequestService>(sp => sp.GetRequiredService<ServiceBusRequestService>());
         services.AddHostedService(sp => sp.GetRequiredService<ServiceBusRequestService>());
 
         services.AddSingleton<IBackupAPIService, BackupAPIService>();
         services.AddHostedService(sp => (BackupAPIService)sp.GetRequiredService<IBackupAPIService>());
+
+        services.AddSingleton<IAsyncFeeder, AsyncFeeder>();
+        services.AddHostedService(sp => (AsyncFeeder)sp.GetRequiredService<IAsyncFeeder>());
 
         services.AddHostedService<ProxyWorkerCollection>();
         services.AddTransient(source => new CancellationTokenSource());

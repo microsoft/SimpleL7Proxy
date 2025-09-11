@@ -28,13 +28,13 @@ namespace SimpleL7Proxy.BackupAPI
         private bool isShuttingDown = false;
         private Task? writerTask;
         CancellationTokenSource? _cancellationTokenSource;
-        private readonly ServiceBusSenderFactory _senderFactory;
+        private readonly ServiceBusFactory _senderFactory;
 
         // Batch tuning
         private const int MaxDrainPerCycle = 50; // max messages to drain from queue per cycle
         private static readonly TimeSpan FlushIntervalMs = TimeSpan.FromMilliseconds(1000);    // small delay to coalesce bursts (when not shutting down)
 
-        public BackupAPIService(IOptions<BackendOptions> options, ServiceBusSenderFactory senderFactory,ILogger<BackupAPIService> logger)
+        public BackupAPIService(IOptions<BackendOptions> options, ServiceBusFactory senderFactory,ILogger<BackupAPIService> logger)
         {
             _options = options.Value;
             _senderFactory = senderFactory;

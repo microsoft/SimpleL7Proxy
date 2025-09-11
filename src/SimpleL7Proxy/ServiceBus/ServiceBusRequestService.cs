@@ -18,7 +18,7 @@ namespace SimpleL7Proxy.ServiceBus
     public class ServiceBusRequestService : IHostedService, IServiceBusRequestService
     {
         private readonly BackendOptions _options;
-        private readonly ServiceBusSenderFactory _senderFactory;
+        private readonly ServiceBusFactory _senderFactory;
         private readonly ILogger<ServiceBusRequestService> _logger;
         public static readonly ConcurrentQueue<ServiceBusStatusMessage> _statusQueue = new ConcurrentQueue<ServiceBusStatusMessage>();
         private readonly SemaphoreSlim _queueSignal = new SemaphoreSlim(0);
@@ -31,7 +31,7 @@ namespace SimpleL7Proxy.ServiceBus
         private const int MaxDrainPerCycle = 50; // max messages to drain from queue per cycle
         private static readonly TimeSpan FlushIntervalMs = TimeSpan.FromMilliseconds(1000);    // small delay to coalesce bursts (when not shutting down)
 
-        public ServiceBusRequestService(IOptions<BackendOptions> options, ServiceBusSenderFactory senderFactory, ILogger<ServiceBusRequestService> logger)
+        public ServiceBusRequestService(IOptions<BackendOptions> options, ServiceBusFactory senderFactory, ILogger<ServiceBusRequestService> logger)
         {
             _options = options.Value;
             _senderFactory = senderFactory ?? throw new ArgumentNullException(nameof(senderFactory));
