@@ -6,6 +6,8 @@ namespace Shared.RequestAPI.Models
         InProgress,
         Completed,
         Failed,
-        NeedsReprocessing
+        NeedsReprocessing,
+        ReSubmitted,
+        ReProcessing
     }
 }
