@@ -16,6 +16,7 @@ using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.ServiceBus;
 using Shared.RequestAPI.Models;
 using SimpleL7Proxy.BackupAPI;
+
 using System.Data.Common;
 
 namespace SimpleL7Proxy.Proxy
@@ -94,6 +95,70 @@ namespace SimpleL7Proxy.Proxy
             return result;
         }
 
+        public async Task RestoreAsync()
+        {
+            _beginStartup = 1; // mark as started
+
+            _logger.LogDebug("AsyncWorker: Restarting for MID: {MID} Guid: {Guid}", _requestData.MID, _requestData.Guid.ToString());
+            var operation = "Re-Initialize";
+            try
+            {
+                _requestAPIDocument = RequestDataConverter.ToRequestAPIDocument(_requestData);
+                _requestAPIDocument.status =  RequestAPIStatusEnum.ReProcessing;
+                
+                await InitializeAsync().ConfigureAwait(false);
+                dataBlobName = _requestData.Guid.ToString();
+                headerBlobName = dataBlobName + "-Headers";
+
+                operation = "Re-Create Blobs ";
+
+                // get the streams
+                var dataStream = await _blobWriter.CreateBlobAndGetOutputStreamAsync(_userId, dataBlobName);
+                var headerStream = await _blobWriter.CreateBlobAndGetOutputStreamAsync(_userId, headerBlobName);
+
+                _requestData.OutputStream = new BufferedStream(dataStream);
+                _hos = headerStream;
+
+                _backupAPIService.UpdateStatus(_requestAPIDocument);
+            }
+            catch (BlobWriterException blobEx)
+            {
+                ErrorMessage = $"Failed to create blob: {blobEx.Message}";
+                _logger.LogError(ErrorMessage);
+
+                ProxyEvent blobData = new()
+                {
+                    Type = EventType.Exception,
+                    ["Error"] = ErrorMessage,
+                    ["Operation"] = operation,
+                    Exception = blobEx
+                };
+
+                blobData.SendEvent();
+
+                return;
+            }
+
+            // create a SAS token for the blob
+            try
+            {
+                _dataBlobUri = await _blobWriter.GenerateSasTokenAsync(_userId, dataBlobName, TimeSpan.FromSeconds(_requestData.AsyncBlobAccessTimeoutSecs));
+                _headerBlobUri = await _blobWriter.GenerateSasTokenAsync(_userId, headerBlobName, TimeSpan.FromSeconds(_requestData.AsyncBlobAccessTimeoutSecs));
+                //_requestData.Context!.Response.Headers.Add("x-Data-Blob-SAS-URI", _dataBlobUri);
+                //_requestData.Context!.Response.Headers.Add("x-Header-Blob-SAS-URI", _headerBlobUri);
+            }
+            catch (Exception sasEx)
+            {
+                _logger.LogError("Failed to create SAS token: {Message}", sasEx.Message);
+                ErrorMessage = "Failed to create SAS token: " + sasEx.Message;
+
+                return;
+            }
+
+            _logger.LogDebug("Async: Request MID: {MID} Guid: {Guid} created.", _requestData.MID, _requestData.Guid.ToString());
+            _taskCompletionSource.TrySetResult(true); // Set the task completion source to indicate that the worker has started
+        }
+
         /// <summary>
         /// Starts the worker if it has not already been started.
         /// </summary>
@@ -158,7 +223,7 @@ namespace SimpleL7Proxy.Proxy
                             ["Operation"] = operation,
                             Exception = blobEx
                         };
- 
+
                         blobData.SendEvent();
 
                         _taskCompletionSource.TrySetResult(false);
@@ -212,7 +277,7 @@ namespace SimpleL7Proxy.Proxy
                     _logger.LogDebug("Async: Request MID: {MID} Guid: {Guid} created.", _requestData.MID, _requestData.Guid.ToString());
                     _taskCompletionSource.TrySetResult(true); // Set the task completion source to indicate that the worker has started
                 }
-                else 
+                else
                 {
                     _logger.LogDebug("AsyncWorker: did not enter the startup section");
                     // Worker has already started, do nothing
