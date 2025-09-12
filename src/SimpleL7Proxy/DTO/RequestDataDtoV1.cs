@@ -1,5 +1,6 @@
 
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace SimpleL7Proxy.DTO
 {
@@ -91,7 +92,7 @@ namespace SimpleL7Proxy.DTO
             if (versionCheck != null && versionCheck.TryGetValue("version", out var versionObj))
             {
                 var version = Convert.ToInt32(versionObj);
-                
+
                 switch (version)
                 {
                     case 1:
@@ -107,6 +108,30 @@ namespace SimpleL7Proxy.DTO
 
             // If no version, assume V1
             return JsonSerializer.Deserialize<RequestDataDtoV1>(json);
+        }
+        
+        public RequestData toRequestData()
+        {
+            var requestData = new RequestData(Guid.ToString(), Guid, MID, Path, Method, Timestamp, Headers)
+            {
+                FullURL = FullURL,
+                BodyBytes = BodyBytes,
+                EnqueueTime = EnqueueTime,
+                DequeueTime = DequeueTime,
+                ExpiresAt = ExpiresAt,
+                Priority = Priority,
+                Priority2 = Priority2,
+                Timeout = Timeout,
+                Attempts = Attempts,
+                ParentId = ParentId,
+                UserID = UserID,
+                Requeued = Requeued,
+                SBTopicName = SBTopicName,
+                BlobContainerName = BlobContainerName,
+                AsyncBlobAccessTimeoutSecs = this.AsyncBlobAccessTimeoutSecs
+            };
+
+            return requestData;
         }
 
     }
