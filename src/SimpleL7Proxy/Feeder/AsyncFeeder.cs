@@ -10,11 +10,13 @@ using System.Threading;
 using System.Threading.Tasks;
 using Azure.Messaging.ServiceBus;
 using Azure.Messaging.ServiceBus.Administration;
+using System.Security.Policy;
 
 using SimpleL7Proxy.Backend;
 using Shared.RequestAPI.Models;
-using System.Security.Policy;
 using SimpleL7Proxy.ServiceBus;
+using SimpleL7Proxy.DTO;
+using SimpleL7Proxy.Proxy;
 
 namespace SimpleL7Proxy.Feeder
 {
@@ -23,6 +25,8 @@ namespace SimpleL7Proxy.Feeder
 
         private readonly BackendOptions _options;
         private readonly ILogger<AsyncFeeder> _logger;
+        private readonly IRequestDataBackupService _backupService;
+        private readonly IAsyncWorkerFactory _asyncWorkerFactory; // Just inject the factory
         private readonly SemaphoreSlim _queueSignal = new SemaphoreSlim(0);
         private bool isShuttingDown = false;
         private Task? readerTask;
@@ -32,10 +36,16 @@ namespace SimpleL7Proxy.Feeder
         // Batch tuning
         private static readonly TimeSpan FlushIntervalMs = TimeSpan.FromMilliseconds(1000);    // small delay to coalesce bursts (when not shutting down)
 
-        public AsyncFeeder(IOptions<BackendOptions> options, ServiceBusFactory senderFactory,ILogger<AsyncFeeder> logger)
+        public AsyncFeeder(IOptions<BackendOptions> options,
+                            ServiceBusFactory senderFactory,
+                            IRequestDataBackupService backupService,
+                            IAsyncWorkerFactory asyncWorkerFactory,
+                            ILogger<AsyncFeeder> logger)
         {
             _options = options.Value;
             _senderFactory = senderFactory;
+            _backupService = backupService;
+            _asyncWorkerFactory = asyncWorkerFactory;
             _logger = logger;
         }
 
@@ -60,7 +70,14 @@ namespace SimpleL7Proxy.Feeder
 
         public Task StopAsync(CancellationToken cancellationToken)
         {
-            isShuttingDown = true;
+            // Only set the flag if we're not already shutting down
+            if (!isShuttingDown)
+            {
+                _logger.LogCritical("Shutting down AsyncFeeder");
+                isShuttingDown = true;
+                return readerTask ?? Task.CompletedTask;
+            }
+            
             return Task.CompletedTask;
         }
 
@@ -121,7 +138,39 @@ namespace SimpleL7Proxy.Feeder
         {
             var message = args.Message;
             var jobStatus = message.Body.ToString();
-            Console.WriteLine($"{jobStatus}");
+
+            var request = JsonSerializer.Deserialize<RequestAPIDocument>(jobStatus);
+            if (request != null && !string.IsNullOrEmpty(request.guid))
+            {
+                var oldRequest = await _backupService.RestoreAsync(request.guid);
+                if (oldRequest == null)
+                {
+                    _logger.LogWarning("AsyncFeeder: Could not find backup for async request with ID: {Id}, MID: {Mid}, Status: {Status}", request.id, request.mid, request.status);
+                    await args.CompleteMessageAsync(message);
+                    return;
+                }
+
+                RequestData rd = oldRequest.toRequestData();
+                _logger.LogInformation("AsyncFeeder: Enqueuing async request with ID: {Id}, MID: {Mid}, Status: {Status}", request.id, request.mid, request.status);
+
+                // restore the async fields:
+                rd.runAsync = true;
+                rd.asyncWorker = _asyncWorkerFactory.CreateAsync(rd, 0);
+                await rd.asyncWorker.RestoreAsync();
+
+
+                // DO server stuff here
+
+                // Requeue it here
+                
+   
+            }
+            else
+            {
+                _logger.LogWarning("AsyncFeeder: Received invalid message that could not be deserialized to RequestAPIDocument.");
+                Console.WriteLine($"{jobStatus}");
+            }
+
             await args.CompleteMessageAsync(message);
         }
 
