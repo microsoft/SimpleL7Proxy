@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 
 using SimpleL7Proxy.Backend;
 
@@ -9,16 +10,18 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
     private readonly SemaphoreSlim _enqueueEvent = new SemaphoreSlim(0);
     private readonly object _lock = new object(); // Lock object for synchronization
     private ConcurrentSignal<T> _taskSignaler = new ConcurrentSignal<T>();
+    private readonly ILogger<ConcurrentPriQueue<T>> _logger;
     //private int insertions = 0;
     //private int extractions = 0;
 
     private readonly BackendOptions _options;
 
   
-    public ConcurrentPriQueue(IOptions<BackendOptions> backendOptions)
+    public ConcurrentPriQueue(IOptions<BackendOptions> backendOptions, ILogger<ConcurrentPriQueue<T>> logger)
     {
         ArgumentNullException.ThrowIfNull(backendOptions);
         _options = backendOptions.Value;
+        _logger = logger;
 
         MaxQueueLength = _options.MaxQueueLength;
     }
@@ -28,6 +31,7 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
     // wait till the queue empties then tell all the workers to stop
     public async Task StopAsync()
     {
+        _logger.LogCritical("waiting for queue to empty before stopping");
         while (_priorityQueue.Count > 0)
         {
             await Task.Delay(100);
