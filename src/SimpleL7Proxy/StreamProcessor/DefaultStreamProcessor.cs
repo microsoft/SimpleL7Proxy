@@ -12,11 +12,11 @@ namespace SimpleL7Proxy.StreamProcessor
         /// <summary>
         /// Copies content from source to destination without any processing.
         /// </summary>
-        public override async Task CopyToAsync(System.Net.Http.HttpContent sourceContent, Stream outputStream, CancellationToken? cancellationToken)
+        public override async Task CopyToAsync(System.Net.Http.HttpContent sourceContent, Stream outputStream)
         {
-            if (cancellationToken != null)
-                await sourceContent.CopyToAsync(outputStream, cancellationToken.Value).ConfigureAwait(false);
-            else
+//            if (cancellationToken != null)
+  //              await sourceContent.CopyToAsync(outputStream, cancellationToken.Value).ConfigureAwait(false);
+    //        else
                 await sourceContent.CopyToAsync(outputStream).ConfigureAwait(false);
         }
 
