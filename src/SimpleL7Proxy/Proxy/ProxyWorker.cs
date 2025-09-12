@@ -123,8 +123,10 @@ public class ProxyWorker
             Console.WriteLine("All workers ready to work");
         }
 
-        // Stop the worker if the cancellation token is cancelled and there is no work to do
-        while (!_cancellationToken.IsCancellationRequested || _requestsQueue.thrdSafeCount > 0)
+        // Stop the worker if either:
+        // 1. The cancellation token is cancelled
+        // 2. There is no more work in the queue
+        while (!_cancellationToken.IsCancellationRequested && (_requestsQueue.thrdSafeCount > 0 || !_cancellationToken.IsCancellationRequested))
         {
             RequestData incomingRequest;
             try
@@ -824,6 +826,7 @@ public class ProxyWorker
                             request.asyncWorker = _asyncWorkerFactory.CreateAsync(request, timeLeft);
                             _ = request.asyncWorker.StartAsync();   // don't await this, let it run in parallel
 
+                            // AsyncExcelSource  - this will get a cancel if there shutdown is triggered.
                             AsyncExpelSource = new CancellationTokenSource(TimeSpan.FromMilliseconds(rTimeout));
                             cts = AsyncExpelSource;
                         }
@@ -993,7 +996,7 @@ public class ProxyWorker
 
                             if (request.OutputStream != null)
                             {
-                                await processor.CopyToAsync(proxyResponse.Content, request.OutputStream, _cancellationToken).ConfigureAwait(false);
+                                await processor.CopyToAsync(proxyResponse.Content, request.OutputStream).ConfigureAwait(false);
                             }
                             else
                             {
