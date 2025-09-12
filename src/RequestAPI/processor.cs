@@ -22,6 +22,32 @@ public class DocumentProcessor
     public DocumentProcessor(ILogger<DocumentProcessor> logger)
     {
         _logger = logger;
+        _logger.LogInformation("DocumentProcessor constructor called. Initializing with settings...");
+        
+        // Log all environment variables related to Service Bus and Cosmos DB
+        var sbQueueName = Environment.GetEnvironmentVariable("ServiceBusQueue");
+        var sbConnection = Environment.GetEnvironmentVariable("ServiceBusConnection");
+        var sbFullyQualifiedNamespace = Environment.GetEnvironmentVariable("ServiceBusConnection__fullyQualifiedNamespace");
+        
+        _logger.LogInformation("ServiceBusQueue: {QueueName}", sbQueueName);
+        _logger.LogInformation("ServiceBusConnection exists: {ConnectionExists}", !string.IsNullOrEmpty(sbConnection));
+        _logger.LogInformation("ServiceBusConnection__fullyQualifiedNamespace: {Namespace}", sbFullyQualifiedNamespace);
+        
+        var cosmosDbName = Environment.GetEnvironmentVariable("CosmosDb:DatabaseName");
+        var cosmosContainerName = Environment.GetEnvironmentVariable("CosmosDb:ContainerName");
+        var cosmosConnection = Environment.GetEnvironmentVariable("CosmosDbConnection");
+        var cosmosEndpoint = Environment.GetEnvironmentVariable("CosmosDbConnection__accountEndpoint");
+        
+        _logger.LogInformation("CosmosDb:DatabaseName: {DbName}", cosmosDbName);
+        _logger.LogInformation("CosmosDb:ContainerName: {ContainerName}", cosmosContainerName);
+        _logger.LogInformation("CosmosDbConnection exists: {ConnectionExists}", !string.IsNullOrEmpty(cosmosConnection));
+        _logger.LogInformation("CosmosDbConnection__accountEndpoint: {Endpoint}", cosmosEndpoint);
+        
+        // Log worker runtime and other diagnostic info
+        _logger.LogInformation("FUNCTIONS_WORKER_RUNTIME: {Runtime}", Environment.GetEnvironmentVariable("FUNCTIONS_WORKER_RUNTIME"));
+        _logger.LogInformation("Machine name: {MachineName}", Environment.MachineName);
+        _logger.LogInformation("OS: {OS}", Environment.OSVersion);
+        _logger.LogInformation(".NET version: {Version}", Environment.Version);
     }
 
     [Function("ProcessDocuments")]
@@ -31,7 +57,7 @@ public class DocumentProcessor
         Connection = "CosmosDbConnection",
         CreateIfNotExists = true)]
     public RequestAPIDocument[] Run(
-        [ServiceBusTrigger("requeststatus", Connection = "ServiceBusConnection")] string messageBody,
+        [ServiceBusTrigger("%ServiceBusQueue%", Connection = "ServiceBusConnection")] string messageBody,
         [CosmosDBInput(
             databaseName: "%CosmosDb:DatabaseName%",
             containerName: "%CosmosDb:ContainerName%",
@@ -40,7 +66,8 @@ public class DocumentProcessor
             PartitionKey = "{id}")]
         RequestAPIDocument existingDocument)
     {
-        _logger.LogInformation("Processing Document Operation Started");
+        _logger.LogInformation("ProcessDocuments Function triggered with message: {MessageLength} chars", messageBody?.Length ?? 0);
+        _logger.LogTrace("Message body: {MessageBody}", messageBody);
         
         var NullDocuments = Array.Empty<RequestAPIDocument>();
         
