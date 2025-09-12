@@ -14,7 +14,7 @@ namespace SimpleL7Proxy.ServiceBus
     public class ServiceBusFactory
     {
         private readonly IOptionsMonitor<BackendOptions> _optionsMonitor;
-        private readonly ILogger<ServiceBusSenderFactory> _logger;
+        private readonly ILogger<ServiceBusFactory> _logger;
 
         private readonly ServiceBusClient _client = null!;
         private readonly ConcurrentDictionary<string, ServiceBusSender> _senders = null!;
