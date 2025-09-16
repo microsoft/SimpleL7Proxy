@@ -7,6 +7,7 @@ using Azure.Messaging.ServiceBus;
 
 var serviceBusNamespace = "https://nvmtrsbsrvr.servicebus.windows.net/";
 var queueName = "requeststatus";
+queueName = "rstatus";
 
 var clientOptions = new ServiceBusClientOptions
 {
@@ -26,7 +27,7 @@ while (true)
 
     var text = @"{""createdAt"":""2025-09-10T18:35:50.5064794Z"",""guid"":""" + 
         guid.ToString() + @""",""id"":""" + 
-        guid.ToString() + @""",""isAsync"":true,""priority1"":1,""priority2"":0,""status"":""Completed"",""userID"":""123456""}";
+        guid.ToString() + @""",""isAsync"":true,""priority1"":1,""priority2"":0,""status"":""New"",""userID"":""123456""}";
     var message = new ServiceBusMessage(text);
 
 
