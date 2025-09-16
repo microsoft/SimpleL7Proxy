@@ -147,7 +147,6 @@ namespace SimpleL7Proxy.BackupAPI
                 if (delta < FlushIntervalMs && !isShuttingDown && !token.IsCancellationRequested)
                 {
                     delta = FlushIntervalMs - delta;
-                    _logger.LogInformation($"Waiting for coalescing delay of {delta.TotalMilliseconds} ms before next drain cycle.");
                     await Task.Delay(delta, token).ConfigureAwait(false);
                 }
                 _lastDrainTime = DateTime.UtcNow;
