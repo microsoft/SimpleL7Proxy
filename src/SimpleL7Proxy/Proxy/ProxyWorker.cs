@@ -123,10 +123,8 @@ public class ProxyWorker
             Console.WriteLine("All workers ready to work");
         }
 
-        // Stop the worker if either:
-        // 1. The cancellation token is cancelled
-        // 2. There is no more work in the queue
-        while (!_cancellationToken.IsCancellationRequested && (_requestsQueue.thrdSafeCount > 0 || !_cancellationToken.IsCancellationRequested))
+        // Run until cancellation is requested. (Queue emptiness is handled by the blocking DequeueAsync call.)
+        while (!_cancellationToken.IsCancellationRequested || _requestsQueue.thrdSafeCount > 0)
         {
             RequestData incomingRequest;
             try
@@ -160,13 +158,14 @@ public class ProxyWorker
 
             await using (incomingRequest)
             {
-                var lcontext = incomingRequest.Context;
                 bool isExpired = false;
 
                 Interlocked.Increment(ref states[1]);
                 workerState = "Processing";
 
-                if (lcontext == null || incomingRequest == null)
+                var lcontext = incomingRequest.Context;
+
+                if (!incomingRequest.AsyncHyderated && (lcontext == null || incomingRequest == null))
                 {
                     Interlocked.Decrement(ref states[1]);
                     workerState = "Exit - No Context";
@@ -178,7 +177,7 @@ public class ProxyWorker
                 bool requestException = false;
                 try
                 {
-                    if (Constants.probes.Contains(incomingRequest.Path))
+                    if (Constants.probes.Contains(incomingRequest.Path) && lcontext != null)
                     {
                         ProbeResponse(incomingRequest.Path, out int probeStatus, out string probeMessage);
 
@@ -329,7 +328,7 @@ public class ProxyWorker
                         incomingRequest.Priority, (int)pr.StatusCode, conlen, pr.FullURL,
                         incomingRequest.DequeueTime.ToLocalTime().ToString("HH:mm:ss"), proxyTime);
 
-                    eventData["Content-Length"] = lcontext.Response?.ContentLength64.ToString() ?? "N/A";
+                    eventData["Content-Length"] = lcontext?.Response?.ContentLength64.ToString() ?? "N/A";
                     eventData["Content-Type"] = lcontext?.Response?.ContentType ?? "N/A";
 
                     if (incomingRequest.incompleteRequests != null)
@@ -382,14 +381,16 @@ public class ProxyWorker
 
                     var errorMessage = Encoding.UTF8.GetBytes(e.Message);
 
+                    if (lcontext == null)
+                    {
+                        _logger.LogError("Context is null in ProxyErrorException");
+                        continue;
+                    }
+
                     try
                     {
                         lcontext.Response.StatusCode = (int)e.StatusCode;
-                        await lcontext.Response.OutputStream.WriteAsync(
-                            errorMessage,
-                            0,
-                            errorMessage.Length).ConfigureAwait(false);
-
+                        await lcontext.Response.OutputStream.WriteAsync(errorMessage).ConfigureAwait(false);
                         _logger.LogWarning("Proxy error: {Message}", e.Message);
                     }
                     catch (Exception writeEx)
@@ -416,14 +417,16 @@ public class ProxyWorker
                         var errorMessage = "IO Exception: " + ioEx.Message;
                         eventData["ErrorDetails"] = errorMessage;
 
+                        if (lcontext == null)
+                        {
+                            _logger.LogError("Context is null in IOException");
+                            continue;
+                        }
                         try
                         {
                             lcontext.Response.StatusCode = (int)eventData.Status;
                             var errorBytes = Encoding.UTF8.GetBytes(errorMessage);
-                            await lcontext.Response.OutputStream.WriteAsync(
-                                errorBytes,
-                                0,
-                                errorBytes.Length).ConfigureAwait(false);
+                            await lcontext.Response.OutputStream.WriteAsync(errorBytes).ConfigureAwait(false);
                             _logger.LogError($"An IO exception occurred: {ioEx.Message}");
                         }
                         catch (Exception writeEx)
@@ -441,10 +444,17 @@ public class ProxyWorker
                 {
                     if (asyncExpelInProgress)
                     {
-                        _logger.LogError("Async expel operation for request: {FullURL}", incomingRequest.FullURL);
-                    }
-                    else
-                    {
+                        // shutdown the async worker
+                        if (incomingRequest.asyncWorker != null)
+                        {
+                            await incomingRequest.asyncWorker.AbortAsync().ConfigureAwait(false);
+                            Console.WriteLine($"AsyncWorker: Expel completed, updated backup: {incomingRequest.Guid}");
+                            incomingRequest.asyncWorker = null;
+                        }
+                        else
+                        {
+                            _logger.LogError("Async expel operation but asyncWorker is null");
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -456,6 +466,7 @@ public class ProxyWorker
                     else
                     {
                         _logger.LogError("GOT AN ERROR: {Message}", ex.Message);
+                        Console.WriteLine(ex.StackTrace);
                         eventData.Status = HttpStatusCode.InternalServerError; // 500 Internal Server Error
                         eventData.Type = EventType.Exception;
                         eventData.Exception = ex;
@@ -474,15 +485,18 @@ public class ProxyWorker
                             var errorMessage = "Exception: " + ex.Message;
                             eventData["ErrorDetails"] = errorMessage;
 
+                            if (lcontext == null)
+                            {
+                                _logger.LogError("Context is null in General Exception");
+                                continue;
+                            }
+                            
                             try
                             {
                                 // _telemetryClient?.TrackException(ex, eventData);
                                 lcontext.Response.StatusCode = 500;
                                 var errorBytes = Encoding.UTF8.GetBytes(errorMessage);
-                                await lcontext.Response.OutputStream.WriteAsync(
-                                    errorBytes,
-                                    0,
-                                    errorBytes.Length).ConfigureAwait(false);
+                                await lcontext.Response.OutputStream.WriteAsync(errorBytes).ConfigureAwait(false);
                             }
                             catch (Exception writeEx)
                             {
@@ -499,9 +513,11 @@ public class ProxyWorker
                 {
                     try
                     {
+
                         // Don't track the request yet if it was retried.
                         if (!incomingRequest.Requeued && !asyncExpelInProgress)
                         {
+
                             if (workerState != "Cleanup")
                                 eventData["WorkerState"] = workerState;
 
@@ -510,20 +526,22 @@ public class ProxyWorker
                                 _userPriority.removeRequest(incomingRequest.UserID, incomingRequest.Guid);
 
                             // Track the status of the request for circuit breaker
-                            _backends.TrackStatus((int)lcontext.Response.StatusCode, requestException);
+                            if (lcontext != null)
+                                _backends.TrackStatus((int)lcontext.Response.StatusCode, requestException);
 
-                            if (incomingRequest.AsyncTriggered && incomingRequest.asyncWorker != null)
-                            {
-                                try
-                                {
-                                    await incomingRequest.asyncWorker.DisposeAsync(true).ConfigureAwait(false);
-                                    incomingRequest.asyncWorker = null;
-                                }
-                                catch (Exception asyncDisposeEx)
-                                {
-                                    _logger.LogError("Failed to dispose AsyncWorker: {Message}", asyncDisposeEx.Message);
-                                }
-                            }
+                            // if (incomingRequest.AsyncTriggered && incomingRequest.asyncWorker != null)
+                            // {
+                            //     try
+                            //     {
+                            //         Console.WriteLine($"Disposing AsyncWorker for {incomingRequest.FullURL}");
+                            //         await incomingRequest.asyncWorker.DisposeAsync(true).ConfigureAwait(false);
+                            //         incomingRequest.asyncWorker = null;
+                            //     }
+                            //     catch (Exception asyncDisposeEx)
+                            //     {
+                            //         _logger.LogError("Failed to dispose AsyncWorker: {Message}", asyncDisposeEx.Message);
+                            //     }
+                            // }
 
                             try
                             {
@@ -557,7 +575,7 @@ public class ProxyWorker
 
         Interlocked.Decrement(ref activeWorkers);
 
-        _logger.LogDebug("Worker {IDstr} stopped.", IDstr);
+        _logger.LogInformation("Worker {IDstr} stopped.", IDstr);
     }
 
     private void AddIncompleteRequestsToEventData(List<Dictionary<string, string>> incompleteRequests, ConcurrentDictionary<string, string> eventData)
@@ -719,12 +737,15 @@ public class ProxyWorker
                 ParentId = request.ParentId,
                 MID = $"{request.MID}-{request.Attempts}",
                 Method = request.Method,
-                Uri = request.Context!.Request.Url!,
                 ["Request-Date"] = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffK"),
                 ["Backend-Host"] = host.Host,
                 ["Host-URL"] = host.Url,
                 ["Attempt"] = request.Attempts.ToString()
             };
+            if (request.Context?.Request.Url != null)
+                requestAttempt.Uri = request.Context!.Request.Url!;
+            else
+                requestAttempt.Uri = new Uri(request.FullURL);
 
             // Try the request on each active host, stop if it worked
             try
@@ -1101,11 +1122,10 @@ public class ProxyWorker
                 {
                     if (request.asyncWorker != null)
                     {
-                        await request.asyncWorker.AbortAsync().ConfigureAwait(false);
-                        request.asyncWorker = null;
+                        request.asyncWorker.ShouldReprocess = true;
                     }
 
-                    requestAttempt.Status = HttpStatusCode.Conflict;
+                    requestAttempt.Status = HttpStatusCode.ServiceUnavailable;
                     requestAttempt["Error"] = "Request being expelled";
                     requestAttempt["Message"] = "Request will rehydrate on startup";
 
@@ -1205,20 +1225,24 @@ public class ProxyWorker
         // STREAM SERVER ERROR RESPONSE.  Must respond because the request was not successful
         try
         {
-            request.Context!.Response.StatusCode = (int)lastStatusCode;
-            request.Context.Response.KeepAlive = false;
-            request.Context.Response.Headers["x-Request-Queue-Duration"] = (request.DequeueTime - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms";
-            request.Context.Response.Headers["x-Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms";
-            request.Context.Response.Headers["x-ProxyHost"] = _options.HostName;
-            request.Context.Response.Headers["x-MID"] = request.MID;
-            request.Context.Response.Headers["Attempts"] = request.Attempts.ToString();
+            if (!request.AsyncTriggered)
+            {
+                request.Context!.Response.StatusCode = (int)lastStatusCode;
+                request.Context.Response.KeepAlive = false;
+            }
+
+            if (request.Context != null)
+            {
+                request.Context.Response.Headers["x-Request-Queue-Duration"] = (request.DequeueTime - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms";
+                request.Context.Response.Headers["x-Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms";
+                request.Context.Response.Headers["x-ProxyHost"] = _options.HostName;
+                request.Context.Response.Headers["x-MID"] = request.MID;
+                request.Context.Response.Headers["Attempts"] = request.Attempts.ToString();
+            }
 
             if (request.OutputStream != null)
             {
-                await request.OutputStream.WriteAsync(
-                    Encoding.UTF8.GetBytes(sb.ToString()),
-                    0,
-                    sb.Length).ConfigureAwait(false);
+                await request.OutputStream.WriteAsync(Encoding.UTF8.GetBytes(sb.ToString())).ConfigureAwait(false);
                 await request.OutputStream.FlushAsync().ConfigureAwait(false);
             }
 
@@ -1227,6 +1251,7 @@ public class ProxyWorker
         {
             // If we can't write the response, we can only log it
             _logger.LogError("Error writing response: {Message}", e.Message);
+            Console.WriteLine(e.StackTrace);
         }
 
 
