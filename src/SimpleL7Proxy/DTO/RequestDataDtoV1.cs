@@ -1,4 +1,5 @@
 
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -6,51 +7,54 @@ namespace SimpleL7Proxy.DTO
 {
     public class RequestDataDtoV1
     {
-        public Guid Guid { get; set; }
-        public string Method { get; set; }
-        public string Path { get; set; }
-        public string FullURL { get; set; }
-        public byte[]? BodyBytes { get; set; }
-        public DateTime Timestamp { get; set; }
-        public DateTime EnqueueTime { get; set; }
+        public bool Requeued { get; set; }
         public DateTime DequeueTime { get; set; }
+        public DateTime EnqueueTime { get; set; }
         public DateTime ExpiresAt { get; set; }
+        public DateTime Timestamp { get; set; }
+        public Dictionary<string, string> Headers { get; set; }
+        public Guid Guid { get; set; }
+        public List<Dictionary<string, string>> IncompleteRequests { get; set; }
+        public int AsyncBlobAccessTimeoutSecs { get; set; }
+        public int Attempts { get; set; }
         public int Priority { get; set; }
         public int Priority2 { get; set; }
         public int Timeout { get; set; }
-        public int Attempts { get; set; }
+        public int version { get; set; } = 1;
+        public ProxyEventDto ProxyEvent { get; set; }
+        public string BlobContainerName { get; set; }
+        public string FullURL { get; set; }
+        public string Method { get; set; }
         public string MID { get; set; }
         public string ParentId { get; set; }
-        public string UserID { get; set; }
-        public bool Requeued { get; set; }
+        public string Path { get; set; }
+        public string profileUserId { get; set; }
         public string SBTopicName { get; set; }
-        public string BlobContainerName { get; set; }
-        public int AsyncBlobAccessTimeoutSecs { get; set; }
-        public Dictionary<string, string> Headers { get; set; }
-        public int version { get; set; } = 1;
+        public string UserID { get; set; }
 
         public RequestDataDtoV1(RequestData data)
         {
-            Guid = data.Guid;
-            Method = data.Method;
-            Path = data.Path;
-            FullURL = data.FullURL;
-            BodyBytes = data.BodyBytes;
-            Timestamp = data.Timestamp;
-            EnqueueTime = data.EnqueueTime;
-            DequeueTime = data.DequeueTime;
-            ExpiresAt = data.ExpiresAt;
-            Priority = data.Priority;
-            Priority2 = data.Priority2;
-            Timeout = data.Timeout;
+            AsyncBlobAccessTimeoutSecs = data.AsyncBlobAccessTimeoutSecs;
             Attempts = data.Attempts;
+            BlobContainerName = data.BlobContainerName;
+            DequeueTime = data.DequeueTime;
+            EnqueueTime = data.EnqueueTime;
+            ExpiresAt = data.ExpiresAt;
+            FullURL = data.FullURL;
+            Guid = data.Guid;
+            IncompleteRequests = data.incompleteRequests;
+            Method = data.Method;
             MID = data.MID;
             ParentId = data.ParentId;
-            UserID = data.UserID;
+            Path = data.Path;
+            Priority = data.Priority;
+            Priority2 = data.Priority2;
+            profileUserId = data.profileUserId;
             Requeued = data.Requeued;
             SBTopicName = data.SBTopicName;
-            BlobContainerName = data.BlobContainerName;
-            AsyncBlobAccessTimeoutSecs = data.AsyncBlobAccessTimeoutSecs;
+            Timeout = data.Timeout;
+            Timestamp = data.Timestamp;
+            UserID = data.UserID;
 
             // Convert WebHeaderCollection to Dictionary
             if (data.Headers != null)
@@ -63,20 +67,32 @@ namespace SimpleL7Proxy.DTO
             {
                 Headers = new Dictionary<string, string>();
             }
+
+            if (data.EventData != null)
+            {
+                ProxyEvent = ProxyEventDto.FromProxyEvent(data.EventData);
+            }
+            else
+            {
+                ProxyEvent = new ProxyEventDto();
+            }
         }
 
         public RequestDataDtoV1()
         {
             // Parameterless constructor for deserialization
-            Method = string.Empty;
-            Path = string.Empty;
+            BlobContainerName = string.Empty;
             FullURL = string.Empty;
+            Headers = new Dictionary<string, string>();
+            IncompleteRequests = new List<Dictionary<string, string>>();
+            Method = string.Empty;
             MID = string.Empty;
             ParentId = string.Empty;
-            UserID = string.Empty;
+            Path = string.Empty;
+            profileUserId = string.Empty;
+            ProxyEvent = new ProxyEventDto();
             SBTopicName = string.Empty;
-            BlobContainerName = string.Empty;
-            Headers = new Dictionary<string, string>();
+            UserID = string.Empty;
         }
 
         public string Serialize()
@@ -86,50 +102,32 @@ namespace SimpleL7Proxy.DTO
 
         public static RequestDataDtoV1? Deserialize(string json)
         {
-            // First, deserialize just to check version
-            var versionCheck = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-
-            if (versionCheck != null && versionCheck.TryGetValue("version", out var versionObj))
-            {
-                var version = Convert.ToInt32(versionObj);
-
-                switch (version)
-                {
-                    case 1:
-                        return JsonSerializer.Deserialize<RequestDataDtoV1>(json);
-                    // Add more versions here as needed
-                    // case 2:
-                    //     var v2 = JsonConvert.DeserializeObject<RequestDataDtoV2>(json);
-                    //     return ConvertV2ToV1(v2);
-                    default:
-                        throw new NotSupportedException($"RequestData version {version} is not supported");
-                }
-            }
-
-            // If no version, assume V1
             return JsonSerializer.Deserialize<RequestDataDtoV1>(json);
         }
-        
+
         public RequestData toRequestData()
         {
             var requestData = new RequestData(Guid.ToString(), Guid, MID, Path, Method, Timestamp, Headers)
             {
-                FullURL = FullURL,
-                BodyBytes = BodyBytes,
-                EnqueueTime = EnqueueTime,
+                AsyncBlobAccessTimeoutSecs = this.AsyncBlobAccessTimeoutSecs,
+                Attempts = Attempts,
+                BlobContainerName = BlobContainerName,
                 DequeueTime = DequeueTime,
+                EnqueueTime = EnqueueTime,
                 ExpiresAt = ExpiresAt,
+                FullURL = FullURL,
+                incompleteRequests = IncompleteRequests,
+                ParentId = ParentId,
                 Priority = Priority,
                 Priority2 = Priority2,
-                Timeout = Timeout,
-                Attempts = Attempts,
-                ParentId = ParentId,
-                UserID = UserID,
+                profileUserId = this.profileUserId,
                 Requeued = Requeued,
                 SBTopicName = SBTopicName,
-                BlobContainerName = BlobContainerName,
-                AsyncBlobAccessTimeoutSecs = this.AsyncBlobAccessTimeoutSecs
+                Timeout = Timeout,
+                UserID = UserID
             };
+
+            requestData.EventData = this.ProxyEvent.ToProxyEvent();
 
             return requestData;
         }
