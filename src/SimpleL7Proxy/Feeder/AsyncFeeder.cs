@@ -17,6 +17,8 @@ using Shared.RequestAPI.Models;
 using SimpleL7Proxy.ServiceBus;
 using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.Proxy;
+using SimpleL7Proxy.User;
+using SimpleL7Proxy.Queue;
 
 namespace SimpleL7Proxy.Feeder
 {
@@ -27,6 +29,10 @@ namespace SimpleL7Proxy.Feeder
         private readonly ILogger<AsyncFeeder> _logger;
         private readonly IRequestDataBackupService _backupService;
         private readonly IAsyncWorkerFactory _asyncWorkerFactory; // Just inject the factory
+        private readonly IUserPriorityService _userPriority;
+        private readonly IUserProfileService _userProfile;
+        private readonly IConcurrentPriQueue<RequestData> _requestsQueue;
+
         private readonly SemaphoreSlim _queueSignal = new SemaphoreSlim(0);
         private bool isShuttingDown = false;
         private Task? readerTask;
@@ -40,12 +46,18 @@ namespace SimpleL7Proxy.Feeder
                             ServiceBusFactory senderFactory,
                             IRequestDataBackupService backupService,
                             IAsyncWorkerFactory asyncWorkerFactory,
+                            IConcurrentPriQueue<RequestData> requestsQueue,
+                            IUserPriorityService userPriority,
+                            IUserProfileService userProfile,
                             ILogger<AsyncFeeder> logger)
         {
             _options = options.Value;
             _senderFactory = senderFactory;
             _backupService = backupService;
             _asyncWorkerFactory = asyncWorkerFactory;
+            _userPriority = userPriority;
+            _userProfile = userProfile;
+            _requestsQueue = requestsQueue;
             _logger = logger;
         }
 
@@ -77,7 +89,7 @@ namespace SimpleL7Proxy.Feeder
                 isShuttingDown = true;
                 return readerTask ?? Task.CompletedTask;
             }
-            
+
             return Task.CompletedTask;
         }
 
@@ -137,41 +149,73 @@ namespace SimpleL7Proxy.Feeder
         private async Task MessageHandler(ProcessMessageEventArgs args)
         {
             var message = args.Message;
-            var jobStatus = message.Body.ToString();
+            var messageFromSB = message.Body.ToString();
 
-            var request = JsonSerializer.Deserialize<RequestAPIDocument>(jobStatus);
-            if (request != null && !string.IsNullOrEmpty(request.guid))
+            try
             {
-                var oldRequest = await _backupService.RestoreAsync(request.guid);
-                if (oldRequest == null)
+
+                // restore the request from blob storage, re-create the async streams.
+                RequestData rd = await DataFromBlob(messageFromSB);
+                if (rd == null)
                 {
-                    _logger.LogWarning("AsyncFeeder: Could not find backup for async request with ID: {Id}, MID: {Mid}, Status: {Status}", request.id, request.mid, request.status);
-                    await args.CompleteMessageAsync(message);
                     return;
                 }
 
-                RequestData rd = oldRequest.toRequestData();
-                _logger.LogInformation("AsyncFeeder: Enqueuing async request with ID: {Id}, MID: {Mid}, Status: {Status}", request.id, request.mid, request.status);
+                rd.Requeued = true; // mark it as requeued
+                rd.AsyncHyderated = true; // mark it as rehydrated from async
+                bool doUserProfile = _options.UseProfiles;
 
+                // re-establish job as an incoming request
+                if (doUserProfile)
+                {
+                    _userPriority.addRequest(rd.Guid, rd.UserID);
+                    int userPriorityBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue) ? 1 : 0;
+
+                    _logger.LogInformation("AsyncFeeder: Enqueuing async request with ID: {Id}, MID: {Mid}", rd.Guid, rd.MID);
+
+                    if (!_requestsQueue.Requeue(rd, rd.Priority, userPriorityBoost, rd.EnqueueTime))
+                    {
+                        _logger.LogWarning("AsyncFeeder: Failed to enqueue request with ID: {guid}", rd.Guid);
+                    }
+                }
+
+                // mark the request as completed
+                await args.CompleteMessageAsync(message);
+            }
+
+            // message will be retried automatically on error
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "AsyncFeeder: Error processing message from Service Bus: " + ex.Message);
+            }
+        }
+
+        private async Task<RequestData?> DataFromBlob(string messageFromSB)
+        {
+            var requestMsg = JsonSerializer.Deserialize<RequestAPIDocument>(messageFromSB);
+            if (requestMsg != null && !string.IsNullOrEmpty(requestMsg.guid))
+            {
+                var restoredRequestData = await _backupService.RestoreAsync(requestMsg.guid);
+                if (restoredRequestData == null)
+                {
+                    _logger.LogWarning("AsyncFeeder: Could not find backup for async request with ID: {Id}, MID: {Mid}, Status: {Status}", requestMsg.id, requestMsg.mid, requestMsg.status);
+                    return null;
+                }
                 // restore the async fields:
-                rd.runAsync = true;
-                rd.asyncWorker = _asyncWorkerFactory.CreateAsync(rd, 0);
-                await rd.asyncWorker.RestoreAsync();
+                restoredRequestData.runAsync = true;
+                restoredRequestData.AsyncTriggered = true;
+                restoredRequestData.asyncWorker = _asyncWorkerFactory.CreateAsync(restoredRequestData, 0);
+                await restoredRequestData.asyncWorker.RestoreAsync();
 
+                return restoredRequestData;
 
-                // DO server stuff here
-
-                // Requeue it here
-                
-   
             }
             else
             {
                 _logger.LogWarning("AsyncFeeder: Received invalid message that could not be deserialized to RequestAPIDocument.");
-                Console.WriteLine($"{jobStatus}");
             }
 
-            await args.CompleteMessageAsync(message);
+            return null;
         }
 
         private async Task ErrorHandler(ProcessErrorEventArgs args)
