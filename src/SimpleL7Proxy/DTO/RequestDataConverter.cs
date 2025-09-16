@@ -33,28 +33,50 @@ namespace SimpleL7Proxy.DTO
 
         public static RequestDataDtoV1? DeserializeWithVersionHandling(string json)
         {
-            // First, deserialize just to check version
-            var versionCheck = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-
-            if (versionCheck != null && versionCheck.TryGetValue("version", out var versionObj))
+            var operation = "Checking version";
+            try
             {
-                var version = Convert.ToInt32(versionObj);
-                
-                switch (version)
-                {
-                    case 1:
-                        return RequestDataDtoV1.Deserialize(json);
-                    // Add more versions here as needed
-                    // case 2:
-                    //     var v2 = JsonConvert.DeserializeObject<RequestDataDtoV2>(json);
-                    //     return ConvertV2ToV1(v2);
-                    default:
-                        throw new NotSupportedException($"RequestData version {version} is not supported");
-                }
-            }
+                // First, deserialize to JsonDocument to safely handle version check
+                using var document = JsonDocument.Parse(json);
+                var root = document.RootElement;
 
-            // If no version, assume V1
-            return RequestDataDtoV1.Deserialize(json);
+                try
+                {
+                    if (root.TryGetProperty("version", out var versionElement))
+                    {
+                        operation = "Getting version";
+                        var version = versionElement.GetInt32(); // Safely get integer value
+
+                        switch (version)
+                        {
+                            case 1:
+                                operation = "Deserializing V1";
+                                return RequestDataDtoV1.Deserialize(json);
+                            // Add more versions here as needed
+                            // case 2:
+                            //     var v2 = JsonConvert.DeserializeObject<RequestDataDtoV2>(json);
+                            //     return ConvertV2ToV1(v2);
+                            default:
+                                throw new NotSupportedException($"RequestData version {version} is not supported");
+                        }
+                    }
+
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error during version check: {ex.Message}");
+                    throw;
+                }
+                operation = "Deserializing as V1 - default";
+                // If no version, assume V1
+                return RequestDataDtoV1.Deserialize(json);
+            }
+            catch (JsonException ex)
+            {
+                // Handle JSON deserialization errors
+                Console.WriteLine($"Error deserializing.  operation: {operation},  RequestData: {ex.Message}");
+                return null;
+            }
         }
     }
 }
