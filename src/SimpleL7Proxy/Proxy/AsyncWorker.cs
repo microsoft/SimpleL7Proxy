@@ -41,6 +41,7 @@ namespace SimpleL7Proxy.Proxy
         private readonly ILogger<AsyncWorker> _logger;
         private readonly IRequestDataBackupService _requestBackupService;
         private readonly IBackupAPIService _backupAPIService;
+        public  bool ShouldReprocess { get; set; } = false; 
         public string ErrorMessage { get; set; } = "";
         string dataBlobName = "";
         string headerBlobName = "";
@@ -167,19 +168,23 @@ namespace SimpleL7Proxy.Proxy
         {
             try
             {
-                //_logger.LogInformation($"AsyncWorker: Starting for UserId: {_userId}, Delaying for {AsyncTimeout} ms");
+
+_logger.LogInformation($"AsyncWorker: Starting for UserId: {_userId}, Delaying for {AsyncTimeout} ms");
                 // wait state... can be cancelled by Terminate
                 if (AsyncTimeout > 10)
                 {
                     await Task.Delay(AsyncTimeout, _cancellationTokenSource.Token).ConfigureAwait(false);
                 }
 
+_logger.LogInformation("AsyncWorker: Delay complete, attempting to start for MID: {MID} Guid: {Guid}", _requestData.MID, _requestData.Guid.ToString());
                 //_logger.LogInformation($"AsyncWorker: Delayed for {AsyncTimeout} ms");
                 // Atomically set to running (1) only if not started (0)
                 if (Interlocked.CompareExchange(ref _beginStartup, 1, 0) == 0)
                 {
+_logger.LogInformation("AsyncWorker: Entered the startup section for MID: {MID} Guid: {Guid}", _requestData.MID, _requestData.Guid.ToString());
+
                     _requestData.SBStatus = ServiceBusMessageStatusEnum.AsyncProcessing;
-                    _logger.LogDebug("AsyncWorker: Starting for MID: {MID} Guid: {Guid}", _requestData.MID, _requestData.Guid.ToString());
+_logger.LogInformation("AsyncWorker: Starting for MID: {MID} Guid: {Guid}", _requestData.MID, _requestData.Guid.ToString());
                     var operation = "Initialize";
                     try
                     {
@@ -197,7 +202,7 @@ namespace SimpleL7Proxy.Proxy
                             _blobWriter.CreateBlobAndGetOutputStreamAsync(_userId, headerBlobName)
                         );
 
-                        var storageTask = _requestBackupService.BackupAsync(_requestData);
+                        var storageTask = UpdateBackup();  // backup the request data
 
                         // Wait for all to complete
                         await Task.WhenAll(dataStreamTask, headerStreamTask, storageTask).ConfigureAwait(false);
@@ -213,6 +218,7 @@ namespace SimpleL7Proxy.Proxy
                     }
                     catch (BlobWriterException blobEx)
                     {
+                        _logger.LogError($"Failed to create blob: {blobEx.Message}");
                         ErrorMessage = $"Failed to create blob: {blobEx.Message}";
                         _logger.LogError(ErrorMessage);
 
@@ -263,7 +269,7 @@ namespace SimpleL7Proxy.Proxy
                         var message = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(Statusmessage, SerializeOptions) + "\n");
 
                         _requestData.Context!.Response.StatusCode = 202;
-                        await _requestData.Context.Response.OutputStream.WriteAsync(message, 0, message.Length).ConfigureAwait(false);
+                        await _requestData.Context.Response.OutputStream.WriteAsync(message).ConfigureAwait(false);
                         await _requestData.Context.Response.OutputStream.FlushAsync().ConfigureAwait(false);
                         _requestData.Context.Response.Close();
                     }
@@ -300,6 +306,12 @@ namespace SimpleL7Proxy.Proxy
                 _cancellationTokenSource.Dispose();
             }
 
+        }
+
+        public Task UpdateBackup()
+        {
+            _logger.LogInformation("AsyncWorker: Backing up: {BlobName}", _requestData.Guid.ToString());
+            return _requestBackupService.BackupAsync(_requestData);
         }
 
         /// <summary>
@@ -360,7 +372,7 @@ namespace SimpleL7Proxy.Proxy
                     // Write to the stream
                     using (var bufferStream = new BufferedStream(_hos))
                     {
-                        await bufferStream.WriteAsync(serializedMessage, 0, serializedMessage.Length).ConfigureAwait(false);
+                        await bufferStream.WriteAsync(serializedMessage).ConfigureAwait(false);
                         await bufferStream.FlushAsync().ConfigureAwait(false);
                         return true;
                     }
@@ -506,6 +518,7 @@ namespace SimpleL7Proxy.Proxy
                 _logger.LogError("Worker was started but no RequestAPIDocument was found to update.");
             }
 
+            await UpdateBackup();            
             await DisposeAsync(false).ConfigureAwait(false);
         }
 
@@ -520,8 +533,12 @@ namespace SimpleL7Proxy.Proxy
                 _backupAPIService.UpdateStatus(_requestAPIDocument);
             }
 
+
             // remove backup
-            await _blobWriter.DeleteBlobAsync(Constants.Server, _requestData.Guid.ToString()).ConfigureAwait(false);
+            if (!ShouldReprocess) {
+                _logger.LogCritical($"AsyncWorker: Deleting backup for blob {_requestData.Guid}");
+                await _blobWriter.DeleteBlobAsync(Constants.Server, _requestData.Guid.ToString()).ConfigureAwait(false);
+            }
 
             // Dispose managed resources
             await ResetStreamAsync().ConfigureAwait(false);
