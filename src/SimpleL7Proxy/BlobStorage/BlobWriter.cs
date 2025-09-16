@@ -117,14 +117,30 @@ namespace SimpleL7Proxy.BlobStorage
                 };
             }
 
-            // Only create the container if it does not exist. This is thread-safe and efficient for concurrent calls.
-            //await _containerClient.CreateIfNotExistsAsync().ConfigureAwait(false);
-
+            await _containerClient.CreateIfNotExistsAsync().ConfigureAwait(false);
             var blobClient = _containerClient.GetBlobClient(blobName);
 
+            _logger.LogDebug("BlobWriter: Creating blob {ContainerName}/{BlobName} for user {UserId}", _containerClient.Name, blobName, userId);
             // OpenWriteAsync will create the blob if it does not exist and return a writable stream.
             return await blobClient.OpenWriteAsync(overwrite: true).ConfigureAwait(false);
         }
+
+        public async Task<bool> BlobExistsAsync(string userId, string blobName)
+        {
+            // Get the client for the userId
+            if (!_containerClients.TryGetValue(userId, out var _containerClient))
+            {
+                throw new BlobWriterException($"BlobContainerClient not initialized for userId: {userId}. Call InitializeClientAsync first.")
+                {
+                    Operation = "CreateBlobAndGetOutputStreamAsync",
+                    BlobName = blobName,
+                    UserId = userId
+                };
+            }
+            var blobClient = _containerClient.GetBlobClient(blobName);
+            return await blobClient.ExistsAsync().ConfigureAwait(false);
+        }
+
 
         public async Task<Stream> ReadBlobAsStreamAsync(string userId, string blobName)
         {
@@ -287,6 +303,7 @@ namespace SimpleL7Proxy.BlobStorage
                 _disposed = true;
             }
         }
+        
 
     }
 }
