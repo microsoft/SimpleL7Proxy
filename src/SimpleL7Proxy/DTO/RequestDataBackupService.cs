@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
@@ -18,17 +19,43 @@ namespace SimpleL7Proxy.DTO
             _blobWriter = blobWriter;
         }
 
-        public async Task<RequestDataDtoV1?> RestoreAsync(string blobname)
+        public async Task<RequestData> RestoreAsync(string blobname)
         {
             try
             {
+                Console.WriteLine("RequestDataBackupService: Reading blob from " + Constants.Server + " with name " + blobname);
                 using Stream stream = await _blobWriter.ReadBlobAsStreamAsync(Constants.Server, blobname);
                 var streamReader = new StreamReader(stream);
                 var json = await streamReader.ReadToEndAsync();
-                return RequestDataConverter.DeserializeWithVersionHandling(json);
+                var data = RequestDataConverter.DeserializeWithVersionHandling(json);
+
+                var requestData = data?.toRequestData() ?? throw new JsonException("Deserialized RequestDataDtoV1 is null");
+
+                // read body bytes if present
+                var bodyBlobName = blobname + ".body";
+                if (await _blobWriter.BlobExistsAsync(Constants.Server, bodyBlobName))
+                {
+                    using Stream bodyStream = await _blobWriter.ReadBlobAsStreamAsync(Constants.Server, bodyBlobName);
+                    var bodyStreamReader = new StreamReader(bodyStream);
+                    var datastr = await bodyStreamReader.ReadToEndAsync();
+                    requestData.setBody(Encoding.UTF8.GetBytes(datastr));
+                }
+
+                return requestData;
             }
             catch (BlobWriterException)
             {
+                _logger.LogInformation($"Blob {blobname} error reading from blob.");
+                throw;
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogInformation($"Blob {blobname} error deserializing json: {ex.Message}");
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error occurred while restoring backup for blob {blobname}: {ex.Message}");
                 throw;
             }
         }
@@ -40,8 +67,6 @@ namespace SimpleL7Proxy.DTO
             try
             {
                 _logger.LogDebug($"Backing up request {requestData.Guid}");
-                using Stream stream = await _blobWriter.CreateBlobAndGetOutputStreamAsync(Constants.Server, requestData.Guid.ToString());
-                using var writer = new BufferedStream(stream);
                 operation = "Serializing request data";
                 var dto = new RequestDataDtoV1(requestData);
                 var json = JsonSerializer.Serialize(dto, new JsonSerializerOptions
@@ -51,10 +76,34 @@ namespace SimpleL7Proxy.DTO
                 });
                 var jsonBytes = System.Text.Encoding.UTF8.GetBytes(json);
 
-                _logger.LogDebug($"Backing up request {requestData.Guid} with size {jsonBytes.Length} bytes:   Content: {json}");
                 operation = "Writing to blob";
-                await writer.WriteAsync(jsonBytes, 0, jsonBytes.Length);
-                await writer.FlushAsync();
+                await using (var stream = await _blobWriter.CreateBlobAndGetOutputStreamAsync(Constants.Server, requestData.Guid.ToString()))
+                await using (var writer = new BufferedStream(stream))
+                {
+                    await writer.WriteAsync(jsonBytes, 0, jsonBytes.Length);
+                    await writer.FlushAsync();
+                }
+
+                // Only write out the body bytes blob the first time.. The body does not change on retries 
+                if (requestData.BodyBytes != null)
+                {
+                    var exists = await _blobWriter.BlobExistsAsync(Constants.Server, requestData.Guid.ToString() + ".body");
+                    if (exists)
+                    {
+                        _logger.LogDebug($"Backup blob for body of request {requestData.Guid} already exists. Skipping write.");
+                        return;
+                    }
+
+                    await using (var stream = await _blobWriter.CreateBlobAndGetOutputStreamAsync(Constants.Server, requestData.Guid.ToString() + ".body"))
+                    await using (var writer = new BufferedStream(stream))
+                    {
+                        await writer.WriteAsync(requestData.BodyBytes, 0, requestData.BodyBytes.Length);
+                        await writer.FlushAsync();
+                    }
+
+                }
+
+                _logger.LogDebug($"Backup of request {requestData.Guid} completed successfully.");
             }
             catch (Exception ex)
             {
@@ -67,7 +116,7 @@ namespace SimpleL7Proxy.DTO
         {
             try
             {
-                _logger.LogDebug($"Deleting backup for blob {blobname}");
+                _logger.LogCritical($"RequestDataBackupService: Deleting backup for blob {blobname}");
                 await _blobWriter.DeleteBlobAsync(Constants.Server, blobname);
                 return true;
             }
