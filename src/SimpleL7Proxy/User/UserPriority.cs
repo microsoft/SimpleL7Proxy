@@ -51,6 +51,18 @@ public class UserPriority : IUserPriorityService
         return requestId;
     }
 
+    public void addRequest(Guid requestId, string userId)
+    {
+        // Get or create the inner ConcurrentDictionary for the user
+        var requests = userRequests.GetOrAdd(userId, _ => new ConcurrentDictionary<Guid, byte>());
+
+        // Add the new request
+        requests.TryAdd(requestId, 0);
+
+        // Atomically increment the total count
+        Interlocked.Increment(ref total);
+    }
+
     /// <summary>
     /// Removes a specific request for the specified user.
     /// </summary>
