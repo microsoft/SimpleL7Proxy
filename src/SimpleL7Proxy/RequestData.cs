@@ -19,6 +19,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     private ServiceBusMessageStatusEnum _sbStatus = ServiceBusMessageStatusEnum.None;
     public AsyncWorker? asyncWorker { get; set; } = null;
     public bool AsyncTriggered { get; set; } = false;
+    public bool AsyncHyderated { get; set; } = false;
     public bool Debug { get; set; }
     public bool runAsync { get; set; } = false;
     public bool SkipDispose { get; set; } = false;
@@ -102,6 +103,12 @@ public class RequestData : IDisposable, IAsyncDisposable
 
         // ASYNC
         OutputStream = null; // Will be set when processing the request
+    }
+
+    public void setBody(byte[] bytes)
+    {
+        BodyBytes = bytes;
+        Body = new MemoryStream(bytes);
     }
 
     public RequestData(HttpListenerContext context, string mid)
