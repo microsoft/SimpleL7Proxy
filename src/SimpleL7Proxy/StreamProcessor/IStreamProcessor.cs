@@ -15,7 +15,7 @@ namespace SimpleL7Proxy.StreamProcessor
         /// <param name="outputStream">The destination stream to write to.</param>
         /// <param name="cancellationToken">The cancellation token to cancel the operation.</param>
         /// <returns>A task representing the asynchronous copy operation.</returns>
-        Task CopyToAsync(System.Net.Http.HttpContent sourceStream, Stream outputStream, CancellationToken? cancellationToken);
+        Task CopyToAsync(System.Net.Http.HttpContent sourceStream, Stream outputStream);
         
         /// <summary>
         /// Gets statistics about the stream processing operation.

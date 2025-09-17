@@ -45,7 +45,7 @@ namespace SimpleL7Proxy.StreamProcessor
         /// <param name="outputStream">The destination stream to write to.</param>
         /// <param name="cancellationToken">The cancellation token to cancel the operation.</param>
         /// <returns>A task representing the asynchronous copy operation.</returns>
-        public abstract Task CopyToAsync(System.Net.Http.HttpContent sourceContent, Stream outputStream, CancellationToken? cancellationToken);
+        public abstract Task CopyToAsync(System.Net.Http.HttpContent sourceContent, Stream outputStream);
 
         /// <summary>
         /// Abstract method that derived classes must implement to extract and populate statistics.

@@ -8,6 +8,7 @@ using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.ServiceBus;
 using SimpleL7Proxy.BackupAPI;
+using SimpleL7Proxy.Feeder;
 
 namespace SimpleL7Proxy;
 
@@ -23,6 +24,7 @@ public class CoordinatedShutdownService : IHostedService
     private readonly IBackupAPIService _backupAPIService;
     private readonly IConcurrentPriQueue<RequestData> _queue;
     private readonly IBackendService _backends;
+    private readonly IAsyncFeeder _asyncFeeder;
 
 
     public CoordinatedShutdownService(IHostApplicationLifetime appLifetime,
@@ -31,6 +33,7 @@ public class CoordinatedShutdownService : IHostedService
         IBackendService backends,
         IEventClient? eventClient,
         IServiceBusRequestService serviceBusRequestService,
+        IAsyncFeeder asyncFeeder,
         IBackupAPIService backupAPIService,
         ILogger<CoordinatedShutdownService> logger,
         Server server)
@@ -43,6 +46,7 @@ public class CoordinatedShutdownService : IHostedService
         _eventClient = eventClient;
         _serviceBusRequestService = serviceBusRequestService;
         _backupAPIService = backupAPIService;
+        _asyncFeeder = asyncFeeder;
         _options = backendOptions.Value;
     }
 
@@ -52,10 +56,16 @@ public class CoordinatedShutdownService : IHostedService
     {
         _logger.LogInformation("Coordinated shutdown initiated...");
         _logger.LogInformation($"Waiting for tasks to complete for maximum {_options.TerminationGracePeriodSeconds} seconds");
+
+        // Stop AsyncFeeder and server first to prevent it from generating new work
+        await _server.StopListening(cancellationToken);
+        await _asyncFeeder.StopAsync(cancellationToken);
         await _queue.StopAsync();
 
         ProxyWorkerCollection.ExpelAsyncRequests();  // backup all async requests
+        ProxyWorkerCollection.RequestWorkerShutdown();
 
+        
         var timeoutTask = Task.Delay(_options.TerminationGracePeriodSeconds * 1000);
         var allTasksComplete = Task.WhenAll(ProxyWorkerCollection.GetAllTasks());
         var completedTask = await Task.WhenAny(allTasksComplete, timeoutTask);
@@ -80,7 +90,6 @@ public class CoordinatedShutdownService : IHostedService
         };
         data.SendEvent();
 
-        await _server.StopListening(cancellationToken);
 
         Task? t = _backends.Stop();
         if (t != null)

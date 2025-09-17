@@ -13,32 +13,24 @@ using Shared.RequestAPI.Models;
 
 namespace RequestAPI;
 
-public class New
+public class NewBulk
 {
-    private readonly ILogger<New> _logger;
+    private readonly ILogger<NewBulk> _logger;
 
-    public New(ILogger<New> logger)
+    public NewBulk(ILogger<NewBulk> logger)
     {
         _logger = logger;
     }
 
     // NOT USED
-    
-    [Function("New")]
-    [CosmosDBOutput("%CosmosDb:DatabaseName%", "%CosmosDb:ContainerName%",
-        Connection = "CosmosDbConnection", PartitionKey = "{requestId}")]
-    public async Task<RequestAPIDocument?> Run(
-        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "new/{requestId}")] HttpRequestData req,
-        string requestId)
-    {
-        _logger.LogInformation($"New Request - {requestId}");
 
-        if (string.IsNullOrWhiteSpace(requestId))
-        {
-            var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-            await badRequest.WriteStringAsync("requestId cannot be empty");
-            throw new Exception("requestId cannot be empty");
-        }
+    [Function("NewBulk")]
+    [CosmosDBOutput("%CosmosDb:DatabaseName%", "%CosmosDb:ContainerName%",
+        Connection = "CosmosDbConnection", PartitionKey = "/id")]
+    public async Task<RequestAPIDocument[]> Run(
+    [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "bulk/new")] HttpRequestData req)
+    {
+        _logger.LogInformation("New Bulk Request");
 
         string requestBody;
         using (var reader = new StreamReader(req.Body))
@@ -64,24 +56,27 @@ public class New
                 Converters = { new CaseInsensitiveEnumConverter<RequestAPIStatusEnum>() }
             };
 
-            RequestAPIDocument? requestInput = JsonSerializer.Deserialize<RequestAPIDocument>(requestBody, jsonOptions);
-            if (requestInput == null)
+            RequestAPIDocument[]? requestInput = JsonSerializer.Deserialize<RequestAPIDocument[]>(requestBody, jsonOptions);
+            if (requestInput == null || !requestInput.Any())
             {
                 var badRequest = req.CreateResponse(HttpStatusCode.BadRequest);
-                await badRequest.WriteStringAsync("Invalid request format");
-                throw new Exception("Invalid request format");
+                await badRequest.WriteStringAsync("Invalid request format or empty array");
+                throw new Exception("Invalid request format or empty array");
             }
 
-            requestInput.id = requestId;
-            requestInput.guid = requestId;
+            var newDocumentList = requestInput.Select(doc =>
+            {
+                doc.id = Guid.NewGuid().ToString();
+                doc.guid = Guid.NewGuid().ToString();
+                return doc;
+            }).ToArray();
 
-            _logger.LogInformation("Created new document with ID: {Id}, MID: {Mid} and status: {Status}",
-                requestInput.id, requestInput.mid, requestInput.status);
+            _logger.LogInformation("Creating {Count} new documents", newDocumentList.Length);
 
             var response = req.CreateResponse(HttpStatusCode.Created);
-            await response.WriteAsJsonAsync(requestInput);
+            await response.WriteAsJsonAsync(newDocumentList);
 
-            return requestInput;
+            return newDocumentList;
         }
         catch (JsonException ex)
         {

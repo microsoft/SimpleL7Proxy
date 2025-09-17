@@ -36,8 +36,8 @@ namespace SimpleL7Proxy.StreamProcessor
             int startIndex = Array.IndexOf(lastLines, primaryLine);
             var input = string.Join(" ", lastLines[startIndex..]);
 
-            // Use a regex to extract the json.
-            var jsonPattern = @"""[uU]sage"":\s*(\{(?:[^{}]|(?<open>\{)|(?<-open>\}))*\}(?(open)(?!)))";
+            // Use a regex to extract the json for either usage or usageMetadata.
+            var jsonPattern = @"""(?:[uU]sage|[uU]sage[mM]etadata)"":\s*(\{(?:[^{}]|(?<open>\{)|(?<-open>\}))*\}(?(open)(?!)))";
             var match = Regex.Match(input, jsonPattern, RegexOptions.Singleline);
             var jsonBlock = String.Empty;
 

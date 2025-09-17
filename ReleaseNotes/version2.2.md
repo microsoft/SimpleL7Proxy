@@ -1,4 +1,18 @@
 # Release Notes #
+## v2.2.6
+
+API:
+* Added feeder to refeed requests that were in a NEEDS TO BE PROCESSED state.
+* Processor looks for events on the service bus
+
+Proxy:
+* Backup request meta data on shutdown
+* Remove backups once request is complete.
+* Re-feed incoming requests on the service bus
+* Fix gemini usage stats regular expression
+* Send update status on service bus
+
+
 ## v2.2.5
 
 API:

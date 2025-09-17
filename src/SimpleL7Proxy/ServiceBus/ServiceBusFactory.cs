@@ -11,16 +11,16 @@ using SimpleL7Proxy.Backend;
 
 namespace SimpleL7Proxy.ServiceBus
 {
-    public class ServiceBusSenderFactory
+    public class ServiceBusFactory
     {
         private readonly IOptionsMonitor<BackendOptions> _optionsMonitor;
-        private readonly ILogger<ServiceBusSenderFactory> _logger;
+        private readonly ILogger<ServiceBusFactory> _logger;
 
         private readonly ServiceBusClient _client = null!;
         private readonly ConcurrentDictionary<string, ServiceBusSender> _senders = null!;
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="ServiceBusSenderFactory"/> class.
+        /// Initializes a new instance of the <see cref="ServiceBusFactory"/> class.
         /// This factory manages ServiceBus senders for different topics in async processing mode.
         /// </summary>
         /// <param name="optionsMonitor">The options monitor providing access to the backend configuration settings.</param>
@@ -29,7 +29,7 @@ namespace SimpleL7Proxy.ServiceBus
         /// The factory initializes the ServiceBusClient only when AsyncModeEnabled is true in the backend options.
         /// This prevents unnecessary connection creation when async processing is not required.
         /// </remarks>
-        public ServiceBusSenderFactory(IOptionsMonitor<BackendOptions> optionsMonitor, ILogger<ServiceBusSenderFactory> logger)
+        public ServiceBusFactory(IOptionsMonitor<BackendOptions> optionsMonitor, ILogger<ServiceBusFactory> logger)
         {
             _optionsMonitor = optionsMonitor ?? throw new ArgumentNullException(nameof(optionsMonitor));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -154,6 +154,28 @@ namespace SimpleL7Proxy.ServiceBus
                 _senders[topicName] = _client.CreateSender(topicName);
             }
             return _senders[topicName];
+        }
+
+        public ServiceBusSender GetQueueSender(string queueName)
+        {
+            if (string.IsNullOrWhiteSpace(queueName))
+            {
+                throw new ArgumentException("Queue name cannot be null or empty.", nameof(queueName));
+            }
+
+            var sender = _client.CreateSender(queueName);
+            return sender;
+        }
+
+        // return a processor for the specified queue
+        public ServiceBusProcessor GetQueueProcessor(string queueName, ServiceBusProcessorOptions? options = null)
+        {
+            if (string.IsNullOrWhiteSpace(queueName))
+            {
+                throw new ArgumentException("Queue name cannot be null or empty.", nameof(queueName));
+            }
+
+            return _client.CreateProcessor(queueName, options);
         }
     }
 }

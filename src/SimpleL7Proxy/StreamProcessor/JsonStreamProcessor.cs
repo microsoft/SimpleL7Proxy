@@ -47,7 +47,7 @@ namespace SimpleL7Proxy.StreamProcessor
         /// <summary>
         /// Implements the common streaming pattern used by JSON-based processors.
         /// </summary>
-        public override async Task CopyToAsync(System.Net.Http.HttpContent sourceContent, Stream outputStream, CancellationToken? cancellationToken)
+        public override async Task CopyToAsync(System.Net.Http.HttpContent sourceContent, Stream outputStream)
         {
 
             var lastLines = new string[MaxLines]; // Fixed array for last 6 lines
@@ -65,7 +65,7 @@ namespace SimpleL7Proxy.StreamProcessor
                 // Stream all content immediately while tracking meaningful lines
                 while ((currentLine = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
                 {
-                    cancellationToken?.ThrowIfCancellationRequested();
+                    //cancellationToken?.ThrowIfCancellationRequested();
 
                     // Write each line immediately - no delays
                     Task t = writer.WriteLineAsync(currentLine);

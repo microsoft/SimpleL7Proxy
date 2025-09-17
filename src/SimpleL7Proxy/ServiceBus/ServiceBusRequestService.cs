@@ -18,7 +18,7 @@ namespace SimpleL7Proxy.ServiceBus
     public class ServiceBusRequestService : IHostedService, IServiceBusRequestService
     {
         private readonly BackendOptions _options;
-        private readonly ServiceBusSenderFactory _senderFactory;
+        private readonly ServiceBusFactory _senderFactory;
         private readonly ILogger<ServiceBusRequestService> _logger;
         public static readonly ConcurrentQueue<ServiceBusStatusMessage> _statusQueue = new ConcurrentQueue<ServiceBusStatusMessage>();
         private readonly SemaphoreSlim _queueSignal = new SemaphoreSlim(0);
@@ -29,9 +29,9 @@ namespace SimpleL7Proxy.ServiceBus
 
         // Batch tuning
         private const int MaxDrainPerCycle = 50; // max messages to drain from queue per cycle
-        private const int CoalesceDelayMs = 25;    // small delay to coalesce bursts (when not shutting down)
+        private static readonly TimeSpan FlushIntervalMs = TimeSpan.FromMilliseconds(1000);    // small delay to coalesce bursts (when not shutting down)
 
-        public ServiceBusRequestService(IOptions<BackendOptions> options, ServiceBusSenderFactory senderFactory, ILogger<ServiceBusRequestService> logger)
+        public ServiceBusRequestService(IOptions<BackendOptions> options, ServiceBusFactory senderFactory, ILogger<ServiceBusRequestService> logger)
         {
             _options = options.Value;
             _senderFactory = senderFactory ?? throw new ArgumentNullException(nameof(senderFactory));
@@ -40,14 +40,6 @@ namespace SimpleL7Proxy.ServiceBus
             _logger.LogInformation("ServiceBus feeder tasks configured:");
         }
 
-        private void OnApplicationStopping()
-        {
-            _cancellationTokenSource?.Cancel();
-        }
-
-
-
-        //protected override Task ExecuteAsync(CancellationToken stoppingToken)
         public Task StartAsync(CancellationToken cancellationToken)
         {
             if (_options.AsyncModeEnabled)
@@ -69,9 +61,6 @@ namespace SimpleL7Proxy.ServiceBus
             
             return Task.CompletedTask;
         }
-
-        public bool IsRunning => _cancellationTokenSource != null && !_cancellationTokenSource.IsCancellationRequested;
-
 
         public bool updateStatus(RequestData message)
         {
@@ -148,36 +137,59 @@ namespace SimpleL7Proxy.ServiceBus
             _logger.LogInformation("ServiceBusRequestService is stopping.");
         }
 
+        DateTime _lastDrainTime = DateTime.UtcNow;
+
         private async Task FeederTask(CancellationToken token)
         {
-            while (!token.IsCancellationRequested)
+            var drained = new List<ServiceBusStatusMessage>(MaxDrainPerCycle);
+            while (!isShuttingDown || !_statusQueue.IsEmpty)
             {
-                if (!isShuttingDown && _statusQueue.IsEmpty)
+                // don't repeat this loop more than once every FlushIntervalMs unless we are shutting down
+                var delta = DateTime.UtcNow - _lastDrainTime;
+                if (delta < FlushIntervalMs && !isShuttingDown && !token.IsCancellationRequested)
+                {
+                    delta = FlushIntervalMs - delta;
+                    await Task.Delay(delta, token).ConfigureAwait(false);
+                }
+                _lastDrainTime = DateTime.UtcNow;
+
+                // Drain all available items before waiting
+                while (_statusQueue.TryDequeue(out var statusMessage))
+                {
+                    // Process item (e.g., add to batch, send, etc.)
+                    drained.Add(statusMessage);
+                    if (drained.Count >= MaxDrainPerCycle)
+                    {
+                        var byTopic = GroupByTopic(drained);
+
+                        foreach (var kvp in byTopic)
+                        {
+                            await SendBatchesForTopicAsync(kvp.Key, kvp.Value, token).ConfigureAwait(false);
+                        }
+                        drained.Clear();
+                    }
+                }
+
+                // If any remain after draining, process them
+                if (drained.Count > 0)
+                {
+                    var byTopic = GroupByTopic(drained);
+
+                    foreach (var kvp in byTopic)
+                    {
+                        await SendBatchesForTopicAsync(kvp.Key, kvp.Value, token).ConfigureAwait(false);
+                    }
+                    drained.Clear();
+
+                }
+
+                // Now wait for a signal before next round
+                while (_statusQueue.IsEmpty && !token.IsCancellationRequested)
                 {
                     await _queueSignal.WaitAsync(token).ConfigureAwait(false);
                 }
-
-                // Optionally coalesce a short burst
-                if (!isShuttingDown)
-                {
-                    try { await Task.Delay(CoalesceDelayMs, token).ConfigureAwait(false); } catch { /* ignore */ }
-                }
-
-                // Drain up to MaxDrainPerCycle messages
-                var drained = new List<ServiceBusStatusMessage>(MaxDrainPerCycle);
-                while (drained.Count < MaxDrainPerCycle && _statusQueue.TryDequeue(out var statusMessage))
-                {
-                    drained.Add(statusMessage);
-                }
-
-                if (drained.Count == 0) continue;
-
-                var byTopic = GroupByTopic(drained);
-
-                foreach (var kvp in byTopic)
-                {
-                    await SendBatchesForTopicAsync(kvp.Key, kvp.Value, token).ConfigureAwait(false);
-                }
+                
+                _logger.LogDebug($"Loop: cancelRequest: {token.IsCancellationRequested}, queueCount: {_statusQueue.Count}");
             }
         }
 
@@ -237,7 +249,7 @@ namespace SimpleL7Proxy.ServiceBus
         public Task StopAsync(CancellationToken cancellationToken)
         {
             isShuttingDown = true;
-            if (_options.AsyncModeEnabled)
+            if (isRunning)
             {
 
                 _logger.LogCritical("ServiceBusRequestService: Flushing {events} events before stopping...", _statusQueue.Count);
@@ -253,16 +265,5 @@ namespace SimpleL7Proxy.ServiceBus
 
             return Task.CompletedTask;
         }
-
-        // TaskCompletionSource<bool> ShutdownTCS = new();
-
-        //     private async Task SendMessageToTopicAsync(string topicName, string messageBody, CancellationToken cancellationToken)
-        //     {
-        //         var sender = _senderFactory.GetSender(topicName);
-        //         var message = new ServiceBusMessage(messageBody);
-
-        //         await sender.SendMessageAsync(message, cancellationToken);
-        //     }
-        // }
     }
 }

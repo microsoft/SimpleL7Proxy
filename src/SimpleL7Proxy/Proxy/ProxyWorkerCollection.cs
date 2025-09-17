@@ -7,6 +7,7 @@ using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.User;
+using System.Net;
 using System.Threading;
 
 namespace SimpleL7Proxy.Proxy;
@@ -25,6 +26,8 @@ public class ProxyWorkerCollection : BackgroundService
   private readonly IAsyncWorkerFactory _asyncWorkerFactory;
   private static readonly List<ProxyWorker> _workers = new();
   private static readonly List<Task> _tasks = new();
+
+  private static readonly CancellationTokenSource _internalCancellationTokenSource = new();
 
   public ProxyWorkerCollection(
     IOptions<BackendOptions> backendOptions,
@@ -95,7 +98,7 @@ public class ProxyWorkerCollection : BackgroundService
         _asyncWorkerFactory,
         _logger,
         //_proxyStreamWriter,
-        cancellationToken));
+        _internalCancellationTokenSource.Token));
     }
 
     foreach (var pw in _workers)
@@ -110,6 +113,11 @@ public class ProxyWorkerCollection : BackgroundService
     {
       worker.ExpelAsyncRequest();
     }
+  }
+
+  public static void RequestWorkerShutdown()
+  {
+    _internalCancellationTokenSource.Cancel();
   }
 
   public static List<Task> GetAllTasks()

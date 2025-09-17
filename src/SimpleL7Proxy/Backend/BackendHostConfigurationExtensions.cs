@@ -34,7 +34,6 @@ public static class BackendHostConfigurationExtensions
     services.Configure<BackendOptions>(options =>
     {
       options.AcceptableStatusCodes = backendOptions.AcceptableStatusCodes;
-      options.AsyncBackupAPIURL = backendOptions.AsyncBackupAPIURL;
       options.AsyncBlobStorageAccountUri = backendOptions.AsyncBlobStorageAccountUri;
       options.AsyncBlobStorageConnectionString = backendOptions.AsyncBlobStorageConnectionString;
       options.AsyncBlobStorageUseMI = backendOptions.AsyncBlobStorageUseMI;
@@ -43,6 +42,7 @@ public static class BackendHostConfigurationExtensions
       options.AsyncModeEnabled = backendOptions.AsyncModeEnabled;
       options.AsyncSBConnectionString = backendOptions.AsyncSBConnectionString;
       options.AsyncSBNamespace = backendOptions.AsyncSBNamespace;
+      options.AsyncSBQueue = backendOptions.AsyncSBQueue;
       options.AsyncSBUseMI = backendOptions.AsyncSBUseMI;
       options.AsyncTimeout = backendOptions.AsyncTimeout;
       options.AsyncTriggerTimeout = backendOptions.AsyncTriggerTimeout;
@@ -440,7 +440,6 @@ public static class BackendHostConfigurationExtensions
     var backendOptions = new BackendOptions
     {
       AcceptableStatusCodes = ReadEnvironmentVariableOrDefault("AcceptableStatusCodes", new int[] { 200, 202, 401, 403, 404, 408, 410, 412, 417, 400 }),
-      AsyncBackupAPIURL = ReadEnvironmentVariableOrDefault("AsyncBackupAPIURL", "http://localhost:7071"),
       AsyncBlobStorageAccountUri = ReadEnvironmentVariableOrDefault("AsyncBlobStorageAccountUri", "https://example.blob.core.windows.net/"),
       AsyncBlobStorageConnectionString = ReadEnvironmentVariableOrDefault("AsyncBlobStorageConnectionString", ""),
       AsyncBlobStorageUseMI = ReadEnvironmentVariableOrDefault("AsyncBlobStorageUseMI", false),
@@ -449,6 +448,7 @@ public static class BackendHostConfigurationExtensions
       AsyncModeEnabled = ReadEnvironmentVariableOrDefault("AsyncModeEnabled", false),
       AsyncSBConnectionString = ReadEnvironmentVariableOrDefault("AsyncSBConnectionString", "example-sb-connection-string"),
       AsyncSBNamespace = ReadEnvironmentVariableOrDefault("AsyncSBNamespace", ""),
+      AsyncSBQueue = ReadEnvironmentVariableOrDefault("AsyncSBQueue", "requeststatus"),
       AsyncSBUseMI = ReadEnvironmentVariableOrDefault("AsyncSBUseMI", false), // Use managed identity for Service Bus
       AsyncTimeout = ReadEnvironmentVariableOrDefault("AsyncTimeout", 30 * 60000),
       AsyncTriggerTimeout = ReadEnvironmentVariableOrDefault("AsyncTriggerTimeout", 10000),

@@ -19,6 +19,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     private ServiceBusMessageStatusEnum _sbStatus = ServiceBusMessageStatusEnum.None;
     public AsyncWorker? asyncWorker { get; set; } = null;
     public bool AsyncTriggered { get; set; } = false;
+    public bool AsyncHyderated { get; set; } = false;
     public bool Debug { get; set; }
     public bool runAsync { get; set; } = false;
     public bool SkipDispose { get; set; } = false;
@@ -74,6 +75,41 @@ public class RequestData : IDisposable, IAsyncDisposable
         }
     }
 
+    public RequestData(string id, Guid guid, string mid, string path, string method, DateTime enqueueTime, Dictionary<string, string> headers)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            throw new ArgumentNullException("RequestData");
+        }
+
+        Path = path;
+        Timestamp = enqueueTime;
+        EnqueueTime = enqueueTime;
+        Method = method;
+        Headers = new WebHeaderCollection();
+        Body = null;
+        Context = null;
+        ExpiresAt = DateTime.MinValue;  // Set it after reading the headers
+        FullURL = "";
+        Debug = false;
+        MID = mid;
+        Guid = guid;
+
+        // restore the headers
+        foreach (var kvp in headers)
+        {
+            Headers[kvp.Key] = kvp.Value;
+        }
+
+        // ASYNC
+        OutputStream = null; // Will be set when processing the request
+    }
+
+    public void setBody(byte[] bytes)
+    {
+        BodyBytes = bytes;
+        Body = new MemoryStream(bytes);
+    }
 
     public RequestData(HttpListenerContext context, string mid)
     {
