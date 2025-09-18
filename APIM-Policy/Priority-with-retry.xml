@@ -17,10 +17,13 @@
 			<when condition="@(context.Variables.ContainsKey("listBackends") == false)">
 				<set-variable name="listBackends" value="@{
                     JArray backends = new JArray();
+                    string salt = "0123456789"; // 10-digit salt
+                    
                     backends.Add(new JObject()
                     {
                         { "url", "https://nvmopenai3.openai.azure.com/" },
                         { "priority", 1},
+                        { "affinity", "" }, // Will be calculated afterwards
                         { "isThrottling", false },
                         { "retryAfter", DateTime.MinValue } ,
                         { "ModelType", "PTU" },
@@ -31,8 +34,9 @@
                     });
                     backends.Add(new JObject()
                     {
-                        { "url", "https://nvmopenai3.openai.azure.com/" },
+                        { "url", "https://nvmopenai4.openai.azure.com/" },
                         { "priority", 2},
+                        { "affinity", "" }, // Will be calculated afterwards
                         { "isThrottling", false },
                         { "retryAfter", DateTime.MinValue } ,
                         { "ModelType", "PAYGO" },
@@ -41,6 +45,16 @@
                         { "api-key", ""},
                         { "defaultRetryAfter", 10 } // Default retry-after value in seconds
                     });
+
+                    foreach (JObject backend in backends) {
+                        string saltedUrl = salt + backend["url"].ToString();
+                        backend["affinity"] = string.Concat(
+                            System.Security.Cryptography.SHA256.Create()
+                            .ComputeHash(System.Text.Encoding.UTF8.GetBytes(saltedUrl))
+                            .Take(10)
+                            .Select(b => b.ToString("x2"))
+                        );
+                    }
         
                     return backends;  
                     }" />
@@ -73,6 +87,24 @@
                 ? parsedPriority
                 : defaultPriority;
         }" />
+        <set-variable name="RequestAffinityBackendIdx" value="@{
+            string affinityHeader = context.Request.Headers.GetValueOrDefault("x-backend-affinity", "");
+                    
+            // Find the backend with the matching affinity
+            if (!string.IsNullOrEmpty(affinityHeader)) {
+                JArray backends = (JArray)context.Variables["listBackends"];
+                for (int i = 0; i < backends.Count; i++) {
+                    JObject backend = (JObject)backends[i];
+                    if (string.Equals(backend["affinity"]?.ToString(), affinityHeader, StringComparison.OrdinalIgnoreCase)) {
+                        return i;  // Return the index of the matching backend
+                    }
+                }
+            }
+            
+            // Return -1 if no affinity header or no match found
+            return -1;
+        }" />
+        <!-- Get the list of backend indexes that can handle the requested priority -->
 		<set-variable name="PriBackendIndxs" value="@{
             JArray list =  new JArray();
             JArray backends = (JArray)context.Variables["listBackends"];
@@ -153,7 +185,7 @@
                 return backends;
             }" />
 
-			<cache-store-value key="@("listBackends-" + context.Api.Id)" value="@((JArray)context.Variables["listBackends"])" duration="120" />
+			<cache-store-value key="@("listBackends-" + context.Api.Id)" value="@((JArray)context.Variables["listBackends"])" duration="60" />
 			<!-- This is the main logic to pick the backend to be used -->
 			<set-variable name="backendIndex" value="@{
                 // Retrieve the list of backends
@@ -161,7 +193,23 @@
                 if (!backends.Any()) {return -1;}
 
                 JArray priorityBackendIndxs = (JArray)context.Variables["PriBackendIndxs"];
+                int backendCallCount = context.Variables.GetValueOrDefault<int>("backendCallCounter", 0);
+                
+                // Only check backend affinity on the first call
+                if (backendCallCount == 0) {
+                    int affinityBackendIdx = context.Variables.GetValueOrDefault<int>("RequestAffinityBackendIdx", -1);
 
+                    // Check if we have a valid affinity backend and it's in our priority list
+                    if (affinityBackendIdx != -1 ) {
+                        JObject backend = (JObject)backends[affinityBackendIdx];
+                        // Only use the affinity backend if it's not throttling
+                        if (!backend.Value<bool>("isThrottling")) {
+                            return affinityBackendIdx;
+                        }
+                    }
+                }
+
+                // If no affinity match found or not the first call, proceed with normal selection
                 // Find all non-throttling backends that support the request priority
                 var availableBackends = new List<int>();
                 int lowestPriority = int.MaxValue;
@@ -350,7 +398,7 @@
 
                         return backends;     
                     }" />
-					<cache-store-value key="@("listBackends-" + context.Api.Id)" value="@((JArray)context.Variables["listBackends"])" duration="120" />
+					<cache-store-value key="@("listBackends-" + context.Api.Id)" value="@((JArray)context.Variables["listBackends"])" duration="60" />
 				</when>
 			</choose>
 			<set-variable name="unThrottledBackends" value="@{
@@ -380,14 +428,19 @@
 
                 return ShouldRequeue && (backendIndex == -1 || (isTempError && count == 0));
             }" />
+
+            <!-- Determine if next action is retry, requeue, or return response -->
 			<choose>
+
+                <!-- If we got a 200, skip the retry and return the response -->
                 <when condition="@(context.Response != null && context.Response.StatusCode == 200)">
                     <set-variable name="ShouldRetry" value="@(false)" />
                 </when>
+
+                <!-- If all backends are throttling, let's sleep for the minimum retry time and then retry -->
 				<when condition="@(context.Variables.GetValueOrDefault<bool>("ShouldRequeueNow", true))">
 					<set-variable name="ShouldRetry" value="@(false)" />
 					<set-variable name="sleepDuration" value="@{
-                        // This gets triggered when all backends are throttling, let's sleep for the minimum retry time and then retry
 
                         JArray backends = context.Variables.GetValueOrDefault<JArray>("listBackends", new JArray());
                         JArray priorityBackendIndxs = (JArray)context.Variables["PriBackendIndxs"];
@@ -431,6 +484,8 @@
 						</set-header> -->
 					</return-response>
 				</when>
+
+                <!-- If we got a permanent error, return the error code -->
                 <when condition="@(context.Variables.GetValueOrDefault<bool>("isPermError", true))">
                     <return-response>
                         <set-status code="@(context.Response?.StatusCode ?? 500)" reason="Permanent Error" />                        
@@ -442,6 +497,8 @@
                         </set-header>
                     </return-response>
                 </when>
+
+                <!-- If we exhausted all retries, return a 412 -->
                 <when condition="@(context.Variables.GetValueOrDefault<int>("RetryCount") <= 0)">
                     <return-response>
                         <set-status code="412" reason="Retry Count Exhausted" />
@@ -461,6 +518,9 @@
 		<base />
         <set-header name="TOKENPROCESSOR" exists-action="override">
             <value>OpenAI</value>
+        </set-header>
+        <set-header name="x-backend-affinity" exists-action="override">
+            <value>"@(((JObject)context.Variables["selectedBackend"]).Value<string>("affinity"))"</value>
         </set-header>
         <set-header name="X-Backend-Attempts" exists-action="override">
             <value>@(context.Variables.GetValueOrDefault<int>("backendCallCounter", 0).ToString())</value>
