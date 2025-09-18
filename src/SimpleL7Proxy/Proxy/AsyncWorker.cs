@@ -96,6 +96,22 @@ namespace SimpleL7Proxy.Proxy
             return result;
         }
 
+        // Marks the worker as started immediately
+        // Updates the request status to "ReProcessing"
+        // Re-initializes the blob client
+        // Creates new blob streams for both data and headers
+        // Sets up output streams
+        // Updates the backup API status
+        // Regenerates SAS tokens for access
+        // Sets TaskCompletionSource to signal successful restoration
+
+        // Different from StartAsync():
+        // Doesn't wait for the trigger timeout
+        // Doesn't send a 202 response back to client (since this is a rehydration)
+        // Immediately marks as started
+        // Sets status as ReProcessing instead of AsyncProcessing
+        // Creates new blobs rather than using existing ones
+
         public async Task RestoreAsync()
         {
             _beginStartup = 1; // mark as started
@@ -105,8 +121,8 @@ namespace SimpleL7Proxy.Proxy
             try
             {
                 _requestAPIDocument = RequestDataConverter.ToRequestAPIDocument(_requestData);
-                _requestAPIDocument.status =  RequestAPIStatusEnum.ReProcessing;
-                
+                _requestAPIDocument.status = RequestAPIStatusEnum.ReProcessing;
+
                 await InitializeAsync().ConfigureAwait(false);
                 dataBlobName = _requestData.Guid.ToString();
                 headerBlobName = dataBlobName + "-Headers";
