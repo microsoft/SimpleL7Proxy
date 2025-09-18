@@ -351,6 +351,13 @@ public class ProxyWorker
                         incomingRequest.SBStatus = ServiceBusMessageStatusEnum.RetryScheduled;
 
                         Interlocked.Decrement(ref states[7]);
+                        if (AsyncExpelSource != null)
+                        {
+                            await Task.Delay(e.RetryAfter, AsyncExpelSource.Token).ConfigureAwait(false);
+                        } else
+                        {
+                            await Task.Delay(e.RetryAfter).ConfigureAwait(false);
+                        }
                         await Task.Delay(e.RetryAfter).ConfigureAwait(false);
                         Interlocked.Increment(ref states[7]);
 
@@ -829,36 +836,14 @@ public class ProxyWorker
                     Interlocked.Increment(ref states[3]);
                     try
                     {
-                        requestState = "Make Backend Request";
-
                         // ASYNC: Calculate the timeout, start async worker
-                        double rTimeout = request.Timeout;
-                        CancellationTokenSource cts;
                         asyncExpelInProgress = false;
-                        // determine if request will run async or sync
-                        if (request.runAsync && request.asyncWorker is null)
-                        {
-                            rTimeout = _options.AsyncTimeout;
+                        requestState = "Make Backend Request";
+                        
+                        var (workerCts, rTimeout) = await SetupAsyncWorkerAndTimeout(request);
+                        CancellationTokenSource cts = workerCts;
 
-                            // adjust for time spent in the queue
-                            var timeLeft = _options.AsyncTriggerTimeout - (int)(DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds;
-                            timeLeft = Math.Max(1, timeLeft);   // either 1ms or whatever is left of the timeout
-
-                            request.asyncWorker = _asyncWorkerFactory.CreateAsync(request, timeLeft);
-                            _ = request.asyncWorker.StartAsync();   // don't await this, let it run in parallel
-
-                            // AsyncExcelSource  - this will get a cancel if there shutdown is triggered.
-                            AsyncExpelSource = new CancellationTokenSource(TimeSpan.FromMilliseconds(rTimeout));
-                            cts = AsyncExpelSource;
-                        }
-                        else
-                        {
-                            AsyncExpelSource = null;
-                            cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(rTimeout));
-                        }
-
-                        // SEND THE REQUEST TO THE BACKEND USING THE APROPRIATE TIMEOUT
-                        //using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(rTimeout));
+                        // SEND THE REQUEST TO THE BACKEND USING THE APROPRIATE TIMEOUT.  CTS is only used here.
                         using var proxyResponse = await _options.Client!.SendAsync(
                             proxyRequest, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
 
@@ -924,16 +909,7 @@ public class ProxyWorker
                             // The request did not succeed, try the next host
                             continue;
                         }
-
-                        host.AddPxLatency((responseDate - ProxyStartDate).TotalMilliseconds);
-                        bodyBytes = [];
-
-                        //Interlocked.Increment(ref states[4]);
-                        // Read the response
-                        //await GetProxyResponseAsync(proxyResponse, request, pr).ConfigureAwait(false);
-                        //Interlocked.Decrement(ref states[4]);
-
-                        if ((int)proxyResponse.StatusCode == 429 && proxyResponse.Headers.TryGetValues("S7PREQUEUE", out var values))
+                        else if (intCode == 429 && proxyResponse.Headers.TryGetValues("S7PREQUEUE", out var values))
                         {
                             // Requeue the request if the response is a 429 and the S7PREQUEUE header is set
                             // It's possible that the next host processes this request successfully, in which case these will get ignored
@@ -957,6 +933,8 @@ public class ProxyWorker
                             request.SkipDispose = false;
                         }
 
+                        host.AddPxLatency((responseDate - ProxyStartDate).TotalMilliseconds);
+                        bodyBytes = [];
                         // copy headers from the response to the ProxyData object
                         CopyResponseHeaders(proxyResponse, pr);
 
@@ -1267,6 +1245,32 @@ public class ProxyWorker
         };
     }
 
+    private async Task<(CancellationTokenSource, double)> SetupAsyncWorkerAndTimeout(RequestData request)
+    {
+        double timeout = request.Timeout;
+        CancellationTokenSource cts;
+
+        if (request.runAsync)
+        {
+            timeout = _options.AsyncTimeout;
+            if (request.asyncWorker is null)
+            {
+                var timeLeft = _options.AsyncTriggerTimeout - (int)(DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds;
+                timeLeft = Math.Max(1, timeLeft);
+                request.asyncWorker = _asyncWorkerFactory.CreateAsync(request, timeLeft);
+                _ = request.asyncWorker.StartAsync();
+            }
+            AsyncExpelSource = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeout));
+            cts = AsyncExpelSource;
+        }
+        else
+        {
+            AsyncExpelSource = null;
+            cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeout));
+        }
+
+        return (cts, timeout);
+    }
     private string GetProcessorName(HttpResponseMessage proxyResponse)
     {
         if ((int)proxyResponse.StatusCode == 200 && proxyResponse.Headers.TryGetValues("TOKENPROCESSOR", out var processorValues))
