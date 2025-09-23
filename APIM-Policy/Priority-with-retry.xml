@@ -66,12 +66,12 @@
             // Create a JObject for priority configuration
             JObject cfg = new JObject();
             cfg["1"] = new JObject {
-                { "retryCount", 50 },
-                { "requeue", false }
+                { "retryCount", 12 },
+                { "requeue", true }
             };
             cfg["2"] = new JObject {
-                { "retryCount", 5 },
-                { "requeue", true }
+                { "retryCount", 9 },
+                { "requeue", false }
             };
             cfg["3"] = new JObject {
                 { "retryCount", 1 },
@@ -131,21 +131,23 @@
             int requestPriority = (int)context.Variables["RequestPriority"];
             JArray priorityBackendIndxs = (JArray)context.Variables["PriBackendIndxs"];
             JArray backends = context.Variables.GetValueOrDefault<JArray>("listBackends", new JArray());
+            var retryCount = context.Variables.GetValueOrDefault<int>("RetryCount", -1);
+
             string backendLog = "BACKENDS: ";
 
             foreach (int i in priorityBackendIndxs) {
                 JObject backend = (JObject)backends[i];
-                backendLog += "  index=" + i + "  isThrottling=" + backend.Value<bool>("isThrottling") +
+                backendLog += "  index=" + i + " RetryCount: " + retryCount + "  isThrottling=" + backend.Value<bool>("isThrottling") +
                    " retryAfter=" + backend.Value<DateTime>("retryAfter").ToString("yyyy-MM-ddTHH:mm:ssZ");
             }
 
-            backendLog += " REQUEST PRIORITY: " + requestPriority +
-                    "  REQUEST-HEADERS: " +   string.Join(", ",
-                    context.Request.Headers
-                        .Where(h => !string.Equals(h.Key, "api-key", StringComparison.OrdinalIgnoreCase) &&
-                                    !string.Equals(h.Key, "Authorization", StringComparison.OrdinalIgnoreCase))
-                        .Select(h => $"{h.Key}: {string.Join(", ", h.Value)}")
-                );
+            //backendLog += " REQUEST PRIORITY: " + requestPriority +
+            //        "  REQUEST-HEADERS: " +   string.Join(", ",
+            //        context.Request.Headers
+            //            .Where(h => !string.Equals(h.Key, "api-key", StringComparison.OrdinalIgnoreCase) &&
+            //                        !string.Equals(h.Key, "Authorization", StringComparison.OrdinalIgnoreCase))
+            //            .Select(h => $"{h.Key}: {string.Join(", ", h.Value)}")
+            //    );
             return backendLog;
 
         }" />
@@ -154,7 +156,7 @@
 	</inbound>
 	<!-- Control if and how the requests are forwarded to services  -->
 	<backend>
-		<retry condition="@(context.Variables.GetValueOrDefault<bool>("ShouldRetry", true))" count="@(context.Variables.GetValueOrDefault<int>("RetryCount", 50))" interval="1" delta="1">
+        <retry condition="@(context.Variables.GetValueOrDefault<bool>("ShouldRetry", true))" count="@(context.Variables.GetValueOrDefault<int>("RetryCount", 20) )" interval="1" delta="1">
 			<!-- Before picking the backend, let's verify if there is any that should be set to not throttling anymore -->
 			<set-variable name="listBackends" value="@{
                 JArray backends = (JArray)context.Variables["listBackends"];
@@ -316,8 +318,8 @@
 
 					<set-variable name="backendLog" value="@{
                         string backendLog = context.Variables.GetValueOrDefault<string>("backendLog", "");
-                        backendLog += "  HEADERS: Now=" + DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") +
-                            " - " + string.Join(", ", context.Response.Headers.Select(h => $"{h.Key}: {string.Join(", ", h.Value)}"));
+                        //backendLog += "  HEADERS: Now=" + DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") +
+                        //    " - " + string.Join(", ", context.Response.Headers.Select(h => $"{h.Key}: {string.Join(", ", h.Value)}"));
                         return backendLog;
                     }" />
 				</when>
@@ -381,7 +383,7 @@
 
                                 if (int.TryParse(headerValue, out int parsedValue) && parsedValue > 0)
                                 {
-                                    retryAfterSeconds = parsedValue;
+                                    retryAfterSeconds = parsedValue + 2;
                                     break;
                                 }
                             }
@@ -414,12 +416,13 @@
                 return count;
             }" />
 			<set-variable name="ShouldRetry" value="@{
-                var isTempError = context.Variables.GetValueOrDefault<bool>("isTempError", true);
-                var retryCount = context.Variables.GetValueOrDefault<int>("RetryCount", 0);
-                var count = context.Variables.GetValueOrDefault<int>("unThrottledBackends", 0);
-
-                return isTempError && count > 0 && retryCount > 0;
+                var isPermError = context.Variables.GetValueOrDefault<bool>("isPermError", false);
+                var retryCount = context.Variables.GetValueOrDefault<int>("RetryCount", -1);
+ 
+                return !isPermError && retryCount >= 0;
             }" />
+
+<!--
 			<set-variable name="ShouldRequeueNow" value="@{
                 var ShouldRequeue = context.Variables.GetValueOrDefault<bool>("ShouldRequeue", true);
                 var isTempError     = context.Variables.GetValueOrDefault<bool>("isTempError", true);
@@ -428,12 +431,33 @@
 
                 return ShouldRequeue && (backendIndex == -1 || (isTempError && count == 0));
             }" />
+-->
+			<set-variable name="ShouldRequeueNow" value="@{
+                var ShouldRetry = context.Variables.GetValueOrDefault<bool>("ShouldRetry", true);
+                var ShouldRequeue = context.Variables.GetValueOrDefault<bool>("ShouldRequeue", true);
 
+                return ShouldRequeue && !ShouldRetry;
+            }" />
+
+            <set-variable name="backendLog" value="@{
+                var ShouldRetry = context.Variables.GetValueOrDefault<bool>("ShouldRetry", true);
+                var ShouldRequeueNow = context.Variables.GetValueOrDefault<bool>("ShouldRequeueNow", true);
+                var isTempError = context.Variables.GetValueOrDefault<bool>("isTempError", true);
+                var isPermError = context.Variables.GetValueOrDefault<bool>("isPermError", false);
+                var retryCount = context.Variables.GetValueOrDefault<int>("RetryCount", -1);
+                var count = context.Variables.GetValueOrDefault<int>("unThrottledBackends", 0);
+ 
+                string backendLog = context.Variables.GetValueOrDefault<string>("backendLog", "");
+                backendLog += "  SUMMARY:--  SHOULD RETRY: " + ShouldRetry + "  SHOULD REQUEUE: " + ShouldRequeueNow +
+                     "  isTempError: " + isTempError + "  isPermError: " + isPermError + "  RetryCount: " + retryCount + "  UnthrottledBackends: " + count +
+                              "  --:END   ";
+                return backendLog;
+            }" />
             <!-- Determine if next action is retry, requeue, or return response -->
 			<choose>
 
                 <!-- If we got a 200, skip the retry and return the response -->
-                <when condition="@(context.Response != null && context.Response.StatusCode == 200)">
+                <when condition="@((bool)context.Variables["callCompleted"] && context.Response != null && context.Response.StatusCode == 200)">
                     <set-variable name="ShouldRetry" value="@(false)" />
                 </when>
 
@@ -479,9 +503,9 @@
                         <set-header name="X-Backend-Attempts" exists-action="override">
                             <value>@(context.Variables.GetValueOrDefault<int>("backendCallCounter", 0).ToString())</value>
                         </set-header>
-                        <!-- <set-header name="backendLog" exists-action="override">
-							<value>@((string)context.Variables.GetValueOrDefault("backendLog", ""))</value>
-						</set-header> -->
+                        <set-header name="backendLog" exists-action="override">
+                            <value>@((string)context.Variables.GetValueOrDefault("backendLog", ""))</value>
+                        </set-header>
 					</return-response>
 				</when>
 
@@ -499,7 +523,7 @@
                 </when>
 
                 <!-- If we exhausted all retries, return a 412 -->
-                <when condition="@(context.Variables.GetValueOrDefault<int>("RetryCount") <= 0)">
+                <when condition="@(context.Variables.GetValueOrDefault<int>("RetryCount") < 0)">
                     <return-response>
                         <set-status code="412" reason="Retry Count Exhausted" />
                         <set-header name="X-Backend-Attempts" exists-action="override">
@@ -510,6 +534,14 @@
                         </set-header>
                     </return-response>
                 </when>
+                <otherwise>
+                    <set-variable name="backendLog" value="@{
+                        string backendLog = context.Variables.GetValueOrDefault<string>("backendLog", "");
+                        backendLog += "  Retrying... Now=" + DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
+                        return backendLog;
+                    }" />
+                    <!-- Continue retrying -->
+                </otherwise>
 			</choose>
 		</retry>
 	</backend>
@@ -517,7 +549,7 @@
 	<outbound>
 		<base />
         <set-header name="TOKENPROCESSOR" exists-action="override">
-            <value>OpenAI</value>
+            <value>MultiLineAllUsage</value>
         </set-header>
         <set-header name="x-backend-affinity" exists-action="override">
             <value>@(((JObject)context.Variables["selectedBackend"]).Value<string>("affinity"))</value>
@@ -525,9 +557,9 @@
         <set-header name="X-Backend-Attempts" exists-action="override">
             <value>@(context.Variables.GetValueOrDefault<int>("backendCallCounter", 0).ToString())</value>
         </set-header>
-		<!-- <set-header name="backendLog" exists-action="override">
-			<value>@((string)context.Variables.GetValueOrDefault("backendLog", ""))</value>
-		</set-header> -->
+        <set-header name="backendLog" exists-action="override">
+            <value>@((string)context.Variables.GetValueOrDefault("backendLog", ""))</value>
+        </set-header>
 		<!-- <include-fragment fragment-id="LogResponseFragment" /> -->
 	</outbound>
 	<!-- Handle exceptions and customize error responses  -->
