@@ -97,7 +97,8 @@ public class Program
 
                 startupLogger.LogWarning("Async mode is enabled. Initializing ServiceBusRequestService and AsyncWorker.");
                 var serviceBusRequestService = serviceProvider.GetRequiredService<IServiceBusRequestService>();
-                RequestData.InitializeServiceBusRequestService(serviceBusRequestService);
+                var backupAPIService = serviceProvider.GetRequiredService<IBackupAPIService>();
+                RequestData.InitializeServiceBusRequestService(serviceBusRequestService, backupAPIService);
 
                 //_ = serviceBusService.StartAsync(CancellationToken.None);
 
@@ -216,6 +217,8 @@ public class Program
         services.AddSingleton<IConcurrentPriQueue<RequestData>, ConcurrentPriQueue<RequestData>>();
         //services.AddSingleton<ProxyStreamWriter>();
         services.AddSingleton<IBackendHostHealthCollection, BackendHostHealthCollection>();
+        // services.AddSingleton<IBackgroundWorker, BackgroundWorker>();
+
         services.AddHostedService<Server>(provider => provider.GetRequiredService<Server>());
 
         // ASYNC RELATED
@@ -231,6 +234,10 @@ public class Program
         services.AddHostedService(sp => (BackupAPIService)sp.GetRequiredService<IBackupAPIService>());
 
         services.AddSingleton<IAsyncFeeder, AsyncFeeder>();
+        services.AddSingleton<NormalRequest>();
+        services.AddSingleton<OpenAIBackgroundRequest>();
+        // services.AddSingleton<IRequestProcessor, NormalRequest>();
+
         services.AddHostedService(sp => (AsyncFeeder)sp.GetRequiredService<IAsyncFeeder>());
 
         services.AddHostedService<ProxyWorkerCollection>();
