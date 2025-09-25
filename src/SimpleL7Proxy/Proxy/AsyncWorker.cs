@@ -15,7 +15,7 @@ using SimpleL7Proxy.Events;
 using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.ServiceBus;
 using Shared.RequestAPI.Models;
-using SimpleL7Proxy.BackupAPI;
+// using SimpleL7Proxy.BackupAPI;
 
 using System.Data.Common;
 
@@ -36,17 +36,15 @@ namespace SimpleL7Proxy.Proxy
         private string _dataBlobUri { get; set; } = "";
         private Stream? _hos { get; set; } = null!;
         private string _userId { get; set; } = "";
-
         private readonly IBlobWriter _blobWriter;
         private readonly ILogger<AsyncWorker> _logger;
         private readonly IRequestDataBackupService _requestBackupService;
-        private readonly IBackupAPIService _backupAPIService;
+        // private readonly IBackupAPIService _backupAPIService;
         public  bool ShouldReprocess { get; set; } = false; 
         public string ErrorMessage { get; set; } = "";
         string dataBlobName = "";
         string headerBlobName = "";
         private int AsyncTimeout;
-        private RequestAPIDocument? _requestAPIDocument; 
         private static readonly JsonSerializerOptions SerializeOptions = new()
         {
             WriteIndented = true,
@@ -61,13 +59,13 @@ namespace SimpleL7Proxy.Proxy
         /// <param name="data">The request data.</param>
         /// <param name="blobWriter">The blob writer instance.</param>
         /// <param name="logger">The logger instance.</param>
-        public AsyncWorker(RequestData data, int AsyncTriggerTimeout, IBlobWriter blobWriter, ILogger<AsyncWorker> logger, IRequestDataBackupService requestBackupService, IBackupAPIService backupAPIService)
+        public AsyncWorker(RequestData data, int AsyncTriggerTimeout, IBlobWriter blobWriter, ILogger<AsyncWorker> logger, IRequestDataBackupService requestBackupService)//, IBackupAPIService backupAPIService)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _requestData = data ?? throw new ArgumentNullException(nameof(data));
             _blobWriter = blobWriter ?? throw new ArgumentNullException(nameof(blobWriter));
             _requestBackupService = requestBackupService ?? throw new ArgumentNullException(nameof(requestBackupService));
-            _backupAPIService = backupAPIService ?? throw new ArgumentNullException(nameof(backupAPIService));
+            // _backupAPIService = backupAPIService ?? throw new ArgumentNullException(nameof(backupAPIService));
             _userId = data.profileUserId;
             AsyncTimeout = AsyncTriggerTimeout;
 
@@ -112,7 +110,7 @@ namespace SimpleL7Proxy.Proxy
         // Sets status as ReProcessing instead of AsyncProcessing
         // Creates new blobs rather than using existing ones
 
-        public async Task RestoreAsync()
+        public async Task RestoreAsync(bool isBackground = false)
         {
             _beginStartup = 1; // mark as started
 
@@ -120,11 +118,15 @@ namespace SimpleL7Proxy.Proxy
             var operation = "Re-Initialize";
             try
             {
-                _requestAPIDocument = RequestDataConverter.ToRequestAPIDocument(_requestData);
-                _requestAPIDocument.status = RequestAPIStatusEnum.ReProcessing;
+                // _requestAPIDocument = RequestDataConverter.ToRequestAPIDocument(_requestData);
 
                 await InitializeAsync().ConfigureAwait(false);
                 dataBlobName = _requestData.Guid.ToString();
+                if (isBackground)
+                {
+                    dataBlobName += "-BackgroundResponse";
+                }
+
                 headerBlobName = dataBlobName + "-Headers";
 
                 operation = "Re-Create Blobs ";
@@ -136,7 +138,8 @@ namespace SimpleL7Proxy.Proxy
                 _requestData.OutputStream = new BufferedStream(dataStream);
                 _hos = headerStream;
 
-                _backupAPIService.UpdateStatus(_requestAPIDocument);
+                _requestData.RequestAPIStatus = RequestAPIStatusEnum.ReProcessing;
+                //_backupAPIService.UpdateStatus(_requestAPIDocument);
             }
             catch (BlobWriterException blobEx)
             {
@@ -204,8 +207,7 @@ namespace SimpleL7Proxy.Proxy
                     var operation = "Initialize";
                     try
                     {
-                        _requestAPIDocument = RequestDataConverter.ToRequestAPIDocument(_requestData);
-                        _backupAPIService.UpdateStatus(_requestAPIDocument);
+                        _requestData.RequestAPIStatus = RequestAPIStatusEnum.New;
 
                         await InitializeAsync().ConfigureAwait(false);
                         dataBlobName = _requestData.Guid.ToString();
@@ -495,7 +497,7 @@ namespace SimpleL7Proxy.Proxy
 
             if (!_requestData.AsyncTriggered)
             {
-                await DisposeAsync(false).ConfigureAwait(false);
+                await DisposeAsync().ConfigureAwait(false);
 
                 return false; // Worker failed to start
             }
@@ -522,39 +524,35 @@ namespace SimpleL7Proxy.Proxy
 
             }
 
-            if (_requestAPIDocument != null)
-            {
-                // should be always happening
-                _requestAPIDocument.status = RequestAPIStatusEnum.NeedsReprocessing;
-                _backupAPIService.UpdateStatus(_requestAPIDocument);
-            }
-            else
-            {
-                // unlikely to occur
-                _logger.LogError("Worker was started but no RequestAPIDocument was found to update.");
-            }
+            // should be always happening
+            _requestData.RequestAPIStatus = RequestAPIStatusEnum.NeedsReprocessing;
+            //     // _backupAPIService.UpdateStatus(_requestAPIDocument);
+            // }
+            // else
+            // {
+            //     // unlikely to occur
+            //     _logger.LogError("Worker was started but no RequestAPIDocument was found to update.");
+            // }
 
             await UpdateBackup();            
-            await DisposeAsync(false).ConfigureAwait(false);
+            await DisposeAsync().ConfigureAwait(false);
         }
 
-        public async ValueTask DisposeAsync() => await DisposeAsync(false).ConfigureAwait(false);
-
-        public async ValueTask DisposeAsync(bool sendCompletedStatus)
+        public async ValueTask DisposeAsync()
         {
 
-            if (_requestAPIDocument != null && sendCompletedStatus)
-            {
-                _requestAPIDocument.status = RequestAPIStatusEnum.Completed;
-                _backupAPIService.UpdateStatus(_requestAPIDocument);
-            }
+            // if (_requestAPIDocument != null && sendCompletedStatus)
+            // {
+            //     _requestAPIDocument.status = RequestAPIStatusEnum.Completed;
+            //     _backupAPIService.UpdateStatus(_requestAPIDocument);
+            // }
 
 
             // remove backup
-            if (!ShouldReprocess) {
-                _logger.LogCritical($"AsyncWorker: Deleting backup for blob {_requestData.Guid}");
-                await _blobWriter.DeleteBlobAsync(Constants.Server, _requestData.Guid.ToString()).ConfigureAwait(false);
-            }
+            // if (!ShouldReprocess) {
+            //     _logger.LogCritical($"AsyncWorker: Deleting backup for blob {_requestData.Guid}");
+            //     await _blobWriter.DeleteBlobAsync(Constants.Server, _requestData.Guid.ToString()).ConfigureAwait(false);
+            // }
 
             // Dispose managed resources
             await ResetStreamAsync().ConfigureAwait(false);
