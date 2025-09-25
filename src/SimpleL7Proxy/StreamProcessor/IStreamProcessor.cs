@@ -16,11 +16,14 @@ namespace SimpleL7Proxy.StreamProcessor
         /// <param name="cancellationToken">The cancellation token to cancel the operation.</param>
         /// <returns>A task representing the asynchronous copy operation.</returns>
         Task CopyToAsync(System.Net.Http.HttpContent sourceStream, Stream outputStream);
-        
+
         /// <summary>
         /// Gets statistics about the stream processing operation.
         /// </summary>
         /// <returns>A dictionary containing processing statistics.</returns>
         void GetStats(ProxyEvent eventData, HttpResponseHeaders headers);
+
+        // Partial method to indicate if the request is running in background mode
+        string BackgroundRequestId { get; }
     }
 }
