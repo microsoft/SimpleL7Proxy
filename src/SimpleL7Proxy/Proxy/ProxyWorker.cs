@@ -39,7 +39,6 @@ public class ProxyWorker
     private static IConcurrentPriQueue<RequestData>? _requestsQueue;
     private readonly IBackendService _backends;
     private readonly BackendOptions _options;
-    private readonly IBackgroundWorker _backgroundWorker;
     private readonly TelemetryClient? _telemetryClient;
     private readonly IEventClient _eventClient;
     private readonly IAsyncWorkerFactory _asyncWorkerFactory; // Just inject the factory
@@ -85,7 +84,6 @@ public class ProxyWorker
         TelemetryClient? telemetryClient,
         IAsyncWorkerFactory asyncWorkerFactory,
         ILogger<ProxyWorker> logger,
-        IBackgroundWorker backgroundWorker,
         //ProxyStreamWriter proxyStreamWriter,
         CancellationToken cancellationToken)
     {
@@ -105,7 +103,6 @@ public class ProxyWorker
         if (_options.Client == null) throw new ArgumentNullException(nameof(_options.Client));
         IDstr = ID.ToString();
         PreferredPriority = priority;
-        _backgroundWorker = backgroundWorker; 
 
     }
 
@@ -1074,8 +1071,6 @@ public class ProxyWorker
                                     request.IsBackground = true;
                                     request.BackgroundRequestId = reqID;
                                     request.RequestAPIStatus = RequestAPIStatusEnum.BackgroundProcessing;
-
-                                    // _backgroundWorker.CreateBackgroundRequest(request, reqID);
                                 }
                                 else
                                 {
