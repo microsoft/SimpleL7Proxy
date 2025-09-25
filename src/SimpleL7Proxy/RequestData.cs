@@ -7,19 +7,24 @@ using SimpleL7Proxy.ServiceBus;
 using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Events;
+using SimpleL7Proxy.BackupAPI;
+using SimpleL7Proxy.DTO;
+using Shared.RequestAPI.Models;
+using SimpleL7Proxy.Feeder;
+
 
 // Review DISPOSAL_ARCHITECTURE.MD in the root for details on disposal flow
 // This class represents the request received from the upstream client.
-public class RequestData : IDisposable, IAsyncDisposable
+public class RequestData : IDisposable, IAsyncDisposable  
 {
     // Static variable to hold the IServiceBusRequestService instance
     public static IServiceBusRequestService? SBRequestService { get; private set; }
-
+    public static IBackupAPIService? BackupAPIService { get; private set; }
 
     private ServiceBusMessageStatusEnum _sbStatus = ServiceBusMessageStatusEnum.None;
     public AsyncWorker? asyncWorker { get; set; } = null;
     public bool AsyncTriggered { get; set; } = false;
-    public bool AsyncHyderated { get; set; } = false;
+    public bool AsyncHydrated { get; set; } = false;
     public bool Debug { get; set; }
     public bool runAsync { get; set; } = false;
     public bool SkipDispose { get; set; } = false;
@@ -44,15 +49,55 @@ public class RequestData : IDisposable, IAsyncDisposable
     public string ExpireReason { get; set; } = "";
     public string ExpiresAtString { get; set; } = "";
     public string FullURL { get; set; }
-    public string Method { get; private set; }
+    public string Method { get; set; }
     public string MID { get; set; } = "";
     public string ParentId { get; set; } = "";
-    public string Path { get; private set; }
+    public string Path { get; set; }
     public bool Requeued { get; set; } = false;
     public string SBTopicName { get; set; } = "";
     public string UserID { get; set; } = "";
     public string profileUserId { get; set; } = "";
     public WebHeaderCollection Headers { get; private set; }
+
+    private string _backgroundRequestId = "";
+    public string BackgroundRequestId
+    {
+        get => _backgroundRequestId;
+        set {
+            _backgroundRequestId = value;
+            _requestAPIDocument ??= RequestDataConverter.ToRequestAPIDocument(this);
+            _requestAPIDocument.backgroundRequestId = value;
+
+        }
+    }
+
+    private bool _isBackground = false;
+    public bool IsBackground
+    {
+        get => _isBackground;
+        set
+        {
+            _isBackground = value;
+            _requestAPIDocument ??= RequestDataConverter.ToRequestAPIDocument(this);
+            _requestAPIDocument.isBackground = value;
+        }
+    }
+
+    public RequestAPIDocument? _requestAPIDocument; // For tracking async and background status updates
+    public RequestAPIStatusEnum RequestAPIStatus
+    {
+        get => _requestAPIDocument?.status ?? RequestAPIStatusEnum.New;
+        set
+        {
+            _requestAPIDocument ??= RequestDataConverter.ToRequestAPIDocument(this);
+
+            if (_requestAPIDocument != null)
+            {
+                _requestAPIDocument.status = value;
+                BackupAPIService.UpdateStatus(_requestAPIDocument);
+            }
+        }
+    }
 
     public ServiceBusMessageStatusEnum SBStatus
     {
@@ -66,13 +111,14 @@ public class RequestData : IDisposable, IAsyncDisposable
             }
         }
     }
+
+    public IRequestProcessor? RecoveryProcessor { get; set; } = null;
+
     // Method to initialize the static variable from DI
-    public static void InitializeServiceBusRequestService(IServiceBusRequestService serviceBusRequestService)
+    public static void InitializeServiceBusRequestService(IServiceBusRequestService serviceBusRequestService, IBackupAPIService backupAPIService)
     {
-        if (SBRequestService == null)
-        {
-            SBRequestService = serviceBusRequestService;
-        }
+        SBRequestService ??= serviceBusRequestService;
+        BackupAPIService ??= backupAPIService;
     }
 
     public RequestData(string id, Guid guid, string mid, string path, string method, DateTime enqueueTime, Dictionary<string, string> headers)
@@ -90,6 +136,29 @@ public class RequestData : IDisposable, IAsyncDisposable
         Body = null;
         Context = null;
         ExpiresAt = DateTime.MinValue;  // Set it after reading the headers
+        FullURL = "";
+        Debug = false;
+        MID = mid;
+        Guid = guid;
+
+        // restore the headers
+        foreach (var kvp in headers)
+        {
+            Headers[kvp.Key] = kvp.Value;
+        }
+
+        // ASYNC
+        OutputStream = null; // Will be set when processing the request
+    }
+
+    public void Populate(string id, Guid guid, string mid, string path, string method, DateTime enqueueTime, Dictionary<string, string> headers)
+    {
+        Path = path;
+        Timestamp = enqueueTime;
+        EnqueueTime = enqueueTime;
+        Method = method;
+        Headers = new WebHeaderCollection();
+        Context = null;
         FullURL = "";
         Debug = false;
         MID = mid;
@@ -334,7 +403,7 @@ public class RequestData : IDisposable, IAsyncDisposable
         {
             try
             {
-                await asyncWorker.DisposeAsync(true).ConfigureAwait(false);
+                await asyncWorker.DisposeAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
             {
