@@ -105,31 +105,56 @@ namespace SimpleL7Proxy.DTO
             return JsonSerializer.Deserialize<RequestDataDtoV1>(json);
         }
 
-        public RequestData toRequestData()
+        // public RequestData toRequestData()
+        // {
+        //     var requestData = new RequestData(Guid.ToString(), Guid, MID, Path, Method, Timestamp, Headers)
+        //     {
+        //         AsyncBlobAccessTimeoutSecs = this.AsyncBlobAccessTimeoutSecs,
+        //         Attempts = Attempts,
+        //         BlobContainerName = BlobContainerName,
+        //         DequeueTime = DequeueTime,
+        //         EnqueueTime = EnqueueTime,
+        //         ExpiresAt = ExpiresAt,
+        //         FullURL = FullURL,
+        //         incompleteRequests = IncompleteRequests,
+        //         ParentId = ParentId,
+        //         Priority = Priority,
+        //         Priority2 = Priority2,
+        //         profileUserId = this.profileUserId,
+        //         Requeued = Requeued,
+        //         SBTopicName = SBTopicName,
+        //         Timeout = Timeout,
+        //         UserID = UserID
+        //     };
+
+        //     requestData.EventData = this.ProxyEvent.ToProxyEvent();
+
+        //     return requestData;
+        // }
+
+        public void PopulateInto(RequestData data)
         {
-            var requestData = new RequestData(Guid.ToString(), Guid, MID, Path, Method, Timestamp, Headers)
-            {
-                AsyncBlobAccessTimeoutSecs = this.AsyncBlobAccessTimeoutSecs,
-                Attempts = Attempts,
-                BlobContainerName = BlobContainerName,
-                DequeueTime = DequeueTime,
-                EnqueueTime = EnqueueTime,
-                ExpiresAt = ExpiresAt,
-                FullURL = FullURL,
-                incompleteRequests = IncompleteRequests,
-                ParentId = ParentId,
-                Priority = Priority,
-                Priority2 = Priority2,
-                profileUserId = this.profileUserId,
-                Requeued = Requeued,
-                SBTopicName = SBTopicName,
-                Timeout = Timeout,
-                UserID = UserID
-            };
 
-            requestData.EventData = this.ProxyEvent.ToProxyEvent();
+            data.Populate(Guid.ToString(), Guid, MID, Path, Method, Timestamp, Headers);
+            data.AsyncBlobAccessTimeoutSecs = this.AsyncBlobAccessTimeoutSecs;
+            data.Attempts = Attempts;
+            data.BlobContainerName = BlobContainerName;
+            data.DequeueTime = DequeueTime;
+            data.EnqueueTime = EnqueueTime;
+            data.ExpiresAt = ExpiresAt;
+            data.FullURL = FullURL;
+            data.incompleteRequests = IncompleteRequests;
+            data.ParentId = ParentId;
+            data.Priority = Priority;
+            data.Priority2 = Priority2;
+            data.profileUserId = this.profileUserId;
+            data.Requeued = Requeued;
+            data.SBTopicName = SBTopicName;
+            data.Timeout = Timeout;
+            data.UserID = UserID;
+            data.EventData = this.ProxyEvent.ToProxyEvent();
 
-            return requestData;
+            return;
         }
 
     }
