@@ -109,6 +109,7 @@ public class DocumentProcessor
                 document.createdAt = document.createdAt ?? DateTime.UtcNow;
                 document.isAsync = document.isAsync ?? false;
                 document.isBackground = document.isBackground ?? false;
+                document.backgroundRequestId = document.backgroundRequestId ?? string.Empty;
                 document.userID = document.userID ?? "system";
                 document.priority1 = document.priority1 ?? 1;
                 document.priority2 = document.priority2 ?? 1;
@@ -136,6 +137,7 @@ public class DocumentProcessor
                 document.createdAt = existingDocument.createdAt; // Preserve original creation time
                 document.isAsync = document.isAsync ?? existingDocument.isAsync;
                 document.isBackground = document.isBackground ?? existingDocument.isBackground;
+                document.backgroundRequestId = document.backgroundRequestId ?? existingDocument.backgroundRequestId;
                 document.userID = document.userID ?? existingDocument.userID;
                 document.priority1 = document.priority1 ?? existingDocument.priority1;
                 document.priority2 = document.priority2 ?? existingDocument.priority2;
