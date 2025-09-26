@@ -63,7 +63,7 @@ public class ProxyWorker
         ["DefaultStream"] = static () => DefaultStreamProcessor, // this one doesn't have any local fields
         ["MultiLineAllUsage"] = static () => new MultiLineAllUsageProcessor()
     };
-    static string[] backendKeys = new[] { "Backend-Host", "Host-URL", "Status", "Duration", "Error", "Message", "Request-Date" };
+    static string[] backendKeys = new[] { "Backend-Host", "Host-URL", "Status", "Duration", "Error", "Message", "Request-Date", "backendLog" };
 
     private static int[] states = [0, 0, 0, 0, 0, 0, 0, 0];
 
@@ -245,7 +245,7 @@ public class ProxyWorker
 
                     try
                     {
-                        pr = await ProxyToBackEndAsync(incomingRequest, eventData).ConfigureAwait(false);
+                        pr = await ProxyToBackEndAsync(incomingRequest).ConfigureAwait(false);
                     }
                     finally
                     {
@@ -600,6 +600,7 @@ public class ProxyWorker
                             ["Message"] = e.Message,
                             ["StackTrace"] = e.StackTrace ?? "No Stack Trace"
                         };
+                        errorEvent.SendEvent();
                         _logger.LogError($"Error in finally: {e.Message}");
                     }
 
@@ -709,7 +710,7 @@ public class ProxyWorker
 
     }
 
-    public async Task<ProxyData> ProxyToBackEndAsync(RequestData request, ProxyEvent eventData)
+    public async Task<ProxyData> ProxyToBackEndAsync(RequestData request)
     {
         if (request == null) throw new ArgumentNullException(nameof(request), "Request cannot be null.");
         if (request.Body == null) throw new ArgumentNullException(nameof(request.Body), "Request body cannot be null.");
@@ -792,7 +793,8 @@ public class ProxyWorker
                 if (request.ExpiresAt < DateTimeOffset.UtcNow)
                 {
                     string errorMessage = $"Request has expired: Time: {DateTime.Now}  Reason: {request.ExpireReason}";
-                    requestSummary.Type = EventType.ProxyRequestExpired;
+                    // requestSummary.Type = EventType.ProxyRequestExpired;
+                    requestSummary["Disposition"] = "Expired";
                     request.SkipDispose = false;
                     throw new ProxyErrorException(ProxyErrorException.ErrorType.TTLExpired,
                                                 HttpStatusCode.PreconditionFailed,
@@ -861,6 +863,7 @@ public class ProxyWorker
                     }
 
                     // Send the request and get the response
+                    bool wasSuccess = false;
                     ProxyStartDate = DateTime.UtcNow;
                     Interlocked.Increment(ref states[3]);
                     try
@@ -922,7 +925,7 @@ public class ProxyWorker
                             {
                                 if (excluded.Contains(header.Key)) continue;
                                 requestAttempt[header.Key] = string.Join(", ", header.Value);
-                                Console.WriteLine($"  {header.Key}: {requestAttempt[header.Key]}");
+                                //Console.WriteLine($"  {header.Key}: {requestAttempt[header.Key]}");
                             }
 
                             if (request.Debug)
@@ -949,6 +952,13 @@ public class ProxyWorker
                         }
                         else if (intCode == 429 && proxyResponse.Headers.TryGetValues("S7PREQUEUE", out var values))
                         {
+                            foreach (var header in proxyResponse.Headers)
+                            {
+                                if (excluded.Contains(header.Key)) continue;
+                                requestAttempt[header.Key] = string.Join(", ", header.Value);
+                                // Console.WriteLine($"  {header.Key}: {requestAttempt[header.Key]}");
+                            }
+
                             // Requeue the request if the response is a 429 and the S7PREQUEUE header is set
                             // It's possible that the next host processes this request successfully, in which case these will get ignored
                             var s7PrequeueValue = values.FirstOrDefault();
@@ -956,11 +966,18 @@ public class ProxyWorker
                             if (s7PrequeueValue != null && string.Equals(s7PrequeueValue, "true", StringComparison.OrdinalIgnoreCase))
                             {
                                 // we're keep track of the retry after values for later.
-                                proxyResponse.Headers.TryGetValues("retry-after-ms", out var retryAfterValues);
+                                proxyResponse.Headers.TryGetValues("retry-after-ms", out var retryAfterValuesMS);
+                                if (retryAfterValuesMS != null && int.TryParse(retryAfterValuesMS.FirstOrDefault(), out var retryAfterValueMS))
+                                {
+                                    throw new S7PRequeueException("Requeue request", pr, retryAfterValueMS);
+                                }
+
+                                proxyResponse.Headers.TryGetValues("retry-after", out var retryAfterValues);
                                 if (retryAfterValues != null && int.TryParse(retryAfterValues.FirstOrDefault(), out var retryAfterValue))
                                 {
-                                    throw new S7PRequeueException("Requeue request", pr, retryAfterValue);
+                                    throw new S7PRequeueException("Requeue request", pr, retryAfterValue * 1000);
                                 }
+
 
                                 throw new S7PRequeueException("Requeue request", pr, 1000);
                             }
@@ -969,10 +986,11 @@ public class ProxyWorker
                         {
                             // request was successful, so we can disable the skip
                             request.SkipDispose = false;
+                            wasSuccess = true;
+                            bodyBytes = [];
                         }
 
                         host.AddPxLatency((responseDate - ProxyStartDate).TotalMilliseconds);
-                        bodyBytes = [];
                         // copy headers from the response to the ProxyData object
                         CopyResponseHeaders(proxyResponse, pr);
 
@@ -1074,7 +1092,7 @@ public class ProxyWorker
                                 }
                                 else
                                 {
-                                    processor.GetStats(eventData, proxyResponse.Headers);                                
+                                    processor.GetStats(requestSummary, proxyResponse.Headers);                                
                                 }
                             }
                             catch (Exception statsEx)
