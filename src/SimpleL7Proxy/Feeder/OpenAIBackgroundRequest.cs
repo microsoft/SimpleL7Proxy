@@ -62,7 +62,7 @@ namespace SimpleL7Proxy.Feeder
             request.Path = new Uri(request.FullURL).PathAndQuery;
 
             request.AsyncHydrated = true; // mark it as hydrated from async
-            request.RequestAPIStatus = RequestAPIStatusEnum.PostProcessing;
+            request.Headers.Add("Content-Type", "application/json");
 
 
             // RequestData request = new RequestData(data.guid, data.guid, MID, Path, Method, Timestamp, Headers)
