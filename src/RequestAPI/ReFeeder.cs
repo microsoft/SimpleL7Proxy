@@ -59,18 +59,4 @@ public class ReFeeder
         return output;
     }
 
-    public class OutputData
-    {
-        [CosmosDBOutput(
-            databaseName: "%CosmosDb:DatabaseName%",
-            containerName: "%CosmosDb:ContainerName%",
-            Connection = "CosmosDbConnection",
-            CreateIfNotExists = true)]
-
-        public RequestAPIDocument[] DBMessages { get; set; } = Array.Empty<RequestAPIDocument>();
-
-        [ServiceBusOutput("%SBFeederQueue%", Connection = "ServiceBusConnection")]
-        public RequestAPIDocument[] QMessages { get; set; } = Array.Empty<RequestAPIDocument>();
-
-    }
 }

@@ -25,8 +25,7 @@ public class backgroundReqChecker
     }
 
     [Function("backgroundReqChecker")]
-    [ServiceBusOutput("%SBFeederQueue%", Connection = "ServiceBusConnection")]
-    public RequestAPIDocument[] Run(
+    public OutputData Run(
         [TimerTrigger("0 */1 * * * *")] TimerInfo myTimer,
         [CosmosDBInput(
             databaseName: "%CosmosDb:DatabaseName%",
@@ -44,10 +43,12 @@ public class backgroundReqChecker
         {
             _logger.LogInformation("backgroundReqChecker:   No pending documents found that need processing.");
 
-            return Array.Empty<RequestAPIDocument>(); // Return empty output if no documents to process
+            return new OutputData(); // Return empty output if no documents to process
         }
 
+        OutputData output = new OutputData();
         List<RequestAPIDocument> outputMessages = new List<RequestAPIDocument>();
+        List<RequestAPIDocument> DBOutputMessages = new List<RequestAPIDocument>();
 
         foreach (var document in pendingDocuments)
         {
@@ -56,10 +57,15 @@ public class backgroundReqChecker
 
             // Process the document here or send it to a queue for processing
             outputMessages.Add(document);
+            var document2 = document.DeepCopy();
+            document2.status = RequestAPIStatusEnum.ReSubmitted;
+            DBOutputMessages.Add(document2);
         }
 
-        RequestAPIDocument[] output = outputMessages.ToArray();
-        _logger.LogInformation("ReFeeder:   Retrieved {count} pending documents that need processing", outputMessages.Count);
+        output.QMessages = outputMessages.ToArray();
+        output.DBMessages = DBOutputMessages.ToArray();
+
+        _logger.LogInformation("backgroundReqChecker:   Retrieved {count} pending documents that need processing", outputMessages.Count);
 
         return output;
     }
