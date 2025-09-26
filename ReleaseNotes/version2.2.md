@@ -1,4 +1,16 @@
 # Release Notes #
+## 2.2.7
+
+Policy:
+* Implement session affinity via header: x-backend-affinity
+* Bug fix when backends are throttled
+
+Proxy:
+* Implement background task lookup
+* code refactor async processor to offload work to ProxyWorker
+* Fix logging issues
+* Fix for background requests
+
 ## v2.2.6
 
 API:
