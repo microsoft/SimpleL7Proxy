@@ -183,44 +183,41 @@ namespace SimpleL7Proxy.Feeder
         {
             try
             {
-                
-            RequestData rd = new RequestData(data.id!,
-                                             new Guid(data.guid!),
-                                             data.mid!,
-                                             "empty", // path will be filled in by ProxyWorker
-                                             "empty", // method will be filled in by ProxyWorker
-                                             data.createdAt == null ? DateTime.UtcNow : data.createdAt.Value,
-                                             []);          // headers will be filled in by ProxyWorker
 
-            rd.UserID = data.userID!;
-            rd.Priority = data.priority1 ?? 1;
+                RequestData rd = new RequestData(data.id!,
+                                                 new Guid(data.guid!),
+                                                 data.mid!,
+                                                 "empty",       // path will be filled in by ProxyWorker
+                                                 "empty",       // method will be filled in by ProxyWorker
+                                                 data.createdAt == null ? DateTime.UtcNow : data.createdAt.Value,
+                                                 []);          // headers will be filled in by ProxyWorker
 
-            // re-establish job as an incoming request
-            if (_options.UseProfiles)
-            {
-                _userPriority.addRequest(rd.Guid, rd.UserID);
-                int userPriorityBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue) ? 1 : 0;
-                if (isBackground)
+                rd.UserID = data.userID!;
+                rd.Priority = data.priority1 ?? 1;
+                rd.IsBackground = data.isBackground ?? false;
+                rd.BackgroundRequestId = data.backgroundRequestId ?? string.Empty;
+
+                // re-establish job as an incoming request
+                if (_options.UseProfiles)
                 {
-                    rd.BackgroundRequestId = data.backgroundRequestId!;
-                    rd.IsBackground = true;
+                    _userPriority.addRequest(rd.Guid, rd.UserID);
+                    int userPriorityBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue) ? 1 : 0;
+
+                    _logger.LogInformation("AsyncFeeder: Enqueuing async request with ID: {Id}, MID: {Mid}", rd.Guid, rd.MID);
+
+                    if (!_requestsQueue.Requeue(rd, rd.Priority, userPriorityBoost, rd.EnqueueTime))
+                    {
+                        _logger.LogWarning("AsyncFeeder: Failed to enqueue request with ID: {guid}", rd.Guid);
+                        return null;
+                    }
+
+                    return rd;
                 }
-
-                _logger.LogInformation("AsyncFeeder: Enqueuing async request with ID: {Id}, MID: {Mid}", rd.Guid, rd.MID);
-
-                if (!_requestsQueue.Requeue(rd, rd.Priority, userPriorityBoost, rd.EnqueueTime))
+                else
                 {
-                    _logger.LogWarning("AsyncFeeder: Failed to enqueue request with ID: {guid}", rd.Guid);
+                    _logger.LogError("AsyncFeeder: User profiles are disabled, cannot process async request with ID: {Id}, MID: {Mid}", rd.Guid, rd.MID);
                     return null;
                 }
-
-                return rd;
-            }
-            else
-            {
-                _logger.LogError("AsyncFeeder: User profiles are disabled, cannot process async request with ID: {Id}, MID: {Mid}", rd.Guid, rd.MID);
-                return null;
-            }
             }
             catch (Exception ex)
             {
