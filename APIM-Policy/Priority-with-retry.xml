@@ -127,30 +127,6 @@
                 .GetValue(context.Variables.GetValueOrDefault<int>("RequestPriority", 3).ToString())?
                 .Value<bool>("requeue") ?? true;
         }" />
-		<set-variable name="backendLog" value="@{
-            int requestPriority = (int)context.Variables["RequestPriority"];
-            JArray priorityBackendIndxs = (JArray)context.Variables["PriBackendIndxs"];
-            JArray backends = context.Variables.GetValueOrDefault<JArray>("listBackends", new JArray());
-            var retryCount = context.Variables.GetValueOrDefault<int>("RetryCount", -1);
-
-            string backendLog = "BACKENDS: ";
-
-            foreach (int i in priorityBackendIndxs) {
-                JObject backend = (JObject)backends[i];
-                backendLog += "  index=" + i + " RetryCount: " + retryCount + "  isThrottling=" + backend.Value<bool>("isThrottling") +
-                   " retryAfter=" + backend.Value<DateTime>("retryAfter").ToString("yyyy-MM-ddTHH:mm:ssZ");
-            }
-
-            //backendLog += " REQUEST PRIORITY: " + requestPriority +
-            //        "  REQUEST-HEADERS: " +   string.Join(", ",
-            //        context.Request.Headers
-            //            .Where(h => !string.Equals(h.Key, "api-key", StringComparison.OrdinalIgnoreCase) &&
-            //                        !string.Equals(h.Key, "Authorization", StringComparison.OrdinalIgnoreCase))
-            //            .Select(h => $"{h.Key}: {string.Join(", ", h.Value)}")
-            //    );
-            return backendLog;
-
-        }" />
 		<authentication-managed-identity resource="https://cognitiveservices.azure.com" output-token-variable-name="managed-id-access-token" ignore-error="false" />
         <set-variable name="backendCallCounter" value="@(0)" />
 	</inbound>
@@ -186,8 +162,37 @@
 
                 return backends;
             }" />
-
 			<cache-store-value key="@("listBackends-" + context.Api.Id)" value="@((JArray)context.Variables["listBackends"])" duration="60" />
+
+            <choose>
+                <when condition="@( context.Variables.GetValueOrDefault<int>("backendCallCounter", 0)==0)">
+                    <set-variable name="backendLog" value="@{
+                        int requestPriority = (int)context.Variables["RequestPriority"];
+                        JArray priorityBackendIndxs = (JArray)context.Variables["PriBackendIndxs"];
+                        JArray backends = context.Variables.GetValueOrDefault<JArray>("listBackends", new JArray());
+                        var retryCount = context.Variables.GetValueOrDefault<int>("RetryCount", -1);
+
+                        string backendLog = "BACKENDS: ";
+
+                        foreach (int i in priorityBackendIndxs) {
+                            JObject backend = (JObject)backends[i];
+                            backendLog += "  index=" + i + " RetryCount: " + retryCount + "  isThrottling=" + backend.Value<bool>("isThrottling") +
+                            " retryAfter=" + backend.Value<DateTime>("retryAfter").ToString("yyyy-MM-ddTHH:mm:ssZ");
+                        }
+
+                        //backendLog += " REQUEST PRIORITY: " + requestPriority +
+                        //        "  REQUEST-HEADERS: " +   string.Join(", ",
+                        //        context.Request.Headers
+                        //            .Where(h => !string.Equals(h.Key, "api-key", StringComparison.OrdinalIgnoreCase) &&
+                        //                        !string.Equals(h.Key, "Authorization", StringComparison.OrdinalIgnoreCase))
+                        //            .Select(h => $"{h.Key}: {string.Join(", ", h.Value)}")
+                        //    );
+                        return backendLog;
+
+                    }" />
+                </when>
+            </choose>
+
 			<!-- This is the main logic to pick the backend to be used -->
 			<set-variable name="backendIndex" value="@{
                 // Retrieve the list of backends
@@ -418,8 +423,11 @@
 			<set-variable name="ShouldRetry" value="@{
                 var isPermError = context.Variables.GetValueOrDefault<bool>("isPermError", false);
                 var retryCount = context.Variables.GetValueOrDefault<int>("RetryCount", -1);
- 
-                return !isPermError && retryCount >= 0;
+                var unthrottled = context.Variables.GetValueOrDefault<int>("unThrottledBackends", 0);
+                var ShouldRequeue = context.Variables.GetValueOrDefault<bool>("ShouldRequeue", true);
+                var proxyRequeue = ShouldRequeue && (unthrottled == 0);
+
+                return (!isPermError && retryCount >= 0) && !proxyRequeue;
             }" />
 
 <!--
