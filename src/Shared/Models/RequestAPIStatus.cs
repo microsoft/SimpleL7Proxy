@@ -10,6 +10,5 @@ namespace Shared.RequestAPI.Models
         ReSubmitted,          // 5
         ReProcessing,         // 6
         BackgroundProcessing,  // 7
-        PostProcessing
     }
 }
