@@ -19,17 +19,25 @@ namespace SimpleL7Proxy.DTO
             _blobWriter = blobWriter;
         }
 
-        public async Task<RequestData> RestoreAsync(string blobname)
+        public async Task RestoreIntoAsync(RequestData rdata)
         {
+            string blobname = rdata.Guid.ToString();
+            
             try
             {
-                Console.WriteLine("RequestDataBackupService: Reading blob from " + Constants.Server + " with name " + blobname);
+                // Console.WriteLine("RequestDataBackupService: Reading blob from " + Constants.Server + " with name " + blobname);
                 using Stream stream = await _blobWriter.ReadBlobAsStreamAsync(Constants.Server, blobname);
                 var streamReader = new StreamReader(stream);
                 var json = await streamReader.ReadToEndAsync();
                 var data = RequestDataConverter.DeserializeWithVersionHandling(json);
 
-                var requestData = data?.toRequestData() ?? throw new JsonException("Deserialized RequestDataDtoV1 is null");
+                if (data is null)
+                {
+                    _logger.LogInformation($"Blob {blobname} deserialized to null.");
+                    throw new JsonException("Deserialized RequestDataDtoV1 is null");
+                }
+
+                data.PopulateInto(rdata);
 
                 // read body bytes if present
                 var bodyBlobName = blobname + ".body";
@@ -38,10 +46,10 @@ namespace SimpleL7Proxy.DTO
                     using Stream bodyStream = await _blobWriter.ReadBlobAsStreamAsync(Constants.Server, bodyBlobName);
                     var bodyStreamReader = new StreamReader(bodyStream);
                     var datastr = await bodyStreamReader.ReadToEndAsync();
-                    requestData.setBody(Encoding.UTF8.GetBytes(datastr));
+                    rdata.setBody(Encoding.UTF8.GetBytes(datastr));
                 }
 
-                return requestData;
+                return;
             }
             catch (BlobWriterException)
             {

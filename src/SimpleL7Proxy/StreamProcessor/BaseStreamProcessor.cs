@@ -38,6 +38,7 @@ namespace SimpleL7Proxy.StreamProcessor
     {
         protected bool _disposed = false;
 
+
         /// <summary>
         /// Abstract method that derived classes must implement to handle stream copying logic.
         /// </summary>
@@ -53,6 +54,20 @@ namespace SimpleL7Proxy.StreamProcessor
         /// <param name="eventData">The event data object to populate with statistics.</param>
         /// <param name="headers">The HTTP response headers containing potential statistics.</param>
         public abstract void GetStats(ProxyEvent eventData, HttpResponseHeaders headers);
+
+        private string _backgroundRequestId = string.Empty;
+
+        /// <summary>
+        /// Gets or sets whether the current request is a background request.
+        /// Derived classes can override this property to provide custom background request logic.
+        /// </summary>
+        public virtual bool BackgroundRequest  { get; set; }
+
+        public string BackgroundRequestId
+        {
+            get { return _backgroundRequestId; }
+            set { _backgroundRequestId = value; }
+        }
 
         /// <summary>
         /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.

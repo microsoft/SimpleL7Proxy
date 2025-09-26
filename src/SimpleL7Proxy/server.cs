@@ -343,11 +343,10 @@ public class Server : BackgroundService
                             if (doAsync && bool.TryParse(rd.Headers[_options.AsyncClientRequestHeader], out var asyncEnabled) && asyncEnabled)
                             {
                                 var clientInfo = _userProfile.GetAsyncParams(rd.profileUserId);
-                                rd.runAsync = clientInfo != null;
-
-                                if (rd.runAsync)
+                                if (clientInfo != null)
                                 {
-                                    rd.AsyncBlobAccessTimeoutSecs = clientInfo!.AsyncBlobAccessTimeoutSecs;
+                                    rd.runAsync = true;
+                                    rd.AsyncBlobAccessTimeoutSecs = clientInfo.AsyncBlobAccessTimeoutSecs;
                                     rd.BlobContainerName = clientInfo.ContainerName;
                                     rd.SBTopicName = clientInfo.SBTopicName;
                                     ed["AsyncBlobContainer"] = clientInfo.ContainerName;

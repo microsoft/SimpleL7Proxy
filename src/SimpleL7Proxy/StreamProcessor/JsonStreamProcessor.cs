@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using System.Net.Http.Headers;
 using SimpleL7Proxy.Events;
+using System.Text.RegularExpressions;
 
 /*
  * JSON STREAM PROCESSOR BASE CLASS DOCUMENTATION
@@ -43,7 +44,7 @@ namespace SimpleL7Proxy.StreamProcessor
         protected Dictionary<string, string> data = new();
         protected virtual int MaxLines { get; } = 10; 
         protected virtual int MinLineLength { get; } = 20;
-
+        
         /// <summary>
         /// Implements the common streaming pattern used by JSON-based processors.
         /// </summary>
@@ -111,15 +112,19 @@ namespace SimpleL7Proxy.StreamProcessor
                         // copy from currentIndex to the end into the buffer
                         var validLines = new string[Math.Min(lineCount, MaxLines)];
 
-                        if ( lineCount >= MaxLines) {
-                        Array.Copy(lastLines, currentIndex, validLines, 0, MaxLines - currentIndex);
-                        Array.Copy(lastLines, 0, validLines, MaxLines - currentIndex, currentIndex);
-                        } 
-                        else {
+                        if (lineCount >= MaxLines)
+                        {
+                            Array.Copy(lastLines, currentIndex, validLines, 0, MaxLines - currentIndex);
+                            Array.Copy(lastLines, 0, validLines, MaxLines - currentIndex, currentIndex);
+                        }
+                        else
+                        {
                             Array.Copy(lastLines, 0, validLines, 0, lineCount);
                         }
 
                         string? usageLine = null;
+
+                        var idPattern = @"\s*""id""\s*:\s*""([^""]+)""";
 
                         // Loop through lines starting from most recent, going backwards
                         for (int i = 0; i < validLines.Length; i++)
@@ -129,6 +134,27 @@ namespace SimpleL7Proxy.StreamProcessor
                             {
                                 usageLine = line;
                                 break; // Found the line with usage
+                            }
+                            else
+                            {
+                                BackgroundRequest = false;
+
+                                // Check if this task was accepted as a background task
+                                if (line.Contains(@"""background"": true"))
+                                {
+                                    // Console.WriteLine("This is a background request");
+                                    BackgroundRequest = true;
+                                }
+                                var match = Regex.Match(line, idPattern, RegexOptions.Singleline);
+                                var jsonBlock = String.Empty;
+
+                                if (match.Success)
+                                {
+                                    BackgroundRequestId = match.Groups[1].Value; 
+                                    BackgroundRequest = true;
+                                    
+                                }
+
                             }
                         }
 

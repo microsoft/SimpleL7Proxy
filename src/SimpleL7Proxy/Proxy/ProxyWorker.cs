@@ -16,8 +16,11 @@ using SimpleL7Proxy.User;
 using SimpleL7Proxy.ServiceBus;
 using SimpleL7Proxy.BlobStorage;
 using SimpleL7Proxy.StreamProcessor;
+using Shared.RequestAPI.Models;
 
 namespace SimpleL7Proxy.Proxy;
+
+
 
 // Review DISPOSAL_ARCHITECTURE.MD in the root for details on disposal flow
 
@@ -60,7 +63,7 @@ public class ProxyWorker
         ["DefaultStream"] = static () => DefaultStreamProcessor, // this one doesn't have any local fields
         ["MultiLineAllUsage"] = static () => new MultiLineAllUsageProcessor()
     };
-    static string[] backendKeys = new[] { "Backend-Host", "Host-URL", "Status", "Duration", "Error", "Message", "Request-Date" };
+    static string[] backendKeys = new[] { "Backend-Host", "Host-URL", "Status", "Duration", "Error", "Message", "Request-Date", "backendLog" };
 
     private static int[] states = [0, 0, 0, 0, 0, 0, 0, 0];
 
@@ -100,6 +103,7 @@ public class ProxyWorker
         if (_options.Client == null) throw new ArgumentNullException(nameof(_options.Client));
         IDstr = ID.ToString();
         PreferredPriority = priority;
+
     }
 
     public async Task TaskRunner()
@@ -150,6 +154,12 @@ public class ProxyWorker
                 workerState = "Exit - Get Work";
             }
 
+            if (incomingRequest.RecoveryProcessor != null)
+            {
+                // Call the recovery processor to rehydrate the request from Blob storage
+                await incomingRequest.RecoveryProcessor.HydrateRequestAsync(incomingRequest);
+            }
+
             if (!incomingRequest.Requeued)
             {
                 incomingRequest.DequeueTime = DateTime.UtcNow;
@@ -165,7 +175,7 @@ public class ProxyWorker
 
                 var lcontext = incomingRequest.Context;
 
-                if (!incomingRequest.AsyncHyderated && (lcontext == null || incomingRequest == null))
+                if (!incomingRequest.AsyncHydrated && (lcontext == null || incomingRequest == null))
                 {
                     Interlocked.Decrement(ref states[1]);
                     workerState = "Exit - No Context";
@@ -235,7 +245,7 @@ public class ProxyWorker
 
                     try
                     {
-                        pr = await ProxyToBackEndAsync(incomingRequest, eventData).ConfigureAwait(false);
+                        pr = await ProxyToBackEndAsync(incomingRequest).ConfigureAwait(false);
                     }
                     finally
                     {
@@ -339,6 +349,13 @@ public class ProxyWorker
                     Interlocked.Decrement(ref states[6]);
                     Interlocked.Increment(ref states[7]);
                     workerState = "Cleanup";
+
+                    if (!incomingRequest.IsBackground)
+                    {
+                        incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Completed;
+                        incomingRequest.asyncWorker?.UpdateBackup();
+                    }
+
                 }
                 catch (S7PRequeueException e)
                 {
@@ -351,6 +368,14 @@ public class ProxyWorker
                         incomingRequest.SBStatus = ServiceBusMessageStatusEnum.RetryScheduled;
 
                         Interlocked.Decrement(ref states[7]);
+                        if (AsyncExpelSource != null)
+                        {
+                            await Task.Delay(e.RetryAfter, AsyncExpelSource.Token).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await Task.Delay(e.RetryAfter).ConfigureAwait(false);
+                        }
                         await Task.Delay(e.RetryAfter).ConfigureAwait(false);
                         Interlocked.Increment(ref states[7]);
 
@@ -490,7 +515,7 @@ public class ProxyWorker
                                 _logger.LogError("Context is null in General Exception");
                                 continue;
                             }
-                            
+
                             try
                             {
                                 // _telemetryClient?.TrackException(ex, eventData);
@@ -514,8 +539,8 @@ public class ProxyWorker
                     try
                     {
 
-                        // Don't track the request yet if it was retried.
-                        if (!incomingRequest.Requeued && !asyncExpelInProgress)
+                        // Request is still valid if:  Requeue, async, background.
+                        if (!incomingRequest.Requeued && !asyncExpelInProgress && !incomingRequest.IsBackground)
                         {
 
                             if (workerState != "Cleanup")
@@ -528,6 +553,17 @@ public class ProxyWorker
                             // Track the status of the request for circuit breaker
                             if (lcontext != null)
                                 _backends.TrackStatus((int)lcontext.Response.StatusCode, requestException);
+
+                            // if (incomingRequest.asyncWorker != null)
+                            // {
+                            //     // Dispose the async worker if it exists
+                            //     await incomingRequest.asyncWorker.DisposeAsync().ConfigureAwait(false);
+                            //     incomingRequest.asyncWorker = null;
+                            // }
+
+                            // remove backup
+                            //     _logger.LogCritical($"AsyncWorker: Deleting backup for blob {_requestData.Guid}");
+                            //     await _blobWriter.DeleteBlobAsync(Constants.Server, _requestData.Guid.ToString()).ConfigureAwait(false);
 
                             // if (incomingRequest.AsyncTriggered && incomingRequest.asyncWorker != null)
                             // {
@@ -564,6 +600,7 @@ public class ProxyWorker
                             ["Message"] = e.Message,
                             ["StackTrace"] = e.StackTrace ?? "No Stack Trace"
                         };
+                        errorEvent.SendEvent();
                         _logger.LogError($"Error in finally: {e.Message}");
                     }
 
@@ -673,7 +710,7 @@ public class ProxyWorker
 
     }
 
-    public async Task<ProxyData> ProxyToBackEndAsync(RequestData request, ProxyEvent eventData)
+    public async Task<ProxyData> ProxyToBackEndAsync(RequestData request)
     {
         if (request == null) throw new ArgumentNullException(nameof(request), "Request cannot be null.");
         if (request.Body == null) throw new ArgumentNullException(nameof(request.Body), "Request body cannot be null.");
@@ -756,7 +793,8 @@ public class ProxyWorker
                 if (request.ExpiresAt < DateTimeOffset.UtcNow)
                 {
                     string errorMessage = $"Request has expired: Time: {DateTime.Now}  Reason: {request.ExpireReason}";
-                    requestSummary.Type = EventType.ProxyRequestExpired;
+                    // requestSummary.Type = EventType.ProxyRequestExpired;
+                    requestSummary["Disposition"] = "Expired";
                     request.SkipDispose = false;
                     throw new ProxyErrorException(ProxyErrorException.ErrorType.TTLExpired,
                                                 HttpStatusCode.PreconditionFailed,
@@ -825,43 +863,24 @@ public class ProxyWorker
                     }
 
                     // Send the request and get the response
+                    bool wasSuccess = false;
                     ProxyStartDate = DateTime.UtcNow;
                     Interlocked.Increment(ref states[3]);
                     try
                     {
+                        // ASYNC: Calculate the timeout, start async worker
+                        asyncExpelInProgress = false;
                         requestState = "Make Backend Request";
 
-                        // ASYNC: Calculate the timeout, start async worker
-                        double rTimeout = request.Timeout;
-                        CancellationTokenSource cts;
-                        asyncExpelInProgress = false;
-                        // determine if request will run async or sync
-                        if (request.runAsync && request.asyncWorker is null)
-                        {
-                            rTimeout = _options.AsyncTimeout;
 
-                            // adjust for time spent in the queue
-                            var timeLeft = _options.AsyncTriggerTimeout - (int)(DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds;
-                            timeLeft = Math.Max(1, timeLeft);   // either 1ms or whatever is left of the timeout
+                        // Create ASYNC Worker if needed, and setup the timeout
+                        var (workerCts, rTimeout) = SetupAsyncWorkerAndTimeout(request);
+                        CancellationTokenSource cts = workerCts;
 
-                            request.asyncWorker = _asyncWorkerFactory.CreateAsync(request, timeLeft);
-                            _ = request.asyncWorker.StartAsync();   // don't await this, let it run in parallel
 
-                            // AsyncExcelSource  - this will get a cancel if there shutdown is triggered.
-                            AsyncExpelSource = new CancellationTokenSource(TimeSpan.FromMilliseconds(rTimeout));
-                            cts = AsyncExpelSource;
-                        }
-                        else
-                        {
-                            AsyncExpelSource = null;
-                            cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(rTimeout));
-                        }
-
-                        // SEND THE REQUEST TO THE BACKEND USING THE APROPRIATE TIMEOUT
-                        //using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(rTimeout));
+                        // SEND THE REQUEST TO THE BACKEND USING THE APROPRIATE TIMEOUT.  CTS is only used here.
                         using var proxyResponse = await _options.Client!.SendAsync(
                             proxyRequest, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
-
 
                         var responseDate = DateTime.UtcNow;
                         lastStatusCode = proxyResponse.StatusCode;
@@ -902,6 +921,13 @@ public class ProxyWorker
                         {
                             requestState = "Call unsuccessful";
 
+                            foreach (var header in proxyResponse.Headers)
+                            {
+                                if (excluded.Contains(header.Key)) continue;
+                                requestAttempt[header.Key] = string.Join(", ", header.Value);
+                                //Console.WriteLine($"  {header.Key}: {requestAttempt[header.Key]}");
+                            }
+
                             if (request.Debug)
                             {
                                 try
@@ -924,17 +950,15 @@ public class ProxyWorker
                             // The request did not succeed, try the next host
                             continue;
                         }
-
-                        host.AddPxLatency((responseDate - ProxyStartDate).TotalMilliseconds);
-                        bodyBytes = [];
-
-                        //Interlocked.Increment(ref states[4]);
-                        // Read the response
-                        //await GetProxyResponseAsync(proxyResponse, request, pr).ConfigureAwait(false);
-                        //Interlocked.Decrement(ref states[4]);
-
-                        if ((int)proxyResponse.StatusCode == 429 && proxyResponse.Headers.TryGetValues("S7PREQUEUE", out var values))
+                        else if (intCode == 429 && proxyResponse.Headers.TryGetValues("S7PREQUEUE", out var values))
                         {
+                            foreach (var header in proxyResponse.Headers)
+                            {
+                                if (excluded.Contains(header.Key)) continue;
+                                requestAttempt[header.Key] = string.Join(", ", header.Value);
+                                // Console.WriteLine($"  {header.Key}: {requestAttempt[header.Key]}");
+                            }
+
                             // Requeue the request if the response is a 429 and the S7PREQUEUE header is set
                             // It's possible that the next host processes this request successfully, in which case these will get ignored
                             var s7PrequeueValue = values.FirstOrDefault();
@@ -942,11 +966,18 @@ public class ProxyWorker
                             if (s7PrequeueValue != null && string.Equals(s7PrequeueValue, "true", StringComparison.OrdinalIgnoreCase))
                             {
                                 // we're keep track of the retry after values for later.
-                                proxyResponse.Headers.TryGetValues("retry-after-ms", out var retryAfterValues);
+                                proxyResponse.Headers.TryGetValues("retry-after-ms", out var retryAfterValuesMS);
+                                if (retryAfterValuesMS != null && int.TryParse(retryAfterValuesMS.FirstOrDefault(), out var retryAfterValueMS))
+                                {
+                                    throw new S7PRequeueException("Requeue request", pr, retryAfterValueMS);
+                                }
+
+                                proxyResponse.Headers.TryGetValues("retry-after", out var retryAfterValues);
                                 if (retryAfterValues != null && int.TryParse(retryAfterValues.FirstOrDefault(), out var retryAfterValue))
                                 {
-                                    throw new S7PRequeueException("Requeue request", pr, retryAfterValue);
+                                    throw new S7PRequeueException("Requeue request", pr, retryAfterValue * 1000);
                                 }
+
 
                                 throw new S7PRequeueException("Requeue request", pr, 1000);
                             }
@@ -955,8 +986,11 @@ public class ProxyWorker
                         {
                             // request was successful, so we can disable the skip
                             request.SkipDispose = false;
+                            wasSuccess = true;
+                            bodyBytes = [];
                         }
 
+                        host.AddPxLatency((responseDate - ProxyStartDate).TotalMilliseconds);
                         // copy headers from the response to the ProxyData object
                         CopyResponseHeaders(proxyResponse, pr);
 
@@ -1046,7 +1080,20 @@ public class ProxyWorker
                         {
                             try
                             {
-                                processor.GetStats(eventData, proxyResponse.Headers);
+                                // Mark this as a background request which will trigger a poller to check status
+
+                                string reqID = processor.BackgroundRequestId;
+                                if (!string.IsNullOrEmpty(reqID))
+                                {
+                                    Console.WriteLine("This is a background request: " + reqID);
+                                    request.IsBackground = true;
+                                    request.BackgroundRequestId = reqID;
+                                    request.RequestAPIStatus = RequestAPIStatusEnum.BackgroundProcessing;
+                                }
+                                else
+                                {
+                                    processor.GetStats(requestSummary, proxyResponse.Headers);                                
+                                }
                             }
                             catch (Exception statsEx)
                             {
@@ -1267,6 +1314,34 @@ public class ProxyWorker
         };
     }
 
+    private (CancellationTokenSource, double) SetupAsyncWorkerAndTimeout(RequestData request)
+    {
+        double timeout = request.Timeout;
+        CancellationTokenSource cts;
+
+        if (request.runAsync)
+        {
+            timeout = _options.AsyncTimeout;
+            if (request.asyncWorker is null)
+            {
+                var timeLeft = _options.AsyncTriggerTimeout - (int)(DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds;
+                timeLeft = Math.Max(1, timeLeft);
+                request.asyncWorker = _asyncWorkerFactory.CreateAsync(request, timeLeft);
+                _ = request.asyncWorker.StartAsync();
+            }
+            AsyncExpelSource = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeout));
+            cts = AsyncExpelSource;
+        }
+        else
+        {
+            AsyncExpelSource = null;
+            cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeout));
+        }
+
+        return (cts, timeout);
+    }
+
+
     private string GetProcessorName(HttpResponseMessage proxyResponse)
     {
         if ((int)proxyResponse.StatusCode == 200 && proxyResponse.Headers.TryGetValues("TOKENPROCESSOR", out var processorValues))
@@ -1374,13 +1449,13 @@ public class ProxyWorker
         }
     }
 
+    // Exclude hop-by-hop and restricted headers that HttpListener manages
+    static HashSet<string> excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "Content-Length","Transfer-Encoding","Connection","Proxy-Connection","Keep-Alive","Upgrade","Trailer","TE","Date","Server"
+    };
     private static void CopyResponseHeaders(HttpResponseMessage response, ProxyData pr)
     {
-        // Exclude hop-by-hop and restricted headers that HttpListener manages
-        var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "Content-Length","Transfer-Encoding","Connection","Proxy-Connection","Keep-Alive","Upgrade","Trailer","TE","Date","Server"
-        };
 
         // Response headers
         foreach (var header in response.Headers)

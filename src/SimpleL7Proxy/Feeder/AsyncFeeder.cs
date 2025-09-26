@@ -19,6 +19,7 @@ using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Queue;
+using System.Runtime.Intrinsics.Arm;
 
 namespace SimpleL7Proxy.Feeder
 {
@@ -27,10 +28,10 @@ namespace SimpleL7Proxy.Feeder
 
         private readonly BackendOptions _options;
         private readonly ILogger<AsyncFeeder> _logger;
-        private readonly IRequestDataBackupService _backupService;
-        private readonly IAsyncWorkerFactory _asyncWorkerFactory; // Just inject the factory
+
+        private readonly IRequestProcessor _normalRequest;
+        private readonly IRequestProcessor _openAIRequest;
         private readonly IUserPriorityService _userPriority;
-        private readonly IUserProfileService _userProfile;
         private readonly IConcurrentPriQueue<RequestData> _requestsQueue;
 
         private readonly SemaphoreSlim _queueSignal = new SemaphoreSlim(0);
@@ -43,20 +44,18 @@ namespace SimpleL7Proxy.Feeder
         private static readonly TimeSpan FlushIntervalMs = TimeSpan.FromMilliseconds(1000);    // small delay to coalesce bursts (when not shutting down)
 
         public AsyncFeeder(IOptions<BackendOptions> options,
-                            ServiceBusFactory senderFactory,
-                            IRequestDataBackupService backupService,
-                            IAsyncWorkerFactory asyncWorkerFactory,
-                            IConcurrentPriQueue<RequestData> requestsQueue,
                             IUserPriorityService userPriority,
-                            IUserProfileService userProfile,
+                            ServiceBusFactory senderFactory,
+                            NormalRequest normalRequest,
+                            OpenAIBackgroundRequest openAIRequest,
+                            IConcurrentPriQueue<RequestData> requestsQueue,
                             ILogger<AsyncFeeder> logger)
         {
             _options = options.Value;
-            _senderFactory = senderFactory;
-            _backupService = backupService;
-            _asyncWorkerFactory = asyncWorkerFactory;
             _userPriority = userPriority;
-            _userProfile = userProfile;
+            _senderFactory = senderFactory;
+            _normalRequest = normalRequest;
+            _openAIRequest = openAIRequest;
             _requestsQueue = requestsQueue;
             _logger = logger;
         }
@@ -154,29 +153,19 @@ namespace SimpleL7Proxy.Feeder
             try
             {
 
-                // restore the request from blob storage, re-create the async streams.
-                RequestData rd = await DataFromBlob(messageFromSB);
-                if (rd == null)
+                var requestMsg = JsonSerializer.Deserialize<RequestAPIDocument>(messageFromSB);
+                if (requestMsg == null || string.IsNullOrEmpty(requestMsg.guid))
                 {
+                    _logger.LogWarning("AsyncFeeder: Received invalid message that could not be deserialized to RequestAPIDocument.");
                     return;
                 }
 
-                rd.Requeued = true; // mark it as requeued
-                rd.AsyncHyderated = true; // mark it as rehydrated from async
-                bool doUserProfile = _options.UseProfiles;
+                bool isBackground = requestMsg.isBackground == true && requestMsg.status == RequestAPIStatusEnum.BackgroundProcessing;
 
-                // re-establish job as an incoming request
-                if (doUserProfile)
+                var rd = ProcessRequestAsync(requestMsg, isBackground);
+                if (rd != null)
                 {
-                    _userPriority.addRequest(rd.Guid, rd.UserID);
-                    int userPriorityBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue) ? 1 : 0;
-
-                    _logger.LogInformation("AsyncFeeder: Enqueuing async request with ID: {Id}, MID: {Mid}", rd.Guid, rd.MID);
-
-                    if (!_requestsQueue.Requeue(rd, rd.Priority, userPriorityBoost, rd.EnqueueTime))
-                    {
-                        _logger.LogWarning("AsyncFeeder: Failed to enqueue request with ID: {guid}", rd.Guid);
-                    }
+                    rd.RecoveryProcessor = isBackground ? _openAIRequest : _normalRequest;
                 }
 
                 // mark the request as completed
@@ -190,33 +179,69 @@ namespace SimpleL7Proxy.Feeder
             }
         }
 
-        private async Task<RequestData?> DataFromBlob(string messageFromSB)
+        public RequestData? ProcessRequestAsync(RequestAPIDocument data, bool isBackground)
         {
-            var requestMsg = JsonSerializer.Deserialize<RequestAPIDocument>(messageFromSB);
-            if (requestMsg != null && !string.IsNullOrEmpty(requestMsg.guid))
+            try
             {
-                var restoredRequestData = await _backupService.RestoreAsync(requestMsg.guid);
-                if (restoredRequestData == null)
+
+                RequestData rd = new RequestData(data.id!,
+                                                 new Guid(data.guid!),
+                                                 data.mid!,
+                                                 "empty",       // path will be filled in by ProxyWorker
+                                                 "empty",       // method will be filled in by ProxyWorker
+                                                 data.createdAt == null ? DateTime.UtcNow : data.createdAt.Value,
+                                                 []);          // headers will be filled in by ProxyWorker
+
+                rd.UserID = data.userID!;
+                rd.Priority = data.priority1 ?? 1;
+                rd.IsBackground = data.isBackground ?? false;
+                rd.BackgroundRequestId = data.backgroundRequestId ?? string.Empty;
+
+                // re-establish job as an incoming request
+                if (_options.UseProfiles)
                 {
-                    _logger.LogWarning("AsyncFeeder: Could not find backup for async request with ID: {Id}, MID: {Mid}, Status: {Status}", requestMsg.id, requestMsg.mid, requestMsg.status);
+                    _userPriority.addRequest(rd.Guid, rd.UserID);
+                    int userPriorityBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue) ? 1 : 0;
+
+                    _logger.LogInformation("AsyncFeeder: Enqueuing async request with ID: {Id}, MID: {Mid}", rd.Guid, rd.MID);
+
+                    if (!_requestsQueue.Requeue(rd, rd.Priority, userPriorityBoost, rd.EnqueueTime))
+                    {
+                        _logger.LogWarning("AsyncFeeder: Failed to enqueue request with ID: {guid}", rd.Guid);
+                        return null;
+                    }
+
+                    return rd;
+                }
+                else
+                {
+                    _logger.LogError("AsyncFeeder: User profiles are disabled, cannot process async request with ID: {Id}, MID: {Mid}", rd.Guid, rd.MID);
                     return null;
                 }
-                // restore the async fields:
-                restoredRequestData.runAsync = true;
-                restoredRequestData.AsyncTriggered = true;
-                restoredRequestData.asyncWorker = _asyncWorkerFactory.CreateAsync(restoredRequestData, 0);
-                await restoredRequestData.asyncWorker.RestoreAsync();
-
-                return restoredRequestData;
-
             }
-            else
+            catch (Exception ex)
             {
-                _logger.LogWarning("AsyncFeeder: Received invalid message that could not be deserialized to RequestAPIDocument.");
+                _logger.LogError(ex, "AsyncFeeder: Error processing async request from Service Bus: " + ex.Message);
+                Console.WriteLine(ex.StackTrace);
+                return null;
             }
-
-            return null;
         }
+        // private async Task<RequestData?> DataFromBlob(RequestAPIDocument requestMsrdg)
+        // {
+        //     var restoredRequestData = await _backupService.RestoreAsync(requestMsg.guid);
+        //     if (restoredRequestData == null)
+        //     {
+        //         _logger.LogWarning("AsyncFeeder: Could not find backup for async request with ID: {Id}, MID: {Mid}, Status: {Status}", requestMsg.id, requestMsg.mid, requestMsg.status);
+        //         return null;
+        //     }
+        //     // restore the async fields:
+        //     restoredRequestData.runAsync = true;
+        //     restoredRequestData.AsyncTriggered = true;
+        //     restoredRequestData.asyncWorker = _asyncWorkerFactory.CreateAsync(restoredRequestData, 0);
+        //     await restoredRequestData.asyncWorker.RestoreAsync();
+
+        //     return restoredRequestData;
+        // }
 
         private async Task ErrorHandler(ProcessErrorEventArgs args)
         {

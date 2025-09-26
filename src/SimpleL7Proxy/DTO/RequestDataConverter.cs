@@ -16,13 +16,15 @@ namespace SimpleL7Proxy.DTO
             {
                 id = data.Guid.ToString(),
                 guid = data.Guid.ToString(),
+                mid = data.MID,
                 createdAt = data.EnqueueTime,
                 isAsync = true,
-                //isBackground = data.IsBackground,
+                isBackground = data.IsBackground,
+                backgroundRequestId = data.BackgroundRequestId,
                 priority1 = data.Priority,
                 priority2 = data.Priority2,
                 userID = data.profileUserId,
-                status = RequestAPIStatusEnum.New
+                status = RequestAPIStatusEnum.New     // careful if copying from request data and it already has a status
             };
         }
 

@@ -14,7 +14,7 @@ namespace SimpleL7Proxy.StreamProcessor
     public class MultiLineAllUsageProcessor : JsonStreamProcessor
     {
 
-        protected override int MaxLines => 30;
+        protected override int MaxLines => 40;
         protected override int MinLineLength => 1;
 
         /// <summary>
@@ -44,31 +44,33 @@ namespace SimpleL7Proxy.StreamProcessor
             if (match.Success)
             {
                 jsonBlock = @"{""usage"": " + match.Groups[1].Value + @"}"; // This is the JSON object after "usage"
+
+                // Extract the JSON block
+                //jsonBlock = string.Join("\n", lastLines[startIndex..(endIndex + 1)]);
+                try
+                {
+                    var jsonNode = ParseJsonLine(jsonBlock);
+                    if (jsonNode != null)
+                    {
+                        ExtractAllFields(jsonNode, "Usage");
+
+                        // // Set defaults for required usage fields
+                        // data.TryAdd("Completion_Tokens", "0");
+                        // data.TryAdd("Prompt_Tokens", "0");
+                        // data.TryAdd("Total_Tokens", "0");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    data["ParseError"] = ex.Message;
+                }
             }
             else
             {
-                Console.WriteLine("Couldn't parse it");
+                // Console.WriteLine("Couldn't parse it");
             }
 
-            // Extract the JSON block
-            //jsonBlock = string.Join("\n", lastLines[startIndex..(endIndex + 1)]);
-            try
-            {
-                var jsonNode = ParseJsonLine(jsonBlock);
-                if (jsonNode != null)
-                {
-                    ExtractAllFields(jsonNode, "Usage");
 
-                    // // Set defaults for required usage fields
-                    // data.TryAdd("Completion_Tokens", "0");
-                    // data.TryAdd("Prompt_Tokens", "0");
-                    // data.TryAdd("Total_Tokens", "0");
-                }
-            }
-            catch (Exception ex)
-            {
-                data["ParseError"] = ex.Message;
-            }
         }
 
         /// <summary>
