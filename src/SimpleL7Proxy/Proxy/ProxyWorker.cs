@@ -125,7 +125,7 @@ public class ProxyWorker
         {
             readyToWork = true;
             // Always display
-            Console.WriteLine("All workers ready to work");
+            Console.WriteLine("[READY] ✓ All workers ready to work");
         }
 
         // Run until cancellation is requested. (Queue emptiness is handled by the blocking DequeueAsync call.)
@@ -613,7 +613,7 @@ public class ProxyWorker
 
         Interlocked.Decrement(ref activeWorkers);
 
-        _logger.LogInformation("Worker {IDstr} stopped.", IDstr);
+        _logger.LogInformation("[SHUTDOWN] ✓ Worker {IDstr} stopped", IDstr);
     }
 
     private void AddIncompleteRequestsToEventData(List<Dictionary<string, string>> incompleteRequests, ConcurrentDictionary<string, string> eventData)

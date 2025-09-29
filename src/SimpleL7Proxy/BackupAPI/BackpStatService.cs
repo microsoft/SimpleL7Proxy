@@ -87,7 +87,7 @@ namespace SimpleL7Proxy.BackupAPI
         public async Task EventWriter(CancellationToken token)
         {
 
-            _logger.LogCritical("Starting Backup API service...");
+            _logger.LogInformation("[SERVICE] ✓ Backup API service starting...");
 
             try
             {

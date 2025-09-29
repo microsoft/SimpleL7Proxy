@@ -91,7 +91,7 @@ public class Backends : IBackendService
 
   public Task Stop()
   {
-    _logger.LogCritical("Stopping backend.");
+    _logger.LogInformation("[SHUTDOWN] ⏹ Backend stopping");
     _cancellationTokenSource.Cancel();
 
     return PollerTask ?? Task.CompletedTask;
@@ -109,7 +109,7 @@ public class Backends : IBackendService
       GetToken();
     }
 
-    _logger.LogCritical("Backend service started.");
+    _logger.LogInformation("[SERVICE] ✓ Backend service started");
   }
 
   private readonly List<DateTime> hostFailureTimes = [];
@@ -201,7 +201,7 @@ public class Backends : IBackendService
       }
       else
       {
-        _logger.LogCritical($"Backend Poller started in {(DateTime.Now - start).TotalSeconds} seconds.");
+        _logger.LogInformation($"[SERVICE] ✓ Backend Poller started in {(DateTime.Now - start).TotalSeconds:F3}s");
         return;
       }
     }
@@ -216,7 +216,7 @@ public class Backends : IBackendService
     {
       var intervalTime = TimeSpan.FromMilliseconds(_options.PollInterval).ToString(@"hh\:mm\:ss");
       var timeoutTime = TimeSpan.FromMilliseconds(_options.PollTimeout).ToString(@"hh\:mm\:ss\.fff");
-      _logger.LogCritical($"Starting Backend Poller: Interval: {intervalTime}, SuccessRate: {_successRate}, Timeout: {timeoutTime}");
+      _logger.LogInformation($"[SERVICE] ✓ Backend Poller starting - Interval: {intervalTime} | Success Rate: {_successRate} | Timeout: {timeoutTime}");
 
       _client.Timeout = TimeSpan.FromMilliseconds(_options.PollTimeout);
 
@@ -238,7 +238,7 @@ public class Backends : IBackendService
           }
           catch (OperationCanceledException)
           {
-            _logger.LogInformation("Stopping the backend poller task.");
+            _logger.LogInformation("[SHUTDOWN] ⏹ Backend Poller stopping");
             break;
           }
           catch (Exception e)
@@ -248,7 +248,7 @@ public class Backends : IBackendService
         }
       }
 
-      _logger.LogCritical("Backend Poller stopped.");
+      _logger.LogInformation("[SHUTDOWN] ✓ Backend Poller stopped");
     }
   }
 

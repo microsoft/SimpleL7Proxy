@@ -31,7 +31,7 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
     // wait till the queue empties then tell all the workers to stop
     public async Task StopAsync()
     {
-        _logger.LogCritical($"Queue: Waiting for queue to empty before stopping. Count: {_priorityQueue.Count}");
+        _logger.LogInformation($"[SHUTDOWN] ⏳ Queue draining - {_priorityQueue.Count} items remaining");
         while (_priorityQueue.Count > 0)
         {
             await Task.Delay(100);

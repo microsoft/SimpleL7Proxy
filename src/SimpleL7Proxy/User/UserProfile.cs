@@ -50,7 +50,7 @@ public class UserProfile : BackgroundService, IUserProfileService
         _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         stoppingToken.Register(() =>
         {
-            _logger.LogInformation("User Profile Reader stopping.");
+            _logger.LogInformation("[SHUTDOWN] ⏹ User Profile Reader stopping");
         });
 
         // Initialize User Profiles
@@ -256,7 +256,7 @@ public class UserProfile : BackgroundService, IUserProfileService
                 entityValue = userProfiles.Count;
             }
 
-            _logger.LogInformation($"Successfully parsed {entityName}.  Found {entityValue} user entities.");
+            _logger.LogInformation($"[DATA] ✓ {entityName} loaded - {entityValue} entities found");
         }
         catch (Exception ex)
         {

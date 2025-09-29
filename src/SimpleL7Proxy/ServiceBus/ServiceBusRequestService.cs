@@ -44,11 +44,11 @@ namespace SimpleL7Proxy.ServiceBus
         {
             if (_options.AsyncModeEnabled)
             {
-                _logger.LogCritical("ServiceBusRequestService starting...");
+                _logger.LogInformation("[SERVICE] ✓ ServiceBusRequestService starting...");
                 _cancellationTokenSource = new CancellationTokenSource();
                 _cancellationTokenSource.Token.Register(() =>
                 {
-                    _logger.LogCritical("ServiceBus writer service stopping.");
+                    _logger.LogInformation("[SHUTDOWN] ⏹ ServiceBusRequestService shutdown initiated");
                 });
 
                 isRunning = true;
@@ -82,7 +82,7 @@ namespace SimpleL7Proxy.ServiceBus
         public async Task EventWriter(CancellationToken token)
         {
 
-            _logger.LogCritical("Starting ServiceBus writer service...");
+            _logger.LogInformation("[SERVICE] ✓ ServiceBus writer service starting...");
 
             try
             {
@@ -96,7 +96,6 @@ namespace SimpleL7Proxy.ServiceBus
             catch (OperationCanceledException)
             {
                 // Operation was canceled, exit gracefully
-                _logger.LogInformation($"ServiceBusRequestService shutdown initiated: {_statusQueue.Count()} items need to be flushed.");
             }
             catch (UnauthorizedAccessException)
             {
@@ -134,7 +133,7 @@ namespace SimpleL7Proxy.ServiceBus
                 }
             }
 
-            _logger.LogInformation("ServiceBusRequestService is stopping.");
+            _logger.LogInformation("[SHUTDOWN] ✓ ServiceBusRequestService stopped");
         }
 
         DateTime _lastDrainTime = DateTime.UtcNow;
@@ -252,7 +251,7 @@ namespace SimpleL7Proxy.ServiceBus
             if (isRunning)
             {
 
-                _logger.LogCritical("ServiceBusRequestService: Flushing {events} events before stopping...", _statusQueue.Count);
+                _logger.LogInformation("[SHUTDOWN] ⏳ ServiceBusRequestService flushing {events} events before stopping", _statusQueue.Count);
                 while (isRunning && _statusQueue.Count > 0)
                 {
                     Task.Delay(100).Wait();

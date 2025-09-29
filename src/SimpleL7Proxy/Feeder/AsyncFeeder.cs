@@ -84,7 +84,7 @@ namespace SimpleL7Proxy.Feeder
             // Only set the flag if we're not already shutting down
             if (!isShuttingDown)
             {
-                _logger.LogCritical("Shutting down AsyncFeeder");
+                _logger.LogInformation("[SHUTDOWN] ⏹ AsyncFeeder shutting down");
                 isShuttingDown = true;
                 return readerTask ?? Task.CompletedTask;
             }
@@ -95,7 +95,7 @@ namespace SimpleL7Proxy.Feeder
         public async Task EventReader(CancellationToken token)
         {
 
-            _logger.LogCritical("Starting AsyncFeeder service...");
+            _logger.LogInformation("[SERVICE] ✓ AsyncFeeder service starting...");
 
             try
             {
@@ -123,7 +123,7 @@ namespace SimpleL7Proxy.Feeder
 
                 await processor.StopProcessingAsync().ConfigureAwait(false);
                 await processor.DisposeAsync().ConfigureAwait(false);
-                _logger.LogInformation("AsyncFeeder service has stopped processing messages.");
+                _logger.LogInformation("[SHUTDOWN] ✓ AsyncFeeder stopped processing messages");
 
             }
             catch (TaskCanceledException)
@@ -141,7 +141,7 @@ namespace SimpleL7Proxy.Feeder
                 _logger.LogError(ex, "An error occurred while calling AsyncFeeder service.: " + ex);
             }
 
-            _logger.LogInformation("AsyncFeeder service is stopping.");
+            _logger.LogInformation("[SHUTDOWN] ✓ AsyncFeeder service stopped");
         }
 
 

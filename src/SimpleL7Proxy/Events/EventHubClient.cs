@@ -111,7 +111,7 @@ public class EventHubClient : IEventClient, IHostedService
                     await Task.Delay(500, token).ConfigureAwait(false); // Wait for 1/2 second
                 }
             }
-            _logger.LogCritical("EventHubClient: EventWriter exiting");
+            _logger.LogInformation("[SHUTDOWN] ✓ EventHubClient exiting");
 
         }
         catch (TaskCanceledException)

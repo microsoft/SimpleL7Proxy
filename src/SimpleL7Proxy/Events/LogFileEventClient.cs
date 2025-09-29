@@ -44,7 +44,7 @@ public class LogFileEventClient : IEventClient, IHostedService
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        Console.WriteLine("Local File Logger starting");
+        Console.WriteLine("[INIT] ✓ Local File Logger starting");
         workerCancelToken = cancellationTokenSource.Token;
         if (isRunning)
         {
@@ -74,7 +74,7 @@ public class LogFileEventClient : IEventClient, IHostedService
                     await Task.Delay(500, token).ConfigureAwait(false); // Wait for 1/2 second
                 }
             }
-            Console.WriteLine("LogFileEventClient: EventWriter exiting");
+            Console.WriteLine("[SHUTDOWN] ✓ LogFileEventClient exiting");
 
         }
         catch (TaskCanceledException)

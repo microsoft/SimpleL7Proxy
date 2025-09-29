@@ -88,7 +88,7 @@ public class Server : BackgroundService
         _httpListener.Prefixes.Add(_listeningUrl);
 
         var timeoutTime = TimeSpan.FromMilliseconds(_options.Timeout).ToString(@"hh\:mm\:ss\.fff");
-        _logger.LogCritical($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
+        _logger.LogInformation($"[CONFIG] Server configuration - Port: {_options.Port} | Timeout: {timeoutTime} | Workers: {_options.Workers}");
     }
 
     public void BeginShutdown()
@@ -99,7 +99,7 @@ public class Server : BackgroundService
     public Task StopListening(CancellationToken cancellationToken)
     {
         _cancellationTokenSource?.Cancel();
-        _logger.LogCritical("Server stopping.");
+        _logger.LogInformation("[SHUTDOWN] ⏹ Server stopping");
         return Task.CompletedTask;
     }
 
@@ -119,7 +119,7 @@ public class Server : BackgroundService
             backendStartTask = _backends.WaitForStartup(20);
 
             _httpListener.Start();
-            _logger.LogCritical($"Listening on {_options?.Port}");
+            _logger.LogInformation($"[SERVICE] ✓ Server listening on port {_options?.Port}");
             // Additional setup or async start operations can be performed here
 
             _requestsQueue.StartSignaler(cancellationToken);
@@ -543,7 +543,7 @@ public class Server : BackgroundService
             catch (OperationCanceledException)
             {
                 // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
-                _staticEvent.WriteOutput("HTTP server shutdown initiated.");
+                _staticEvent.WriteOutput("[SHUTDOWN] ⏹ HTTP server shutdown initiated");
                 break; // Exit the loop
             }
             catch (Exception e)
@@ -553,6 +553,6 @@ public class Server : BackgroundService
             }
         }
 
-        _staticEvent.WriteOutput("HTTP server stopped.");
+        _staticEvent.WriteOutput("[SHUTDOWN] ✓ HTTP server stopped");
     }
 }

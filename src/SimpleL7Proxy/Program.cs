@@ -96,7 +96,7 @@ public class Program
             if (options.Value.AsyncModeEnabled)
             {
 
-                startupLogger.LogWarning("Async mode is enabled. Initializing ServiceBusRequestService and AsyncWorker.");
+                startupLogger.LogInformation("[INIT] ✓ Async mode enabled - Initializing ServiceBus and AsyncWorker services");
                 var serviceBusRequestService = serviceProvider.GetRequiredService<IServiceBusRequestService>();
                 var backupAPIService = serviceProvider.GetRequiredService<IBackupAPIService>();
                 RequestData.InitializeServiceBusRequestService(serviceBusRequestService, backupAPIService);
@@ -110,12 +110,12 @@ public class Program
             }
             else
             {
-                startupLogger.LogError("Async mode is disabled.");
+                startupLogger.LogInformation("[INIT] ⚠ Async mode disabled - Running in synchronous mode only");
             }
         }
         catch (Exception ex)
         {
-            startupLogger.LogError(ex, "Failed to initialize ServiceBusRequestService");
+            startupLogger.LogError(ex, "[ERROR] ✗ ServiceBus initialization failed");
         }
 
         try
@@ -124,12 +124,12 @@ public class Program
         }
         catch (OperationCanceledException)
         {
-            startupLogger.LogDebug("framework Host RunAsync Operation was canceled.");
+            startupLogger.LogDebug("[SHUTDOWN] Application shutdown requested");
         }
         catch (Exception e)
         {
             // Handle other exceptions that might occur
-            startupLogger.LogError($"Main: An unexpected error occurred: {e.Message}");
+            startupLogger.LogError($"[ERROR] ✗ Unexpected startup error: {e.Message}");
         }
     }
 
@@ -139,7 +139,7 @@ public class Program
         var l =  Enum.TryParse<LogLevel>(logLevelString, true, out var logLevel) ? logLevel : LogLevel.Information;
 
         // This should always be visible as it's critical startup information
-        Console.WriteLine($"Log level set to: {l}");
+        Console.WriteLine($"[CONFIG] Log level: {l}");
 
         return l;
     }
@@ -164,7 +164,7 @@ public class Program
             });
 
             // Note: logging isn't fully configured yet
-            Console.WriteLine("AppInsights initialized with custom request tracking");
+            Console.WriteLine("[INIT] ✓ AppInsights initialized with custom request tracking");
         }
     }
 
