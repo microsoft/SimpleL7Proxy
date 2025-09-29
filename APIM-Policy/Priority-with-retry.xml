@@ -192,7 +192,7 @@
                 // Check if the backend should limit concurrency
                 JArray backends = context.Variables.GetValueOrDefault<JArray>("listBackends", new JArray());
                 int backendIndex = (int)context.Variables["backendIndex"];
-                if (backendIndex < 0 || backendIndex >= backends.Count) { return false; }
+                if (backendIndex < 0 || backendIndex >= backends.Count) { return "off"; }
                 JObject backend = (JObject)backends[backendIndex];
                 return backend.Value<string>("LimitConcurrency");
             }" />
