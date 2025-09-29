@@ -5,7 +5,7 @@ using System.Net;
 using System.Threading.Tasks;
 using SimpleL7Proxy.ServiceBus;
 using SimpleL7Proxy.Proxy;
-using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.BackupAPI;
 using SimpleL7Proxy.DTO;

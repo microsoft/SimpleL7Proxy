@@ -9,7 +9,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Azure.Messaging.ServiceBus;
 
-using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.Config;
 
 
 namespace SimpleL7Proxy.ServiceBus

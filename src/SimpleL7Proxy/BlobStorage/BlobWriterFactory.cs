@@ -3,7 +3,8 @@ using Azure.Storage.Blobs;
 using Azure.Identity;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using SimpleL7Proxy.Backend;
+
+using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.BlobStorage
 {

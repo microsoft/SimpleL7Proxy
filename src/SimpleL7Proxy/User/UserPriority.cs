@@ -4,7 +4,8 @@ using System.Threading;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using SimpleL7Proxy.Backend;
+
+using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.User;
 public class UserPriority : IUserPriorityService

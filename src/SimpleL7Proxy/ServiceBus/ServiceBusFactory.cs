@@ -7,7 +7,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 
-using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.ServiceBus
 {

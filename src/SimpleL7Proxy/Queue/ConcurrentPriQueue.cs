@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 
-using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.Queue;
 public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>

@@ -3,7 +3,6 @@ using Microsoft.Extensions.Options;
 using System.Text;
 using Azure.Identity;
 using Azure.Core;
-using SimpleL7Proxy.Events;
 using System.Text.Json;
 using Microsoft.ApplicationInsights;
 using Microsoft.Extensions.Logging;
@@ -11,6 +10,8 @@ using Microsoft.Extensions.Hosting;
 using System.Threading;
 using System.Collections.Concurrent;
 
+using SimpleL7Proxy.Config;
+using SimpleL7Proxy.Events;
 
 namespace SimpleL7Proxy.Backend;
 
