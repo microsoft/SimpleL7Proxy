@@ -9,8 +9,6 @@ using System.IO;
 using System.Threading.Tasks;
 using System.Collections.Concurrent;
 
-using SimpleL7Proxy.Backend;
-
 // Review DISPOSAL_ARCHITECTURE.MD in the root for details on disposal flow
 
 namespace SimpleL7Proxy.BlobStorage

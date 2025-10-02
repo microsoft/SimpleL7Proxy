@@ -7,7 +7,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 
-using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.ServiceBus
 {
@@ -117,7 +117,7 @@ namespace SimpleL7Proxy.ServiceBus
         {
             try
             {
-                _logger.LogInformation("Creating ServiceBusClient with managed identity for namespace: {Namespace}", fullyQualifiedNamespace);
+                _logger.LogInformation("[INIT] ✓ ServiceBusClient created with managed identity - Namespace: {Namespace}", fullyQualifiedNamespace);
                 
                 // Use DefaultAzureCredential for managed identity authentication
                 var credential = new DefaultAzureCredential();

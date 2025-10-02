@@ -1,8 +1,9 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+
 using SimpleL7Proxy.BlobStorage;
 using SimpleL7Proxy.DTO;
-using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.Config;
 using SimpleL7Proxy.BackupAPI;
 
 namespace SimpleL7Proxy.Proxy

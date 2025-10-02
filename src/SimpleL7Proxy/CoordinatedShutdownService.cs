@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Queue;
@@ -54,8 +55,8 @@ public class CoordinatedShutdownService : IHostedService
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Coordinated shutdown initiated...");
-        _logger.LogInformation($"Waiting for tasks to complete for maximum {_options.TerminationGracePeriodSeconds} seconds");
+        _logger.LogInformation("[SHUTDOWN] ⏹ Coordinated shutdown initiated");
+        _logger.LogInformation($"[SHUTDOWN] ⏳ Waiting for tasks to complete - Maximum {_options.TerminationGracePeriodSeconds}s");
 
         // Stop AsyncFeeder and server first to prevent it from generating new work
         await _server.StopListening(cancellationToken);
@@ -75,7 +76,7 @@ public class CoordinatedShutdownService : IHostedService
         }
         else
         {
-            _logger.LogInformation("All tasks completed.");
+            _logger.LogInformation("[SHUTDOWN] ✓ All tasks completed");
         }
 
         ProxyEvent data=new() 

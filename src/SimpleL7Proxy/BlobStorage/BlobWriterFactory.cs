@@ -3,7 +3,8 @@ using Azure.Storage.Blobs;
 using Azure.Identity;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using SimpleL7Proxy.Backend;
+
+using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.BlobStorage
 {
@@ -44,7 +45,7 @@ namespace SimpleL7Proxy.BlobStorage
                 }
                 else
                 {
-                    _logger.LogInformation("Creating BlobWriter with managed identity for URI: {Uri}", uri);
+                    _logger.LogInformation("[INIT] ✓ BlobWriter created with managed identity - URI: {Uri}", uri);
                     return CreateBlobWriterWithManagedIdentity(uri);
                 }
             }
@@ -86,7 +87,7 @@ namespace SimpleL7Proxy.BlobStorage
                 var blobServiceClient = new BlobServiceClient(blobServiceUri, credential);
                 var blobWriter = new BlobWriter(blobServiceClient, _logger);
                 blobWriter.UsesMI = true; // Set on BlobWriter, not BlobServiceClient
-                _logger.LogInformation("BlobServiceClient created successfully with managed identity for URI: {Uri}", storageAccountUri);
+                _logger.LogInformation("[INIT] ✓ BlobServiceClient created successfully with managed identity - URI: {Uri}", storageAccountUri);
 
                 return blobWriter;
             }

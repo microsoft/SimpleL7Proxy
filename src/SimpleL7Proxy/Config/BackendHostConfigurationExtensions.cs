@@ -16,9 +16,11 @@ using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+
+using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Events;
 
-namespace SimpleL7Proxy.Backend;
+namespace SimpleL7Proxy.Config;
 
 public static class BackendHostConfigurationExtensions
 {

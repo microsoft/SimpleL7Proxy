@@ -13,7 +13,7 @@ using Azure.Messaging.ServiceBus;
 using Azure.Messaging.ServiceBus.Administration;
 using System.Security.Policy;
 
-using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.Config;
 using Shared.RequestAPI.Models;
 using SimpleL7Proxy.ServiceBus;
 using SimpleL7Proxy.DTO;

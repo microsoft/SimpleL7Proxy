@@ -3,9 +3,13 @@
 ## When to Use This Policy
 
 - You need to maintain high availability across multiple backend services
-- Different request types require different priority levels
-- You want to optimize cost by intelligently routing traffic
-- Your application requires resilience against throttling and service interruptions
+- You cannot use the loadbalance policy in APIM due to following capabilities:
+  - Different request types require different priority levels
+  - You want to use host affinity to utilize OpenAI cache
+  - You have a combination of High, medium and low concurrency endpoints 
+  - You want to route requests to specific endpoints based on priority
+  - You want to utilize the SimpleL7Proxy queue for 429 requests instead of exponential sleep
+  - You want to bypass low capicity endpoints for high capacity requests
 
 ## What This Policy Does
 
@@ -19,9 +23,9 @@ The Priority-with-retry policy delivers robust, intelligent request routing and 
 - **Detailed Diagnostics:** Provides logging with timestamps and diagnostic info in response headers for monitoring and troubleshooting.
 - **No External Dependencies:** Maintains backend and throttling state in memory.
 
-This policy has been rigorously tested and successfully benchmarked with two OpenAI pay-as-you-go instances deployed in different regions, achieving a sustained performance of over 23 million tokens per minute over an extended period.
+This policy has been rigorously tested and successfully benchmarked with multiple OpenAI PTU, OpenAI Paygo, Gemini, Bedrock, ...  instances deployed in different regions, achieving a sustained performance of over 23 million tokens per minute over an extended period.
 
-![image](./Flow.pdf)
+![image](./Flow.png)
 
 ## How to Configure
 

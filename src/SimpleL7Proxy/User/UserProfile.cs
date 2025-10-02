@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.User;
 
@@ -50,7 +50,7 @@ public class UserProfile : BackgroundService, IUserProfileService
         _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         stoppingToken.Register(() =>
         {
-            _logger.LogInformation("User Profile Reader stopping.");
+            _logger.LogInformation("[SHUTDOWN] ⏹ User Profile Reader stopping");
         });
 
         // Initialize User Profiles
@@ -256,7 +256,7 @@ public class UserProfile : BackgroundService, IUserProfileService
                 entityValue = userProfiles.Count;
             }
 
-            _logger.LogInformation($"Successfully parsed {entityName}.  Found {entityValue} user entities.");
+            _logger.LogInformation($"[DATA] ✓ {entityName} loaded - {entityValue} entities found");
         }
         catch (Exception ex)
         {

@@ -1,10 +1,12 @@
-namespace SimpleL7Proxy.Backend;
+using SimpleL7Proxy.Backend;
+
+namespace SimpleL7Proxy.Config;
 
 public class BackendOptions
 {
-    public int[] AcceptableStatusCodes { get; set; } =[];
-    public string AsyncBlobStorageConnectionString { get; set; } = "example-connection-string"; 
-    public bool AsyncBlobStorageUseMI {get; set; } = true;
+    public int[] AcceptableStatusCodes { get; set; } = [];
+    public string AsyncBlobStorageConnectionString { get; set; } = "example-connection-string";
+    public bool AsyncBlobStorageUseMI { get; set; } = true;
     public string AsyncBlobStorageAccountUri { get; set; } = "https://mystorageaccount.blob.core.windows.net";
     public string AsyncClientRequestHeader { get; set; } = "AsyncMode";
     public string AsyncClientConfigFieldName { get; set; } = "async-config";
@@ -28,7 +30,7 @@ public class BackendOptions
     public string LoadBalanceMode { get; set; } = "latency"; // "latency", "roundrobin", "random"
     public bool LogConsole { get; set; }
     public bool LogConsoleEvent { get; set; }
-    public bool LogPoller { get; set; } = false; 
+    public bool LogPoller { get; set; } = false;
     public List<string> LogHeaders { get; set; } = [];
     public bool LogProbes { get; set; }
     public bool LogAllRequestHeaders { get; set; } = false;

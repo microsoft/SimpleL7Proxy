@@ -10,7 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Azure.Messaging.ServiceBus;
 
-using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.Config;
 using Shared.RequestAPI.Models;
 using System.Security.Policy;
 using SimpleL7Proxy.ServiceBus;
@@ -87,7 +87,7 @@ namespace SimpleL7Proxy.BackupAPI
         public async Task EventWriter(CancellationToken token)
         {
 
-            _logger.LogCritical("Starting Backup API service...");
+            _logger.LogInformation("[SERVICE] ✓ Backup API service starting...");
 
             try
             {

@@ -3,7 +3,8 @@ using Microsoft.Extensions.Options;
 using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.DataContracts;
 using System.Net;
-using SimpleL7Proxy.Backend;
+
+using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.Events
 {

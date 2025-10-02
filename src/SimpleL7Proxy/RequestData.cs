@@ -3,14 +3,16 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Net;
 using System.Threading.Tasks;
-using SimpleL7Proxy.ServiceBus;
-using SimpleL7Proxy.Proxy;
-using SimpleL7Proxy.Backend;
-using SimpleL7Proxy.Events;
-using SimpleL7Proxy.BackupAPI;
-using SimpleL7Proxy.DTO;
+
 using Shared.RequestAPI.Models;
+using SimpleL7Proxy.BackupAPI;
+using SimpleL7Proxy.Config;
+using SimpleL7Proxy.DTO;
+using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Feeder;
+using SimpleL7Proxy.Proxy;
+using SimpleL7Proxy.ServiceBus;
+using SimpleL7Proxy.User;
 
 
 // Review DISPOSAL_ARCHITECTURE.MD in the root for details on disposal flow
@@ -20,6 +22,8 @@ public class RequestData : IDisposable, IAsyncDisposable
     // Static variable to hold the IServiceBusRequestService instance
     public static IServiceBusRequestService? SBRequestService { get; private set; }
     public static IBackupAPIService? BackupAPIService { get; private set; }
+    public static IUserPriorityService? UserPriorityService { get; private set; }
+    public static BackendOptions? BackendOptionsStatic { get; private set; }
 
     private ServiceBusMessageStatusEnum _sbStatus = ServiceBusMessageStatusEnum.None;
     public AsyncWorker? asyncWorker { get; set; } = null;
@@ -115,10 +119,15 @@ public class RequestData : IDisposable, IAsyncDisposable
     public IRequestProcessor? RecoveryProcessor { get; set; } = null;
 
     // Method to initialize the static variable from DI
-    public static void InitializeServiceBusRequestService(IServiceBusRequestService serviceBusRequestService, IBackupAPIService backupAPIService)
+    public static void InitializeServiceBusRequestService(IServiceBusRequestService serviceBusRequestService,
+                                                          IBackupAPIService backupAPIService,
+                                                          IUserPriorityService userPriorityService,
+                                                          BackendOptions backendOptions)
     {
         SBRequestService ??= serviceBusRequestService;
         BackupAPIService ??= backupAPIService;
+        UserPriorityService ??= userPriorityService;
+        BackendOptionsStatic ??= backendOptions;
     }
 
     public RequestData(string id, Guid guid, string mid, string path, string method, DateTime enqueueTime, Dictionary<string, string> headers)
@@ -284,6 +293,16 @@ public class RequestData : IDisposable, IAsyncDisposable
         }
 
         ExpiresAtString = ExpiresAt.ToString("yyyy-MM-ddTHH:mm:ssZ");
+    }
+
+    public void Cleanup()
+    {
+        EventData.SendEvent();
+
+        if (BackendOptionsStatic?.UseProfiles == true)
+        {
+            UserPriorityService?.removeRequest(UserID, Guid.NewGuid());
+        }
     }
 
     // Implement IDisposable

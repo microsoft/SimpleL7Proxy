@@ -359,7 +359,8 @@
             <set-variable name="backendLog" value="@{
                         string backendLog = context.Variables.GetValueOrDefault<string>("backendLog", "");
                         backendLog += "  isPermError:  " + context.Variables.GetValueOrDefault<bool>("isPermError", false) +
-                         "  isTempError: " + context.Variables.GetValueOrDefault<bool>("isTempError", false);
+                         "  isTempError: " + context.Variables.GetValueOrDefault<bool>("isTempError", false) + 
+                         "  Context.Response.StatusCode: " + context.Response?.StatusCode ?? "N/A";
                             
                         return backendLog;
                 }" />
