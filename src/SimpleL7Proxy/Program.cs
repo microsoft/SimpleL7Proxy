@@ -99,7 +99,8 @@ public class Program
                 startupLogger.LogInformation("[INIT] ✓ Async mode enabled - Initializing ServiceBus and AsyncWorker services");
                 var serviceBusRequestService = serviceProvider.GetRequiredService<IServiceBusRequestService>();
                 var backupAPIService = serviceProvider.GetRequiredService<IBackupAPIService>();
-                RequestData.InitializeServiceBusRequestService(serviceBusRequestService, backupAPIService);
+                var userPriority = serviceProvider.GetRequiredService<IUserPriorityService>();
+                RequestData.InitializeServiceBusRequestService(serviceBusRequestService, backupAPIService, userPriority, options.Value);
 
                 //_ = serviceBusService.StartAsync(CancellationToken.None);
 
