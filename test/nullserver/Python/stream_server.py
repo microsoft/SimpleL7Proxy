@@ -37,6 +37,13 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(b" An error occurred!")
             return
         
+        if parsed_path.path == '/412error':
+            self.send_response(412)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b" An error occurred!")
+            return
+
         if parsed_path.path == '/killConnection':
             time.sleep(.5)
             self.wfile.close()
