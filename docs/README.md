@@ -6,7 +6,7 @@ One of SimpleL7Proxy's key strengths is its priority-based request handling syst
 
 As an example, SimpleL7Proxy can serve as an intelligent router to Azure API Management service that has been configured with large language model endpoints.  In thes scenario, the proxy will add routing and scheduling capabilities while providing cross-regional load balancing and failover capability. The logs can be configured to send to event hub or application insights.
 
-**Note:** If you are looking for the high performance APIM policy, see **[High perf APIM policy](test/APIM-Policy/readme.md)**.
+**Note:** If you are looking for the high performance APIM policy, see **[High perf APIM policy](../APIM-Policy/readme.md)**.
 
 # Arch Diagram
 ![Architecture Diagram](arch.png)
