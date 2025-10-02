@@ -1,4 +1,29 @@
 # Release Notes #
+
+## 2.2.7.P1
+Policy:
+* Added flow diagram
+* add response code to log
+  
+Proxy:
+* Bug fixes for logging to Type: S7P-ProxyRequest
+* Bug fixes for parsing gemini-2.5-pro 
+* Logging changes to differentiate startup from runtime
+* Refactor and move config out of backends and into cofig directory
+* Refactor request cleanup into RequestData class and proxyworker for readability
+* Fix status code updates for background jobs
+* Bug fix for 421 that was not ending up in S7P-ProxyRequest logs
+
+Test:
+* added test cases for gemini-2.5, gemini-2.5-pro, gemini-2.5-pro-streaming
+* Refactor to make it easier to add test cases
+ 
+RequestAPI:
+* removed New, NewBulk, Update 
+
+Docs:
+* Updated policy docs link
+  
 ## 2.2.7
 
 Policy:
