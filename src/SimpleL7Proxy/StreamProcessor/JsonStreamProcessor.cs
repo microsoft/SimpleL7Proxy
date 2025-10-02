@@ -126,36 +126,45 @@ namespace SimpleL7Proxy.StreamProcessor
 
                         var idPattern = @"\s*""id""\s*:\s*""([^""]+)""";
 
+                        var BackgroundRequestFound = false;
                         // Loop through lines starting from most recent, going backwards
                         for (int i = 0; i < validLines.Length; i++)
                         {
                             var line = validLines[i];
                             if (line.IndexOf("usage", StringComparison.OrdinalIgnoreCase) >= 0)
                             {
+                                //Console.WriteLine("Found usage line: " + line);
                                 usageLine = line;
                                 break; // Found the line with usage
                             }
                             else
                             {
-                                BackgroundRequest = false;
-
                                 // Check if this task was accepted as a background task
                                 if (line.Contains(@"""background"": true"))
                                 {
-                                    // Console.WriteLine("This is a background request");
-                                    BackgroundRequest = true;
+                                    BackgroundRequestFound = true;
                                 }
+
+                                    // Console.WriteLine("This is a background request : " + line);
+
                                 var match = Regex.Match(line, idPattern, RegexOptions.Singleline);
                                 var jsonBlock = String.Empty;
 
                                 if (match.Success)
                                 {
                                     BackgroundRequestId = match.Groups[1].Value; 
-                                    BackgroundRequest = true;
                                     
-                                }
-
+                                }                                
                             }
+                        }
+
+                        if (BackgroundRequestFound && !string.IsNullOrEmpty(BackgroundRequestId))
+                        {
+                            BackgroundRequest = true;
+                        }
+                        else
+                        {
+                            BackgroundRequestId = string.Empty;
                         }
 
                         // Fall back to most recent line if no usage found
@@ -304,8 +313,6 @@ namespace SimpleL7Proxy.StreamProcessor
             foreach (var (key, value) in jsonObject)
             {
                 if (value == null) continue;
-
-                Console.WriteLine($"PREFIX: {prefix}   Key: {key}, Value: {value}, Type: {value.GetType()}");
 
                 var fieldName = string.IsNullOrEmpty(prefix) ? key : $"{prefix}.{key}";
                 if ( fieldName == "Usage.usage" )

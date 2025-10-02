@@ -30,32 +30,6 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(b"OK")
             return
         
-        if parsed_path.path == '/500error':
-            self.send_response(500)
-            self.send_header("Content-Type", "text/plain")
-            self.end_headers()
-            self.wfile.write(b" An error occurred!")
-            return
-        
-        if parsed_path.path == '/412error':
-            self.send_response(412)
-            self.send_header("Content-Type", "text/plain")
-            self.end_headers()
-            self.wfile.write(b" An error occurred!")
-            return
-
-        if parsed_path.path == '/killConnection':
-            time.sleep(.5)
-            self.wfile.close()
-            print("Connection closed")
-            return
-
-        if parsed_path.path == '/delay800seconds':
-            time.sleep(800)
-            self.wfile.close()
-            print("Connection closed")
-            return
-
         if parsed_path.path == '/429error':
 
             # Read the body
@@ -69,6 +43,34 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"Hello, world!")
             return
+        
+        # Pattern: /{code}error   ex: /412error, /500error, etc.
+        if parsed_path.path.endswith('error') and len(parsed_path.path) > 5:
+            try:
+                # Extract error code from /{code}error format
+                error_code_str = parsed_path.path[1:-5]  # Remove leading '/' and trailing 'error'
+                error_code = int(error_code_str)
+                self.send_response(error_code)
+                self.send_header("Content-Type", "text/plain")
+                self.end_headers()
+                self.wfile.write(f"Error {error_code} occurred!".encode('utf-8'))
+                return
+            except ValueError:
+                # Not a valid error code, fall through to default handling
+                pass
+
+        if parsed_path.path == '/killConnection':
+            time.sleep(.5)
+            self.wfile.close()
+            print("Connection closed")
+            return
+
+        if parsed_path.path == '/delay800seconds':
+            time.sleep(800)
+            self.wfile.close()
+            print("Connection closed")
+            return
+
                 
         if parsed_path.path == '/echo/requeueME':
 
