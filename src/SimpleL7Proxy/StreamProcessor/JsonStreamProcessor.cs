@@ -305,7 +305,13 @@ namespace SimpleL7Proxy.StreamProcessor
             {
                 if (value == null) continue;
 
+                Console.WriteLine($"PREFIX: {prefix}   Key: {key}, Value: {value}, Type: {value.GetType()}");
+
                 var fieldName = string.IsNullOrEmpty(prefix) ? key : $"{prefix}.{key}";
+                if ( fieldName == "Usage.usage" )
+                {
+                    fieldName = "Usage"; // flatten this out
+                }
 
                 switch (value)
                 {
