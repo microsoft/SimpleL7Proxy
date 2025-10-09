@@ -356,7 +356,7 @@ public class Backends : IBackendService
       //"S7P-Uri Format Exception";
       probeData["Code"] = "-";
     }
-    catch (System.Threading.Tasks.TaskCanceledException e)
+    catch (TaskCanceledException e)
     {
       // WriteOutput($"Poller: Host Timeout: {host.host}");
       probeData.Type = EventType.Exception;
