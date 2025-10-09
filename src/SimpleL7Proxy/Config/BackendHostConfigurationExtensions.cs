@@ -276,6 +276,15 @@ public static class BackendHostConfigurationExtensions
     return [.. s.Split(',').Select(p => p.Trim())];
   }
 
+    // Converts a comma-separated string to a list of strings.
+  private static string[] ToArrayOfString(string s)
+  {
+    if (String.IsNullOrEmpty(s))
+      return Array.Empty<string>();
+
+    return s.Split(',').Select(p => p.Trim()).ToArray();
+  }
+
   // Converts a comma-separated string to a list of integers.
   private static List<int> ToListOfInt(string s)
   {
@@ -460,6 +469,7 @@ public static class BackendHostConfigurationExtensions
       ContainerApp = ReadEnvironmentVariableOrDefault("CONTAINER_APP_NAME", "ContainerAppName"),
       DefaultPriority = ReadEnvironmentVariableOrDefault("DefaultPriority", 2),
       DefaultTTLSecs = ReadEnvironmentVariableOrDefault("DefaultTTLSecs", 300),
+      DependancyHeaders = ToArrayOfString(ReadEnvironmentVariableOrDefault("DependancyHeaders", "Backend-Host, Host-URL, Status, Duration, Error, Message, Request-Date, backendLog")),
       DisallowedHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("DisallowedHeaders", "")),
       HostName = ReadEnvironmentVariableOrDefault("Hostname", replicaID),
       Hosts = new List<BackendHostConfig>(),
