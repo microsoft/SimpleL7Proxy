@@ -98,7 +98,8 @@ public class DocumentProcessor
             }
 
             RequestAPIDocument[] documents;
-            bool isNew = document.status == RequestAPIStatusEnum.New;
+            bool isNew = existingDocument == null;
+
 
             if (isNew)
             {
@@ -111,10 +112,12 @@ public class DocumentProcessor
                 document.isBackground = document.isBackground ?? false;
                 document.backgroundRequestId = document.backgroundRequestId ?? string.Empty;
                 document.userID = document.userID ?? "system";
+                document.URL = document.URL ?? string.Empty;
                 document.priority1 = document.priority1 ?? 1;
                 document.priority2 = document.priority2 ?? 1;
-                document.status = RequestAPIStatusEnum.New;
+                document.status = document.status != 0 ? document.status : RequestAPIStatusEnum.New;
                 documents = new[] { document };
+                _logger.LogInformation("Creating new document with ID: {Id}", document.id);
             }
             else
             {
@@ -139,12 +142,14 @@ public class DocumentProcessor
                 document.isBackground = document.isBackground ?? existingDocument.isBackground;
                 document.backgroundRequestId = document.backgroundRequestId ?? existingDocument.backgroundRequestId;
                 document.userID = document.userID ?? existingDocument.userID;
+                document.URL = document.URL ?? existingDocument.URL;
                 document.priority1 = document.priority1 ?? existingDocument.priority1;
                 document.priority2 = document.priority2 ?? existingDocument.priority2;
                 document.status = document.status ?? existingDocument.status;
                 // document.status = document.status != 0 ? document.status : existingDocument.status; // Preserve status if not provided
 
                 documents = new[] { document };
+                _logger.LogInformation("Updating existing document with ID: {Id}", document.id);
             }
 
             _logger.LogInformation("Processed document with ID: {Id}", document.id);
