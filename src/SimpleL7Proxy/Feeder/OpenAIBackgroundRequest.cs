@@ -57,9 +57,26 @@ namespace SimpleL7Proxy.Feeder
             // let asyncworker restore the blob streams
             await request.asyncWorker.RestoreAsync(isBackground: true);
 
-            request.FullURL = "https://api.openai.com/v1/responses" + "/" + request.BackgroundRequestId;
-            request.Method = "GET";
-            request.Path = new Uri(request.FullURL).PathAndQuery;
+            // Handle URLs with query parameters when appending BackgroundRequestId
+            try
+            {
+                UriBuilder uriBuilder = new UriBuilder(request.FullURL);
+                
+                // Append BackgroundRequestId to the path, ensuring proper path structure
+                string path = uriBuilder.Path.TrimEnd('/');
+                uriBuilder.Path = $"{path}/{request.BackgroundRequestId}";
+                
+                // UriBuilder handles all the complexities of maintaining proper URL structure
+                request.FullURL = uriBuilder.Uri.ToString();
+                request.Method = "GET";
+                request.Path = uriBuilder.Uri.PathAndQuery;
+                
+                _logger.LogDebug($"Updated URL for background request check: {request.FullURL}");
+            }
+            catch (UriFormatException ex)
+            {
+                _logger.LogError(ex, $"Error constructing URL for background request {request.Guid}: {request.FullURL}");
+            }
 
             request.AsyncHydrated = true; // mark it as hydrated from async
             request.Headers.Add("Content-Type", "application/json");
