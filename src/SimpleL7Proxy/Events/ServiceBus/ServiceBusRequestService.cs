@@ -163,7 +163,14 @@ namespace SimpleL7Proxy.ServiceBus
 
                         foreach (var kvp in byTopic)
                         {
-                            await SendBatchesForTopicAsync(kvp.Key, kvp.Value, token).ConfigureAwait(false);
+                            try
+                            {
+                                await SendBatchesForTopicAsync(kvp.Key, kvp.Value, token).ConfigureAwait(false);
+                            }
+                            catch (ArgumentException ex)
+                            {
+                                _logger.LogError(ex, $"Error while sending to service bus. Topic: {kvp.Key}. Continuing.");
+                            }
                         }
                         drained.Clear();
                     }
