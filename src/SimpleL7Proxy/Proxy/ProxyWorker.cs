@@ -64,7 +64,7 @@ public class ProxyWorker
         ["DefaultStream"] = static () => DefaultStreamProcessor, // this one doesn't have any local fields
         ["MultiLineAllUsage"] = static () => new MultiLineAllUsageProcessor()
     };
-    static string[] backendKeys = new[] { "Backend-Host", "Host-URL", "Status", "Duration", "Error", "Message", "Request-Date", "backendLog" };
+    static string[] backendKeys = Array.Empty<string>();
 
     private static int[] states = [0, 0, 0, 0, 0, 0, 0, 0];
 
@@ -102,6 +102,7 @@ public class ProxyWorker
         _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
         _TimeoutHeaderName = _options.TimeoutHeader;
         if (_options.Client == null) throw new ArgumentNullException(nameof(_options.Client));
+        backendKeys = _options.DependancyHeaders;
         IDstr = ID.ToString();
         PreferredPriority = priority;
 
