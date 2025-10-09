@@ -37,7 +37,10 @@ namespace SimpleL7Proxy.DTO
                     throw new JsonException("Deserialized RequestDataDtoV1 is null");
                 }
 
+                _logger.LogDebug($" Reading into request {rdata.Guid}  URL: {rdata.FullURL}  UsedId: {rdata.UserID} ");
+
                 data.PopulateInto(rdata);
+                _logger.LogDebug($" After populate: Reading into request {rdata.Guid}  URL: {rdata.FullURL}  UsedId: {rdata.UserID} ");
 
                 // read body bytes if present
                 var bodyBlobName = blobname + ".body";
@@ -76,6 +79,8 @@ namespace SimpleL7Proxy.DTO
             {
                 _logger.LogDebug($"Backing up request {requestData.Guid}");
                 operation = "Serializing request data";
+
+                _logger.LogDebug($" Backing up request {requestData.Guid}  URL: {requestData.FullURL} ");
                 var dto = new RequestDataDtoV1(requestData);
                 var json = JsonSerializer.Serialize(dto, new JsonSerializerOptions
                 {
