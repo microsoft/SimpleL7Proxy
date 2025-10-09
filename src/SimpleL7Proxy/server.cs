@@ -527,7 +527,7 @@ public class Server : BackgroundService
                         temp_ed["Message"] = "Enqueued request";
 
                         temp_ed.SendEvent();
-                        _logger.LogCritical($"Enque Pri: {priority}, User: {rd.UserID}, Async: {rd.runAsync}, Guid: {rd.Guid}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
+                        _logger.LogCritical($"Enque Pri: {priority}, User: {rd.UserID}, Async: {rd.runAsync}, Guid: {rd.Guid}  Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
                     }
                 }
                 else
