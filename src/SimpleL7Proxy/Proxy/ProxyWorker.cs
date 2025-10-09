@@ -357,7 +357,13 @@ public class ProxyWorker
                     }
                     else if (!incomingRequest.IsBackground)
                     {
-                        incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Completed;
+                        var isSuccessfulResponse = ((int)pr.StatusCode == 200 ||
+                                                    (int)pr.StatusCode == 206 || // Partial Content
+                                                    (int)pr.StatusCode == 201 || // Created
+                                                    (int)pr.StatusCode == 202);  // Accepted
+                        incomingRequest.RequestAPIStatus = isSuccessfulResponse
+                            ? RequestAPIStatusEnum.Completed
+                            : RequestAPIStatusEnum.Failed;
                         incomingRequest.asyncWorker?.UpdateBackup();
                     }
 
@@ -1272,13 +1278,22 @@ public class ProxyWorker
             {
                 // Mark this as a background request which will trigger a poller to check status
 
-                string reqID = processor.BackgroundRequestId;
-                if (!string.IsNullOrEmpty(reqID))
+                if (!string.IsNullOrEmpty(processor.BackgroundRequestId) && request.runAsync)
                 {
-                    Console.WriteLine("This is a background request: " + reqID);
+                    _logger.LogInformation($"Found background guid: {request.Guid} => request: {processor.BackgroundRequestId}");
                     request.IsBackground = true;
-                    request.BackgroundRequestId = reqID;
-                    request.RequestAPIStatus = RequestAPIStatusEnum.BackgroundProcessing;
+                    request.BackgroundRequestId = processor.BackgroundRequestId;
+                    if (request.asyncWorker == null)
+                    {
+                        _logger.LogError("AsyncWorker is null, but runAsync is true");
+                    }
+                    else
+                    {
+                        _logger.LogInformation($"Updating async worker for background GUID: {request.Guid} => request: {processor.BackgroundRequestId}");
+                        await request.asyncWorker.UpdateBackup().ConfigureAwait(false);
+                        //request._requestAPIDocument.URL = request.FullURL;
+                        request.RequestAPIStatus = RequestAPIStatusEnum.BackgroundProcessing;                        
+                    }
                 }
                 else
                 {
