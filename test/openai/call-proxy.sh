@@ -27,12 +27,11 @@ HOSTMAP["foundry"]="localhost:8000|aif2/openai|"
 # Map request types to HTTP method and partial URLs (format: "METHOD /url")
 declare -A URLS
 URLS["4.1chat"]="POST /deployments/gpt-4.1/chat/completions?api-version=2025-01-01-preview"
-URLS["4.1resquest"]="POST /deployments/d1/chat/responses"
+URLS["4.1request"]="POST /v1/responses"
 URLS["4.1response"]="GET /v1/responses"
 URLS["chat"]="POST /deployments/d1/chat/completions?api-version=2025-01-01-preview"
 URLS["request"]="POST /responses?api-version=2025-04-01-preview"
-URLS["check"]="POST /deployments/d1/chat/check?api-version=2025-01-01-preview"ls -l
-
+URLS["check"]="POST /deployments/d1/chat/check?api-version=2025-01-01-preview"
 URLS["multiline"]="POST /multiline"
 URLS["400"]="POST /400error"
 URLS["401"]="POST /401error"
@@ -90,16 +89,17 @@ requesttype="${args[1],,}"
 jsonfile="${args[2]}"
 
 if [ -z "$hostalias" ]; then
-  echo "Usage: callaoai <hostalias> [requesttype] [jsonfile] [--rid response_id]"
+  echo "Usage: call-proxy <hostalias> [requesttype] [jsonfile] [--rid response_id]"
   echo " Examples:"
-  echo "  ./callaoai.sh local multiline openai_call1.json -v -a"
-  echo "  ./callaoai.sh local embeddings openai_call1.json -v -a"
-  echo "  ./callaoai.sh local 429 openai_call1.json -v"
-  echo "  ./callaoai.sh foundry request openai_call-bg.json -v"
-  echo "  ./callaoai.sh openai3 chat openai_call1.json -v"
-  echo "  ./callaoai.sh local-ai chat openai_call1.json -v -a"
-  echo "  ./callaoai.sh local 429 openai_call1.json -v"
-  echo "  ./callaoai.sh local gemini-2.5-pro--chat"
+  echo "  ./call-proxy.sh local multiline openai_call1.json -v -a"
+  echo "  ./call-proxy.sh local embeddings openai_call1.json -v -a"
+  echo "  ./call-proxy.sh local 429 openai_call1.json -v"
+  echo "  ./call-proxy.sh foundry request openai_call-bg.json -v"
+  echo "  ./call-proxy.sh openai3 chat openai_call1.json -v"
+  echo "  ./call-proxy.sh local-ai chat openai_call1.json -v -a"
+  echo "  ./call-proxy.sh local gemini-2.5-pro--chat"
+  echo "  ./call-proxy.sh tr2-o 4.1request openai_call-bg.json"
+  echo "  ./call-proxy.sh local-resp 4.1response --rid <response_id> "
   exit 1
 fi
 
@@ -168,32 +168,29 @@ echo "[$(date +%s%3N)] Calling: $fullurl"
 echo "----------------------------------------"
 
 # Execute curl with appropriate method
+curl_cmd=(
+  curl -X "$http_method" "$fullurl"
+  -H "Content-Type: application/json; charset=UTF-8"
+  -H "Ocp-Apim-Subscription-Key: $APIMKEY"
+  -H "api-key: $apikey"
+  -H "test: x" -H "xx: Value1" -H "X-UserProfile: 123456"
+  -H "x-backend-affinity: 3ee113511b77c0e2605e"
+)
+
+if [ "$asyncmode" = "true" ]; then
+  curl_cmd+=(-H "AsyncMode: true")
+fi
+
+curl_cmd+=(-H "S7PDEBUG: true" --no-buffer $verbose)
+
 if [ "$http_method" = "GET" ]; then
-  curl -X GET "$fullurl" \
-    -H "Content-Type: application/json; charset=UTF-8" \
-    -H "Ocp-Apim-Subscription-Key: $APIMKEY" \
-    -H "Ocp-Apim-Trace: true" \
-    -H "api-key: $apikey" \
-    -H "test: x" -H "xx: Value1" -H "X-UserProfile: 123456" \
-    -H "x-backend-affinity: 3ee113511b77c0e2605e" \
-    $([ "$asyncmode" = "true" ] && echo '-H "AsyncMode: true"') -H "S7PDEBUGs: true" \
-    --no-buffer \
-    $verbose \
-    -w "\n----------------------------------------\n[Status Code: %{http_code}]\n" | while IFS= read -r line; do
+  curl_cmd+=(-w "\n----------------------------------------\n[Status Code: %{http_code}]\n")
+  "${curl_cmd[@]}" | while IFS= read -r line; do
     echo "[$(date +%s%3N)] $line"
   done
 else
-  curl -X "$http_method" "$fullurl" \
-    -H "Content-Type: application/json; charset=UTF-8" \
-    -H "Ocp-Apim-Subscription-Key: $APIMKEY" \
-    -H "Ocp-Apim-Trace: true" \
-    -H "api-key: $apikey" \
-    -H "test: x" -H "xx: Value1" -H "X-UserProfile: 123456" \
-    -H "x-backend-affinity: 3ee113511b77c0e2605e" \
-    $([ "$asyncmode" = "true" ] && echo '-H "AsyncMode: true"') -H "S7PDEBUGs: true" \
-    --no-buffer \
-    -d @"$jsonfile" $verbose \
-    -w "\n----------------------------------------\n[Status Code: %{http_code}]\n" | while IFS= read -r line; do
+  curl_cmd+=(-d @"$jsonfile" -w "\n----------------------------------------\n[Status Code: %{http_code}]\n")
+  "${curl_cmd[@]}" | while IFS= read -r line; do
     echo "[$(date +%s%3N)] $line"
   done
 fi
