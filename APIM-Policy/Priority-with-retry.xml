@@ -442,10 +442,11 @@
             }" />
 -->
 			<set-variable name="ShouldRequeueNow" value="@{
+                var isPermError = context.Variables.GetValueOrDefault<bool>("isPermError", false);
                 var ShouldRetry = context.Variables.GetValueOrDefault<bool>("ShouldRetry", true);
                 var ShouldRequeue = context.Variables.GetValueOrDefault<bool>("ShouldRequeue", true);
 
-                return ShouldRequeue && !ShouldRetry;
+                return !isPermError && ShouldRequeue && !ShouldRetry;
             }" />
 
             <set-variable name="backendLog" value="@{
