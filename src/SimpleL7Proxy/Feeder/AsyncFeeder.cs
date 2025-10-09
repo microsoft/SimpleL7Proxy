@@ -152,7 +152,7 @@ namespace SimpleL7Proxy.Feeder
 
             try
             {
-
+                // RequestAPIDocument comes from the status queue, only minimal fields populated
                 var requestMsg = JsonSerializer.Deserialize<RequestAPIDocument>(messageFromSB);
                 if (requestMsg == null || string.IsNullOrEmpty(requestMsg.guid))
                 {
@@ -160,9 +160,10 @@ namespace SimpleL7Proxy.Feeder
                     return;
                 }
 
+                // this is either a status check on a background request, or a brand new request
                 bool isBackground = requestMsg.isBackground == true && requestMsg.status == RequestAPIStatusEnum.BackgroundProcessing;
 
-                var rd = ProcessRequestAsync(requestMsg, isBackground);
+                var rd = ConvertDocumentToRequest(requestMsg, isBackground);
                 if (rd != null)
                 {
                     rd.RecoveryProcessor = isBackground ? _openAIRequest : _normalRequest;
@@ -179,7 +180,8 @@ namespace SimpleL7Proxy.Feeder
             }
         }
 
-        public RequestData? ProcessRequestAsync(RequestAPIDocument data, bool isBackground)
+        // Convert the minimal RequestAPIDocument from the queue into a full RequestData by restoring from blob storage
+        public RequestData? ConvertDocumentToRequest(RequestAPIDocument data, bool isBackground)
         {
             try
             {
@@ -203,7 +205,7 @@ namespace SimpleL7Proxy.Feeder
                     _userPriority.addRequest(rd.Guid, rd.UserID);
                     int userPriorityBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue) ? 1 : 0;
 
-                    _logger.LogInformation("AsyncFeeder: Enqueuing async request with ID: {Id}, MID: {Mid}", rd.Guid, rd.MID);
+                    _logger.LogInformation("AsyncFeeder: Enqueuing async request with ID: {Id}, MID: {Mid}, UserID: {UserID}", rd.Guid, rd.MID, rd.UserID);
 
                     if (!_requestsQueue.Requeue(rd, rd.Priority, userPriorityBoost, rd.EnqueueTime))
                     {
