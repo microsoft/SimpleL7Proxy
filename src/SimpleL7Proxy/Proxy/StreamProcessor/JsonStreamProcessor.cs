@@ -126,7 +126,8 @@ namespace SimpleL7Proxy.StreamProcessor
 
                         var idPattern = @"\s*""id""\s*:\s*""([^""]+)""";
 
-                        var BackgroundRequestFound = false;
+                        var backgroundRequestFound = false;
+                        var modelFound = false;
                         // Loop through lines starting from most recent, going backwards
                         for (int i = 0; i < validLines.Length; i++)
                         {
@@ -142,10 +143,15 @@ namespace SimpleL7Proxy.StreamProcessor
                                 // Check if this task was accepted as a background task
                                 if (line.Contains(@"""background"": true"))
                                 {
-                                    BackgroundRequestFound = true;
+                                    backgroundRequestFound = true;
                                 }
 
-                                    // Console.WriteLine("This is a background request : " + line);
+                                if (line.Contains(@"""model"": "))
+                                {
+                                    modelFound = true;
+                                }
+
+                                // Console.WriteLine("This is a background request : " + line);
 
                                 var match = Regex.Match(line, idPattern, RegexOptions.Singleline);
                                 var jsonBlock = String.Empty;
@@ -153,12 +159,11 @@ namespace SimpleL7Proxy.StreamProcessor
                                 if (match.Success)
                                 {
                                     BackgroundRequestId = match.Groups[1].Value; 
-                                    
                                 }                                
                             }
                         }
 
-                        if (BackgroundRequestFound && !string.IsNullOrEmpty(BackgroundRequestId))
+                        if (backgroundRequestFound && modelFound && !string.IsNullOrEmpty(BackgroundRequestId))
                         {
                             BackgroundRequest = true;
                         }

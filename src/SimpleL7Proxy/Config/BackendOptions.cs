@@ -23,6 +23,7 @@ public class BackendOptions
     public int CircuitBreakerTimeslice { get; set; }
     public int DefaultPriority { get; set; }
     public int DefaultTTLSecs { get; set; }
+    public string[] DependancyHeaders { get; set; } = [];
     public List<string> DisallowedHeaders { get; set; } = [];
     public string HostName { get; set; } = "";
     public List<BackendHostConfig> Hosts { get; set; } = [];

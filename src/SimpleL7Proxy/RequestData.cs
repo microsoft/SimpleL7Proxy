@@ -25,43 +25,16 @@ public class RequestData : IDisposable, IAsyncDisposable
     public static IUserPriorityService? UserPriorityService { get; private set; }
     public static BackendOptions? BackendOptionsStatic { get; private set; }
 
+    // -- ASYNC RELATED PARAMS --
+
     private ServiceBusMessageStatusEnum _sbStatus = ServiceBusMessageStatusEnum.None;
+    public int AsyncBlobAccessTimeoutSecs { get; set; } = 3600; // 1 hour
     public AsyncWorker? asyncWorker { get; set; } = null;
     public bool AsyncTriggered { get; set; } = false;
     public bool AsyncHydrated { get; set; } = false;
-    public bool Debug { get; set; }
-    public bool runAsync { get; set; } = false;
-    public bool SkipDispose { get; set; } = false;
-    public byte[]? BodyBytes { get; set; } = null;
-    public DateTime DequeueTime { get; set; }
-    public DateTime EnqueueTime { get; set; }
-    public DateTime ExpiresAt { get; set; }
-    public DateTime Timestamp { get; private set; }
-    public Guid Guid { get; set; }
-    public HttpListenerContext? Context { get; private set; }
-    public int AsyncBlobAccessTimeoutSecs { get; set; } = 3600; // 1 hour
-    public int Attempts { get; set; } = 0;
-    public int defaultTimeout { get; set; } = 0; // header timeout or default timeout in milliseconds
-    public int Priority { get; set; }
-    public int Priority2 { get; set; }
-    public int Timeout { get; set; }  // calculated timeout in milliseconds
-    public List<Dictionary<string, string>> incompleteRequests = new();
-    public ProxyEvent EventData = new();
-    public Stream? OutputStream { get; set; }
-    public Stream? Body { get; private set; }
     public string BlobContainerName { get; set; } = "";
-    public string ExpireReason { get; set; } = "";
-    public string ExpiresAtString { get; set; } = "";
-    public string FullURL { get; set; }
-    public string Method { get; set; }
-    public string MID { get; set; } = "";
-    public string ParentId { get; set; } = "";
-    public string Path { get; set; }
-    public bool Requeued { get; set; } = false;
+    public bool runAsync { get; set; } = false;
     public string SBTopicName { get; set; } = "";
-    public string UserID { get; set; } = "";
-    public string profileUserId { get; set; } = "";
-    public WebHeaderCollection Headers { get; private set; }
 
     private string _backgroundRequestId = "";
     public string BackgroundRequestId
@@ -86,7 +59,7 @@ public class RequestData : IDisposable, IAsyncDisposable
             _requestAPIDocument.isBackground = value;
         }
     }
-
+    public bool IsBackgroundCheck { get; set; } = false;
     public RequestAPIDocument? _requestAPIDocument; // For tracking async and background status updates
     public RequestAPIStatusEnum RequestAPIStatus
     {
@@ -117,6 +90,41 @@ public class RequestData : IDisposable, IAsyncDisposable
     }
 
     public IRequestProcessor? RecoveryProcessor { get; set; } = null;
+
+    // -- END ASYNC RELATED PARAMS --
+
+
+    // Number of times Proxy calls the backend
+    public int Attempts { get; set; } = 0;
+
+    public bool Debug { get; set; }
+    public bool SkipDispose { get; set; } = false;
+    public byte[]? BodyBytes { get; set; } = null;
+    public DateTime DequeueTime { get; set; }
+    public DateTime EnqueueTime { get; set; }
+    public DateTime ExpiresAt { get; set; }
+    public DateTime Timestamp { get; private set; }
+    public Guid Guid { get; set; }
+    public HttpListenerContext? Context { get; private set; }
+    public int defaultTimeout { get; set; } = 0; // header timeout or default timeout in milliseconds
+    public int Priority { get; set; }
+    public int Priority2 { get; set; }
+    public int Timeout { get; set; }  // calculated timeout in milliseconds
+    public List<Dictionary<string, string>> incompleteRequests = new();
+    public ProxyEvent EventData = new();
+    public Stream? OutputStream { get; set; }
+    public Stream? Body { get; private set; }
+    public string ExpireReason { get; set; } = "";
+    public string ExpiresAtString { get; set; } = "";
+    public string FullURL { get; set; }
+    public string Method { get; set; }
+    public string MID { get; set; } = "";
+    public string ParentId { get; set; } = "";
+    public string Path { get; set; }
+    public bool Requeued { get; set; } = false;
+    public string UserID { get; set; } = "";
+    public string profileUserId { get; set; } = "";
+    public WebHeaderCollection Headers { get; private set; }
 
     // Method to initialize the static variable from DI
     public static void InitializeServiceBusRequestService(IServiceBusRequestService serviceBusRequestService,

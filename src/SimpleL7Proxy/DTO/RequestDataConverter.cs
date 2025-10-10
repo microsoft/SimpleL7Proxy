@@ -14,17 +14,18 @@ namespace SimpleL7Proxy.DTO
         {
             return new RequestAPIDocument
             {
-                id = data.Guid.ToString(),
-                guid = data.Guid.ToString(),
-                mid = data.MID,
+                backgroundRequestId = data.BackgroundRequestId,
                 createdAt = data.EnqueueTime,
+                guid = data.Guid.ToString(),
+                id = data.Guid.ToString(),
                 isAsync = true,
                 isBackground = data.IsBackground,
-                backgroundRequestId = data.BackgroundRequestId,
+                mid = data.MID,
                 priority1 = data.Priority,
                 priority2 = data.Priority2,
+                status = RequestAPIStatusEnum.New,    // careful if copying from request data and it already has a status
                 userID = data.profileUserId,
-                status = RequestAPIStatusEnum.New     // careful if copying from request data and it already has a status
+                URL = data.FullURL
             };
         }
 

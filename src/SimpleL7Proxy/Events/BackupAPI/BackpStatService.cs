@@ -61,10 +61,35 @@ namespace SimpleL7Proxy.BackupAPI
             return Task.CompletedTask;
         }
 
-        public Task StopAsync(CancellationToken cancellationToken)
+        public async Task StopAsync(CancellationToken cancellationToken)
         {
+            _logger.LogInformation("[SHUTDOWN] BackupAPIService stopping...");
+
             isShuttingDown = true;
-            return Task.CompletedTask;
+
+            // Signal the semaphore to wake up any waiting threads
+            _queueSignal.Release();
+    
+            // DO NOT cancel the token - let the task complete naturally
+            // The FeederTask will exit when isShuttingDown=true AND queue is empty
+            
+            if (writerTask != null)
+            {
+                try
+                {
+                    // Wait for the writer task to complete all work
+                    // Use the provided cancellationToken only for the wait operation
+                    await writerTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    _logger.LogInformation($"[SHUTDOWN] BackupAPIService stopped successfully. Final queue count: {_statusQueue.Count}");
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    // The wait was cancelled, but the task is still running
+                    _logger.LogWarning("[SHUTDOWN] StopAsync timeout reached, but writer task is still running to complete message flush.");
+                }
+            }
+        
+            // Don't dispose the cancellation token source here - let the task complete
         }
 
         public bool UpdateStatus(RequestAPIDocument message)
@@ -91,27 +116,25 @@ namespace SimpleL7Proxy.BackupAPI
 
             try
             {
-                await Task.Run(() => FeederTask(token), token).ConfigureAwait(false);
+                await FeederTask(token).ConfigureAwait(false);
             }
-            catch (TaskCanceledException)
+            catch (TaskCanceledException) when (token.IsCancellationRequested)
             {
-                // Task was canceled, exit gracefully
-                _logger.LogInformation("Backup API service task was canceled.");
+                // Task was canceled, but check if we need to flush
+                _logger.LogInformation($"Backup API service task was canceled. Queue items: {_statusQueue.Count}");
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
-                // Operation was canceled, exit gracefully
-                _logger.LogInformation($"Backup API service shutdown initiated: {_statusQueue.Count()} items need to be flushed.");
+                // Operation was canceled, but check if we need to flush
+                _logger.LogInformation($"Backup API service shutdown initiated: {_statusQueue.Count} items need to be flushed.");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "An error occurred while calling Backup API.: " + ex);
+                _logger.LogError(ex, "An error occurred in Backup API service");
             }
             finally
             {
-                // Flush all items in batches : should never be the case 
-                var cts = new CancellationTokenSource().Token;
-
+                // Always flush remaining items
                 var drained = new List<RequestAPIDocument>();
                 while (_statusQueue.TryDequeue(out var statusMessage))
                 {
@@ -120,15 +143,26 @@ namespace SimpleL7Proxy.BackupAPI
 
                 if (drained.Count > 0)
                 {
+                    _logger.LogWarning($"[SHUTDOWN] Flushing {drained.Count} remaining messages...");
+                    
                     try
                     {
-                        await SendBatch(drained, cts).ConfigureAwait(false);
+                        // Use a new token with generous timeout for final flush
+                        using var flushCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                        await SendBatch(drained, flushCts.Token).ConfigureAwait(false);
+                        _logger.LogInformation($"[SHUTDOWN] Successfully flushed {drained.Count} messages.");
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        _logger.LogError($"[SHUTDOWN] Failed to flush {drained.Count} messages - timeout exceeded!");
                     }
                     catch (Exception e)
                     {
-                        _logger.LogError(e, "Error while flushing backup API service. Continuing.");
+                        _logger.LogError(e, $"[SHUTDOWN] Error while flushing {drained.Count} messages.");
                     }
                 }
+                
+                _cancellationTokenSource?.Dispose();
             }
 
             _logger.LogInformation("Backup API service is stopping.");
@@ -139,45 +173,65 @@ namespace SimpleL7Proxy.BackupAPI
         private async Task FeederTask(CancellationToken token)
         {
             var drained = new List<RequestAPIDocument>(MaxDrainPerCycle);
+            
+            // Continue until shutdown AND queue is empty
             while (!isShuttingDown || !_statusQueue.IsEmpty)
             {
-
-                // don't repeat this loop more than once every FlushIntervalMs unless we are shutting down
-                var delta = DateTime.UtcNow - _lastDrainTime;
-                if (delta < FlushIntervalMs && !isShuttingDown && !token.IsCancellationRequested)
+                try
                 {
-                    delta = FlushIntervalMs - delta;
-                    await Task.Delay(delta, token).ConfigureAwait(false);
-                }
-                _lastDrainTime = DateTime.UtcNow;
+                    // Don't delay during shutdown
+                    if (!isShuttingDown)
+                    {
+                        var delta = DateTime.UtcNow - _lastDrainTime;
+                        if (delta < FlushIntervalMs && !token.IsCancellationRequested)
+                        {
+                            delta = FlushIntervalMs - delta;
+                            await Task.Delay(delta, token).ConfigureAwait(false);
+                        }
+                    }
+                    _lastDrainTime = DateTime.UtcNow;
 
-                // Drain all available items before waiting
-                while (_statusQueue.TryDequeue(out var item))
-                {
+                    // Drain all available items
+                    while (_statusQueue.TryDequeue(out var item))
+                    {
+                        drained.Add(item);
+                        if (drained.Count >= MaxDrainPerCycle)
+                        {
+                            await SendBatch(drained, token).ConfigureAwait(false);
+                            drained.Clear();
+                        }
+                    }
 
-                    // Process item (e.g., add to batch, send, etc.)
-                    drained.Add(item);
-                    if (drained.Count >= MaxDrainPerCycle)
+                    // Send any remaining items
+                    if (drained.Count > 0)
                     {
                         await SendBatch(drained, token).ConfigureAwait(false);
                         drained.Clear();
                     }
-                }
 
-                // If any remain after draining, process them
-                if (drained.Count > 0)
-                {
-                    await SendBatch(drained, token).ConfigureAwait(false);
-                    drained.Clear();
+                    // Wait for signal only if not shutting down
+                    if (!isShuttingDown && _statusQueue.IsEmpty)
+                    {
+                        try
+                        {
+                            await _queueSignal.WaitAsync(token).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException) when (isShuttingDown)
+                        {
+                            // Expected during shutdown, continue to drain queue
+                        }
+                    }
+                    
+                    _logger.LogDebug($"Loop: shutting down: {isShuttingDown}, queueCount: {_statusQueue.Count}");
                 }
-
-                // Now wait for a signal before next round
-                while (_statusQueue.IsEmpty && !token.IsCancellationRequested)
+                catch (OperationCanceledException) when (isShuttingDown && _statusQueue.IsEmpty)
                 {
-                    await _queueSignal.WaitAsync(token).ConfigureAwait(false);
+                    // Expected during shutdown when queue is empty
+                    break;
                 }
-                _logger.LogDebug($"Loop: cancelRequest: {token.IsCancellationRequested}, queueCount: {_statusQueue.Count}");
             }
+            
+            _logger.LogInformation($"[SHUTDOWN] FeederTask completed. Final queue count: {_statusQueue.Count}");
         }
 
         static readonly JsonSerializerOptions jsonOptions = new JsonSerializerOptions
@@ -202,6 +256,8 @@ namespace SimpleL7Proxy.BackupAPI
                 foreach (var item in items)
                 {
                     var message = new ServiceBusMessage(JsonSerializer.Serialize(item, jsonOptions));
+
+                    _logger.LogInformation($"BackupAPI: Sending status update for UserId: {item.userID}, Status: {item.status}");
 
                     if (!currentBatch.TryAddMessage(message))
                     {
