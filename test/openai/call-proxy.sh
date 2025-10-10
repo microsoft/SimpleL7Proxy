@@ -55,6 +55,7 @@ URLS["gpt5-nano"]="POST /file/gpt5-nano.txt"
 # Parse command line arguments
 verbose=""
 asyncmode="false"
+debugmode="false"
 response_id=""
 args=()
 
@@ -68,6 +69,9 @@ while [ $i -lt $# ]; do
       ;;
     -a|--async)
       asyncmode="true"
+      ;;
+    -d|--debug)
+      debugmode="true"
       ;;
     --rid)
       ((i++))
@@ -89,7 +93,7 @@ requesttype="${args[1],,}"
 jsonfile="${args[2]}"
 
 if [ -z "$hostalias" ]; then
-  echo "Usage: call-proxy <hostalias> [requesttype] [jsonfile] [--rid response_id]"
+  echo "Usage: call-proxy <hostalias> [requesttype] [jsonfile] [--rid response_id] [-v] [-a|--async] [-d|--debug]"
   echo " Examples:"
   echo "  ./call-proxy.sh local multiline openai_call1.json -v -a"
   echo "  ./call-proxy.sh local embeddings openai_call1.json -v -a"
@@ -178,10 +182,14 @@ curl_cmd=(
 )
 
 if [ "$asyncmode" = "true" ]; then
-  curl_cmd+=(-H "AsyncMode: true")
+  curl_cmd+=( -H "AsyncMode: true" )
 fi
 
-curl_cmd+=(-H "S7PDEBUG: true" --no-buffer $verbose)
+if [ "$debugmode" = "true" ]; then
+  curl_cmd+=( -H "S&PDEBUG: true" )
+fi
+
+curl_cmd+=( --no-buffer $verbose )
 
 if [ "$http_method" = "GET" ]; then
   curl_cmd+=(-w "\n----------------------------------------\n[Status Code: %{http_code}]\n")
