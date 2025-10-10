@@ -26,6 +26,7 @@ public class CoordinatedShutdownService : IHostedService
     private readonly IConcurrentPriQueue<RequestData> _queue;
     private readonly IBackendService _backends;
     private readonly IAsyncFeeder _asyncFeeder;
+    private readonly IRequeueWorker _requeueWorker;
 
 
     public CoordinatedShutdownService(IHostApplicationLifetime appLifetime,
@@ -36,6 +37,7 @@ public class CoordinatedShutdownService : IHostedService
         IServiceBusRequestService serviceBusRequestService,
         IAsyncFeeder asyncFeeder,
         IBackupAPIService backupAPIService,
+        IRequeueWorker requeueWorker,
         ILogger<CoordinatedShutdownService> logger,
         Server server)
     {
@@ -48,6 +50,7 @@ public class CoordinatedShutdownService : IHostedService
         _serviceBusRequestService = serviceBusRequestService;
         _backupAPIService = backupAPIService;
         _asyncFeeder = asyncFeeder;
+        _requeueWorker = requeueWorker;
         _options = backendOptions.Value;
     }
 
@@ -59,17 +62,20 @@ public class CoordinatedShutdownService : IHostedService
         _logger.LogInformation($"[SHUTDOWN] ⏳ Waiting for tasks to complete - Maximum {_options.TerminationGracePeriodSeconds}s");
 
         // Stop AsyncFeeder and server first to prevent it from generating new work
-        await _server.StopListening(cancellationToken);
-        await _asyncFeeder.StopAsync(cancellationToken);
-        await _queue.StopAsync();
+        await _server.StopListening(cancellationToken).ConfigureAwait(false);
+        await _asyncFeeder.StopAsync(cancellationToken).ConfigureAwait(false);
+        await _queue.StopAsync().ConfigureAwait(false);
 
         ProxyWorkerCollection.ExpelAsyncRequests();  // backup all async requests
+        Task requeueTask = _requeueWorker.CancelAllCancelableTasks(); // cancel all cancellable delays 
         ProxyWorkerCollection.RequestWorkerShutdown();
 
-        
-        var timeoutTask = Task.Delay(_options.TerminationGracePeriodSeconds * 1000);
+
+        var timeoutTask = Task.Delay(_options.TerminationGracePeriodSeconds * 1000, CancellationToken.None);
+        await requeueTask.ConfigureAwait(false); // wait for all cancellable delays to be cancelled
+
         var allTasksComplete = Task.WhenAll(ProxyWorkerCollection.GetAllTasks());
-        var completedTask = await Task.WhenAny(allTasksComplete, timeoutTask);
+        var completedTask = await Task.WhenAny(allTasksComplete, timeoutTask).ConfigureAwait(false);
         if (completedTask == timeoutTask)
         {
             _logger.LogInformation($"Tasks did not complete within {_options.TerminationGracePeriodSeconds} seconds. Forcing shutdown.");
