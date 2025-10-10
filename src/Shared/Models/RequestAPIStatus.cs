@@ -3,12 +3,12 @@ namespace Shared.RequestAPI.Models
     public enum RequestAPIStatusEnum
     {
         New,                  // 0
-        InProgress,           // 1
-        Completed,            // 2
-        Failed,               // 3
-        NeedsReprocessing,    // 4
-        ReSubmitted,          // 5
-        ReProcessing,         // 6
-        BackgroundProcessing,  // 7
+        InProgress,           // 1  Proxy is processing it
+        Completed,            // 2  Proxy has completed processing
+        Failed,               // 3  Proxy has failed to process
+        NeedsReprocessing,    // 4  Waiting for the API to re-submit the request
+        ReSubmitted,          // 5  API has re-submitted the request
+        ReProcessing,         // 6  Proxy is re-processing the request
+        BackgroundProcessing,  // 7 Proxy is processing it in background mode
     }
 }
