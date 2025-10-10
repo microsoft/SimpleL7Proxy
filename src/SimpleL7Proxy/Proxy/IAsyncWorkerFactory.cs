@@ -47,8 +47,9 @@ namespace SimpleL7Proxy.Proxy
 
         public AsyncWorker CreateAsync(RequestData requestData, int AsyncTriggerTimeout)
         {
-            var worker = new AsyncWorker(requestData, AsyncTriggerTimeout, _blobWriter, _logger, _requestBackupService);
-            return worker;
+            _logger.LogDebug($"Creating AsyncWorker for request {requestData.Guid} with timeout {AsyncTriggerTimeout} seconds.");
+            
+            return new AsyncWorker(requestData, AsyncTriggerTimeout, _blobWriter, _logger, _requestBackupService);
         }
     }
 }
