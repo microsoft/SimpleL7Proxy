@@ -38,6 +38,7 @@ public class ProxyWorker
     private readonly CancellationToken _cancellationToken;
     private static bool _debug = false;
     private static IConcurrentPriQueue<RequestData>? _requestsQueue;
+    private static IRequeueWorker _requeueDelayWorker;
     private readonly IBackendService _backends;
     private readonly BackendOptions _options;
     private readonly TelemetryClient? _telemetryClient;
@@ -81,6 +82,7 @@ public class ProxyWorker
         IBackendService? backends,
         IUserProfileService? profiles,
         IUserPriorityService? userPriority,
+        IRequeueWorker requeueDelayWorker,
         IEventClient eventClient,
         TelemetryClient? telemetryClient,
         IAsyncWorkerFactory asyncWorkerFactory,
@@ -93,6 +95,7 @@ public class ProxyWorker
         _backends = backends ?? throw new ArgumentNullException(nameof(backends));
         _eventClient = eventClient;
         _asyncWorkerFactory = asyncWorkerFactory;
+        _requeueDelayWorker = requeueDelayWorker;
         _logger = logger;
         //_proxyStreamWriter = proxyStreamWriter;
         //_eventHubClient = eventHubClient;
@@ -167,6 +170,7 @@ public class ProxyWorker
                 incomingRequest.DequeueTime = DateTime.UtcNow;
             }
             incomingRequest.Requeued = false;  // reset this flag for this round of activity
+            bool abortTask = false;
 
             await using (incomingRequest)
             {
@@ -257,7 +261,7 @@ public class ProxyWorker
                             var timeTaken = DateTime.UtcNow - incomingRequest.EnqueueTime;
                             eventData.Duration = timeTaken;
                             eventData["Total-Latency"] = timeTaken.TotalMilliseconds.ToString("F3");
-                            eventData["Attempts"] = incomingRequest.Attempts.ToString();
+                            eventData["Attempts"] = incomingRequest.BackendAttempts.ToString();
                             if (pr != null)
                             {
                                 eventData["Backend-Host"] = !string.IsNullOrEmpty(pr.BackendHostname) ? pr.BackendHostname : "N/A";
@@ -267,7 +271,7 @@ public class ProxyWorker
                                 eventData["Average-Backend-Probe-Latency"] =
                                     pr.CalculatedHostLatency != 0 ? pr.CalculatedHostLatency.ToString("F3") + " ms" : "N/A";
                                 if (pr.Headers != null)
-                                    pr.Headers["x-Attempts"] = incomingRequest.Attempts.ToString();
+                                    pr.Headers["x-Attempts"] = incomingRequest.BackendAttempts.ToString();
                             }
                         }
                         Interlocked.Decrement(ref states[2]);
@@ -371,40 +375,8 @@ public class ProxyWorker
                 }
                 catch (S7PRequeueException e)
                 {
-
-                    // Create a  new task that will requeue after the retry-after value
-                    var requeueTask = Task.Run(async () =>
-                    {
-                        // we shouldn't need to create a copy of the incomingRequest because we are skipping the dispose.
-                        // Requeue the request after the retry-after value
-                        incomingRequest.SBStatus = ServiceBusMessageStatusEnum.RetryScheduled;
-
-                        Interlocked.Decrement(ref states[7]);
-
-                        // async tasks are cancellable because they can run again.  AsyncExcelSource will be cancelled on shutdown.
-                        if (AsyncExpelSource != null)
-                        {
-                            await Task.Delay(e.RetryAfter, AsyncExpelSource.Token).ConfigureAwait(false);
-                        }
-                        else
-                        {
-                            await Task.Delay(e.RetryAfter).ConfigureAwait(false);
-                        }
-                        Interlocked.Increment(ref states[7]);
-
-
-                        incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Requeued;
-                        _requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.Priority2, incomingRequest.EnqueueTime);
-                    });
-
-                    // Event details were  already captured in ReadProxyAsync
-
-                    // Requeue the request 
-                    //_requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.Priority2, incomingRequest.EnqueueTime);
-                    _logger.LogCritical("Requeued request, Pri: {Priority}, Expires-At: {ExpiresAt} Retry-after-ms: {RetryAfter}, Q-Len: {QueueLength}, CB: {CircuitBreakerStatus}, Hosts: {ActiveHosts}",
-                        incomingRequest.Priority, incomingRequest.ExpiresAtString, e.RetryAfter, _requestsQueue.thrdSafeCount, _backends.CheckFailedStatus(), _backends.ActiveHostCount());
-                    incomingRequest.Requeued = true;
-                    incomingRequest.SkipDispose = true;
+                    // launches a delay task while the current worker goes back to the top of the loop for more work
+                    _requeueDelayWorker.DelayAsync(incomingRequest, e.RetryAfter);
 
                 }
                 catch (ProxyErrorException e)
@@ -482,17 +454,7 @@ public class ProxyWorker
                 {
                     if (asyncExpelInProgress)
                     {
-                        // shutdown the async worker
-                        if (incomingRequest.asyncWorker != null)
-                        {
-                            await incomingRequest.asyncWorker.AbortAsync().ConfigureAwait(false);
-                            Console.WriteLine($"AsyncWorker: Expel completed, updated backup: {incomingRequest.Guid}");
-                            incomingRequest.asyncWorker = null;
-                        }
-                        else
-                        {
-                            _logger.LogError("Async expel operation but asyncWorker is null");
-                        }
+                        abortTask = true;
                     }
                 }
                 catch (Exception ex)
@@ -551,6 +513,19 @@ public class ProxyWorker
                 {
                     try
                     {
+                        if (abortTask)
+                        {
+
+                            if (incomingRequest.asyncWorker != null)
+                            {
+                                await incomingRequest.asyncWorker.AbortAsync().ConfigureAwait(false);
+                                incomingRequest.asyncWorker = null;
+                            }
+                            else
+                            {
+                                _logger.LogError("Task was aborted but asyncWorker is null");
+                            }
+                        }
 
                         // Request is still valid, clean up
                         if (!incomingRequest.Requeued &&      // Request is not being requeued for retry
@@ -752,7 +727,7 @@ public class ProxyWorker
             DateTime ProxyStartDate = DateTime.UtcNow;
             LastHostGuid = host.guid;
             // track the number of attempts
-            request.Attempts++;
+            request.BackendAttempts++;
             bool successfulRequest = false;
             string requestState = "Init";
 
@@ -760,12 +735,12 @@ public class ProxyWorker
             {
                 Type = EventType.BackendRequest,
                 ParentId = request.ParentId,
-                MID = $"{request.MID}-{request.Attempts}",
+                MID = $"{request.MID}-{request.BackendAttempts}",
                 Method = request.Method,
                 ["Request-Date"] = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffK"),
                 ["Backend-Host"] = host.Host,
                 ["Host-URL"] = host.Url,
-                ["Attempt"] = request.Attempts.ToString()
+                ["Attempt"] = request.BackendAttempts.ToString()
             };
             if (request.Context?.Request.Url != null)
                 requestAttempt.Uri = request.Context!.Request.Url!;
@@ -809,6 +784,7 @@ public class ProxyWorker
                 {
                     proxyRequest.Content = bodyContent;
                     CopyHeaders(request.Headers, proxyRequest, true);
+                    proxyRequest.Headers.Add("x-PolicyCycleCounter", request.TotalDownstreamAttempts.ToString());
 
                     if (bodyBytes.Length > 0)
                     {
@@ -900,6 +876,14 @@ public class ProxyWorker
                                 request.SBStatus = ServiceBusMessageStatusEnum.AsyncProcessingError;
 
                                 //_logger.LogError($"AsyncWorker failed to setup: {request.asyncWorker.ErrorMessage}");
+                            }
+                        }
+
+                        if (proxyResponse.Headers.TryGetValues("x-PolicyCycleCounter", out var policyAttempts))
+                        {
+                            if (int.TryParse(policyAttempts.FirstOrDefault(), out var pAttempts))
+                            {
+                                request.TotalDownstreamAttempts = pAttempts;
                             }
                         }
 
@@ -1198,7 +1182,7 @@ public class ProxyWorker
                 request.Context.Response.Headers["x-Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms";
                 request.Context.Response.Headers["x-ProxyHost"] = _options.HostName;
                 request.Context.Response.Headers["x-MID"] = request.MID;
-                request.Context.Response.Headers["Attempts"] = request.Attempts.ToString();
+                request.Context.Response.Headers["Attempts"] = request.BackendAttempts.ToString();
             }
 
             if (request.OutputStream != null)

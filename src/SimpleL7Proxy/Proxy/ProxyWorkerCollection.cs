@@ -20,6 +20,7 @@ public class ProxyWorkerCollection : BackgroundService
   private readonly IBackendService _backends;
   private readonly IUserPriorityService _userPriorityService;
   private readonly IUserProfileService _userProfileService;
+  private readonly IRequeueWorker _requeueWorker;
   private readonly IEventClient _eventClient;
   private readonly TelemetryClient _telemetryClient;
   private readonly ILogger<ProxyWorker> _logger;
@@ -36,6 +37,7 @@ public class ProxyWorkerCollection : BackgroundService
     IBackendService backends,
     IUserPriorityService userPriorityService,
     IUserProfileService userProfileService,
+    IRequeueWorker requeueWorker,
     IEventClient eventClient,
     TelemetryClient telemetryClient,
     ILogger<ProxyWorker> logger,
@@ -52,6 +54,7 @@ public class ProxyWorkerCollection : BackgroundService
     _userPriorityService = userPriorityService;
     _userProfileService = userProfileService;
     _asyncWorkerFactory = asyncWorkerFactory;
+    _requeueWorker = requeueWorker;
   }
 
   protected override Task ExecuteAsync(CancellationToken cancellationToken)
@@ -94,6 +97,7 @@ public class ProxyWorkerCollection : BackgroundService
         _backends,
         _userProfileService,
         _userPriorityService,
+        _requeueWorker,
         _eventClient,
         _telemetryClient,
         _asyncWorkerFactory,
