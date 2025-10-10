@@ -1293,7 +1293,12 @@ public class ProxyWorker
                         _logger.LogInformation($"Updating async worker for background GUID: {request.Guid} => request: {processor.BackgroundRequestId}");
                         await request.asyncWorker.UpdateBackup().ConfigureAwait(false);
                         //request._requestAPIDocument.URL = request.FullURL;
-                        request.RequestAPIStatus = RequestAPIStatusEnum.BackgroundProcessing;                        
+
+                        // Gets set by the feeder
+                        if (!request.IsBackgroundCheck)
+                        {
+                            request.RequestAPIStatus = RequestAPIStatusEnum.BackgroundProcessing;
+                        }
                     }
                 }
                 else
