@@ -213,6 +213,8 @@ public class Program
         services.AddSingleton<UserProfile>();
         services.AddSingleton<IUserProfileService>(provider => provider.GetRequiredService<UserProfile>());
 
+        services.AddSingleton<IRequeueWorker, RequeueDelayWorker>();
+
         services.AddSingleton<IBackendService, Backends>();
         services.AddSingleton<Server>();
         services.AddSingleton<ConcurrentSignal<RequestData>>();

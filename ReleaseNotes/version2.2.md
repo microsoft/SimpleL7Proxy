@@ -1,11 +1,16 @@
 # Release Notes #
 
+## 2.2.8
+
 Policy:
 * Bug fix for 404 getting returned as a 429
+* Track PolicyCycleCounter across requests
 
 Proxy:
 * Add configuration for DependancyHeaders, a list of headers to copy into the response
 * Bug fixes for background request processing
+* Track PolicyCycleCounter across requests
+* Track BackendAttempts and DownstreamAttempts seperately
 
 
 ## 2.2.7.P1
