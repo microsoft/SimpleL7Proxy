@@ -1,5 +1,13 @@
 # Release Notes #
 
+Policy:
+* Bug fix for 404 getting returned as a 429
+
+Proxy:
+* Add configuration for DependancyHeaders, a list of headers to copy into the response
+* Bug fixes for background request processing
+
+
 ## 2.2.7.P1
 Policy:
 * Added flow diagram
