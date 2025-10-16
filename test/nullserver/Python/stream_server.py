@@ -11,6 +11,7 @@ import threading
 import os
 from urllib.parse import urlparse, parse_qs
 from socketserver import ThreadingMixIn
+import argparse
 
 httpd = None  # Declare httpd as a global variable
 
@@ -249,24 +250,46 @@ def handle_sigint(signum, frame):
     print("\nReceived interrupt, shutting down server...")
     shutdown_event.set()
 
-def mt_main():
+def mt_main(port=None, shutdown_after=None):
+    """Start the threaded HTTP server.
+
+    Args:
+        port: int or None. If None, read from PORT env var or default 3000.
+        shutdown_after: float seconds or None. If set, schedule an automatic shutdown.
+    """
     global httpd
-    # Listen on port 3000 or specified port
-    port = int(os.environ.get('PORT', 3000))
-    if port < 1024 or port > 65535:
+
+    # Determine effective port: CLI arg > env var > default
+    effective_port = port if port is not None else int(os.environ.get('PORT', 3000))
+
+    if effective_port < 1024 or effective_port > 65535:
         raise ValueError("Port must be between 1024 and 65535")
-    
-    httpd = ThreadedTCPServer(("localhost", port), MyHandler)
-    print(f"Server started on port {port}...")
-    
+
+    httpd = ThreadedTCPServer(("localhost", effective_port), MyHandler)
+    if shutdown_after is not None:
+        print(f"Server started on port {effective_port} (will stop after {shutdown_after}s)...")
+    else:
+        print(f"Server started on port {effective_port}...")
+
     # Start server in a separate thread
     server_thread = threading.Thread(target=httpd.serve_forever)
     server_thread.daemon = True
     server_thread.start()
-    
+
+    # If shutdown_after was supplied, schedule an automatic shutdown (useful for tests)
+    if shutdown_after is not None:
+        try:
+            t = float(shutdown_after)
+            if t > 0:
+                timer = threading.Timer(t, shutdown_event.set)
+                timer.daemon = True
+                timer.start()
+        except Exception:
+            pass
+
     # Wait for shutdown signal
     shutdown_event.wait()
-    
+
     # Shutdown the server
     httpd.shutdown()
     httpd.server_close()
@@ -287,4 +310,15 @@ def single_main():
 
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, handle_sigint)
-    mt_main()
+    parser = argparse.ArgumentParser(description='Lightweight stream/null server for local testing')
+    parser.add_argument('--port', '-p', type=int, help='Port to listen on (overrides PORT env var)')
+    # Short flag --shutdown/-s is the preferred name. Keep --shutdown-after as a long-only compatibility alias.
+    parser.add_argument('--shutdown', '-s', type=float, dest='shutdown_after', help='If provided, server will automatically stop after N seconds (useful for tests)')
+    parser.add_argument('--shutdown-after', type=float, dest='shutdown_after', help=argparse.SUPPRESS)
+    args = parser.parse_args()
+
+    # Call mt_main with explicit arguments (no attribute indirection)
+    cli_port = args.port if args.port is not None else None
+    shutdown_after = args.shutdown_after if args.shutdown_after is not None else None
+
+    mt_main(port=cli_port, shutdown_after=shutdown_after)
