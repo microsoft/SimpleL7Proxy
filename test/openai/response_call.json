@@ -1,0 +1,11 @@
+{
+    "input": [
+        {
+            "role": "user",
+            "content": "I am going to Paris, what should I see?"
+        }
+    ],
+    "background": true,
+    "model": "gpt-4o",
+    "metadata": {}
+}
