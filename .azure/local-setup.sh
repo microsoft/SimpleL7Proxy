@@ -108,6 +108,49 @@ fi
 
 echo "✅ Local development configuration saved to: $local_config_file"
 echo ""
-echo "🎉 Local setup complete. Run 'cd src/SimpleL7Proxy && dotnet run' to start locally."
+echo "🎉 Local setup complete."
+
+# Provide instructions for null/mock server and starting the proxy
+if [ "$backend_mode" = "null" ]; then
+  # Extract first host/port from backend_urls (expecting http://host:port)
+  first_host=$(printf "%s" "$backend_urls" | awk -F, '{print $1}')
+  # parse port if present
+  port=$(printf "%s" "$first_host" | sed -n 's|.*:\([0-9]*\)$|\1|p')
+  if [ -z "$port" ]; then
+    port="3000"
+  fi
+
+  echo "To run the null/mock server in a new terminal:"
+  echo "  1) Open a new terminal window"
+  # canonical Python stream server location
+  py_path="$script_dir/../Python/stream_server.py"
+  if [ -f "$py_path" ]; then
+    py_dir="$(cd "$(dirname "$py_path")" && pwd)"
+    echo "  2) Change directory to the Python nullserver project:"
+    echo "       cd $py_dir"
+    echo "  3) Start the Python null server on port $port (recommended):"
+    echo "       python3 stream_server.py --port $port"
+  else
+    echo "  2) No Python stream_server.py found at test/nullserver/Python; fallback to .NET nullserver path:"
+    echo "       cd test/nullserver/nullserver"
+    echo "  3) Start the .NET null server on port $port:"
+    echo "       dotnet run --urls http://localhost:$port"
+  fi
+  echo "     (or, if you prefer the .NET version)"
+  echo "       dotnet run --urls http://localhost:$port"
+  echo "     Note: the .NET server reads 'port' from appsettings.json; using --urls overrides the listening address."
+  echo ""
+  echo "To run the proxy using the generated env file in your current shell:"
+  echo "  1) Source the env file to export variables:"
+  echo "       source $local_config_file"
+  echo "  2) Start the proxy from the SimpleL7Proxy project root (single terminal):"
+  echo "       cd src/SimpleL7Proxy && dotnet run"
+else
+  echo "To run the proxy using the generated env file in your current shell:"
+  echo "  1) Source the env file to export variables:"
+  echo "       source $local_config_file"
+  echo "  2) Start the proxy from the SimpleL7Proxy project root:"
+  echo "       cd src/SimpleL7Proxy && dotnet run"
+fi
 
 exit 0
