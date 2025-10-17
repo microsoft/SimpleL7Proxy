@@ -167,59 +167,30 @@ if [ "$backend_mode" = "null" ]; then
     port="3000"
   fi
 
-  echo "To run the null/mock server in a new terminal:"
-  echo "  1) Open a new terminal window"
-  # canonical Python stream server location
-  py_path="$script_dir/../Python/stream_server.py"
-  if [ -f "$py_path" ]; then
-    py_dir="$(cd "$(dirname "$py_path")" && pwd)"
-    # print null server template substituting placeholders
-    if [ -f "$script_dir/scenarios/null_server.txt" ]; then
-      sed -e "s|{{PY_DIR_OR_DOTNET}}|$py_dir|g" \
-          -e "s|{{PORT}}|$port|g" \
-          -e "s|{{START_CMD}}|python3 stream_server.py --port $port|g" \
-          "$script_dir/scenarios/null_server.txt" | sed 's/^/  /'
-    else
-      echo "  2) Change directory to the Python nullserver project:"
-      echo "       cd $py_dir"
-      echo "  3) Start the Python null server on port $port (recommended):"
-      echo "       python3 stream_server.py --port $port"
-    fi
-  else
-    dotnet_dir="test/nullserver/nullserver"
-    if [ -f "$script_dir/scenarios/null_server.txt" ]; then
-      sed -e "s|{{PY_DIR_OR_DOTNET}}|$dotnet_dir|g" \
-          -e "s|{{PORT}}|$port|g" \
-          -e "s|{{START_CMD}}|dotnet run --urls http://localhost:$port|g" \
-          "$script_dir/scenarios/null_server.txt" | sed 's/^/  /'
-    else
-      echo "  2) No Python stream_server.py found at test/nullserver/Python; fallback to .NET nullserver path:"
-      echo "       cd $dotnet_dir"
-      echo "  3) Start the .NET null server on port $port:" 
-      echo "       dotnet run --urls http://localhost:$port"
-    fi
-  fi
-  echo ""
+  echo "You will need two terminal windows to run this scenario:"
+  echo "  1) The null server"
+  echo "  2) The proxy"
+  echo "\nBefore running any test commands below, source the generated env file in the same shell so the environment variables are available to the commands (example):"
+  echo "\nsource .azure/local-dev.env"
+  echo "\n\nQuick test examples (use the env vars defined in the env file):"
+  echo "\n  # Hit the null server directly on the configured port and probe path"
+  echo "  curl -v http://localhost:$Port$Probe_path1"
+  echo "\n# Or, if you want to hit the proxy which forwards to the null server (proxy must be running):"
+  echo "\n  curl -v $Host1$Probe_path1"
+
+    # show both Python and .NET options (do not do per-file existence checks)
+    py_dir="$script_dir/../test/nullserver/Python"
+    dotnet_dir="$script_dir/../test/nullserver/dotnet"
+  sed -e "s|{{PY_DIR}}|$py_dir|g" \
+    -e "s|{{DOTNET_DIR}}|$dotnet_dir|g" \
+    -e "s|{{PORT}}|$port|g" \
+    -e "s|{{START_CMD_PY}}|source $local_config_file && python3 stream_server.py --port \$Port|g" \
+    -e "s|{{START_CMD_DOTNET}}|source $local_config_file && dotnet run --urls http://localhost:\$Port|g" \
+    "$script_dir/scenarios/null_server.txt" | sed 's/^/  /'
   # Print proxy run instructions using template
-  if [ -f "$script_dir/scenarios/proxy_run.txt" ]; then
-    sed -e "s|{{LOCAL_CONFIG_FILE}}|$local_config_file|g" "$script_dir/scenarios/proxy_run.txt" | sed 's/^/  /'
-  else
-    echo "  To run the proxy using the generated env file in your current shell:"
-    echo "    1) Source the env file to export variables:"
-    echo "         source $local_config_file"
-    echo "    2) Start the proxy from the SimpleL7Proxy project root:"
-    echo "         cd src/SimpleL7Proxy && dotnet run"
-  fi
+  sed -e "s|{{LOCAL_CONFIG_FILE}}|$local_config_file|g" "$script_dir/scenarios/proxy_run.txt" | sed 's/^/  /'
 else
-  if [ -f "$script_dir/scenarios/proxy_run.txt" ]; then
-    sed -e "s|{{LOCAL_CONFIG_FILE}}|$local_config_file|g" "$script_dir/scenarios/proxy_run.txt" | sed 's/^/  /'
-  else
-    echo "  To run the proxy using the generated env file in your current shell:"
-    echo "    1) Source the env file to export variables:"
-    echo "         source $local_config_file"
-    echo "    2) Start the proxy from the SimpleL7Proxy project root:"
-    echo "         cd src/SimpleL7Proxy && dotnet run"
-  fi
+  sed -e "s|{{LOCAL_CONFIG_FILE}}|$local_config_file|g" "$script_dir/scenarios/proxy_run.txt" | sed 's/^/  /'
 fi
 
 exit 0
