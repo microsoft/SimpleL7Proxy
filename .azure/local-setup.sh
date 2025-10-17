@@ -155,6 +155,7 @@ fi
 
 echo "✅ Local development configuration saved to: $local_config_file"
 echo ""
+echo "======================================"
 echo "🎉 Local setup complete."
 
 # Provide instructions for null/mock server and starting the proxy
@@ -167,30 +168,37 @@ if [ "$backend_mode" = "null" ]; then
     port="3000"
   fi
 
-  echo "You will need two terminal windows to run this scenario:"
-  echo "  1) The null server"
-  echo "  2) The proxy"
-  echo "\nBefore running any test commands below, source the generated env file in the same shell so the environment variables are available to the commands (example):"
-  echo "\nsource .azure/local-dev.env"
-  echo "\n\nQuick test examples (use the env vars defined in the env file):"
-  echo "\n  # Hit the null server directly on the configured port and probe path"
-  echo "  curl -v http://localhost:$Port$Probe_path1"
-  echo "\n# Or, if you want to hit the proxy which forwards to the null server (proxy must be running):"
-  echo "\n  curl -v $Host1$Probe_path1"
+  cat <<EOF
+You will need two terminals in order to run this scenario:
+ * The null server
+ * The proxy server
+
+  Before running any test commands below, source the generated env file in the same shell so the
+  environment variables are available to the commands (example):
+
+  > source .azure/local-dev.env
+EOF
 
     # show both Python and .NET options (do not do per-file existence checks)
     py_dir="$script_dir/../test/nullserver/Python"
     dotnet_dir="$script_dir/../test/nullserver/dotnet"
   sed -e "s|{{PY_DIR}}|$py_dir|g" \
     -e "s|{{DOTNET_DIR}}|$dotnet_dir|g" \
-    -e "s|{{PORT}}|$port|g" \
-    -e "s|{{START_CMD_PY}}|source $local_config_file && python3 stream_server.py --port \$Port|g" \
-    -e "s|{{START_CMD_DOTNET}}|source $local_config_file && dotnet run --urls http://localhost:\$Port|g" \
+    -e "s|{{START_CMD_PY}}|source $local_config_file && python3 stream_server.py --port \$BACKEND1_PORT|g" \
+    -e "s|{{START_CMD_DOTNET}}|source $local_config_file && dotnet run --urls http://localhost:\$BACKEND1_PORT|g" \
     "$script_dir/scenarios/null_server.txt" | sed 's/^/  /'
   # Print proxy run instructions using template
   sed -e "s|{{LOCAL_CONFIG_FILE}}|$local_config_file|g" "$script_dir/scenarios/proxy_run.txt" | sed 's/^/  /'
 else
   sed -e "s|{{LOCAL_CONFIG_FILE}}|$local_config_file|g" "$script_dir/scenarios/proxy_run.txt" | sed 's/^/  /'
 fi
+
+cat <<EOF
+  After both have started, you can run some quick commands to test.
+
+  Quick test examples (after starting server/proxy):
+    curl -v http://localhost:\$BACKEND1_PORT\$Probe_path1
+    curl -v \$Host1\$Probe_path1
+EOF
 
 exit 0
