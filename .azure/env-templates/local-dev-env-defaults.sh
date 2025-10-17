@@ -7,14 +7,6 @@ export Port=8000
 # 100s timeout when making backend requests
 export Timeout=100000
 
-# Backend #1
-export Host1=http://localhost:3000
-export Probe_path1=/health
-
-# Backend #2
-export Host2=http://localhost:3000
-export Probe_path2=/health
-
 # parallell connection workers
 export Workers=5
 
