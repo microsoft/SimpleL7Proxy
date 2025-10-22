@@ -81,17 +81,10 @@ echo "✅ Azure CLI is installed"
 echo ""
 
 echo "========================================================"
-echo "  Step 2: Azure Authentication & Subscription"
+echo "  Step 2: Azure Authentication & Subscription (delegated)"
 echo "========================================================"
 echo ""
-
-# Check if user is logged in to Azure
-echo "Checking Azure login status..."
-if ! az account show &> /dev/null; then
-  echo "You are not logged in to Azure. Please login first."
-  az login
-fi
-echo "✅ Successfully logged into Azure"
+echo "Note: Cloud-specific authentication and azd/az interactions are handled by '.azure/azure-setup.sh' when you select a cloud scenario."
 echo ""
 
 echo "========================================================"
@@ -165,70 +158,22 @@ echo "========================================================"
 echo "  Step 4: Environment Template Selection"
 echo "========================================================"
 echo ""
-
-# Check for environment template
 env_template_path="$(dirname "$0")/env-templates"
 use_env_template=$(read_input "Would you like to use a predefined environment template for container app settings? (yes/no)" "no")
 
 if [ "$use_env_template" = "yes" ]; then
   echo ""
-  echo "📋 Available environment templates:"
-  echo ""
-  echo "1. Standard Production - A balanced configuration for production workloads with good performance and reasonable resource usage"
-  echo "2. High Performance - Optimized for maximum throughput and low latency"
-  echo "3. Cost Optimized - Designed to minimize resource usage and cost"
-  echo "4. High Availability - Maximized for resilience and uptime"
-  echo "5. Local Development - For running with 'dotnet run' on local machine with localhost backends"
-  echo "6. Container Development - For containerized development and testing scenarios"
-  echo ""
-  
-  env_template_choice=$(read_input "Select an environment template (1-6)" "1")
-  
-  case "$env_template_choice" in
-    1)
-      env_template_name="Standard Production"
-      env_template_file="$env_template_path/standard-production.env"
-      ;;
-    2)
-      env_template_name="High Performance"
-      env_template_file="$env_template_path/high-performance.env"
-      ;;
-    3)
-      env_template_name="Cost Optimized"
-      env_template_file="$env_template_path/cost-optimized.env"
-      ;;
-    4)
-      env_template_name="High Availability"
-      env_template_file="$env_template_path/high-availability.env"
-      ;;
-    5)
-      env_template_name="Local Development"
-      env_template_file="$env_template_path/local-development.env"
-      ;;
-    6)
-      env_template_name="Container Development"
-      env_template_file="$env_template_path/container-development.env"
-      ;;
-    *)
-      echo "Invalid environment template selection. No template will be applied."
-      env_template_file=""
-      ;;
-  esac
-  
-  if [ -n "$env_template_file" ]; then
-    echo ""
-    echo "🔧 Loading environment template: $env_template_name"
-    
-    # Create a temporary file to store container env vars
-    container_env_file=$(mktemp)
-    
+  echo "📋 Available environment templates are in: $env_template_path"
+  echo "If you select one, it will be copied to a temporary file and used during the cloud deployment flow."
+  env_template_choice=$(read_input "Enter template filename (or leave blank to cancel)" "")
+  if [ -n "$env_template_choice" ]; then
+    env_template_file="$env_template_path/$env_template_choice"
     if [ -f "$env_template_file" ]; then
-      # Copy the content to a temporary file
+      container_env_file=$(mktemp)
       cp "$env_template_file" "$container_env_file"
-      echo "✅ Loaded container environment variables from template."
+      echo "✅ Loaded container environment variables from template: $env_template_choice"
     else
       echo "❌ Error: Environment template file not found: $env_template_file"
-      rm -f "$container_env_file"
       container_env_file=""
     fi
   fi
@@ -252,25 +197,17 @@ if [ "$scenario_choice" = "1" ]; then
     subscription=""
   fi
 else
-  # For cloud deployments (scenarios 2 and 3), subscription is required
-  echo "🔧 Configuring Azure subscription for cloud deployment..."
-  echo ""
-
-  # Display available subscriptions
-  echo "📋 Available Azure subscriptions:"
-  echo "   (Choose the subscription where you want to deploy the SimpleL7Proxy)"
-  echo ""
-  az account list --query "[].{Name:name, SubscriptionId:id}" --output table
-  echo ""
-
-  subscription=$(read_input "Enter your Azure Subscription ID" "")
-  while [ -z "$subscription" ]; do
-    echo "❌ Subscription ID is required for cloud deployment!"
-    subscription=$(read_input "Enter your Azure Subscription ID" "")
-  done
-  
-  az account set --subscription "$subscription"
-  echo "✅ Azure subscription set to: $subscription"
+  # Delegate cloud-specific interactive flow to azure-setup.sh
+  echo "🔧 Delegating cloud-specific setup to '.azure/azure-setup.sh'"
+  if [ -x "$(dirname "$0")/azure-setup.sh" ]; then
+    "$(dirname "$0")/azure-setup.sh"
+    # azure-setup.sh will perform azd env set and print next steps
+    exit 0
+  else
+    echo "❌ Cloud setup helper not found or not executable: $(dirname "$0")/azure-setup.sh"
+    echo "Please make it executable and re-run this script or run the cloud steps manually."
+    exit 1
+  fi
 fi
 
 echo ""
