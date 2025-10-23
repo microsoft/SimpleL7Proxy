@@ -14,4 +14,8 @@ public interface IBackendService
   public void TrackStatus(int code, bool wasException);
   public bool CheckFailedStatus();
   public string OAuth2Token();
+
+  public string BuildDestinationUrl(BackendHostHealth host, string requestPath);
+  IBackendHostIterator GetHostIterator(string loadBalanceMode, IterationModeEnum mode = IterationModeEnum.SinglePass, int maxRetries = 1);
+
 }

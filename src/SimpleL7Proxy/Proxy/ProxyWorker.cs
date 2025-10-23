@@ -38,7 +38,7 @@ public class ProxyWorker
     private readonly CancellationToken _cancellationToken;
     private static bool _debug = false;
     private static IConcurrentPriQueue<RequestData>? _requestsQueue;
-    private static IRequeueWorker _requeueDelayWorker;
+    private static IRequeueWorker? _requeueDelayWorker; // Initialized in constructor, only one instance
     private readonly IBackendService _backends;
     private readonly BackendOptions _options;
     private readonly TelemetryClient? _telemetryClient;
@@ -52,7 +52,6 @@ public class ProxyWorker
     private string IDstr = "";
     public static int activeWorkers = 0;
     private static bool readyToWork = false;
-    private static Guid? LastHostGuid;
     private CancellationTokenSource? AsyncExpelSource;
     private bool asyncExpelInProgress = false;
 
@@ -376,7 +375,7 @@ public class ProxyWorker
                 catch (S7PRequeueException e)
                 {
                     // launches a delay task while the current worker goes back to the top of the loop for more work
-                    _requeueDelayWorker.DelayAsync(incomingRequest, e.RetryAfter);
+                    _requeueDelayWorker!.DelayAsync(incomingRequest, e.RetryAfter);
 
                 }
                 catch (ProxyErrorException e)
@@ -680,8 +679,6 @@ public class ProxyWorker
         if (request.Headers == null) throw new ArgumentNullException(nameof(request.Headers), "Request headers cannot be null.");
         if (request.Method == null) throw new ArgumentNullException(nameof(request.Method), "Request method cannot be null.");
 
-        // Use the current active hosts
-        var activeHosts = _backends.GetActiveHosts();
         List<Dictionary<string, string>> incompleteRequests = request.incompleteRequests;
 
         request.Debug = _debug || (request.Headers["S7PDEBUG"] != null && string.Equals(request.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase));
@@ -704,28 +701,17 @@ public class ProxyWorker
             request.Headers.Set("Authorization", $"Bearer {OAToken}");
         }
 
-        // Round-robin logic: if the last used host is known, start after it
-        if (_options.LoadBalanceMode == Constants.RoundRobin)
+        // Get an iterator for the active hosts based on the load balancing 
+        using var hostIterator = _backends.GetHostIterator(
+            _options.LoadBalanceMode,
+            IterationModeEnum.SinglePass,
+            1); //_options.maxRetries);
+        
+        while (hostIterator.MoveNext())
         {
-            // Round-robin mode: start after the last used host
-            if (LastHostGuid != null)
-            {
-
-                // Console.WriteLine($"Last Round Robin Host: {LastHostGuid}");
-                int lastIndex = activeHosts.FindIndex(h => h.guid == LastHostGuid);
-                if (lastIndex >= 0)
-                {
-                    // Rotate the list to start after the last used host
-                    activeHosts = activeHosts.Skip(lastIndex + 1).Concat(activeHosts.Take(lastIndex + 1)).ToList();
-                }
-            }
-        }
-
-
-        foreach (var host in activeHosts)
-        {
+            var host = hostIterator.Current;
             DateTime ProxyStartDate = DateTime.UtcNow;
-            LastHostGuid = host.guid;
+
             // track the number of attempts
             request.BackendAttempts++;
             bool successfulRequest = false;
@@ -771,8 +757,7 @@ public class ProxyWorker
                 request.Timeout = (int)(minDate - DateTime.UtcNow).TotalMilliseconds;
 
                 request.Headers.Set("Host", host.Host);
-                var urlWithPath = new UriBuilder(host.Url) { Path = request.Path }.Uri.AbsoluteUri;
-                request.FullURL = System.Net.WebUtility.UrlDecode(urlWithPath);
+                request.FullURL = _backends.BuildDestinationUrl(host, request.Path);
 
                 requestState = "Cache Body";
                 // Read the body stream once and reuse it
@@ -827,7 +812,6 @@ public class ProxyWorker
                     }
 
                     // Send the request and get the response
-                    bool wasSuccess = false;
                     ProxyStartDate = DateTime.UtcNow;
                     Interlocked.Increment(ref states[3]);
                     try
@@ -960,7 +944,7 @@ public class ProxyWorker
                         {
                             // request was successful, so we can disable the skip
                             request.SkipDispose = false;
-                            wasSuccess = true;
+                            requestAttempt["RequestSuccess"] = "true"; // Track success in event data
                             bodyBytes = [];
                         }
 
@@ -1034,6 +1018,7 @@ public class ProxyWorker
                             _logger.LogDebug("Got: {StatusCode} {FullURL} {ContentLength} Body: {BodyLength} bytes",
                                 pr.StatusCode, pr.FullURL, pr.ContentHeaders["Content-Length"], pr?.Body?.Length);
                         }
+
                         successfulRequest = true;
                         return pr ?? throw new ArgumentNullException(nameof(pr));
                     }
@@ -1131,8 +1116,11 @@ public class ProxyWorker
                 requestAttempt.Duration = DateTime.UtcNow - ProxyStartDate;
                 requestAttempt.SendEvent();  // Log the dependent request attempt
 
+                hostIterator.RecordResult(host, successfulRequest);
+
                 if (!successfulRequest)
                 {
+
                     var miniDict = requestAttempt.ToDictionary(backendKeys);
                     miniDict["State"] = requestState;
                     incompleteRequests.Add(miniDict);
@@ -1141,9 +1129,12 @@ public class ProxyWorker
                     _logger.LogDebug(str);
                 }
             }
+
+            // continue to next host
+
         }
 
-
+        // all hosts exhausted
 
         // If we get here, then no hosts were able to handle the request
 

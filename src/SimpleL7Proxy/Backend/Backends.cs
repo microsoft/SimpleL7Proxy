@@ -403,27 +403,39 @@ public class Backends : IBackendService
   // Filter the active hosts based on the success rate
   private void FilterActiveHosts()
   {
-    var hosts = _backendHosts
+    var newActiveHosts = _backendHosts
             .Where(h => h.SuccessRate() > _successRate)
             .Select(h =>
             {
               h.CalculatedAverageLatency = h.AverageLatency();
               return h;
-            });
+            })
+            .ToList();
 
-    switch (_options.LoadBalanceMode)
+    // Check if the host list actually changed before invalidating cache
+    bool hostsChanged = !AreHostListsEqual(_activeHosts, newActiveHosts);
+    
+    _activeHosts = newActiveHosts;
+    
+    // Invalidate iterator cache only if hosts actually changed
+    if (hostsChanged)
     {
-      case Constants.Latency:
-        _activeHosts = hosts.OrderBy(h => h.CalculatedAverageLatency).ToList();
-        break;
-      case Constants.RoundRobin:
-        _activeHosts = hosts.ToList();  // roundrobin is handled in proxyWroker
-        break;
-      default:
-        _activeHosts = hosts.OrderBy(_ => Guid.NewGuid()).ToList();
-
-        break;
+      InvalidateIteratorCache();
     }
+  }
+  
+  /// <summary>
+  /// Compares two host lists to determine if they contain the same hosts.
+  /// </summary>
+  private bool AreHostListsEqual(List<BackendHostHealth> list1, List<BackendHostHealth> list2)
+  {
+    if (list1.Count != list2.Count)
+      return false;
+
+    var guids1 = new HashSet<Guid>(list1.Select(h => h.guid));
+    var guids2 = new HashSet<Guid>(list2.Select(h => h.guid));
+    
+    return guids1.SetEquals(guids2);
   }
 
   public string HostStatus { get; set; } = "-";
@@ -608,4 +620,26 @@ public class Backends : IBackendService
       throw;
     }
   }
+
+  public string BuildDestinationUrl(BackendHostHealth host, string requestPath)
+  {
+    var urlWithPath = new UriBuilder(host.Url) { Path = requestPath }.Uri.AbsoluteUri;
+    return System.Net.WebUtility.UrlDecode(urlWithPath);
+  }
+
+  public IBackendHostIterator GetHostIterator(
+      string loadBalanceMode, 
+      IterationModeEnum mode = IterationModeEnum.SinglePass, 
+      int maxRetries = 1)
+  {
+      // Use the static factory for thread-safe iteration
+      return BackendHostIteratorFactory.CreateIterator(this, loadBalanceMode, mode, maxRetries);
+  }
+
+  // Add method to invalidate iterator cache when hosts change
+  private void InvalidateIteratorCache()
+  {
+    BackendHostIteratorFactory.InvalidateCache();
+  }
+
 }
