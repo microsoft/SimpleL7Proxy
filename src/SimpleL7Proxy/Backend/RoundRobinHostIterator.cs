@@ -15,8 +15,8 @@ public class RoundRobinHostIterator : BaseHostIterator
     private int _currentIndex;
     private int _hostsVisitedInCurrentPass;
 
-    public RoundRobinHostIterator(List<BackendHostHealth> hosts, IterationModeEnum mode, int maxLoop)
-        : base(hosts, mode, maxLoop)
+    public RoundRobinHostIterator(List<BackendHostHealth> hosts, IterationModeEnum mode, int maxAttempts)
+        : base(hosts, mode, maxAttempts)
     {
         _currentIndex = -1;
         _hostsVisitedInCurrentPass = 0;
@@ -37,13 +37,15 @@ public class RoundRobinHostIterator : BaseHostIterator
 
     /// <summary>
     /// Moves to the next host in round-robin order.
+    /// In SinglePass mode: stops after visiting each host once.
+    /// In MultiPass mode: continues until maxAttempts total attempts are reached (handled by base class).
     /// </summary>
     protected override bool MoveToNextHost()
     {
         if (_hosts.Count == 0) return false;
         
-        // Check if we've visited all hosts in this pass
-        if (_hostsVisitedInCurrentPass >= _hosts.Count)
+        // SinglePass mode: stop after visiting all hosts once
+        if (_mode == IterationModeEnum.SinglePass && _hostsVisitedInCurrentPass >= _hosts.Count)
         {
             return false; // Completed this pass
         }
@@ -57,7 +59,7 @@ public class RoundRobinHostIterator : BaseHostIterator
     }
 
     /// <summary>
-    /// Called when starting a new pass - reset the visit counter.
+    /// Called when starting a new pass - reset the visit counter for the new pass.
     /// </summary>
     protected override void OnNewPassStarted()
     {
