@@ -13,8 +13,8 @@ public class RandomHostIterator : BaseHostIterator
     private List<int> _hostIndices;
     private int _currentIndex;
 
-    public RandomHostIterator(List<BackendHostHealth> hosts, IterationModeEnum mode, int maxLoop)
-        : base(hosts, mode, maxLoop)
+    public RandomHostIterator(List<BackendHostHealth> hosts, IterationModeEnum mode, int maxAttempts)
+        : base(hosts, mode, maxAttempts)
     {
         _hostIndices = Enumerable.Range(0, _hosts.Count).ToList();
         ShuffleList(_hostIndices);

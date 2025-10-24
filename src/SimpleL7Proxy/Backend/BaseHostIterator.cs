@@ -12,17 +12,19 @@ public abstract class BaseHostIterator : IBackendHostIterator
 {
     protected readonly List<BackendHostHealth> _hosts;
     protected readonly IterationModeEnum _mode;
-    protected readonly int _maxLoop;
+    protected readonly int _maxAttempts;
     
     protected int _currentLoop;
+    protected int _totalAttempts; // Track total attempts across all passes
     protected bool _hasCompletedAllPasses;
 
-    protected BaseHostIterator(List<BackendHostHealth> hosts, IterationModeEnum mode, int maxLoop)
+    protected BaseHostIterator(List<BackendHostHealth> hosts, IterationModeEnum mode, int maxAttempts)
     {
         _hosts = hosts ?? throw new ArgumentNullException(nameof(hosts));
         _mode = mode;
-        _maxLoop = Math.Max(1, maxLoop);
+        _maxAttempts = Math.Max(1, maxAttempts);
         _currentLoop = 1;
+        _totalAttempts = 0;
         _hasCompletedAllPasses = false;
     }
 
@@ -42,9 +44,9 @@ public abstract class BaseHostIterator : IBackendHostIterator
     public bool HasMoreHosts => !_hasCompletedAllPasses;
     
     /// <summary>
-    /// Gets the maximum number of passes configured for this iterator.
+    /// Gets the maximum number of attempts configured for this iterator.
     /// </summary>
-    public int maxLoop => _maxLoop;
+    public int MaxAttempts => _maxAttempts;
     
     /// <summary>
     /// Gets the iteration mode for this iterator.
@@ -59,6 +61,13 @@ public abstract class BaseHostIterator : IBackendHostIterator
         if (_hosts.Count == 0 || _hasCompletedAllPasses)
             return false;
 
+        // In MultiPass mode, check if we've reached max attempts before trying next host
+        if (_mode == IterationModeEnum.MultiPass && _totalAttempts >= _maxAttempts)
+        {
+            _hasCompletedAllPasses = true;
+            return false;
+        }
+
         bool hasNext = MoveToNextHost();
         
         if (!hasNext)
@@ -67,6 +76,8 @@ public abstract class BaseHostIterator : IBackendHostIterator
             return HandlePassCompletion();
         }
 
+        // Increment total attempts after successfully moving to a host
+        _totalAttempts++;
         return true;
     }
 
@@ -89,7 +100,7 @@ public abstract class BaseHostIterator : IBackendHostIterator
                 return false;
 
             case IterationModeEnum.MultiPass:
-                if (_currentLoop >= _maxLoop)
+                if (_currentLoop >= _maxAttempts)
                 {
                     _hasCompletedAllPasses = true;
                     return false;
@@ -128,6 +139,7 @@ public abstract class BaseHostIterator : IBackendHostIterator
     public virtual void Reset()
     {
         _currentLoop = 1;
+        _totalAttempts = 0;
         _hasCompletedAllPasses = false;
         ResetToInitialState();
     }

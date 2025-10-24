@@ -8,8 +8,8 @@ public class LatencyBasedHostIterator : BaseHostIterator
 {
     private int _currentHostIndex;
 
-    public LatencyBasedHostIterator(List<BackendHostHealth> hosts, IterationModeEnum mode, int maxLoop)
-        : base(hosts?.OrderBy(h => h.AverageLatency()).ToList() ?? throw new ArgumentNullException(nameof(hosts)), mode, maxLoop)
+    public LatencyBasedHostIterator(List<BackendHostHealth> hosts, IterationModeEnum mode, int maxAttempts)
+        : base(hosts?.OrderBy(h => h.AverageLatency()).ToList() ?? throw new ArgumentNullException(nameof(hosts)), mode, maxAttempts)
     {
         _currentHostIndex = -1; // Will be incremented on first MoveNext
     }

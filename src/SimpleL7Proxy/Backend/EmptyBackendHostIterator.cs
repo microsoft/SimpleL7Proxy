@@ -25,9 +25,9 @@ public class EmptyBackendHostIterator : IBackendHostIterator
     public bool HasMoreHosts => false;
 
     /// <summary>
-    /// Gets the maximum number of passes. Always returns 0 since there are no hosts.
+    /// Gets the maximum number of attempts. Always returns 0 since there are no hosts.
     /// </summary>
-    public int maxLoop => 0;
+    public int MaxAttempts => 0;
 
     /// <summary>
     /// Gets the iteration mode. Returns SinglePass by default.
