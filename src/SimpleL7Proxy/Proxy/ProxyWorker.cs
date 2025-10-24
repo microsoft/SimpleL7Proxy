@@ -701,11 +701,22 @@ public class ProxyWorker
             request.Headers.Set("Authorization", $"Bearer {OAToken}");
         }
 
-        // Get an iterator for the active hosts based on the load balancing 
-        using var hostIterator = _backends.GetHostIterator(
-            _options.LoadBalanceMode,
-            IterationModeEnum.SinglePass,
-            1); //_options.maxRetries);
+        // Get an iterator for the active hosts based on the load balancing mode and iteration strategy
+        using var hostIterator = _options.IterationMode switch
+        {
+            IterationModeEnum.SinglePass => BackendHostIteratorFactory.CreateSinglePassIterator(
+                _backends,
+                _options.LoadBalanceMode),
+            
+            IterationModeEnum.MultiPass => BackendHostIteratorFactory.CreateMultiPassIterator(
+                _backends,
+                _options.LoadBalanceMode,
+                _options.MaxAttempts),
+            
+            _ => BackendHostIteratorFactory.CreateSinglePassIterator(
+                _backends,
+                _options.LoadBalanceMode)
+        };
         
         while (hostIterator.MoveNext())
         {
@@ -1042,6 +1053,9 @@ public class ProxyWorker
             {
                 requestAttempt.Status = e.StatusCode;
                 requestAttempt["Error"] = e.Message;
+
+                if (e.Type == ProxyErrorException.ErrorType.TTLExpired)
+                    break;
 
                 continue;
             }
@@ -1413,6 +1427,8 @@ public class ProxyWorker
 
         var statusCodes = new List<int>();
 
+        int iter = 0;
+        Dictionary<string, object> requestSummary = [];
         foreach (var requestAttempt in incompleteRequests)
         {
             if (requestAttempt.TryGetValue("Status", out var statusStr) && int.TryParse(statusStr, out var status))
@@ -1420,12 +1436,9 @@ public class ProxyWorker
                 statusCodes.Add(status);
             }
 
-            var sb2 = new StringBuilder();
-            foreach (var key in requestAttempt.Keys)
-            {
-                sb2.Append($"{key}: {requestAttempt[key]} ");
-            }
-            sb.AppendLine(sb2.ToString());
+            iter++;
+            //requestSummary["Attempt-" + iter] = JsonSerializer.Serialize(requestAttempt);
+            requestSummary["Attempt-" + iter] = requestAttempt;
         }
 
         if (statusCodes.Count > 0)
@@ -1451,7 +1464,7 @@ public class ProxyWorker
                 currentStatusCode = statusCodes.Last();
             }
         }
-
+        sb.AppendLine(JsonSerializer.Serialize(requestSummary, new JsonSerializerOptions { WriteIndented = true }));
         sb.AppendLine();
     }
 
