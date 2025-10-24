@@ -13,11 +13,13 @@ public class RoundRobinHostIterator : BaseHostIterator
 {
     private static long _globalCounter = 0;
     private int _currentIndex;
+    private int _hostsVisitedInCurrentPass;
 
     public RoundRobinHostIterator(List<BackendHostHealth> hosts, IterationModeEnum mode, int maxLoop)
         : base(hosts, mode, maxLoop)
     {
-        _currentIndex = -1; // Will be incremented on first MoveNext
+        _currentIndex = -1;
+        _hostsVisitedInCurrentPass = 0;
     }
 
     /// <summary>
@@ -40,19 +42,27 @@ public class RoundRobinHostIterator : BaseHostIterator
     {
         if (_hosts.Count == 0) return false;
         
+        // Check if we've visited all hosts in this pass
+        if (_hostsVisitedInCurrentPass >= _hosts.Count)
+        {
+            return false; // Completed this pass
+        }
+        
         // Use global counter to ensure fair distribution across all iterators
         long counter = Interlocked.Increment(ref _globalCounter);
         _currentIndex = (int)(counter % _hosts.Count);
+        _hostsVisitedInCurrentPass++;
         
         return true;
     }
 
     /// <summary>
-    /// Called when starting a new pass - continue round-robin from current position.
+    /// Called when starting a new pass - reset the visit counter.
     /// </summary>
     protected override void OnNewPassStarted()
     {
-        _currentIndex = -1; // Will be set properly on next MoveToNextHost call
+        _currentIndex = -1;
+        _hostsVisitedInCurrentPass = 0; // Reset counter for new pass
     }
 
     /// <summary>
@@ -61,6 +71,7 @@ public class RoundRobinHostIterator : BaseHostIterator
     protected override void ResetToInitialState()
     {
         _currentIndex = -1;
+        _hostsVisitedInCurrentPass = 0;
     }
 
     /// <summary>
