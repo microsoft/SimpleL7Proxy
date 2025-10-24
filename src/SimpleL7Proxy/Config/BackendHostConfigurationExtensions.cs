@@ -58,6 +58,7 @@ public static class BackendHostConfigurationExtensions
       options.HostName = backendOptions.HostName;
       options.Hosts = backendOptions.Hosts;
       options.IDStr = backendOptions.IDStr;
+      options.IterationMode = backendOptions.IterationMode;
       options.LoadBalanceMode = backendOptions.LoadBalanceMode;
       options.LogAllRequestHeaders = backendOptions.LogAllRequestHeaders;
       options.LogAllRequestHeadersExcept = backendOptions.LogAllRequestHeadersExcept;
@@ -70,6 +71,7 @@ public static class BackendHostConfigurationExtensions
       options.LogProbes = backendOptions.LogProbes;
       options.UserIDFieldName = backendOptions.UserIDFieldName;
       options.MaxQueueLength = backendOptions.MaxQueueLength;
+      options.MaxAttempts = backendOptions.MaxAttempts;
       options.OAuthAudience = backendOptions.OAuthAudience;
       options.PollInterval = backendOptions.PollInterval;
       options.PollTimeout = backendOptions.PollTimeout;
@@ -144,6 +146,18 @@ public static class BackendHostConfigurationExtensions
     // Record and return the value
     EnvVars[variableName] = result;
     return result;
+  }
+
+  private static IterationModeEnum ReadEnvironmentVariableOrDefault(string variableName, IterationModeEnum defaultValue)
+  {
+    string? envValue = Environment.GetEnvironmentVariable(variableName)?.Trim();
+    if (string.IsNullOrEmpty(envValue) || !Enum.TryParse(envValue, out IterationModeEnum value))
+    {
+      EnvVars[variableName] = defaultValue.ToString();
+      return defaultValue;
+    }
+    EnvVars[variableName] = value.ToString();
+    return value;
   }
 
   private static bool ReadEnvironmentVariableOrDefault(string variableName, bool defaultValue)
@@ -474,6 +488,7 @@ public static class BackendHostConfigurationExtensions
       HostName = ReadEnvironmentVariableOrDefault("Hostname", replicaID),
       Hosts = new List<BackendHostConfig>(),
       IDStr = $"{ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P")}-{replicaID}-",
+      IterationMode = ReadEnvironmentVariableOrDefault("IterationMode", IterationModeEnum.SinglePass),
       LoadBalanceMode = ReadEnvironmentVariableOrDefault("LoadBalanceMode", "latency"), // "latency", "roundrobin", "random"
       LogAllRequestHeaders = ReadEnvironmentVariableOrDefault("LogAllRequestHeaders", false),
       LogAllRequestHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllRequestHeadersExcept", "Authorization")),
@@ -485,6 +500,7 @@ public static class BackendHostConfigurationExtensions
       LogPoller = ReadEnvironmentVariableOrDefault("LogPoller", true),
       LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", true),
       MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
+      MaxAttempts = ReadEnvironmentVariableOrDefault("MaxAttempts", 10),
       OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
       PollInterval = ReadEnvironmentVariableOrDefault("PollInterval", 15000),
       PollTimeout = ReadEnvironmentVariableOrDefault("PollTimeout", 3000),

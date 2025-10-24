@@ -28,6 +28,7 @@ public class BackendOptions
     public string HostName { get; set; } = "";
     public List<BackendHostConfig> Hosts { get; set; } = [];
     public string IDStr { get; set; } = "S7P";
+    public IterationModeEnum IterationMode { get; set; }
     public string LoadBalanceMode { get; set; } = "latency"; // "latency", "roundrobin", "random"
     public bool LogConsole { get; set; }
     public bool LogConsoleEvent { get; set; }
@@ -40,6 +41,7 @@ public class BackendOptions
     public List<string> LogAllResponseHeadersExcept { get; set; } = [];
     public string UserIDFieldName { get; set; } = "";
     public int MaxQueueLength { get; set; }
+    public int MaxAttempts { get ; set; }
     public string OAuthAudience { get; set; } = "";
     public int Port { get; set; }
     public int PollInterval { get; set; }
