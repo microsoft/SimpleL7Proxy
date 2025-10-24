@@ -17,14 +17,45 @@ public static class BackendHostIteratorFactory
     private static readonly ThreadLocal<Random> _threadRandom = new(() => new Random(Guid.NewGuid().GetHashCode()));
 
     /// <summary>
-    /// Creates a thread-safe iterator for the specified load balance mode.
+    /// Creates an iterator that tries each host once in a single pass.
+    /// Best for scenarios where you want to try all backends once and fail fast.
+    /// </summary>
+    /// <param name="backendService">The backend service to get active hosts from</param>
+    /// <param name="loadBalanceMode">Load balancing strategy: "roundrobin", "latency", or "random"</param>
+    /// <returns>An iterator configured for single-pass iteration</returns>
+    public static IBackendHostIterator CreateSinglePassIterator(
+        IBackendService backendService,
+        string loadBalanceMode)
+    {
+        return CreateIteratorInternal(backendService, loadBalanceMode, IterationModeEnum.SinglePass, 1);
+    }
+
+    /// <summary>
+    /// Creates an iterator that retries across hosts up to a maximum total number of attempts.
+    /// Will cycle through all hosts multiple times if needed until maxAttempts is reached.
+    /// Best for high-availability scenarios where you want to retry aggressively.
+    /// </summary>
+    /// <param name="backendService">The backend service to get active hosts from</param>
+    /// <param name="loadBalanceMode">Load balancing strategy: "roundrobin", "latency", or "random"</param>
+    /// <param name="maxAttempts">Maximum total number of host attempts across all passes (e.g., 30)</param>
+    /// <returns>An iterator configured for multi-pass iteration with retry limit</returns>
+    public static IBackendHostIterator CreateMultiPassIterator(
+        IBackendService backendService,
+        string loadBalanceMode,
+        int maxAttempts)
+    {
+        return CreateIteratorInternal(backendService, loadBalanceMode, IterationModeEnum.MultiPass, maxAttempts);
+    }
+
+    /// <summary>
+    /// Internal method to create a thread-safe iterator for the specified load balance mode.
     /// This method is optimized for high concurrency with hundreds of proxy workers.
     /// </summary>
-    public static IBackendHostIterator CreateIterator(
+    private static IBackendHostIterator CreateIteratorInternal(
         IBackendService backendService,
         string loadBalanceMode, 
-        IterationModeEnum mode = IterationModeEnum.SinglePass, 
-        int maxRetries = 1)
+        IterationModeEnum mode, 
+        int maxAttempts)
     {
         var activeHosts = GetCachedActiveHosts(backendService);
         
@@ -35,10 +66,10 @@ public static class BackendHostIteratorFactory
 
         return loadBalanceMode switch
         {
-            Constants.RoundRobin => new RoundRobinHostIterator(activeHosts, mode, maxRetries),
-            Constants.Latency => new LatencyBasedHostIterator(activeHosts, mode, maxRetries),
-            Constants.Random => new RandomHostIterator(activeHosts, mode, maxRetries),
-            _ => new RandomHostIterator(activeHosts, mode, maxRetries)
+            Constants.RoundRobin => new RoundRobinHostIterator(activeHosts, mode, maxAttempts),
+            Constants.Latency => new LatencyBasedHostIterator(activeHosts, mode, maxAttempts),
+            Constants.Random => new RandomHostIterator(activeHosts, mode, maxAttempts),
+            _ => new RandomHostIterator(activeHosts, mode, maxAttempts)
         };
     }
 
