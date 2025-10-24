@@ -632,8 +632,15 @@ public class Backends : IBackendService
       IterationModeEnum mode = IterationModeEnum.SinglePass, 
       int maxRetries = 1)
   {
-      // Use the static factory for thread-safe iteration
-      return BackendHostIteratorFactory.CreateIterator(this, loadBalanceMode, mode, maxRetries);
+      // Use the appropriate factory method based on iteration mode
+      if (mode == IterationModeEnum.SinglePass)
+      {
+          return BackendHostIteratorFactory.CreateSinglePassIterator(this, loadBalanceMode);
+      }
+      else
+      {
+          return BackendHostIteratorFactory.CreateMultiPassIterator(this, loadBalanceMode, maxRetries);
+      }
   }
 
   // Add method to invalidate iterator cache when hosts change
