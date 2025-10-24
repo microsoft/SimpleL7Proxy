@@ -32,6 +32,9 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             return
         
         if parsed_path.path == '/429error':
+            sleep_time = random.uniform(1, 1.5)  # Random sleep time
+            print("Sleeping before sending error response..." + str(sleep_time) + " seconds")
+            time.sleep(sleep_time)
 
             # Read the body
             content_length = int(self.headers.get('Content-Length', 0))  # Get the length of the body
@@ -47,6 +50,8 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         
         # Pattern: /{code}error   ex: /412error, /500error, etc.
         if parsed_path.path.endswith('error') and len(parsed_path.path) > 5:
+
+        
             try:
                 # Extract error code from /{code}error format
                 error_code_str = parsed_path.path[1:-5]  # Remove leading '/' and trailing 'error'
