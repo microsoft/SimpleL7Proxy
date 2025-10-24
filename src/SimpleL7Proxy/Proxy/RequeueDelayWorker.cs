@@ -58,7 +58,7 @@ public class RequeueDelayWorker : IRequeueWorker, IDisposable
                 // Requeue the request after the retry-after value
                 request.SBStatus = ServiceBusMessageStatusEnum.RetryScheduled;
 
-                _logger.LogInformation("[RequeueDelayWorker] ⏳ Starting requeue delay of {DelayMs}ms for request {Guid}", 
+                _logger.LogDebug("[RequeueDelayWorker] ⏳ Starting requeue delay of {DelayMs}ms for request {Guid}", 
                     delayMs, request.Guid);
 
                 await delayTask.ConfigureAwait(false);
