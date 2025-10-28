@@ -30,8 +30,8 @@ public static class BackendHostConfigurationExtensions
 
   public static IServiceCollection AddBackendHostConfiguration(this IServiceCollection services, ILogger logger)
   {
-    var backendOptions = LoadBackendOptions();
     _logger = logger;
+    var backendOptions = LoadBackendOptions();
 
     services.Configure<BackendOptions>(options =>
     {
@@ -554,12 +554,13 @@ public static class BackendHostConfigurationExtensions
       {
         _logger?.LogInformation($"Found host {hostname} with probe path {probePath} and IP {ip}");
 
-        BackendHostConfig bh = new BackendHostConfig(hostname, probePath);
-
+        // Resolve BackendHostConfig from DI using the factory
+        BackendHostConfig bh = new BackendHostConfig(hostname, probePath, backendOptions.OAuthAudience);
         backendOptions.Hosts.Add(bh);
 
         sb.AppendLine($"{ip} {bh.Host}");
       }
+    
       catch (UriFormatException e)
       {
         _logger?.LogError($"Could not add Host{i} with {hostname} : {e.Message}");
