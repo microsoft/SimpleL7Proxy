@@ -25,7 +25,6 @@ public class Server : BackgroundService
 {
     //    private readonly IBackendOptions? _options;
     private readonly BackendOptions _options;
-    private readonly TelemetryClient? _telemetryClient; // Add this line
     private readonly HttpListener _httpListener;
 
     private readonly IBackendService _backends;
@@ -57,7 +56,6 @@ public class Server : BackgroundService
         //IServiceBusRequestService serviceBusRequestService,
         IEventClient? eventHubClient,
         IBackendService backends,
-        TelemetryClient? telemetryClient,
         ILogger<Server> logger)
     {
         ArgumentNullException.ThrowIfNull(backendOptions, nameof(backendOptions));
@@ -66,7 +64,6 @@ public class Server : BackgroundService
         ArgumentNullException.ThrowIfNull(userProfile, nameof(userProfile));
         ArgumentNullException.ThrowIfNull(logger, nameof(logger));
         ArgumentNullException.ThrowIfNull(appLifetime, nameof(appLifetime));
-        //ArgumentNullException.ThrowIfNull(telemetryClient, nameof(telemetryClient));
         ArgumentNullException.ThrowIfNull(requestsQueue, nameof(requestsQueue));
         //ArgumentNullException.ThrowIfNull(serviceBusRequestService, nameof(serviceBusRequestService));
 
@@ -75,7 +72,6 @@ public class Server : BackgroundService
         _options = backendOptions.Value;
         _backends = backends;
         _eventHubClient = eventHubClient;
-        _telemetryClient = telemetryClient;
         _userPriority = userPriority;
         _userProfile = userProfile;
         _logger = logger;
@@ -161,7 +157,6 @@ public class Server : BackgroundService
         {
             ProxyEvent ed = null!;
 
-            //using var operation = _telemetryClient.StartOperation<RequestTelemetry>("IncomingRequest");
             try
             {
                 // Use the CancellationToken to asynchronously wait for an HTTP request.
@@ -548,7 +543,7 @@ public class Server : BackgroundService
             }
             catch (Exception e)
             {
-                _telemetryClient?.TrackException(e);
+                _logger.LogError(e, "An error occurred");
                 _staticEvent.WriteOutput($"Error: {e.Message}\n{e.StackTrace}");
             }
         }
