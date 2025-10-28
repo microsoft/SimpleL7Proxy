@@ -26,6 +26,7 @@ namespace SimpleL7Proxy.Events
     ProxyRequestExpired,
     ProxyRequestRequeued,
     ServerError,
+    Authentication,
   }
 
   public class ProxyEvent : ConcurrentDictionary<string, string>
