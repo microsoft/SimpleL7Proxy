@@ -22,7 +22,6 @@ public class ProxyWorkerCollection : BackgroundService
   private readonly IUserProfileService _userProfileService;
   private readonly IRequeueWorker _requeueWorker;
   private readonly IEventClient _eventClient;
-  private readonly TelemetryClient _telemetryClient;
   private readonly ILogger<ProxyWorker> _logger;
   //private readonly ProxyStreamWriter _proxyStreamWriter;
   private readonly IAsyncWorkerFactory _asyncWorkerFactory;
@@ -39,7 +38,6 @@ public class ProxyWorkerCollection : BackgroundService
     IUserProfileService userProfileService,
     IRequeueWorker requeueWorker,
     IEventClient eventClient,
-    TelemetryClient telemetryClient,
     ILogger<ProxyWorker> logger,
     IAsyncWorkerFactory asyncWorkerFactory)
   //,ProxyStreamWriter proxyStreamWriter)
@@ -48,7 +46,6 @@ public class ProxyWorkerCollection : BackgroundService
     _queue = queue;
     _backends = backends;
     _eventClient = eventClient;
-    _telemetryClient = telemetryClient;
     _logger = logger;
     //_proxyStreamWriter = proxyStreamWriter;
     _userPriorityService = userPriorityService;
@@ -99,7 +96,6 @@ public class ProxyWorkerCollection : BackgroundService
         _userPriorityService,
         _requeueWorker,
         _eventClient,
-        _telemetryClient,
         _asyncWorkerFactory,
         _logger,
         //_proxyStreamWriter,
