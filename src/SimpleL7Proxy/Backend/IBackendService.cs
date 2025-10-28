@@ -1,21 +1,27 @@
 namespace SimpleL7Proxy.Backend;
 
+/// <summary>
+/// Interface for backend services supporting both DirectBackend and APIMBackend types.
+/// </summary>
 public interface IBackendService
 {
-  void Start();
-  public List<BackendHostHealth> GetActiveHosts();
-  public List<BackendHostHealth> GetHosts();
-
-  public int ActiveHostCount();
-
-  public Task WaitForStartup(int timeout);
-  public Task Stop();
-  public string HostStatus { get; }
-  public void TrackStatus(int code, bool wasException);
-  public bool CheckFailedStatus();
-  public string OAuth2Token();
-
-  public string BuildDestinationUrl(BackendHostHealth host, string requestPath);
-  IBackendHostIterator GetHostIterator(string loadBalanceMode, IterationModeEnum mode = IterationModeEnum.SinglePass, int maxRetries = 1);
-
+    List<BackendHostHealth> GetHosts();
+    List<BackendHostHealth> GetActiveHosts();
+    int ActiveHostCount();
+    // BackendType BackendKind { get; }
+    string HostStatus { get; }
+    void TrackStatus(int code, bool wasException);
+    bool CheckFailedStatus();
+    // string OAuth2Token();
+    Task WaitForStartup(int timeout);
+    void Start();
+    Task Stop();
+    IBackendHostIterator GetHostIterator(string loadBalanceMode, IterationModeEnum mode = IterationModeEnum.SinglePass, int maxRetries = 1);
 }
+
+public enum BackendType
+{
+  DirectBackend,
+  APIMBackend
+}
+
