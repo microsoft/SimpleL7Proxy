@@ -23,7 +23,6 @@ using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.BackupAPI;
 using SimpleL7Proxy.Feeder;
 
-
 using System.Net;
 using System.Text;
 
@@ -84,10 +83,12 @@ public class Program
         var options = serviceProvider.GetRequiredService<IOptions<BackendOptions>>();
         var eventHubClient = serviceProvider.GetService<IEventClient>();
         var telemetryClient = serviceProvider.GetRequiredService<TelemetryClient>();
+        var backendTokenProvider = serviceProvider.GetRequiredService<BackendTokenProvider>();
 
         // Initialize ProxyEvent with BackendOptions
 
         ProxyEvent.Initialize(options, eventHubClient, telemetryClient);
+        BackendHostConfig.Initialize(backendTokenProvider, startupLogger);
     
         try
         {
@@ -129,6 +130,7 @@ public class Program
         }
         catch (Exception e)
         {
+            //Console.WriteLine(e.StackTrace);
             // Handle other exceptions that might occur
             startupLogger.LogError($"[ERROR] ✗ Unexpected startup error: {e.Message}");
         }
@@ -221,6 +223,9 @@ public class Program
         services.AddSingleton<IConcurrentPriQueue<RequestData>, ConcurrentPriQueue<RequestData>>();
         //services.AddSingleton<ProxyStreamWriter>();
         services.AddSingleton<IBackendHostHealthCollection, BackendHostHealthCollection>();
+
+        services.AddSingleton<BackendTokenProvider>();
+        services.AddHostedService<BackendTokenProvider>();
         // services.AddSingleton<IBackgroundWorker, BackgroundWorker>();
 
         services.AddHostedService<Server>(provider => provider.GetRequiredService<Server>());
@@ -240,6 +245,7 @@ public class Program
         services.AddSingleton<IAsyncFeeder, AsyncFeeder>();
         services.AddSingleton<NormalRequest>();
         services.AddSingleton<OpenAIBackgroundRequest>();
+
         // services.AddSingleton<IRequestProcessor, NormalRequest>();
 
         services.AddHostedService(sp => (AsyncFeeder)sp.GetRequiredService<IAsyncFeeder>());
@@ -248,6 +254,5 @@ public class Program
         services.AddTransient(source => new CancellationTokenSource());
         services.AddHostedService<CoordinatedShutdownService>();
         services.AddHostedService<UserProfile>(provider => provider.GetRequiredService<UserProfile>());
-
     }
 }
