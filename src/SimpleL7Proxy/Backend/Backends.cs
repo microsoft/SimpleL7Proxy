@@ -35,11 +35,9 @@ public class Backends : IBackendService
   private CancellationTokenSource _cancellationTokenSource;
   private CancellationToken _cancellationToken;
 
-  private AccessToken? AuthToken { get; set; }
 
   private readonly IEventClient _eventClient;
   CancellationTokenSource workerCancelTokenSource = new CancellationTokenSource();
-  private readonly TelemetryClient _telemetryClient;
   private readonly ILogger<Backends> _logger;
   private static readonly ProxyEvent staticEvent = new ProxyEvent() { Type = EventType.Backend };
 
@@ -51,7 +49,6 @@ public class Backends : IBackendService
       IHostApplicationLifetime appLifetime,               //
       IEventClient? eventClient,
       CancellationTokenSource cancellationTokenSource,    //
-      TelemetryClient telemetryClient,
       ILogger<Backends> logger)
   {
     if (options == null) throw new ArgumentNullException(nameof(options));
@@ -61,15 +58,26 @@ public class Backends : IBackendService
     ArgumentNullException.ThrowIfNull(backendHostCollection, nameof(backendHostCollection));
     ArgumentNullException.ThrowIfNull(appLifetime, nameof(appLifetime));
     ArgumentNullException.ThrowIfNull(cancellationTokenSource, nameof(cancellationTokenSource));
-    ArgumentNullException.ThrowIfNull(telemetryClient, nameof(telemetryClient));
     ArgumentNullException.ThrowIfNull(logger, nameof(logger));
     ArgumentNullException.ThrowIfNull(eventClient, nameof(eventClient));
 
     //    appLifetime.ApplicationStopping.Register(OnApplicationStopping);
 
     _eventClient = eventClient;
-    _telemetryClient = telemetryClient;
     _backendHosts = backendHostCollection.Hosts;
+    _options = options.Value;
+
+    // Initialize token provider for each backend host config if OAuth is enabled
+    if (_options!.UseOAuth)
+    {
+      foreach (var host in _backendHosts)
+      {
+        ArgumentNullException.ThrowIfNull(host.HostConfig, nameof(host.HostConfig));
+        // Use the audience from options or host-specific config if available
+        //var audience = _options.OAuthAudience;
+        //host.HostConfig.InitializeTokenProvider(audience, _cancellationToken, _telemetryClient, _logger);
+      }
+    }
     _logger = logger;
 
     _cancellationTokenSource = cancellationTokenSource;
@@ -87,6 +95,7 @@ public class Backends : IBackendService
     allowableCodes = bo.AcceptableStatusCodes;
 
     _logger.LogDebug("Backends service starting");
+
   }
 
   public Task Stop()
@@ -103,14 +112,11 @@ public class Backends : IBackendService
     // Start the backend poller task
     PollerTask = Task.Run(() => Run(), _cancellationToken);
 
-    // If OAuth is enabled, fetch the token
-    if (_options.UseOAuth)
-    {
-      GetToken();
-    }
+    // If OAuth is enabled, start token refresh
 
     _logger.LogInformation("[SERVICE] ✓ Backend service started");
   }
+
 
   private readonly List<DateTime> hostFailureTimes = [];
   ConcurrentQueue<DateTime> hostFailureTimes2 = new ConcurrentQueue<DateTime>();
@@ -169,14 +175,6 @@ public class Backends : IBackendService
 
   }
 
-  public string OAuth2Token()
-  {
-    while (AuthToken?.ExpiresOn < DateTime.UtcNow)
-    {
-      Task.Delay(100).Wait();
-    }
-    return AuthToken?.Token ?? "";
-  }
 
   public async Task WaitForStartup(int timeout)
   {
@@ -186,8 +184,8 @@ public class Backends : IBackendService
       var startTimer = DateTime.Now;
       // Wait for the backend poller to start or until the timeout is reached. Make sure that if a token is required, it is available.
       while (!_isRunning &&
-            (!_options.UseOAuth || AuthToken?.Token != "") &&
-            (DateTime.Now - startTimer).TotalSeconds < timeout)
+        (!_options.UseOAuth || (_backendHosts.Count > 0 && _backendHosts[0].HostConfig.OAuth2Token() != "")) &&
+        (DateTime.Now - startTimer).TotalSeconds < timeout)
       {
         await Task.Delay(1000, _cancellationToken); // Use Task.Delay with cancellation token
         if (_cancellationToken.IsCancellationRequested)
@@ -320,7 +318,7 @@ public class Backends : IBackendService
       var request = new HttpRequestMessage(HttpMethod.Get, host.ProbeUrl);
       if (_options.UseOAuth)
       {
-        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", OAuth2Token());
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", host.HostConfig.OAuth2Token());
       }
 
       var stopwatch = Stopwatch.StartNew();
@@ -414,16 +412,16 @@ public class Backends : IBackendService
 
     // Check if the host list actually changed before invalidating cache
     bool hostsChanged = !AreHostListsEqual(_activeHosts, newActiveHosts);
-    
+
     _activeHosts = newActiveHosts;
-    
+
     // Invalidate iterator cache only if hosts actually changed
     if (hostsChanged)
     {
       InvalidateIteratorCache();
     }
   }
-  
+
   /// <summary>
   /// Compares two host lists to determine if they contain the same hosts.
   /// </summary>
@@ -434,7 +432,7 @@ public class Backends : IBackendService
 
     var guids1 = new HashSet<Guid>(list1.Select(h => h.guid));
     var guids2 = new HashSet<Guid>(list2.Select(h => h.guid));
-    
+
     return guids1.SetEquals(guids2);
   }
 
@@ -499,70 +497,6 @@ public class Backends : IBackendService
   }
 
   // Fetches the OAuth2 Token as a seperate task. The token is fetched and updated 100ms before it expires. 
-  public void GetToken()
-  {
-    Task.Run(async () =>
-    {
-      try
-      {
-        // Loop until a cancellation is requested
-        while (!_cancellationToken.IsCancellationRequested)
-        {
-          // Fetch the authentication token asynchronously
-          AuthToken = await GetTokenAsync();
-
-          if (AuthToken.HasValue)
-          {
-            var timeout = (AuthToken.Value.ExpiresOn - DateTimeOffset.UtcNow).TotalMilliseconds;
-
-            if (timeout < 500)
-            {
-              _logger.LogCritical($"Auth Token is about to expire. Retrying in {timeout} ms.");
-              await Task.Delay((int)timeout, _cancellationToken);
-            }
-            else
-            {
-              // Calculate the time to refresh the token, 100 ms before it expires
-              var refreshTime = timeout - 100;
-              _logger.LogCritical($"Auth Token expires on: {AuthToken.Value.ExpiresOn} Refresh in: {FormatMilliseconds(refreshTime)} (100 ms grace)");
-              // Wait for the calculated refresh time or until a cancellation is requested
-              await Task.Delay((int)refreshTime, _cancellationToken);
-            }
-          }
-          else
-          {
-            // Handle the case where the token is null
-            _logger.LogError("Auth Token is null. Retrying in 10 seconds.");
-            await Task.Delay(TimeSpan.FromMilliseconds(10000), _cancellationToken);
-          }
-
-        }
-      }
-      catch (OperationCanceledException e)
-      {
-        ProxyEvent logEvent = new ProxyEvent
-        {
-          Type = EventType.Exception,
-          Exception = e,
-          ["Message"] = "Auth Token fetching operation was canceled.",
-          ["OAuthAudience"] = _options.OAuthAudience
-        };
-        logEvent.SendEvent();
-      }
-      catch (Exception e)
-      {
-        ProxyEvent logEvent = new ProxyEvent
-        {
-          Type = EventType.Exception,
-          Exception = e,
-          ["Message"] = $"An error occurred while fetching Auth Token: {e.Message}",
-          ["OAuthAudience"] = _options.OAuthAudience
-        };
-        logEvent.SendEvent();
-
-      }
-    }, _cancellationToken);
-  }
 
   public static string FormatMilliseconds(double milliseconds)
   {
@@ -574,73 +508,22 @@ public class Backends : IBackendService
                          timeSpan.Milliseconds);
   }
 
-  public async Task<AccessToken> GetTokenAsync()
-  {
-    try
-    {
-      var options = new DefaultAzureCredentialOptions();
 
-      if (_options.UseOAuthGov == true)
-      {
-        options.AuthorityHost = AzureAuthorityHosts.AzureGovernment;
-        //options = new DefaultAzureCredentialOptions { AuthorityHost = AzureAuthorityHosts.AzureGovernment };
-      }
-
-      var credential = new DefaultAzureCredential(options);
-      var context = new TokenRequestContext(new[] { _options.OAuthAudience });
-      var token = await credential.GetTokenAsync(context);
-
-      return token;
-    }
-    catch (AuthenticationFailedException ex)
-    {
-      var logEvent = new ProxyEvent
-      {
-        Type = EventType.Exception,
-        Exception = ex,
-        ["Message"] = $"Authentication failed: {ex.Message}",
-        ["OAuthAudience"] = _options.OAuthAudience
-      };
-      logEvent.SendEvent();
-      // Handle the exception as needed, e.g., return a default value or rethrow the exception
-      throw;
-    }
-    catch (Exception ex)
-    {
-      ProxyEvent logEvent = new ProxyEvent
-      {
-        Type = EventType.Exception,
-        Exception = ex,
-        ["Message"] = $"Get Token: An unexpected error occurred while fetching the token: {ex.Message}",
-        ["OAuthAudience"] = _options.OAuthAudience
-      };
-      logEvent.SendEvent();
-
-      // Handle other potential exceptions
-      throw;
-    }
-  }
-
-  public string BuildDestinationUrl(BackendHostHealth host, string requestPath)
-  {
-    var urlWithPath = new UriBuilder(host.Url) { Path = requestPath }.Uri.AbsoluteUri;
-    return System.Net.WebUtility.UrlDecode(urlWithPath);
-  }
 
   public IBackendHostIterator GetHostIterator(
-      string loadBalanceMode, 
-      IterationModeEnum mode = IterationModeEnum.SinglePass, 
+      string loadBalanceMode,
+      IterationModeEnum mode = IterationModeEnum.SinglePass,
       int maxRetries = 1)
   {
-      // Use the appropriate factory method based on iteration mode
-      if (mode == IterationModeEnum.SinglePass)
-      {
-          return BackendHostIteratorFactory.CreateSinglePassIterator(this, loadBalanceMode);
-      }
-      else
-      {
-          return BackendHostIteratorFactory.CreateMultiPassIterator(this, loadBalanceMode, maxRetries);
-      }
+    // Use the appropriate factory method based on iteration mode
+    if (mode == IterationModeEnum.SinglePass)
+    {
+      return BackendHostIteratorFactory.CreateSinglePassIterator(this, loadBalanceMode);
+    }
+    else
+    {
+      return BackendHostIteratorFactory.CreateMultiPassIterator(this, loadBalanceMode, maxRetries);
+    }
   }
 
   // Add method to invalidate iterator cache when hosts change
