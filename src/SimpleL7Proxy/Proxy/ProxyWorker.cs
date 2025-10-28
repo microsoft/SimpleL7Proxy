@@ -41,7 +41,6 @@ public class ProxyWorker
     private static IRequeueWorker? _requeueDelayWorker; // Initialized in constructor, only one instance
     private readonly IBackendService _backends;
     private readonly BackendOptions _options;
-    private readonly TelemetryClient? _telemetryClient;
     private readonly IEventClient _eventClient;
     private readonly IAsyncWorkerFactory _asyncWorkerFactory; // Just inject the factory
     private readonly ILogger<ProxyWorker> _logger;
@@ -72,7 +71,7 @@ public class ProxyWorker
     {
         return $"Count: {activeWorkers} States: [ deq-{states[0]} pre-{states[1]} prxy-{states[2]} -[snd-{states[3]} rcv-{states[4]}]-  wr-{states[5]} rpt-{states[6]} cln-{states[7]} ]";
     }
-    //public ProxyWorker(CancellationToken cancellationToken, int ID, int priority, ConcurrentPriQueue<RequestData> requestsQueue, BackendOptions backendOptions, IUserPriority? userPriority, IUserProfile? profiles, IBackendService? backends, IEventHubClient? eventHubClient, TelemetryClient? telemetryClient)
+
     public ProxyWorker(
         int ID,
         int priority,
@@ -83,7 +82,6 @@ public class ProxyWorker
         IUserPriorityService? userPriority,
         IRequeueWorker requeueDelayWorker,
         IEventClient eventClient,
-        TelemetryClient? telemetryClient,
         IAsyncWorkerFactory asyncWorkerFactory,
         ILogger<ProxyWorker> logger,
         //ProxyStreamWriter proxyStreamWriter,
@@ -98,7 +96,6 @@ public class ProxyWorker
         _logger = logger;
         //_proxyStreamWriter = proxyStreamWriter;
         //_eventHubClient = eventHubClient;
-        _telemetryClient = telemetryClient;
         _userPriority = userPriority ?? throw new ArgumentNullException(nameof(userPriority));
         _options = backendOptions ?? throw new ArgumentNullException(nameof(backendOptions));
         _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
@@ -689,18 +686,6 @@ public class ProxyWorker
         //byte[] bodyBytes = await request.CachBodyAsync().ConfigureAwait(false);
         List<S7PRequeueException> retryAfter = new();
 
-        if (_options.UseOAuth)
-        {
-            // Get a token
-            var OAToken = _backends.OAuth2Token();
-            if (request.Debug)
-            {
-                _logger.LogDebug("Token: " + OAToken);
-            }
-            // Set the token in the headers
-            request.Headers.Set("Authorization", $"Bearer {OAToken}");
-        }
-
         // Get an iterator for the active hosts based on the load balancing mode and iteration strategy
         using var hostIterator = _options.IterationMode switch
         {
@@ -722,7 +707,18 @@ public class ProxyWorker
         {
             var host = hostIterator.Current;
             DateTime ProxyStartDate = DateTime.UtcNow;
-
+            if (_options.UseOAuth)
+            {
+                // Get a token
+                var OAToken = host.HostConfig.OAuth2Token();
+                if (request.Debug)
+                {
+                    _logger.LogDebug("Token: " + OAToken);
+                }
+                // Set the token in the headers
+                request.Headers.Set("Authorization", $"Bearer {OAToken}");
+            }
+        
             // track the number of attempts
             request.BackendAttempts++;
             bool successfulRequest = false;
@@ -768,7 +764,7 @@ public class ProxyWorker
                 request.Timeout = (int)(minDate - DateTime.UtcNow).TotalMilliseconds;
 
                 request.Headers.Set("Host", host.Host);
-                request.FullURL = _backends.BuildDestinationUrl(host, request.Path);
+                request.FullURL = host.HostConfig.BuildDestinationUrl(request.Path);
 
                 requestState = "Cache Body";
                 // Read the body stream once and reuse it
