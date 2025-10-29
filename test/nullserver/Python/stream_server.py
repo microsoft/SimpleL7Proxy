@@ -16,13 +16,39 @@ import argparse
 httpd = None  # Declare httpd as a global variable
 
 class MyHandler(http.server.BaseHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        self.gotAuth = ""
+        super().__init__(*args, **kwargs)
+    
+    def log_message(self, format, *args):
+        """Override the default log message to include Authorization info"""
+        auth_info = f"[AUTH: {self.gotAuth}]" if self.gotAuth else "[AUTH: None]"
+        # Insert auth info before the request method
+        original_message = format % args
+        # Split the message to insert auth info in the right place
+        parts = original_message.split('"')
+        if len(parts) >= 2:
+            # Insert auth info before the quoted request
+            modified_message = f'{parts[0]}{auth_info} "{parts[1]}"'
+            if len(parts) > 2:
+                modified_message += '"'.join(parts[2:])
+        else:
+            modified_message = f"{original_message} {auth_info}"
+        
+        print(f"{self.address_string()} - - [{self.log_date_time_string()}] {modified_message}")
+
     def do_POST(self):
         self.do_GET()
         
     def do_GET(self):
         parsed_path = urlparse(self.path)
         query_params = parse_qs(parsed_path.query)
-
+        # check if Authorization header is present
+        self.gotAuth = ""
+        for header, value in self.headers.items():
+            if header == "Authorization":
+                self.gotAuth = (len(value) > 1) and "yes" or "no"
+        
         # Example: /health endpoint
         if parsed_path.path == '/health':
             self.send_response(200)
