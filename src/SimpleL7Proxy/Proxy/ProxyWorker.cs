@@ -707,10 +707,10 @@ public class ProxyWorker
         {
             var host = hostIterator.Current;
             DateTime ProxyStartDate = DateTime.UtcNow;
-            if (host.HostConfig.UseOAuth)
+            if (host.Config.UseOAuth)
             {
                 // Get a token
-                var OAToken = await host.HostConfig.OAuth2Token().ConfigureAwait(false);
+                var OAToken = await host.Config.OAuth2Token().ConfigureAwait(false);
                 if (request.Debug)
                 {
                     _logger.LogDebug("Token: " + OAToken);
@@ -764,7 +764,7 @@ public class ProxyWorker
                 request.Timeout = (int)(minDate - DateTime.UtcNow).TotalMilliseconds;
 
                 request.Headers.Set("Host", host.Host);
-                request.FullURL = host.HostConfig.BuildDestinationUrl(request.Path);
+                request.FullURL = host.Config.BuildDestinationUrl(request.Path);
 
                 requestState = "Cache Body";
                 // Read the body stream once and reuse it

@@ -11,13 +11,13 @@ public class ProbeableHostHealth : BaseHostHealth
     private const int MaxData = 50;
     private readonly Queue<bool> _callSuccess = new();
 
-    public string ProbePath => HostConfig.ProbePath;
-    public string ProbeUrl => HostConfig.ProbeUrl;
+    public string ProbePath => Config.ProbePath;
+    public string ProbeUrl => Config.ProbeUrl;
 
     public ProbeableHostHealth(HostConfig hostConfig, ILogger logger)
         : base(hostConfig, logger)
     {
-        logger.LogInformation($"[CONFIG] ✓ Probeable backend host: {HostConfig.Host} | Probe: {HostConfig.ProbePath}");
+        logger.LogInformation($"[CONFIG] ✓ Probeable backend host: {hostConfig.Host} | Probe: {hostConfig.ProbePath}");
     }
 
     public override bool SupportsProbing => true;

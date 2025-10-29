@@ -8,13 +8,13 @@ namespace SimpleL7Proxy.Backend;
 public abstract class BaseHostHealth
 {
   public Guid guid = Guid.NewGuid();
-  public HostConfig HostConfig { get; set; }
+  public HostConfig Config { get; set; }
 
-  public string Host => HostConfig.Host;
-  public int Port => HostConfig.Port;
-  public string Url => HostConfig.Url;
-  public string IpAddr => HostConfig.IpAddr ?? HostConfig.Host;
-  public string Protocol => HostConfig.Protocol;
+  public string Host => Config.Host;
+  public int Port => Config.Port;
+  public string Url => Config.Url;
+  public string IpAddr => Config.IpAddr ?? Config.Host;
+  public string Protocol => Config.Protocol;
   public double CalculatedAverageLatency { get; set; }
 
   private const int MaxData = 50;
@@ -24,10 +24,10 @@ public abstract class BaseHostHealth
   private ConcurrentQueue<double> _pxLatency = new ConcurrentQueue<double>();
   private int _errors;
 
-  protected BaseHostHealth(HostConfig hostConfig, ILogger logger)
+  protected BaseHostHealth(HostConfig config, ILogger logger)
   {
-    HostConfig = hostConfig ?? throw new ArgumentNullException(nameof(hostConfig));
-    logger.LogInformation($"[CONFIG] ✓ Backend host registered: {HostConfig.Host}");
+    Config = config ?? throw new ArgumentNullException(nameof(config));
+    logger.LogInformation($"[CONFIG] ✓ Backend host registered: {config.Host}");
   }
 
   public override string ToString()

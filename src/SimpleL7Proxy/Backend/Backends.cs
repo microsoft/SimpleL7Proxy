@@ -66,18 +66,6 @@ public class Backends : IBackendService
     _eventClient = eventClient;
     _backendHosts = backendHostCollection.Hosts;
     _options = options.Value;
-
-    // // Initialize token provider for each backend host config if OAuth is enabled
-    // if (_options!.UseOAuth)
-    // {
-    //   foreach (var host in _backendHosts)
-    //   {
-    //     ArgumentNullException.ThrowIfNull(host.HostConfig, nameof(host.HostConfig));
-    //     // Use the audience from options or host-specific config if available
-    //     //var audience = _options.OAuthAudience;
-    //     //host.HostConfig.InitializeTokenProvider(audience, _cancellationToken, _telemetryClient, _logger);
-    //   }
-    // }
     _logger = logger;
 
     _cancellationTokenSource = cancellationTokenSource;
@@ -182,10 +170,10 @@ public class Backends : IBackendService
     var startTimer = DateTime.Now;
 
     // register all audiences with the token provider
-    _backendHosts.ForEach(host => host.HostConfig.RegisterWithTokenProvider());
+    _backendHosts.ForEach(host => host.Config.RegisterWithTokenProvider());
 
     // Wait for the backend poller to start or until the timeout is reached. Make sure that if a token is required, it is available.
-    var tasksToWait = _backendHosts.Select(host => host.HostConfig.OAuth2Token()).ToArray();
+    var tasksToWait = _backendHosts.Select(host => host.Config.OAuth2Token()).ToArray();
 
     // await all tasks to complete or timeout after 10 seconds
     var allTasks = Task.WhenAll(tasksToWait);
@@ -320,9 +308,9 @@ public class Backends : IBackendService
         staticEvent.WriteOutput($"Checking host {host.Url + probeableHost.ProbePath}");
 
       var request = new HttpRequestMessage(HttpMethod.Get, probeableHost.ProbeUrl);
-      if (host.HostConfig.UseOAuth)
+      if (host.Config.UseOAuth)
       {
-        string token = await host.HostConfig.OAuth2Token().ConfigureAwait(false);
+        string token = await host.Config.OAuth2Token().ConfigureAwait(false);
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
       }
 
