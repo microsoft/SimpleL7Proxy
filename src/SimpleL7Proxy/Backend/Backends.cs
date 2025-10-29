@@ -67,17 +67,17 @@ public class Backends : IBackendService
     _backendHosts = backendHostCollection.Hosts;
     _options = options.Value;
 
-    // Initialize token provider for each backend host config if OAuth is enabled
-    if (_options!.UseOAuth)
-    {
-      foreach (var host in _backendHosts)
-      {
-        ArgumentNullException.ThrowIfNull(host.HostConfig, nameof(host.HostConfig));
-        // Use the audience from options or host-specific config if available
-        //var audience = _options.OAuthAudience;
-        //host.HostConfig.InitializeTokenProvider(audience, _cancellationToken, _telemetryClient, _logger);
-      }
-    }
+    // // Initialize token provider for each backend host config if OAuth is enabled
+    // if (_options!.UseOAuth)
+    // {
+    //   foreach (var host in _backendHosts)
+    //   {
+    //     ArgumentNullException.ThrowIfNull(host.HostConfig, nameof(host.HostConfig));
+    //     // Use the audience from options or host-specific config if available
+    //     //var audience = _options.OAuthAudience;
+    //     //host.HostConfig.InitializeTokenProvider(audience, _cancellationToken, _telemetryClient, _logger);
+    //   }
+    // }
     _logger = logger;
 
     _cancellationTokenSource = cancellationTokenSource;
@@ -179,31 +179,27 @@ public class Backends : IBackendService
   public async Task WaitForStartup(int timeout)
   {
     var start = DateTime.Now;
-    for (int i = 0; i < 10; i++)
+    var startTimer = DateTime.Now;
+
+    // register all audiences with the token provider
+    _backendHosts.ForEach(host => host.HostConfig.RegisterWithTokenProvider());
+
+    // Wait for the backend poller to start or until the timeout is reached. Make sure that if a token is required, it is available.
+    var tasksToWait = _backendHosts.Select(host => host.HostConfig.OAuth2Token()).ToArray();
+
+    // await all tasks to complete or timeout after 10 seconds
+    var allTasks = Task.WhenAll(tasksToWait);
+
+    var delayTask = Task.Delay(timeout * 1000, _cancellationToken);
+    var completedTask = await Task.WhenAny(allTasks, delayTask).ConfigureAwait(false);
+    if (completedTask == delayTask)
     {
-      var startTimer = DateTime.Now;
-      // Wait for the backend poller to start or until the timeout is reached. Make sure that if a token is required, it is available.
-      while (!_isRunning &&
-        (!_options.UseOAuth || (_backendHosts.Count > 0 && _backendHosts[0].HostConfig.OAuth2Token() != "")) &&
-        (DateTime.Now - startTimer).TotalSeconds < timeout)
-      {
-        await Task.Delay(1000, _cancellationToken); // Use Task.Delay with cancellation token
-        if (_cancellationToken.IsCancellationRequested)
-        {
-          return;
-        }
-      }
-      if (!_isRunning)
-      {
-        _logger.LogError($"Backend Poller did not start in the last {timeout} seconds.");
-      }
-      else
-      {
-        _logger.LogInformation($"[SERVICE] ✓ Backend Poller started in {(DateTime.Now - start).TotalSeconds:F3}s");
-        return;
-      }
+      _logger.LogError($"Backend Token Provider did not initialize tokens in the last {timeout} seconds.");
+      throw new Exception("Backend Token Provider did not initialize tokens in time.");
     }
-    throw new Exception("Backend Poller did not start in time.");
+
+    _logger.LogInformation($"[SERVICE] ✓ Backend Poller started in {(DateTime.Now - start).TotalSeconds:F3}s");
+
   }
 
   private readonly Dictionary<string, bool> currentHostStatus = [];
@@ -314,11 +310,11 @@ public class Backends : IBackendService
       if (_debug)
         staticEvent.WriteOutput($"Checking host {host.Url + host.ProbePath}");
 
-
       var request = new HttpRequestMessage(HttpMethod.Get, host.ProbeUrl);
-      if (_options.UseOAuth)
+      if (host.HostConfig.UseOAuth)
       {
-        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", host.HostConfig.OAuth2Token());
+        string token = await host.HostConfig.OAuth2Token().ConfigureAwait(false);
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
       }
 
       var stopwatch = Stopwatch.StartNew();

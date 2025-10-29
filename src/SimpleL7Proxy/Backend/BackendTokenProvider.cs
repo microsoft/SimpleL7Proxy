@@ -52,7 +52,7 @@ namespace SimpleL7Proxy.Backend
             }
         }
 
-        public string OAuth2Token(string? audience = null)
+        public async Task<string> OAuth2Token(string? audience = null)
         {
             if (string.IsNullOrEmpty(audience)) return string.Empty;
 
@@ -61,7 +61,7 @@ namespace SimpleL7Proxy.Backend
                 // Wait for token to be refreshed
                 while (!_tokenDict.ContainsKey(audience) || _tokenExpiryDict[audience] < DateTime.UtcNow)
                 {
-                    Task.Delay(100).Wait();
+                    await Task.Delay(100).ConfigureAwait(false);
                 }
             }
             return _tokenDict[audience].Token ?? "";

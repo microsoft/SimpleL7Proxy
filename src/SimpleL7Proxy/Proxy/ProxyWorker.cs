@@ -707,10 +707,10 @@ public class ProxyWorker
         {
             var host = hostIterator.Current;
             DateTime ProxyStartDate = DateTime.UtcNow;
-            if (_options.UseOAuth)
+            if (host.HostConfig.UseOAuth)
             {
                 // Get a token
-                var OAToken = host.HostConfig.OAuth2Token();
+                var OAToken = await host.HostConfig.OAuth2Token().ConfigureAwait(false);
                 if (request.Debug)
                 {
                     _logger.LogDebug("Token: " + OAToken);

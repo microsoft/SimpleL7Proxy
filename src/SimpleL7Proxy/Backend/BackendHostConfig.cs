@@ -28,6 +28,9 @@ namespace SimpleL7Proxy.Backend
     public string? IpAddr { get; private set; }
     public bool DirectMode { get; private set; }
     public string PartialPath { get; private set; } = "/";
+    public bool UseOAuth { get; private set; }
+    public string Audience { get; private set; } = "";
+
     private struct ParsedConfig
     {
       public string Host;
@@ -49,29 +52,12 @@ namespace SimpleL7Proxy.Backend
     /// Decoded probe URL for health checks.
     /// </summary>
 
-
-    public string OAuth2Token()
-    /// <summary>
-    /// Gets the current OAuth2 token for this backend host.
-    /// </summary>
-    {
-      return _tokenProvider?.OAuth2Token() ?? string.Empty;
-    }
-    public string BuildDestinationUrl(string requestPath)
-    /// <summary>
-    /// Builds the destination URL for a request to this backend host.
-    /// </summary>
-    {
-      var urlWithPath = new UriBuilder(Url) { Path = requestPath }.Uri.AbsoluteUri;
-      return WebUtility.UrlDecode(urlWithPath);
-    }
-
     public static void Initialize(BackendTokenProvider tokenProvider, ILogger logger)
     {
       _tokenProvider = tokenProvider;
       _logger = logger;
     }
-    
+
     // Can pass in hostname  and probepath
     // or
     // hostname=host=<host:port>;probe=<path>;mode=<direct|apim|>;ipaddress=<ipaddress>;path=<partialpath>
@@ -81,10 +67,7 @@ namespace SimpleL7Proxy.Backend
     public BackendHostConfig(string hostname, string? probepath = "", string? audience = "")
     {
       _logger?.LogInformation("[CONFIG] Configuring backend host: {hostname}", hostname);
-      var parsed = ParseConfig(hostname, probepath, audience);
-
-      if (parsed.UseOAuth && !string.IsNullOrEmpty(parsed.Audience))
-        _tokenProvider!.AddAudience(parsed.Audience);
+      var parsed = TryParseConfig(hostname, probepath, audience);
 
       // If host does not have a protocol, add one
       string hostForUri = parsed.Host;
@@ -94,10 +77,7 @@ namespace SimpleL7Proxy.Backend
       }
 
       // if host ends with a slash, remove it
-      if (hostForUri.EndsWith("/"))
-      {
-        hostForUri = hostForUri.Substring(0, hostForUri.Length - 1);
-      }
+      hostForUri = hostForUri.TrimEnd('/');
 
       // parse the host, protocol and port
       Uri uri = new Uri(hostForUri);
@@ -108,6 +88,8 @@ namespace SimpleL7Proxy.Backend
       DirectMode = parsed.DirectMode;
       IpAddr = parsed.IpAddr;
       PartialPath = parsed.PartialPath;
+      UseOAuth = parsed.UseOAuth;
+      Audience = parsed.Audience;
 
       if (DirectMode)
       {
@@ -119,7 +101,7 @@ namespace SimpleL7Proxy.Backend
       }
     }
 
-    private static ParsedConfig ParseConfig(string input, string? probepath, string? audience = "")
+    private static ParsedConfig TryParseConfig(string input, string? probepath, string? audience = "")
     /// <summary>
     /// Parses a backend configuration string into a ParsedConfig struct.
     /// </summary>
@@ -185,6 +167,33 @@ namespace SimpleL7Proxy.Backend
       return result;
     }
 
-  }
+    public void RegisterWithTokenProvider()
+    {
+        if (UseOAuth && !string.IsNullOrEmpty(Audience))
+        {
+            _tokenProvider!.AddAudience(Audience);
+        }
+    }
 
+    /// <summary>
+    /// Gets the current OAuth2 token for this backend host.
+    /// </summary>
+    public async Task<string> OAuth2Token()
+    {
+      if (!UseOAuth || string.IsNullOrEmpty(Audience) || _tokenProvider == null)
+        return string.Empty;
+
+      return await _tokenProvider.OAuth2Token(Audience).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Builds the destination URL for a request to this backend host.
+    /// </summary>
+    public string BuildDestinationUrl(string requestPath)
+    {
+      var urlWithPath = new UriBuilder(Url) { Path = requestPath }.Uri.AbsoluteUri;
+      return WebUtility.UrlDecode(urlWithPath);
+    }
+
+  }
 }
