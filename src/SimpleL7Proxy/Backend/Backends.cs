@@ -498,16 +498,17 @@ public class Backends : IBackendService
   public IBackendHostIterator GetHostIterator(
       string loadBalanceMode,
       IterationModeEnum mode = IterationModeEnum.SinglePass,
-      int maxRetries = 1)
+      int maxRetries = 1,
+      string fullURL = "/")
   {
     // Use the appropriate factory method based on iteration mode
     if (mode == IterationModeEnum.SinglePass)
     {
-      return BackendHostIteratorFactory.CreateSinglePassIterator(this, loadBalanceMode);
+      return BackendHostIteratorFactory.CreateSinglePassIterator(this, loadBalanceMode, fullURL);
     }
     else
     {
-      return BackendHostIteratorFactory.CreateMultiPassIterator(this, loadBalanceMode, maxRetries);
+      return BackendHostIteratorFactory.CreateMultiPassIterator(this, loadBalanceMode, maxRetries, fullURL);
     }
   }
 

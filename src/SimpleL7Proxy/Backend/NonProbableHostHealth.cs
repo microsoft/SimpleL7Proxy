@@ -11,7 +11,7 @@ public class NonProbeableHostHealth : BaseHostHealth
     public NonProbeableHostHealth(HostConfig hostConfig, ILogger logger)
         : base(hostConfig, logger)
     {
-        logger.LogInformation($"[CONFIG] ✓ Non-probeable backend host: {hostConfig.Host} (always active)");
+        logger.LogDebug($"[CONFIG] ✓ Non-probeable backend host: {hostConfig.Host} (always active)");
     }
 
     public override bool SupportsProbing => false;

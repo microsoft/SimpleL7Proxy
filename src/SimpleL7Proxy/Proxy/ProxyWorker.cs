@@ -691,18 +691,31 @@ public class ProxyWorker
         {
             IterationModeEnum.SinglePass => BackendHostIteratorFactory.CreateSinglePassIterator(
                 _backends,
-                _options.LoadBalanceMode),
-            
+                _options.LoadBalanceMode,
+                request.Path),
+
             IterationModeEnum.MultiPass => BackendHostIteratorFactory.CreateMultiPassIterator(
                 _backends,
                 _options.LoadBalanceMode,
-                _options.MaxAttempts),
-            
+                _options.MaxAttempts,
+                request.Path),
+
             _ => BackendHostIteratorFactory.CreateSinglePassIterator(
                 _backends,
-                _options.LoadBalanceMode)
+                _options.LoadBalanceMode,
+                request.Path)
         };
-        
+
+        // count the number of hosts
+        int hostCount = 0;
+        while (hostIterator.MoveNext())
+        {
+            hostCount++;
+        }
+        // Reset the iterator to the beginning
+        hostIterator.Reset();
+
+        _logger.LogInformation($"Matched Hosts: {hostCount} for URL: {request.Path}");
         while (hostIterator.MoveNext())
         {
             var host = hostIterator.Current;
@@ -1173,6 +1186,7 @@ public class ProxyWorker
         {
             if (!request.AsyncTriggered)
             {
+                _logger.LogInformation($"Response Status Code: {lastStatusCode}");
                 request.Context!.Response.StatusCode = (int)lastStatusCode;
                 request.Context.Response.KeepAlive = false;
             }

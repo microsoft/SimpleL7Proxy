@@ -16,7 +16,7 @@ public interface IBackendService
     Task WaitForStartup(int timeout);
     void Start();
     Task Stop();
-    IBackendHostIterator GetHostIterator(string loadBalanceMode, IterationModeEnum mode = IterationModeEnum.SinglePass, int maxRetries = 1);
+    IBackendHostIterator GetHostIterator(string loadBalanceMode, IterationModeEnum mode = IterationModeEnum.SinglePass, int maxRetries = 1, string fullURL = "/");
 }
 
 public enum BackendType

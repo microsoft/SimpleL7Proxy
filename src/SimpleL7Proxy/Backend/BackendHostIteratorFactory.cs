@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Concurrent;
+using System.Threading;
 
 namespace SimpleL7Proxy.Backend;
 
@@ -11,6 +13,8 @@ public static class BackendHostIteratorFactory
     private static readonly object _lock = new object();
     private static volatile int _roundRobinCounter = 0;
     private static volatile List<BaseHostHealth>? _cachedActiveHosts;
+    private static volatile List<BaseHostHealth>? _cachedSpecificPathHosts;
+    private static volatile List<BaseHostHealth>? _cachedCatchAllHosts;
     private static volatile int _cacheVersion = 0; // Incremented when cache is invalidated
     
     // Thread-safe random number generator
@@ -22,12 +26,14 @@ public static class BackendHostIteratorFactory
     /// </summary>
     /// <param name="backendService">The backend service to get active hosts from</param>
     /// <param name="loadBalanceMode">Load balancing strategy: "roundrobin", "latency", or "random"</param>
+    /// <param name="fullURL">The full URL for the request (without host part) to filter hosts by path</param>
     /// <returns>An iterator configured for single-pass iteration</returns>
     public static IBackendHostIterator CreateSinglePassIterator(
         IBackendService backendService,
-        string loadBalanceMode)
+        string loadBalanceMode,
+        string fullURL)
     {
-        return CreateIteratorInternal(backendService, loadBalanceMode, IterationModeEnum.SinglePass, 1);
+        return CreateIteratorInternal(backendService, loadBalanceMode, IterationModeEnum.SinglePass, 1, fullURL);
     }
 
     /// <summary>
@@ -38,39 +44,145 @@ public static class BackendHostIteratorFactory
     /// <param name="backendService">The backend service to get active hosts from</param>
     /// <param name="loadBalanceMode">Load balancing strategy: "roundrobin", "latency", or "random"</param>
     /// <param name="maxAttempts">Maximum total number of host attempts across all passes (e.g., 30)</param>
+    /// <param name="fullURL">The full URL for the request (without host part) to filter hosts by path</param>
     /// <returns>An iterator configured for multi-pass iteration with retry limit</returns>
     public static IBackendHostIterator CreateMultiPassIterator(
         IBackendService backendService,
         string loadBalanceMode,
-        int maxAttempts)
+        int maxAttempts,
+        string fullURL)
     {
-        return CreateIteratorInternal(backendService, loadBalanceMode, IterationModeEnum.MultiPass, maxAttempts);
+        return CreateIteratorInternal(backendService, loadBalanceMode, IterationModeEnum.MultiPass, maxAttempts, fullURL);
     }
 
     /// <summary>
     /// Internal method to create a thread-safe iterator for the specified load balance mode.
     /// This method is optimized for high concurrency with hundreds of proxy workers.
+    /// Filters hosts based on the request path extracted from the full URL.
     /// </summary>
     private static IBackendHostIterator CreateIteratorInternal(
         IBackendService backendService,
         string loadBalanceMode, 
         IterationModeEnum mode, 
-        int maxAttempts)
+        int maxAttempts,
+        string fullURL)
     {
-        var activeHosts = GetCachedActiveHosts(backendService);
+        var (specificHosts, catchAllHosts) = GetCategorizedHosts(backendService);
         
-        if (activeHosts == null || activeHosts.Count == 0)
+        if ((specificHosts?.Count ?? 0) == 0 && (catchAllHosts?.Count ?? 0) == 0)
+        {
+            return new EmptyBackendHostIterator();
+        }
+
+        // Extract path from fullURL to filter hosts
+        var requestPath = ExtractPathFromURL(fullURL);
+        var filteredHosts = FilterHostsByPath(specificHosts!, catchAllHosts!, requestPath);
+
+        if (filteredHosts.Count == 0)
         {
             return new EmptyBackendHostIterator();
         }
 
         return loadBalanceMode switch
         {
-            Constants.RoundRobin => new RoundRobinHostIterator(activeHosts, mode, maxAttempts),
-            Constants.Latency => new LatencyBasedHostIterator(activeHosts, mode, maxAttempts),
-            Constants.Random => new RandomHostIterator(activeHosts, mode, maxAttempts),
-            _ => new RandomHostIterator(activeHosts, mode, maxAttempts)
+            Constants.RoundRobin => new RoundRobinHostIterator(filteredHosts, mode, maxAttempts),
+            Constants.Latency => new LatencyBasedHostIterator(filteredHosts, mode, maxAttempts),
+            Constants.Random => new RandomHostIterator(filteredHosts, mode, maxAttempts),
+            _ => new RandomHostIterator(filteredHosts, mode, maxAttempts)
         };
+    }
+
+    /// <summary>
+    /// Extracts the path portion from a full URL (without host part).
+    /// Handles both absolute paths (/api/users) and relative paths (api/users).
+    /// </summary>
+    private static string ExtractPathFromURL(string fullURL)
+    {
+        if (string.IsNullOrEmpty(fullURL))
+            return "/";
+
+        // If fullURL starts with http/https, parse as full URI using Uri class
+        if (fullURL.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            fullURL.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            if (Uri.TryCreate(fullURL, UriKind.Absolute, out Uri? uri))
+            {
+                return uri.PathAndQuery;
+            }
+            else
+            {
+                // If URI parsing fails, treat as relative path
+                return fullURL.StartsWith("/") ? fullURL : "/" + fullURL;
+            }
+        }
+
+        // For relative paths, ensure they start with '/'
+        return fullURL.StartsWith("/") ? fullURL : "/" + fullURL;
+    }
+
+    /// <summary>
+    /// Filters the host list to only include hosts that support the given request path.
+    /// Prefers specific path matches over catch-all "/" hosts.
+    /// Uses pre-categorized host lists for performance.
+    /// </summary>
+    private static List<BaseHostHealth> FilterHostsByPath(List<BaseHostHealth> specificHosts, List<BaseHostHealth> catchAllHosts, string requestPath)
+    {
+        var matchingSpecificHosts = specificHosts.Where(host => host.Config.SupportsPath(requestPath)).ToList();
+        
+        // Return specific hosts if any match, otherwise return catch-all hosts
+        return matchingSpecificHosts.Count > 0 ? matchingSpecificHosts : catchAllHosts;
+    }
+
+    /// <summary>
+    /// Gets cached categorized hosts (specific vs catch-all) with thread-safe lazy initialization.
+    /// </summary>
+    private static (List<BaseHostHealth> specificHosts, List<BaseHostHealth> catchAllHosts) GetCategorizedHosts(IBackendService backendService)
+    {
+        // Fast path: read cached values without locking
+        var cachedSpecific = _cachedSpecificPathHosts;
+        var cachedCatchAll = _cachedCatchAllHosts;
+        
+        if (cachedSpecific != null && cachedCatchAll != null)
+        {
+            return (cachedSpecific, cachedCatchAll);
+        }
+
+        // Slow path: need to categorize hosts
+        lock (_lock)
+        {
+            // Double-check: another thread may have populated the cache
+            if (_cachedSpecificPathHosts != null && _cachedCatchAllHosts != null)
+            {
+                return (_cachedSpecificPathHosts, _cachedCatchAllHosts);
+            }
+
+            var activeHosts = backendService.GetActiveHosts();
+            var specificHosts = new List<BaseHostHealth>();
+            var catchAllHosts = new List<BaseHostHealth>();
+            
+            // Categorize hosts once at startup
+            foreach (var host in activeHosts)
+            {
+                var hostPartialPath = host.Config.PartialPath?.Trim();
+                
+                if (string.IsNullOrEmpty(hostPartialPath) || 
+                    hostPartialPath == "/" || 
+                    hostPartialPath == "/*")
+                {
+                    catchAllHosts.Add(host);
+                }
+                else
+                {
+                    specificHosts.Add(host);
+                }
+            }
+
+            _cachedSpecificPathHosts = specificHosts;
+            _cachedCatchAllHosts = catchAllHosts;
+            _cachedActiveHosts = activeHosts; // Also update the active hosts cache
+            
+            return (specificHosts, catchAllHosts);
+        }
     }
 
     /// <summary>
@@ -127,6 +239,8 @@ public static class BackendHostIteratorFactory
         lock (_lock)
         {
             _cachedActiveHosts = null;
+            _cachedSpecificPathHosts = null;
+            _cachedCatchAllHosts = null;
             Interlocked.Increment(ref _cacheVersion); // Track cache version for diagnostics
         }
     }

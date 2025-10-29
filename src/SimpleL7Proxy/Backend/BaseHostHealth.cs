@@ -27,7 +27,7 @@ public abstract class BaseHostHealth
   protected BaseHostHealth(HostConfig config, ILogger logger)
   {
     Config = config ?? throw new ArgumentNullException(nameof(config));
-    logger.LogInformation($"[CONFIG] ✓ Backend host registered: {config.Host}");
+    logger.LogInformation($"[CONFIG] ✓ {(config.DirectMode ? "Direct" : "APIM")} host registered: {config.Host} Path: {config.PartialPath} Probe: {config.ProbePath}");
   }
 
   public override string ToString()

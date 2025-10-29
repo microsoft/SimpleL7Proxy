@@ -50,6 +50,7 @@ URLS["gemini-2.5-pro-chat"]="POST /file/gemini-2.5-pro-chat.txt"
 URLS["gemini-2.5-pro-stream"]="POST /file/gemini-2.5-pro-stream.txt"
 URLS["gpt5-nano-response"]="POST /file/gpt5-nano-response.txt"
 URLS["gpt5-nano"]="POST /file/gpt5-nano.txt"
+URLS["api"]="POST /api/v1/chat/completions"
 
 
 # Parse command line arguments
@@ -186,7 +187,7 @@ if [ "$asyncmode" = "true" ]; then
 fi
 
 if [ "$debugmode" = "true" ]; then
-  curl_cmd+=( -H "S&PDEBUG: true" )
+  curl_cmd+=( -H "S7PDEBUG: true" )
 fi
 
 curl_cmd+=( --no-buffer $verbose )

@@ -27,9 +27,16 @@ namespace SimpleL7Proxy.Backend
     public int Port { get; private set; }
     public string? IpAddr { get; private set; }
     public bool DirectMode { get; private set; }
-    public string PartialPath { get; private set; } = "/";
+    public string PartialPath { get; private set; } = "/*";
     public bool UseOAuth { get; private set; }
     public string Audience { get; private set; } = "";
+    public bool UsesRetryAfter { get; private set; } = true;
+    
+    // Cached path matching properties for performance
+    private readonly bool _isCatchAllPath;
+    private readonly string? _normalizedPartialPath;
+    private readonly bool _isWildcardPath;
+    private readonly string? _wildcardPrefix;
 
     private struct ParsedConfig
     {
@@ -40,6 +47,7 @@ namespace SimpleL7Proxy.Backend
       public string PartialPath;
       public bool UseOAuth;
       public string Audience;
+      public bool UsesRetryAfter;
     }
 
 
@@ -60,7 +68,7 @@ namespace SimpleL7Proxy.Backend
 
     // Can pass in hostname  and probepath
     // or
-    // hostname=host=<host:port>;probe=<path>;mode=<direct|apim|>;ipaddress=<ipaddress>;path=<partialpath>
+    // hostname=host=<host:port>;probe=<path>;mode=<direct|apim|>;ipaddress=<ipaddress>;path=<partialpath>;usesretryafter=<true|false>
     /// <summary>
     /// Constructs a BackendHostConfig from a hostname and optional probe path.
     /// </summary>
@@ -90,14 +98,26 @@ namespace SimpleL7Proxy.Backend
       PartialPath = parsed.PartialPath;
       UseOAuth = parsed.UseOAuth;
       Audience = parsed.Audience;
+      UsesRetryAfter = parsed.UsesRetryAfter;
+
+      // Pre-compute path matching properties for performance
+      var trimmedPath = PartialPath?.Trim();
+      _isCatchAllPath = string.IsNullOrEmpty(trimmedPath) || trimmedPath == "/" || trimmedPath == "/*";
+      
+      if (!_isCatchAllPath)
+      {
+        _normalizedPartialPath = trimmedPath!.TrimStart('/');
+        _isWildcardPath = _normalizedPartialPath.EndsWith("/*");
+        _wildcardPrefix = _isWildcardPath ? _normalizedPartialPath.Substring(0, _normalizedPartialPath.Length - 2) : null;
+      }
 
       if (DirectMode)
       {
-        _logger?.LogInformation("[CONFIG] ✓ Direct host configured: {Host} | Probe: {ProbePath} Path: {PartialPath}", Host, ProbePath, PartialPath);
+        _logger?.LogInformation("[CONFIG] ✓ Direct host configured: {Host} | Probe: /{ProbePath} Path: {PartialPath}", Host, ProbePath, PartialPath);
       }
       else
       {
-        _logger?.LogInformation("[CONFIG] ✓ APIM host configured: {Host} | Probe: {ProbePath}", Host, ProbePath);
+        _logger?.LogInformation("[CONFIG] ✓ APIM  host configured: {Host} | Probe: /{ProbePath}", Host, ProbePath);
       }
     }
 
@@ -114,7 +134,8 @@ namespace SimpleL7Proxy.Backend
         IpAddr = null,
         PartialPath = "/",
         UseOAuth = false,
-        Audience = audience ?? ""
+        Audience = audience ?? "",
+        UsesRetryAfter = true
       };
 
       if (input.Contains(';'))
@@ -154,10 +175,15 @@ namespace SimpleL7Proxy.Backend
               result.PartialPath = kvp.Value;
               break;
             case "useoauth":
+            case "usemi":
               result.UseOAuth = kvp.Value.Equals("true", StringComparison.OrdinalIgnoreCase);
               break;
             case "audience":
               result.Audience = kvp.Value;
+              break;
+            case "useretryafter":
+            case "retryafter":
+              result.UsesRetryAfter = kvp.Value.Equals("true", StringComparison.OrdinalIgnoreCase);
               break;
             default:
               throw new UriFormatException($"Invalid backend host configuration key: {kvp.Key}");
@@ -193,6 +219,49 @@ namespace SimpleL7Proxy.Backend
     {
       var urlWithPath = new UriBuilder(Url) { Path = requestPath }.Uri.AbsoluteUri;
       return WebUtility.UrlDecode(urlWithPath);
+    }
+
+    /// <summary>
+    /// Determines if this host supports the given request path based on its PartialPath configuration.
+    /// This method is used for specific path matching only - catch-all paths are handled separately.
+    /// - Exact paths like "/api" match exactly and as prefixes (e.g., "/api/c1/foo")
+    /// - Paths ending with "/*" like "/api/*" match as prefixes
+    /// </summary>
+    /// <param name="requestPath">The request path to check against this host's PartialPath</param>
+    /// <returns>True if this host supports the request path, false otherwise</returns>
+    public bool SupportsPath(string requestPath)
+    {
+        // Skip catch-all paths - these are handled separately in FilterHostsByPath
+        if (_isCatchAllPath)
+        {
+            return false;
+        }
+
+        // Normalize request path for comparison
+        var normalizedRequestPath = requestPath.TrimStart('/');
+
+        // If host path ends with /*, treat it as a prefix match
+        if (_isWildcardPath)
+        {
+            return string.IsNullOrEmpty(_wildcardPrefix) || normalizedRequestPath.StartsWith(_wildcardPrefix, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Exact path match
+        if (normalizedRequestPath.Equals(_normalizedPartialPath, StringComparison.OrdinalIgnoreCase))
+        {
+          
+            return true;
+        }
+
+        // Prefix match: "/api" should match "/api/c1/foo" 
+        // Check if request path starts with host path followed by '/' or is exactly the host path
+        if (!string.IsNullOrEmpty(_normalizedPartialPath))
+        {
+        var hostPathWithSlash = _normalizedPartialPath.TrimEnd('/') + "/";
+            return normalizedRequestPath.StartsWith(hostPathWithSlash, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return false;
     }
 
   }
