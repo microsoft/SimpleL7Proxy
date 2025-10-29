@@ -10,7 +10,7 @@ namespace SimpleL7Proxy.Backend;
 /// </summary>
 public abstract class BaseHostIterator : IBackendHostIterator
 {
-    protected readonly List<BackendHostHealth> _hosts;
+    protected readonly List<BaseHostHealth> _hosts;
     protected readonly IterationModeEnum _mode;
     protected readonly int _maxAttempts;
     
@@ -18,7 +18,7 @@ public abstract class BaseHostIterator : IBackendHostIterator
     protected int _totalAttempts; // Track total attempts across all passes
     protected bool _hasCompletedAllPasses;
 
-    protected BaseHostIterator(List<BackendHostHealth> hosts, IterationModeEnum mode, int maxAttempts)
+    protected BaseHostIterator(List<BaseHostHealth> hosts, IterationModeEnum mode, int maxAttempts)
     {
         _hosts = hosts ?? throw new ArgumentNullException(nameof(hosts));
         _mode = mode;
@@ -31,7 +31,7 @@ public abstract class BaseHostIterator : IBackendHostIterator
     /// <summary>
     /// Gets the current host. Must be implemented by derived classes.
     /// </summary>
-    public abstract BackendHostHealth Current { get; }
+    public abstract BaseHostHealth Current { get; }
     
     /// <summary>
     /// Gets the current host as object for IEnumerator interface.
@@ -128,7 +128,7 @@ public abstract class BaseHostIterator : IBackendHostIterator
     /// Records the result of a request to a host.
     /// Default implementation does nothing - derived classes can override for specific tracking.
     /// </summary>
-    public virtual void RecordResult(BackendHostHealth host, bool success)
+    public virtual void RecordResult(BaseHostHealth host, bool success)
     {
         // Default implementation does nothing
     }
