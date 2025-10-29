@@ -16,7 +16,7 @@ namespace SimpleL7Proxy.Backend
   /// <summary>
   /// Handles configuration and token management for a single backend host.
   /// </summary>
-  public class BackendHostConfig
+  public class HostConfig
   {
     public static BackendTokenProvider? _tokenProvider;
     private static ILogger? _logger = Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
@@ -64,7 +64,7 @@ namespace SimpleL7Proxy.Backend
     /// <summary>
     /// Constructs a BackendHostConfig from a hostname and optional probe path.
     /// </summary>
-    public BackendHostConfig(string hostname, string? probepath = "", string? audience = "")
+    public HostConfig(string hostname, string? probepath = "", string? audience = "")
     {
       _logger?.LogInformation("[CONFIG] Configuring backend host: {hostname}", hostname);
       var parsed = TryParseConfig(hostname, probepath, audience);

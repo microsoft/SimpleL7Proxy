@@ -15,7 +15,7 @@ public class RoundRobinHostIterator : BaseHostIterator
     private int _currentIndex;
     private int _hostsVisitedInCurrentPass;
 
-    public RoundRobinHostIterator(List<BackendHostHealth> hosts, IterationModeEnum mode, int maxAttempts)
+    public RoundRobinHostIterator(List<BaseHostHealth> hosts, IterationModeEnum mode, int maxAttempts)
         : base(hosts, mode, maxAttempts)
     {
         _currentIndex = -1;
@@ -25,7 +25,7 @@ public class RoundRobinHostIterator : BaseHostIterator
     /// <summary>
     /// Gets the current host being pointed to by the iterator.
     /// </summary>
-    public override BackendHostHealth Current 
+    public override BaseHostHealth Current 
     {
         get
         {
@@ -80,7 +80,7 @@ public class RoundRobinHostIterator : BaseHostIterator
     /// Records the result of a request to a host.
     /// Round robin doesn't adjust selection based on results.
     /// </summary>
-    public override void RecordResult(BackendHostHealth host, bool success)
+    public override void RecordResult(BaseHostHealth host, bool success)
     {
         // Round robin doesn't adjust selection based on results
     }

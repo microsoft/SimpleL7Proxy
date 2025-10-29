@@ -13,7 +13,7 @@ public class RandomHostIterator : BaseHostIterator
     private List<int> _hostIndices;
     private int _currentIndex;
 
-    public RandomHostIterator(List<BackendHostHealth> hosts, IterationModeEnum mode, int maxAttempts)
+    public RandomHostIterator(List<BaseHostHealth> hosts, IterationModeEnum mode, int maxAttempts)
         : base(hosts, mode, maxAttempts)
     {
         _hostIndices = Enumerable.Range(0, _hosts.Count).ToList();
@@ -24,7 +24,7 @@ public class RandomHostIterator : BaseHostIterator
     /// <summary>
     /// Gets the current host being pointed to by the iterator.
     /// </summary>
-    public override BackendHostHealth Current => _hosts[_hostIndices[_currentIndex]];
+    public override BaseHostHealth Current => _hosts[_hostIndices[_currentIndex]];
 
     /// <summary>
     /// Moves to the next host in the randomized order.
@@ -72,7 +72,7 @@ public class RandomHostIterator : BaseHostIterator
     /// Records the result of a request to a host.
     /// Random selection doesn't need result tracking.
     /// </summary>
-    public override void RecordResult(BackendHostHealth host, bool success)
+    public override void RecordResult(BaseHostHealth host, bool success)
     {
         // Random selection doesn't need result tracking
     }

@@ -5,8 +5,8 @@ namespace SimpleL7Proxy.Backend;
 /// </summary>
 public interface IBackendService
 {
-    List<BackendHostHealth> GetHosts();
-    List<BackendHostHealth> GetActiveHosts();
+    List<BaseHostHealth> GetHosts();
+    List<BaseHostHealth> GetActiveHosts();
     int ActiveHostCount();
     // BackendType BackendKind { get; }
     string HostStatus { get; }

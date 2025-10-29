@@ -10,7 +10,7 @@ public static class BackendHostIteratorFactory
 {
     private static readonly object _lock = new object();
     private static volatile int _roundRobinCounter = 0;
-    private static volatile List<BackendHostHealth>? _cachedActiveHosts;
+    private static volatile List<BaseHostHealth>? _cachedActiveHosts;
     private static volatile int _cacheVersion = 0; // Incremented when cache is invalidated
     
     // Thread-safe random number generator
@@ -77,7 +77,7 @@ public static class BackendHostIteratorFactory
     /// Gets cached active hosts. Cache is invalidated only when explicitly requested
     /// by the backend service when host list changes.
     /// </summary>
-    private static List<BackendHostHealth>? GetCachedActiveHosts(IBackendService backendService)
+    private static List<BaseHostHealth>? GetCachedActiveHosts(IBackendService backendService)
     {
         // Fast path: read the cached value without locking
         var cached = _cachedActiveHosts;

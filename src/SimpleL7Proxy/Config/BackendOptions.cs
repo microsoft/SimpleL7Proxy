@@ -26,7 +26,7 @@ public class BackendOptions
     public string[] DependancyHeaders { get; set; } = [];
     public List<string> DisallowedHeaders { get; set; } = [];
     public string HostName { get; set; } = "";
-    public List<BackendHostConfig> Hosts { get; set; } = [];
+    public List<HostConfig> Hosts { get; set; } = [];
     public string IDStr { get; set; } = "S7P";
     public IterationModeEnum IterationMode { get; set; }
     public string LoadBalanceMode { get; set; } = "latency"; // "latency", "roundrobin", "random"

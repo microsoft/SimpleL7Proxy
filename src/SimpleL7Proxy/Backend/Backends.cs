@@ -21,8 +21,8 @@ namespace SimpleL7Proxy.Backend;
 // * Fetch the OAuth2 token and refresh it 100ms minutes before it expires
 public class Backends : IBackendService
 {
-  public List<BackendHostHealth> _backendHosts { get; set; }
-  private List<BackendHostHealth> _activeHosts;
+  public List<BaseHostHealth> _backendHosts { get; set; }
+  private List<BaseHostHealth> _activeHosts;
 
   private readonly BackendOptions _options;
   private static readonly bool _debug = false;
@@ -45,7 +45,7 @@ public class Backends : IBackendService
   //public Backends(List<BackendHost> hosts, HttpClient client, int interval, int successRate)
   public Backends(
       IOptions<BackendOptions> options,
-      IBackendHostHealthCollection backendHostCollection, //
+      IHostHealthCollection backendHostCollection, //
       IHostApplicationLifetime appLifetime,               //
       IEventClient? eventClient,
       CancellationTokenSource cancellationTokenSource,    //
@@ -124,7 +124,7 @@ public class Backends : IBackendService
   private readonly int FailureTimeFrame = 10; // seconds
   static int[] allowableCodes = { 200, 401, 403, 408, 410, 412, 417, 400 };
 
-  public List<BackendHostHealth> GetActiveHosts() => _activeHosts;
+  public List<BaseHostHealth> GetActiveHosts() => _activeHosts;
   public int ActiveHostCount() => _activeHosts.Count;
 
   public void TrackStatus(int code, bool wasException)
@@ -155,7 +155,7 @@ public class Backends : IBackendService
     logerror.SendEvent();
   }
 
-  public List<BackendHostHealth> GetHosts() => _backendHosts;
+  public List<BaseHostHealth> GetHosts() => _backendHosts;
 
   // returns true if the service is in failure state
   public bool CheckFailedStatus()
@@ -292,25 +292,34 @@ public class Backends : IBackendService
     return _statusChanged;
   }
 
-  private async Task<bool> GetHostStatus(BackendHostHealth host, HttpClient client)
+  private async Task<bool> GetHostStatus(BaseHostHealth host, HttpClient client)
   {
+    // Skip probing for non-probeable hosts
+    if (!host.SupportsProbing)
+    {
+      // Non-probeable hosts are always considered healthy
+      return true;
+    }
+
+    // Cast to probeable host to access probe-specific properties
+    var probeableHost = (ProbeableHostHealth)host;
+
     double latency = 0;
     ProxyEvent probeData = new()
     {
       ["ProxyHost"] = _options.HostName,
       ["Backend-Host"] = host.Host,
       ["Port"] = host.Port.ToString(),
-      ["Path"] = host.ProbePath,
+      ["Path"] = probeableHost.ProbePath,
       Type = EventType.Poller
     };
 
     try
     {
-
       if (_debug)
-        staticEvent.WriteOutput($"Checking host {host.Url + host.ProbePath}");
+        staticEvent.WriteOutput($"Checking host {host.Url + probeableHost.ProbePath}");
 
-      var request = new HttpRequestMessage(HttpMethod.Get, host.ProbeUrl);
+      var request = new HttpRequestMessage(HttpMethod.Get, probeableHost.ProbeUrl);
       if (host.HostConfig.UseOAuth)
       {
         string token = await host.HostConfig.OAuth2Token().ConfigureAwait(false);
@@ -344,15 +353,12 @@ public class Backends : IBackendService
     }
     catch (UriFormatException e)
     {
-      // WriteOutput($"Poller: Could not check probe: {e.Message}");
       probeData.Type = EventType.Exception;
       probeData.Exception = e;
-      //"S7P-Uri Format Exception";
       probeData["Code"] = "-";
     }
     catch (TaskCanceledException e)
     {
-      // WriteOutput($"Poller: Host Timeout: {host.host}");
       probeData.Type = EventType.Exception;
       probeData.Exception = e;
       probeData["Code"] = "-";
@@ -360,28 +366,23 @@ public class Backends : IBackendService
     }
     catch (HttpRequestException e)
     {
-      // WriteOutput($"Poller: Host {host.host} is down with exception: {e.Message}");
       probeData.Type = EventType.Exception;
       probeData.Exception = e;
       probeData["Code"] = "-";
     }
     catch (OperationCanceledException)
     {
-      // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
       staticEvent.WriteOutput("Poller: Stopping the server.");
       throw; // Exit the loop
     }
     catch (System.Net.Sockets.SocketException e)
     {
-      // WriteOutput($"Poller: Host {host.host} is down:  {e.Message}");
       probeData.Type = EventType.Exception;
       probeData.Exception = e;
       probeData["Code"] = "-";
     }
     catch (Exception e)
     {
-      // Program.telemetryClient?.TrackException(e);
-      // WriteErrorOutput($"Poller: Error: {e.Message}");
       probeData.Type = EventType.Exception;
       probeData.Exception = e;
       probeData["Code"] = "-";
@@ -421,7 +422,7 @@ public class Backends : IBackendService
   /// <summary>
   /// Compares two host lists to determine if they contain the same hosts.
   /// </summary>
-  private bool AreHostListsEqual(List<BackendHostHealth> list1, List<BackendHostHealth> list2)
+  private bool AreHostListsEqual(List<BaseHostHealth> list1, List<BaseHostHealth> list2)
   {
     if (list1.Count != list2.Count)
       return false;

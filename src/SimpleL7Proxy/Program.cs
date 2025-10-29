@@ -88,7 +88,7 @@ public class Program
         // Initialize ProxyEvent with BackendOptions
 
         ProxyEvent.Initialize(options, eventHubClient, telemetryClient);
-        BackendHostConfig.Initialize(backendTokenProvider, startupLogger);
+        HostConfig.Initialize(backendTokenProvider, startupLogger);
     
         try
         {
@@ -222,7 +222,7 @@ public class Program
         services.AddSingleton<ConcurrentSignal<RequestData>>();
         services.AddSingleton<IConcurrentPriQueue<RequestData>, ConcurrentPriQueue<RequestData>>();
         //services.AddSingleton<ProxyStreamWriter>();
-        services.AddSingleton<IBackendHostHealthCollection, BackendHostHealthCollection>();
+        services.AddSingleton<IHostHealthCollection, HostHealthCollection>();
 
         services.AddSingleton<BackendTokenProvider>();
         services.AddHostedService<BackendTokenProvider>();

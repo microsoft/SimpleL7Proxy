@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace SimpleL7Proxy.Backend;
 
-public interface IBackendHostHealthCollection
+public interface IHostHealthCollection
 {
-  List<BackendHostHealth> Hosts { get; }
+  List<BaseHostHealth> Hosts { get; }
 }

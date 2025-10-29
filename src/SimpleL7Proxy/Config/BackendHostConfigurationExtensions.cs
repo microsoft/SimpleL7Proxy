@@ -486,7 +486,7 @@ public static class BackendHostConfigurationExtensions
       DependancyHeaders = ToArrayOfString(ReadEnvironmentVariableOrDefault("DependancyHeaders", "Backend-Host, Host-URL, Status, Duration, Error, Message, Request-Date, backendLog")),
       DisallowedHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("DisallowedHeaders", "")),
       HostName = ReadEnvironmentVariableOrDefault("Hostname", replicaID),
-      Hosts = new List<BackendHostConfig>(),
+      Hosts = new List<HostConfig>(),
       IDStr = $"{ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P")}-{replicaID}-",
       IterationMode = ReadEnvironmentVariableOrDefault("IterationMode", IterationModeEnum.SinglePass),
       LoadBalanceMode = ReadEnvironmentVariableOrDefault("LoadBalanceMode", "latency"), // "latency", "roundrobin", "random"
@@ -554,8 +554,8 @@ public static class BackendHostConfigurationExtensions
       {
         _logger?.LogInformation($"Found host {hostname} with probe path {probePath} and IP {ip}");
 
-        // Resolve BackendHostConfig from DI using the factory
-        BackendHostConfig bh = new BackendHostConfig(hostname, probePath, backendOptions.OAuthAudience);
+        // Resolve HostConfig from DI using the factory
+        HostConfig bh = new HostConfig(hostname, probePath, backendOptions.OAuthAudience);
         backendOptions.Hosts.Add(bh);
 
         sb.AppendLine($"{ip} {bh.Host}");

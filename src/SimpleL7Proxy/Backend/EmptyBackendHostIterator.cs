@@ -12,7 +12,7 @@ public class EmptyBackendHostIterator : IBackendHostIterator
     /// <summary>
     /// Gets the current host. Always throws since there are no hosts.
     /// </summary>
-    public BackendHostHealth Current => throw new InvalidOperationException("No active hosts available.");
+    public BaseHostHealth Current => throw new InvalidOperationException("No active hosts available.");
 
     /// <summary>
     /// Gets the current host as object. Always throws since there are no hosts.
@@ -42,7 +42,7 @@ public class EmptyBackendHostIterator : IBackendHostIterator
     /// <summary>
     /// Records the result of a request. Does nothing since there are no hosts.
     /// </summary>
-    public void RecordResult(BackendHostHealth host, bool success)
+    public void RecordResult(BaseHostHealth host, bool success)
     {
         // No-op - there are no hosts to record results for
     }
