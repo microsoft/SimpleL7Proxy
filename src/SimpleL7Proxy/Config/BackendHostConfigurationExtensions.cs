@@ -404,258 +404,261 @@ public static class BackendHostConfigurationExtensions
   // If the IgnoreSSLCert environment variable is set to true, it configures the HttpClient to ignore SSL certificate errors.
   // If the AppendHostsFile environment variable is set to true, it appends the IP addresses and hostnames to the /etc/hosts file.
   private static BackendOptions LoadBackendOptions()
-  {
-    // Read and set the DNS refresh timeout from environment variables or use the default value
-    var DNSTimeout = ReadEnvironmentVariableOrDefault("DnsRefreshTimeout", 240000);
-    var KeepAliveInitialDelaySecs = ReadEnvironmentVariableOrDefault("KeepAliveInitialDelaySecs", 60); // 60 seconds
-    var KeepAlivePingIntervalSecs = ReadEnvironmentVariableOrDefault("KeepAlivePingIntervalSecs", 60); // 60 seconds
-    var keepAliveDurationSecs = ReadEnvironmentVariableOrDefault("KeepAliveIdleTimeoutSecs", 1200); // 20 minutes
-
-    var EnableMultipleHttp2Connections = ReadEnvironmentVariableOrDefault("EnableMultipleHttp2Connections", false);
-    var MultiConnLifetimeSecs = ReadEnvironmentVariableOrDefault("MultiConnLifetimeSecs", 3600); // 1 hours
-    var MultiConnIdleTimeoutSecs = ReadEnvironmentVariableOrDefault("MultiConnIdleTimeoutSecs", 300); // 5 minutes
-    var MultiConnMaxConns = ReadEnvironmentVariableOrDefault("MultiConnMaxConns", 4000); // 4000 connections
-
-    var retryCount = keepAliveDurationSecs / KeepAlivePingIntervalSecs; // Calculate retry count 
-    var handler = getHandler(KeepAliveInitialDelaySecs, KeepAlivePingIntervalSecs, retryCount);
-
-    if (EnableMultipleHttp2Connections)
     {
-      handler.EnableMultipleHttp2Connections = true;
-      handler.PooledConnectionLifetime = TimeSpan.FromSeconds(MultiConnLifetimeSecs);
-      handler.PooledConnectionIdleTimeout = TimeSpan.FromSeconds(MultiConnIdleTimeoutSecs);
-      handler.MaxConnectionsPerServer = MultiConnMaxConns;
-      handler.ResponseDrainTimeout = TimeSpan.FromSeconds(keepAliveDurationSecs);
-      Console.WriteLine("Multiple HTTP/2 connections enabled.");
-    }
-    else
-    {
-      handler.EnableMultipleHttp2Connections = false;
-      Console.WriteLine("Multiple HTTP/2 connections disabled.");
-    }
-    //     PooledConnectionIdleTimeout = TimeSpan.FromSeconds(KeepAliveIdleTimeoutSecs),
+        // Read and set the DNS refresh timeout from environment variables or use the default value
+        var DNSTimeout = ReadEnvironmentVariableOrDefault("DnsRefreshTimeout", 240000);
+        var KeepAliveInitialDelaySecs = ReadEnvironmentVariableOrDefault("KeepAliveInitialDelaySecs", 60); // 60 seconds
+        var KeepAlivePingIntervalSecs = ReadEnvironmentVariableOrDefault("KeepAlivePingIntervalSecs", 60); // 60 seconds
+        var keepAliveDurationSecs = ReadEnvironmentVariableOrDefault("KeepAliveIdleTimeoutSecs", 1200); // 20 minutes
+
+        var EnableMultipleHttp2Connections = ReadEnvironmentVariableOrDefault("EnableMultipleHttp2Connections", false);
+        var MultiConnLifetimeSecs = ReadEnvironmentVariableOrDefault("MultiConnLifetimeSecs", 3600); // 1 hours
+        var MultiConnIdleTimeoutSecs = ReadEnvironmentVariableOrDefault("MultiConnIdleTimeoutSecs", 300); // 5 minutes
+        var MultiConnMaxConns = ReadEnvironmentVariableOrDefault("MultiConnMaxConns", 4000); // 4000 connections
+
+        var retryCount = keepAliveDurationSecs / KeepAlivePingIntervalSecs; // Calculate retry count 
+        var handler = getHandler(KeepAliveInitialDelaySecs, KeepAlivePingIntervalSecs, retryCount);
+
+        if (EnableMultipleHttp2Connections)
+        {
+            handler.EnableMultipleHttp2Connections = true;
+            handler.PooledConnectionLifetime = TimeSpan.FromSeconds(MultiConnLifetimeSecs);
+            handler.PooledConnectionIdleTimeout = TimeSpan.FromSeconds(MultiConnIdleTimeoutSecs);
+            handler.MaxConnectionsPerServer = MultiConnMaxConns;
+            handler.ResponseDrainTimeout = TimeSpan.FromSeconds(keepAliveDurationSecs);
+            Console.WriteLine("Multiple HTTP/2 connections enabled.");
+        }
+        else
+        {
+            handler.EnableMultipleHttp2Connections = false;
+            Console.WriteLine("Multiple HTTP/2 connections disabled.");
+        }
+        //     PooledConnectionIdleTimeout = TimeSpan.FromSeconds(KeepAliveIdleTimeoutSecs),
 
 
-    // Configure SSL handling
-    if (ReadEnvironmentVariableOrDefault("IgnoreSSLCert", false))
-    {
-      handler.SslOptions = new System.Net.Security.SslClientAuthenticationOptions
-      {
-        RemoteCertificateValidationCallback = (sender, cert, chain, errors) => true
-      };
-      Console.WriteLine("Ignoring SSL certificate validation errors.");
-    }
+        // Configure SSL handling
+        if (ReadEnvironmentVariableOrDefault("IgnoreSSLCert", false))
+        {
+            handler.SslOptions = new System.Net.Security.SslClientAuthenticationOptions
+            {
+                RemoteCertificateValidationCallback = (sender, cert, chain, errors) => true
+            };
+            Console.WriteLine("Ignoring SSL certificate validation errors.");
+        }
 
-    HttpClient _client = new HttpClient(handler);
+        HttpClient _client = new HttpClient(handler);
 
-    string replicaID = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REPLICA_NAME", "01");
+        string replicaID = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REPLICA_NAME", "01");
 #if DEBUG
-    // Load appsettings.json only in Debug mode
-    var configuration = new ConfigurationBuilder()
-            .AddJsonFile("appsettings.json", optional: true)
-            .AddEnvironmentVariables()
-            .Build();
+        // Load appsettings.json only in Debug mode
+        var configuration = new ConfigurationBuilder()
+                .AddJsonFile("appsettings.json", optional: true)
+                .AddEnvironmentVariables()
+                .Build();
 
-    foreach (var setting in configuration.GetSection("Settings").GetChildren())
-    {
-      Environment.SetEnvironmentVariable(setting.Key, setting.Value);
-    }
+        foreach (var setting in configuration.GetSection("Settings").GetChildren())
+        {
+            Environment.SetEnvironmentVariable(setting.Key, setting.Value);
+        }
 #endif
 
-    // Create and return a BackendOptions object populated with values from environment variables or default values.
-    var backendOptions = new BackendOptions
-    {
-      AcceptableStatusCodes = ReadEnvironmentVariableOrDefault("AcceptableStatusCodes", new int[] { 200, 202, 401, 403, 404, 408, 410, 412, 417, 400 }),
-      AsyncBlobStorageAccountUri = ReadEnvironmentVariableOrDefault("AsyncBlobStorageAccountUri", "https://example.blob.core.windows.net/"),
-      AsyncBlobStorageConnectionString = ReadEnvironmentVariableOrDefault("AsyncBlobStorageConnectionString", ""),
-      AsyncBlobStorageUseMI = ReadEnvironmentVariableOrDefault("AsyncBlobStorageUseMI", false),
-      AsyncClientRequestHeader = ReadEnvironmentVariableOrDefault("AsyncClientRequestHeader", "AsyncMode"),
-      AsyncClientConfigFieldName = ReadEnvironmentVariableOrDefault("AsyncClientConfigFieldName", "async-config"),
-      AsyncModeEnabled = ReadEnvironmentVariableOrDefault("AsyncModeEnabled", false),
-      AsyncSBConnectionString = ReadEnvironmentVariableOrDefault("AsyncSBConnectionString", "example-sb-connection-string"),
-      AsyncSBNamespace = ReadEnvironmentVariableOrDefault("AsyncSBNamespace", ""),
-      AsyncSBQueue = ReadEnvironmentVariableOrDefault("AsyncSBQueue", "requeststatus"),
-      AsyncSBUseMI = ReadEnvironmentVariableOrDefault("AsyncSBUseMI", false), // Use managed identity for Service Bus
-      AsyncTimeout = ReadEnvironmentVariableOrDefault("AsyncTimeout", 30 * 60000),
-      AsyncTriggerTimeout = ReadEnvironmentVariableOrDefault("AsyncTriggerTimeout", 10000),
-      CircuitBreakerErrorThreshold = ReadEnvironmentVariableOrDefault("CBErrorThreshold", 50),
-      CircuitBreakerTimeslice = ReadEnvironmentVariableOrDefault("CBTimeslice", 60),
-      Client = _client,
-      ContainerApp = ReadEnvironmentVariableOrDefault("CONTAINER_APP_NAME", "ContainerAppName"),
-      DefaultPriority = ReadEnvironmentVariableOrDefault("DefaultPriority", 2),
-      DefaultTTLSecs = ReadEnvironmentVariableOrDefault("DefaultTTLSecs", 300),
-      DependancyHeaders = ToArrayOfString(ReadEnvironmentVariableOrDefault("DependancyHeaders", "Backend-Host, Host-URL, Status, Duration, Error, Message, Request-Date, backendLog")),
-      DisallowedHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("DisallowedHeaders", "")),
-      HostName = ReadEnvironmentVariableOrDefault("Hostname", replicaID),
-      Hosts = new List<HostConfig>(),
-      IDStr = $"{ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P")}-{replicaID}-",
-      IterationMode = ReadEnvironmentVariableOrDefault("IterationMode", IterationModeEnum.SinglePass),
-      LoadBalanceMode = ReadEnvironmentVariableOrDefault("LoadBalanceMode", "latency"), // "latency", "roundrobin", "random"
-      LogAllRequestHeaders = ReadEnvironmentVariableOrDefault("LogAllRequestHeaders", false),
-      LogAllRequestHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllRequestHeadersExcept", "Authorization")),
-      LogAllResponseHeaders = ReadEnvironmentVariableOrDefault("LogAllResponseHeaders", false),
-      LogAllResponseHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllResponseHeadersExcept", "Api-Key")),
-      LogConsole = ReadEnvironmentVariableOrDefault("LogConsole", true),
-      LogConsoleEvent = ReadEnvironmentVariableOrDefault("LogConsoleEvent", false),
-      LogHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
-      LogPoller = ReadEnvironmentVariableOrDefault("LogPoller", true),
-      LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", true),
-      MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
-      MaxAttempts = ReadEnvironmentVariableOrDefault("MaxAttempts", 10),
-      OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
-      PollInterval = ReadEnvironmentVariableOrDefault("PollInterval", 15000),
-      PollTimeout = ReadEnvironmentVariableOrDefault("PollTimeout", 3000),
-      Port = ReadEnvironmentVariableOrDefault("Port", 80),
-      PriorityKeyHeader = ReadEnvironmentVariableOrDefault("PriorityKeyHeader", "S7PPriorityKey"),
-      PriorityKeys = ToListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
-      PriorityValues = ToListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
-      PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault("PriorityWorkers", "2:1,3:1"))),
-      RequiredHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("RequiredHeaders", "")),
-      Revision = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REVISION", "revisionID"),
-      SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
-      SuspendedUserConfigUrl = ReadEnvironmentVariableOrDefault("SuspendedUserConfigUrl", "file:config.json"),
-      StripHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("StripHeaders", "")),
-      StorageDbEnabled = ReadEnvironmentVariableOrDefault("StorageDbEnabled", false),
-      StorageDbContainerName = ReadEnvironmentVariableOrDefault("StorageDbContainerName", "Requests"),
-      TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
-      Timeout = ReadEnvironmentVariableOrDefault("Timeout", 1200000), // 20 minutes
-      TimeoutHeader = ReadEnvironmentVariableOrDefault("TimeoutHeader", "S7PTimeout"),
-      TTLHeader = ReadEnvironmentVariableOrDefault("TTLHeader", "S7PTTL"),
-      UniqueUserHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("UniqueUserHeaders", "X-UserID")),
-      UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", false),
-      UseOAuthGov = ReadEnvironmentVariableOrDefault("UseOAuthGov", false),
-      UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", false),
-      UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", "file:config.json"),
-      UserIDFieldName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "UserIDFieldName", "userId"), // migrate from LookupHeaderName
-      UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
-      UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", "X-UserProfile"),
-      ValidateAuthAppFieldName = ReadEnvironmentVariableOrDefault("ValidateAuthAppFieldName", "authAppID"),
-      ValidateAuthAppID = ReadEnvironmentVariableOrDefault("ValidateAuthAppID", false),
-      ValidateAuthAppIDHeader = ReadEnvironmentVariableOrDefault("ValidateAuthAppIDHeader", "X-MS-CLIENT-PRINCIPAL-ID"),
-      ValidateAuthAppIDUrl = ReadEnvironmentVariableOrDefault("ValidateAuthAppIDUrl", "file:auth.json"),
-      ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault("ValidateHeaders", ""))),
-      Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
-    };
-
-
-
-    //backendOptions.Client.Timeout = TimeSpan.FromMilliseconds(backendOptions.Timeout);
-    int i = 1;
-    StringBuilder sb = new();
-    while (true)
-    {
-
-      var hostname = Environment.GetEnvironmentVariable($"Host{i}")?.Trim();
-      if (string.IsNullOrEmpty(hostname)) break;
-
-      var probePath = Environment.GetEnvironmentVariable($"Probe_path{i}")?.Trim();
-      var ip = Environment.GetEnvironmentVariable($"IP{i}")?.Trim();
-
-      try
-      {
-        _logger?.LogInformation($"Found host {hostname} with probe path {probePath} and IP {ip}");
-
-        // Resolve HostConfig from DI using the factory
-        HostConfig bh = new HostConfig(hostname, probePath, backendOptions.OAuthAudience);
-        backendOptions.Hosts.Add(bh);
-
-        sb.AppendLine($"{ip} {bh.Host}");
-      }
-    
-      catch (UriFormatException e)
-      {
-        _logger?.LogError($"Could not add Host{i} with {hostname} : {e.Message}");
-      }
-
-      i++;
-    }
-
-    if (Environment.GetEnvironmentVariable("APPENDHOSTSFILE")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true ||
-        Environment.GetEnvironmentVariable("AppendHostsFile")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true)
-    {
-      _logger?.LogInformation($"Appending {sb} to /etc/hosts");
-      using StreamWriter sw = File.AppendText("/etc/hosts");
-      sw.WriteLine(sb.ToString());
-    }
-
-    // confirm the number of priority keys and values match
-    if (backendOptions.PriorityKeys.Count != backendOptions.PriorityValues.Count)
-    {
-      Console.WriteLine("The number of PriorityKeys and PriorityValues do not match in length, defaulting all values to 5");
-      backendOptions.PriorityValues = Enumerable.Repeat(5, backendOptions.PriorityKeys.Count).ToList();
-    }
-
-    // confirm that the PriorityWorkers Key's have a corresponding priority keys
-    int workerAllocation = 0;
-    foreach (var key in backendOptions.PriorityWorkers.Keys)
-    {
-      if (!(backendOptions.PriorityValues.Contains(key) || key == backendOptions.DefaultPriority))
-      {
-        Console.WriteLine($"WARNING: PriorityWorkers Key {key} does not have a corresponding PriorityKey");
-      }
-      workerAllocation += backendOptions.PriorityWorkers[key];
-    }
-
-    if (workerAllocation > backendOptions.Workers)
-    {
-      Console.WriteLine($"WARNING: Worker allocation exceeds total number of workers:{workerAllocation} > {backendOptions.Workers}");
-      Console.WriteLine($"Adjusting total number of workers to {workerAllocation}. Fix PriorityWorkers if it isn't what you want.");
-      backendOptions.Workers = workerAllocation;
-    }
-
-    // if (backendOptions.UniqueUserHeaders.Count > 0)
-    // {
-    //   // Make sure that uniqueUserHeaders are also in the required headers
-    //   foreach (var header in backendOptions.UniqueUserHeaders)
-    //   {
-    //     if (!backendOptions.RequiredHeaders.Contains(header))
-    //     {
-    //       Console.WriteLine($"Adding {header} to RequiredHeaders");
-    //       backendOptions.RequiredHeaders.Add(header);
-    //     }
-    //   }
-    // }
-
-    // If validate headers are set, make sure they are also in the required headers and disallowed headers
-    if (backendOptions.ValidateHeaders.Count > 0)
-    {
-      foreach (var (key, value) in backendOptions.ValidateHeaders)
-      {
-        Console.WriteLine($"Validating {key} against {value}");
-        if (!backendOptions.RequiredHeaders.Contains(key))
+        // Create and return a BackendOptions object populated with values from environment variables or default values.
+        var backendOptions = new BackendOptions
         {
-          Console.WriteLine($"Adding {key} to RequiredHeaders");
-          backendOptions.RequiredHeaders.Add(key);
-        }
-        if (!backendOptions.RequiredHeaders.Contains(value))
+            AcceptableStatusCodes = ReadEnvironmentVariableOrDefault("AcceptableStatusCodes", new int[] { 200, 202, 401, 403, 404, 408, 410, 412, 417, 400 }),
+            AsyncBlobStorageAccountUri = ReadEnvironmentVariableOrDefault("AsyncBlobStorageAccountUri", "https://example.blob.core.windows.net/"),
+            AsyncBlobStorageConnectionString = ReadEnvironmentVariableOrDefault("AsyncBlobStorageConnectionString", ""),
+            AsyncBlobStorageUseMI = ReadEnvironmentVariableOrDefault("AsyncBlobStorageUseMI", false),
+            AsyncClientRequestHeader = ReadEnvironmentVariableOrDefault("AsyncClientRequestHeader", "AsyncMode"),
+            AsyncClientConfigFieldName = ReadEnvironmentVariableOrDefault("AsyncClientConfigFieldName", "async-config"),
+            AsyncModeEnabled = ReadEnvironmentVariableOrDefault("AsyncModeEnabled", false),
+            AsyncSBConnectionString = ReadEnvironmentVariableOrDefault("AsyncSBConnectionString", "example-sb-connection-string"),
+            AsyncSBNamespace = ReadEnvironmentVariableOrDefault("AsyncSBNamespace", ""),
+            AsyncSBQueue = ReadEnvironmentVariableOrDefault("AsyncSBQueue", "requeststatus"),
+            AsyncSBUseMI = ReadEnvironmentVariableOrDefault("AsyncSBUseMI", false), // Use managed identity for Service Bus
+            AsyncTimeout = ReadEnvironmentVariableOrDefault("AsyncTimeout", 30 * 60000),
+            AsyncTriggerTimeout = ReadEnvironmentVariableOrDefault("AsyncTriggerTimeout", 10000),
+            CircuitBreakerErrorThreshold = ReadEnvironmentVariableOrDefault("CBErrorThreshold", 50),
+            CircuitBreakerTimeslice = ReadEnvironmentVariableOrDefault("CBTimeslice", 60),
+            Client = _client,
+            ContainerApp = ReadEnvironmentVariableOrDefault("CONTAINER_APP_NAME", "ContainerAppName"),
+            DefaultPriority = ReadEnvironmentVariableOrDefault("DefaultPriority", 2),
+            DefaultTTLSecs = ReadEnvironmentVariableOrDefault("DefaultTTLSecs", 300),
+            DependancyHeaders = ToArrayOfString(ReadEnvironmentVariableOrDefault("DependancyHeaders", "Backend-Host, Host-URL, Status, Duration, Error, Message, Request-Date, backendLog")),
+            DisallowedHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("DisallowedHeaders", "")),
+            HostName = ReadEnvironmentVariableOrDefault("Hostname", replicaID),
+            Hosts = new List<HostConfig>(),
+            IDStr = $"{ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P")}-{replicaID}-",
+            IterationMode = ReadEnvironmentVariableOrDefault("IterationMode", IterationModeEnum.SinglePass),
+            LoadBalanceMode = ReadEnvironmentVariableOrDefault("LoadBalanceMode", "latency"), // "latency", "roundrobin", "random"
+            LogAllRequestHeaders = ReadEnvironmentVariableOrDefault("LogAllRequestHeaders", false),
+            LogAllRequestHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllRequestHeadersExcept", "Authorization")),
+            LogAllResponseHeaders = ReadEnvironmentVariableOrDefault("LogAllResponseHeaders", false),
+            LogAllResponseHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllResponseHeadersExcept", "Api-Key")),
+            LogConsole = ReadEnvironmentVariableOrDefault("LogConsole", true),
+            LogConsoleEvent = ReadEnvironmentVariableOrDefault("LogConsoleEvent", false),
+            LogHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
+            LogPoller = ReadEnvironmentVariableOrDefault("LogPoller", true),
+            LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", true),
+            MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
+            MaxAttempts = ReadEnvironmentVariableOrDefault("MaxAttempts", 10),
+            OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
+            PollInterval = ReadEnvironmentVariableOrDefault("PollInterval", 15000),
+            PollTimeout = ReadEnvironmentVariableOrDefault("PollTimeout", 3000),
+            Port = ReadEnvironmentVariableOrDefault("Port", 80),
+            PriorityKeyHeader = ReadEnvironmentVariableOrDefault("PriorityKeyHeader", "S7PPriorityKey"),
+            PriorityKeys = ToListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
+            PriorityValues = ToListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
+            PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault("PriorityWorkers", "2:1,3:1"))),
+            RequiredHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("RequiredHeaders", "")),
+            Revision = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REVISION", "revisionID"),
+            SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
+            SuspendedUserConfigUrl = ReadEnvironmentVariableOrDefault("SuspendedUserConfigUrl", "file:config.json"),
+            StripHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("StripHeaders", "")),
+            StorageDbEnabled = ReadEnvironmentVariableOrDefault("StorageDbEnabled", false),
+            StorageDbContainerName = ReadEnvironmentVariableOrDefault("StorageDbContainerName", "Requests"),
+            TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
+            Timeout = ReadEnvironmentVariableOrDefault("Timeout", 1200000), // 20 minutes
+            TimeoutHeader = ReadEnvironmentVariableOrDefault("TimeoutHeader", "S7PTimeout"),
+            TTLHeader = ReadEnvironmentVariableOrDefault("TTLHeader", "S7PTTL"),
+            UniqueUserHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("UniqueUserHeaders", "X-UserID")),
+            UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", false),
+            UseOAuthGov = ReadEnvironmentVariableOrDefault("UseOAuthGov", false),
+            UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", false),
+            UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", "file:config.json"),
+            UserIDFieldName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "UserIDFieldName", "userId"), // migrate from LookupHeaderName
+            UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
+            UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", "X-UserProfile"),
+            ValidateAuthAppFieldName = ReadEnvironmentVariableOrDefault("ValidateAuthAppFieldName", "authAppID"),
+            ValidateAuthAppID = ReadEnvironmentVariableOrDefault("ValidateAuthAppID", false),
+            ValidateAuthAppIDHeader = ReadEnvironmentVariableOrDefault("ValidateAuthAppIDHeader", "X-MS-CLIENT-PRINCIPAL-ID"),
+            ValidateAuthAppIDUrl = ReadEnvironmentVariableOrDefault("ValidateAuthAppIDUrl", "file:auth.json"),
+            ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault("ValidateHeaders", ""))),
+            Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
+        };
+
+        // RegisterBackends will be called after DI container is built to avoid service provider dependency issues
+
+        // confirm the number of priority keys and values match
+        if (backendOptions.PriorityKeys.Count != backendOptions.PriorityValues.Count)
         {
-          Console.WriteLine($"Adding {value} to RequiredHeaders");
-          backendOptions.RequiredHeaders.Add(value);
+            Console.WriteLine("The number of PriorityKeys and PriorityValues do not match in length, defaulting all values to 5");
+            backendOptions.PriorityValues = Enumerable.Repeat(5, backendOptions.PriorityKeys.Count).ToList();
         }
-        if (!backendOptions.DisallowedHeaders.Contains(value))
+
+        // confirm that the PriorityWorkers Key's have a corresponding priority keys
+        int workerAllocation = 0;
+        foreach (var key in backendOptions.PriorityWorkers.Keys)
         {
-          Console.WriteLine($"Adding {value} to DisallowedHeaders");
-          backendOptions.DisallowedHeaders.Add(value);
+            if (!(backendOptions.PriorityValues.Contains(key) || key == backendOptions.DefaultPriority))
+            {
+                Console.WriteLine($"WARNING: PriorityWorkers Key {key} does not have a corresponding PriorityKey");
+            }
+            workerAllocation += backendOptions.PriorityWorkers[key];
         }
-      }
+
+        if (workerAllocation > backendOptions.Workers)
+        {
+            Console.WriteLine($"WARNING: Worker allocation exceeds total number of workers:{workerAllocation} > {backendOptions.Workers}");
+            Console.WriteLine($"Adjusting total number of workers to {workerAllocation}. Fix PriorityWorkers if it isn't what you want.");
+            backendOptions.Workers = workerAllocation;
+        }
+
+        // if (backendOptions.UniqueUserHeaders.Count > 0)
+        // {
+        //   // Make sure that uniqueUserHeaders are also in the required headers
+        //   foreach (var header in backendOptions.UniqueUserHeaders)
+        //   {
+        //     if (!backendOptions.RequiredHeaders.Contains(header))
+        //     {
+        //       Console.WriteLine($"Adding {header} to RequiredHeaders");
+        //       backendOptions.RequiredHeaders.Add(header);
+        //     }
+        //   }
+        // }
+
+        // If validate headers are set, make sure they are also in the required headers and disallowed headers
+        if (backendOptions.ValidateHeaders.Count > 0)
+        {
+            foreach (var (key, value) in backendOptions.ValidateHeaders)
+            {
+                Console.WriteLine($"Validating {key} against {value}");
+                if (!backendOptions.RequiredHeaders.Contains(key))
+                {
+                    Console.WriteLine($"Adding {key} to RequiredHeaders");
+                    backendOptions.RequiredHeaders.Add(key);
+                }
+                if (!backendOptions.RequiredHeaders.Contains(value))
+                {
+                    Console.WriteLine($"Adding {value} to RequiredHeaders");
+                    backendOptions.RequiredHeaders.Add(value);
+                }
+                if (!backendOptions.DisallowedHeaders.Contains(value))
+                {
+                    Console.WriteLine($"Adding {value} to DisallowedHeaders");
+                    backendOptions.DisallowedHeaders.Add(value);
+                }
+            }
+        }
+
+        // Validate LoadBalanceMode case insensitively
+        backendOptions.LoadBalanceMode = backendOptions.LoadBalanceMode.Trim().ToLower();
+        if (backendOptions.LoadBalanceMode != Constants.Latency &&
+            backendOptions.LoadBalanceMode != Constants.RoundRobin &&
+            backendOptions.LoadBalanceMode != Constants.Random)
+        {
+            Console.WriteLine($"Invalid LoadBalanceMode: {backendOptions.LoadBalanceMode}. Defaulting to '{Constants.Latency}'.");
+            backendOptions.LoadBalanceMode = Constants.Latency;
+        }
+
+        OutputEnvVars();
+
+        return backendOptions;
     }
 
-    // Validate LoadBalanceMode case insensitively
-    backendOptions.LoadBalanceMode = backendOptions.LoadBalanceMode.Trim().ToLower();
-    if (backendOptions.LoadBalanceMode != Constants.Latency &&
-        backendOptions.LoadBalanceMode != Constants.RoundRobin &&
-        backendOptions.LoadBalanceMode != Constants.Random)
+    public static void RegisterBackends(BackendOptions backendOptions)
     {
-      Console.WriteLine($"Invalid LoadBalanceMode: {backendOptions.LoadBalanceMode}. Defaulting to '{Constants.Latency}'.");
-      backendOptions.LoadBalanceMode = Constants.Latency;
+        //backendOptions.Client.Timeout = TimeSpan.FromMilliseconds(backendOptions.Timeout);
+        int i = 1;
+        StringBuilder sb = new();
+        while (true)
+        {
+
+            var hostname = Environment.GetEnvironmentVariable($"Host{i}")?.Trim();
+            if (string.IsNullOrEmpty(hostname)) break;
+
+            var probePath = Environment.GetEnvironmentVariable($"Probe_path{i}")?.Trim();
+            var ip = Environment.GetEnvironmentVariable($"IP{i}")?.Trim();
+
+            try
+            {
+                _logger?.LogInformation($"Found host {hostname} with probe path {probePath} and IP {ip}");
+
+                // Resolve HostConfig from DI using the factory
+                HostConfig bh = new HostConfig(hostname, probePath, backendOptions.OAuthAudience);
+                backendOptions.Hosts.Add(bh);
+
+                sb.AppendLine($"{ip} {bh.Host}");
+            }
+
+            catch (UriFormatException e)
+            {
+                _logger?.LogError($"Could not add Host{i} with {hostname} : {e.Message}");
+            }
+
+            i++;
+        }
+
+        if (Environment.GetEnvironmentVariable("APPENDHOSTSFILE")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true ||
+            Environment.GetEnvironmentVariable("AppendHostsFile")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            _logger?.LogInformation($"Appending {sb} to /etc/hosts");
+            using StreamWriter sw = File.AppendText("/etc/hosts");
+            sw.WriteLine(sb.ToString());
+        }
     }
 
-    OutputEnvVars();
-
-    return backendOptions;
-  }
-
-  private static void OutputEnvVars()
+    private static void OutputEnvVars()
   {
     const int keyWidth = 27;
     const int valWidth = 30;
