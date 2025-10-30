@@ -8,9 +8,10 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Options;
 
+using SimpleL7Proxy.Backend;
+
 using Azure.Messaging.ServiceBus;
 
-using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Proxy;
@@ -88,7 +89,12 @@ public class Program
         // Initialize ProxyEvent with BackendOptions
 
         ProxyEvent.Initialize(options, eventHubClient, telemetryClient);
-        HostConfig.Initialize(backendTokenProvider, startupLogger);
+
+        // Initialize HostConfig with all required dependencies including service provider for circuit breaker DI
+        HostConfig.Initialize(backendTokenProvider, startupLogger, serviceProvider);
+
+        // Register backends after DI container is built and HostConfig is initialized
+        BackendHostConfigurationExtensions.RegisterBackends(options.Value);
     
         try
         {
@@ -217,6 +223,7 @@ public class Program
 
         services.AddSingleton<IRequeueWorker, RequeueDelayWorker>();
 
+        services.AddTransient<ICircuitBreaker, CircuitBreaker>();
         services.AddSingleton<IBackendService, Backends>();
         services.AddSingleton<Server>();
         services.AddSingleton<ConcurrentSignal<RequestData>>();

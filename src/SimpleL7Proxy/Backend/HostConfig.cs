@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.ApplicationInsights;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.DependencyInjection;
 
 using SimpleL7Proxy.Config;
 
@@ -20,6 +21,8 @@ namespace SimpleL7Proxy.Backend
   {
     public static BackendTokenProvider? _tokenProvider;
     private static ILogger? _logger = Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+    private static IServiceProvider? _serviceProvider;
+    private readonly ICircuitBreaker _circuitBreaker;
     public Guid Guid { get; } = Guid.NewGuid();
     public string Host { get; private set; }
     public string ProbePath { get; private set; }
@@ -31,7 +34,7 @@ namespace SimpleL7Proxy.Backend
     public bool UseOAuth { get; private set; }
     public string Audience { get; private set; } = "";
     public bool UsesRetryAfter { get; private set; } = true;
-    
+
     // Cached path matching properties for performance
     private readonly bool _isCatchAllPath;
     private readonly string? _normalizedPartialPath;
@@ -50,20 +53,28 @@ namespace SimpleL7Proxy.Backend
       public bool UsesRetryAfter;
     }
 
-
     public string Url => new UriBuilder(Protocol, IpAddr ?? Host, Port).Uri.AbsoluteUri;
-    /// <summary>
-    /// Full URL for backend host.
-    /// </summary>
     public string ProbeUrl => WebUtility.UrlDecode(new UriBuilder(Protocol, IpAddr ?? Host, Port, ProbePath).Uri.AbsoluteUri);
-    /// <summary>
-    /// Decoded probe URL for health checks.
-    /// </summary>
 
-    public static void Initialize(BackendTokenProvider tokenProvider, ILogger logger)
+    /// <summary>
+    /// Tracks status for circuit breaker
+    /// </summary>
+    public void TrackStatus(int code, bool wasException) => _circuitBreaker.TrackStatus(code, wasException);
+
+    /// <summary>
+    /// Checks if this host's circuit breaker is in failed state
+    /// </summary>
+    public bool CheckFailedStatus() => _circuitBreaker.CheckFailedStatus();
+
+
+    /// <summary>
+    /// Initializes the HostConfig with required dependencies
+    /// </summary>
+    public static void Initialize(BackendTokenProvider tokenProvider, ILogger logger, IServiceProvider serviceProvider)
     {
       _tokenProvider = tokenProvider;
       _logger = logger;
+      _serviceProvider = serviceProvider;
     }
 
     // Can pass in hostname  and probepath
@@ -74,6 +85,13 @@ namespace SimpleL7Proxy.Backend
     /// </summary>
     public HostConfig(string hostname, string? probepath = "", string? audience = "")
     {
+      // Get CircuitBreaker instance from DI container
+      if (_serviceProvider == null)
+        throw new InvalidOperationException("HostConfig service provider not initialized. Call SetServiceProvider first.");
+      
+      _circuitBreaker = (ICircuitBreaker)_serviceProvider.GetService(typeof(ICircuitBreaker))
+        ?? throw new InvalidOperationException("ICircuitBreaker service not registered in DI container.");
+      
       _logger?.LogInformation("[CONFIG] Configuring backend host: {hostname}", hostname);
       var parsed = TryParseConfig(hostname, probepath, audience);
 
@@ -83,6 +101,8 @@ namespace SimpleL7Proxy.Backend
       {
         hostForUri = "https://" + hostForUri;
       }
+
+      _circuitBreaker.ID = hostForUri;
 
       // if host ends with a slash, remove it
       hostForUri = hostForUri.TrimEnd('/');
@@ -103,7 +123,7 @@ namespace SimpleL7Proxy.Backend
       // Pre-compute path matching properties for performance
       var trimmedPath = PartialPath?.Trim();
       _isCatchAllPath = string.IsNullOrEmpty(trimmedPath) || trimmedPath == "/" || trimmedPath == "/*";
-      
+
       if (!_isCatchAllPath)
       {
         _normalizedPartialPath = trimmedPath!.TrimStart('/');
@@ -120,6 +140,7 @@ namespace SimpleL7Proxy.Backend
         _logger?.LogInformation("[CONFIG] ✓ APIM  host configured: {Host} | Probe: /{ProbePath}", Host, ProbePath);
       }
     }
+
 
     private static ParsedConfig TryParseConfig(string input, string? probepath, string? audience = "")
     /// <summary>
@@ -195,10 +216,10 @@ namespace SimpleL7Proxy.Backend
 
     public void RegisterWithTokenProvider()
     {
-        if (UseOAuth && !string.IsNullOrEmpty(Audience))
-        {
-            _tokenProvider!.AddAudience(Audience);
-        }
+      if (UseOAuth && !string.IsNullOrEmpty(Audience))
+      {
+        _tokenProvider!.AddAudience(Audience);
+      }
     }
 
     /// <summary>
@@ -231,37 +252,37 @@ namespace SimpleL7Proxy.Backend
     /// <returns>True if this host supports the request path, false otherwise</returns>
     public bool SupportsPath(string requestPath)
     {
-        // Skip catch-all paths - these are handled separately in FilterHostsByPath
-        if (_isCatchAllPath)
-        {
-            return false;
-        }
-
-        // Normalize request path for comparison
-        var normalizedRequestPath = requestPath.TrimStart('/');
-
-        // If host path ends with /*, treat it as a prefix match
-        if (_isWildcardPath)
-        {
-            return string.IsNullOrEmpty(_wildcardPrefix) || normalizedRequestPath.StartsWith(_wildcardPrefix, StringComparison.OrdinalIgnoreCase);
-        }
-
-        // Exact path match
-        if (normalizedRequestPath.Equals(_normalizedPartialPath, StringComparison.OrdinalIgnoreCase))
-        {
-          
-            return true;
-        }
-
-        // Prefix match: "/api" should match "/api/c1/foo" 
-        // Check if request path starts with host path followed by '/' or is exactly the host path
-        if (!string.IsNullOrEmpty(_normalizedPartialPath))
-        {
-        var hostPathWithSlash = _normalizedPartialPath.TrimEnd('/') + "/";
-            return normalizedRequestPath.StartsWith(hostPathWithSlash, StringComparison.OrdinalIgnoreCase);
-        }
-
+      // Skip catch-all paths - these are handled separately in FilterHostsByPath
+      if (_isCatchAllPath)
+      {
         return false;
+      }
+
+      // Normalize request path for comparison
+      var normalizedRequestPath = requestPath.TrimStart('/');
+
+      // If host path ends with /*, treat it as a prefix match
+      if (_isWildcardPath)
+      {
+        return string.IsNullOrEmpty(_wildcardPrefix) || normalizedRequestPath.StartsWith(_wildcardPrefix, StringComparison.OrdinalIgnoreCase);
+      }
+
+      // Exact path match
+      if (normalizedRequestPath.Equals(_normalizedPartialPath, StringComparison.OrdinalIgnoreCase))
+      {
+
+        return true;
+      }
+
+      // Prefix match: "/api" should match "/api/c1/foo" 
+      // Check if request path starts with host path followed by '/' or is exactly the host path
+      if (!string.IsNullOrEmpty(_normalizedPartialPath))
+      {
+        var hostPathWithSlash = _normalizedPartialPath.TrimEnd('/') + "/";
+        return normalizedRequestPath.StartsWith(hostPathWithSlash, StringComparison.OrdinalIgnoreCase);
+      }
+
+      return false;
     }
 
   }
