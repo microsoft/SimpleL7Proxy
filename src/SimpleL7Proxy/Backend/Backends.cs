@@ -12,6 +12,7 @@ using System.Collections.Concurrent;
 
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
+using SimpleL7Proxy.Backend.Iterators;
 
 namespace SimpleL7Proxy.Backend;
 
@@ -495,7 +496,7 @@ public class Backends : IBackendService
 
 
 
-  public IBackendHostIterator GetHostIterator(
+  public IHostIterator GetHostIterator(
       string loadBalanceMode,
       IterationModeEnum mode = IterationModeEnum.SinglePass,
       int maxRetries = 1,
@@ -504,18 +505,18 @@ public class Backends : IBackendService
     // Use the appropriate factory method based on iteration mode
     if (mode == IterationModeEnum.SinglePass)
     {
-      return BackendHostIteratorFactory.CreateSinglePassIterator(this, loadBalanceMode, fullURL);
+      return IteratorFactory.CreateSinglePassIterator(this, loadBalanceMode, fullURL);
     }
     else
     {
-      return BackendHostIteratorFactory.CreateMultiPassIterator(this, loadBalanceMode, maxRetries, fullURL);
+      return IteratorFactory.CreateMultiPassIterator(this, loadBalanceMode, maxRetries, fullURL);
     }
   }
 
   // Add method to invalidate iterator cache when hosts change
   private void InvalidateIteratorCache()
   {
-    BackendHostIteratorFactory.InvalidateCache();
+    IteratorFactory.InvalidateCache();
   }
 
 }

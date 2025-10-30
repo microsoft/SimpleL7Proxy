@@ -10,6 +10,7 @@ using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.DataContracts;
 using Microsoft.Extensions.Logging;
 using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.Backend.Iterators;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Queue;
@@ -689,18 +690,18 @@ public class ProxyWorker
         // Get an iterator for the active hosts based on the load balancing mode and iteration strategy
         using var hostIterator = _options.IterationMode switch
         {
-            IterationModeEnum.SinglePass => BackendHostIteratorFactory.CreateSinglePassIterator(
+            IterationModeEnum.SinglePass => IteratorFactory.CreateSinglePassIterator(
                 _backends,
                 _options.LoadBalanceMode,
                 request.Path),
 
-            IterationModeEnum.MultiPass => BackendHostIteratorFactory.CreateMultiPassIterator(
+            IterationModeEnum.MultiPass => IteratorFactory.CreateMultiPassIterator(
                 _backends,
                 _options.LoadBalanceMode,
                 _options.MaxAttempts,
                 request.Path),
 
-            _ => BackendHostIteratorFactory.CreateSinglePassIterator(
+            _ => IteratorFactory.CreateSinglePassIterator(
                 _backends,
                 _options.LoadBalanceMode,
                 request.Path)
