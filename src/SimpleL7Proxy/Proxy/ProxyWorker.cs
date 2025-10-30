@@ -490,7 +490,6 @@ public class ProxyWorker
 
                             try
                             {
-                                // _telemetryClient?.TrackException(ex, eventData);
                                 lcontext.Response.StatusCode = 500;
                                 var errorBytes = Encoding.UTF8.GetBytes(errorMessage);
                                 await lcontext.Response.OutputStream.WriteAsync(errorBytes).ConfigureAwait(false);
@@ -534,10 +533,6 @@ public class ProxyWorker
                                 eventData["WorkerState"] = workerState;
 
                             incomingRequest.Cleanup();
-
-                            // Track the status of the request for circuit breaker
-                            if (lcontext != null)
-                                _backends.TrackStatus((int)lcontext.Response.StatusCode, requestException);
 
                             try
                             {
@@ -682,6 +677,7 @@ public class ProxyWorker
         request.Debug = _debug || (request.Headers["S7PDEBUG"] != null && string.Equals(request.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase));
         HttpStatusCode lastStatusCode = HttpStatusCode.ServiceUnavailable;
         var requestSummary = request.EventData;
+        int intCode = 0;
 
         // Read the body stream once and reuse it
         //byte[] bodyBytes = await request.CachBodyAsync().ConfigureAwait(false);
@@ -707,32 +703,29 @@ public class ProxyWorker
                 request.Path)
         };
 
-        // count the number of hosts
-        int hostCount = 0;
-        while (hostIterator.MoveNext())
-        {
-            hostCount++;
+        if ( request.Debug) {
+            // count the number of hosts
+            int hostCount = 0;
+            while (hostIterator.MoveNext())
+            {
+                hostCount++;
+                _logger.LogDebug($"Host {hostCount}: {hostIterator.Current.Config.PartialPath} ({hostIterator.Current.Config.Guid})");
+            }
+            // Reset the iterator to the beginning
+            hostIterator.Reset();
+            _logger.LogDebug($"Matched Hosts: {hostCount} for URL: {request.Path}");
         }
-        // Reset the iterator to the beginning
-        hostIterator.Reset();
 
-        _logger.LogInformation($"Matched Hosts: {hostCount} for URL: {request.Path}");
         while (hostIterator.MoveNext())
         {
             var host = hostIterator.Current;
             DateTime ProxyStartDate = DateTime.UtcNow;
-            if (host.Config.UseOAuth)
+
+            if (host.Config.CheckFailedStatus())
             {
-                // Get a token
-                var OAToken = await host.Config.OAuth2Token().ConfigureAwait(false);
-                if (request.Debug)
-                {
-                    _logger.LogDebug("Token: " + OAToken);
-                }
-                // Set the token in the headers
-                request.Headers.Set("Authorization", $"Bearer {OAToken}");
+                continue;
             }
-        
+                    
             // track the number of attempts
             request.BackendAttempts++;
             bool successfulRequest = false;
@@ -749,14 +742,27 @@ public class ProxyWorker
                 ["Host-URL"] = host.Url,
                 ["Attempt"] = request.BackendAttempts.ToString()
             };
-            if (request.Context?.Request.Url != null)
-                requestAttempt.Uri = request.Context!.Request.Url!;
-            else
-                requestAttempt.Uri = new Uri(request.FullURL);
-
+    
             // Try the request on each active host, stop if it worked
             try
             {
+                if (request.Context?.Request.Url != null)
+                    requestAttempt.Uri = request.Context!.Request.Url!;
+                else
+                    requestAttempt.Uri = new Uri(request.FullURL);
+
+                if (host.Config.UseOAuth)
+                {
+                    // Get a token
+                    var OAToken = await host.Config.OAuth2Token().ConfigureAwait(false);
+                    if (request.Debug)
+                    {
+                        _logger.LogDebug("Token: " + OAToken);
+                    }
+                    // Set the token in the headers
+                    request.Headers.Set("Authorization", $"Bearer {OAToken}");
+                }
+
                 requestState = "Calc ExpiresAt";
 
                 // Check ExpiresAt against current time .. keep in mind, client may have disconnected already
@@ -893,7 +899,7 @@ public class ProxyWorker
                         }
 
                         // Check if the status code of the response is in the set of allowed status codes, else try the next host
-                        var intCode = (int)proxyResponse.StatusCode;
+                        intCode = (int)proxyResponse.StatusCode;
                         if ((intCode > 300 && intCode < 400) || intCode == 404 || intCode == 412 || intCode >= 500)
                         {
                             requestState = "Call unsuccessful";
@@ -1135,12 +1141,15 @@ public class ProxyWorker
                 requestAttempt["Error"] = "Internal Error: " + e.Message;
             }
             finally
-            {
+            {                    
                 // Add the request attempt to the summary
                 requestAttempt.Duration = DateTime.UtcNow - ProxyStartDate;
                 requestAttempt.SendEvent();  // Log the dependent request attempt
 
                 hostIterator.RecordResult(host, successfulRequest);
+                
+                // Track host status for circuit breaker
+                host.Config.TrackStatus(intCode, successfulRequest);
 
                 if (!successfulRequest)
                 {
@@ -1152,6 +1161,7 @@ public class ProxyWorker
                     var str = JsonSerializer.Serialize(miniDict);
                     _logger.LogDebug(str);
                 }
+
             }
 
             // continue to next host
