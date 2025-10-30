@@ -2,13 +2,13 @@ using System;
 using System.Collections.Concurrent;
 using System.Threading;
 
-namespace SimpleL7Proxy.Backend;
+namespace SimpleL7Proxy.Backend.Iterators;
 
 /// <summary>
 /// Static factory for creating thread-safe backend host iterators.
 /// Provides consistent load balancing behavior across multiple concurrent proxy workers.
 /// </summary>
-public static class BackendHostIteratorFactory
+public static class IteratorFactory
 {
     private static readonly object _lock = new object();
     private static volatile int _roundRobinCounter = 0;
@@ -28,7 +28,7 @@ public static class BackendHostIteratorFactory
     /// <param name="loadBalanceMode">Load balancing strategy: "roundrobin", "latency", or "random"</param>
     /// <param name="fullURL">The full URL for the request (without host part) to filter hosts by path</param>
     /// <returns>An iterator configured for single-pass iteration</returns>
-    public static IBackendHostIterator CreateSinglePassIterator(
+    public static IHostIterator CreateSinglePassIterator(
         IBackendService backendService,
         string loadBalanceMode,
         string fullURL)
@@ -46,7 +46,7 @@ public static class BackendHostIteratorFactory
     /// <param name="maxAttempts">Maximum total number of host attempts across all passes (e.g., 30)</param>
     /// <param name="fullURL">The full URL for the request (without host part) to filter hosts by path</param>
     /// <returns>An iterator configured for multi-pass iteration with retry limit</returns>
-    public static IBackendHostIterator CreateMultiPassIterator(
+    public static IHostIterator CreateMultiPassIterator(
         IBackendService backendService,
         string loadBalanceMode,
         int maxAttempts,
@@ -60,7 +60,7 @@ public static class BackendHostIteratorFactory
     /// This method is optimized for high concurrency with hundreds of proxy workers.
     /// Filters hosts based on the request path extracted from the full URL.
     /// </summary>
-    private static IBackendHostIterator CreateIteratorInternal(
+    private static IHostIterator CreateIteratorInternal(
         IBackendService backendService,
         string loadBalanceMode, 
         IterationModeEnum mode, 

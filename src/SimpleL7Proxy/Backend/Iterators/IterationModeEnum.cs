@@ -1,4 +1,4 @@
-namespace SimpleL7Proxy.Backend;
+namespace SimpleL7Proxy.Backend.Iterators;
 
 public enum IterationModeEnum
 {

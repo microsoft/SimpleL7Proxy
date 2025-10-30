@@ -2,13 +2,13 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 
-namespace SimpleL7Proxy.Backend;
+namespace SimpleL7Proxy.Backend.Iterators;
 
 /// <summary>
 /// Abstract base class for backend host iterators providing common functionality
 /// for iteration mode handling, pass tracking, and basic state management.
 /// </summary>
-public abstract class BaseHostIterator : IBackendHostIterator
+public abstract class HostIterator : IHostIterator
 {
     protected readonly List<BaseHostHealth> _hosts;
     protected readonly IterationModeEnum _mode;
@@ -18,7 +18,7 @@ public abstract class BaseHostIterator : IBackendHostIterator
     protected int _totalAttempts; // Track total attempts across all passes
     protected bool _hasCompletedAllPasses;
 
-    protected BaseHostIterator(List<BaseHostHealth> hosts, IterationModeEnum mode, int maxAttempts)
+    protected HostIterator(List<BaseHostHealth> hosts, IterationModeEnum mode, int maxAttempts)
     {
         _hosts = hosts ?? throw new ArgumentNullException(nameof(hosts));
         _mode = mode;

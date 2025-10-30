@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace SimpleL7Proxy.Backend;
+namespace SimpleL7Proxy.Backend.Iterators;
 
-public class LatencyBasedHostIterator : BaseHostIterator
+public class LatencyBasedHostIterator : HostIterator
 {
     private int _currentHostIndex;
 

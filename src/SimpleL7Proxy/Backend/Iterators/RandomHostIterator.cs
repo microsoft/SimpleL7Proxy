@@ -2,13 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace SimpleL7Proxy.Backend;
+namespace SimpleL7Proxy.Backend.Iterators;
 
 /// <summary>
 /// Iterator that selects backend hosts in randomized order.
 /// Pre-generates a shuffled order for each pass to ensure all hosts are visited.
 /// </summary>
-public class RandomHostIterator : BaseHostIterator
+public class RandomHostIterator : HostIterator
 {
     private List<int> _hostIndices;
     private int _currentIndex;
@@ -58,7 +58,7 @@ public class RandomHostIterator : BaseHostIterator
     /// </summary>
     private static void ShuffleList<T>(List<T> list)
     {
-        var random = BackendHostIteratorFactory.GetRandomIndex(int.MaxValue);
+        var random = IteratorFactory.GetRandomIndex(int.MaxValue);
         var rng = new Random(random);
         
         for (int i = list.Count - 1; i > 0; i--)

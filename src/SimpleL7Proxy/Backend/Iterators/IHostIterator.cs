@@ -1,6 +1,6 @@
-namespace SimpleL7Proxy.Backend;
+namespace SimpleL7Proxy.Backend.Iterators;
 
-public interface IBackendHostIterator : IEnumerator<BaseHostHealth>
+public interface IHostIterator : IEnumerator<BaseHostHealth>
 {
     void RecordResult(BaseHostHealth host, bool success);
     bool HasMoreHosts { get; }

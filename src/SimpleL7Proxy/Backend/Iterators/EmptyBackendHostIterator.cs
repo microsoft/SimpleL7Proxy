@@ -1,13 +1,13 @@
 using System;
 using System.Collections.Generic;
 
-namespace SimpleL7Proxy.Backend;
+namespace SimpleL7Proxy.Backend.Iterators;
 
 /// <summary>
 /// Iterator used when there are no active backend hosts available.
 /// Always returns false on MoveNext() to indicate no hosts to iterate.
 /// </summary>
-public class EmptyBackendHostIterator : IBackendHostIterator
+public class EmptyBackendHostIterator : IHostIterator
 {
     /// <summary>
     /// Gets the current host. Always throws since there are no hosts.

@@ -3,13 +3,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 
-namespace SimpleL7Proxy.Backend;
+namespace SimpleL7Proxy.Backend.Iterators;
 
 /// <summary>
 /// Iterator that distributes requests across backend hosts in round-robin fashion.
 /// Uses a global counter to ensure fair distribution across multiple concurrent iterators.
 /// </summary>
-public class RoundRobinHostIterator : BaseHostIterator
+public class RoundRobinHostIterator : HostIterator
 {
     private static long _globalCounter = 0;
     private int _currentIndex;
