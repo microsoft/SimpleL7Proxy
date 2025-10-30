@@ -32,10 +32,12 @@ public class Backends : IBackendService
   private static DateTime _lastStatusDisplay = DateTime.Now - TimeSpan.FromMinutes(10);  // Force display on first run
   private static DateTime _lastGCTime = DateTime.Now;
   private static bool _isRunning = false;
+  private static ICircuitBreaker _circuitBreaker;
 
   private CancellationTokenSource _cancellationTokenSource;
   private CancellationToken _cancellationToken;
 
+  public bool CheckFailedStatus() => _circuitBreaker.CheckFailedStatus();
 
   private readonly IEventClient _eventClient;
   CancellationTokenSource workerCancelTokenSource = new CancellationTokenSource();
@@ -46,6 +48,7 @@ public class Backends : IBackendService
   //public Backends(List<BackendHost> hosts, HttpClient client, int interval, int successRate)
   public Backends(
       IOptions<BackendOptions> options,
+      ICircuitBreaker circuitBreaker,
       IHostHealthCollection backendHostCollection, //
       IHostApplicationLifetime appLifetime,               //
       IEventClient? eventClient,
@@ -65,6 +68,7 @@ public class Backends : IBackendService
     //    appLifetime.ApplicationStopping.Register(OnApplicationStopping);
 
     _eventClient = eventClient;
+    _circuitBreaker = circuitBreaker;
     _backendHosts = backendHostCollection.Hosts;
     _options = options.Value;
     _logger = logger;
@@ -79,9 +83,9 @@ public class Backends : IBackendService
     _activeHosts = [];
     _successRate = bo.SuccessRate / 100.0;
     //_hosts = bo.Hosts;
-    FailureThreshold = bo.CircuitBreakerErrorThreshold;
-    FailureTimeFrame = bo.CircuitBreakerTimeslice;
-    allowableCodes = bo.AcceptableStatusCodes;
+    // FailureThreshold = bo.CircuitBreakerErrorThreshold;
+    // FailureTimeFrame = bo.CircuitBreakerTimeslice;
+    // allowableCodes = bo.AcceptableStatusCodes;
 
     _logger.LogDebug("Backends service starting");
 
@@ -107,62 +111,14 @@ public class Backends : IBackendService
   }
 
 
-  private readonly List<DateTime> hostFailureTimes = [];
-  ConcurrentQueue<DateTime> hostFailureTimes2 = new ConcurrentQueue<DateTime>();
-  private readonly int FailureThreshold = 5;
-  private readonly int FailureTimeFrame = 10; // seconds
-  static int[] allowableCodes = { 200, 401, 403, 408, 410, 412, 417, 400 };
+  #region Circuit Breaker
+  // moved from Backends.cs to CircuitBreaker.cs
+
+  #endregion
 
   public List<BaseHostHealth> GetActiveHosts() => _activeHosts;
   public int ActiveHostCount() => _activeHosts.Count;
-
-  public void TrackStatus(int code, bool wasException)
-  {
-    if (allowableCodes.Contains(code) && !wasException)
-    {
-      return;
-    }
-
-    DateTime now = DateTime.UtcNow;
-
-    // truncate older entries
-    while (hostFailureTimes2.TryPeek(out var t) && (now - t).TotalSeconds >= FailureTimeFrame)
-    {
-      hostFailureTimes2.TryDequeue(out var _);
-    }
-
-    hostFailureTimes2.Enqueue(now);
-    ProxyEvent logerror = new ProxyEvent()
-    {
-      ["Code"] = code.ToString(),
-      ["Time"] = now.ToString(),
-      ["WasException"] = wasException.ToString(),
-      ["Count"] = hostFailureTimes2.Count.ToString(),
-      Type = EventType.CircuitBreakerError
-    };
-
-    logerror.SendEvent();
-  }
-
   public List<BaseHostHealth> GetHosts() => _backendHosts;
-
-  // returns true if the service is in failure state
-  public bool CheckFailedStatus()
-  {
-    //    Console.WriteLine($"Checking failed status: {hostFailureTimes2.Count} >= {FailureThreshold}");
-    if (hostFailureTimes2.Count < FailureThreshold)
-    {
-      return false;
-    }
-
-    DateTime now = DateTime.UtcNow;
-    while (hostFailureTimes2.TryPeek(out var t) && (now - t).TotalSeconds >= FailureTimeFrame)
-    {
-      hostFailureTimes2.TryDequeue(out var _);
-    }
-    return hostFailureTimes2.Count >= FailureThreshold;
-
-  }
 
 
   public async Task WaitForStartup(int timeout)
