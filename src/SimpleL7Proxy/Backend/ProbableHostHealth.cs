@@ -9,7 +9,9 @@ namespace SimpleL7Proxy.Backend;
 public class ProbeableHostHealth : BaseHostHealth
 {
     private const int MaxData = 50;
-    private readonly Queue<bool> _callSuccess = new();
+    private readonly bool[] _callResults = new bool[MaxData];
+    private int _currentIndex = 0;
+    private int _count = 0;
 
     public string ProbePath => Config.ProbePath;
     public string ProbeUrl => Config.ProbeUrl;
@@ -24,21 +26,29 @@ public class ProbeableHostHealth : BaseHostHealth
 
     public override void AddCallSuccess(bool success)
     {
-        // If there are already 50 call results in the queue, remove the oldest one
-        if (_callSuccess.Count == MaxData)
-            _callSuccess.Dequeue();
-
-        // Add the new call result to the queue
-        _callSuccess.Enqueue(success);
+        // Add the new call result to the circular buffer
+        _callResults[_currentIndex] = success;
+        _currentIndex = (_currentIndex + 1) % MaxData;
+        
+        // Track count until we fill the buffer for the first time
+        if (_count < MaxData)
+            _count++;
     }
 
     public override double SuccessRate()
     {
         // If there are no call results, return 0.0
-        if (_callSuccess.Count == 0)
+        if (_count == 0)
             return 0.0;
 
-        // Otherwise, return the success rate
-        return (double)_callSuccess.Count(x => x) / _callSuccess.Count;
+        // Count successful calls in the active portion of the buffer
+        int successCount = 0;
+        for (int i = 0; i < _count; i++)
+        {
+            if (_callResults[i])
+                successCount++;
+        }
+
+        return (double)successCount / _count;
     }
 }
