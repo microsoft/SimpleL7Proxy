@@ -61,7 +61,7 @@ namespace SimpleL7Proxy.Backend
       // }
 
 
-      Console.WriteLine($"Adding backend host: {this.Host}  probe path: {this.ProbePath}");
+      Console.WriteLine($"[CONFIG] ✓ Backend host configured: {this.Host} | Probe: {this.ProbePath}");
     }
   }
 }

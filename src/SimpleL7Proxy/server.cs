@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
 using System.Threading;
 using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.Config;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Queue;
@@ -87,7 +88,7 @@ public class Server : BackgroundService
         _httpListener.Prefixes.Add(_listeningUrl);
 
         var timeoutTime = TimeSpan.FromMilliseconds(_options.Timeout).ToString(@"hh\:mm\:ss\.fff");
-        _logger.LogCritical($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
+        _logger.LogInformation($"[CONFIG] Server configuration - Port: {_options.Port} | Timeout: {timeoutTime} | Workers: {_options.Workers}");
     }
 
     public void BeginShutdown()
@@ -98,7 +99,7 @@ public class Server : BackgroundService
     public Task StopListening(CancellationToken cancellationToken)
     {
         _cancellationTokenSource?.Cancel();
-        _logger.LogCritical("Server stopping.");
+        _logger.LogInformation("[SHUTDOWN] ⏹ Server stopping");
         return Task.CompletedTask;
     }
 
@@ -118,7 +119,7 @@ public class Server : BackgroundService
             backendStartTask = _backends.WaitForStartup(20);
 
             _httpListener.Start();
-            _logger.LogCritical($"Listening on {_options?.Port}");
+            _logger.LogInformation($"[SERVICE] ✓ Server listening on port {_options?.Port}");
             // Additional setup or async start operations can be performed here
 
             _requestsQueue.StartSignaler(cancellationToken);
@@ -245,14 +246,13 @@ public class Server : BackgroundService
                             }
 
                             rd.UserID = "";
-                            var profileUserID = "";
                             // Lookup the user profile and add the headers to the request
                             if (doUserProfile)
                             {
                                 var requestUser = rd.Headers[_options.UserProfileHeader];
                                 if (!string.IsNullOrEmpty(requestUser))
                                 {
-                                    profileUserID = requestUser;
+                                    rd.profileUserId = requestUser;
                                     var headers = _userProfile.GetUserProfile(requestUser);
 
                                     if (headers != null && headers.Count > 0)
@@ -341,14 +341,13 @@ public class Server : BackgroundService
                                 Console.WriteLine($"UserID: {rd.UserID}");
 
                             // ASYNC: Determine if the request is allowed async operation
-                            if (doAsync && bool.TryParse(rd.Headers["AsyncEnabled"], out var asyncEnabled) && asyncEnabled)
+                            if (doAsync && bool.TryParse(rd.Headers[_options.AsyncClientRequestHeader], out var asyncEnabled) && asyncEnabled)
                             {
-                                var clientInfo = _userProfile.GetAsyncParams(profileUserID);
-                                rd.runAsync = clientInfo != null;
-
-                                if (rd.runAsync)
+                                var clientInfo = _userProfile.GetAsyncParams(rd.profileUserId);
+                                if (clientInfo != null)
                                 {
-                                    rd.AsyncBlobAccessTimeoutSecs = clientInfo!.AsyncBlobAccessTimeoutSecs;
+                                    rd.runAsync = true;
+                                    rd.AsyncBlobAccessTimeoutSecs = clientInfo.AsyncBlobAccessTimeoutSecs;
                                     rd.BlobContainerName = clientInfo.ContainerName;
                                     rd.SBTopicName = clientInfo.SBTopicName;
                                     ed["AsyncBlobContainer"] = clientInfo.ContainerName;
@@ -441,7 +440,7 @@ public class Server : BackgroundService
                             // ASYNC: If the request is allowed to run async, set the status
                             if (!notEnqued && doAsync)
                             {
-                                rd.SBStatus = ServiceBusMessageStatusEnum.InQueue;
+                                rd.SBStatus = ServiceBusMessageStatusEnum.Queued;
                             }
 
                         }
@@ -528,7 +527,7 @@ public class Server : BackgroundService
                         temp_ed["Message"] = "Enqueued request";
 
                         temp_ed.SendEvent();
-                        _logger.LogCritical($"Enque Pri: {priority}, User: {rd.UserID}, Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
+                        _logger.LogCritical($"Enque Pri: {priority}, User: {rd.UserID}, Async: {rd.runAsync}, Guid: {rd.Guid}  Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
                     }
                 }
                 else
@@ -544,7 +543,7 @@ public class Server : BackgroundService
             catch (OperationCanceledException)
             {
                 // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
-                _staticEvent.WriteOutput("HTTP server shutdown initiated.");
+                _staticEvent.WriteOutput("[SHUTDOWN] ⏹ HTTP server shutdown initiated");
                 break; // Exit the loop
             }
             catch (Exception e)
@@ -554,6 +553,6 @@ public class Server : BackgroundService
             }
         }
 
-        _staticEvent.WriteOutput("HTTP server stopped.");
+        _staticEvent.WriteOutput("[SHUTDOWN] ✓ HTTP server stopped");
     }
 }

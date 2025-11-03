@@ -2,6 +2,82 @@
 
 This document provides comprehensive instructions for running SimpleL7Proxy as a container, including local Docker deployment and Azure Container Apps deployment.
 
+## Azure Container Apps Deployment with AZD
+
+SimpleL7Proxy can be deployed to Azure Container Apps using the Azure Developer CLI (AZD), providing a streamlined deployment experience with predefined scenarios and environment templates.
+
+### Prerequisites
+
+- [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
+- [Azure Developer CLI](https://learn.microsoft.com/en-us/azure/developer/azure-developer-cli/install-azd)
+- [Docker](https://docs.docker.com/get-docker/)
+
+### Deployment Steps
+
+#### 1. Run the Setup Script
+
+**Windows**
+```powershell
+./.azure/setup.ps1
+```
+
+**Linux/macOS**
+```bash
+chmod +x ./.azure/setup.sh
+./.azure/setup.sh
+```
+
+#### 2. Configure Deployment
+
+The setup script guides you through the configuration process:
+
+1. **Select a Deployment Scenario**:
+   - **Local proxy with public APIM**: Run the proxy locally while connecting to a public APIM instance
+   - **ACA proxy with public APIM**: Deploy the proxy as an Azure Container App connecting to a public APIM instance
+   - **VNET proxy deployment**: Deploy the proxy within a Virtual Network for enhanced security
+
+2. **Choose an Environment Template** (optional):
+   - **Standard Production**: Balanced configuration for most production workloads
+   - **High Performance**: Optimized for maximum throughput and low latency
+   - **Cost Optimized**: Designed to minimize resource usage and cost
+   - **High Availability**: Maximized for resilience and uptime
+   - **Development**: Configured for development and testing with additional debug information
+
+3. Configure additional Azure resources as prompted.
+
+#### 3. Provision Infrastructure
+
+```bash
+azd provision
+```
+
+#### 4. Deploy the Application
+
+**Windows**
+```powershell
+./.azure/deploy.ps1
+```
+
+**Linux/macOS**
+```bash
+chmod +x ./.azure/deploy.sh
+./.azure/deploy.sh
+```
+
+During deployment, you can apply an environment template if you didn't do so during setup.
+
+### Environment Templates
+
+SimpleL7Proxy provides predefined environment variable templates in the `.azure/env-templates/` directory. Each template is optimized for specific operational needs:
+
+- **Standard Production**: Balanced performance and cost with multiple priority levels
+- **High Performance**: Maximum concurrency and optimized settings for throughput
+- **Cost Optimized**: Reduced worker counts and minimal resource usage
+- **High Availability**: Multiple backend hosts with aggressive failover settings
+- **Development**: Debug logging and extended timeouts for testing
+
+For more details on environment variables, see [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md).
+
 ## Running as a Docker Container
 
 ### Prerequisites

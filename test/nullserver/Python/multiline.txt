@@ -1,0 +1,21 @@
+{
+    "id": "msg_01F6c6BMWCHST4w6VA3o2ixc",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-3-7-sonnet-20250219",
+    "content": [
+        {
+            "type": "text",
+            "text": "Hello! How can I assist you today? I'm ready to help with whatever questions or topics you'd like to discuss."
+        }
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "usage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 28,
+        "service_tier": "standard"
+    }
+}

@@ -1,0 +1,61 @@
+{
+    "id": "msg_vrtx_016BDzRsA82v8U5eTyszxb1n",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-3-5-sonnet-v2-20241022",
+    "content": [
+        {
+            "type": "text",
+            "text": "Hi! I see you've sent a \"new message.\" How can I help you today?"
+        }
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "usage": {
+        "input_tokens": 12,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 22
+    }
+}
+
+Gemini Over Vertex AI - REST
+
+{
+    "candidates": [
+        {
+            "content": {
+                "role": "model",
+                "parts": [
+                    {
+                        "text": "Okay, here are a couple for you:\n\n**Joke 1:**\n\nWhy is the Earth so good at throwing parties?\nBecause it really knows how to **rock and roll**!\n\n**Joke 2:**\n\nYou know, Earth's rotation really **makes my day**.\n\nHope one of those made you orbit with laughter! ðŸ˜„"
+                    }
+                ]
+            },
+            "finishReason": "STOP",
+            "avgLogprobs": -4.753526714486136
+        }
+    ],
+    "usageMetadata": {
+        "promptTokenCount": 6,
+        "candidatesTokenCount": 71,
+        "totalTokenCount": 1745,
+        "trafficType": "ON_DEMAND",
+        "promptTokensDetails": [
+            {
+                "modality": "TEXT",
+                "tokenCount": 6
+            }
+        ],
+        "candidatesTokensDetails": [
+            {
+                "modality": "TEXT",
+                "tokenCount": 71
+            }
+        ],
+        "thoughtsTokenCount": 1668
+    },
+    "modelVersion": "gemini-2.5-pro-preview-03-25",
+    "createTime": "2025-04-15T13:24:28.587354Z",
+    "responseId": "DF7-Z9rsI4iQmecP14qbkAQ"
+}

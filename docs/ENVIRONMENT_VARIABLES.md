@@ -4,15 +4,17 @@ SimpleL7Proxy is designed to be highly configurable through environment variable
 
 ## Table of Contents
 
-- [Quick Start Configuration](#quick-start-configuration)
-- [Core Configuration Variables](#core-configuration-variables)
-- [Request Processing Variables](#request-processing-variables)
-- [Logging & Monitoring Variables](#logging--monitoring-variables)
-- [Async Processing Variables](#async-processing-variables)
-- [Connection Management Variables](#connection-management-variables)
-- [Backend Configuration Variables](#backend-configuration-variables)
-- [User Profile Configuration](#user-profile-configuration)
-- [Additional Configuration Notes](#additional-configuration-notes)
+- [Environment Variables](#environment-variables)
+  - [Table of Contents](#table-of-contents)
+  - [Quick Start Configuration](#quick-start-configuration)
+  - [Core Configuration Variables](#core-configuration-variables)
+  - [Request Processing Variables](#request-processing-variables)
+  - [Logging \& Monitoring Variables](#logging--monitoring-variables)
+  - [Async Processing Variables](#async-processing-variables)
+  - [Connection Management Variables](#connection-management-variables)
+  - [Backend Configuration Variables](#backend-configuration-variables)
+  - [User Profile Configuration](#user-profile-configuration)
+  - [Additional Configuration Notes](#additional-configuration-notes)
 
 ## Quick Start Configuration
 
@@ -91,10 +93,8 @@ For production deployments, consider also configuring:
 | **AsyncTimeout**              | int | Timeout in milliseconds for async operations. The maximum amount of time async request will run for.       | 1800000 (30 min)                        |
 | **AsyncClientBlobTimeoutFieldName** | string | User profile field name that contains number of seconds the blob will have access for. After this number of seconds, the blob will no longer be accessible (but not deleted).  | async-blobaccess-timeout | 
 | **AsyncBlobStorageConnectionString** | string | Connection string for Azure Blob Storage used in async mode.                                             | example-connection-string                |
-| **AsyncClientBlobFieldname** | string | User profile field name that contain the client's blob container name. Request responses will be created here.                                 | async-blobname                           |
-| **AsyncClientAllowedFieldName**  | string | User profile field name that designates if the client is allowed to use async mode. Set to "true" in the user profile to enable.                         | async-allowed                            |
+| **AsyncClientConfigFieldName**  | string | User profile field name that designates if the client configuration. It contains enabled, containername, topic, timeout.                         | async-config                            |
 | **AsyncSBConnectionString**   | string | Azure Service Bus connection string for async operations.                                                          | example-sb-connection-string             |
-| **AsyncSBTopicFieldName**        | string | User profile field name for Service Bus topic that is specific to the client. The user profile should contain the topic that the client has access to.                                                                   | async-topic                              |
 
 ## Connection Management Variables
 
@@ -143,24 +143,20 @@ This is a JSON formatted file that gets read every hour. It can be fetched from 
         "S7PPriorityKey": "12345",
         "Header1": "Value1",
         "Header2": "Value2",
-        "async-blobname": "data",
-        "async-topic": "status",
-        "async-allowed": true
+        "async-config": "enabled=true, containername=data, topic=status"
     },
     {
         "userId": "123455",
         "S7PPriorityKey": "12345",
         "Header1": "Value1",
         "Header2": "Value2",
-        "async-blobname": "data-12355",
-        "async-topic": "status-12355",
-        "async-allowed": true
+        "async-config": "enabled=true, containername=data-12355, topic=status-12355"
     },
     {
         "userId": "123457",
         "Header1": "Value1",
         "Header2": "Value2",
-        "AsyncEnabled": false
+        "async-config": false
     }
 ]
 ```

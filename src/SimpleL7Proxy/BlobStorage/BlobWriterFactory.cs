@@ -3,7 +3,8 @@ using Azure.Storage.Blobs;
 using Azure.Identity;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using SimpleL7Proxy.Backend;
+
+using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.BlobStorage
 {
@@ -26,6 +27,7 @@ namespace SimpleL7Proxy.BlobStorage
         {
             _optionsMonitor = optionsMonitor;
             _logger = logger;
+            _logger.LogDebug("Starting BlobWriter factory");
         }
 
         public IBlobWriter CreateBlobWriter()
@@ -43,7 +45,7 @@ namespace SimpleL7Proxy.BlobStorage
                 }
                 else
                 {
-                    _logger.LogInformation("Creating BlobWriter with managed identity for URI: {Uri}", uri);
+                    _logger.LogInformation("[INIT] ✓ BlobWriter created with managed identity - URI: {Uri}", uri);
                     return CreateBlobWriterWithManagedIdentity(uri);
                 }
             }
@@ -85,7 +87,7 @@ namespace SimpleL7Proxy.BlobStorage
                 var blobServiceClient = new BlobServiceClient(blobServiceUri, credential);
                 var blobWriter = new BlobWriter(blobServiceClient, _logger);
                 blobWriter.UsesMI = true; // Set on BlobWriter, not BlobServiceClient
-                _logger.LogInformation("BlobServiceClient created successfully with managed identity for URI: {Uri}", storageAccountUri);
+                _logger.LogInformation("[INIT] ✓ BlobServiceClient created successfully with managed identity - URI: {Uri}", storageAccountUri);
 
                 return blobWriter;
             }
@@ -113,36 +115,4 @@ namespace SimpleL7Proxy.BlobStorage
         }
     }
 
-    /// <summary>
-    /// Null object pattern implementation for when blob storage is disabled.
-    /// </summary>
-    public class NullBlobWriter : IBlobWriter
-    {
-        public bool IsInitialized => false;
-
-        public Task<Stream> CreateBlobAndGetOutputStreamAsync(string userId, string blobName)
-        {
-            throw new NotSupportedException("Blob storage is not enabled");
-        }
-
-        public Task<bool> DeleteBlobAsync(string userId, string blobName)
-        {
-            throw new NotSupportedException("Blob storage is not enabled");
-        }
-
-        public async Task<string> GenerateSasTokenAsync(string userId, string blobName, TimeSpan expiryTime)
-        {
-            await Task.CompletedTask;
-            throw new NotSupportedException("Blob storage is not enabled");
-        }
-
-        public async Task<bool> InitClientAsync(string userId, string containerName)
-        {
-
-            Console.Error.WriteLine($"NULL BlobWriterFactory: InitClientAsync called for userId: {userId}, containerName: {containerName}");
-            // Blob storage is not enabled, so return false.
-            await Task.CompletedTask;
-            return false;
-        }
-    }
 }

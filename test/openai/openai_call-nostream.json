@@ -1,0 +1,18 @@
+{
+  "temperature": 1,
+  "top_p": 1,
+  "stop": null,
+  "max_tokens": 4096,
+  "presence_penalty": 0,
+  "frequency_penalty": 0,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are an AI assistant that helps people find information."
+    },
+    {
+      "role": "user",
+      "content": "Create a 4000 word essay about why AI will change the world as we know it."
+    }
+  ]
+}

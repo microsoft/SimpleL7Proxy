@@ -48,7 +48,7 @@ public class BackendHostHealth
     //     ipaddr = ipaddress;
     // }
 
-    logger.LogInformation($"Adding backend host: {HostConfig.Host}  probe path: {HostConfig.ProbePath}");
+    logger.LogInformation($"[CONFIG] ✓ Backend host registered: {HostConfig.Host} | Probe: {HostConfig.ProbePath}");
   }
 
   public override string ToString()

@@ -11,6 +11,7 @@ using Microsoft.Extensions.Options;
 using Azure.Messaging.ServiceBus;
 
 using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Queue;
@@ -18,7 +19,9 @@ using SimpleL7Proxy.User;
 //using SimpleL7Proxy.EventGrid;
 using SimpleL7Proxy.ServiceBus;
 using SimpleL7Proxy.BlobStorage;
-using SimpleL7Proxy.Storage;
+using SimpleL7Proxy.DTO;
+using SimpleL7Proxy.BackupAPI;
+using SimpleL7Proxy.Feeder;
 
 
 using System.Net;
@@ -40,6 +43,7 @@ namespace SimpleL7Proxy;
 
 public class Program
 {
+    
     public static async Task Main(string[] args)
     {
         Banner.Display();
@@ -69,7 +73,6 @@ public class Program
             {
                 ConfigureApplicationInsights(services);
                 ConfigureDependencyInjection(services, startupLogger);
-
             });
 
 
@@ -85,17 +88,19 @@ public class Program
         // Initialize ProxyEvent with BackendOptions
 
         ProxyEvent.Initialize(options, eventHubClient, telemetryClient);
-
+    
         try
         {
-            ServiceBusRequestService? serviceBusService = null;
+            //ServiceBusRequestService? serviceBusService = null;
 
             if (options.Value.AsyncModeEnabled)
             {
 
-                startupLogger.LogWarning("Async mode is enabled. Initializing ServiceBusRequestService and AsyncWorker.");
+                startupLogger.LogInformation("[INIT] ✓ Async mode enabled - Initializing ServiceBus and AsyncWorker services");
                 var serviceBusRequestService = serviceProvider.GetRequiredService<IServiceBusRequestService>();
-                RequestData.InitializeServiceBusRequestService(serviceBusRequestService);
+                var backupAPIService = serviceProvider.GetRequiredService<IBackupAPIService>();
+                var userPriority = serviceProvider.GetRequiredService<IUserPriorityService>();
+                RequestData.InitializeServiceBusRequestService(serviceBusRequestService, backupAPIService, userPriority, options.Value);
 
                 //_ = serviceBusService.StartAsync(CancellationToken.None);
 
@@ -106,12 +111,12 @@ public class Program
             }
             else
             {
-                startupLogger.LogError("Async mode is disabled.");
+                startupLogger.LogInformation("[INIT] ⚠ Async mode disabled - Running in synchronous mode only");
             }
         }
         catch (Exception ex)
         {
-            startupLogger.LogError(ex, "Failed to initialize ServiceBusRequestService or AsyncWorker");
+            startupLogger.LogError(ex, "[ERROR] ✗ ServiceBus initialization failed");
         }
 
         try
@@ -120,12 +125,12 @@ public class Program
         }
         catch (OperationCanceledException)
         {
-            startupLogger.LogDebug("framework Host RunAsync Operation was canceled.");
+            startupLogger.LogDebug("[SHUTDOWN] Application shutdown requested");
         }
         catch (Exception e)
         {
             // Handle other exceptions that might occur
-            startupLogger.LogError($"An unexpected error occurred: {e.Message}");
+            startupLogger.LogError($"[ERROR] ✗ Unexpected startup error: {e.Message}");
         }
     }
 
@@ -135,7 +140,7 @@ public class Program
         var l =  Enum.TryParse<LogLevel>(logLevelString, true, out var logLevel) ? logLevel : LogLevel.Information;
 
         // This should always be visible as it's critical startup information
-        Console.WriteLine($"Log level set to: {l}");
+        Console.WriteLine($"[CONFIG] Log level: {l}");
 
         return l;
     }
@@ -160,7 +165,7 @@ public class Program
             });
 
             // Note: logging isn't fully configured yet
-            Console.WriteLine("AppInsights initialized with custom request tracking");
+            Console.WriteLine("[INIT] ✓ AppInsights initialized with custom request tracking");
         }
     }
 
@@ -208,22 +213,36 @@ public class Program
         services.AddSingleton<UserProfile>();
         services.AddSingleton<IUserProfileService>(provider => provider.GetRequiredService<UserProfile>());
 
+        services.AddSingleton<IRequeueWorker, RequeueDelayWorker>();
+
         services.AddSingleton<IBackendService, Backends>();
         services.AddSingleton<Server>();
         services.AddSingleton<ConcurrentSignal<RequestData>>();
         services.AddSingleton<IConcurrentPriQueue<RequestData>, ConcurrentPriQueue<RequestData>>();
-        services.AddSingleton<ProxyStreamWriter>();
+        //services.AddSingleton<ProxyStreamWriter>();
         services.AddSingleton<IBackendHostHealthCollection, BackendHostHealthCollection>();
+        // services.AddSingleton<IBackgroundWorker, BackgroundWorker>();
+
         services.AddHostedService<Server>(provider => provider.GetRequiredService<Server>());
 
         // ASYNC RELATED
         // Add storage service registration
-        services.AddSingleton<IRequestStorageService, StorageDbRequestStorageService>();
+        services.AddSingleton<IRequestDataBackupService, RequestDataBackupService>();
 
-        services.AddSingleton<ServiceBusSenderFactory>();
+        services.AddSingleton<ServiceBusFactory>();
         services.AddSingleton<ServiceBusRequestService>();
         services.AddSingleton<IServiceBusRequestService>(sp => sp.GetRequiredService<ServiceBusRequestService>());
         services.AddHostedService(sp => sp.GetRequiredService<ServiceBusRequestService>());
+
+        services.AddSingleton<IBackupAPIService, BackupAPIService>();
+        services.AddHostedService(sp => (BackupAPIService)sp.GetRequiredService<IBackupAPIService>());
+
+        services.AddSingleton<IAsyncFeeder, AsyncFeeder>();
+        services.AddSingleton<NormalRequest>();
+        services.AddSingleton<OpenAIBackgroundRequest>();
+        // services.AddSingleton<IRequestProcessor, NormalRequest>();
+
+        services.AddHostedService(sp => (AsyncFeeder)sp.GetRequiredService<IAsyncFeeder>());
 
         services.AddHostedService<ProxyWorkerCollection>();
         services.AddTransient(source => new CancellationTokenSource());

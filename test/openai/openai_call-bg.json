@@ -1,0 +1,11 @@
+{
+    "input": [
+        {
+            "role": "user",
+            "content": "I am going to Paris, what should I see?"
+        }
+    ],
+    "max_output_tokens": 16384,
+    "background": true,
+    "model": "gpt-4.1"
+}

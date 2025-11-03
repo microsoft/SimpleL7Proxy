@@ -6,6 +6,8 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
+using SimpleL7Proxy.Config;
+
 namespace SimpleL7Proxy.Backend;
 
 public class BackendHostHealthCollection : IBackendHostHealthCollection
