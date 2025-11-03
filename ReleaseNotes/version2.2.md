@@ -1,4 +1,8 @@
 # Release Notes #
+## 2.2.8.p1
+
+Proxy:
+* Bug fix for timeouts greater than 100 seconds
 
 ## 2.2.8
 

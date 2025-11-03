@@ -433,6 +433,9 @@ public static class BackendHostConfigurationExtensions
 
     HttpClient _client = new HttpClient(handler);
 
+    // set timeout to large ti disable it at HttpClient level.  Will use token cancellation for timeout instead.
+    _client.Timeout = Timeout.InfiniteTimeSpan;
+
     string replicaID = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REPLICA_NAME", "01");
 #if DEBUG
     // Load appsettings.json only in Debug mode
