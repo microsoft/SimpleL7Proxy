@@ -200,10 +200,9 @@ namespace SimpleL7Proxy.Proxy
                 // Atomically set to running (1) only if not started (0)
                 if (Interlocked.CompareExchange(ref _beginStartup, 1, 0) == 0)
                 {
-                    _logger.LogDebug("AsyncWorker: Entered the startup section for MID: {MID} Guid: {Guid}", _requestData.MID, _requestData.Guid.ToString());
 
                     _requestData.SBStatus = ServiceBusMessageStatusEnum.AsyncProcessing;
-                    _logger.LogDebug("AsyncWorker: Starting for MID: {MID} Guid: {Guid}", _requestData.MID, _requestData.Guid.ToString());
+                    _logger.LogDebug("AsyncWorker: Async Triggered for  MID: {MID} Guid: {Guid}", _requestData.MID, _requestData.Guid.ToString());
                     var operation = "Initialize";
                     try
                     {
@@ -328,7 +327,6 @@ namespace SimpleL7Proxy.Proxy
 
         public Task UpdateBackup()
         {
-            _logger.LogInformation("AsyncWorker: Backing up: {BlobName}", _requestData.Guid.ToString());
             return _requestBackupService.BackupAsync(_requestData);
         }
 
