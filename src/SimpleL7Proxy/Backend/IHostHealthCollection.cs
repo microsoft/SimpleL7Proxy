@@ -11,4 +11,6 @@ namespace SimpleL7Proxy.Backend;
 public interface IHostHealthCollection
 {
   List<BaseHostHealth> Hosts { get; }
+  List<BaseHostHealth> SpecificPathHosts { get; }
+  List<BaseHostHealth> CatchAllHosts { get; }
 }

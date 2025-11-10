@@ -18,6 +18,8 @@ public interface IBackendService
   Task WaitForStartup(int timeout);
   void Start();
   Task Stop();
+  List<BaseHostHealth> GetSpecificPathHosts();
+  List<BaseHostHealth> GetCatchAllHosts();
   IHostIterator GetHostIterator(string loadBalanceMode, IterationModeEnum mode = IterationModeEnum.SinglePass, int maxRetries = 1, string fullURL = "/");
 }
 

@@ -8,6 +8,8 @@ namespace SimpleL7Proxy.Backend;
 public class HostHealthCollection : IHostHealthCollection
 {
   public List<BaseHostHealth> Hosts { get; private set; } = [];
+  public List<BaseHostHealth> SpecificPathHosts { get; private set; } = [];
+  public List<BaseHostHealth> CatchAllHosts { get; private set; } = [];
 
   public HostHealthCollection(IOptions<BackendOptions> options, ILogger<HostHealthCollection> logger)
   {
@@ -17,17 +19,38 @@ public class HostHealthCollection : IHostHealthCollection
 
     foreach (var hostConfig in options.Value.Hosts)
     {
+      BaseHostHealth host;
+
       // Determine if host supports probing based on ProbePath
       if (string.IsNullOrEmpty(hostConfig.ProbePath) || hostConfig.ProbePath == "/")
       {
         // No probe path or root path - treat as non-probeable
-        Hosts.Add(new NonProbeableHostHealth(hostConfig, logger));
+        host = new NonProbeableHostHealth(hostConfig, logger);
       }
       else
       {
         // Has a specific probe path - treat as probeable
-        Hosts.Add(new ProbeableHostHealth(hostConfig, logger));
+        host = new ProbeableHostHealth(hostConfig, logger);
+      }
+
+      Hosts.Add(host);
+
+      // Categorize by PartialPath
+      var hostPartialPath = hostConfig.PartialPath?.Trim();
+
+      if (string.IsNullOrEmpty(hostPartialPath) ||
+          hostPartialPath == "/" ||
+          hostPartialPath == "/*")
+      {
+        CatchAllHosts.Add(host);
+      }
+      else
+      {
+        SpecificPathHosts.Add(host);
       }
     }
+
+    logger.LogInformation("Host categorization complete: {SpecificCount} specific hosts, {CatchAllCount} catch-all hosts",
+        SpecificPathHosts.Count, CatchAllHosts.Count);
   }
 }
