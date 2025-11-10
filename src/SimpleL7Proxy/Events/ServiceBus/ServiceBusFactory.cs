@@ -150,7 +150,7 @@ namespace SimpleL7Proxy.ServiceBus
 
             if (!_senders.ContainsKey(topicName))
             {
-                _logger.LogInformation($"Creating new ServiceBusSender for topic: {topicName}");
+                _logger.LogInformation("Creating new ServiceBusSender for topic: {topicName}", topicName);
                 _senders[topicName] = _client.CreateSender(topicName);
             }
             return _senders[topicName];
