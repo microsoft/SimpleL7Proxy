@@ -96,7 +96,7 @@ namespace SimpleL7Proxy.BackupAPI
         {
             try
             {
-                _logger.LogDebug($"Enqueuing status message for UserId: {message.userID}, Status: {message.status}");
+                _logger.LogDebug($"Backup: UserId: {message.userID}, Guid: {message.guid}, Status: {message.status}");
                 _statusQueue.Enqueue(message);
                 _queueSignal.Release();
 
@@ -257,7 +257,7 @@ namespace SimpleL7Proxy.BackupAPI
                 {
                     var message = new ServiceBusMessage(JsonSerializer.Serialize(item, jsonOptions));
 
-                    _logger.LogInformation($"BackupAPI: Sending status update for UserId: {item.userID}, Status: {item.status}");
+                    _logger.LogDebug("BackupAPI: Sending status update for UserId: {userid}, Status: {status}", item.userID, item.status);
 
                     if (!currentBatch.TryAddMessage(message))
                     {

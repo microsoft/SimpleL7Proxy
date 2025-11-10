@@ -15,7 +15,7 @@ namespace SimpleL7Proxy.DTO
         public RequestDataBackupService(IBlobWriter blobWriter, ILogger<RequestDataBackupService> logger)
         {
             _logger = logger;
-            _logger.LogDebug("Backup Service starting");
+            _logger.LogDebug("[INIT] BackupAPI Service starting");
             _blobWriter = blobWriter;
         }
 
@@ -54,9 +54,10 @@ namespace SimpleL7Proxy.DTO
 
                 return;
             }
-            catch (BlobWriterException)
+            catch (BlobWriterException e)
             {
                 _logger.LogInformation($"Blob {blobname} error reading from blob.");
+                Console.WriteLine(e.StackTrace);
                 throw;
             }
             catch (JsonException ex)
@@ -77,10 +78,9 @@ namespace SimpleL7Proxy.DTO
 
             try
             {
-                _logger.LogDebug($"Backing up request {requestData.Guid}");
                 operation = "Serializing request data";
 
-                _logger.LogDebug($" Backing up request {requestData.Guid}  URL: {requestData.FullURL} ");
+                _logger.LogDebug("BackupAPI: Backing up request {guid}", requestData.Guid);
                 var dto = new RequestDataDtoV1(requestData);
                 var json = JsonSerializer.Serialize(dto, new JsonSerializerOptions
                 {
