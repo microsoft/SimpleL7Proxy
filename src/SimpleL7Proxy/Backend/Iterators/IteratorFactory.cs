@@ -67,7 +67,9 @@ public static class IteratorFactory
         int maxAttempts,
         string fullURL)
     {
-        var (specificHosts, catchAllHosts) = GetCategorizedHosts(backendService);
+        // Get pre-categorized hosts from backend service
+        var specificHosts = backendService.GetSpecificPathHosts();
+        var catchAllHosts = backendService.GetCatchAllHosts();    
         
         if ((specificHosts?.Count ?? 0) == 0 && (catchAllHosts?.Count ?? 0) == 0)
         {
