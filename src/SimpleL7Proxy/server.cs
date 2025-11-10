@@ -184,7 +184,7 @@ public class Server : BackgroundService
                     //delayCts.Cancel();
                     var rd = new RequestData(await getContextTask.ConfigureAwait(false), requestId);
                     ed = rd.EventData;
-                    ed["Date"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
+                    ed["Date"] = DateTime.UtcNow.ToString("o");
                     ed.Uri = rd.Context!.Request.Url!;
                     ed.Method = rd.Method ?? "N/A";
 
@@ -278,6 +278,7 @@ public class Server : BackgroundService
                             // Check for any required headers
                             if (_options.RequiredHeaders.Count > 0)
                             {
+                                // Note: Returns the first missing required header only
                                 var missing = _options.RequiredHeaders.FirstOrDefault(x => string.IsNullOrEmpty(rd.Headers[x]));
                                 if (!string.IsNullOrEmpty(missing))
                                 {
@@ -287,7 +288,7 @@ public class Server : BackgroundService
                                     throw new ProxyErrorException(
                                         ProxyErrorException.ErrorType.IncompleteHeaders,
                                         HttpStatusCode.ExpectationFailed,
-                                        "Required header is missing: " + missing + "\n"
+                                        "Required header is missing: " + missing
                                     );
                                 }
                             }
@@ -506,8 +507,14 @@ public class Server : BackgroundService
                             }
                             catch (Exception ex)
                             {
-                                _logger.LogError($"Request was not enqueue'd and got an error writing on network: {ex.Message}");
-                                ed["ErrorWritingResponse"] = ex.Message;
+                                var msg = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+
+                                if (!msg.Contains("Broken pipe") && !msg.Contains("Unable to write data to the transport connection"))
+                                {
+                                    _logger.LogError($"Request was not enqueue'd and got an error writing on network: {msg}");                               
+                                }
+                                    
+                                ed["ErrorWritingResponse"] = msg;
                             }
                             _staticEvent.WriteOutput($"Pri: {priority} Stat: 429 Path: {rd.Path}");
                         }
@@ -522,7 +529,7 @@ public class Server : BackgroundService
                         temp_ed["Message"] = "Enqueued request";
 
                         temp_ed.SendEvent();
-                        _logger.LogCritical($"Enque Pri: {priority}, User: {rd.UserID}, Async: {rd.runAsync}, Guid: {rd.Guid}  Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
+                        _logger.LogCritical($"Enque Pri: {priority}, User: {rd.UserID}, Async Allowed: {rd.runAsync}, Guid: {rd.Guid}  Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
                     }
                 }
                 else
