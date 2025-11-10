@@ -133,7 +133,8 @@ namespace SimpleL7Proxy.Backend
 
       if (DirectMode)
       {
-        _logger?.LogInformation("[CONFIG] ✓ Direct host configured: {Host} | Probe: /{ProbePath} Path: {PartialPath}", Host, ProbePath, PartialPath);
+        _logger?.LogInformation("[CONFIG] ✓ Direct host configured: {Host} | Path: {PartialPath}", Host, PartialPath);
+        probepath = String.Empty;
       }
       else
       {
@@ -257,7 +258,7 @@ namespace SimpleL7Proxy.Backend
       {
         return false;
       }
-
+Console.WriteLine($"HostConfig: Checking path support. Host: {Host} | PartialPath: {PartialPath} | RequestPath: {requestPath}");
       // Normalize request path for comparison
       var normalizedRequestPath = requestPath.TrimStart('/');
 
