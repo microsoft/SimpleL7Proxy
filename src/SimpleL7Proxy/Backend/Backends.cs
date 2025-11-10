@@ -24,6 +24,7 @@ public class Backends : IBackendService
 {
   public List<BaseHostHealth> _backendHosts { get; set; }
   private List<BaseHostHealth> _activeHosts;
+  private readonly IHostHealthCollection _backendHostCollection; 
 
   private readonly BackendOptions _options;
   private static readonly bool _debug = false;
@@ -69,6 +70,7 @@ public class Backends : IBackendService
 
     _eventClient = eventClient;
     _circuitBreaker = circuitBreaker;
+    _backendHostCollection = backendHostCollection;
     _backendHosts = backendHostCollection.Hosts;
     _options = options.Value;
     _logger = logger;
@@ -87,7 +89,7 @@ public class Backends : IBackendService
     // FailureTimeFrame = bo.CircuitBreakerTimeslice;
     // allowableCodes = bo.AcceptableStatusCodes;
 
-    _logger.LogDebug("Backends service starting");
+    _logger.LogDebug("[INIT] Backends service starting");
 
   }
 
@@ -120,7 +122,15 @@ public class Backends : IBackendService
   public int ActiveHostCount() => _activeHosts.Count;
   public List<BaseHostHealth> GetHosts() => _backendHosts;
 
+  public List<BaseHostHealth> GetSpecificPathHosts()
+  {
+      return _backendHostCollection.SpecificPathHosts;
+  }
 
+  public List<BaseHostHealth> GetCatchAllHosts()
+  {
+      return _backendHostCollection.CatchAllHosts;
+  }
   public async Task WaitForStartup(int timeout)
   {
     var start = DateTime.Now;
