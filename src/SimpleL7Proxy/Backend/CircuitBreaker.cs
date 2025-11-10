@@ -16,6 +16,14 @@ public class CircuitBreaker : ICircuitBreaker
     private readonly int _failureTimeFrame;
     private readonly int[] _allowableCodes;
     private readonly ILogger<CircuitBreaker> _logger;
+    
+    // Global counters using Interlocked operations
+    private static int _totalCircuitBreakersCount = 0;
+    private static int _blockedCircuitBreakersCount = 0;
+    
+    // Instance state tracking
+    private bool _isCurrentlyBlocked = false;
+    
     public string ID { get; set; } = "";
 
     public CircuitBreaker(IOptions<BackendOptions> options, ILogger<CircuitBreaker> logger)
@@ -29,8 +37,16 @@ public class CircuitBreaker : ICircuitBreaker
         _allowableCodes = backendOptions.AcceptableStatusCodes ?? new[] { 200, 401, 403, 408, 410, 412, 417, 400 };
         _logger = logger;
 
-        _logger.LogDebug("Circuit breaker initialized with threshold: {Threshold}, timeframe: {TimeFrame}s", 
-            _failureThreshold, _failureTimeFrame);
+        // Register this circuit breaker globally
+        Interlocked.Increment(ref _totalCircuitBreakersCount);
+        
+        if (string.IsNullOrEmpty(ID))
+        {
+            ID = Guid.NewGuid().ToString();
+        }
+
+        _logger.LogDebug("[INIT] Circuit breaker {ID} initialized with threshold: {Threshold}, timeframe: {TimeFrame}s. Total circuit breakers: {Total}", 
+            ID, _failureThreshold, _failureTimeFrame, _totalCircuitBreakersCount);
     }
 
     public void TrackStatus(int code, bool wasException)
@@ -68,6 +84,14 @@ public class CircuitBreaker : ICircuitBreaker
         //    Console.WriteLine($"Checking failed status: {hostFailureTimes2.Count} >= {FailureThreshold}");
         if (hostFailureTimes2.Count < _failureThreshold)
         {
+            // If we were previously blocked but now we're not, decrement the blocked count
+            if (_isCurrentlyBlocked)
+            {
+                _isCurrentlyBlocked = false;
+                Interlocked.Decrement(ref _blockedCircuitBreakersCount);
+                _logger.LogDebug("Circuit breaker {ID} unblocked. Blocked count: {BlockedCount}", 
+                    ID, _blockedCircuitBreakersCount);
+            }
             return false;
         }
 
@@ -76,8 +100,63 @@ public class CircuitBreaker : ICircuitBreaker
         {
             hostFailureTimes2.TryDequeue(out var _);
         }
-        return hostFailureTimes2.Count >= _failureThreshold;
+        
+        bool isCurrentlyFailed = hostFailureTimes2.Count >= _failureThreshold;
+        
+        // Update global blocked count based on state change
+        if (isCurrentlyFailed && !_isCurrentlyBlocked)
+        {
+            _isCurrentlyBlocked = true;
+            Interlocked.Increment(ref _blockedCircuitBreakersCount);
+            _logger.LogDebug("Circuit breaker {ID} is now blocked. Blocked count: {BlockedCount}", 
+                ID, _blockedCircuitBreakersCount);
+        }
+        else if (!isCurrentlyFailed && _isCurrentlyBlocked)
+        {
+            _isCurrentlyBlocked = false;
+            Interlocked.Decrement(ref _blockedCircuitBreakersCount);
+            _logger.LogDebug("Circuit breaker {ID} is no longer blocked. Blocked count: {BlockedCount}", 
+                ID, _blockedCircuitBreakersCount);
+        }
+        
+        return isCurrentlyFailed;
+    }
 
+    /// <summary>
+    /// Checks if all circuit breakers globally are in a failed state
+    /// </summary>
+    /// <returns>True if all circuit breakers are blocked, false otherwise</returns>
+    public static bool AreAllCircuitBreakersBlocked()
+    {
+        int total = _totalCircuitBreakersCount;
+        int blocked = _blockedCircuitBreakersCount;
+        
+        // If there are no circuit breakers, return false
+        if (total == 0)
+        {
+            return false;
+        }
+        
+        // Return true only if all circuit breakers are blocked
+        return blocked >= total;
+    }
+
+    /// <summary>
+    /// Gets the count of circuit breakers that are currently blocked
+    /// </summary>
+    /// <returns>Number of blocked circuit breakers</returns>
+    public static int GetBlockedCircuitBreakersCount()
+    {
+        return _blockedCircuitBreakersCount;
+    }
+
+    /// <summary>
+    /// Gets the total count of registered circuit breakers
+    /// </summary>
+    /// <returns>Total number of circuit breakers</returns>
+    public static int GetTotalCircuitBreakersCount()
+    {
+        return _totalCircuitBreakersCount;
     }
 
 }
