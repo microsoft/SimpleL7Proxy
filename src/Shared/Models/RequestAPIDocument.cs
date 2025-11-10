@@ -2,7 +2,7 @@ using System;
 
 namespace Shared.RequestAPI.Models;
 
-public class RequestAPIDocument
+public class RequestAPIDocument : IRequestData
 {
     public string? backgroundRequestId { get; set; }
     public DateTime? createdAt { get; set; }
@@ -16,6 +16,11 @@ public class RequestAPIDocument
     public RequestAPIStatusEnum? status { get; set; }
     public string? URL { get; set; }
     public string? userID { get; set; }
+
+    // Interface implementation
+    string? IRequestData.Id { get => id; set => id = value; }
+    string? IRequestData.UserID { get => userID; set => userID = value; }
+    string? IRequestData.Guid { get => guid; set => guid = value; }
 
     public RequestAPIDocument DeepCopy()
     {
