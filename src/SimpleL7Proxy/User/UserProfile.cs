@@ -29,7 +29,7 @@ public class UserProfile : BackgroundService, IUserProfileService
         _UserIDFieldName = _options.UserIDFieldName;
         _userInformation[Constants.Server] = new AsyncClientInfo(Constants.Server, Constants.Server, Constants.Server, 3600);
 
-        _logger.LogDebug("UserProfile service starting");
+        _logger.LogDebug("[INIT] UserProfile service starting");
     }
     public enum ParsingMode
     {
