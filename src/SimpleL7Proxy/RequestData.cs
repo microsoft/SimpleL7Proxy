@@ -71,7 +71,10 @@ public class RequestData : IDisposable, IAsyncDisposable
             if (_requestAPIDocument != null)
             {
                 _requestAPIDocument.status = value;
-                BackupAPIService.UpdateStatus(_requestAPIDocument);
+                if (runAsync)
+                {
+                    BackupAPIService.UpdateStatus(_requestAPIDocument);
+                }
             }
         }
     }
@@ -303,7 +306,7 @@ public class RequestData : IDisposable, IAsyncDisposable
             ExpiresAt = EnqueueTime.AddMilliseconds(ttlMsToUse);
         }
 
-        ExpiresAtString = ExpiresAt.ToString("yyyy-MM-ddTHH:mm:ssZ");
+        ExpiresAtString = ExpiresAt.ToString("o");
     }
 
     public void Cleanup()
