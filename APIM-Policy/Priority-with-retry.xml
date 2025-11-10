@@ -14,6 +14,8 @@
         <set-header name="x-ms-client-request-id" exists-action="override">
 			<value>@(context.Request.Headers.GetValueOrDefault("x-S7P-id", Guid.NewGuid().ToString()))</value>
 		</set-header>
+		<!-- Check if the response is in cache -->
+		<!-- If we can't find the variable, initialize it -->
 		<choose>
 			<when condition="@(context.Variables.ContainsKey("listBackends") == false)">
 				<set-variable name="listBackends" value="@{
@@ -41,7 +43,7 @@
                         { "isThrottling", false },
                         { "retryAfter", DateTime.MinValue } ,
                         { "ModelType", "PAYGO" },
-                        { "acceptablePriorities", new JArray(1,2) },
+                        { "acceptablePriorities", new JArray(1,2,3) }, // Acceptable priorities for this backend
                         { "LimitConcurrency", "off"},
                         { "api-key", ""},
                         { "defaultRetryAfter", 10 } // Default retry-after value in seconds
@@ -458,7 +460,7 @@
                 var count = context.Variables.GetValueOrDefault<int>("unThrottledBackends", 0);
  
                 string backendLog = context.Variables.GetValueOrDefault<string>("backendLog", "");
-                backendLog += "  SUMMARY:--  SHOULD RETRY: " + ShouldRetry + "  SHOULD REQUEUE: " + ShouldRequeueNow +
+                backendLog += "  ATTEMPT SUMMARY:--  SHOULD RETRY: " + ShouldRetry + "  SHOULD REQUEUE: " + ShouldRequeueNow +
                      "  isTempError: " + isTempError + "  isPermError: " + isPermError + "  RetryCount: " + retryCount + "  UnthrottledBackends: " + count +
                               "  --:END   ";
                 return backendLog;
