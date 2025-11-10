@@ -8,7 +8,6 @@
 # Default API key (fallback if not specified in HOSTMAP)
 # source env.sh
 
-
 # Map host aliases to hostname|folder|apikey (use empty after | for no folder, use empty for default APIKEY)
 declare -A HOSTMAP
 HOSTMAP["tr2"]="nvmtr2apim.azure-api.net|bf2|"
@@ -16,6 +15,7 @@ HOSTMAP["tr2-o"]="nvmtr2apim.azure-api.net|resp|"
 HOSTMAP["apim2"]="nvmmcpapim2.azure-api.net||"
 HOSTMAP["local-ai"]="localhost:8000|openai|"
 HOSTMAP["local-resp"]="localhost:8000|resp|"
+HOSTMAP["local-direct"]="localhost:8000|api|"
 HOSTMAP["local"]="localhost:8000||"
 HOSTMAP["openai3"]="nvmopenai3.openai.azure.com|openai|"
 HOSTMAP["nvm2"]="nvm2.openai.azure.com|openai|"
@@ -41,6 +41,12 @@ URLS["412"]="POST /412error"
 URLS["421"]="POST /421error"
 URLS["429"]="POST /429error"
 URLS["500"]="POST /500error"
+URLS["health"]="GET /health"
+URLS["sleep10"]="POST /delay10seconds"
+URLS["sleep100"]="POST /delay100seconds"
+URLS["sleep200"]="POST /delay200seconds"
+URLS["sleep400"]="POST /delay400seconds"
+URLS["sleep800"]="POST /delay800seconds"
 URLS["4o-mini.txt"]="POST /file/4o-mini.txt"
 URLS["claude-3.5"]="POST /file/claude-3.5-haiku.txt"
 URLS["claude-sonnet"]="POST /file/claude-sonnet-3.5.txt"
@@ -50,13 +56,14 @@ URLS["gemini-2.5-pro-chat"]="POST /file/gemini-2.5-pro-chat.txt"
 URLS["gemini-2.5-pro-stream"]="POST /file/gemini-2.5-pro-stream.txt"
 URLS["gpt5-nano-response"]="POST /file/gpt5-nano-response.txt"
 URLS["gpt5-nano"]="POST /file/gpt5-nano.txt"
-URLS["api"]="POST /api/v1/chat/completions"
+URLS["api"]="POST /openai/v1//chat/completions"
 
 
 # Parse command line arguments
 verbose=""
 asyncmode="false"
 debugmode="false"
+expiredelta="900"
 response_id=""
 args=()
 
@@ -178,6 +185,7 @@ curl_cmd=(
   -H "Content-Type: application/json; charset=UTF-8"
   -H "Ocp-Apim-Subscription-Key: $APIMKEY"
   -H "api-key: $apikey"
+  -H "S7PTTL: $expiredelta"
   -H "test: x" -H "xx: Value1" -H "X-UserProfile: 123456"
   -H "x-backend-affinity: 3ee113511b77c0e2605e"
 )
