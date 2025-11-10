@@ -35,9 +35,7 @@ namespace SimpleL7Proxy.ServiceBus
         {
             _options = options.Value;
             _senderFactory = senderFactory ?? throw new ArgumentNullException(nameof(senderFactory));
-            _logger = logger;
-            
-            _logger.LogInformation("ServiceBus feeder tasks configured:");
+            _logger = logger;            
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
@@ -66,7 +64,7 @@ namespace SimpleL7Proxy.ServiceBus
         {
             try
             {
-                _logger.LogDebug($"Enqueuing status message for UserId: {message.MID}, Status: {message.SBStatus} for Topic: {message.SBTopicName}");
+                _logger.LogDebug($"ServiceBus: UserId: {message.MID}, Guid: {message.Guid}, Status: {message.SBStatus} for Topic: {message.SBTopicName}");
                 _statusQueue.Enqueue(new ServiceBusStatusMessage(message.Guid, message.SBTopicName, message.SBStatus.ToString()));
                 _queueSignal.Release();
 
