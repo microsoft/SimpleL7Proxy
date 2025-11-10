@@ -17,6 +17,8 @@ public class ProxyData
     public string BackendHostname { get; set; } = string.Empty;
 
     public DateTime ResponseDate { get; set; } = DateTime.UtcNow;
+    public bool IsStreamingResponse { get; set; } = false;
+    public string StreamingProcessor { get; set; } = string.Empty;
 
     public ProxyData()
     {
