@@ -158,6 +158,7 @@ public class ProxyWorker
 
             if (incomingRequest.RecoveryProcessor != null)
             {
+                incomingRequest.DequeueTime = DateTime.UtcNow;
                 // Call the recovery processor to rehydrate the request from Blob storage
                 await incomingRequest.RecoveryProcessor.HydrateRequestAsync(incomingRequest);
             }
@@ -337,9 +338,13 @@ public class ProxyWorker
 
                     var conlen = pr.ContentHeaders?["Content-Length"] ?? "N/A";
                     var proxyTime = (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
-                    _logger.LogCritical("Pri: {Priority}, Stat: {StatusCode}, Len: {ContentLength}, {FullURL}, Deq: {DequeueTime}, Lat: {ProxyTime} ms",
-                        incomingRequest.Priority, (int)pr.StatusCode, conlen, pr.FullURL,
-                        incomingRequest.DequeueTime.ToLocalTime().ToString("HH:mm:ss"), proxyTime);
+                    _logger.LogCritical("Pri: {Priority}, Stat: {StatusCode}, User: {user} Guid: {Guid} Async: {mode} Processor: {Processor}, Len: {ContentLength}, {FullURL}, Deq: {DequeueTime}, Lat: {ProxyTime} ms",
+                        incomingRequest.Priority, (int)pr.StatusCode,
+                        incomingRequest.UserID ?? "N/A",
+                        incomingRequest.Guid,
+                        incomingRequest.AsyncTriggered ? "Async" : "Sync",
+                        pr.StreamingProcessor,
+                        conlen, pr.FullURL, incomingRequest.DequeueTime.ToLocalTime().ToString("T"), proxyTime);
 
                     eventData["Content-Length"] = lcontext?.Response?.ContentLength64.ToString() ?? "N/A";
                     eventData["Content-Type"] = lcontext?.Response?.ContentType ?? "N/A";
@@ -716,6 +721,7 @@ public class ProxyWorker
             _logger.LogDebug($"Matched Hosts: {hostCount} for URL: {request.Path}");
         }
 
+        // Try the request on each active host, stop if it worked
         while (hostIterator.MoveNext())
         {
             var host = hostIterator.Current;
@@ -737,13 +743,13 @@ public class ProxyWorker
                 ParentId = request.ParentId,
                 MID = $"{request.MID}-{request.BackendAttempts}",
                 Method = request.Method,
-                ["Request-Date"] = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffK"),
+                ["Request-Date"] = DateTime.UtcNow.ToString("o"),
                 ["Backend-Host"] = host.Host,
                 ["Host-URL"] = host.Url,
                 ["Attempt"] = request.BackendAttempts.ToString()
             };
     
-            // Try the request on each active host, stop if it worked
+            // Tracked as an attempt
             try
             {
                 if (request.Context?.Request.Url != null)
@@ -795,6 +801,8 @@ public class ProxyWorker
                 using (HttpRequestMessage proxyRequest = new(new(request.Method), request.FullURL))
                 {
                     proxyRequest.Content = bodyContent;
+                   // request.Headers["Content-Type"] = "application/json";
+                    
                     CopyHeaders(request.Headers, proxyRequest, true);
                     proxyRequest.Headers.Add("x-PolicyCycleCounter", request.TotalDownstreamAttempts.ToString());
 
@@ -803,8 +811,8 @@ public class ProxyWorker
 
                         proxyRequest.Content.Headers.ContentLength = bodyBytes.Length;
 
-                        // Preserve the content type if it was provided
-                        var contentType = request.Context?.Request.ContentType ?? "application/octet-stream";
+                        // Preserve the content type if it was provided, otherwise default to application/json
+                        var contentType = request.Context?.Request.ContentType ?? "application/json";
                         MediaTypeHeaderValue mediaTypeHeaderValue;
 
                         try
@@ -819,13 +827,18 @@ public class ProxyWorker
                         }
                         catch (Exception e)
                         {
-                            mediaTypeHeaderValue = new MediaTypeHeaderValue("application/octet-stream") { CharSet = "utf-8" };
-                            _logger.LogInformation("Invalid charset provided, defaulting to utf-8: {Message}", e.Message);
+                            // Default to application/json if parsing fails
+                            mediaTypeHeaderValue = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+                            _logger.LogInformation("Invalid content type provided, defaulting to application/json: {Message}", e.Message);
                         }
 
                         proxyRequest.Content.Headers.ContentType = mediaTypeHeaderValue;
                     }
-
+                    else
+                    {
+                        // Even if there's no body, set the content type to application/json
+                        proxyRequest.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+                    }
                     proxyRequest.Headers.ConnectionClose = true;
 
                     // Log request headers if debugging is enabled
@@ -1015,11 +1028,20 @@ public class ProxyWorker
                         string mediaType = proxyResponse.Content?.Headers?.ContentType?.MediaType ?? string.Empty;
 
                         // pull out the processor from response headers if it exists
-                        var processWith = DetermineStreamProcessor(proxyResponse, mediaType);
-                        requestState = "Stream Proxy Response : " + processWith;
+                        pr.StreamingProcessor = DetermineStreamProcessor(proxyResponse, mediaType);
+                        requestState = "Stream Proxy Response : " + pr.StreamingProcessor;
 
                         // Stream response from backend to client/blob
-                        await StreamResponseAsync(request, proxyResponse, processWith, mediaType).ConfigureAwait(false);
+                        try
+                        {
+                            await StreamResponseAsync(request, proxyResponse, pr.StreamingProcessor, mediaType).ConfigureAwait(false);
+                        }
+                        catch (Exception e)
+                        {
+                            _logger.LogError("Error streaming response: {Message}", e.Message);
+                            _logger.LogError("Stack Trace: {StackTrace}", e.StackTrace);
+                            throw;
+                        }
 
                         try
                         {
@@ -1249,7 +1271,7 @@ public class ProxyWorker
     {
         ProxyEvent requestSummary = request.EventData;        
 
-        _logger.LogInformation("Streaming response with processor. Requested: {Requested}, ContentType: {ContentType}", processWith, mediaType);
+        _logger.LogDebug("Streaming response with processor. Requested: {Requested}, ContentType: {ContentType}", processWith, mediaType);
 
         IStreamProcessor processor = GetStreamProcessor(processWith, out string resolvedProcessor);
         try
@@ -1287,8 +1309,7 @@ public class ProxyWorker
         {
             try
             {
-                // Mark this as a background request which will trigger a poller to check status
-
+                // If we have a BackgroundRequestID, trigger the poller to check status
                 if (!string.IsNullOrEmpty(processor.BackgroundRequestId) && request.runAsync)
                 {
                     _logger.LogInformation($"Found background guid: {request.Guid} => request: {processor.BackgroundRequestId}");
