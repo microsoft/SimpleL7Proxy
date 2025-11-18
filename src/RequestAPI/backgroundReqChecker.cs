@@ -36,12 +36,12 @@ public class backgroundReqChecker
 
         if (myTimer.ScheduleStatus is not null)
         {
-            _logger.LogInformation("backgroundReqChecker:   Next timer schedule at: {nextSchedule}", myTimer.ScheduleStatus.Next);
+            _logger.LogDebug("backgroundReqChecker:   Next timer schedule at: {nextSchedule}", myTimer.ScheduleStatus.Next);
         }
 
         if (pendingDocuments == null || !pendingDocuments.Any())
         {
-            _logger.LogInformation("backgroundReqChecker:   No pending documents found that need processing.");
+            _logger.LogDebug("backgroundReqChecker:   No pending documents found that need processing.");
 
             return new OutputData(); // Return empty output if no documents to process
         }
