@@ -23,6 +23,8 @@ if (useManagedIdentity)
     }
 
     Console.WriteLine("Using Managed Identity authentication for Service Bus");
+
+    Console.WriteLine($"Service Bus Namespace: {serviceBusNamespace} Topic: {serviceBusTopicName} Subscription: {serviceBusSubscriptionName}");
     var credential = new DefaultAzureCredential();
     client = new ServiceBusClient(serviceBusNamespace, credential);
 }

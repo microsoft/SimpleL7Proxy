@@ -1,5 +1,13 @@
 # Release Notes #
 
+Proxy:
+* Added CheckingBackgroundRequestStatus and BackgroundRequestSubmitted as a status for background requests
+* Fix bugs related to background request lifecycle
+
+Policy:
+* Update backend logs for better readability
+* Created a V2 policy for readability improvements
+
 ## 2.2.8
 
 Policy:
