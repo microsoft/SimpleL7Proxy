@@ -60,6 +60,7 @@ public class RequestData : IDisposable, IAsyncDisposable
         }
     }
     public bool IsBackgroundCheck { get; set; } = false;
+    public bool BackgroundRequestCompleted { get; set; } = false;
     public RequestAPIDocument? _requestAPIDocument; // For tracking async and background status updates
     public RequestAPIStatusEnum RequestAPIStatus
     {
