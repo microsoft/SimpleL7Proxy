@@ -19,6 +19,7 @@ using SimpleL7Proxy.ServiceBus;
 using SimpleL7Proxy.BlobStorage;
 using SimpleL7Proxy.StreamProcessor;
 using Shared.RequestAPI.Models;
+using System.Runtime.InteropServices;
 
 namespace SimpleL7Proxy.Proxy;
 
@@ -224,7 +225,14 @@ public class ProxyWorker
                     }
 
                     // ASYNC: Set the status to Processing
-                    incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Processing;
+                    if (incomingRequest.IsBackground)
+                    {
+                        incomingRequest.SBStatus = ServiceBusMessageStatusEnum.CheckingBackgroundRequestStatus;
+                    }
+                    else
+                    {
+                        incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Processing;
+                    }
 
                     eventData.Type = EventType.ProxyRequest;
                     eventData["EnqueueTime"] = incomingRequest.EnqueueTime.ToString("o");
@@ -319,14 +327,51 @@ public class ProxyWorker
                         // eventData.Type = EventType.ProxyRequestExpired;
                         incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Expired;
                     }
-                    else
+                    else if (pr.StatusCode == HttpStatusCode.OK)
                     {
-                        // Set the appropriate status based on whether the request was async or sync
-                        incomingRequest.SBStatus = incomingRequest.AsyncTriggered
-                            ? ServiceBusMessageStatusEnum.AsyncProcessed
-                            : ServiceBusMessageStatusEnum.Processed;
-                    }
+                        // scenarios:
+                        // 1: the Background request initiated => BackgroundRequestSubmitted
+                        // 2: the non-background async request completed => AsyncProcessed
+                        // 3: the background check request completed and the background task completed => AsyncProcessed
+                        // 4: the background check request completed and the background task is still running => no updates
+                        // all others are treated as synchronous completions => Processed
 
+                        if (!incomingRequest.runAsync)
+                        {
+                            // Synchronous requests were processed and response sent directly to client
+                            incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Processed;
+                        }
+                        else
+                        {
+                            if (incomingRequest.IsBackgroundCheck)
+                            {
+                                // Background check scenario
+                                if (incomingRequest.BackgroundRequestCompleted)
+                                {
+_logger.LogInformation("updating status to Completed");
+                                    // Scenario 3: Background check where the background task has completed
+                                    // (RequestAPIStatus set to Completed in StreamResponseAsync when processor.BackgroundCompleted == true)
+                                    incomingRequest.SBStatus = ServiceBusMessageStatusEnum.AsyncProcessed;
+                                    incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Completed;
+                                }
+                                else
+                                {
+_logger.LogInformation("updating status to BackgroundProcessing");
+                                    // Scenario 4: Background check where the background task is still running
+                                    // Keep existing status (no update needed)
+                                    incomingRequest.SBStatus = ServiceBusMessageStatusEnum.CheckingBackgroundRequestStatus;
+                                    incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.BackgroundProcessing;
+                                }
+                            }
+                            else
+                            {
+_logger.LogInformation("updating status to BackgroundRequestSubmitted");
+                                // Scenario 1: New background request initiated - submit for later polling
+                                incomingRequest.SBStatus = ServiceBusMessageStatusEnum.BackgroundRequestSubmitted;
+                                incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.BackgroundProcessing;
+                            }
+                        }
+                    }
 
                     // SYNCHRONOUS MODE
                     //await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);
@@ -1271,7 +1316,7 @@ public class ProxyWorker
     {
         ProxyEvent requestSummary = request.EventData;        
 
-        _logger.LogDebug("Streaming response with processor. Requested: {Requested}, ContentType: {ContentType}", processWith, mediaType);
+        _logger.LogInformation("Streaming response with processor. Requested: {Requested}, ContentType: {ContentType}", processWith, mediaType);
 
         IStreamProcessor processor = GetStreamProcessor(processWith, out string resolvedProcessor);
         try
@@ -1309,32 +1354,52 @@ public class ProxyWorker
         {
             try
             {
-                // If we have a BackgroundRequestID, trigger the poller to check status
+                // BACKGROUND REQUEST LIFECYCLE MANAGEMENT
+                // When a processor detects a background request ID during streaming (e.g., OpenAI batch API),
+                // we track it for periodic status polling via the background checker component.
+
                 if (!string.IsNullOrEmpty(processor.BackgroundRequestId) && request.runAsync)
                 {
                     _logger.LogInformation($"Found background guid: {request.Guid} => request: {processor.BackgroundRequestId}");
                     request.IsBackground = true;
                     request.BackgroundRequestId = processor.BackgroundRequestId;
+                    
                     if (request.asyncWorker == null)
                     {
                         _logger.LogError("AsyncWorker is null, but runAsync is true");
                     }
                     else
                     {
-                        _logger.LogInformation($"Updating async worker for background GUID: {request.Guid} => request: {processor.BackgroundRequestId}");
-                        await request.asyncWorker.UpdateBackup().ConfigureAwait(false);
-                        //request._requestAPIDocument.URL = request.FullURL;
-
-                        // Gets set by the feeder
+                        // Handle three distinct scenarios based on request type and completion status:
+                        
                         if (!request.IsBackgroundCheck)
                         {
-                            request.RequestAPIStatus = RequestAPIStatusEnum.BackgroundProcessing;
+                            // Scenario 1: Initial background request submission
+                            // Mark as BackgroundProcessing to trigger periodic polling
+                            _logger.LogInformation($"Updating async worker for background GUID: {request.Guid} => request: {processor.BackgroundRequestId}");
+                            await request.asyncWorker.UpdateBackup().ConfigureAwait(false);
+                            request.BackgroundRequestCompleted = false;
+// REMOVE                            request.RequestAPIStatus = RequestAPIStatusEnum.BackgroundProcessing;
+                        }
+                        else if (processor.BackgroundCompleted)
+                        {
+                            // Scenario 2: Background check found completed task
+                            // Update status to Completed so caller can retrieve final results
+                            _logger.LogInformation($"Background processing completed for GUID: {request.Guid} => request: {processor.BackgroundRequestId}");
+                            request.BackgroundRequestCompleted = true;
+// REMOVE                            request.RequestAPIStatus = RequestAPIStatusEnum.Completed;
+                        }
+                        else
+                        {
+                            // Scenario 3: Background check found task still running
+                            // retrigger the API to continue polling
+                            _logger.LogInformation($"Background processing still in progress for GUID: {request.Guid} => request: {processor.BackgroundRequestId}");
+                            request.BackgroundRequestCompleted = false;
                         }
                     }
-                }
-                else
+                } else
                 {
-                    processor.GetStats(requestSummary, proxyResponse.Headers);
+                    _logger.LogInformation("No background request ID found in processor.");
                 }
             }
             catch (Exception statsEx)
