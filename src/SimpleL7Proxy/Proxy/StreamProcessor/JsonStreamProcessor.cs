@@ -72,7 +72,7 @@ namespace SimpleL7Proxy.StreamProcessor
                     Task t = writer.WriteLineAsync(currentLine);
 
                     // Only process through lines that could have usage in them
-                    if (currentLine.Length > MinLineLength)
+                    if (currentLine.Length > MinLineLength && currentLine.Length < 1000)
                     {
                         lastLines[currentIndex] = currentLine;
                         currentIndex = (currentIndex + 1) % MaxLines; // Wrap around
@@ -128,6 +128,7 @@ namespace SimpleL7Proxy.StreamProcessor
 
                         var backgroundRequestFound = false;
                         var modelFound = false;
+                        BackgroundCompleted = false;
                         // Loop through lines starting from most recent, going backwards
                         for (int i = 0; i < validLines.Length; i++)
                         {
@@ -146,6 +147,11 @@ namespace SimpleL7Proxy.StreamProcessor
                                     backgroundRequestFound = true;
                                 }
 
+                                if (line.Contains(@"""status"": ""completed"""))
+                                {
+                                    BackgroundCompleted = true;
+                                }
+
                                 if (line.Contains(@"""model"": "))
                                 {
                                     modelFound = true;
@@ -158,11 +164,11 @@ namespace SimpleL7Proxy.StreamProcessor
 
                                 if (match.Success)
                                 {
-                                    BackgroundRequestId = match.Groups[1].Value; 
-                                }                                
+                                    BackgroundRequestId = match.Groups[1].Value;
+                                }
                             }
                         }
-
+                        
                         if (backgroundRequestFound && modelFound && !string.IsNullOrEmpty(BackgroundRequestId))
                         {
                             BackgroundRequest = true;

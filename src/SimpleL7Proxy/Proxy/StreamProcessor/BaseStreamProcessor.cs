@@ -56,6 +56,7 @@ namespace SimpleL7Proxy.StreamProcessor
         public abstract void GetStats(ProxyEvent eventData, HttpResponseHeaders headers);
 
         private string _backgroundRequestId = string.Empty;
+        private bool _backgroundCompleted = false;
 
         /// <summary>
         /// Gets or sets whether the current request is a background request.
@@ -67,6 +68,12 @@ namespace SimpleL7Proxy.StreamProcessor
         {
             get { return _backgroundRequestId; }
             set { _backgroundRequestId = value; }
+        }
+
+        public virtual bool BackgroundCompleted
+        {
+            get { return _backgroundCompleted; }
+            set { _backgroundCompleted = value; }
         }
 
         /// <summary>

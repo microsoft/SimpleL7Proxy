@@ -14,7 +14,7 @@ namespace SimpleL7Proxy.StreamProcessor
     public class MultiLineAllUsageProcessor : JsonStreamProcessor
     {
 
-        protected override int MaxLines => 40;
+        protected override int MaxLines => 100;
         protected override int MinLineLength => 1;
 
         /// <summary>
