@@ -756,7 +756,6 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                 request.Path,
                 out modifiedPath)
         };
-Console.WriteLine("FullURL: " + request.FullURL + "   Modified Path: " + modifiedPath);
         request.Path = modifiedPath;
 
         if ( request.Debug) {

@@ -648,7 +648,6 @@ public static class BackendHostConfigurationExtensions
       catch (UriFormatException e)
       {
         _logger?.LogError($"Could not add Host{i} with {hostname} : {e.Message}");
-        Console.WriteLine(e.StackTrace);
       }
 
       i++;
