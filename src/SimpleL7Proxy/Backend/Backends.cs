@@ -193,6 +193,7 @@ public class Backends : IBackendService
           catch (Exception e)
           {
             _logger.LogError($"Backends: An unexpected error occurred: {e.Message}");
+Console.WriteLine(e.StackTrace);
           }
         }
       }
@@ -306,12 +307,6 @@ public class Backends : IBackendService
         probeData["Latency"] = latency.ToString() + " ms";
       }
     }
-    catch (UriFormatException e)
-    {
-      probeData.Type = EventType.Exception;
-      probeData.Exception = e;
-      probeData["Code"] = "-";
-    }
     catch (TaskCanceledException e)
     {
       probeData.Type = EventType.Exception;
@@ -319,28 +314,17 @@ public class Backends : IBackendService
       probeData["Code"] = "-";
       probeData["Timeout"] = client.Timeout.TotalMilliseconds.ToString();
     }
-    catch (HttpRequestException e)
-    {
-      probeData.Type = EventType.Exception;
-      probeData.Exception = e;
-      probeData["Code"] = "-";
-    }
     catch (OperationCanceledException)
     {
       staticEvent.WriteOutput("Poller: Stopping the server.");
       throw; // Exit the loop
-    }
-    catch (System.Net.Sockets.SocketException e)
-    {
-      probeData.Type = EventType.Exception;
-      probeData.Exception = e;
-      probeData["Code"] = "-";
     }
     catch (Exception e)
     {
       probeData.Type = EventType.Exception;
       probeData.Exception = e;
       probeData["Code"] = "-";
+      Console.WriteLine (e.StackTrace);
     }
     finally
     {
@@ -462,22 +446,22 @@ public class Backends : IBackendService
 
 
 
-  public IHostIterator GetHostIterator(
-      string loadBalanceMode,
-      IterationModeEnum mode = IterationModeEnum.SinglePass,
-      int maxRetries = 1,
-      string fullURL = "/")
-  {
-    // Use the appropriate factory method based on iteration mode
-    if (mode == IterationModeEnum.SinglePass)
-    {
-      return IteratorFactory.CreateSinglePassIterator(this, loadBalanceMode, fullURL);
-    }
-    else
-    {
-      return IteratorFactory.CreateMultiPassIterator(this, loadBalanceMode, maxRetries, fullURL);
-    }
-  }
+  // public IHostIterator GetHostIterator(
+  //     string loadBalanceMode,
+  //     IterationModeEnum mode = IterationModeEnum.SinglePass,
+  //     int maxRetries = 1,
+  //     string fullURL = "/")
+  // {
+  //   // Use the appropriate factory method based on iteration mode
+  //   if (mode == IterationModeEnum.SinglePass)
+  //   {
+  //     return IteratorFactory.CreateSinglePassIterator(this, loadBalanceMode, fullURL);
+  //   }
+  //   else
+  //   {
+  //     return IteratorFactory.CreateMultiPassIterator(this, loadBalanceMode, maxRetries, fullURL);
+  //   }
+  // }
 
   // Add method to invalidate iterator cache when hosts change
   private void InvalidateIteratorCache()
