@@ -270,6 +270,8 @@ namespace SimpleL7Proxy.Events
 
     private void TrackException()
     {
+      this["ExceptionType"] = Exception?.GetType().ToString() ?? "Unknown";
+      this["Message"] = Exception?.Message ?? "No exception message";
       _telemetryClient?.TrackException(Exception, this.ToDictionary());
     }
 
