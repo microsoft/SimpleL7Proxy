@@ -31,9 +31,10 @@ public static class IteratorFactory
     public static IHostIterator CreateSinglePassIterator(
         IBackendService backendService,
         string loadBalanceMode,
-        string fullURL)
+        string fullURL,
+        out string modifiedPath)
     {
-        return CreateIteratorInternal(backendService, loadBalanceMode, IterationModeEnum.SinglePass, 1, fullURL);
+        return CreateIteratorInternal(backendService, loadBalanceMode, IterationModeEnum.SinglePass, 1, fullURL, out modifiedPath);
     }
 
     /// <summary>
@@ -50,9 +51,10 @@ public static class IteratorFactory
         IBackendService backendService,
         string loadBalanceMode,
         int maxAttempts,
-        string fullURL)
+        string fullURL,
+        out string modifiedPath)
     {
-        return CreateIteratorInternal(backendService, loadBalanceMode, IterationModeEnum.MultiPass, maxAttempts, fullURL);
+        return CreateIteratorInternal(backendService, loadBalanceMode, IterationModeEnum.MultiPass, maxAttempts, fullURL, out modifiedPath);
     }
 
     /// <summary>
@@ -62,10 +64,11 @@ public static class IteratorFactory
     /// </summary>
     private static IHostIterator CreateIteratorInternal(
         IBackendService backendService,
-        string loadBalanceMode, 
-        IterationModeEnum mode, 
+        string loadBalanceMode,
+        IterationModeEnum mode,
         int maxAttempts,
-        string fullURL)
+        string fullURL,
+        out string modifiedPath)
     {
         // Get pre-categorized hosts from backend service
         var specificHosts = backendService.GetSpecificPathHosts();
@@ -73,17 +76,22 @@ public static class IteratorFactory
         
         if ((specificHosts?.Count ?? 0) == 0 && (catchAllHosts?.Count ?? 0) == 0)
         {
+            modifiedPath = fullURL; // No modification
             return new EmptyBackendHostIterator();
         }
 
         // Extract path from fullURL to filter hosts
         var requestPath = ExtractPathFromURL(fullURL);
-        var filteredHosts = FilterHostsByPath(specificHosts!, catchAllHosts!, requestPath);
+        var (filteredHosts, mp) = FilterHostsByPath(specificHosts!, catchAllHosts!, requestPath);
+        modifiedPath = mp;
 
         if (filteredHosts.Count == 0)
         {
             return new EmptyBackendHostIterator();
         }
+
+        // TODO: Store or use modifiedPath - it needs to be passed to the iterator or stored somewhere
+        // For now, you'll need to decide where to use the modifiedPath
 
         return loadBalanceMode switch
         {
@@ -103,36 +111,39 @@ public static class IteratorFactory
         if (string.IsNullOrEmpty(fullURL))
             return "/";
 
-        // If fullURL starts with http/https, parse as full URI using Uri class
-        if (fullURL.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-            fullURL.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        // Try to parse as absolute URI first
+        if (Uri.TryCreate(fullURL, UriKind.Absolute, out Uri? uri))
         {
-            if (Uri.TryCreate(fullURL, UriKind.Absolute, out Uri? uri))
-            {
-                return uri.PathAndQuery;
-            }
-            else
-            {
-                // If URI parsing fails, treat as relative path
-                return fullURL.StartsWith("/") ? fullURL : "/" + fullURL;
-            }
+            return uri.PathAndQuery;
         }
 
         // For relative paths, ensure they start with '/'
-        return fullURL.StartsWith("/") ? fullURL : "/" + fullURL;
+        return fullURL.StartsWith('/') ? fullURL : "/" + fullURL;
     }
 
     /// <summary>
-    /// Filters the host list to only include hosts that support the given request path.
-    /// Prefers specific path matches over catch-all "/" hosts.
-    /// Uses pre-categorized host lists for performance.
+    /// Filters hosts by path and returns both the matching hosts and the path with matched prefix removed.
+    /// This enables backend hosts to handle requests without needing to know their routing prefix.
     /// </summary>
-    private static List<BaseHostHealth> FilterHostsByPath(List<BaseHostHealth> specificHosts, List<BaseHostHealth> catchAllHosts, string requestPath)
+    private static (List<BaseHostHealth> hosts, string modifiedPath) FilterHostsByPath(
+        List<BaseHostHealth> specificHosts, 
+        List<BaseHostHealth> catchAllHosts, 
+        string requestPath)
     {
-        var matchingSpecificHosts = specificHosts.Where(host => host.Config.SupportsPath(requestPath)).ToList();
+        // Evaluate all matches once
+        var matchedHosts = specificHosts
+            .Select(host => (host, result: host.Config.SupportsPath(requestPath)))
+            .Where(x => x.result.IsMatch)
+            .ToList();
         
-        // Return specific hosts if any match, otherwise return catch-all hosts
-        return matchingSpecificHosts.Count > 0 ? matchingSpecificHosts : catchAllHosts;
+        if (matchedHosts.Count > 0)
+        {
+            // Use the stripped path from the first match (all should strip the same way)
+            return (matchedHosts.Select(x => x.host).ToList(), matchedHosts[0].result.StrippedPath);
+        }
+        
+        // No specific match - return catch-all hosts with original path
+        return (catchAllHosts, requestPath);
     }
 
     /// <summary>
