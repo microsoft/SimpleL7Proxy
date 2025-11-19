@@ -733,25 +733,31 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
         //byte[] bodyBytes = await request.CachBodyAsync().ConfigureAwait(false);
         List<S7PRequeueException> retryAfter = new();
 
+        string modifiedPath = "";
         // Get an iterator for the active hosts based on the load balancing mode and iteration strategy
         using var hostIterator = _options.IterationMode switch
         {
             IterationModeEnum.SinglePass => IteratorFactory.CreateSinglePassIterator(
                 _backends,
                 _options.LoadBalanceMode,
-                request.Path),
+                request.Path,
+                out modifiedPath),
 
             IterationModeEnum.MultiPass => IteratorFactory.CreateMultiPassIterator(
                 _backends,
                 _options.LoadBalanceMode,
                 _options.MaxAttempts,
-                request.Path),
+                request.Path,
+                out modifiedPath),
 
             _ => IteratorFactory.CreateSinglePassIterator(
                 _backends,
                 _options.LoadBalanceMode,
-                request.Path)
+                request.Path,
+                out modifiedPath)
         };
+Console.WriteLine("FullURL: " + request.FullURL + "   Modified Path: " + modifiedPath);
+        request.Path = modifiedPath;
 
         if ( request.Debug) {
             // count the number of hosts
@@ -797,10 +803,10 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
             // Tracked as an attempt
             try
             {
-                if (request.Context?.Request.Url != null)
-                    requestAttempt.Uri = request.Context!.Request.Url!;
-                else
-                    requestAttempt.Uri = new Uri(request.FullURL);
+                // if (request.Context?.Request.Url != null)
+                //     requestAttempt.Uri = request.Context!.Request.Url!;
+                // else
+                requestAttempt.Uri = new Uri(modifiedPath);
 
                 if (host.Config.UseOAuth)
                 {
@@ -1073,8 +1079,14 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                         string mediaType = proxyResponse.Content?.Headers?.ContentType?.MediaType ?? string.Empty;
 
                         // pull out the processor from response headers if it exists
-                        pr.StreamingProcessor = DetermineStreamProcessor(proxyResponse, mediaType);
-                        requestState = "Stream Proxy Response : " + pr.StreamingProcessor;
+                        if (host.Config.DirectMode)
+                        {
+                            pr.StreamingProcessor = host.Config.Processor;
+                            requestState = "Direct Mode Processor: " + pr.StreamingProcessor;
+                        } else {
+                            pr.StreamingProcessor = DetermineStreamProcessor(proxyResponse, mediaType);
+                            requestState = "Stream Proxy Response : " + pr.StreamingProcessor;
+                        }
 
                         // Stream response from backend to client/blob
                         try
@@ -1456,49 +1468,35 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
     /// <returns>The name of the processor to use for streaming the response</returns>
     private static string DetermineStreamProcessor(HttpResponseMessage proxyResponse, string mediaType)
     {
-        if (proxyResponse == null)
-            throw new ArgumentNullException(nameof(proxyResponse));
+        ArgumentNullException.ThrowIfNull(proxyResponse); // C# 10+ pattern
 
-        const string defaultProcessor = "Default";
-        const string streamProcessor = "DefaultStream";
-        const string inlineAlias = "Inline";
-        const string processorSuffix = "Processor";
-        const string tokenProcessorHeader = "TOKENPROCESSOR";
-        const string eventStreamMediaType = "text/event-stream";
+        const string DEFAULT_PROCESSOR = "Default";
+        const string STREAM_PROCESSOR = "DefaultStream";
+        const string PROCESSOR_SUFFIX = "Processor";
+        const string TOKEN_PROCESSOR_HEADER = "TOKENPROCESSOR";
+        const string EVENT_STREAM_MEDIA = "text/event-stream";
 
-        string tokenProcessor = defaultProcessor;
+        // Extract processor from header (200 OK only)
+        var processor = proxyResponse.StatusCode == HttpStatusCode.OK &&
+                    proxyResponse.Headers.TryGetValues(TOKEN_PROCESSOR_HEADER, out var values) &&
+                    values.FirstOrDefault()?.Trim() is { Length: > 0 } headerValue
+            ? StripProcessorSuffix(headerValue, PROCESSOR_SUFFIX)
+            : DEFAULT_PROCESSOR;
 
-        // Extract processor name from response header if available and status is OK
-        if (proxyResponse.StatusCode == HttpStatusCode.OK && 
-            proxyResponse.Headers.TryGetValues(tokenProcessorHeader, out var processorValues))
+        // Use pattern matching for cleaner logic
+        return processor switch
         {
-            var headerValue = processorValues?.FirstOrDefault()?.Trim();
-            if (!string.IsNullOrWhiteSpace(headerValue))
-            {
-                // Remove "Processor" suffix if present (case-insensitive)
-                tokenProcessor = headerValue.EndsWith(processorSuffix, StringComparison.OrdinalIgnoreCase)
-                    ? headerValue.Substring(0, headerValue.Length - processorSuffix.Length)
-                    : headerValue;
-            }
-        }
-
-        // Fallback to default if no valid processor was extracted
-        if (string.IsNullOrWhiteSpace(tokenProcessor))
-            tokenProcessor = defaultProcessor;
-
-        // Auto-select streaming processor for Server-Sent Events or inline alias
-        bool isEventStream = mediaType.Equals(eventStreamMediaType, StringComparison.OrdinalIgnoreCase);
-        bool isDefaultWithEventStream = tokenProcessor.Equals(defaultProcessor, StringComparison.OrdinalIgnoreCase) && isEventStream;
-        bool isInlineAlias = tokenProcessor.Equals(inlineAlias, StringComparison.OrdinalIgnoreCase);
-
-        if (isDefaultWithEventStream || isInlineAlias)
-        {
-            tokenProcessor = streamProcessor;
-        }
-
-        return tokenProcessor;
-
+            "Inline" => STREAM_PROCESSOR,
+            DEFAULT_PROCESSOR when mediaType.Equals(EVENT_STREAM_MEDIA, StringComparison.OrdinalIgnoreCase) 
+                => STREAM_PROCESSOR,
+            _ => processor
+        };
     }
+
+    private static string StripProcessorSuffix(string value, string suffix)
+        => value.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
+            ? value[..^suffix.Length]
+            : value;
 
     private IStreamProcessor GetStreamProcessor(string processWith, out string resolved)
     {
