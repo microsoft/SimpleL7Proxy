@@ -24,37 +24,27 @@ namespace SimpleL7Proxy.Backend
     private static IServiceProvider? _serviceProvider;
     private readonly ICircuitBreaker _circuitBreaker;
     public Guid Guid { get; } = Guid.NewGuid();
-    public string Host { get; private set; }
-    public string ProbePath { get; private set; }
+    private ParsedConfig ParsedConfig { get; set; }
+    public string Audience => ParsedConfig.Audience;
+    public bool DirectMode => ParsedConfig.DirectMode;
+    public string Host  => ParsedConfig.Host;
+    public string? IpAddr => ParsedConfig.IpAddr;
+    public string PartialPath => ParsedConfig.PartialPath;
+    public string ProbePath => ParsedConfig.ProbePath;
+    public string Processor => ParsedConfig.Processor;
+    public bool UseOAuth => ParsedConfig.UseOAuth;
+    public bool UsesRetryAfter => ParsedConfig.UsesRetryAfter;
     public string Protocol { get; private set; }
     public int Port { get; private set; }
-    public string? IpAddr { get; private set; }
-    public bool DirectMode { get; private set; }
-    public string PartialPath { get; private set; } = "/*";
-    public bool UseOAuth { get; private set; }
-    public string Audience { get; private set; } = "";
-    public bool UsesRetryAfter { get; private set; } = true;
-
     // Cached path matching properties for performance
     private readonly bool _isCatchAllPath;
     private readonly string? _normalizedPartialPath;
     private readonly bool _isWildcardPath;
     private readonly string? _wildcardPrefix;
 
-    private struct ParsedConfig
-    {
-      public string Host;
-      public string ProbePath;
-      public bool DirectMode;
-      public string? IpAddr;
-      public string PartialPath;
-      public bool UseOAuth;
-      public string Audience;
-      public bool UsesRetryAfter;
-    }
-
-    public string Url => new UriBuilder(Protocol, IpAddr ?? Host, Port).Uri.AbsoluteUri;
-    public string ProbeUrl => WebUtility.UrlDecode(new UriBuilder(Protocol, IpAddr ?? Host, Port, ProbePath).Uri.AbsoluteUri);
+    public string Url => ParsedConfig.Host;
+    public string ProbeUrl { get; set; }
+    
 
     /// <summary>
     /// Tracks status for circuit breaker
@@ -83,7 +73,7 @@ namespace SimpleL7Proxy.Backend
     /// <summary>
     /// Constructs a BackendHostConfig from a hostname and optional probe path.
     /// </summary>
-    public HostConfig(string hostname, string? probepath = "", string? audience = "")
+    public HostConfig(string hostname, string? probepath = "", string? ip = null, string? audience = "")
     {
       // Get CircuitBreaker instance from DI container
       if (_serviceProvider == null)
@@ -93,36 +83,30 @@ namespace SimpleL7Proxy.Backend
         ?? throw new InvalidOperationException("ICircuitBreaker service not registered in DI container.");
       
       _logger?.LogInformation("[CONFIG] Configuring backend host: {hostname}", hostname);
-      var parsed = TryParseConfig(hostname, probepath, audience);
+      ParsedConfig = TryParseConfig(hostname, probepath, ip, audience);
 
       // If host does not have a protocol, add one
-      string hostForUri = parsed.Host;
-      if (!hostForUri.StartsWith("http://") && !hostForUri.StartsWith("https://"))
-      {
-        hostForUri = "https://" + hostForUri;
-      }
-
+      string hostForUri = ParsedConfig.Host;
       _circuitBreaker.ID = hostForUri;
-
-      // if host ends with a slash, remove it
-      hostForUri = hostForUri.TrimEnd('/');
 
       // parse the host, protocol and port
       Uri uri = new Uri(hostForUri);
       Protocol = uri.Scheme;
       Port = uri.Port;
-      Host = uri.Host;
-      ProbePath = parsed.ProbePath;
-      DirectMode = parsed.DirectMode;
-      IpAddr = parsed.IpAddr;
-      PartialPath = parsed.PartialPath;
-      UseOAuth = parsed.UseOAuth;
-      Audience = parsed.Audience;
-      UsesRetryAfter = parsed.UsesRetryAfter;
 
       // Pre-compute path matching properties for performance
       var trimmedPath = PartialPath?.Trim();
       _isCatchAllPath = string.IsNullOrEmpty(trimmedPath) || trimmedPath == "/" || trimmedPath == "/*";
+
+      if (!DirectMode)
+      {
+        Console.WriteLine("Making probe url with Protocol: " + Protocol + " IpAddr: " + (IpAddr ?? Host) + " Port: " + Port + " ProbePath: " + ProbePath);
+        ProbeUrl = WebUtility.UrlDecode(new UriBuilder(Protocol, IpAddr ?? Host, Port, ProbePath).Uri.AbsoluteUri);
+      }
+      else
+      {
+        ProbeUrl = String.Empty;
+      }
 
       if (!_isCatchAllPath)
       {
@@ -143,7 +127,7 @@ namespace SimpleL7Proxy.Backend
     }
 
 
-    private static ParsedConfig TryParseConfig(string input, string? probepath, string? audience = "")
+    private static ParsedConfig TryParseConfig(string input, string? probepath, string? ip, string? audience = "")
     /// <summary>
     /// Parses a backend configuration string into a ParsedConfig struct.
     /// </summary>
@@ -153,7 +137,7 @@ namespace SimpleL7Proxy.Backend
         Host = input,
         ProbePath = probepath?.TrimStart('/') ?? "echo/resource?param1=sample",
         DirectMode = false,
-        IpAddr = null,
+        IpAddr =  ip ?? "",
         PartialPath = "/",
         UseOAuth = false,
         Audience = audience ?? "",
@@ -162,18 +146,16 @@ namespace SimpleL7Proxy.Backend
 
       if (input.Contains(';'))
       {
-        var parts = input.Split(';');
         var configDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var part in parts)
+        foreach (var part in input.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-          var trimmed = part.Trim();
-          var idx = trimmed.IndexOf('=');
-          if (idx <= 0 || idx == trimmed.Length - 1)
+          var splitIndex = part.IndexOf('=');
+          if (splitIndex <= 0 || splitIndex >= part.Length - 1)
             throw new UriFormatException($"Invalid backend host configuration part: {part}");
 
-          var key = trimmed.Substring(0, idx).Trim();
-          var value = trimmed.Substring(idx + 1).Trim();
+          var key = part[..splitIndex];
+          var value = part[(splitIndex + 1)..];
           configDict[key] = value;
         }
 
@@ -181,27 +163,30 @@ namespace SimpleL7Proxy.Backend
         {
           switch (kvp.Key.ToLowerInvariant())
           {
-            case "probe":
-              result.ProbePath = kvp.Value;
+            case "audience":
+              result.Audience = kvp.Value;
               break;
-            case "mode":
-              result.DirectMode = kvp.Value.Equals("direct", StringComparison.OrdinalIgnoreCase);
+            case "host":
+              result.Host = NormalizeHostUrl(kvp.Value);
               break;
             case "ipaddress":
               result.IpAddr = kvp.Value;
               break;
-            case "host":
-              result.Host = kvp.Value;
+            case "mode":
+              result.DirectMode = kvp.Value.Equals("direct", StringComparison.OrdinalIgnoreCase);
               break;
             case "path":
               result.PartialPath = kvp.Value;
               break;
+            case "probe":
+              result.ProbePath = kvp.Value;
+              break;
+            case "processor":
+              result.Processor = kvp.Value;
+              break;
             case "useoauth":
             case "usemi":
               result.UseOAuth = kvp.Value.Equals("true", StringComparison.OrdinalIgnoreCase);
-              break;
-            case "audience":
-              result.Audience = kvp.Value;
               break;
             case "useretryafter":
             case "retryafter":
@@ -209,6 +194,11 @@ namespace SimpleL7Proxy.Backend
               break;
             default:
               throw new UriFormatException($"Invalid backend host configuration key: {kvp.Key}");
+          }
+
+          if (result.DirectMode)                // For DirectMode, ignore probe path
+          {
+            result.ProbePath = "";
           }
         }
       }
@@ -223,6 +213,28 @@ namespace SimpleL7Proxy.Backend
       }
     }
 
+    /// <summary>
+    /// Normalizes a host URL by ensuring it has a protocol and removing trailing slashes.
+    /// </summary>
+    /// <param name="hostValue">The raw host value from configuration</param>
+    /// <returns>Normalized host URL</returns>
+    private static string NormalizeHostUrl(string hostValue)
+    {
+      ArgumentException.ThrowIfNullOrWhiteSpace(hostValue, nameof(hostValue));
+
+      ReadOnlySpan<char> normalized = hostValue.AsSpan().Trim();
+
+      // Ensure protocol is present
+      if (!normalized.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+          !normalized.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+      {
+        return string.Concat("https://", normalized.TrimEnd('/'));
+      }
+
+      // Remove trailing slashes using span
+      return normalized.TrimEnd('/').ToString();
+    }
+    
     /// <summary>
     /// Gets the current OAuth2 token for this backend host.
     /// </summary>
@@ -244,47 +256,71 @@ namespace SimpleL7Proxy.Backend
     }
 
     /// <summary>
-    /// Determines if this host supports the given request path based on its PartialPath configuration.
+    /// Determines if this host supports the given request path and returns the path with prefix removed.
     /// This method is used for specific path matching only - catch-all paths are handled separately.
     /// - Exact paths like "/api" match exactly and as prefixes (e.g., "/api/c1/foo")
     /// - Paths ending with "/*" like "/api/*" match as prefixes
     /// </summary>
     /// <param name="requestPath">The request path to check against this host's PartialPath</param>
+    /// <param name="strippedPath">Output: the request path with the matched prefix removed</param>
     /// <returns>True if this host supports the request path, false otherwise</returns>
-    public bool SupportsPath(string requestPath)
+    public PathMatchResult SupportsPath(string requestPath)
     {
-      // Skip catch-all paths - these are handled separately in FilterHostsByPath
-      if (_isCatchAllPath)
-      {
-        return false;
-      }
-Console.WriteLine($"HostConfig: Checking path support. Host: {Host} | PartialPath: {PartialPath} | RequestPath: {requestPath}");
-      // Normalize request path for comparison
-      var normalizedRequestPath = requestPath.TrimStart('/');
+        // Skip catch-all paths - these are handled separately in FilterHostsByPath
+        if (_isCatchAllPath)
+        {
+            return PathMatchResult.NoMatch(requestPath);
+        }
 
-      // If host path ends with /*, treat it as a prefix match
-      if (_isWildcardPath)
-      {
-        return string.IsNullOrEmpty(_wildcardPrefix) || normalizedRequestPath.StartsWith(_wildcardPrefix, StringComparison.OrdinalIgnoreCase);
-      }
+        // Split path and query using span to avoid allocations
+        ReadOnlySpan<char> pathSpan = requestPath.AsSpan();
+        int queryIndex = pathSpan.IndexOf('?');
+        ReadOnlySpan<char> path = queryIndex >= 0 ? pathSpan.Slice(0, queryIndex) : pathSpan;
+        ReadOnlySpan<char> query = queryIndex >= 0 ? pathSpan.Slice(queryIndex) : ReadOnlySpan<char>.Empty;
+        
+        // Normalize request path for comparison (trim leading slashes)
+        ReadOnlySpan<char> normalizedPath = path.TrimStart('/');
 
-      // Exact path match
-      if (normalizedRequestPath.Equals(_normalizedPartialPath, StringComparison.OrdinalIgnoreCase))
-      {
+        // If host path ends with /*, treat it as a prefix match
+        if (_isWildcardPath)
+        {
+            if (string.IsNullOrEmpty(_wildcardPrefix) || 
+                normalizedPath.StartsWith(_wildcardPrefix.AsSpan(), StringComparison.OrdinalIgnoreCase))
+            {
+                // Strip the wildcard prefix
+                if (!string.IsNullOrEmpty(_wildcardPrefix))
+                {
+                    var remaining = normalizedPath.Slice(_wildcardPrefix.Length).TrimStart('/');
+                    return PathMatchResult.Match(string.Concat("/", remaining, query));
+                }
+                return PathMatchResult.Match(requestPath);
+            }
+            return PathMatchResult.NoMatch(requestPath);
+        }
 
-        return true;
-      }
+        // Exact path match
+        if (normalizedPath.Equals(_normalizedPartialPath.AsSpan(), StringComparison.OrdinalIgnoreCase))
+        {
+            return PathMatchResult.Match(query.IsEmpty ? "/" : string.Concat("/", query));
+        }
 
-      // Prefix match: "/api" should match "/api/c1/foo" 
-      // Check if request path starts with host path followed by '/' or is exactly the host path
-      if (!string.IsNullOrEmpty(_normalizedPartialPath))
-      {
-        var hostPathWithSlash = _normalizedPartialPath.TrimEnd('/') + "/";
-        return normalizedRequestPath.StartsWith(hostPathWithSlash, StringComparison.OrdinalIgnoreCase);
-      }
+        // Prefix match: "/api" should match "/api/c1/foo" 
+        if (!string.IsNullOrEmpty(_normalizedPartialPath))
+        {
+            var prefixSpan = _normalizedPartialPath.AsSpan();
+            
+            if (normalizedPath.StartsWith(prefixSpan, StringComparison.OrdinalIgnoreCase))
+            {
+                if (normalizedPath.Length == prefixSpan.Length || 
+                    normalizedPath[prefixSpan.Length] == '/')
+                {
+                    var remaining = normalizedPath.Slice(prefixSpan.Length).TrimStart('/');
+                    return PathMatchResult.Match(string.Concat("/", remaining, query));
+                }
+            }
+        }
 
-      return false;
+        return PathMatchResult.NoMatch(requestPath);
     }
-
   }
 }
