@@ -21,8 +21,8 @@ public class HostHealthCollection : IHostHealthCollection
     {
       BaseHostHealth host;
 
-      // Determine if host supports probing based on ProbePath
-      if (string.IsNullOrEmpty(hostConfig.ProbePath) || hostConfig.ProbePath == "/")
+      // Determine if host supports probing based on DirectMode or ProbePath
+      if (hostConfig.DirectMode || string.IsNullOrEmpty(hostConfig.ProbePath) || hostConfig.ProbePath == "/")
       {
         // No probe path or root path - treat as non-probeable
         host = new NonProbeableHostHealth(hostConfig, logger);
