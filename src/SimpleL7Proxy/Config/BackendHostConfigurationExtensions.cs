@@ -639,7 +639,7 @@ public static class BackendHostConfigurationExtensions
         _logger?.LogInformation($"Found host {hostname} with probe path {probePath} and IP {ip}");
 
         // Resolve HostConfig from DI using the factory
-        HostConfig bh = new HostConfig(hostname, probePath, backendOptions.OAuthAudience);
+        HostConfig bh = new HostConfig(hostname, probePath, ip, backendOptions.OAuthAudience);
         backendOptions.Hosts.Add(bh);
 
         sb.AppendLine($"{ip} {bh.Host}");
@@ -648,6 +648,7 @@ public static class BackendHostConfigurationExtensions
       catch (UriFormatException e)
       {
         _logger?.LogError($"Could not add Host{i} with {hostname} : {e.Message}");
+        Console.WriteLine(e.StackTrace);
       }
 
       i++;
