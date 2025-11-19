@@ -193,7 +193,6 @@ public class Backends : IBackendService
           catch (Exception e)
           {
             _logger.LogError($"Backends: An unexpected error occurred: {e.Message}");
-Console.WriteLine(e.StackTrace);
           }
         }
       }
@@ -324,7 +323,6 @@ Console.WriteLine(e.StackTrace);
       probeData.Type = EventType.Exception;
       probeData.Exception = e;
       probeData["Code"] = "-";
-      Console.WriteLine (e.StackTrace);
     }
     finally
     {
