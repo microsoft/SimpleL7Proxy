@@ -43,7 +43,7 @@ namespace SimpleL7Proxy;
 
 public class Program
 {
-    
+
     public static async Task Main(string[] args)
     {
         Banner.Display();
@@ -95,7 +95,7 @@ public class Program
 
         // Register backends after DI container is built and HostConfig is initialized
         BackendHostConfigurationExtensions.RegisterBackends(options.Value);
-    
+
         try
         {
             //ServiceBusRequestService? serviceBusService = null;
@@ -139,7 +139,9 @@ public class Program
             //Console.WriteLine(e.StackTrace);
             // Handle other exceptions that might occur
             startupLogger.LogError($"[ERROR] ✗ Unexpected startup error: {e.Message}");
-            Console.WriteLine(e.StackTrace);
+            var pe = new ProxyEvent();
+            pe.Type = EventType.Exception;
+            pe.SendEvent();
         }
     }
 
