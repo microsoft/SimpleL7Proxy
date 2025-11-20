@@ -13,37 +13,21 @@ public static class ProxyEventServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddProxyEventClient(
         this IServiceCollection services,
-        string? eventHubConnectionString,
-        string? eventHubName,
         string? aiConnectionString)
     {
-        if (!string.IsNullOrEmpty(aiConnectionString))
-        {
-            try
-            {
-                services.AddSingleton<AppInsightsEventClient>();
-                services.AddSingleton<IEventClient, AppInsightsEventClient>();
-                services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService<AppInsightsEventClient>());
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Failed to create AppInsightsEventClient: " + ex.Message);
-            }
-        }
+        AddAppInsightsClient(services, aiConnectionString);
 
-        if (!string.IsNullOrEmpty(eventHubConnectionString) && !string.IsNullOrEmpty(eventHubName))
+        // EventHubClient checks EventHubConfig in constructor and decides whether to run
+        try
         {
-            try
-            {
-                services.AddSingleton<EventHubClient>();
-                //services.AddSingleton<EventHubClient>(svc => new EventHubClient(eventHubConnectionString, eventHubName));
-                services.AddSingleton<IEventClient>(svc => svc.GetRequiredService<EventHubClient>());
-                services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService<EventHubClient>());
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Failed to create EventHubClient: " + ex.Message);
-            }
+            Console.WriteLine("Registering EventHubClient");
+            services.AddSingleton<EventHubClient>();
+            services.AddSingleton<IEventClient>(svc => svc.GetRequiredService<EventHubClient>());
+            services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService<EventHubClient>());
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Failed to create EventHubClient: " + ex.Message);
         }
 
         // Register the composite if you want to inject it, but do not overwrite IEventClient
@@ -64,19 +48,8 @@ public static class ProxyEventServiceCollectionExtensions
         string? filename,
         string? aiConnectionString)
     {
-        if (!string.IsNullOrEmpty(aiConnectionString))
-        {
-            try
-            {
-                services.AddSingleton<AppInsightsEventClient>();
-                services.AddSingleton<IEventClient, AppInsightsEventClient>();
-                services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService<AppInsightsEventClient>());
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Failed to create AppInsightsEventClient: " + ex.Message);
-            }
-        }
+        AddAppInsightsClient(services, aiConnectionString);
+
         if (!string.IsNullOrEmpty(filename))
         {
             try
@@ -99,5 +72,25 @@ public static class ProxyEventServiceCollectionExtensions
         });
 
         return services;
+    }
+
+    /// <summary>
+    /// Helper method to register AppInsights event client
+    /// </summary>
+    private static void AddAppInsightsClient(IServiceCollection services, string? aiConnectionString)
+    {
+        if (string.IsNullOrEmpty(aiConnectionString))
+            return;
+
+        try
+        {
+            services.AddSingleton<AppInsightsEventClient>();
+            services.AddSingleton<IEventClient, AppInsightsEventClient>();
+            services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService<AppInsightsEventClient>());
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Failed to create AppInsightsEventClient: " + ex.Message);
+        }
     }
 }

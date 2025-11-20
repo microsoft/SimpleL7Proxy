@@ -12,8 +12,7 @@ namespace SimpleL7Proxy.Events;
 public class EventHubClient : IEventClient, IHostedService
 {
 
-    private readonly string? _connectionString;
-    private readonly string? _eventHubName;
+    private readonly EventHubConfig? _config;
     private EventHubProducerClient? _producerClient;
     private EventDataBatch? _batchData;
     private readonly ILogger<EventHubClient> _logger;
@@ -31,17 +30,23 @@ public class EventHubClient : IEventClient, IHostedService
 
     public EventHubClient(EventHubConfig config, ILogger<EventHubClient> logger)
     {
-        _connectionString = config.ConnectionString;
-        _eventHubName = config.EventHubName;
+        _config = config;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        
-        if (string.IsNullOrEmpty(config.ConnectionString) || string.IsNullOrEmpty(config.EventHubName))
+
+        if ( (!string.IsNullOrEmpty(config.ConnectionString) && !string.IsNullOrEmpty(config.EventHubName)) ||
+             (!string.IsNullOrEmpty(config.EventHubNamespace) && !string.IsNullOrEmpty(config.EventHubName))
+           )
         {
-            isRunning = false;
-            _producerClient = null;
-            _batchData = null;
+            // we will try to start it up
             return;
         }
+
+        // We know that it won't be running.
+        isRunning = false;
+        _producerClient = null;
+        _batchData = null;
+        return;
+        
     }
 
     public int Count => _logBuffer.Count;
@@ -49,7 +54,20 @@ public class EventHubClient : IEventClient, IHostedService
     public async Task StartAsync(CancellationToken cancellationToken) {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         try {
-            _producerClient = new EventHubProducerClient(_connectionString, _eventHubName);
+            if (!string.IsNullOrEmpty(_config?.ConnectionString))
+            {
+
+                _producerClient = new EventHubProducerClient(_config.ConnectionString, _config.EventHubName);
+            }
+            else
+            {
+                var fullyQualifiedNamespace = _config.EventHubNamespace;
+                if (!fullyQualifiedNamespace.EndsWith(".servicebus.windows.net"))
+                    fullyQualifiedNamespace = $"{_config?.EventHubNamespace}.servicebus.windows.net";
+            
+                _producerClient = new EventHubProducerClient(fullyQualifiedNamespace, _config?.EventHubName, new Azure.Identity.DefaultAzureCredential());
+            }
+            
             _batchData = await _producerClient.CreateBatchAsync(cts.Token).ConfigureAwait(false);
             workerCancelToken = cancellationTokenSource.Token;
             isRunning = true;
@@ -63,7 +81,7 @@ public class EventHubClient : IEventClient, IHostedService
             throw new Exception("Failed to setup EventHubClient.", ex);
         }
 
-        _logger.LogCritical("EventHub Client starting");
+        _logger.LogCritical("[SERVICE] ✓ EventHub Client starting");
         if (isRunning && _producerClient is not null && _batchData is not null) {
             writerTask = Task.Run(() => EventWriter(workerCancelToken), workerCancelToken);
         }

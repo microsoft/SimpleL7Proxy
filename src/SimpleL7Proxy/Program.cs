@@ -139,6 +139,7 @@ public class Program
             //Console.WriteLine(e.StackTrace);
             // Handle other exceptions that might occur
             startupLogger.LogError($"[ERROR] ✗ Unexpected startup error: {e.Message}");
+            Console.WriteLine(e.StackTrace);
         }
     }
 
@@ -195,9 +196,10 @@ public class Program
         {
             var eventHubConnectionString = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING");
             var eventHubName = Environment.GetEnvironmentVariable("EVENTHUB_NAME");
+            var eventHubNamespace = Environment.GetEnvironmentVariable("EVENTHUB_NAMESPACE");
 
-            services.AddSingleton(new EventHubConfig(eventHubConnectionString!, eventHubName!));
-            services.AddProxyEventClient(eventHubConnectionString, eventHubName, Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING"));
+            services.AddSingleton(new EventHubConfig(eventHubConnectionString!, eventHubName!, eventHubNamespace!));
+            services.AddProxyEventClient(Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING"));
         }
 
         services.AddBackendHostConfiguration(startupLogger);
