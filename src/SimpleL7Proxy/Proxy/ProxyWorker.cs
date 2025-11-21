@@ -47,6 +47,7 @@ public class ProxyWorker
     private readonly IAsyncWorkerFactory _asyncWorkerFactory; // Just inject the factory
     private readonly ILogger<ProxyWorker> _logger;
     private readonly StreamProcessorFactory _streamProcessorFactory;
+    private readonly RequestLifecycleManager _lifecycleManager;
     //private readonly ProxyStreamWriter _proxyStreamWriter;
     private IUserPriorityService _userPriority;
     private IUserProfileService _profiles;
@@ -56,7 +57,7 @@ public class ProxyWorker
     private static bool readyToWork = false;
     public static bool IsReadyToWork => readyToWork;
     private CancellationTokenSource? _asyncExpelSource;
-    private bool _asyncExpelInProgress = false;
+    private bool _isEvictingAsyncRequest = false;
     private readonly HealthCheckService _healthCheckService;
 
     static string[] backendKeys = Array.Empty<string>();
@@ -74,6 +75,7 @@ public class ProxyWorker
         IAsyncWorkerFactory asyncWorkerFactory,
         ILogger<ProxyWorker> logger,
         StreamProcessorFactory streamProcessorFactory,
+        RequestLifecycleManager lifecycleManager,
         HealthCheckService healthCheckService,
         //ProxyStreamWriter proxyStreamWriter,
         CancellationToken cancellationToken)
@@ -86,6 +88,7 @@ public class ProxyWorker
         _requeueDelayWorker = requeueDelayWorker;
         _logger = logger;
         _streamProcessorFactory = streamProcessorFactory ?? throw new ArgumentNullException(nameof(streamProcessorFactory));
+        _lifecycleManager = lifecycleManager ?? throw new ArgumentNullException(nameof(lifecycleManager));
         //_proxyStreamWriter = proxyStreamWriter;
         //_eventHubClient = eventHubClient;
         _userPriority = userPriority ?? throw new ArgumentNullException(nameof(userPriority));
@@ -186,32 +189,12 @@ public class ProxyWorker
                         continue;
                     }
 
-                    // Set the initial Service Bus status based on request type
-                    switch (incomingRequest.Type)
-                    {
-                        case RequestType.AsyncBackgroundCheck:
-                            incomingRequest.SBStatus = ServiceBusMessageStatusEnum.CheckingBackgroundRequestStatus;
-                            break;
-                        default:
-                            incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Processing;
-                            break;
-                    }
+                    // Set the initial status based on request type
+                    _lifecycleManager.TransitionToProcessing(incomingRequest);
 
-                    eventData.Type = EventType.ProxyRequest;
-                    eventData["EnqueueTime"] = incomingRequest.EnqueueTime.ToString("o");
-                    eventData["RequestContentLength"] = incomingRequest.Headers["Content-Length"] ?? "N/A";
-                    eventData["RequestType"] = incomingRequest.Type.ToString();
-
-                    incomingRequest.Headers["x-Request-Queue-Duration"] = (incomingRequest.DequeueTime! - incomingRequest.EnqueueTime!).TotalMilliseconds.ToString();
-                    incomingRequest.Headers["x-Request-Process-Duration"] = (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString();
-                    incomingRequest.Headers["x-Request-Worker"] = _idStr;
-                    incomingRequest.Headers["x-S7P-ID"] = incomingRequest.MID ?? "N/A";
-                    incomingRequest.Headers["x-S7PPriority"] = incomingRequest.Priority.ToString();
-                    incomingRequest.Headers["x-S7PPriority2"] = incomingRequest.Priority2.ToString();
-                    incomingRequest.Headers["x-Request-Type"] = incomingRequest.Type.ToString();
-
-                    eventData["Request-Queue-Duration"] = incomingRequest.Headers["x-Request-Queue-Duration"] ?? "N/A";
-                    eventData["Request-Process-Duration"] = incomingRequest.Headers["x-Request-Process-Duration"] ?? "N/A";
+                    // Enrich headers and populate initial event data
+                    _lifecycleManager.EnrichRequestHeaders(incomingRequest, _idStr);
+                    _lifecycleManager.PopulateInitialEventData(incomingRequest);
 
                     HealthCheckService.EnterState(_id, WorkerState.Proxying);
                     workerState = "Read Proxy";
@@ -225,24 +208,9 @@ public class ProxyWorker
                     }
                     finally
                     {
-                        if (!_asyncExpelInProgress)
+                        if (!_isEvictingAsyncRequest)
                         {
-                            eventData["Url"] = incomingRequest.FullURL;
-                            var timeTaken = DateTime.UtcNow - incomingRequest.EnqueueTime;
-                            eventData.Duration = timeTaken;
-                            eventData["Total-Latency"] = timeTaken.TotalMilliseconds.ToString("F3");
-                            eventData["Attempts"] = incomingRequest.BackendAttempts.ToString();
-                            if (pr != null)
-                            {
-                                eventData["Backend-Host"] = !string.IsNullOrEmpty(pr.BackendHostname) ? pr.BackendHostname : "N/A";
-                                eventData["Response-Latency"] =
-                                    pr.ResponseDate != default && incomingRequest.DequeueTime != default
-                                        ? (pr.ResponseDate - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3") : "N/A";
-                                eventData["Average-Backend-Probe-Latency"] =
-                                    pr.CalculatedHostLatency != 0 ? pr.CalculatedHostLatency.ToString("F3") + " ms" : "N/A";
-                                if (pr.Headers != null)
-                                    pr.Headers["x-Attempts"] = incomingRequest.BackendAttempts.ToString();
-                            }
+                            _lifecycleManager.PopulateProxyEventData(incomingRequest, pr);
                         }
                     }
 
@@ -253,107 +221,21 @@ public class ProxyWorker
                     //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
 
                     eventData.Status = pr.StatusCode;
-                    if (_options.LogAllRequestHeaders)
-                    {
-                        foreach (var header in incomingRequest.Headers.AllKeys)
-                        {
-                            if (_options.LogAllRequestHeadersExcept == null || !_options.LogAllRequestHeadersExcept.Contains(header))
-                            {
-                                eventData["Request-" + header] = incomingRequest.Headers[header] ?? "N/A";
+                    _lifecycleManager.PopulateHeaderEventData(incomingRequest, pr.Headers);
 
-                            }
-                        }
-                    }
-
-                    if (_options.LogAllResponseHeaders)
-                    {
-                        foreach (var header in pr.Headers.AllKeys)
-                        {
-                            if (_options.LogAllResponseHeadersExcept == null || !_options.LogAllResponseHeadersExcept.Contains(header))
-                            {
-                                eventData["Response-" + header] = pr.Headers[header] ?? "N/A";
-                            }
-                        }
-                    }
-                    else if (_options.LogHeaders?.Count > 0)
-                    {
-                        foreach (var header in _options.LogHeaders)
-                        {
-                            eventData["Response-" + header] = pr.Headers[header] ?? "N/A";
-                        }
-                    }
-
+                    // Determine final status based on response
                     if (pr.StatusCode == HttpStatusCode.PreconditionFailed || pr.StatusCode == HttpStatusCode.RequestTimeout) // 412 or 408
                     {
-                        // Request has expired
                         isExpired = true;
-                        // eventData.Type = EventType.ProxyRequestExpired;
-                        incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Expired;
+                        _lifecycleManager.TransitionToExpired(incomingRequest);
                     }
                     else if (pr.StatusCode == HttpStatusCode.OK)
                     {
-                        // Update status based on request type
-                        switch (incomingRequest.Type)
-                        {
-                            case RequestType.Sync:
-                                // Synchronous requests were processed and response sent directly to client
-                                incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Processed;
-                                break;
-
-                            case RequestType.Async:
-                                // Regular async request completed (not background)
-                                incomingRequest.SBStatus = ServiceBusMessageStatusEnum.AsyncProcessed;
-                                incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Completed;
-                                break;
-
-                            case RequestType.AsyncBackground:
-                                // New background request initiated - submit for later polling
-                                _logger.LogInformation("Updating status to BackgroundRequestSubmitted for request {Guid}", incomingRequest.Guid);
-                                incomingRequest.SBStatus = ServiceBusMessageStatusEnum.BackgroundRequestSubmitted;
-                                incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.BackgroundProcessing;
-                                break;
-
-                            case RequestType.AsyncBackgroundCheck:
-                                // Background check scenario
-                                if (incomingRequest.BackgroundRequestCompleted)
-                                {
-                                    // Background task has completed
-                                    _logger.LogInformation("Updating status to Completed for background check {Guid}", incomingRequest.Guid);
-                                    incomingRequest.SBStatus = ServiceBusMessageStatusEnum.AsyncProcessed;
-                                    incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Completed;
-                                }
-                                else
-                                {
-                                    // Background task is still running
-                                    _logger.LogInformation("Updating status to BackgroundProcessing for background check {Guid}", incomingRequest.Guid);
-                                    incomingRequest.SBStatus = ServiceBusMessageStatusEnum.CheckingBackgroundRequestStatus;
-                                    incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.BackgroundProcessing;
-                                }
-                                break;
-                        }
+                        _lifecycleManager.TransitionToSuccess(incomingRequest, pr.StatusCode);
                     }
                     else  // Non-200, non-expired response - handle failures
                     {
-                        switch (incomingRequest.Type)
-                        {
-                            case RequestType.Async:
-                                _logger.LogWarning("Async request {Guid} failed with status {StatusCode}", incomingRequest.Guid, pr.StatusCode);
-                                incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Failed;
-                                incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Failed;
-                                break;
-
-                            case RequestType.AsyncBackground:
-                            case RequestType.AsyncBackgroundCheck:
-                                _logger.LogWarning("Background request {Guid} failed with status {StatusCode}", incomingRequest.Guid, pr.StatusCode);
-                                incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Failed;
-                                incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Failed;
-                                break;
-
-                            case RequestType.Sync:
-                                // Sync requests don't use RequestAPIStatus
-                                incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Failed;
-                                break;
-                        }
+                        _lifecycleManager.TransitionToFailed(incomingRequest, pr.StatusCode);
                     }
 
                     // SYNCHRONOUS MODE
@@ -373,34 +255,20 @@ public class ProxyWorker
                         pr.StreamingProcessor,
                         conlen, pr.FullURL, incomingRequest.DequeueTime.ToLocalTime().ToString("T"), proxyTime);
 
-                    eventData["Content-Length"] = lcontext?.Response?.ContentLength64.ToString() ?? "N/A";
-                    eventData["Content-Type"] = lcontext?.Response?.ContentType ?? "N/A";
-
-                    if (incomingRequest.incompleteRequests != null)
-                    {
-                        ProxyHelperUtils.AddIncompleteRequestsToEventData(incomingRequest.incompleteRequests, eventData);
-                    }
+                    // Populate final event data
+                    _lifecycleManager.PopulateFinalEventData(incomingRequest, lcontext);
 
                     HealthCheckService.EnterState(_id, WorkerState.Cleanup);
                     workerState = "Cleanup";
 
-                    if (isExpired)
+                    // Finalize status for non-background requests
+                    if (_lifecycleManager.ShouldFinalize(incomingRequest))
                     {
-                        incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Failed;
-                    }
-                    else if (incomingRequest.Type != RequestType.AsyncBackground && 
-                             incomingRequest.Type != RequestType.AsyncBackgroundCheck)
-                    {
-                        // Finalize non-background requests
-                        // Background requests skip finalization here because their status is managed
-                        // in the status resolution block above based on BackgroundRequestCompleted flag
                         var isSuccessfulResponse = ((int)pr.StatusCode == 200 ||
                                                     (int)pr.StatusCode == 206 || // Partial Content
                                                     (int)pr.StatusCode == 201 || // Created
                                                     (int)pr.StatusCode == 202);  // Accepted
-                        incomingRequest.RequestAPIStatus = isSuccessfulResponse
-                            ? RequestAPIStatusEnum.Completed
-                            : RequestAPIStatusEnum.Failed;
+                        _lifecycleManager.FinalizeStatus(incomingRequest, isSuccessfulResponse);
                         incomingRequest.asyncWorker?.UpdateBackup();
                     }
 
@@ -408,16 +276,13 @@ public class ProxyWorker
                 catch (S7PRequeueException e)
                 {
                     // launches a delay task while the current worker goes back to the top of the loop for more work
+                    _lifecycleManager.TransitionToRequeued(incomingRequest);
                     _requeueDelayWorker!.DelayAsync(incomingRequest, e.RetryAfter);
 
                 }
                 catch (ProxyErrorException e)
                 {
-                    incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Failed;
-                    if (incomingRequest.runAsync)
-                    {
-                        incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Failed;
-                    }
+                    _lifecycleManager.TransitionToFailed(incomingRequest, e.StatusCode, e.Message);
 
                     // Handle proxy error
                     eventData.Status = e.StatusCode;
@@ -457,16 +322,13 @@ public class ProxyWorker
                     }
                     else
                     {
+                        _lifecycleManager.TransitionToFailed(incomingRequest, HttpStatusCode.RequestTimeout, "IO Exception: " + ioEx.Message);
+
                         eventData.Status = HttpStatusCode.RequestTimeout; // 408 Request Timeout
                         eventData.Type = EventType.Exception;
                         eventData.Exception = ioEx;
                         var errorMessage = "IO Exception: " + ioEx.Message;
                         eventData["ErrorDetails"] = errorMessage;
-
-                        if (incomingRequest.runAsync)
-                        {
-                            incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Failed;
-                        }
 
                         if (lcontext == null)
                         {
@@ -490,14 +352,13 @@ public class ProxyWorker
                 }
                 catch (TaskCanceledException)
                 {
-                    if (_asyncExpelInProgress)
+                    if (_isEvictingAsyncRequest)
                     {
                         abortTask = true;
                     }
-                    
-                    if (incomingRequest.runAsync)
+                    else
                     {
-                        incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Failed;
+                        _lifecycleManager.TransitionToFailed(incomingRequest, HttpStatusCode.RequestTimeout, "Task cancelled");
                     }
                 }
                 catch (Exception ex)
@@ -509,15 +370,16 @@ public class ProxyWorker
                     else
                     {
                         _logger.LogError(ex, "Unhandled exception in worker for request {Guid}", incomingRequest?.Guid);
+
+                        if (incomingRequest != null)
+                        {
+                            _lifecycleManager.TransitionToFailed(incomingRequest, HttpStatusCode.InternalServerError, ex.Message);
+                        }
+
                         eventData.Status = HttpStatusCode.InternalServerError; // 500 Internal Server Error
                         eventData.Type = EventType.Exception;
                         eventData.Exception = ex;
                         eventData["WorkerState"] = workerState;
-
-                        if (incomingRequest?.runAsync == true)
-                        {
-                            incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Failed;
-                        }
 
                         if (ex.Message == "Cannot access a disposed object." || ex.Message.StartsWith("Unable to write data") || ex.Message.Contains("Broken Pipe")) // The client likely closed the connection
                         {
@@ -567,15 +429,8 @@ public class ProxyWorker
                             }
                         }
 
-                        // Request is still valid, clean up non-background requests
-                        // Background requests (AsyncBackground and AsyncBackgroundCheck) skip explicit cleanup because:
-                        // 1. They are disposed via 'await using (incomingRequest)' at the start of the loop
-                        // 2. They don't need synchronous cleanup (handled by asyncWorker)
-                        // 3. They may be requeued for subsequent status checks
-                        if (!incomingRequest.Requeued &&                           // Request is not being requeued for retry
-                            !_asyncExpelInProgress &&                              // Reserved for async operations which will resume after reboot
-                            incomingRequest.Type != RequestType.AsyncBackground && // Not a background request submission
-                            incomingRequest.Type != RequestType.AsyncBackgroundCheck) // Not a background check request
+                        // Cleanup request if appropriate
+                        if (_lifecycleManager.ShouldCleanup(incomingRequest, incomingRequest.Requeued, _isEvictingAsyncRequest))
                         {
 
                             if (workerState != "Cleanup")
@@ -620,7 +475,7 @@ public class ProxyWorker
     {
         if (_asyncExpelSource != null)
         {
-            _asyncExpelInProgress = true;
+            _isEvictingAsyncRequest = true;
             _logger.LogDebug("Expelling async request in progress, cancelling the token.");
             _asyncExpelSource.Cancel();
         }
@@ -717,13 +572,14 @@ public class ProxyWorker
         };
         request.Path = modifiedPath;
 
-        if ( request.Debug) {
+        if (request.Debug)
+        {
             // count the number of hosts
             int hostCount = 0;
             while (hostIterator.MoveNext())
             {
                 hostCount++;
-                _logger.LogDebug("Host {HostNumber}: {PartialPath} ({Guid})", 
+                _logger.LogDebug("Host {HostNumber}: {PartialPath} ({Guid})",
                     hostCount, hostIterator.Current.Config.PartialPath, hostIterator.Current.Config.Guid);
             }
             // Reset the iterator to the beginning
@@ -741,7 +597,7 @@ public class ProxyWorker
             {
                 continue;
             }
-                    
+
             // track the number of attempts
             request.BackendAttempts++;
             bool successfulRequest = false;
@@ -758,7 +614,7 @@ public class ProxyWorker
                 ["Host-URL"] = host.Url,
                 ["Attempt"] = request.BackendAttempts.ToString()
             };
-    
+
             // Tracked as an attempt
             try
             {
@@ -781,18 +637,8 @@ public class ProxyWorker
 
                 requestState = "Calc ExpiresAt";
 
-                // Check ExpiresAt against current time .. keep in mind, client may have disconnected already
-                if (request.ExpiresAt < DateTimeOffset.UtcNow)
-                {
-                    string errorMessage = $"Request has expired: Time: {DateTime.UtcNow:o}  Reason: {request.ExpireReason}";
-                    // requestSummary.Type = EventType.ProxyRequestExpired;
-                    requestSummary["Disposition"] = "Expired";
-                    request.SkipDispose = false;
-                    throw new ProxyErrorException(ProxyErrorException.ErrorType.TTLExpired,
-                                                HttpStatusCode.PreconditionFailed,
-                                                errorMessage);
-                }
-
+                // Validate request hasn't expired
+                _lifecycleManager.ValidateRequestNotExpired(request);
 
                 var minDate = request.ExpiresAt < DateTime.UtcNow.AddMilliseconds(request.defaultTimeout)
                     ? request.ExpiresAt
@@ -811,8 +657,8 @@ public class ProxyWorker
                 using (HttpRequestMessage proxyRequest = new(new(request.Method), request.FullURL))
                 {
                     proxyRequest.Content = bodyContent;
-                   // request.Headers["Content-Type"] = "application/json";
-                    
+                    // request.Headers["Content-Type"] = "application/json";
+
                     ProxyHelperUtils.CopyHeaders(request.Headers, proxyRequest, true);
                     proxyRequest.Headers.Add("x-PolicyCycleCounter", request.TotalDownstreamAttempts.ToString());
 
@@ -854,7 +700,7 @@ public class ProxyWorker
                     // Log request headers if debugging is enabled
                     if (request.Debug)
                     {
-                        _logger.LogDebug("> {Method} {FullURL} {BodyLength} bytes", 
+                        _logger.LogDebug("> {Method} {FullURL} {BodyLength} bytes",
                             request.Method, request.FullURL, bodyBytes.Length);
                         ProxyHelperUtils.LogHeaders(proxyRequest.Headers, ">", _logger);
                         ProxyHelperUtils.LogHeaders(proxyRequest.Content.Headers, "  >", _logger);
@@ -868,7 +714,7 @@ public class ProxyWorker
                     try
                     {
                         // ASYNC: Calculate the timeout, start async worker
-                        _asyncExpelInProgress = false;
+                        _isEvictingAsyncRequest = false;
                         requestState = "Make Backend Request";
 
 
@@ -1043,7 +889,9 @@ public class ProxyWorker
                         {
                             pr.StreamingProcessor = host.Config.Processor;
                             requestState = "Direct Mode Processor: " + pr.StreamingProcessor;
-                        } else {
+                        }
+                        else
+                        {
                             pr.StreamingProcessor = StreamProcessorFactory.DetermineStreamProcessor(proxyResponse, mediaType);
                             requestState = "Stream Proxy Response : " + pr.StreamingProcessor;
                         }
@@ -1055,7 +903,7 @@ public class ProxyWorker
                         }
                         catch (Exception e)
                         {
-                            _logger.LogError(e, "Error streaming response for request {Guid} to {FullURL}", 
+                            _logger.LogError(e, "Error streaming response for request {Guid} to {FullURL}",
                                 request.Guid, request.FullURL);
                             throw;
                         }
@@ -1097,9 +945,9 @@ public class ProxyWorker
             }
             catch (S7PRequeueException e)
             {
-                requestAttempt.Status = HttpStatusCode.TooManyRequests; // 429 Too Many Requests
-                requestAttempt["Message"] = "Will retry if no other hosts are available";
-                requestAttempt["Error"] = "Requeue request: Retry-After = " + e.RetryAfter;
+                PopulateRequestAttemptError(requestAttempt, HttpStatusCode.TooManyRequests, 
+                    $"Requeue request: Retry-After = {e.RetryAfter}", 
+                    "Will retry if no other hosts are available");
 
                 // Try all the hosts before sleeping
                 retryAfter.Add(e);
@@ -1107,86 +955,63 @@ public class ProxyWorker
             }
             catch (ProxyErrorException e)
             {
-                requestAttempt.Status = e.StatusCode;
-                requestAttempt["Error"] = e.Message;
+                PopulateRequestAttemptError(requestAttempt, e.StatusCode, e.Message);
 
                 if (e.Type == ProxyErrorException.ErrorType.TTLExpired)
                     break;
 
                 continue;
             }
-            catch (TaskCanceledException)
+            catch (TaskCanceledException) when (_isEvictingAsyncRequest)
             {
-
-                if (_asyncExpelInProgress)
+                // Handle async expel case - request being evicted from memory
+                if (request.asyncWorker != null)
                 {
-                    if (request.asyncWorker != null)
-                    {
-                        request.asyncWorker.ShouldReprocess = true;
-                    }
-
-                    requestAttempt.Status = HttpStatusCode.ServiceUnavailable;
-                    requestAttempt["Error"] = "Request being expelled";
-                    requestAttempt["Message"] = "Request will rehydrate on startup";
-
-                    throw;
+                    request.asyncWorker.ShouldReprocess = true;
                 }
-                else
-                {
-                    // 408 Request Timeout
 
-                    requestAttempt.Status = HttpStatusCode.RequestTimeout;
-                    requestAttempt["Expires-At"] = request.ExpiresAt.ToString("o");
-                    requestAttempt["MaxTimeout"] = _options.Timeout.ToString();
-                    requestAttempt["Request-Date"] = proxyStartDate.ToString("o");
-                    requestAttempt["Request-Timeout"] = request.Timeout.ToString() + " ms";
-                    requestAttempt["Error"] = "Request Timed out";
-                    requestAttempt["Message"] = "Operation TIMEOUT";
+                PopulateRequestAttemptError(requestAttempt, HttpStatusCode.ServiceUnavailable, 
+                    "Request being expelled", 
+                    "Request will rehydrate on startup");
 
-                    continue;
-                }
+                throw;
             }
-            catch (OperationCanceledException)
+            catch (Exception ex) when (ex is TaskCanceledException || ex is OperationCanceledException)
             {
-
-                // 408 Request Timeout
-                requestAttempt.Status = HttpStatusCode.RequestTimeout;
-                requestAttempt["Error"] = "Request Cancelled";
-                requestAttempt["Message"] = "Operation CANCELLED";
-
+                // 408 Request Timeout - consolidates both TaskCanceledException and OperationCanceledException
+                PopulateTimeoutError(requestAttempt, request, proxyStartDate, ex is OperationCanceledException);
                 continue;
-
             }
             catch (HttpRequestException e)
             {
-                // 400 Bad Request
-                requestAttempt.Status = HttpStatusCode.BadRequest;
-                requestAttempt["Error"] = "Bad Request: " + e.Message;
-                requestAttempt["Message"] = "Operation Exception: HttpRequest";
-
+                PopulateRequestAttemptError(requestAttempt, HttpStatusCode.BadRequest, 
+                    $"Bad Request: {e.Message}", 
+                    "Operation Exception: HttpRequest");
                 continue;
             }
             catch (Exception e)
             {
-                if (e.Message.StartsWith("The format of value"))
+                if (IsInvalidHeaderException(e))
                 {
-                    throw new ProxyErrorException(ProxyErrorException.ErrorType.InvalidHeader, HttpStatusCode.BadRequest, "Bad header: " + e.Message);
+                    throw new ProxyErrorException(ProxyErrorException.ErrorType.InvalidHeader, 
+                        HttpStatusCode.BadRequest, $"Bad header: {e.Message}");
                 }
+                
                 // 500 Internal Server Error
-                _logger.LogError(e, "Internal server error processing request {Guid} to {FullURL}", 
+                _logger.LogError(e, "Internal server error processing request {Guid} to {FullURL}",
                     request.Guid, request.FullURL);
 
-                requestAttempt.Status = HttpStatusCode.InternalServerError;
-                requestAttempt["Error"] = "Internal Error: " + e.Message;
+                PopulateRequestAttemptError(requestAttempt, HttpStatusCode.InternalServerError, 
+                    $"Internal Error: {e.Message}");
             }
             finally
-            {                    
+            {
                 // Add the request attempt to the summary
                 requestAttempt.Duration = DateTime.UtcNow - proxyStartDate;
                 requestAttempt.SendEvent();  // Log the dependent request attempt
 
                 hostIterator.RecordResult(host, successfulRequest);
-                
+
                 // Track host status for circuit breaker
                 host.Config.TrackStatus(intCode, successfulRequest);
 
@@ -1236,7 +1061,7 @@ public class ProxyWorker
         {
             if (!request.AsyncTriggered)
             {
-                _logger.LogInformation("Response Status Code: {StatusCode} for request {Guid}", 
+                _logger.LogInformation("Response Status Code: {StatusCode} for request {Guid}",
                     lastStatusCode, request.Guid);
                 request.Context!.Response.StatusCode = (int)lastStatusCode;
                 request.Context.Response.KeepAlive = false;
@@ -1277,6 +1102,36 @@ public class ProxyWorker
         };
     }
 
+    private void PopulateRequestAttemptError(
+        ProxyEvent requestAttempt, 
+        HttpStatusCode status, 
+        string error, 
+        string? message = null)
+    {
+        requestAttempt.Status = status;
+        requestAttempt["Error"] = error;
+        if (message != null)
+            requestAttempt["Message"] = message;
+    }
+
+    private void PopulateTimeoutError(
+        ProxyEvent requestAttempt, 
+        RequestData request, 
+        DateTime proxyStartDate,
+        bool isCancelled = false)
+    {
+        requestAttempt.Status = HttpStatusCode.RequestTimeout;
+        requestAttempt["Expires-At"] = request.ExpiresAt.ToString("o");
+        requestAttempt["MaxTimeout"] = _options.Timeout.ToString();
+        requestAttempt["Request-Date"] = proxyStartDate.ToString("o");
+        requestAttempt["Request-Timeout"] = $"{request.Timeout} ms";
+        requestAttempt["Error"] = isCancelled ? "Request Cancelled" : "Request Timed out";
+        requestAttempt["Message"] = isCancelled ? "Operation CANCELLED" : "Operation TIMEOUT";
+    }
+
+    private static bool IsInvalidHeaderException(Exception ex)
+        => ex.Message.StartsWith("The format of value");
+
     /// <summary>
     /// Streams the response content from the backend to the client using the appropriate stream processor.
     /// 
@@ -1301,9 +1156,9 @@ public class ProxyWorker
     /// <param name="mediaType">The media type of the response content</param>
     private async Task StreamResponseAsync(RequestData request, HttpResponseMessage proxyResponse, string processWith, string mediaType)
     {
-        ProxyEvent requestSummary = request.EventData;        
+        ProxyEvent requestSummary = request.EventData;
 
-        _logger.LogInformation("Streaming response with processor. Requested: {ProcessorRequested}, ContentType: {ContentType}, Guid: {Guid}", 
+        _logger.LogInformation("Streaming response with processor. Requested: {ProcessorRequested}, ContentType: {ContentType}, Guid: {Guid}",
             processWith, mediaType, request.Guid);
 
         IStreamProcessor processor = _streamProcessorFactory.GetStreamProcessor(processWith, out string resolvedProcessor);
@@ -1342,61 +1197,11 @@ public class ProxyWorker
         {
             try
             {
-                // BACKGROUND REQUEST LIFECYCLE MANAGEMENT
-                // When a processor detects a background request ID during streaming (e.g., OpenAI batch API),
-                // we track it for periodic status polling via the background checker component.
-
-                if (!string.IsNullOrEmpty(processor.BackgroundRequestId) && request.runAsync)
-                {
-                    _logger.LogInformation("Found background request for GUID: {Guid}, BackgroundRequestId: {BackgroundRequestId}", 
-                        request.Guid, processor.BackgroundRequestId);
-                    request.IsBackground = true;
-                    request.BackgroundRequestId = processor.BackgroundRequestId;
-                    
-                    if (request.asyncWorker == null)
-                    {
-                        _logger.LogError("AsyncWorker is null but runAsync is true for request {Guid}", request.Guid);
-                    }
-                    else
-                    {
-                        // Handle three distinct scenarios based on request type and completion status:
-                        
-                        if (!request.IsBackgroundCheck)
-                        {
-                            // Scenario 1: Initial background request submission
-                            // Mark as BackgroundProcessing to trigger periodic polling
-                            _logger.LogInformation("Updating async worker for background GUID: {Guid}, BackgroundRequestId: {BackgroundRequestId}", 
-                                request.Guid, processor.BackgroundRequestId);
-                            await request.asyncWorker.UpdateBackup().ConfigureAwait(false);
-                            request.BackgroundRequestCompleted = false;
-// REMOVE                            request.RequestAPIStatus = RequestAPIStatusEnum.BackgroundProcessing;
-                        }
-                        else if (processor.BackgroundCompleted)
-                        {
-                            // Scenario 2: Background check found completed task
-                            // Update status to Completed so caller can retrieve final results
-                            _logger.LogInformation("Background processing completed for GUID: {Guid}, BackgroundRequestId: {BackgroundRequestId}", 
-                                request.Guid, processor.BackgroundRequestId);
-                            request.BackgroundRequestCompleted = true;
-// REMOVE                            request.RequestAPIStatus = RequestAPIStatusEnum.Completed;
-                        }
-                        else
-                        {
-                            // Scenario 3: Background check found task still running
-                            // retrigger the API to continue polling
-                            _logger.LogInformation("Background processing still in progress for GUID: {Guid}, BackgroundRequestId: {BackgroundRequestId}", 
-                                request.Guid, processor.BackgroundRequestId);
-                            request.BackgroundRequestCompleted = false;
-                        }
-                    }
-                } else
-                {
-                    _logger.LogDebug("No background request ID found in processor for request {Guid}", request.Guid);
-                }
+                await _lifecycleManager.HandleBackgroundRequestLifecycle(request, processor).ConfigureAwait(false);
             }
             catch (Exception statsEx)
             {
-                _logger.LogDebug(statsEx, "Processor stats collection failed for request {Guid}", request.Guid);
+                _logger.LogDebug(statsEx, "Background lifecycle management failed for request {Guid}", request.Guid);
             }
             finally
             {
@@ -1446,56 +1251,7 @@ public class ProxyWorker
     {
         "Content-Length","Transfer-Encoding","Connection","Proxy-Connection","Keep-Alive","Upgrade","Trailer","TE","Date","Server"
     };
-    private static void CopyResponseHeaders(HttpResponseMessage response, ProxyData pr)
-    {
 
-        // Response headers
-        foreach (var header in response.Headers)
-        {
-            if (excluded.Contains(header.Key)) continue;
-            pr.Headers[header.Key] = string.Join(", ", header.Value);
-        }
-
-        // Content headers
-        foreach (var header in response.Content.Headers)
-        {
-            if (header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase))
-            {
-                pr.ContentHeaders[header.Key] = string.Join(", ", header.Value);
-                continue;
-            }
-
-            if (!excluded.Contains(header.Key))
-            {
-                pr.Headers[header.Key] = string.Join(", ", header.Value);
-            }
-            pr.ContentHeaders[header.Key] = string.Join(", ", header.Value);
-        }
-    }
-
-    private void LogHeaders(IEnumerable<KeyValuePair<string, IEnumerable<string>>> headers, string prefix)
-    {
-        foreach (var header in headers)
-        {
-            _logger.LogDebug("{Prefix} {HeaderKey} : {HeaderValues}", prefix, header.Key, string.Join(", ", header.Value));
-        }
-    }
-    private HttpStatusCode RecordIncompleteRequests (
-        ConcurrentDictionary<string, string> data,
-        HttpStatusCode statusCode,
-        string message,
-        List<Dictionary<string, string>>? incompleteRequests = null,
-        Exception? e = null)
-    {
-        data["Status"] = statusCode.ToString();
-        data["Message"] = message;
-
-        if (incompleteRequests != null)
-        {
-            ProxyHelperUtils.AddIncompleteRequestsToEventData(incompleteRequests, data);
-        }
-
-        return statusCode;
-    }
 
 }
+
