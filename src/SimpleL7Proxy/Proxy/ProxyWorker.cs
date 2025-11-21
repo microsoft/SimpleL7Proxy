@@ -51,6 +51,7 @@ public class ProxyWorker
     private IUserPriorityService _userPriority;
     private IUserProfileService _profiles;
     private readonly string _timeoutHeaderName;
+    private readonly int _id;
     private string _idStr = "";
     private static bool readyToWork = false;
     public static bool IsReadyToWork => readyToWork;
@@ -93,6 +94,7 @@ public class ProxyWorker
         _timeoutHeaderName = _options.TimeoutHeader;
         if (_options.Client == null) throw new ArgumentNullException(nameof(_options.Client));
         backendKeys = _options.DependancyHeaders;
+        _id = id;
         _idStr = id.ToString();
         _preferredPriority = priority;
         _healthCheckService = healthCheckService ?? throw new ArgumentNullException(nameof(healthCheckService));
@@ -125,7 +127,7 @@ public class ProxyWorker
             RequestData incomingRequest;
             try
             {
-                HealthCheckService.IncrementState(0);
+                HealthCheckService.EnterState(_id, WorkerState.Dequeuing);
                 workerState = "Waiting";
 
                 // This will block until an item is available or the token is cancelled
@@ -139,11 +141,6 @@ public class ProxyWorker
             {
                 //_logger.LogInformation("Operation was cancelled. Stopping the worker.");
                 break; // Exit the loop if the operation is cancelled
-            }
-            finally
-            {
-                HealthCheckService.DecrementState(0);
-                workerState = "Exit - Get Work";
             }
 
             if (incomingRequest.RecoveryProcessor != null)
@@ -164,30 +161,25 @@ public class ProxyWorker
             {
                 bool isExpired = false;
 
-                HealthCheckService.IncrementState(1);
+                HealthCheckService.EnterState(_id, WorkerState.PreProcessing);
                 workerState = "Processing";
 
                 var lcontext = incomingRequest.Context;
 
                 if (!incomingRequest.AsyncHydrated && (lcontext == null || incomingRequest == null))
                 {
-                    HealthCheckService.DecrementState(1);
-                    workerState = "Exit - No Context";
-                    HealthCheckService.IncrementState(7);
+                    HealthCheckService.EnterState(_id, WorkerState.Cleanup);
                     continue;
                 }
 
                 var eventData = incomingRequest.EventData;
-                bool requestException = false;
                 try
                 {
                     if (Constants.probes.Contains(incomingRequest.Path) && lcontext != null)
                     {
                         await _healthCheckService.HandleProbeRequestAsync(incomingRequest.Path, lcontext, eventData).ConfigureAwait(false);
 
-                        HealthCheckService.DecrementState(1);
-                        workerState = "Exit - Probe";
-                        HealthCheckService.IncrementState(7);
+                        HealthCheckService.EnterState(_id, WorkerState.Cleanup);
 
                         //Console.WriteLine($"Probe: {incomingRequest.Path} Status: {probeStatus} Message: {probeMessage}");
 
@@ -218,8 +210,7 @@ public class ProxyWorker
                     eventData["Request-Queue-Duration"] = incomingRequest.Headers["x-Request-Queue-Duration"] ?? "N/A";
                     eventData["Request-Process-Duration"] = incomingRequest.Headers["x-Request-Process-Duration"] ?? "N/A";
 
-                    HealthCheckService.DecrementState(1);
-                    HealthCheckService.IncrementState(2);
+                    HealthCheckService.EnterState(_id, WorkerState.Proxying);
                     workerState = "Read Proxy";
 
                     //  Do THE WORK:  FIND A BACKEND AND SEND THE REQUEST
@@ -250,11 +241,10 @@ public class ProxyWorker
                                     pr.Headers["x-Attempts"] = incomingRequest.BackendAttempts.ToString();
                             }
                         }
-                        HealthCheckService.DecrementState(2);
                     }
 
                     // POST PROCESSING ... logging
-                    HealthCheckService.IncrementState(5);
+                    HealthCheckService.EnterState(_id, WorkerState.Writing);
                     workerState = "Write Response";
 
                     //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
@@ -347,8 +337,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                     //await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);
 
                     //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
-                    HealthCheckService.DecrementState(5);
-                    HealthCheckService.IncrementState(6);
+                    HealthCheckService.EnterState(_id, WorkerState.Reporting);
                     workerState = "Finalize";
 
                     var conlen = pr.ContentHeaders?["Content-Length"] ?? "N/A";
@@ -366,11 +355,10 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
 
                     if (incomingRequest.incompleteRequests != null)
                     {
-                        AddIncompleteRequestsToEventData(incomingRequest.incompleteRequests, eventData);
+                        ProxyHelperUtils.AddIncompleteRequestsToEventData(incomingRequest.incompleteRequests, eventData);
                     }
 
-                    HealthCheckService.DecrementState(6);
-                    HealthCheckService.IncrementState(7);
+                    HealthCheckService.EnterState(_id, WorkerState.Cleanup);
                     workerState = "Cleanup";
 
                     if (isExpired)
@@ -492,8 +480,6 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                         }
                         else
                         {
-                            requestException = true;
-
                             // Set an appropriate status code for the error
                             var errorMessage = "Exception: " + ex.Message;
                             eventData["ErrorDetails"] = errorMessage;
@@ -570,29 +556,13 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                         errorEvent.SendEvent();
                         _logger.LogError(e, "Error in finally block");
                     }
-
-                    HealthCheckService.DecrementState(7);
-                    workerState = "Exit - Finally";
                 }
             }   // lifespan of incomingRequest
         }       // while running loop
 
-        HealthCheckService.DecrementActiveWorkers();
+        HealthCheckService.DecrementActiveWorkers(_id);
 
         _logger.LogDebug("[SHUTDOWN] ✓ Worker {IdStr} stopped", _idStr);
-    }
-
-    private void AddIncompleteRequestsToEventData(List<Dictionary<string, string>> incompleteRequests, ConcurrentDictionary<string, string> eventData)
-    {
-        int i = 0;
-        foreach (var summary in incompleteRequests)
-        {
-            i++;
-            foreach (var key in summary.Keys)
-            {
-                eventData[$"Attempt-{i}-{key}"] = summary[key];
-            }
-        }
     }
 
     public void ExpelAsyncRequest()
@@ -792,7 +762,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                     proxyRequest.Content = bodyContent;
                    // request.Headers["Content-Type"] = "application/json";
                     
-                    CopyHeaders(request.Headers, proxyRequest, true);
+                    ProxyHelperUtils.CopyHeaders(request.Headers, proxyRequest, true);
                     proxyRequest.Headers.Add("x-PolicyCycleCounter", request.TotalDownstreamAttempts.ToString());
 
                     if (bodyBytes.Length > 0)
@@ -835,15 +805,15 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                     {
                         _logger.LogDebug("> {Method} {FullURL} {BodyLength} bytes", 
                             request.Method, request.FullURL, bodyBytes.Length);
-                        LogHeaders(proxyRequest.Headers, ">");
-                        LogHeaders(proxyRequest.Content.Headers, "  >");
+                        ProxyHelperUtils.LogHeaders(proxyRequest.Headers, ">", _logger);
+                        ProxyHelperUtils.LogHeaders(proxyRequest.Content.Headers, "  >", _logger);
                         //string bodyString = System.Text.Encoding.UTF8.GetString(bodyBytes);
                         //Console.WriteLine($"Body Content: {bodyString}");
                     }
 
                     // Send the request and get the response
                     proxyStartDate = DateTime.UtcNow;
-                    HealthCheckService.IncrementState(3);
+                    HealthCheckService.EnterState(_id, WorkerState.Sending);
                     try
                     {
                         // ASYNC: Calculate the timeout, start async worker
@@ -980,7 +950,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
 
                         host.AddPxLatency((responseDate - proxyStartDate).TotalMilliseconds);
                         // copy headers from the response to the ProxyData object
-                        CopyResponseHeaders(proxyResponse, pr);
+                        ProxyHelperUtils.CopyResponseHeaders(proxyResponse, pr);
 
                         pr.Headers["x-BackendHost"] = requestSummary["Backend-Host"] = pr.BackendHostname;
                         pr.Headers["x-Request-Queue-Duration"] = requestSummary["Request-Queue-Duration"] = request.Headers["x-Request-Queue-Duration"] ?? "N/A";
@@ -1069,7 +1039,8 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                     }
                     finally
                     {
-                        HealthCheckService.DecrementState(3);
+                        // State will be automatically cleaned up when entering next state
+                        // or when worker shuts down via DecrementActiveWorkers
                     }
                 }
             }
@@ -1203,7 +1174,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
         StringBuilder sb;
         bool statusMatches;
         int currentStatusCode;
-        GenerateErrorMessage(incompleteRequests, out sb, out statusMatches, out currentStatusCode);
+        ProxyHelperUtils.GenerateErrorMessage(incompleteRequests, out sb, out statusMatches, out currentStatusCode);
 
         // 502 Bad Gateway  or   call status code form all attempts ( if they are the same )
         lastStatusCode = (statusMatches) ? (HttpStatusCode)currentStatusCode : HttpStatusCode.BadGateway;
@@ -1250,7 +1221,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
             CalculatedHostLatency = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds,
             BackendHostname = "No Active Hosts Available",
             ResponseDate = DateTime.UtcNow,
-            StatusCode = RecordIncompleteRequests(requestSummary, lastStatusCode, "No active hosts were able to handle the request", incompleteRequests),
+            StatusCode = ProxyHelperUtils.RecordIncompleteRequests(requestSummary, lastStatusCode, "No active hosts were able to handle the request", incompleteRequests),
             Body = Encoding.UTF8.GetBytes(sb.ToString())
         };
     }
@@ -1418,72 +1389,6 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
         return (cts, timeout);
     }
 
-    private static void GenerateErrorMessage(List<Dictionary<string, string>> incompleteRequests, out StringBuilder sb, out bool statusMatches, out int currentStatusCode)
-    {
-        sb = new StringBuilder();
-        sb.AppendLine("Error processing request.  No active hosts were able to handle the request.");
-        sb.AppendLine("Request Summary:");
-        statusMatches = true;
-        currentStatusCode = -1;
-
-        var statusCodes = new List<int>();
-
-        int iter = 0;
-        Dictionary<string, object> requestSummary = [];
-        foreach (var requestAttempt in incompleteRequests)
-        {
-            if (requestAttempt.TryGetValue("Status", out var statusStr) && int.TryParse(statusStr, out var status))
-            {
-                statusCodes.Add(status);
-            }
-
-            iter++;
-            //requestSummary["Attempt-" + iter] = JsonSerializer.Serialize(requestAttempt);
-            requestSummary["Attempt-" + iter] = requestAttempt;
-        }
-
-        if (statusCodes.Count > 0)
-        {
-
-            // Console.WriteLine($"Status Codes: {string.Join(", ", statusCodes)}");
-
-            // If all status codes are 408 or 412, use the latest (last) one
-            if (statusCodes.All(s => s == 408 || s == 412 || s == 429))
-            {
-                currentStatusCode = statusCodes.Last();
-                statusMatches = true;
-            }
-            // If all status codes are the same, return that one
-            else if (statusCodes.Distinct().Count() == 1)
-            {
-                currentStatusCode = statusCodes.First();
-                statusMatches = true;
-            }
-            else
-            {
-                statusMatches = false;
-                currentStatusCode = statusCodes.Last();
-            }
-        }
-        sb.AppendLine(JsonSerializer.Serialize(requestSummary, new JsonSerializerOptions { WriteIndented = true }));
-        sb.AppendLine();
-    }
-
-    private static void CopyHeaders(
-        NameValueCollection sourceHeaders,
-        HttpRequestMessage? targetMessage,
-        bool ignoreHeaders = false)
-    {
-        foreach (var key in sourceHeaders.AllKeys)
-        {
-            if (key == null) continue;
-            if (!ignoreHeaders || (!key.StartsWith("S7P") && !key.StartsWith("X-MS-CLIENT", StringComparison.OrdinalIgnoreCase)
-                && !key.Equals("content-length", StringComparison.OrdinalIgnoreCase)))
-            {
-                targetMessage?.Headers.TryAddWithoutValidation(key, sourceHeaders[key]);
-            }
-        }
-    }
 
     // Exclude hop-by-hop and restricted headers that HttpListener manages
     static HashSet<string> excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -1536,7 +1441,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
 
         if (incompleteRequests != null)
         {
-            AddIncompleteRequestsToEventData(incompleteRequests, data);
+            ProxyHelperUtils.AddIncompleteRequestsToEventData(incompleteRequests, data);
         }
 
         return statusCode;

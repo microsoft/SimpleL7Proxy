@@ -1,6 +1,7 @@
 using System.Text;
 using System.Net;
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Options;
 using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Queue;
@@ -10,8 +11,39 @@ using SimpleL7Proxy.Events;
 namespace SimpleL7Proxy.Proxy;
 
 /// <summary>
+/// Represents the different states a worker can be in during request processing
+/// </summary>
+public enum WorkerState
+{
+    /// <summary>Waiting to dequeue a request from the queue</summary>
+    Dequeuing = 0,
+    
+    /// <summary>Pre-processing the request (validation, setup)</summary>
+    PreProcessing = 1,
+    
+    /// <summary>Proxying the request to backend</summary>
+    Proxying = 2,
+    
+    /// <summary>Sending request to backend</summary>
+    Sending = 3,
+    
+    /// <summary>Receiving response from backend</summary>
+    Receiving = 4,
+    
+    /// <summary>Writing response to client</summary>
+    Writing = 5,
+    
+    /// <summary>Reporting/logging request results</summary>
+    Reporting = 6,
+    
+    /// <summary>Cleaning up request resources</summary>
+    Cleanup = 7
+}
+
+/// <summary>
 /// Optimized health check service that handles probe endpoints (/health, /readiness, /startup, /liveness).
 /// Called multiple times per second, so performance is critical.
+/// Also manages worker state tracking for monitoring and diagnostics.
 /// </summary>
 public class HealthCheckService
 {
@@ -25,23 +57,35 @@ public class HealthCheckService
     // Cache for health check responses to reduce allocations
     private readonly StringBuilder _stringBuilder;
 
-    // Worker state tracking
+    // Worker state tracking - using individual fields for better clarity and performance
     private static int _activeWorkers = 0;
     private static bool _readyToWork = false;
-    private static int[] _states = [0, 0, 0, 0, 0, 0, 0, 0];
+    
+    // Track current state per worker ID
+    private static readonly ConcurrentDictionary<int, WorkerState?> _workerCurrentState = new();
+    
+    // State counters for each worker state (thread-safe via Interlocked operations)
+    private static int _dequeueingCount = 0;
+    private static int _preProcessingCount = 0;
+    private static int _proxyingCount = 0;
+    private static int _sendingCount = 0;
+    private static int _receivingCount = 0;
+    private static int _writingCount = 0;
+    private static int _reportingCount = 0;
+    private static int _cleanupCount = 0;
 
     public static int ActiveWorkers => _activeWorkers;
     public static bool IsReadyToWork => _readyToWork;
     
     public HealthCheckService(
         IBackendService backends,
-        BackendOptions options,
+        IOptions<BackendOptions> options,
         IConcurrentPriQueue<RequestData>? requestsQueue,
         IUserPriorityService? userPriority,
         IEventClient? eventClient)
     {
         _backends = backends ?? throw new ArgumentNullException(nameof(backends));
-        _options = options ?? throw new ArgumentNullException(nameof(options));
+        _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _requestsQueue = requestsQueue;
         _userPriority = userPriority;
         _eventClient = eventClient;
@@ -56,28 +100,110 @@ public class HealthCheckService
     /// </summary>
     public static string GetWorkerState()
     {
-        return $"Count: {_activeWorkers} States: [ deq-{_states[0]} pre-{_states[1]} prxy-{_states[2]} -[snd-{_states[3]} rcv-{_states[4]}]-  wr-{_states[5]} rpt-{_states[6]} cln-{_states[7]} ]";
+        return $"Count: {_activeWorkers} States: [ deq-{_dequeueingCount} pre-{_preProcessingCount} prxy-{_proxyingCount} -[snd-{_sendingCount} rcv-{_receivingCount}]-  wr-{_writingCount} rpt-{_reportingCount} cln-{_cleanupCount} ]";
     }
 
     /// <summary>
-    /// Increment a specific worker state counter (thread-safe)
+    /// Enter a worker state. Automatically exits the previous state if the worker was in one.
     /// </summary>
-    public static void IncrementState(int stateIndex)
+    /// <param name="workerId">The unique identifier of the worker</param>
+    /// <param name="newState">The state to enter</param>
+    public static void EnterState(int workerId, WorkerState newState)
     {
-        if (stateIndex >= 0 && stateIndex < _states.Length)
+        // Get and update the current state atomically
+        var oldState = _workerCurrentState.AddOrUpdate(
+            workerId,
+            newState,
+            (_, currentState) =>
+            {
+                // Exit the old state if one exists
+                if (currentState.HasValue)
+                {
+                    ExitStateInternal(currentState.Value);
+                }
+                return newState;
+            });
+        
+        // If this is the first time we're seeing this worker, oldState will be the newState we just set
+        // Otherwise, oldState is the previous value and we've already exited it in the update function
+        if (oldState.Equals(newState))
         {
-            Interlocked.Increment(ref _states[stateIndex]);
+            // First time setting state for this worker - just enter the new state
+            EnterStateInternal(newState);
+        }
+        else
+        {
+            // We already exited the old state in the update function, just enter the new state
+            EnterStateInternal(newState);
         }
     }
 
     /// <summary>
-    /// Decrement a specific worker state counter (thread-safe)
+    /// Internal method to increment a state counter
     /// </summary>
-    public static void DecrementState(int stateIndex)
+    private static void EnterStateInternal(WorkerState state)
     {
-        if (stateIndex >= 0 && stateIndex < _states.Length)
+        switch (state)
         {
-            Interlocked.Decrement(ref _states[stateIndex]);
+            case WorkerState.Dequeuing:
+                Interlocked.Increment(ref _dequeueingCount);
+                break;
+            case WorkerState.PreProcessing:
+                Interlocked.Increment(ref _preProcessingCount);
+                break;
+            case WorkerState.Proxying:
+                Interlocked.Increment(ref _proxyingCount);
+                break;
+            case WorkerState.Sending:
+                Interlocked.Increment(ref _sendingCount);
+                break;
+            case WorkerState.Receiving:
+                Interlocked.Increment(ref _receivingCount);
+                break;
+            case WorkerState.Writing:
+                Interlocked.Increment(ref _writingCount);
+                break;
+            case WorkerState.Reporting:
+                Interlocked.Increment(ref _reportingCount);
+                break;
+            case WorkerState.Cleanup:
+                Interlocked.Increment(ref _cleanupCount);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Exit a worker state (decrements the state counter in a thread-safe manner)
+    /// </summary>
+    /// <param name="state">The state to exit</param>
+    private static void ExitStateInternal(WorkerState state)
+    {
+        switch (state)
+        {
+            case WorkerState.Dequeuing:
+                Interlocked.Decrement(ref _dequeueingCount);
+                break;
+            case WorkerState.PreProcessing:
+                Interlocked.Decrement(ref _preProcessingCount);
+                break;
+            case WorkerState.Proxying:
+                Interlocked.Decrement(ref _proxyingCount);
+                break;
+            case WorkerState.Sending:
+                Interlocked.Decrement(ref _sendingCount);
+                break;
+            case WorkerState.Receiving:
+                Interlocked.Decrement(ref _receivingCount);
+                break;
+            case WorkerState.Writing:
+                Interlocked.Decrement(ref _writingCount);
+                break;
+            case WorkerState.Reporting:
+                Interlocked.Decrement(ref _reportingCount);
+                break;
+            case WorkerState.Cleanup:
+                Interlocked.Decrement(ref _cleanupCount);
+                break;
         }
     }
 
@@ -94,11 +220,18 @@ public class HealthCheckService
     }
 
     /// <summary>
-    /// Decrement the active worker count
+    /// Decrement the active worker count and clean up worker state tracking
     /// </summary>
-    public static void DecrementActiveWorkers()
+    /// <param name="workerId">The unique identifier of the worker being shut down</param>
+    public static void DecrementActiveWorkers(int workerId)
     {
         Interlocked.Decrement(ref _activeWorkers);
+        
+        // Exit the worker's current state if it has one
+        if (_workerCurrentState.TryRemove(workerId, out var currentState) && currentState.HasValue)
+        {
+            ExitStateInternal(currentState.Value);
+        }
     }
 
     /// <summary>
