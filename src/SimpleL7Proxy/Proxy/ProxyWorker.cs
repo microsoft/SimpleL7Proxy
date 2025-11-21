@@ -1,13 +1,7 @@
-using System.Collections.Concurrent;
-using System.Collections.Specialized;
-using System.Linq.Expressions;
-using System.Diagnostics.Tracing;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using Microsoft.ApplicationInsights;
-using Microsoft.ApplicationInsights.DataContracts;
 using Microsoft.Extensions.Logging;
 using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Backend.Iterators;
@@ -19,7 +13,6 @@ using SimpleL7Proxy.ServiceBus;
 using SimpleL7Proxy.BlobStorage;
 using SimpleL7Proxy.StreamProcessor;
 using Shared.RequestAPI.Models;
-using System.Runtime.InteropServices;
 
 namespace SimpleL7Proxy.Proxy;
 
@@ -36,11 +29,11 @@ namespace SimpleL7Proxy.Proxy;
 // 6. Log telemetry data for each request.
 public class ProxyWorker
 {
-    private int _preferredPriority;
+    private readonly int _preferredPriority;
     private readonly CancellationToken _cancellationToken;
-    private static bool _debug = false;
-    private static IConcurrentPriQueue<RequestData>? _requestsQueue;
-    private static IRequeueWorker? _requeueDelayWorker; // Initialized in constructor, only one instance
+    private static bool s_debug;
+    private static IConcurrentPriQueue<RequestData>? s_requestsQueue;
+    private static IRequeueWorker? s_requeueDelayWorker; // Initialized in constructor, only one instance
     private readonly IBackendService _backends;
     private readonly BackendOptions _options;
     private readonly IEventClient _eventClient;
@@ -49,18 +42,18 @@ public class ProxyWorker
     private readonly StreamProcessorFactory _streamProcessorFactory;
     private readonly RequestLifecycleManager _lifecycleManager;
     //private readonly ProxyStreamWriter _proxyStreamWriter;
-    private IUserPriorityService _userPriority;
-    private IUserProfileService _profiles;
+    private readonly IUserPriorityService _userPriority;
+    private readonly IUserProfileService _profiles;
     private readonly string _timeoutHeaderName;
     private readonly int _id;
-    private string _idStr = "";
-    private static bool readyToWork = false;
-    public static bool IsReadyToWork => readyToWork;
+    private readonly string _idStr;
+    private static bool s_readyToWork;
+    public static bool IsReadyToWork => s_readyToWork;
     private CancellationTokenSource? _asyncExpelSource;
-    private bool _isEvictingAsyncRequest = false;
+    private bool _isEvictingAsyncRequest;
     private readonly HealthCheckService _healthCheckService;
 
-    static string[] backendKeys = Array.Empty<string>();
+    private static string[] s_backendKeys = Array.Empty<string>();
 
     public ProxyWorker(
         int id,
@@ -81,11 +74,11 @@ public class ProxyWorker
         CancellationToken cancellationToken)
     {
         _cancellationToken = cancellationToken;
-        _requestsQueue = requestsQueue ?? throw new ArgumentNullException(nameof(requestsQueue));
+        s_requestsQueue = requestsQueue ?? throw new ArgumentNullException(nameof(requestsQueue));
         _backends = backends ?? throw new ArgumentNullException(nameof(backends));
         _eventClient = eventClient;
         _asyncWorkerFactory = asyncWorkerFactory;
-        _requeueDelayWorker = requeueDelayWorker;
+        s_requeueDelayWorker = requeueDelayWorker;
         _logger = logger;
         _streamProcessorFactory = streamProcessorFactory ?? throw new ArgumentNullException(nameof(streamProcessorFactory));
         _lifecycleManager = lifecycleManager ?? throw new ArgumentNullException(nameof(lifecycleManager));
@@ -96,7 +89,7 @@ public class ProxyWorker
         _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
         _timeoutHeaderName = _options.TimeoutHeader;
         if (_options.Client == null) throw new ArgumentNullException(nameof(_options.Client));
-        backendKeys = _options.DependancyHeaders;
+        s_backendKeys = _options.DependancyHeaders;
         _id = id;
         _idStr = id.ToString();
         _preferredPriority = priority;
@@ -106,10 +99,10 @@ public class ProxyWorker
     public async Task TaskRunnerAsync()
     {
         bool doUserconfig = _options.UseProfiles;
-        string workerState = "";
+        string workerState = string.Empty;
 
         if (doUserconfig && _profiles == null) throw new ArgumentNullException(nameof(_profiles));
-        if (_requestsQueue == null) throw new ArgumentNullException(nameof(_requestsQueue));
+        if (s_requestsQueue == null) throw new ArgumentNullException(nameof(s_requestsQueue));
 
         // Only for use during shutdown after graceseconds have expired
         CancellationTokenSource cts = new CancellationTokenSource();
@@ -119,13 +112,13 @@ public class ProxyWorker
         HealthCheckService.IncrementActiveWorkers(_options.Workers);
         if (_options.Workers == HealthCheckService.ActiveWorkers)
         {
-            readyToWork = true;
+            s_readyToWork = true;
             // Always display
             _logger.LogInformation("[READY] ✓ All workers ready to work");
         }
 
         // Run until cancellation is requested. (Queue emptiness is handled by the blocking DequeueAsync call.)
-        while (!_cancellationToken.IsCancellationRequested || _requestsQueue.thrdSafeCount > 0)
+        while (!_cancellationToken.IsCancellationRequested || s_requestsQueue.thrdSafeCount > 0)
         {
             RequestData incomingRequest;
             try
@@ -134,7 +127,7 @@ public class ProxyWorker
                 workerState = "Waiting";
 
                 // This will block until an item is available or the token is cancelled
-                incomingRequest = await _requestsQueue.DequeueAsync(_preferredPriority).ConfigureAwait(false);
+                incomingRequest = await s_requestsQueue.DequeueAsync(_preferredPriority).ConfigureAwait(false);
                 if (incomingRequest == null)
                 {
                     continue;
@@ -277,7 +270,7 @@ public class ProxyWorker
                 {
                     // launches a delay task while the current worker goes back to the top of the loop for more work
                     _lifecycleManager.TransitionToRequeued(incomingRequest);
-                    _requeueDelayWorker!.DelayAsync(incomingRequest, e.RetryAfter);
+                    s_requeueDelayWorker!.DelayAsync(incomingRequest, e.RetryAfter);
 
                 }
                 catch (ProxyErrorException e)
@@ -322,12 +315,12 @@ public class ProxyWorker
                     }
                     else
                     {
-                        _lifecycleManager.TransitionToFailed(incomingRequest, HttpStatusCode.RequestTimeout, "IO Exception: " + ioEx.Message);
+                        _lifecycleManager.TransitionToFailed(incomingRequest, HttpStatusCode.RequestTimeout, $"IO Exception: {ioEx.Message}");
 
                         eventData.Status = HttpStatusCode.RequestTimeout; // 408 Request Timeout
                         eventData.Type = EventType.Exception;
                         eventData.Exception = ioEx;
-                        var errorMessage = "IO Exception: " + ioEx.Message;
+                        var errorMessage = $"IO Exception: {ioEx.Message}";
                         eventData["ErrorDetails"] = errorMessage;
 
                         if (lcontext == null)
@@ -389,7 +382,7 @@ public class ProxyWorker
                         else
                         {
                             // Set an appropriate status code for the error
-                            var errorMessage = "Exception: " + ex.Message;
+                            var errorMessage = $"Exception: {ex.Message}";
                             eventData["ErrorDetails"] = errorMessage;
 
                             if (lcontext == null)
@@ -538,7 +531,7 @@ public class ProxyWorker
 
         List<Dictionary<string, string>> incompleteRequests = request.incompleteRequests;
 
-        request.Debug = _debug || (request.Headers["S7PDEBUG"] != null && string.Equals(request.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase));
+        request.Debug = s_debug || (request.Headers["S7PDEBUG"] != null && string.Equals(request.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase));
         HttpStatusCode lastStatusCode = HttpStatusCode.ServiceUnavailable;
         var requestSummary = request.EventData;
         int intCode = 0;
@@ -776,7 +769,7 @@ public class ProxyWorker
 
                             foreach (var header in proxyResponse.Headers)
                             {
-                                if (excluded.Contains(header.Key)) continue;
+                                if (s_excludedHeaders.Contains(header.Key)) continue;
                                 requestAttempt[header.Key] = string.Join(", ", header.Value);
                                 //Console.WriteLine($"  {header.Key}: {requestAttempt[header.Key]}");
                             }
@@ -809,7 +802,7 @@ public class ProxyWorker
 
                             foreach (var header in proxyResponse.Headers)
                             {
-                                if (excluded.Contains(header.Key)) continue;
+                                if (s_excludedHeaders.Contains(header.Key)) continue;
                                 requestAttempt[header.Key] = string.Join(", ", header.Value);
                                 // Console.WriteLine($"  {header.Key}: {requestAttempt[header.Key]}");
                             }
@@ -888,12 +881,12 @@ public class ProxyWorker
                         if (host.Config.DirectMode)
                         {
                             pr.StreamingProcessor = host.Config.Processor;
-                            requestState = "Direct Mode Processor: " + pr.StreamingProcessor;
+                            requestState = $"Direct Mode Processor: {pr.StreamingProcessor}";
                         }
                         else
                         {
                             pr.StreamingProcessor = StreamProcessorFactory.DetermineStreamProcessor(proxyResponse, mediaType);
-                            requestState = "Stream Proxy Response : " + pr.StreamingProcessor;
+                            requestState = $"Stream Proxy Response : {pr.StreamingProcessor}";
                         }
 
                         // Stream response from backend to client/blob
@@ -1018,7 +1011,7 @@ public class ProxyWorker
                 if (!successfulRequest)
                 {
 
-                    var miniDict = requestAttempt.ToDictionary(backendKeys);
+                    var miniDict = requestAttempt.ToDictionary(s_backendKeys);
                     miniDict["State"] = requestState;
                     incompleteRequests.Add(miniDict);
 
@@ -1247,9 +1240,10 @@ public class ProxyWorker
 
 
     // Exclude hop-by-hop and restricted headers that HttpListener manages
-    static HashSet<string> excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> s_excludedHeaders = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Content-Length","Transfer-Encoding","Connection","Proxy-Connection","Keep-Alive","Upgrade","Trailer","TE","Date","Server"
+        "Content-Length", "Transfer-Encoding", "Connection", "Proxy-Connection",
+        "Keep-Alive", "Upgrade", "Trailer", "TE", "Date", "Server"
     };
 
 
