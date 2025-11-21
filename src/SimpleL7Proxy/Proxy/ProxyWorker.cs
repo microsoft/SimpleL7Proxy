@@ -54,8 +54,10 @@ public class ProxyWorker
     private string _idStr = "";
     public static int activeWorkers = 0;
     private static bool readyToWork = false;
+    public static bool IsReadyToWork => readyToWork;
     private CancellationTokenSource? _asyncExpelSource;
     private bool _asyncExpelInProgress = false;
+    private static HealthCheckService? _healthCheckService;
 
     static string[] backendKeys = Array.Empty<string>();
 
@@ -101,6 +103,17 @@ public class ProxyWorker
         _idStr = id.ToString();
         _preferredPriority = priority;
 
+        // Initialize health check service once for all workers (thread-safe)
+        if (_healthCheckService == null)
+        {
+            _healthCheckService = new HealthCheckService(
+                _backends,
+                _options,
+                _requestsQueue,
+                _userPriority,
+                eventClient,
+                GetState);
+        }
     }
 
     public async Task TaskRunnerAsync()
@@ -188,7 +201,7 @@ public class ProxyWorker
                 {
                     if (Constants.probes.Contains(incomingRequest.Path) && lcontext != null)
                     {
-                        ProbeResponse(incomingRequest.Path, out int probeStatus, out string probeMessage);
+                        _healthCheckService!.GetProbeResponse(incomingRequest.Path, out int probeStatus, out string probeMessage);
 
                         lcontext.Response.StatusCode = probeStatus;
                         lcontext.Response.ContentType = "text/plain";
@@ -616,77 +629,6 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
             {
                 eventData[$"Attempt-{i}-{key}"] = summary[key];
             }
-        }
-    }
-
-    // Returns probe responses
-    //
-    // /startup - 200  if all workers started, there is at least 1 active host ... runs at fastest priority
-    // /readiness - same as /startup
-    // /liveness - 503 if no active hosts  or  there are many recent errors ... runs on high priority
-    // /health - details on all active hosts ... runs on high priority
-
-    private void ProbeResponse(string path, out int probeStatus, out string probeMessage)
-    {
-        probeStatus = 200;
-        probeMessage = "OK\n";
-
-        // Cache these to avoid repeatedly calling the same methods
-        int hostCount = _backends.ActiveHostCount();
-        bool hasFailedHosts = _backends.CheckFailedStatus();
-
-        switch (path)
-        {
-            case Constants.Health:
-                if (hostCount == 0 || hasFailedHosts)
-                {
-                    probeStatus = 503;
-                    probeMessage = $"Not Healthy.  Active Hosts: {hostCount} Failed Hosts: {hasFailedHosts}\n";
-                }
-                else
-                {
-                    var hosts = _backends.GetHosts();
-                    probeMessage = $"Replica: {_options.HostName} {"".PadRight(30)} SimpleL7Proxy: {Constants.VERSION}\nBackend Hosts:\n  Active Hosts: {hostCount}  -  {(hasFailedHosts ? "FAILED HOSTS" : "All Hosts Operational")}\n";
-                    if (hosts.Count > 0)
-                    {
-                        foreach (var host in hosts)
-                        {
-                            probeMessage += $" Name: {host.Host}  Status: {host.GetStatus(out int calls, out int errorCalls, out double average)}\n";
-                        }
-                    }
-                    else
-                    {
-                        probeMessage += "No Hosts\n";
-                    }
-                }
-
-                var stats = $"Worker Statistics:\n {GetState()}\n";
-                var priority = $"User Priority Queue: {_userPriority?.GetState() ?? "N/A"}\n";
-                var requestQueue = $"Request Queue: {_requestsQueue?.thrdSafeCount.ToString() ?? "N/A"}\n";
-                var events = $"Event Hub: {(_eventClient != null ? $"Enabled  -  {_eventClient.Count} Items" : "Disabled")}\n";
-                probeMessage += stats + priority + requestQueue + events;
-                break;
-
-            case Constants.Readiness:
-            case Constants.Startup:
-                if (!readyToWork || hostCount == 0)
-                {
-                    probeStatus = 503;
-                    probeMessage = "Not Ready .. hostCount = " + hostCount + " readyToWork = " + readyToWork;
-                }
-                break;
-
-            case Constants.Liveness:
-                if (hostCount == 0)
-                {
-                    probeStatus = 503;
-                    probeMessage = $"Not Lively.  Active Hosts: {hostCount} Failed Hosts: {hasFailedHosts}";
-                }
-                break;
-
-            case Constants.Shutdown:
-                // Shutdown is a signal to unwedge workers and shut down gracefully
-                break;
         }
     }
 
