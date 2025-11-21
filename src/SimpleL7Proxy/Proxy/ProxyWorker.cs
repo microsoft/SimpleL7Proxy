@@ -186,19 +186,21 @@ public class ProxyWorker
                         continue;
                     }
 
-                    // ASYNC: Set the status to Processing
-                    if (incomingRequest.IsBackground)
+                    // Set the initial Service Bus status based on request type
+                    switch (incomingRequest.Type)
                     {
-                        incomingRequest.SBStatus = ServiceBusMessageStatusEnum.CheckingBackgroundRequestStatus;
-                    }
-                    else
-                    {
-                        incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Processing;
+                        case RequestType.AsyncBackgroundCheck:
+                            incomingRequest.SBStatus = ServiceBusMessageStatusEnum.CheckingBackgroundRequestStatus;
+                            break;
+                        default:
+                            incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Processing;
+                            break;
                     }
 
                     eventData.Type = EventType.ProxyRequest;
                     eventData["EnqueueTime"] = incomingRequest.EnqueueTime.ToString("o");
                     eventData["RequestContentLength"] = incomingRequest.Headers["Content-Length"] ?? "N/A";
+                    eventData["RequestType"] = incomingRequest.Type.ToString();
 
                     incomingRequest.Headers["x-Request-Queue-Duration"] = (incomingRequest.DequeueTime! - incomingRequest.EnqueueTime!).TotalMilliseconds.ToString();
                     incomingRequest.Headers["x-Request-Process-Duration"] = (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString();
@@ -206,6 +208,7 @@ public class ProxyWorker
                     incomingRequest.Headers["x-S7P-ID"] = incomingRequest.MID ?? "N/A";
                     incomingRequest.Headers["x-S7PPriority"] = incomingRequest.Priority.ToString();
                     incomingRequest.Headers["x-S7PPriority2"] = incomingRequest.Priority2.ToString();
+                    incomingRequest.Headers["x-Request-Type"] = incomingRequest.Type.ToString();
 
                     eventData["Request-Queue-Duration"] = incomingRequest.Headers["x-Request-Queue-Duration"] ?? "N/A";
                     eventData["Request-Process-Duration"] = incomingRequest.Headers["x-Request-Process-Duration"] ?? "N/A";
@@ -289,47 +292,67 @@ public class ProxyWorker
                     }
                     else if (pr.StatusCode == HttpStatusCode.OK)
                     {
-                        // scenarios:
-                        // 1: the Background request initiated => BackgroundRequestSubmitted
-                        // 2: the non-background async request completed => AsyncProcessed
-                        // 3: the background check request completed and the background task completed => AsyncProcessed
-                        // 4: the background check request completed and the background task is still running => no updates
-                        // all others are treated as synchronous completions => Processed
+                        // Update status based on request type
+                        switch (incomingRequest.Type)
+                        {
+                            case RequestType.Sync:
+                                // Synchronous requests were processed and response sent directly to client
+                                incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Processed;
+                                break;
 
-                        if (!incomingRequest.runAsync)
-                        {
-                            // Synchronous requests were processed and response sent directly to client
-                            incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Processed;
-                        }
-                        else
-                        {
-                            if (incomingRequest.IsBackgroundCheck)
-                            {
+                            case RequestType.Async:
+                                // Regular async request completed (not background)
+                                incomingRequest.SBStatus = ServiceBusMessageStatusEnum.AsyncProcessed;
+                                incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Completed;
+                                break;
+
+                            case RequestType.AsyncBackground:
+                                // New background request initiated - submit for later polling
+                                _logger.LogInformation("Updating status to BackgroundRequestSubmitted for request {Guid}", incomingRequest.Guid);
+                                incomingRequest.SBStatus = ServiceBusMessageStatusEnum.BackgroundRequestSubmitted;
+                                incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.BackgroundProcessing;
+                                break;
+
+                            case RequestType.AsyncBackgroundCheck:
                                 // Background check scenario
                                 if (incomingRequest.BackgroundRequestCompleted)
                                 {
-_logger.LogInformation("updating status to Completed");
-                                    // Scenario 3: Background check where the background task has completed
-                                    // (RequestAPIStatus set to Completed in StreamResponseAsync when processor.BackgroundCompleted == true)
+                                    // Background task has completed
+                                    _logger.LogInformation("Updating status to Completed for background check {Guid}", incomingRequest.Guid);
                                     incomingRequest.SBStatus = ServiceBusMessageStatusEnum.AsyncProcessed;
                                     incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Completed;
                                 }
                                 else
                                 {
-_logger.LogInformation("updating status to BackgroundProcessing");
-                                    // Scenario 4: Background check where the background task is still running
-                                    // Keep existing status (no update needed)
+                                    // Background task is still running
+                                    _logger.LogInformation("Updating status to BackgroundProcessing for background check {Guid}", incomingRequest.Guid);
                                     incomingRequest.SBStatus = ServiceBusMessageStatusEnum.CheckingBackgroundRequestStatus;
                                     incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.BackgroundProcessing;
                                 }
-                            }
-                            else
-                            {
-_logger.LogInformation("updating status to BackgroundRequestSubmitted");
-                                // Scenario 1: New background request initiated - submit for later polling
-                                incomingRequest.SBStatus = ServiceBusMessageStatusEnum.BackgroundRequestSubmitted;
-                                incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.BackgroundProcessing;
-                            }
+                                break;
+                        }
+                    }
+                    else  // Non-200, non-expired response - handle failures
+                    {
+                        switch (incomingRequest.Type)
+                        {
+                            case RequestType.Async:
+                                _logger.LogWarning("Async request {Guid} failed with status {StatusCode}", incomingRequest.Guid, pr.StatusCode);
+                                incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Failed;
+                                incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Failed;
+                                break;
+
+                            case RequestType.AsyncBackground:
+                            case RequestType.AsyncBackgroundCheck:
+                                _logger.LogWarning("Background request {Guid} failed with status {StatusCode}", incomingRequest.Guid, pr.StatusCode);
+                                incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Failed;
+                                incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Failed;
+                                break;
+
+                            case RequestType.Sync:
+                                // Sync requests don't use RequestAPIStatus
+                                incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Failed;
+                                break;
                         }
                     }
 
@@ -342,11 +365,11 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
 
                     var conlen = pr.ContentHeaders?["Content-Length"] ?? "N/A";
                     var proxyTime = (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
-                    _logger.LogCritical("Pri: {Priority}, Stat: {StatusCode}, User: {user} Guid: {Guid} Async: {mode} Processor: {Processor}, Len: {ContentLength}, {FullURL}, Deq: {DequeueTime}, Lat: {ProxyTime} ms",
+                    _logger.LogCritical("Pri: {Priority}, Stat: {StatusCode}, User: {user} Guid: {Guid} Type: {RequestType}, Processor: {Processor}, Len: {ContentLength}, {FullURL}, Deq: {DequeueTime}, Lat: {ProxyTime} ms",
                         incomingRequest.Priority, (int)pr.StatusCode,
                         incomingRequest.UserID ?? "N/A",
                         incomingRequest.Guid,
-                        incomingRequest.AsyncTriggered ? "Async" : "Sync",
+                        incomingRequest.Type,
                         pr.StreamingProcessor,
                         conlen, pr.FullURL, incomingRequest.DequeueTime.ToLocalTime().ToString("T"), proxyTime);
 
@@ -365,8 +388,12 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                     {
                         incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Failed;
                     }
-                    else if (!incomingRequest.IsBackground)
+                    else if (incomingRequest.Type != RequestType.AsyncBackground && 
+                             incomingRequest.Type != RequestType.AsyncBackgroundCheck)
                     {
+                        // Finalize non-background requests
+                        // Background requests skip finalization here because their status is managed
+                        // in the status resolution block above based on BackgroundRequestCompleted flag
                         var isSuccessfulResponse = ((int)pr.StatusCode == 200 ||
                                                     (int)pr.StatusCode == 206 || // Partial Content
                                                     (int)pr.StatusCode == 201 || // Created
@@ -387,6 +414,10 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                 catch (ProxyErrorException e)
                 {
                     incomingRequest.SBStatus = ServiceBusMessageStatusEnum.Failed;
+                    if (incomingRequest.runAsync)
+                    {
+                        incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Failed;
+                    }
 
                     // Handle proxy error
                     eventData.Status = e.StatusCode;
@@ -432,6 +463,11 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                         var errorMessage = "IO Exception: " + ioEx.Message;
                         eventData["ErrorDetails"] = errorMessage;
 
+                        if (incomingRequest.runAsync)
+                        {
+                            incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Failed;
+                        }
+
                         if (lcontext == null)
                         {
                             _logger.LogError("Context is null in IOException");
@@ -458,6 +494,11 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                     {
                         abortTask = true;
                     }
+                    
+                    if (incomingRequest.runAsync)
+                    {
+                        incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Failed;
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -472,6 +513,11 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                         eventData.Type = EventType.Exception;
                         eventData.Exception = ex;
                         eventData["WorkerState"] = workerState;
+
+                        if (incomingRequest?.runAsync == true)
+                        {
+                            incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Failed;
+                        }
 
                         if (ex.Message == "Cannot access a disposed object." || ex.Message.StartsWith("Unable to write data") || ex.Message.Contains("Broken Pipe")) // The client likely closed the connection
                         {
@@ -521,10 +567,15 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                             }
                         }
 
-                        // Request is still valid, clean up
-                        if (!incomingRequest.Requeued &&      // Request is not being requeued for retry
-                            !_asyncExpelInProgress &&          // reserved for async operations which will resume after reboot
-                            !incomingRequest.IsBackground)    // Not a background request - covers the background skip case
+                        // Request is still valid, clean up non-background requests
+                        // Background requests (AsyncBackground and AsyncBackgroundCheck) skip explicit cleanup because:
+                        // 1. They are disposed via 'await using (incomingRequest)' at the start of the loop
+                        // 2. They don't need synchronous cleanup (handled by asyncWorker)
+                        // 3. They may be requeued for subsequent status checks
+                        if (!incomingRequest.Requeued &&                           // Request is not being requeued for retry
+                            !_asyncExpelInProgress &&                              // Reserved for async operations which will resume after reboot
+                            incomingRequest.Type != RequestType.AsyncBackground && // Not a background request submission
+                            incomingRequest.Type != RequestType.AsyncBackgroundCheck) // Not a background check request
                         {
 
                             if (workerState != "Cleanup")

@@ -61,6 +61,34 @@ public class RequestData : IDisposable, IAsyncDisposable
     }
     public bool IsBackgroundCheck { get; set; } = false;
     public bool BackgroundRequestCompleted { get; set; } = false;
+    
+    /// <summary>
+    /// Computed request type based on async flags and background state.
+    /// Determines processing mode: Sync, Async, AsyncBackground, or AsyncBackgroundCheck.
+    /// </summary>
+    public RequestType Type
+    {
+        get
+        {
+            if (!runAsync)
+            {
+                return RequestType.Sync;
+            }
+
+            if (IsBackgroundCheck)
+            {
+                return RequestType.AsyncBackgroundCheck;
+            }
+
+            if (IsBackground)
+            {
+                return RequestType.AsyncBackground;
+            }
+
+            return RequestType.Async;
+        }
+    }
+    
     public RequestAPIDocument? _requestAPIDocument; // For tracking async and background status updates
     public RequestAPIStatusEnum RequestAPIStatus
     {
