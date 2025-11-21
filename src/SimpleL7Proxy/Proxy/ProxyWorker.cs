@@ -452,7 +452,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                     }
                     catch (Exception writeEx)
                     {
-                        _logger.LogError($"Failed to write error message: {writeEx.Message}");
+                        _logger.LogError(writeEx, "Failed to write error message for request {Guid}", incomingRequest?.Guid);
 
                         eventData["ErrorDetail"] = "Network Error sending error response";
                         eventData.Type = EventType.Exception;
@@ -484,11 +484,11 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                             lcontext.Response.StatusCode = (int)eventData.Status;
                             var errorBytes = Encoding.UTF8.GetBytes(errorMessage);
                             await lcontext.Response.OutputStream.WriteAsync(errorBytes).ConfigureAwait(false);
-                            _logger.LogError($"An IO exception occurred: {ioEx.Message}");
+                            _logger.LogError(ioEx, "An IO exception occurred for request {Guid}", incomingRequest?.Guid);
                         }
                         catch (Exception writeEx)
                         {
-                            _logger.LogError($"Failed to write error message: {writeEx.Message}");
+                            _logger.LogError(writeEx, "Failed to write error message for request {Guid}", incomingRequest?.Guid);
                             eventData["InnerErrorDetail"] = "Network Error";
                             eventData["InnerErrorStack"] = writeEx.StackTrace?.ToString() ?? "No Stack Trace";
                         }
@@ -509,8 +509,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                     }
                     else
                     {
-                        _logger.LogError("GOT AN ERROR: {Message}", ex.Message);
-                        Console.WriteLine(ex.StackTrace);
+                        _logger.LogError(ex, "Unhandled exception in worker for request {Guid}", incomingRequest?.Guid);
                         eventData.Status = HttpStatusCode.InternalServerError; // 500 Internal Server Error
                         eventData.Type = EventType.Exception;
                         eventData.Exception = ex;
@@ -518,7 +517,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
 
                         if (ex.Message == "Cannot access a disposed object." || ex.Message.StartsWith("Unable to write data") || ex.Message.Contains("Broken Pipe")) // The client likely closed the connection
                         {
-                            _logger.LogInformation("Client closed connection: {FullURL}", incomingRequest.FullURL);
+                            _logger.LogInformation("Client closed connection: {FullURL}", incomingRequest?.FullURL ?? "Unknown");
                             eventData["InnerErrorDetail"] = "Client Disconnected";
                         }
                         else
@@ -583,7 +582,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                             }
                             catch (Exception disposeEx)
                             {
-                                _logger.LogError($"Failed to dispose of request data: {disposeEx.Message}");
+                                _logger.LogError(disposeEx, "Failed to dispose of request data for {Guid}", incomingRequest?.Guid);
                             }
                         }
                     }
@@ -599,7 +598,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                             ["StackTrace"] = e.StackTrace ?? "No Stack Trace"
                         };
                         errorEvent.SendEvent();
-                        _logger.LogError($"Error in finally: {e.Message}");
+                        _logger.LogError(e, "Error in finally block");
                     }
 
                     Interlocked.Decrement(ref states[7]);
@@ -757,11 +756,12 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
             while (hostIterator.MoveNext())
             {
                 hostCount++;
-                _logger.LogDebug($"Host {hostCount}: {hostIterator.Current.Config.PartialPath} ({hostIterator.Current.Config.Guid})");
+                _logger.LogDebug("Host {HostNumber}: {PartialPath} ({Guid})", 
+                    hostCount, hostIterator.Current.Config.PartialPath, hostIterator.Current.Config.Guid);
             }
             // Reset the iterator to the beginning
             hostIterator.Reset();
-            _logger.LogDebug($"Matched Hosts: {hostCount} for URL: {request.Path}");
+            _logger.LogDebug("Matched Hosts: {HostCount} for URL: {RequestPath}", hostCount, request.Path);
         }
 
         // Try the request on each active host, stop if it worked
@@ -806,7 +806,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                     var oaToken = await host.Config.OAuth2Token().ConfigureAwait(false);
                     if (request.Debug)
                     {
-                        _logger.LogDebug("Token: {Token}", oaToken);
+                        _logger.LogDebug("OAuth Token retrieved for backend {BackendHost}", host.Host);
                     }
                     // Set the token in the headers
                     request.Headers.Set("Authorization", $"Bearer {oaToken}");
@@ -887,7 +887,8 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                     // Log request headers if debugging is enabled
                     if (request.Debug)
                     {
-                        _logger.LogDebug($"> {request.Method} {request.FullURL} {bodyBytes.Length} bytes");
+                        _logger.LogDebug("> {Method} {FullURL} {BodyLength} bytes", 
+                            request.Method, request.FullURL, bodyBytes.Length);
                         LogHeaders(proxyRequest.Headers, ">");
                         LogHeaders(proxyRequest.Content.Headers, "  >");
                         //string bodyString = System.Text.Encoding.UTF8.GetString(bodyBytes);
@@ -935,7 +936,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                         {
                             if (request.asyncWorker == null)
                             {
-                                _logger.LogError("AsyncWorker is null, but runAsync is true");
+                                _logger.LogError("AsyncWorker is null but runAsync is true for request {Guid}", request.Guid);
                             }
                             else if (!await request.asyncWorker.Synchronize()) // Wait for the worker to finish setting up the blob's, etc...
                             {
@@ -980,7 +981,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                                 }
                                 catch (Exception e)
                                 {
-                                    _logger.LogError("Error reading from backend host: {Message}", e.Message);
+                                    _logger.LogError(e, "Error reading from backend host {BackendHost}", host.Host);
                                 }
 
                                 _logger.LogDebug("Trying next host: Response: {StatusCode}", proxyResponse.StatusCode);
@@ -1087,8 +1088,8 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                         }
                         catch (Exception e)
                         {
-                            _logger.LogError("Error streaming response: {Message}", e.Message);
-                            _logger.LogError("Stack Trace: {StackTrace}", e.StackTrace);
+                            _logger.LogError(e, "Error streaming response for request {Guid} to {FullURL}", 
+                                request.Guid, request.FullURL);
                             throw;
                         }
 
@@ -1107,7 +1108,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                         }
                         catch (Exception e)
                         {
-                            _logger.LogDebug("Unable to flush output stream: {Exception}", e);
+                            _logger.LogDebug(e, "Unable to flush output stream for {FullURL}", request.FullURL);
                         }
 
                         // Log the response if debugging is enabled
@@ -1204,9 +1205,8 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                     throw new ProxyErrorException(ProxyErrorException.ErrorType.InvalidHeader, HttpStatusCode.BadRequest, "Bad header: " + e.Message);
                 }
                 // 500 Internal Server Error
-                _logger.LogError($"Error: {e.StackTrace}");
-                _logger.LogError($"Error: {e.Message}");
-                //lastStatusCode = HandleProxyRequestError(host, e, request.Timestamp, request.FullURL, HttpStatusCode.InternalServerError);
+                _logger.LogError(e, "Internal server error processing request {Guid} to {FullURL}", 
+                    request.Guid, request.FullURL);
 
                 requestAttempt.Status = HttpStatusCode.InternalServerError;
                 requestAttempt["Error"] = "Internal Error: " + e.Message;
@@ -1268,7 +1268,8 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
         {
             if (!request.AsyncTriggered)
             {
-                _logger.LogInformation($"Response Status Code: {lastStatusCode}");
+                _logger.LogInformation("Response Status Code: {StatusCode} for request {Guid}", 
+                    lastStatusCode, request.Guid);
                 request.Context!.Response.StatusCode = (int)lastStatusCode;
                 request.Context.Response.KeepAlive = false;
             }
@@ -1292,8 +1293,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
         catch (Exception e)
         {
             // If we can't write the response, we can only log it
-            _logger.LogError("Error writing response: {Message}", e.Message);
-            Console.WriteLine(e.StackTrace);
+            _logger.LogError(e, "Error writing response for request {Guid}", request.Guid);
         }
 
 
@@ -1320,12 +1320,13 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
     {
         ProxyEvent requestSummary = request.EventData;        
 
-        _logger.LogInformation("Streaming response with processor. Requested: {Requested}, ContentType: {ContentType}", processWith, mediaType);
+        _logger.LogInformation("Streaming response with processor. Requested: {ProcessorRequested}, ContentType: {ContentType}, Guid: {Guid}", 
+            processWith, mediaType, request.Guid);
 
         IStreamProcessor processor = GetStreamProcessor(processWith, out string resolvedProcessor);
         try
         {
-            _logger.LogDebug("Resolved processor: {Resolved}", resolvedProcessor);
+            _logger.LogDebug("Resolved processor: {ProcessorName} for request {Guid}", resolvedProcessor, request.Guid);
 
             if (request.OutputStream != null)
             {
@@ -1333,22 +1334,22 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
             }
             else
             {
-                _logger.LogError("OutputStream is null, cannot stream response");
+                _logger.LogError("OutputStream is null for request {Guid}, cannot stream response", request.Guid);
             }
         }
         catch (IOException e)
         {
-            _logger.LogError("IO Error streaming response: {Message}", e.Message);
+            _logger.LogError(e, "IO Error streaming response for request {Guid}", request.Guid);
 
         }
         catch (Exception ex) when (ex.InnerException is IOException ioEx)
         {
             // Most likely a client disconnect, log at debug level
-            _logger.LogDebug("Client disconnected while streaming response: {Message}", ioEx.Message);
+            _logger.LogDebug(ioEx, "Client disconnected while streaming response for request {Guid}", request.Guid);
         }
         catch (Exception ex)
         {
-            _logger.LogError("Error streaming response: {Error}", ex);
+            _logger.LogError(ex, "Error streaming response for request {Guid}", request.Guid);
             throw new ProxyErrorException(
                 ProxyErrorException.ErrorType.ClientDisconnected,
                 HttpStatusCode.InternalServerError,
@@ -1364,13 +1365,14 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
 
                 if (!string.IsNullOrEmpty(processor.BackgroundRequestId) && request.runAsync)
                 {
-                    _logger.LogInformation($"Found background guid: {request.Guid} => request: {processor.BackgroundRequestId}");
+                    _logger.LogInformation("Found background request for GUID: {Guid}, BackgroundRequestId: {BackgroundRequestId}", 
+                        request.Guid, processor.BackgroundRequestId);
                     request.IsBackground = true;
                     request.BackgroundRequestId = processor.BackgroundRequestId;
                     
                     if (request.asyncWorker == null)
                     {
-                        _logger.LogError("AsyncWorker is null, but runAsync is true");
+                        _logger.LogError("AsyncWorker is null but runAsync is true for request {Guid}", request.Guid);
                     }
                     else
                     {
@@ -1380,7 +1382,8 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                         {
                             // Scenario 1: Initial background request submission
                             // Mark as BackgroundProcessing to trigger periodic polling
-                            _logger.LogInformation($"Updating async worker for background GUID: {request.Guid} => request: {processor.BackgroundRequestId}");
+                            _logger.LogInformation("Updating async worker for background GUID: {Guid}, BackgroundRequestId: {BackgroundRequestId}", 
+                                request.Guid, processor.BackgroundRequestId);
                             await request.asyncWorker.UpdateBackup().ConfigureAwait(false);
                             request.BackgroundRequestCompleted = false;
 // REMOVE                            request.RequestAPIStatus = RequestAPIStatusEnum.BackgroundProcessing;
@@ -1389,7 +1392,8 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                         {
                             // Scenario 2: Background check found completed task
                             // Update status to Completed so caller can retrieve final results
-                            _logger.LogInformation($"Background processing completed for GUID: {request.Guid} => request: {processor.BackgroundRequestId}");
+                            _logger.LogInformation("Background processing completed for GUID: {Guid}, BackgroundRequestId: {BackgroundRequestId}", 
+                                request.Guid, processor.BackgroundRequestId);
                             request.BackgroundRequestCompleted = true;
 // REMOVE                            request.RequestAPIStatus = RequestAPIStatusEnum.Completed;
                         }
@@ -1397,18 +1401,19 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                         {
                             // Scenario 3: Background check found task still running
                             // retrigger the API to continue polling
-                            _logger.LogInformation($"Background processing still in progress for GUID: {request.Guid} => request: {processor.BackgroundRequestId}");
+                            _logger.LogInformation("Background processing still in progress for GUID: {Guid}, BackgroundRequestId: {BackgroundRequestId}", 
+                                request.Guid, processor.BackgroundRequestId);
                             request.BackgroundRequestCompleted = false;
                         }
                     }
                 } else
                 {
-                    _logger.LogInformation("No background request ID found in processor.");
+                    _logger.LogDebug("No background request ID found in processor for request {Guid}", request.Guid);
                 }
             }
             catch (Exception statsEx)
             {
-                _logger.LogDebug("Processor stats collection failed: {Message}", statsEx.Message);
+                _logger.LogDebug(statsEx, "Processor stats collection failed for request {Guid}", request.Guid);
             }
             finally
             {
@@ -1417,7 +1422,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                     try { disposableProcessor.Dispose(); }
                     catch (Exception processorDisposeEx)
                     {
-                        _logger.LogDebug("Processor disposal failed: {Message}", processorDisposeEx.Message);
+                        _logger.LogDebug(processorDisposeEx, "Processor disposal failed for request {Guid}", request.Guid);
                     }
                 }
             }
