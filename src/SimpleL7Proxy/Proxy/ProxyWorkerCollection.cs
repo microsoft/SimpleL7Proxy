@@ -27,6 +27,7 @@ public class ProxyWorkerCollection : BackgroundService
   //private readonly ProxyStreamWriter _proxyStreamWriter;
   private readonly IAsyncWorkerFactory _asyncWorkerFactory;
   private readonly StreamProcessorFactory _streamProcessorFactory;
+  private readonly HealthCheckService _healthCheckService;
   private static readonly List<ProxyWorker> _workers = new();
   private static readonly List<Task> _tasks = new();
 
@@ -42,7 +43,8 @@ public class ProxyWorkerCollection : BackgroundService
     IEventClient eventClient,
     ILogger<ProxyWorker> logger,
     IAsyncWorkerFactory asyncWorkerFactory,
-    StreamProcessorFactory streamProcessorFactory)
+    StreamProcessorFactory streamProcessorFactory,
+    HealthCheckService healthCheckService)
   //,ProxyStreamWriter proxyStreamWriter)
   {
     _backendOptions = backendOptions.Value;
@@ -56,6 +58,7 @@ public class ProxyWorkerCollection : BackgroundService
     _asyncWorkerFactory = asyncWorkerFactory;
     _requeueWorker = requeueWorker;
     _streamProcessorFactory = streamProcessorFactory;
+    _healthCheckService = healthCheckService;
   }
 
   protected override Task ExecuteAsync(CancellationToken cancellationToken)
@@ -103,6 +106,7 @@ public class ProxyWorkerCollection : BackgroundService
         _asyncWorkerFactory,
         _logger,
         _streamProcessorFactory,
+        _healthCheckService,
         //_proxyStreamWriter,
         _internalCancellationTokenSource.Token));
     }

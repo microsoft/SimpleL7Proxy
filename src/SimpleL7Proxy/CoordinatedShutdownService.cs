@@ -95,8 +95,8 @@ public class CoordinatedShutdownService : IHostedService
             ["Timestamp"] = DateTime.UtcNow.ToString("o"),
             ["BackendStatus"] = _backends.HostStatus,
             ["QueueCount"] = _queue.thrdSafeCount.ToString(),
-            ["ActiveWorkers"] = ProxyWorker.activeWorkers.ToString(),
-            ["WorkerStates"] = string.Join(", ", ProxyWorker.GetState())
+            ["ActiveWorkers"] = HealthCheckService.ActiveWorkers.ToString(),
+            ["WorkerStates"] = string.Join(", ", HealthCheckService.GetWorkerState())
         };
         data.SendEvent();
 
@@ -112,8 +112,8 @@ public class CoordinatedShutdownService : IHostedService
             ["Timestamp"] = DateTime.UtcNow.ToString("o"),
             ["BackendStatus"] = _backends.HostStatus,
             ["QueueCount"] = _queue.thrdSafeCount.ToString(),
-            ["ActiveWorkers"] = ProxyWorker.activeWorkers.ToString(),
-            ["WorkerStates"] = string.Join(", ", ProxyWorker.GetState())
+            ["ActiveWorkers"] = HealthCheckService.ActiveWorkers.ToString(),
+            ["WorkerStates"] = string.Join(", ", HealthCheckService.GetWorkerState())
         };
         data.SendEvent();
         _backendTokenProvider?.StopAsync(cancellationToken).ConfigureAwait(false);

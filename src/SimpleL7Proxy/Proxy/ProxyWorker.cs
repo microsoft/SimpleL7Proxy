@@ -52,21 +52,13 @@ public class ProxyWorker
     private IUserProfileService _profiles;
     private readonly string _timeoutHeaderName;
     private string _idStr = "";
-    public static int activeWorkers = 0;
     private static bool readyToWork = false;
     public static bool IsReadyToWork => readyToWork;
     private CancellationTokenSource? _asyncExpelSource;
     private bool _asyncExpelInProgress = false;
-    private static HealthCheckService? _healthCheckService;
+    private readonly HealthCheckService _healthCheckService;
 
     static string[] backendKeys = Array.Empty<string>();
-
-    private static int[] states = [0, 0, 0, 0, 0, 0, 0, 0];
-
-    public static string GetState()
-    {
-        return $"Count: {activeWorkers} States: [ deq-{states[0]} pre-{states[1]} prxy-{states[2]} -[snd-{states[3]} rcv-{states[4]}]-  wr-{states[5]} rpt-{states[6]} cln-{states[7]} ]";
-    }
 
     public ProxyWorker(
         int id,
@@ -81,6 +73,7 @@ public class ProxyWorker
         IAsyncWorkerFactory asyncWorkerFactory,
         ILogger<ProxyWorker> logger,
         StreamProcessorFactory streamProcessorFactory,
+        HealthCheckService healthCheckService,
         //ProxyStreamWriter proxyStreamWriter,
         CancellationToken cancellationToken)
     {
@@ -102,18 +95,7 @@ public class ProxyWorker
         backendKeys = _options.DependancyHeaders;
         _idStr = id.ToString();
         _preferredPriority = priority;
-
-        // Initialize health check service once for all workers (thread-safe)
-        if (_healthCheckService == null)
-        {
-            _healthCheckService = new HealthCheckService(
-                _backends,
-                _options,
-                _requestsQueue,
-                _userPriority,
-                eventClient,
-                GetState);
-        }
+        _healthCheckService = healthCheckService ?? throw new ArgumentNullException(nameof(healthCheckService));
     }
 
     public async Task TaskRunnerAsync()
@@ -129,8 +111,8 @@ public class ProxyWorker
         CancellationToken token = cts.Token;
 
         // increment the active workers count
-        Interlocked.Increment(ref activeWorkers);
-        if (_options.Workers == activeWorkers)
+        HealthCheckService.IncrementActiveWorkers(_options.Workers);
+        if (_options.Workers == HealthCheckService.ActiveWorkers)
         {
             readyToWork = true;
             // Always display
@@ -143,7 +125,7 @@ public class ProxyWorker
             RequestData incomingRequest;
             try
             {
-                Interlocked.Increment(ref states[0]);
+                HealthCheckService.IncrementState(0);
                 workerState = "Waiting";
 
                 // This will block until an item is available or the token is cancelled
@@ -160,7 +142,7 @@ public class ProxyWorker
             }
             finally
             {
-                Interlocked.Decrement(ref states[0]);
+                HealthCheckService.DecrementState(0);
                 workerState = "Exit - Get Work";
             }
 
@@ -182,16 +164,16 @@ public class ProxyWorker
             {
                 bool isExpired = false;
 
-                Interlocked.Increment(ref states[1]);
+                HealthCheckService.IncrementState(1);
                 workerState = "Processing";
 
                 var lcontext = incomingRequest.Context;
 
                 if (!incomingRequest.AsyncHydrated && (lcontext == null || incomingRequest == null))
                 {
-                    Interlocked.Decrement(ref states[1]);
+                    HealthCheckService.DecrementState(1);
                     workerState = "Exit - No Context";
-                    Interlocked.Increment(ref states[7]);
+                    HealthCheckService.IncrementState(7);
                     continue;
                 }
 
@@ -201,31 +183,12 @@ public class ProxyWorker
                 {
                     if (Constants.probes.Contains(incomingRequest.Path) && lcontext != null)
                     {
-                        _healthCheckService!.GetProbeResponse(incomingRequest.Path, out int probeStatus, out string probeMessage);
+                        await _healthCheckService.HandleProbeRequestAsync(incomingRequest.Path, lcontext, eventData).ConfigureAwait(false);
 
-                        lcontext.Response.StatusCode = probeStatus;
-                        lcontext.Response.ContentType = "text/plain";
-                        lcontext.Response.Headers.Add("Cache-Control", "no-cache");
-                        lcontext.Response.KeepAlive = false;
-
-                        var healthMessage = Encoding.UTF8.GetBytes(probeMessage);
-                        lcontext.Response.ContentLength64 = healthMessage.Length;
-
-                        await lcontext.Response.OutputStream.WriteAsync(
-                            healthMessage,
-                            0,
-                            healthMessage.Length).ConfigureAwait(false);
-
-                        Interlocked.Decrement(ref states[1]);
+                        HealthCheckService.DecrementState(1);
                         workerState = "Exit - Probe";
-                        Interlocked.Increment(ref states[7]);
+                        HealthCheckService.IncrementState(7);
 
-
-                        // probe details, will be logged in the finally clause [ or not if logProbes==false ]
-                        eventData["Probe"] = incomingRequest.Path;
-                        eventData["ProbeStatus"] = probeStatus.ToString();
-                        eventData["ProbeMessage"] = probeMessage;
-                        eventData.Type = EventType.Probe;
                         //Console.WriteLine($"Probe: {incomingRequest.Path} Status: {probeStatus} Message: {probeMessage}");
 
                         continue;
@@ -255,8 +218,8 @@ public class ProxyWorker
                     eventData["Request-Queue-Duration"] = incomingRequest.Headers["x-Request-Queue-Duration"] ?? "N/A";
                     eventData["Request-Process-Duration"] = incomingRequest.Headers["x-Request-Process-Duration"] ?? "N/A";
 
-                    Interlocked.Decrement(ref states[1]);
-                    Interlocked.Increment(ref states[2]);
+                    HealthCheckService.DecrementState(1);
+                    HealthCheckService.IncrementState(2);
                     workerState = "Read Proxy";
 
                     //  Do THE WORK:  FIND A BACKEND AND SEND THE REQUEST
@@ -287,11 +250,11 @@ public class ProxyWorker
                                     pr.Headers["x-Attempts"] = incomingRequest.BackendAttempts.ToString();
                             }
                         }
-                        Interlocked.Decrement(ref states[2]);
+                        HealthCheckService.DecrementState(2);
                     }
 
                     // POST PROCESSING ... logging
-                    Interlocked.Increment(ref states[5]);
+                    HealthCheckService.IncrementState(5);
                     workerState = "Write Response";
 
                     //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
@@ -384,8 +347,8 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                     //await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);
 
                     //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
-                    Interlocked.Decrement(ref states[5]);
-                    Interlocked.Increment(ref states[6]);
+                    HealthCheckService.DecrementState(5);
+                    HealthCheckService.IncrementState(6);
                     workerState = "Finalize";
 
                     var conlen = pr.ContentHeaders?["Content-Length"] ?? "N/A";
@@ -406,8 +369,8 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                         AddIncompleteRequestsToEventData(incomingRequest.incompleteRequests, eventData);
                     }
 
-                    Interlocked.Decrement(ref states[6]);
-                    Interlocked.Increment(ref states[7]);
+                    HealthCheckService.DecrementState(6);
+                    HealthCheckService.IncrementState(7);
                     workerState = "Cleanup";
 
                     if (isExpired)
@@ -608,13 +571,13 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                         _logger.LogError(e, "Error in finally block");
                     }
 
-                    Interlocked.Decrement(ref states[7]);
+                    HealthCheckService.DecrementState(7);
                     workerState = "Exit - Finally";
                 }
             }   // lifespan of incomingRequest
         }       // while running loop
 
-        Interlocked.Decrement(ref activeWorkers);
+        HealthCheckService.DecrementActiveWorkers();
 
         _logger.LogDebug("[SHUTDOWN] ✓ Worker {IdStr} stopped", _idStr);
     }
@@ -880,7 +843,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
 
                     // Send the request and get the response
                     proxyStartDate = DateTime.UtcNow;
-                    Interlocked.Increment(ref states[3]);
+                    HealthCheckService.IncrementState(3);
                     try
                     {
                         // ASYNC: Calculate the timeout, start async worker
@@ -1106,7 +1069,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                     }
                     finally
                     {
-                        Interlocked.Decrement(ref states[3]);
+                        HealthCheckService.DecrementState(3);
                     }
                 }
             }

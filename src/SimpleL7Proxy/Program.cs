@@ -235,6 +235,7 @@ public class Program
         services.AddSingleton<IConcurrentPriQueue<RequestData>, ConcurrentPriQueue<RequestData>>();
         //services.AddSingleton<ProxyStreamWriter>();
         services.AddSingleton<IHostHealthCollection, HostHealthCollection>();
+        services.AddSingleton<HealthCheckService>();
 
         services.AddSingleton<BackendTokenProvider>();
         services.AddHostedService<BackendTokenProvider>();
