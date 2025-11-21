@@ -16,6 +16,7 @@ using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Queue;
+using SimpleL7Proxy.StreamProcessor;
 using SimpleL7Proxy.User;
 //using SimpleL7Proxy.EventGrid;
 using SimpleL7Proxy.ServiceBus;
@@ -260,6 +261,9 @@ public class Program
         // services.AddSingleton<IRequestProcessor, NormalRequest>();
 
         services.AddHostedService(sp => (AsyncFeeder)sp.GetRequiredService<IAsyncFeeder>());
+
+        // Stream processor factory - optimized singleton for high-throughput scenarios
+        services.AddSingleton<StreamProcessorFactory>();
 
         services.AddHostedService<ProxyWorkerCollection>();
         services.AddTransient(source => new CancellationTokenSource());

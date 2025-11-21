@@ -46,6 +46,7 @@ public class ProxyWorker
     private readonly IEventClient _eventClient;
     private readonly IAsyncWorkerFactory _asyncWorkerFactory; // Just inject the factory
     private readonly ILogger<ProxyWorker> _logger;
+    private readonly StreamProcessorFactory _streamProcessorFactory;
     //private readonly ProxyStreamWriter _proxyStreamWriter;
     private IUserPriorityService _userPriority;
     private IUserProfileService _profiles;
@@ -56,15 +57,6 @@ public class ProxyWorker
     private CancellationTokenSource? _asyncExpelSource;
     private bool _asyncExpelInProgress = false;
 
-    private static readonly IStreamProcessor DefaultStreamProcessor = new DefaultStreamProcessor();
-
-    private static readonly Dictionary<string, Func<IStreamProcessor>> processors = new Dictionary<string, Func<IStreamProcessor>>(StringComparer.OrdinalIgnoreCase)
-    {
-        ["OpenAI"] = static () => new OpenAIProcessor(),
-        ["AllUsage"] = static () => new AllUsageProcessor(),
-        ["DefaultStream"] = static () => DefaultStreamProcessor, // this one doesn't have any local fields
-        ["MultiLineAllUsage"] = static () => new MultiLineAllUsageProcessor()
-    };
     static string[] backendKeys = Array.Empty<string>();
 
     private static int[] states = [0, 0, 0, 0, 0, 0, 0, 0];
@@ -86,6 +78,7 @@ public class ProxyWorker
         IEventClient eventClient,
         IAsyncWorkerFactory asyncWorkerFactory,
         ILogger<ProxyWorker> logger,
+        StreamProcessorFactory streamProcessorFactory,
         //ProxyStreamWriter proxyStreamWriter,
         CancellationToken cancellationToken)
     {
@@ -96,6 +89,7 @@ public class ProxyWorker
         _asyncWorkerFactory = asyncWorkerFactory;
         _requeueDelayWorker = requeueDelayWorker;
         _logger = logger;
+        _streamProcessorFactory = streamProcessorFactory ?? throw new ArgumentNullException(nameof(streamProcessorFactory));
         //_proxyStreamWriter = proxyStreamWriter;
         //_eventHubClient = eventHubClient;
         _userPriority = userPriority ?? throw new ArgumentNullException(nameof(userPriority));
@@ -1124,7 +1118,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                             pr.StreamingProcessor = host.Config.Processor;
                             requestState = "Direct Mode Processor: " + pr.StreamingProcessor;
                         } else {
-                            pr.StreamingProcessor = DetermineStreamProcessor(proxyResponse, mediaType);
+                            pr.StreamingProcessor = StreamProcessorFactory.DetermineStreamProcessor(proxyResponse, mediaType);
                             requestState = "Stream Proxy Response : " + pr.StreamingProcessor;
                         }
 
@@ -1385,7 +1379,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
         _logger.LogInformation("Streaming response with processor. Requested: {ProcessorRequested}, ContentType: {ContentType}, Guid: {Guid}", 
             processWith, mediaType, request.Guid);
 
-        IStreamProcessor processor = GetStreamProcessor(processWith, out string resolvedProcessor);
+        IStreamProcessor processor = _streamProcessorFactory.GetStreamProcessor(processWith, out string resolvedProcessor);
         try
         {
             _logger.LogDebug("Resolved processor: {ProcessorName} for request {Guid}", resolvedProcessor, request.Guid);
@@ -1519,81 +1513,6 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
         return (cts, timeout);
     }
 
-
-    /// <summary>
-    /// Determines the appropriate stream processor based on response headers and content type.
-    /// 
-    /// PROCESSOR SELECTION LOGIC:
-    ///   1. Check for "TOKENPROCESSOR" header in 200 OK responses
-    ///   2. Use event-stream processor for "text/event-stream" content type
-    ///   3. Use "Inline" processor if explicitly requested
-    ///   4. Default to "DefaultStream" for standard responses
-    /// 
-    /// AVAILABLE PROCESSORS:
-    ///   - DefaultStream: Pass-through streaming (default)
-    ///   - OpenAI: OpenAI-specific response processing with batch detection
-    ///   - AllUsage: Usage tracking for OpenAI responses
-    ///   - MultiLineAllUsage: Multi-line usage data extraction
-    /// </summary>
-    /// <param name="proxyResponse">The HTTP response from the backend</param>
-    /// <param name="mediaType">The content type of the response</param>
-    /// <returns>The name of the processor to use for streaming the response</returns>
-    private static string DetermineStreamProcessor(HttpResponseMessage proxyResponse, string mediaType)
-    {
-        ArgumentNullException.ThrowIfNull(proxyResponse); // C# 10+ pattern
-
-        const string DEFAULT_PROCESSOR = "Default";
-        const string STREAM_PROCESSOR = "DefaultStream";
-        const string PROCESSOR_SUFFIX = "Processor";
-        const string TOKEN_PROCESSOR_HEADER = "TOKENPROCESSOR";
-        const string EVENT_STREAM_MEDIA = "text/event-stream";
-
-        // Extract processor from header (200 OK only)
-        var processor = proxyResponse.StatusCode == HttpStatusCode.OK &&
-                    proxyResponse.Headers.TryGetValues(TOKEN_PROCESSOR_HEADER, out var values) &&
-                    values.FirstOrDefault()?.Trim() is { Length: > 0 } headerValue
-            ? StripProcessorSuffix(headerValue, PROCESSOR_SUFFIX)
-            : DEFAULT_PROCESSOR;
-
-        // Use pattern matching for cleaner logic
-        return processor switch
-        {
-            "Inline" => STREAM_PROCESSOR,
-            DEFAULT_PROCESSOR when mediaType.Equals(EVENT_STREAM_MEDIA, StringComparison.OrdinalIgnoreCase) 
-                => STREAM_PROCESSOR,
-            _ => processor
-        };
-    }
-
-    private static string StripProcessorSuffix(string value, string suffix)
-        => value.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
-            ? value[..^suffix.Length]
-            : value;
-
-    private IStreamProcessor GetStreamProcessor(string processWith, out string resolved)
-    {
-        if (!processors.TryGetValue(processWith, out var factory))
-        {
-            _logger.LogWarning("Unknown processor requested: {Requested}. Falling back to default.", processWith);
-            factory = processors["DefaultStream"];
-            resolved = "DefaultStream";
-        }
-        else
-        {
-            resolved = processWith;
-        }
-
-        try
-        {
-            return factory();
-        }
-        catch (Exception pex)
-        {
-            _logger.LogWarning("Processor '{Requested}' failed to construct. Falling back to default. Error: {Message}", processWith, pex.Message);
-            resolved = "DefaultStream";
-            return processors["DefaultStream"]();
-        }
-    }
     private static void GenerateErrorMessage(List<Dictionary<string, string>> incompleteRequests, out StringBuilder sb, out bool statusMatches, out int currentStatusCode)
     {
         sb = new StringBuilder();

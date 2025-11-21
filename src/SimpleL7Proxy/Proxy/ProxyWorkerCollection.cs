@@ -7,6 +7,7 @@ using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Queue;
+using SimpleL7Proxy.StreamProcessor;
 using SimpleL7Proxy.User;
 using System.Net;
 using System.Threading;
@@ -25,6 +26,7 @@ public class ProxyWorkerCollection : BackgroundService
   private readonly ILogger<ProxyWorker> _logger;
   //private readonly ProxyStreamWriter _proxyStreamWriter;
   private readonly IAsyncWorkerFactory _asyncWorkerFactory;
+  private readonly StreamProcessorFactory _streamProcessorFactory;
   private static readonly List<ProxyWorker> _workers = new();
   private static readonly List<Task> _tasks = new();
 
@@ -39,7 +41,8 @@ public class ProxyWorkerCollection : BackgroundService
     IRequeueWorker requeueWorker,
     IEventClient eventClient,
     ILogger<ProxyWorker> logger,
-    IAsyncWorkerFactory asyncWorkerFactory)
+    IAsyncWorkerFactory asyncWorkerFactory,
+    StreamProcessorFactory streamProcessorFactory)
   //,ProxyStreamWriter proxyStreamWriter)
   {
     _backendOptions = backendOptions.Value;
@@ -52,6 +55,7 @@ public class ProxyWorkerCollection : BackgroundService
     _userProfileService = userProfileService;
     _asyncWorkerFactory = asyncWorkerFactory;
     _requeueWorker = requeueWorker;
+    _streamProcessorFactory = streamProcessorFactory;
   }
 
   protected override Task ExecuteAsync(CancellationToken cancellationToken)
@@ -98,6 +102,7 @@ public class ProxyWorkerCollection : BackgroundService
         _eventClient,
         _asyncWorkerFactory,
         _logger,
+        _streamProcessorFactory,
         //_proxyStreamWriter,
         _internalCancellationTokenSource.Token));
     }
