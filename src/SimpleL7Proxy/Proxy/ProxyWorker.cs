@@ -109,7 +109,7 @@ public class ProxyWorker
 
     }
 
-    public async Task TaskRunner()
+    public async Task TaskRunnerAsync()
     {
         bool doUserconfig = _options.UseProfiles;
         string workerState = "";

@@ -103,7 +103,7 @@ public class ProxyWorkerCollection : BackgroundService
     }
 
     foreach (var pw in _workers)
-      _tasks.Add(Task.Run(() => pw.TaskRunner(), cancellationToken));
+      _tasks.Add(Task.Run(() => pw.TaskRunnerAsync(), cancellationToken));
 
     return Task.WhenAll(_tasks);
   }
