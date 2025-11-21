@@ -36,7 +36,7 @@ namespace SimpleL7Proxy.Proxy;
 // 6. Log telemetry data for each request.
 public class ProxyWorker
 {
-    private int PreferredPriority;
+    private int _preferredPriority;
     private readonly CancellationToken _cancellationToken;
     private static bool _debug = false;
     private static IConcurrentPriQueue<RequestData>? _requestsQueue;
@@ -49,12 +49,12 @@ public class ProxyWorker
     //private readonly ProxyStreamWriter _proxyStreamWriter;
     private IUserPriorityService _userPriority;
     private IUserProfileService _profiles;
-    private readonly string _TimeoutHeaderName;
-    private string IDstr = "";
+    private readonly string _timeoutHeaderName;
+    private string _idStr = "";
     public static int activeWorkers = 0;
     private static bool readyToWork = false;
-    private CancellationTokenSource? AsyncExpelSource;
-    private bool asyncExpelInProgress = false;
+    private CancellationTokenSource? _asyncExpelSource;
+    private bool _asyncExpelInProgress = false;
 
     private static readonly IStreamProcessor DefaultStreamProcessor = new DefaultStreamProcessor();
 
@@ -75,7 +75,7 @@ public class ProxyWorker
     }
 
     public ProxyWorker(
-        int ID,
+        int id,
         int priority,
         IConcurrentPriQueue<RequestData> requestsQueue,
         BackendOptions backendOptions,
@@ -101,11 +101,11 @@ public class ProxyWorker
         _userPriority = userPriority ?? throw new ArgumentNullException(nameof(userPriority));
         _options = backendOptions ?? throw new ArgumentNullException(nameof(backendOptions));
         _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
-        _TimeoutHeaderName = _options.TimeoutHeader;
+        _timeoutHeaderName = _options.TimeoutHeader;
         if (_options.Client == null) throw new ArgumentNullException(nameof(_options.Client));
         backendKeys = _options.DependancyHeaders;
-        IDstr = ID.ToString();
-        PreferredPriority = priority;
+        _idStr = id.ToString();
+        _preferredPriority = priority;
 
     }
 
@@ -140,7 +140,7 @@ public class ProxyWorker
                 workerState = "Waiting";
 
                 // This will block until an item is available or the token is cancelled
-                incomingRequest = await _requestsQueue.DequeueAsync(PreferredPriority).ConfigureAwait(false);
+                incomingRequest = await _requestsQueue.DequeueAsync(_preferredPriority).ConfigureAwait(false);
                 if (incomingRequest == null)
                 {
                     continue;
@@ -240,7 +240,7 @@ public class ProxyWorker
 
                     incomingRequest.Headers["x-Request-Queue-Duration"] = (incomingRequest.DequeueTime! - incomingRequest.EnqueueTime!).TotalMilliseconds.ToString();
                     incomingRequest.Headers["x-Request-Process-Duration"] = (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString();
-                    incomingRequest.Headers["x-Request-Worker"] = IDstr;
+                    incomingRequest.Headers["x-Request-Worker"] = _idStr;
                     incomingRequest.Headers["x-S7P-ID"] = incomingRequest.MID ?? "N/A";
                     incomingRequest.Headers["x-S7PPriority"] = incomingRequest.Priority.ToString();
                     incomingRequest.Headers["x-S7PPriority2"] = incomingRequest.Priority2.ToString();
@@ -261,7 +261,7 @@ public class ProxyWorker
                     }
                     finally
                     {
-                        if (!asyncExpelInProgress)
+                        if (!_asyncExpelInProgress)
                         {
                             eventData["Url"] = incomingRequest.FullURL;
                             var timeTaken = DateTime.UtcNow - incomingRequest.EnqueueTime;
@@ -499,7 +499,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                 }
                 catch (TaskCanceledException)
                 {
-                    if (asyncExpelInProgress)
+                    if (_asyncExpelInProgress)
                     {
                         abortTask = true;
                     }
@@ -575,7 +575,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
 
                         // Request is still valid, clean up
                         if (!incomingRequest.Requeued &&      // Request is not being requeued for retry
-                            !asyncExpelInProgress &&          // reserved for async operations which will resume after reboot
+                            !_asyncExpelInProgress &&          // reserved for async operations which will resume after reboot
                             !incomingRequest.IsBackground)    // Not a background request - covers the background skip case
                         {
 
@@ -617,7 +617,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
 
         Interlocked.Decrement(ref activeWorkers);
 
-        _logger.LogDebug("[SHUTDOWN] ✓ Worker {IDstr} stopped", IDstr);
+        _logger.LogDebug("[SHUTDOWN] ✓ Worker {IdStr} stopped", _idStr);
     }
 
     private void AddIncompleteRequestsToEventData(List<Dictionary<string, string>> incompleteRequests, ConcurrentDictionary<string, string> eventData)
@@ -706,11 +706,11 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
 
     public void ExpelAsyncRequest()
     {
-        if (AsyncExpelSource != null)
+        if (_asyncExpelSource != null)
         {
-            asyncExpelInProgress = true;
+            _asyncExpelInProgress = true;
             _logger.LogDebug("Expelling async request in progress, cancelling the token.");
-            AsyncExpelSource.Cancel();
+            _asyncExpelSource.Cancel();
         }
 
     }
@@ -775,7 +775,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
         while (hostIterator.MoveNext())
         {
             var host = hostIterator.Current;
-            DateTime ProxyStartDate = DateTime.UtcNow;
+            DateTime proxyStartDate = DateTime.UtcNow;
 
             if (host.Config.CheckFailedStatus())
             {
@@ -902,12 +902,12 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                     }
 
                     // Send the request and get the response
-                    ProxyStartDate = DateTime.UtcNow;
+                    proxyStartDate = DateTime.UtcNow;
                     Interlocked.Increment(ref states[3]);
                     try
                     {
                         // ASYNC: Calculate the timeout, start async worker
-                        asyncExpelInProgress = false;
+                        _asyncExpelInProgress = false;
                         requestState = "Make Backend Request";
 
 
@@ -1038,7 +1038,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                             bodyBytes = [];
                         }
 
-                        host.AddPxLatency((responseDate - ProxyStartDate).TotalMilliseconds);
+                        host.AddPxLatency((responseDate - proxyStartDate).TotalMilliseconds);
                         // copy headers from the response to the ProxyData object
                         CopyResponseHeaders(proxyResponse, pr);
 
@@ -1156,7 +1156,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
             catch (TaskCanceledException)
             {
 
-                if (asyncExpelInProgress)
+                if (_asyncExpelInProgress)
                 {
                     if (request.asyncWorker != null)
                     {
@@ -1176,7 +1176,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                     requestAttempt.Status = HttpStatusCode.RequestTimeout;
                     requestAttempt["Expires-At"] = request.ExpiresAt.ToString("o");
                     requestAttempt["MaxTimeout"] = _options.Timeout.ToString();
-                    requestAttempt["Request-Date"] = ProxyStartDate.ToString("o");
+                    requestAttempt["Request-Date"] = proxyStartDate.ToString("o");
                     requestAttempt["Request-Timeout"] = request.Timeout.ToString() + " ms";
                     requestAttempt["Error"] = "Request Timed out";
                     requestAttempt["Message"] = "Operation TIMEOUT";
@@ -1221,7 +1221,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
             finally
             {                    
                 // Add the request attempt to the summary
-                requestAttempt.Duration = DateTime.UtcNow - ProxyStartDate;
+                requestAttempt.Duration = DateTime.UtcNow - proxyStartDate;
                 requestAttempt.SendEvent();  // Log the dependent request attempt
 
                 hostIterator.RecordResult(host, successfulRequest);
@@ -1447,12 +1447,12 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                 request.asyncWorker = _asyncWorkerFactory.CreateAsync(request, timeLeft);
                 _ = request.asyncWorker.StartAsync();
             }
-            AsyncExpelSource = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeout));
-            cts = AsyncExpelSource;
+            _asyncExpelSource = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeout));
+            cts = _asyncExpelSource;
         }
         else
         {
-            AsyncExpelSource = null;
+            _asyncExpelSource = null;
             cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeout));
         }
 
