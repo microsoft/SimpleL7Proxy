@@ -490,10 +490,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                         {
                             _logger.LogError($"Failed to write error message: {writeEx.Message}");
                             eventData["InnerErrorDetail"] = "Network Error";
-                            if (writeEx.StackTrace != null)
-                            {
-                                eventData["InnerErrorStack"] = writeEx.StackTrace.ToString();
-                            }
+                            eventData["InnerErrorStack"] = writeEx.StackTrace?.ToString() ?? "No Stack Trace";
                         }
                     }
                 }
@@ -547,10 +544,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                             catch (Exception writeEx)
                             {
                                 eventData["InnerErrorDetail"] = "Network Error";
-                                if (writeEx.StackTrace != null)
-                                {
-                                    eventData["InnerErrorStack"] = writeEx.StackTrace.ToString();
-                                }
+                                eventData["InnerErrorStack"] = writeEx.StackTrace?.ToString() ?? "No Stack Trace";
                             }
                         }
                     }
@@ -561,7 +555,6 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                     {
                         if (abortTask)
                         {
-
                             if (incomingRequest.asyncWorker != null)
                             {
                                 await incomingRequest.asyncWorker.AbortAsync().ConfigureAwait(false);
@@ -717,10 +710,10 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
 
     public async Task<ProxyData> ProxyToBackEndAsync(RequestData request)
     {
-        if (request == null) throw new ArgumentNullException(nameof(request), "Request cannot be null.");
-        if (request.Body == null) throw new ArgumentNullException(nameof(request.Body), "Request body cannot be null.");
-        if (request.Headers == null) throw new ArgumentNullException(nameof(request.Headers), "Request headers cannot be null.");
-        if (request.Method == null) throw new ArgumentNullException(nameof(request.Method), "Request method cannot be null.");
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(request.Body, nameof(request.Body));
+        ArgumentNullException.ThrowIfNull(request.Headers, nameof(request.Headers));
+        ArgumentNullException.ThrowIfNull(request.Method, nameof(request.Method));
 
         List<Dictionary<string, string>> incompleteRequests = request.incompleteRequests;
 
@@ -810,13 +803,13 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                 if (host.Config.UseOAuth)
                 {
                     // Get a token
-                    var OAToken = await host.Config.OAuth2Token().ConfigureAwait(false);
+                    var oaToken = await host.Config.OAuth2Token().ConfigureAwait(false);
                     if (request.Debug)
                     {
-                        _logger.LogDebug("Token: " + OAToken);
+                        _logger.LogDebug("Token: {Token}", oaToken);
                     }
                     // Set the token in the headers
-                    request.Headers.Set("Authorization", $"Bearer {OAToken}");
+                    request.Headers.Set("Authorization", $"Bearer {oaToken}");
                 }
 
                 requestState = "Calc ExpiresAt";
@@ -824,7 +817,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                 // Check ExpiresAt against current time .. keep in mind, client may have disconnected already
                 if (request.ExpiresAt < DateTimeOffset.UtcNow)
                 {
-                    string errorMessage = $"Request has expired: Time: {DateTime.Now}  Reason: {request.ExpireReason}";
+                    string errorMessage = $"Request has expired: Time: {DateTime.UtcNow:o}  Reason: {request.ExpireReason}";
                     // requestSummary.Type = EventType.ProxyRequestExpired;
                     requestSummary["Disposition"] = "Expired";
                     request.SkipDispose = false;
@@ -834,7 +827,7 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
                 }
 
 
-                var minDate = DateTime.Compare(request.ExpiresAt, DateTime.UtcNow.AddMilliseconds(request.defaultTimeout)) < 0
+                var minDate = request.ExpiresAt < DateTime.UtcNow.AddMilliseconds(request.defaultTimeout)
                     ? request.ExpiresAt
                     : DateTime.UtcNow.AddMilliseconds(request.defaultTimeout);
                 request.Timeout = (int)(minDate - DateTime.UtcNow).TotalMilliseconds;
