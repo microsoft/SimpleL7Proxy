@@ -707,6 +707,53 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
 
     }
 
+    /*
+     * REQUEST EXECUTION MODES EXPLAINED:
+     * 
+     * 1. SYNCHRONOUS (default):
+     *    - Client waits for response
+     *    - Response streamed directly to client connection
+     *    - No blob storage involved
+     *    - request.runAsync = false
+     * 
+     * 2. ASYNC (triggered when request processing time > AsyncTriggerTimeout):
+     *    - AsyncWorker created and started
+     *    - Client receives 202 Accepted immediately
+     *    - Response written to blob storage
+     *    - Status tracked via Service Bus
+     *    - Client polls later to retrieve result
+     *    - request.runAsync = true, request.AsyncTriggered = true after worker starts
+     * 
+     * 3. BACKGROUND (OpenAI Batch API):
+     *    - Backend returns batch ID instead of final result
+     *    - S7P stores batch ID and polls backend periodically
+     *    - When complete, final result written to blob
+     *    - Client retrieves completed result
+     *    - request.IsBackground = true
+     * 
+     * 4. BACKGROUND CHECK (Polling for batch completion):
+     *    - Periodic status check requests for background jobs
+     *    - Checks if batch processing is complete
+     *    - request.IsBackgroundCheck = true
+     * 
+     * KEY TRANSITIONS:
+     *    Synchronous -> Async (when timeout approaching, AsyncWorker.StartAsync called)
+     *    Async -> Background (when stream processor detects batch ID in response)
+     *    Background -> BackgroundCheck (when polling for batch status)
+     * 
+     * RESPONSE ROUTING:
+     *    - Synchronous: response -> client HTTP connection
+     *    - Async/Background: response -> blob storage (via asyncWorker.WriteAsync)
+     *    - BackgroundCheck: status response -> blob storage if complete, or re-queue if pending
+     */
+    /// <summary>
+    /// Processes a proxy request through the backend with support for synchronous, asynchronous, and background execution modes.
+    /// </summary>
+    /// <param name="request">The incoming request to proxy to the backend</param>
+    /// <returns>ProxyData containing response headers, status, and metadata</returns>
+    /// <exception cref="ArgumentNullException">Thrown when request or required fields are null</exception>
+    /// <exception cref="ProxyErrorException">Thrown when all backend hosts fail or request expires</exception>
+    /// <exception cref="S7PRequeueException">Thrown when backend requests requeue with retry-after</exception>
     public async Task<ProxyData> ProxyToBackEndAsync(RequestData request)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -1311,6 +1358,21 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
 
     /// <summary>
     /// Streams the response content from the backend to the client using the appropriate stream processor.
+    /// 
+    /// RESPONSE ROUTING LOGIC:
+    ///   - Synchronous mode: Streams directly to request.OutputStream (client HTTP connection)
+    ///   - Async/Background mode: Streams to asyncWorker which writes to blob storage
+    /// 
+    /// STREAM PROCESSORS:
+    ///   - DefaultStream: Pass-through streaming with no processing
+    ///   - OpenAI: Detects batch IDs and triggers background processing mode
+    ///   - AllUsage: Extracts and logs usage information from OpenAI responses
+    ///   - MultiLineAllUsage: Handles multi-line usage data extraction
+    /// 
+    /// BACKGROUND MODE DETECTION:
+    ///   When processor.BackgroundCompleted is set, this indicates a background batch job
+    ///   was initiated (e.g., OpenAI batch API). The request will transition to background
+    ///   polling mode and status will be tracked separately.
     /// </summary>
     /// <param name="request">The incoming request data</param>
     /// <param name="proxyResponse">The HTTP response from the backend</param>
@@ -1460,8 +1522,21 @@ _logger.LogInformation("updating status to BackgroundRequestSubmitted");
 
     /// <summary>
     /// Determines the appropriate stream processor based on response headers and content type.
+    /// 
+    /// PROCESSOR SELECTION LOGIC:
+    ///   1. Check for "TOKENPROCESSOR" header in 200 OK responses
+    ///   2. Use event-stream processor for "text/event-stream" content type
+    ///   3. Use "Inline" processor if explicitly requested
+    ///   4. Default to "DefaultStream" for standard responses
+    /// 
+    /// AVAILABLE PROCESSORS:
+    ///   - DefaultStream: Pass-through streaming (default)
+    ///   - OpenAI: OpenAI-specific response processing with batch detection
+    ///   - AllUsage: Usage tracking for OpenAI responses
+    ///   - MultiLineAllUsage: Multi-line usage data extraction
     /// </summary>
     /// <param name="proxyResponse">The HTTP response from the backend</param>
+    /// <param name="mediaType">The content type of the response</param>
     /// <returns>The name of the processor to use for streaming the response</returns>
     private static string DetermineStreamProcessor(HttpResponseMessage proxyResponse, string mediaType)
     {
