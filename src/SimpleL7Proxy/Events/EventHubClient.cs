@@ -59,13 +59,17 @@ public class EventHubClient : IEventClient, IHostedService
 
                 _producerClient = new EventHubProducerClient(_config.ConnectionString, _config.EventHubName);
             }
-            else
+            else if ( !string.IsNullOrEmpty(_config?.EventHubNamespace) && !string.IsNullOrEmpty(_config?.EventHubName) )
             {
                 var fullyQualifiedNamespace = _config.EventHubNamespace;
                 if (!fullyQualifiedNamespace.EndsWith(".servicebus.windows.net"))
                     fullyQualifiedNamespace = $"{_config?.EventHubNamespace}.servicebus.windows.net";
             
                 _producerClient = new EventHubProducerClient(fullyQualifiedNamespace, _config?.EventHubName, new Azure.Identity.DefaultAzureCredential());
+            } else
+            {
+                _logger.LogError("EventHubClient configuration is invalid. Missing connection information.");
+                throw new InvalidOperationException("EventHubClient configuration is invalid. Missing connection information.");
             }
             
             _batchData = await _producerClient.CreateBatchAsync(cts.Token).ConfigureAwait(false);
