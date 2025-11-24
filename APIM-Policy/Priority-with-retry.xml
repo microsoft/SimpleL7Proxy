@@ -16,6 +16,17 @@
 		</set-header>
 		<!-- Check if the response is in cache -->
 		<!-- If we can't find the variable, initialize it -->
+		<set-variable name="priorityCfg" value="@{
+            // Create a JObject for priority configuration
+            JObject cfg = new JObject();
+            cfg["1"] = new JObject { { "retryCount", 12 }, { "requeue", false  } };
+            cfg["2"] = new JObject { { "retryCount", 9  }, { "requeue", false } };
+            cfg["3"] = new JObject { { "retryCount", 4  }, { "requeue", false  } };
+            return cfg;
+        }" />
+        <set-variable name="priorityHeaderName" value="llm_proxy_priority" />
+        <set-variable name="PolicyCycleCounterHeaderName" value="x-PolicyCycleCounter" />
+        <set-variable name="AffinityHeaderName" value="x-backend-affinity" />
 		<choose>
 			<when condition="@(context.Variables.ContainsKey("listBackends") == false)">
 				<set-variable name="listBackends" value="@{
@@ -33,7 +44,16 @@
                     //});
                     backends.Add(new JObject()
                     {
-                        { "url", "https://a208790-function-app-sleep-gvdha0ffczd4h4cc.eastus2-01.azurewebsites.net/api/sleep_function" },
+                        { "url", "https://a208790-function-app-sleep-gvdha0ffczd4h4cc.eastus2-01.azurewebsites.net/api/sleep_function?loc=1" },
+                        { "priority", 2},
+                        { "ModelType", "PAYGO" },
+                        { "acceptablePriorities", new JArray(1,2,3) }, // Acceptable priorities for this backend
+                        { "LimitConcurrency", "off"},
+                        { "api-key", ""}
+                    });
+                    backends.Add(new JObject()
+                    {
+                        { "url", "https://a208790-function-app-sleep-gvdha0ffczd4h4cc.eastus2-01.azurewebsites.net/api/sleep_function?loc=2" },
                         { "priority", 2},
                         { "ModelType", "PAYGO" },
                         { "acceptablePriorities", new JArray(1,2,3) }, // Acceptable priorities for this backend
@@ -60,33 +80,18 @@
 				<cache-store-value key="@("listBackends-" + context.Api.Id)" value="@((JArray)context.Variables["listBackends"])" duration="60" />
 			</when>
 		</choose>
-		<set-variable name="priorityCfg" value="@{
-            // Create a JObject for priority configuration
-            JObject cfg = new JObject();
-            cfg["1"] = new JObject {
-                { "retryCount", 12 },
-                { "requeue", true }
-            };
-            cfg["2"] = new JObject {
-                { "retryCount", 9 },
-                { "requeue", false }
-            };
-            cfg["3"] = new JObject {
-                { "retryCount", 1 },
-                { "requeue", true }
-            };
-            return cfg;
-        }" />
 		<!--  set the priority to 3 if not set -->
 		<set-variable name="RequestPriority" value="@{
             const int defaultPriority = 3;
-            return context.Request.Headers.TryGetValue("llm_proxy_priority", out var priorityValues) &&
+            string priorityHeaderName = (string)context.Variables["priorityHeaderName"];
+            return context.Request.Headers.TryGetValue(priorityHeaderName, out var priorityValues) &&
                 int.TryParse(priorityValues.FirstOrDefault(), out int parsedPriority)
                 ? parsedPriority
                 : defaultPriority;
         }" />
         <set-variable name="RequestAffinityBackendIdx" value="@{
-            string affinityHeader = context.Request.Headers.GetValueOrDefault("x-backend-affinity", "");
+            string affinityHeaderName = (string)context.Variables["AffinityHeaderName"];
+            string affinityHeader = context.Request.Headers.GetValueOrDefault(affinityHeaderName, "");
                     
             // Find the backend with the matching affinity
             if (!string.IsNullOrEmpty(affinityHeader)) {
@@ -128,7 +133,8 @@
 		<authentication-managed-identity resource="https://cognitiveservices.azure.com" output-token-variable-name="managed-id-access-token" ignore-error="false" />
         <set-variable name="backendCallCounter" value="@(0)" />
         <set-variable name="PolicyCycleCounter" value="@{
-            return context.Request.Headers.TryGetValue("x-PolicyCycleCounter", out var priorityValues) &&
+            string policyCycleCounterHeaderName = (string)context.Variables["PolicyCycleCounterHeaderName"];
+            return context.Request.Headers.TryGetValue(policyCycleCounterHeaderName, out var priorityValues) &&
                 int.TryParse(priorityValues.FirstOrDefault(), out int parsedCounter)   ? parsedCounter : 0;   // return 0 if not set
         }" />
 		<!-- set-backend-service base-url="https://a208790-function-app-sleep-gvdha0ffczd4h4cc.eastus2-01.azurewebsites.net/api/sleep_function" />
@@ -163,8 +169,6 @@
 
 			<!-- Before picking the backend, let's verify if there is any that should be set to not throttling anymore -->
 			<set-variable name="listBackends" value="@{
-                try {
-
                 JArray backends = (JArray)context.Variables["listBackends"];
 
                 backends.OfType<JObject>()
@@ -185,76 +189,35 @@
 
                 // There was either a timeout  or a limitConcurrency that was hit
                 if ( backendIndex >= 0 && backendIndex < backends.Count && ((!callCompleted && lastStatusCode!=200) || (shouldLimit!="off" && wasLimited)) ) {
+                    var arr = context.Variables.GetValueOrDefault<JArray>("activityLog", new JArray());
+                    arr.Add(new JObject {{ "Elapsed", context.Elapsed.TotalSeconds.ToString("F3") },{ "message", $"Throttling backend index {backendIndex} to 4 seconds" }});
                     JObject backend = (JObject)backends[backendIndex];
                     backend["isThrottling"] = true;
                     backend["retryAfter"] = DateTime.UtcNow.AddSeconds(4);
                 }
 
                 return backends;
-                
-
-                } catch (Exception ex) {
-                    // Grab existing single-element error array (created in inbound)
-                    var errArr = context.Variables.GetValueOrDefault<JArray>("lastPolicyError", null);
-                      if (errArr != null) {
-                        errArr.Clear();
-                        var msg = ex.Message ?? "Exception has no Message";
-                        if (msg.Length > 300) { msg = msg.Substring(0, 300) + "..."; }
-                        errArr.Add(new JObject {
-                            { "code", "listBackends-update" },
-                            { "message", "place=" + place + ".  " + msg },
-                            { "utc", DateTime.UtcNow.ToString("o") }
-                        });
-                    }
-                    return context.Variables.GetValueOrDefault<JArray>("listBackends", new JArray());
-
-                }
             }" />
 			<cache-store-value key="@("listBackends-" + context.Api.Id)" value="@((JArray)context.Variables["listBackends"])" duration="60" />
 
             <choose>
                 <when condition="@( context.Variables.GetValueOrDefault<int>("backendCallCounter", 0)==0)">
 					<set-variable name="activityLog" value="@{
-                        try {
-                            var arr = context.Variables.GetValueOrDefault<JArray>("activityLog", new JArray());
-                            JArray priorityBackendIndxs = (JArray)context.Variables["PriBackendIndxs"];
-                            JArray backends = context.Variables.GetValueOrDefault<JArray>("listBackends", new JArray());
-                            var retryCount = context.Variables.GetValueOrDefault<int>("RetryCount", -1);
+                        var arr = context.Variables.GetValueOrDefault<JArray>("activityLog", new JArray());
+                        JArray priorityBackendIndxs = (JArray)context.Variables["PriBackendIndxs"];
+                        JArray backends = context.Variables.GetValueOrDefault<JArray>("listBackends", new JArray());
+                        var retryCount = context.Variables.GetValueOrDefault<int>("RetryCount", -1);
 
-                            string msg = "BACKENDS: ";
+                        string msg = $" RetryCount: {retryCount}  BACKENDS: ";
 
-                            foreach (int i in priorityBackendIndxs) {
-                                JObject backend = (JObject)backends[i];
-                                msg += "  index=" + i + " RetryCount: " + retryCount + "  isThrottling=" + backend.Value<bool>("isThrottling") +
-                                " retryAfter=" + backend.Value<DateTime>("retryAfter").ToString("o");
-                            }
-
-                            //int requestPriority = (int)context.Variables["RequestPriority"];
-                            //backendLog += " REQUEST PRIORITY: " + requestPriority +
-                            //        "  REQUEST-HEADERS: " +   string.Join(", ",
-                            //        context.Request.Headers
-                            //            .Where(h => !string.Equals(h.Key, "api-key", StringComparison.OrdinalIgnoreCase) &&
-                            //                        !string.Equals(h.Key, "Authorization", StringComparison.OrdinalIgnoreCase))
-                            //            .Select(h => $"{h.Key}: {string.Join(", ", h.Value)}")
-                            //    );
-
-                            arr.Add(new JObject {{ "Elapsed", context.Elapsed.TotalSeconds.ToString("F3") },{ "message", msg }});
-                            return arr;
+                        foreach (int i in priorityBackendIndxs) {
+                            JObject backend = (JObject)backends[i];
+                            msg += "Index["+i+"]=  IsThrottling=" + backend.Value<bool>("isThrottling") + " RetryAfter=" + backend.Value<DateTime>("retryAfter").ToString("o");
                         }
-                        catch (Exception ex) {
-                            var errArr = context.Variables.GetValueOrDefault<JArray>("lastPolicyError", null);
-                            if (errArr != null) {
-                                errArr.Clear();
-                                var m = ex.Message ?? "Exception has no Message";
-                                if (m.Length > 300) { m = m.Substring(0, 300) + "..."; }
-                                errArr.Add(new JObject {
-                                    { "code", "backendLog-initial-update" },
-                                    { "message", m },
-                                    { "utc", DateTime.UtcNow.ToString("o") }
-                                });
-                            }
-                            return context.Variables.GetValueOrDefault<JArray>("activityLog", new JArray());
-                        }
+
+                        arr.Add(new JObject {{ "Elapsed", context.Elapsed.TotalSeconds.ToString("F3") },{ "message", msg }});
+                        return arr;
+
                     }" />
                 </when>
             </choose>
@@ -615,7 +578,7 @@
                         <set-header name="x-Backend-Attempts" exists-action="override">
                             <value>@(context.Variables.GetValueOrDefault<int>("backendCallCounter", 0).ToString())</value>
                         </set-header>
-                        <set-header name="x-PolicyCycleCounter" exists-action="override">
+                        <set-header name="@((string)context.Variables["PolicyCycleCounterHeaderName"])" exists-action="override">
                             <value>@(context.Variables.GetValueOrDefault<int>("PolicyCycleCounter", 0).ToString())</value>
                         </set-header>
                         <set-header name="backendLog" exists-action="override">
@@ -637,7 +600,7 @@
                         <set-header name="x-Backend-Attempts" exists-action="override">
                             <value>@(context.Variables.GetValueOrDefault<int>("backendCallCounter", 0).ToString())</value>
                         </set-header>
-                        <set-header name="x-PolicyCycleCounter" exists-action="override">
+                        <set-header name="@((string)context.Variables["PolicyCycleCounterHeaderName"])" exists-action="override">
                             <value>@(context.Variables.GetValueOrDefault<int>("PolicyCycleCounter", 0).ToString())</value>
                         </set-header>
                         <set-header name="backendLog" exists-action="override">
@@ -659,7 +622,7 @@
                         <set-header name="x-Backend-Attempts" exists-action="override">
                             <value>@(context.Variables.GetValueOrDefault<int>("backendCallCounter", 0).ToString())</value>
                         </set-header>
-                        <set-header name="x-PolicyCycleCounter" exists-action="override">
+                        <set-header name="@((string)context.Variables["PolicyCycleCounterHeaderName"])" exists-action="override">
                             <value>@(context.Variables.GetValueOrDefault<int>("PolicyCycleCounter", 0).ToString())</value>
                         </set-header>
                         <set-header name="backendLog" exists-action="override">
@@ -690,13 +653,13 @@
         <set-header name="TOKENPROCESSOR" exists-action="override">
             <value>MultiLineAllUsage</value>
         </set-header>
-        <set-header name="x-backend-affinity" exists-action="override">
+        <set-header name="@((string)context.Variables["AffinityHeaderName"])" exists-action="override">
             <value>@(((JObject)context.Variables["selectedBackend"]).Value<string>("affinity"))</value>
         </set-header>
         <set-header name="x-Backend-Attempts" exists-action="override">
             <value>@(context.Variables.GetValueOrDefault<int>("backendCallCounter", 0).ToString())</value>
         </set-header>
-        <set-header name="x-PolicyCycleCounter" exists-action="override">
+        <set-header name="@((string)context.Variables["PolicyCycleCounterHeaderName"])" exists-action="override">
             <value>@(context.Variables.GetValueOrDefault<int>("PolicyCycleCounter", 0).ToString())</value>
         </set-header>
         <set-header name="backendLog" exists-action="override">
