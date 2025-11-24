@@ -31,7 +31,7 @@ public class ProxyWorker
 {
     private readonly int _preferredPriority;
     private readonly CancellationToken _cancellationToken;
-    private static bool s_debug;
+    private static bool s_debug = false;            // dev time debug flag
     private static IConcurrentPriQueue<RequestData>? s_requestsQueue;
     private static IRequeueWorker? s_requeueDelayWorker; // Initialized in constructor, only one instance
     private readonly IBackendService _backends;
@@ -41,6 +41,7 @@ public class ProxyWorker
     private readonly ILogger<ProxyWorker> _logger;
     private readonly StreamProcessorFactory _streamProcessorFactory;
     private readonly RequestLifecycleManager _lifecycleManager;
+    private readonly EventDataBuilder _eventDataBuilder;
     //private readonly ProxyStreamWriter _proxyStreamWriter;
     private readonly IUserPriorityService _userPriority;
     private readonly IUserProfileService _profiles;
@@ -69,6 +70,7 @@ public class ProxyWorker
         ILogger<ProxyWorker> logger,
         StreamProcessorFactory streamProcessorFactory,
         RequestLifecycleManager lifecycleManager,
+        EventDataBuilder eventDataBuilder,
         HealthCheckService healthCheckService,
         //ProxyStreamWriter proxyStreamWriter,
         CancellationToken cancellationToken)
@@ -82,6 +84,7 @@ public class ProxyWorker
         _logger = logger;
         _streamProcessorFactory = streamProcessorFactory ?? throw new ArgumentNullException(nameof(streamProcessorFactory));
         _lifecycleManager = lifecycleManager ?? throw new ArgumentNullException(nameof(lifecycleManager));
+        _eventDataBuilder = eventDataBuilder ?? throw new ArgumentNullException(nameof(eventDataBuilder));
         //_proxyStreamWriter = proxyStreamWriter;
         //_eventHubClient = eventHubClient;
         _userPriority = userPriority ?? throw new ArgumentNullException(nameof(userPriority));
@@ -186,8 +189,8 @@ public class ProxyWorker
                     _lifecycleManager.TransitionToProcessing(incomingRequest);
 
                     // Enrich headers and populate initial event data
-                    _lifecycleManager.EnrichRequestHeaders(incomingRequest, _idStr);
-                    _lifecycleManager.PopulateInitialEventData(incomingRequest);
+                    _eventDataBuilder.EnrichRequestHeaders(incomingRequest, _idStr);
+                    _eventDataBuilder.PopulateInitialEventData(incomingRequest);
 
                     HealthCheckService.EnterState(_id, WorkerState.Proxying);
                     workerState = "Read Proxy";
@@ -203,7 +206,7 @@ public class ProxyWorker
                     {
                         if (!_isEvictingAsyncRequest)
                         {
-                            _lifecycleManager.PopulateProxyEventData(incomingRequest, pr);
+                            _eventDataBuilder.PopulateProxyEventData(incomingRequest, pr);
                         }
                     }
 
@@ -214,7 +217,7 @@ public class ProxyWorker
                     //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
 
                     eventData.Status = pr.StatusCode;
-                    _lifecycleManager.PopulateHeaderEventData(incomingRequest, pr.Headers);
+                    _eventDataBuilder.PopulateHeaderEventData(incomingRequest, pr.Headers);
 
                     // Determine final status based on response
                     if (pr.StatusCode == HttpStatusCode.PreconditionFailed || pr.StatusCode == HttpStatusCode.RequestTimeout) // 412 or 408
@@ -249,7 +252,7 @@ public class ProxyWorker
                         conlen, pr.FullURL, incomingRequest.DequeueTime.ToLocalTime().ToString("T"), proxyTime);
 
                     // Populate final event data
-                    _lifecycleManager.PopulateFinalEventData(incomingRequest, lcontext);
+                    _eventDataBuilder.PopulateFinalEventData(incomingRequest, lcontext);
 
                     HealthCheckService.EnterState(_id, WorkerState.Cleanup);
                     workerState = "Cleanup";
@@ -625,7 +628,7 @@ public class ProxyWorker
                         _logger.LogDebug("OAuth Token retrieved for backend {BackendHost}", host.Host);
                     }
                     // Set the token in the headers
-                    request.Headers.Set("Authorization", $"Bearer {oaToken}");
+//                    request.Headers.Set("Authorization", $"Bearer {oaToken}");
                 }
 
                 requestState = "Calc ExpiresAt";
@@ -638,7 +641,7 @@ public class ProxyWorker
                     : DateTime.UtcNow.AddMilliseconds(request.defaultTimeout);
                 request.Timeout = (int)(minDate - DateTime.UtcNow).TotalMilliseconds;
 
-                request.Headers.Set("Host", host.Host);
+                request.Headers.Set("Host", host.Hostname);
                 request.FullURL = host.Config.BuildDestinationUrl(request.Path);
 
                 requestState = "Cache Body";
@@ -646,14 +649,14 @@ public class ProxyWorker
                 byte[] bodyBytes = await request.CacheBodyAsync().ConfigureAwait(false);
 
                 requestState = "Create Backend Request";
+
                 using (ByteArrayContent bodyContent = new(bodyBytes))
                 using (HttpRequestMessage proxyRequest = new(new(request.Method), request.FullURL))
                 {
                     proxyRequest.Content = bodyContent;
-                    // request.Headers["Content-Type"] = "application/json";
 
-                    ProxyHelperUtils.CopyHeaders(request.Headers, proxyRequest, true);
                     proxyRequest.Headers.Add("x-PolicyCycleCounter", request.TotalDownstreamAttempts.ToString());
+                    ProxyHelperUtils.CopyHeaders(request.Headers, proxyRequest, true, _options.StripRequestHeaders);
 
                     if (bodyBytes.Length > 0)
                     {
@@ -725,6 +728,7 @@ public class ProxyWorker
                             requestAttempt.Status = proxyResponse.StatusCode;
 
                             requestState = "Process Backend Response";
+                            Console.WriteLine("Got a response from backend.  Status" ); 
 
                             // Capture the response
                             ProxyData pr = new()
@@ -760,6 +764,8 @@ public class ProxyWorker
                                     request.TotalDownstreamAttempts = pAttempts;
                                 }
                             }
+
+                            Console.WriteLine("Processing response status code: " + (int)proxyResponse.StatusCode);
 
                             // Check if the status code of the response is in the set of allowed status codes, else try the next host
                             intCode = (int)proxyResponse.StatusCode;
@@ -848,7 +854,7 @@ public class ProxyWorker
                             pr.Headers["x-Total-Latency"] = requestSummary["Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3");
 
                             // Strip headers from pr.Headers that are not allowed in the response
-                            foreach (var header in _options.StripHeaders)
+                            foreach (var header in _options.StripResponseHeaders)
                             {
                                 if (pr.Headers.Get(header) != null)
                                 {
