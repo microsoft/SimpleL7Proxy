@@ -11,6 +11,7 @@ public abstract class BaseHostHealth
   public HostConfig Config { get; set; }
 
   public string Host => Config.Host;
+  public string Hostname => Config.Hostname;
   public int Port => Config.Port;
   public string Url => Config.Url;
   public string IpAddr => Config.IpAddr ?? Config.Host;

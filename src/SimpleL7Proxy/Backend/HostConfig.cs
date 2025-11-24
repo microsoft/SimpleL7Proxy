@@ -27,7 +27,8 @@ namespace SimpleL7Proxy.Backend
     private ParsedConfig ParsedConfig { get; set; }
     public string Audience => ParsedConfig.Audience;
     public bool DirectMode => ParsedConfig.DirectMode;
-    public string Host  => ParsedConfig.Host;
+    public string Host => ParsedConfig.Host;
+    public string Hostname => ParsedConfig.Hostname;
     public string? IpAddr => ParsedConfig.IpAddr;
     public string PartialPath => ParsedConfig.PartialPath;
     public string ProbePath => ParsedConfig.ProbePath;
@@ -79,10 +80,10 @@ namespace SimpleL7Proxy.Backend
       if (_serviceProvider == null)
         throw new InvalidOperationException("HostConfig service provider not initialized. Call SetServiceProvider first.");
       
-      _circuitBreaker = (ICircuitBreaker)_serviceProvider.GetService(typeof(ICircuitBreaker))
+      _circuitBreaker = _serviceProvider.GetService<ICircuitBreaker>()
         ?? throw new InvalidOperationException("ICircuitBreaker service not registered in DI container.");
       
-      _logger?.LogInformation("[CONFIG] Configuring backend host: {hostname}", hostname);
+      _logger?.LogDebug("[CONFIG] Configuring backend host: {hostname}", hostname);
       ParsedConfig = TryParseConfig(hostname, probepath, ip, audience);
 
       // If host does not have a protocol, add one
@@ -100,8 +101,10 @@ namespace SimpleL7Proxy.Backend
 
       if (!DirectMode)
       {
-        Console.WriteLine("Making probe url with Protocol: " + Protocol + " IpAddr: " + (IpAddr ?? Host) + " Port: " + Port + " ProbePath: " + ProbePath);
-        ProbeUrl = WebUtility.UrlDecode(new UriBuilder(Protocol, IpAddr ?? Host, Port, ProbePath).Uri.AbsoluteUri);
+        string hostOrIp = string.IsNullOrEmpty(IpAddr) ? Hostname : IpAddr;
+        _logger?.LogDebug("Making probe url with Protocol: {Protocol} Host: {Host} Port: {Port} ProbePath: {ProbePath}",
+            Protocol, hostOrIp, Port, ProbePath);
+        ProbeUrl = WebUtility.UrlDecode(new UriBuilder(Protocol, hostOrIp, Port, ProbePath).Uri.AbsoluteUri);
       }
       else
       {
@@ -117,38 +120,38 @@ namespace SimpleL7Proxy.Backend
 
       if (DirectMode)
       {
-        _logger?.LogInformation("[CONFIG] ✓ Direct host configured: {Host} | Path: {PartialPath}", Host, PartialPath);
+        _logger?.LogDebug("[CONFIG] ✓ Direct host configured: {Host} | Path: {PartialPath}", Host, PartialPath);
         probepath = String.Empty;
       }
       else
       {
-        _logger?.LogInformation("[CONFIG] ✓ APIM  host configured: {Host} | Probe: /{ProbePath}", Host, ProbePath);
+        _logger?.LogDebug("[CONFIG] ✓ APIM  host configured: {Host} | Probe: /{ProbePath}", Host, ProbePath);
       }
     }
 
 
-    private static ParsedConfig TryParseConfig(string input, string? probepath, string? ip, string? audience = "")
+    private static ParsedConfig TryParseConfig(string hostname, string? probepath, string? ip, string? audience = "")
     /// <summary>
     /// Parses a backend configuration string into a ParsedConfig struct.
     /// </summary>
     {
       var result = new ParsedConfig
       {
-        Host = input,
+        Host = hostname,
         ProbePath = probepath?.TrimStart('/') ?? "echo/resource?param1=sample",
         DirectMode = false,
-        IpAddr =  ip ?? "",
+        IpAddr = ip ?? "",
         PartialPath = "/",
         UseOAuth = false,
         Audience = audience ?? "",
         UsesRetryAfter = true
       };
 
-      if (input.Contains(';'))
+      if (hostname.Contains(';'))
       {
         var configDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var part in input.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        foreach (var part in hostname.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
           var splitIndex = part.IndexOf('=');
           if (splitIndex <= 0 || splitIndex >= part.Length - 1)
@@ -202,6 +205,13 @@ namespace SimpleL7Proxy.Backend
           }
         }
       }
+
+      // try an parse the hostname if for non direct mode hosts.
+      if (!result.DirectMode)
+      {
+        result.Hostname = hostname;
+      } 
+      
       return result;
     }
 
