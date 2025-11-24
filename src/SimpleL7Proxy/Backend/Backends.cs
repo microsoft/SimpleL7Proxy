@@ -33,7 +33,7 @@ public class Backends : IBackendService
   private static DateTime _lastStatusDisplay = DateTime.Now - TimeSpan.FromMinutes(10);  // Force display on first run
   private static DateTime _lastGCTime = DateTime.Now;
   private static bool _isRunning = false;
-  private static ICircuitBreaker _circuitBreaker;
+  private readonly ICircuitBreaker _circuitBreaker;
 
   private CancellationTokenSource _cancellationTokenSource;
   private CancellationToken _cancellationToken;
@@ -65,6 +65,7 @@ public class Backends : IBackendService
     ArgumentNullException.ThrowIfNull(cancellationTokenSource, nameof(cancellationTokenSource));
     ArgumentNullException.ThrowIfNull(logger, nameof(logger));
     ArgumentNullException.ThrowIfNull(eventClient, nameof(eventClient));
+    ArgumentNullException.ThrowIfNull(circuitBreaker, nameof(circuitBreaker));
 
     //    appLifetime.ApplicationStopping.Register(OnApplicationStopping);
 
@@ -272,7 +273,10 @@ public class Backends : IBackendService
     try
     {
       if (_debug)
-        staticEvent.WriteOutput($"Checking host {host.Url + probeableHost.ProbePath}");
+      {
+        string eventMessage = $"Checking host: {host.Host} Hostname: {host.Hostname}  Probe: {probeableHost.ProbeUrl}";
+        staticEvent.WriteOutput(eventMessage);
+      }
 
       var request = new HttpRequestMessage(HttpMethod.Get, probeableHost.ProbeUrl);
       if (host.Config.UseOAuth)
