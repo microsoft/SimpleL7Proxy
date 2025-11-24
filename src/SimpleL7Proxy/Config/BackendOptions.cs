@@ -58,7 +58,8 @@ public class BackendOptions
     // Storage configuration
     public bool StorageDbEnabled { get; set; } = false;
     public string StorageDbContainerName { get; set; } = "Requests";
-    public List<string> StripHeaders { get; set; } = [];
+    public List<string> StripResponseHeaders { get; set; } = [];
+    public List<string> StripRequestHeaders { get; set; } = [];
     public int Timeout { get; set; }
     public string TimeoutHeader { get; set; } = "";
     public int TerminationGracePeriodSeconds { get; set; }

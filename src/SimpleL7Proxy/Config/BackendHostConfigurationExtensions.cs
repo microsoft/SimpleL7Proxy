@@ -87,7 +87,8 @@ public static class BackendHostConfigurationExtensions
       options.SuspendedUserConfigUrl = backendOptions.SuspendedUserConfigUrl;
       options.StorageDbEnabled = backendOptions.StorageDbEnabled;
       options.StorageDbContainerName = backendOptions.StorageDbContainerName;
-      options.StripHeaders = backendOptions.StripHeaders;
+      options.StripResponseHeaders = backendOptions.StripResponseHeaders;
+      options.StripRequestHeaders = backendOptions.StripRequestHeaders;
       options.TerminationGracePeriodSeconds = backendOptions.TerminationGracePeriodSeconds;
       options.Timeout = backendOptions.Timeout;
       options.TimeoutHeader = backendOptions.TimeoutHeader;
@@ -518,7 +519,8 @@ public static class BackendHostConfigurationExtensions
       Revision = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REVISION", "revisionID"),
       SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
       SuspendedUserConfigUrl = ReadEnvironmentVariableOrDefault("SuspendedUserConfigUrl", "file:config.json"),
-      StripHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("StripHeaders", "")),
+      StripResponseHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("StripResponseHeaders", "")),
+      StripRequestHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("StripRequestHeaders", "")),
       StorageDbEnabled = ReadEnvironmentVariableOrDefault("StorageDbEnabled", false),
       StorageDbContainerName = ReadEnvironmentVariableOrDefault("StorageDbContainerName", "Requests"),
       TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
@@ -636,7 +638,7 @@ public static class BackendHostConfigurationExtensions
 
       try
       {
-        _logger?.LogInformation($"Found host {hostname} with probe path {probePath} and IP {ip}");
+        _logger?.LogDebug($"Found host {hostname} with probe path {probePath} and IP {ip}");
 
         // Resolve HostConfig from DI using the factory
         HostConfig bh = new HostConfig(hostname, probePath, ip, backendOptions.OAuthAudience);
@@ -648,6 +650,7 @@ public static class BackendHostConfigurationExtensions
       catch (UriFormatException e)
       {
         _logger?.LogError($"Could not add Host{i} with {hostname} : {e.Message}");
+        Console.WriteLine(e.StackTrace);
       }
 
       i++;
