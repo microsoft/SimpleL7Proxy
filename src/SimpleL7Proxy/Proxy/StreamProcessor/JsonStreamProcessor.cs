@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using System.Net.Http.Headers;
 using SimpleL7Proxy.Events;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 
 /*
  * JSON STREAM PROCESSOR BASE CLASS DOCUMENTATION
@@ -50,13 +51,14 @@ namespace SimpleL7Proxy.StreamProcessor
         /// </summary>
         public override async Task CopyToAsync(System.Net.Http.HttpContent sourceContent, Stream outputStream)
         {
-
+            _logger?.LogDebug("Starting JSON stream processing");
             var lastLines = new string[MaxLines]; // Fixed array for last 6 lines
             int currentIndex = 0; // Current write position
             int lineCount = 0;    // Total lines written
 
             try
             {
+                _logger?.LogDebug("Opening source stream for reading");
                 using var sourceStream = await sourceContent.ReadAsStreamAsync().ConfigureAwait(false);
                 using var reader = new StreamReader(sourceStream);
                 using var writer = new StreamWriter(outputStream, bufferSize: 4096, leaveOpen: true);
@@ -72,32 +74,38 @@ namespace SimpleL7Proxy.StreamProcessor
                     Task t = writer.WriteLineAsync(currentLine);
 
                     // Only process through lines that could have usage in them
-                    if (currentLine.Length > MinLineLength && currentLine.Length < 1000)
+                    if (currentLine.Length > MinLineLength )
                     {
                         lastLines[currentIndex] = currentLine;
                         currentIndex = (currentIndex + 1) % MaxLines; // Wrap around
                         lineCount++;
-                    }
+                    } 
 
                     await t.ConfigureAwait(false);
                 }
+                
+                _logger?.LogDebug("Finished streaming {LineCount} lines from source", lineCount);
             }
             catch (IOException e)
             {
+                _logger?.LogDebug("IOException during stream processing: {Message}", e.Message);
                 if (!ShouldIgnoreException(e))
                 {
                     data["LastError"] = e.Message;
                     throw;
                 }
                 // Exception is ignored (e.g., "Connection reset by peer")
+                _logger?.LogDebug("IOException ignored: {Message}", e.Message);
             }
             catch (OperationCanceledException)
             {
+                _logger?.LogDebug("Stream processing operation was cancelled");
                 data["LastError"] = "Operation was cancelled";
                 throw;
             }
             catch (Exception e)
             {
+                _logger?.LogDebug("Unexpected error during stream processing: {Message}", e.Message);
                 data["LastError"] = $"Unexpected error: {e.Message}";
                 throw;
             }
@@ -106,6 +114,8 @@ namespace SimpleL7Proxy.StreamProcessor
                 // Process the last lines if we have any
                 if (lineCount > 0)
                 {
+                    _logger?.LogDebug("Processing last {LineCount} lines for statistics extraction", lineCount);
+                    
                     try
                     {
                         // Walk through lines to find the one with usage data
@@ -129,6 +139,9 @@ namespace SimpleL7Proxy.StreamProcessor
                         var backgroundRequestFound = false;
                         var modelFound = false;
                         BackgroundCompleted = false;
+                        
+                        _logger?.LogDebug("Searching for usage and background request patterns in last lines");
+                        
                         // Loop through lines starting from most recent, going backwards
                         for (int i = 0; i < validLines.Length; i++)
                         {
@@ -137,6 +150,7 @@ namespace SimpleL7Proxy.StreamProcessor
                             {
                                 //Console.WriteLine("Found usage line: " + line);
                                 usageLine = line;
+                                _logger?.LogDebug("Found usage line at index {Index}", i);
                                 break; // Found the line with usage
                             }
                             else
@@ -145,16 +159,19 @@ namespace SimpleL7Proxy.StreamProcessor
                                 if (line.Contains(@"""background"": true"))
                                 {
                                     backgroundRequestFound = true;
+                                    _logger?.LogDebug("Background request flag detected");
                                 }
 
                                 if (line.Contains(@"""status"": ""completed"""))
                                 {
                                     BackgroundCompleted = true;
+                                    _logger?.LogDebug("Background request completed status detected");
                                 }
 
                                 if (line.Contains(@"""model"": "))
                                 {
                                     modelFound = true;
+                                    _logger?.LogDebug("Model field detected");
                                 }
 
                                 // Console.WriteLine("This is a background request : " + line);
@@ -165,6 +182,7 @@ namespace SimpleL7Proxy.StreamProcessor
                                 if (match.Success)
                                 {
                                     BackgroundRequestId = match.Groups[1].Value;
+                                    _logger?.LogDebug("Extracted background request ID: {RequestId}", BackgroundRequestId);
                                 }
                             }
                         }
@@ -172,6 +190,7 @@ namespace SimpleL7Proxy.StreamProcessor
                         if (backgroundRequestFound && modelFound && !string.IsNullOrEmpty(BackgroundRequestId))
                         {
                             BackgroundRequest = true;
+                            _logger?.LogDebug("Confirmed as background request with ID: {RequestId}", BackgroundRequestId);
                         }
                         else
                         {
@@ -180,15 +199,18 @@ namespace SimpleL7Proxy.StreamProcessor
 
                         // Fall back to most recent line if no usage found
                         var primaryLine = usageLine ?? validLines[0];
+                        _logger?.LogDebug("Processing statistics from primary line (usage line: {HasUsage})", usageLine != null);
                         ProcessLastLines(validLines, primaryLine);
                     }
                     catch (Exception ex)
                     {
+                        _logger?.LogDebug("Error processing last lines: {Message}", ex.Message);
                         data["LastLineProcessingError"] = ex.Message;
                     }
                 }
                 else
                 {
+                    _logger?.LogDebug("No content received from source stream");
                     Console.WriteLine("No content received from source stream.");
                 }
             }
@@ -237,6 +259,7 @@ namespace SimpleL7Proxy.StreamProcessor
         /// </summary>
         public override void GetStats(ProxyEvent eventData, HttpResponseHeaders headers)
         {
+            _logger?.LogDebug("Populating event data with {Count} statistics entries", data.Count);
             PopulateEventData(eventData, headers);
         }
 
@@ -295,18 +318,25 @@ namespace SimpleL7Proxy.StreamProcessor
             try
             {
                 if (string.IsNullOrWhiteSpace(jsonLine))
+                {
+                    _logger?.LogDebug("ParseJsonLine received empty or whitespace line");
                     return null;
+                }
 
                 // Line starts with "data: " so we need to remove that prefix
                 if (jsonLine.StartsWith("data: ", StringComparison.OrdinalIgnoreCase))
                 {
                     jsonLine = jsonLine.Substring(6).Trim();
+                    _logger?.LogDebug("Removed 'data: ' prefix from JSON line");
                 }
 
-                return JsonNode.Parse(jsonLine);
+                var node = JsonNode.Parse(jsonLine);
+                _logger?.LogDebug("Successfully parsed JSON line");
+                return node;
             }
-            catch
+            catch (Exception ex)
             {
+                _logger?.LogDebug("Failed to parse JSON line: {Message}", ex.Message);
                 return null;
             }
         }
@@ -319,7 +349,14 @@ namespace SimpleL7Proxy.StreamProcessor
         /// <param name="prefix">The prefix for the field names (hierarchy path).</param>
         public void ExtractAllFields(JsonNode? node, string prefix)
         {
-            if (node is not JsonObject jsonObject) return;
+            if (node is not JsonObject jsonObject)
+            {
+                _logger?.LogDebug("ExtractAllFields called with non-JsonObject node");
+                return;
+            }
+
+            _logger?.LogDebug("Extracting fields from JSON object with prefix: '{Prefix}'", prefix);
+            int fieldCount = 0;
 
             foreach (var (key, value) in jsonObject)
             {
@@ -335,11 +372,11 @@ namespace SimpleL7Proxy.StreamProcessor
                 {
                     case JsonValue jsonValue:
                         data[fieldName] = jsonValue.ToString();
+                        fieldCount++;
                         break;
 
                     case JsonObject nestedObject:
                         ExtractAllFields(nestedObject, fieldName);
-
                         break;
 
                     case JsonArray jsonArray:
@@ -350,13 +387,18 @@ namespace SimpleL7Proxy.StreamProcessor
                                 foreach (var (arrayKey, arrayValue) in arrayObject)
                                 {
                                     if (arrayValue is JsonValue arrayJsonValue)
+                                    {
                                         data[$"{fieldName}[{i}].{arrayKey}"] = arrayJsonValue.ToString();
+                                        fieldCount++;
+                                    }
                                 }
                             }
                         }
                         break;
                 }
             }
+            
+            _logger?.LogDebug("Extracted {FieldCount} fields from JSON object", fieldCount);
         }
 
         /// <summary>
@@ -379,6 +421,7 @@ namespace SimpleL7Proxy.StreamProcessor
             {
                 if (disposing)
                 {
+                    _logger?.LogDebug("Disposing JsonStreamProcessor with {Count} data entries", data.Count);
                     data.Clear();
                 }
                 base.Dispose(disposing);

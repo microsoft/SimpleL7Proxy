@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using SimpleL7Proxy.Events;
+using Microsoft.Extensions.Logging;
 
 /*
  * STREAM PROCESSOR BASE CLASS DOCUMENTATION
@@ -37,7 +38,22 @@ namespace SimpleL7Proxy.StreamProcessor
     public abstract class BaseStreamProcessor : IStreamProcessor
     {
         protected bool _disposed = false;
+        
+        /// <summary>
+        /// Static logger shared across all stream processor instances.
+        /// Can be initialized once and used by all processors for debug logging.
+        /// </summary>
+        protected static ILogger? _logger;
 
+        /// <summary>
+        /// Sets the shared logger for all stream processors.
+        /// This should be called once during application startup.
+        /// </summary>
+        /// <param name="logger">The logger instance to use for all stream processors.</param>
+        public static void SetLogger(ILogger? logger)
+        {
+            _logger = logger;
+        }
 
         /// <summary>
         /// Abstract method that derived classes must implement to handle stream copying logic.
