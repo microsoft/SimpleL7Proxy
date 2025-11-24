@@ -628,7 +628,7 @@ public class ProxyWorker
                         _logger.LogDebug("OAuth Token retrieved for backend {BackendHost}", host.Host);
                     }
                     // Set the token in the headers
-//                    request.Headers.Set("Authorization", $"Bearer {oaToken}");
+                    request.Headers.Set("Authorization", $"Bearer {oaToken}");
                 }
 
                 requestState = "Calc ExpiresAt";
@@ -728,7 +728,6 @@ public class ProxyWorker
                             requestAttempt.Status = proxyResponse.StatusCode;
 
                             requestState = "Process Backend Response";
-                            Console.WriteLine("Got a response from backend.  Status" ); 
 
                             // Capture the response
                             ProxyData pr = new()
@@ -764,8 +763,6 @@ public class ProxyWorker
                                     request.TotalDownstreamAttempts = pAttempts;
                                 }
                             }
-
-                            Console.WriteLine("Processing response status code: " + (int)proxyResponse.StatusCode);
 
                             // Check if the status code of the response is in the set of allowed status codes, else try the next host
                             intCode = (int)proxyResponse.StatusCode;
@@ -1168,6 +1165,7 @@ public class ProxyWorker
 
             if (request.OutputStream != null)
             {
+                _logger.LogDebug("Starting to stream with processor : " + typeof(IStreamProcessor).ToString() + " for request {Guid}", request.Guid);
                 await processor.CopyToAsync(proxyResponse.Content, request.OutputStream).ConfigureAwait(false);
             }
             else
@@ -1197,6 +1195,7 @@ public class ProxyWorker
         {
             try
             {
+                processor.GetStats(request.EventData, proxyResponse.Headers);
                 await _lifecycleManager.HandleBackgroundRequestLifecycle(request, processor).ConfigureAwait(false);
             }
             catch (Exception statsEx)
