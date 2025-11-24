@@ -28,13 +28,19 @@ public static class ProxyHelperUtils
     public static void CopyHeaders(
         NameValueCollection sourceHeaders,
         HttpRequestMessage? targetMessage,
-        bool ignoreHeaders = false)
+        bool ignoreHeaders = false,
+        List<string>? stripHeaders = null)
     {
         if (targetMessage == null) return;
 
         foreach (var key in sourceHeaders.AllKeys)
         {
             if (key == null) continue;
+
+            // Skip headers in the strip list
+            if (stripHeaders != null && stripHeaders.Contains(key, StringComparer.OrdinalIgnoreCase))
+                continue;
+
             if (!ignoreHeaders || (!key.StartsWith("S7P") && !key.StartsWith("X-MS-CLIENT", StringComparison.OrdinalIgnoreCase)
                 && !key.Equals("content-length", StringComparison.OrdinalIgnoreCase)))
             {
