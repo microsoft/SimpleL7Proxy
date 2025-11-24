@@ -237,6 +237,7 @@ public class Program
         services.AddSingleton<IHostHealthCollection, HostHealthCollection>();
         services.AddSingleton<HealthCheckService>();
         services.AddSingleton<RequestLifecycleManager>();
+        services.AddSingleton<EventDataBuilder>();
 
         services.AddSingleton<BackendTokenProvider>();
         services.AddHostedService<BackendTokenProvider>();
