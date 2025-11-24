@@ -15,7 +15,7 @@ HOSTMAP["tr2-o"]="nvmtr2apim.azure-api.net|resp|"
 HOSTMAP["apim2"]="nvmmcpapim2.azure-api.net||"
 HOSTMAP["local-ai"]="localhost:8000|openai|"
 HOSTMAP["local-resp"]="localhost:8000|resp|"
-HOSTMAP["local-direct"]="localhost:8000|api|"
+HOSTMAP["local-direct"]="localhost:8000|api2/openai|"
 HOSTMAP["local"]="localhost:8000||"
 HOSTMAP["openai3"]="nvmopenai3.openai.azure.com|openai|"
 HOSTMAP["nvm2"]="nvm2.openai.azure.com|openai|"
@@ -32,6 +32,7 @@ URLS["4.1response"]="GET /v1/responses"
 URLS["chat"]="POST /deployments/d1/chat/completions?api-version=2025-01-01-preview"
 URLS["request"]="POST /responses?api-version=2025-04-01-preview"
 URLS["check"]="POST /deployments/d1/chat/check?api-version=2025-01-01-preview"
+URLS["direct-chat"]="POST /openai/v1/chat/completions?api-version=2024-05-01-preview"
 URLS["multiline"]="POST /multiline"
 URLS["400"]="POST /400error"
 URLS["401"]="POST /401error"
@@ -52,6 +53,7 @@ URLS["claude-3.5"]="POST /file/claude-3.5-haiku.txt"
 URLS["claude-sonnet"]="POST /file/claude-sonnet-3.5.txt"
 URLS["embeddings"]="POST /file/embeddings.txt"
 URLS["gemini-2.5"]="POST /file/gemini-2.5.txt"
+URLS["gemini-2.5-pro.txt"]="POST /file/gemini-2.5-pro.txt"
 URLS["gemini-2.5-pro-chat"]="POST /file/gemini-2.5-pro-chat.txt"
 URLS["gemini-2.5-pro-stream"]="POST /file/gemini-2.5-pro-stream.txt"
 URLS["gpt5-nano-response"]="POST /file/gpt5-nano-response.txt"
@@ -65,6 +67,7 @@ asyncmode="false"
 debugmode="false"
 expiredelta="900"
 response_id=""
+custom_apikey=""
 args=()
 
 # Process arguments to extract flags and positional parameters
@@ -90,6 +93,15 @@ while [ $i -lt $# ]; do
         exit 1
       fi
       ;;
+    --key)
+      ((i++))
+      if [ $i -le $# ]; then
+        custom_apikey="${!i}"
+      else
+        echo "Error: --key requires a value"
+        exit 1
+      fi
+      ;;
     *)
       args+=("${!i}")
       ;;
@@ -101,7 +113,7 @@ requesttype="${args[1],,}"
 jsonfile="${args[2]}"
 
 if [ -z "$hostalias" ]; then
-  echo "Usage: call-proxy <hostalias> [requesttype] [jsonfile] [--rid response_id] [-v] [-a|--async] [-d|--debug]"
+  echo "Usage: call-proxy <hostalias> [requesttype] [jsonfile] [--rid response_id] [--key api_key] [-v] [-a|--async] [-d|--debug]"
   echo " Examples:"
   echo "  ./call-proxy.sh local multiline openai_call1.json -v -a"
   echo "  ./call-proxy.sh local embeddings openai_call1.json -v -a"
@@ -112,6 +124,7 @@ if [ -z "$hostalias" ]; then
   echo "  ./call-proxy.sh local gemini-2.5-pro--chat"
   echo "  ./call-proxy.sh tr2-o 4.1request openai_call-bg.json"
   echo "  ./call-proxy.sh local-resp 4.1response --rid <response_id> "
+  echo "  ./call-proxy.sh local chat openai_call1.json --key abcdef"
   exit 1
 fi
 
@@ -184,11 +197,16 @@ curl_cmd=(
   curl -X "$http_method" "$fullurl"
   -H "Content-Type: application/json; charset=UTF-8"
   -H "Ocp-Apim-Subscription-Key: $APIMKEY"
-  -H "api-key: $apikey"
   -H "S7PTTL: $expiredelta"
   -H "test: x" -H "xx: Value1" -H "X-UserProfile: 123456"
-  -H "x-backend-affinity: 3ee113511b77c0e2605e"
 )
+
+# Add api-key header if --key parameter was provided
+if [ -n "$custom_apikey" ]; then
+  curl_cmd+=( -H "api-key: $custom_apikey" )
+else
+  curl_cmd+=( -H "api-key: $apikey" )
+fi
 
 if [ "$asyncmode" = "true" ]; then
   curl_cmd+=( -H "AsyncMode: true" )
