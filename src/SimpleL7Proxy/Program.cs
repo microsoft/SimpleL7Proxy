@@ -87,6 +87,12 @@ public class Program
         var telemetryClient = serviceProvider.GetRequiredService<TelemetryClient>();
         var backendTokenProvider = serviceProvider.GetRequiredService<BackendTokenProvider>();
 
+        // Initialize static logger for all stream processors
+        var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
+        var streamProcessorLogger = loggerFactory.CreateLogger("StreamProcessor");
+        BaseStreamProcessor.SetLogger(streamProcessorLogger);
+        startupLogger.LogInformation("[INIT] ✓ Stream processor logger initialized");
+
         // Initialize ProxyEvent with BackendOptions
 
         ProxyEvent.Initialize(options, eventHubClient, telemetryClient);
