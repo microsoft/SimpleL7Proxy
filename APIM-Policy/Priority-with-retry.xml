@@ -5,8 +5,8 @@
 -->
 <!-- Add policies as children to the <inbound>, <outbound>, <backend>, and <on-error> elements -->
 <policies>
-	<!-- Throttle, authorize, validate, cache, or transform the requests -->
-	<!-- Policy Date: 10/10/2025 -->
+	<!-- Throttle, authorize, validate, cache, or transform the requests, return 408, 429 on timeout and concurrency limits, error body on 400 -->
+	<!-- Policy Date: 11/26/2025 -->
 	<inbound>
 		<base />
 		<cache-lookup-value key="@("listBackends-" + context.Api.Id)" variable-name="listBackends" />
@@ -645,7 +645,7 @@
 				<!-- If we got a permanent error, return the error code -->
 				<when condition="@(context.Variables.GetValueOrDefault<bool>("isPermError", true))">
 					<return-response>
-						<set-status code="@(context.Response?.StatusCode ?? 500)" reason="Permanent Error" />						
+						<set-status code="@(context.Response?.StatusCode ?? 500)" reason="Permanent Error" />
 						<set-header name="x-Backend-Attempts" exists-action="override">
 							<value>@(context.Variables.GetValueOrDefault<int>("backendCallCounter", 0).ToString())</value>
 						</set-header>
@@ -664,38 +664,14 @@
 					</return-response>
 				</when>
 
-				<!-- If we exhausted all retries, return a last error code -->
-				<when condition="@(context.Variables.GetValueOrDefault<int>("RetryCount") < 0)">
-					<return-response>
-						<set-status code="412" reason="Retry Count Exhausted" />
-						<set-header name="x-Backend-Attempts" exists-action="override">
-							<value>@(context.Variables.GetValueOrDefault<int>("backendCallCounter", 0).ToString())</value>
-						</set-header>
-						<set-header name="@((string)context.Variables["PolicyCycleCounterHeaderName"])" exists-action="override">
-							<value>@(context.Variables.GetValueOrDefault<int>("PolicyCycleCounter", 0).ToString())</value>
-						</set-header>
-						<set-header name="backendLog" exists-action="override">
-							<value>@{
-								JArray actLog = context.Variables.GetValueOrDefault<JArray>("activityLog", new JArray());
-								string result = string.Join(" | ", actLog.Select(entry => 
-									((JObject)entry).Value<string>("Elapsed") + "s " + ((JObject)entry).Value<string>("message")
-								));
-								return result.Length > 4000 ? result.Substring(0, 4000) + "..." : result;
-							}</value>
-						</set-header>
-						<set-body >
-							this is a test
-						</set-body>
-					</return-response>
-				</when>
-				<otherwise>
+				<!-- Continue retrying -->
+				<when condition="@(context.Variables.GetValueOrDefault<int>("RetryCount") > 0)">
 					<set-variable name="activityLog" value="@{
 						var arr = context.Variables.GetValueOrDefault<JArray>("activityLog", new JArray());
 						arr.Add(new JObject {{ "Elapsed", context.Elapsed.TotalSeconds.ToString("F3") },{ "message", "Retrying..." }});
 						return arr;
 					}" />
-					<!-- Continue retrying -->
-				</otherwise>
+				</when>
 			</choose>
 		</retry>
 	</backend>
