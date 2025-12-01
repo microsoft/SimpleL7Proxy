@@ -16,6 +16,7 @@ using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using System.Reflection;
 
 using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Backend.Iterators;
@@ -34,80 +35,17 @@ public static class BackendHostConfigurationExtensions
     _logger = logger;
     var backendOptions = LoadBackendOptions();
 
-    services.Configure<BackendOptions>(options =>
+    services.AddSingleton(backendOptions); // Direct singleton
+    services.Configure<BackendOptions>(opt =>
     {
-      options.AcceptableStatusCodes = backendOptions.AcceptableStatusCodes;
-      options.AsyncBlobStorageAccountUri = backendOptions.AsyncBlobStorageAccountUri;
-      options.AsyncBlobStorageConnectionString = backendOptions.AsyncBlobStorageConnectionString;
-      options.AsyncBlobStorageUseMI = backendOptions.AsyncBlobStorageUseMI;
-      options.AsyncClientRequestHeader = backendOptions.AsyncClientRequestHeader;
-      options.AsyncClientConfigFieldName = backendOptions.AsyncClientConfigFieldName;
-      options.AsyncModeEnabled = backendOptions.AsyncModeEnabled;
-      options.AsyncSBConnectionString = backendOptions.AsyncSBConnectionString;
-      options.AsyncSBNamespace = backendOptions.AsyncSBNamespace;
-      options.AsyncSBQueue = backendOptions.AsyncSBQueue;
-      options.AsyncSBUseMI = backendOptions.AsyncSBUseMI;
-      options.AsyncTimeout = backendOptions.AsyncTimeout;
-      options.AsyncTriggerTimeout = backendOptions.AsyncTriggerTimeout;
-      options.CircuitBreakerErrorThreshold = backendOptions.CircuitBreakerErrorThreshold;
-      options.CircuitBreakerTimeslice = backendOptions.CircuitBreakerTimeslice;
-      options.Client = backendOptions.Client;
-      options.ContainerApp = backendOptions.ContainerApp;
-      options.DefaultPriority = backendOptions.DefaultPriority;
-      options.DefaultTTLSecs = backendOptions.DefaultTTLSecs;
-      options.DisallowedHeaders = backendOptions.DisallowedHeaders;
-      options.HostName = backendOptions.HostName;
-      options.Hosts = backendOptions.Hosts;
-      options.IDStr = backendOptions.IDStr;
-      options.IterationMode = backendOptions.IterationMode;
-      options.LoadBalanceMode = backendOptions.LoadBalanceMode;
-      options.LogAllRequestHeaders = backendOptions.LogAllRequestHeaders;
-      options.LogAllRequestHeadersExcept = backendOptions.LogAllRequestHeadersExcept;
-      options.LogAllResponseHeaders = backendOptions.LogAllResponseHeaders;
-      options.LogAllResponseHeadersExcept = backendOptions.LogAllResponseHeadersExcept;
-      options.LogConsole = backendOptions.LogConsole;
-      options.LogConsoleEvent = backendOptions.LogConsoleEvent;
-      options.LogHeaders = backendOptions.LogHeaders;
-      options.LogPoller = backendOptions.LogPoller;
-      options.LogProbes = backendOptions.LogProbes;
-      options.UserIDFieldName = backendOptions.UserIDFieldName;
-      options.MaxQueueLength = backendOptions.MaxQueueLength;
-      options.MaxAttempts = backendOptions.MaxAttempts;
-      options.OAuthAudience = backendOptions.OAuthAudience;
-      options.PollInterval = backendOptions.PollInterval;
-      options.PollTimeout = backendOptions.PollTimeout;
-      options.Port = backendOptions.Port;
-      options.PriorityKeyHeader = backendOptions.PriorityKeyHeader;
-      options.PriorityKeys = backendOptions.PriorityKeys;
-      options.PriorityValues = backendOptions.PriorityValues;
-      options.PriorityWorkers = backendOptions.PriorityWorkers;
-      options.RequiredHeaders = backendOptions.RequiredHeaders;
-      options.Revision = backendOptions.Revision;
-      options.SuccessRate = backendOptions.SuccessRate;
-      options.SuspendedUserConfigUrl = backendOptions.SuspendedUserConfigUrl;
-      options.StorageDbEnabled = backendOptions.StorageDbEnabled;
-      options.StorageDbContainerName = backendOptions.StorageDbContainerName;
-      options.StripResponseHeaders = backendOptions.StripResponseHeaders;
-      options.StripRequestHeaders = backendOptions.StripRequestHeaders;
-      options.TerminationGracePeriodSeconds = backendOptions.TerminationGracePeriodSeconds;
-      options.Timeout = backendOptions.Timeout;
-      options.TimeoutHeader = backendOptions.TimeoutHeader;
-      options.TTLHeader = backendOptions.TTLHeader;
-      options.UniqueUserHeaders = backendOptions.UniqueUserHeaders;
-      options.UseOAuth = backendOptions.UseOAuth;
-      options.UseOAuthGov = backendOptions.UseOAuthGov;
-      options.UseProfiles = backendOptions.UseProfiles;
-      options.UserConfigUrl = backendOptions.UserConfigUrl;
-      options.UserPriorityThreshold = backendOptions.UserPriorityThreshold;
-      options.UserProfileHeader = backendOptions.UserProfileHeader;
-      options.ValidateAuthAppFieldName = backendOptions.ValidateAuthAppFieldName;
-      options.ValidateAuthAppID = backendOptions.ValidateAuthAppID;
-      options.ValidateAuthAppIDHeader = backendOptions.ValidateAuthAppIDHeader;
-      options.ValidateAuthAppIDUrl = backendOptions.ValidateAuthAppIDUrl;
-      options.ValidateHeaders = backendOptions.ValidateHeaders;
-      options.Workers = backendOptions.Workers;
+      // Copy all properties from backendOptions to opt
+      foreach (var prop in typeof(BackendOptions).GetProperties())
+      {
+        if (prop.CanWrite && prop.CanRead)
+          prop.SetValue(opt, prop.GetValue(backendOptions));
+      }
     });
-
+    
     return services;
   }
 
@@ -304,21 +242,8 @@ public static class BackendHostConfigurationExtensions
   // Converts a comma-separated string to a list of integers.
   private static List<int> ToListOfInt(string s)
   {
-
-    // parse each value in the list
-    List<int> ints = new List<int>();
-    foreach (var item in s.Split(','))
-    {
-      if (int.TryParse(item.Trim(), out int value))
-      {
-        ints.Add(value);
-      }
-      else
-      {
-        _logger?.LogWarning($"Could not parse {item} as an integer, defaulting to 5");
-        ints.Add(5);
-      }
-    }
+    if (String.IsNullOrEmpty(s))
+      return new List<int>();
 
     return s.Split(',').Select(p => int.Parse(p.Trim())).ToList();
   }
