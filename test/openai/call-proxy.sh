@@ -14,6 +14,7 @@ HOSTMAP["tr2"]="nvmtr2apim.azure-api.net|bf2|"
 HOSTMAP["tr2-o"]="nvmtr2apim.azure-api.net|resp|"
 HOSTMAP["apim2"]="nvmmcpapim2.azure-api.net||"
 HOSTMAP["local-ai"]="localhost:8000|openai|"
+HOSTMAP["local-echo"]="localhost:8000|echo|"
 HOSTMAP["local-resp"]="localhost:8000|resp|"
 HOSTMAP["local-direct"]="localhost:8000|api2/openai|"
 HOSTMAP["local"]="localhost:8000||"
@@ -34,6 +35,7 @@ URLS["request"]="POST /responses?api-version=2025-04-01-preview"
 URLS["check"]="POST /deployments/d1/chat/check?api-version=2025-01-01-preview"
 URLS["direct-chat"]="POST /openai/v1/chat/completions?api-version=2024-05-01-preview"
 URLS["multiline"]="POST /multiline"
+URLS["resource"]="GET /resource?param1=sample"
 URLS["400"]="POST /400error"
 URLS["401"]="POST /401error"
 URLS["403"]="POST /403error"
@@ -68,6 +70,7 @@ debugmode="false"
 expiredelta="900"
 response_id=""
 custom_apikey=""
+show_timestamps="true"
 args=()
 
 # Process arguments to extract flags and positional parameters
@@ -83,6 +86,9 @@ while [ $i -lt $# ]; do
       ;;
     -d|--debug)
       debugmode="true"
+      ;;
+    -n|--no-timestamps)
+      show_timestamps="false"
       ;;
     --rid)
       ((i++))
@@ -113,7 +119,7 @@ requesttype="${args[1],,}"
 jsonfile="${args[2]}"
 
 if [ -z "$hostalias" ]; then
-  echo "Usage: call-proxy <hostalias> [requesttype] [jsonfile] [--rid response_id] [--key api_key] [-v] [-a|--async] [-d|--debug]"
+  echo "Usage: call-proxy <hostalias> [requesttype] [jsonfile] [--rid response_id] [--key api_key] [-v] [-a|--async] [-d|--debug] [-n|--no-timestamps]"
   echo " Examples:"
   echo "  ./call-proxy.sh local multiline openai_call1.json -v -a"
   echo "  ./call-proxy.sh local embeddings openai_call1.json -v -a"
@@ -125,6 +131,7 @@ if [ -z "$hostalias" ]; then
   echo "  ./call-proxy.sh tr2-o 4.1request openai_call-bg.json"
   echo "  ./call-proxy.sh local-resp 4.1response --rid <response_id> "
   echo "  ./call-proxy.sh local chat openai_call1.json --key abcdef"
+  echo "  ./call-proxy.sh local chat openai_call1.json -n"
   exit 1
 fi
 
@@ -189,7 +196,11 @@ else
   fullurl="$scheme://$hostname$partialurl"
 fi
 
-echo "[$(date +%s%3N)] Calling: $fullurl"
+if [ "$show_timestamps" = "true" ]; then
+  echo "[$(date +%s%3N)] Calling: $fullurl"
+else
+  echo "Calling: $fullurl"
+fi
 echo "----------------------------------------"
 
 # Execute curl with appropriate method
@@ -220,12 +231,20 @@ curl_cmd+=( --no-buffer $verbose )
 
 if [ "$http_method" = "GET" ]; then
   curl_cmd+=(-w "\n----------------------------------------\n[Status Code: %{http_code}]\n")
-  "${curl_cmd[@]}" | while IFS= read -r line; do
-    echo "[$(date +%s%3N)] $line"
-  done
+  if [ "$show_timestamps" = "true" ]; then
+    "${curl_cmd[@]}" | while IFS= read -r line; do
+      echo "[$(date +%s%3N)] $line"
+    done
+  else
+    "${curl_cmd[@]}"
+  fi
 else
   curl_cmd+=(-d @"$jsonfile" -w "\n----------------------------------------\n[Status Code: %{http_code}]\n")
-  "${curl_cmd[@]}" | while IFS= read -r line; do
-    echo "[$(date +%s%3N)] $line"
-  done
+  if [ "$show_timestamps" = "true" ]; then
+    "${curl_cmd[@]}" | while IFS= read -r line; do
+      echo "[$(date +%s%3N)] $line"
+    done
+  else
+    "${curl_cmd[@]}"
+  fi
 fi
