@@ -770,12 +770,13 @@ public class ProxyWorker
                             {
                                 requestState = "Call unsuccessful";
 
-                                foreach (var header in proxyResponse.Headers)
+                                foreach (var header in proxyResponse.Headers.ToList())
                                 {
                                     if (s_excludedHeaders.Contains(header.Key)) continue;
                                     requestAttempt[header.Key] = string.Join(", ", header.Value);
-                                    //Console.WriteLine($"  {header.Key}: {requestAttempt[header.Key]}");
+                                    //Console.WriteLine("requestAttempt[{0}] = {1}", header.Key, header.Value);
                                 }
+
 
                                 if (request.Debug)
                                 {
@@ -803,7 +804,7 @@ public class ProxyWorker
                             {
                                 requestState = "Process 429";
 
-                                foreach (var header in proxyResponse.Headers)
+                                foreach (var header in proxyResponse.Headers.ToList())
                                 {
                                     if (s_excludedHeaders.Contains(header.Key)) continue;
                                     requestAttempt[header.Key] = string.Join(", ", header.Value);
@@ -1014,7 +1015,6 @@ public class ProxyWorker
 
                 if (!successfulRequest)
                 {
-
                     var miniDict = requestAttempt.ToDictionary(s_backendKeys);
                     miniDict["State"] = requestState;
                     incompleteRequests.Add(miniDict);
