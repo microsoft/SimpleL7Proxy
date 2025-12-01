@@ -52,7 +52,7 @@ public class EventHubClient : IEventClient, IHostedService
     public int Count => _logBuffer.Count;
 
     public async Task StartAsync(CancellationToken cancellationToken) {
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(_config?.StartupSeconds ?? 10));
         try {
             if (!string.IsNullOrEmpty(_config?.ConnectionString))
             {

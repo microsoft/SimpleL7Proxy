@@ -197,7 +197,7 @@ public class Program
 
         if (log_to_file)
         {
-            var logFileName = Environment.GetEnvironmentVariable("LOGFILE_NAME") ?? "events.log";
+            var logFileName = Environment.GetEnvironmentVariable("LOGFILE_NAME") ?? "eventslog.json";
             services.AddProxyEventLogFileClient(logFileName, Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING"));
 
         }
@@ -206,8 +206,14 @@ public class Program
             var eventHubConnectionString = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING");
             var eventHubName = Environment.GetEnvironmentVariable("EVENTHUB_NAME");
             var eventHubNamespace = Environment.GetEnvironmentVariable("EVENTHUB_NAMESPACE");
+            var eventHubStartupSecondsStr = Environment.GetEnvironmentVariable("EVENTHUB_STARTUP_SECONDS");
 
-            services.AddSingleton(new EventHubConfig(eventHubConnectionString!, eventHubName!, eventHubNamespace!));
+            // default to 10 if it's not set or invalid
+            if (!int.TryParse(eventHubStartupSecondsStr, out _))
+                eventHubStartupSecondsStr = "10";
+            _ = int.TryParse(eventHubStartupSecondsStr, out var eventHubStartupSeconds);
+
+            services.AddSingleton(new EventHubConfig(eventHubConnectionString!, eventHubName!, eventHubNamespace!, eventHubStartupSeconds));
             services.AddProxyEventClient(Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING"));
         }
 
