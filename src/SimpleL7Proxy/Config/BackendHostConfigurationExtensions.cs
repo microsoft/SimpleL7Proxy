@@ -248,6 +248,80 @@ public static class BackendHostConfigurationExtensions
     return s.Split(',').Select(p => int.Parse(p.Trim())).ToList();
   }
 
+  // Parses a comma-separated Service Bus configuration string into individual components
+  // Format: "key1:value1,key2:value2,..." (order-independent)
+  // Keys: connectionString (or cs), namespace (or ns), queue (or q), useMI (or mi)
+  // Example: "cs:Endpoint=sb://...,ns:mysbnamespace,q:myqueue,mi:true"
+  // Legacy format also supported: "connectionString,namespace,queue,useMI" (positional, must be in order)
+  private static (string connectionString, string namespace_, string queue, bool useMI) ParseServiceBusConfig(string config)
+  {
+    if (string.IsNullOrEmpty(config))
+      return ("example-sb-connection-string", "", "requeststatus", false);
+
+    var parts = config.Split(',').Select(p => p.Trim()).ToArray();
+    
+    // Check if it's the new key:value format
+    if (parts.Length > 0 && parts[0].Contains(':'))
+    {
+      // Parse as key:value pairs
+      string connectionString = "example-sb-connection-string";
+      string namespace_ = "";
+      string queue = "requeststatus";
+      bool useMI = false;
+
+      foreach (var part in parts)
+      {
+        var kvp = part.Split(':', 2); // Split into max 2 parts to handle : in connection strings
+        if (kvp.Length == 2)
+        {
+          var key = kvp[0].Trim().ToLower();
+          var value = kvp[1].Trim();
+
+          switch (key)
+          {
+            case "connectionstring":
+            case "cs":
+              connectionString = value;
+              break;
+            case "namespace":
+            case "ns":
+              namespace_ = value;
+              break;
+            case "queue":
+            case "q":
+              queue = value;
+              break;
+            case "usemi":
+            case "mi":
+              useMI = value.Equals("true", StringComparison.OrdinalIgnoreCase);
+              break;
+            default:
+              _logger?.LogWarning($"Unknown ServiceBusConfig key: {key}");
+              break;
+          }
+        }
+        else
+        {
+          _logger?.LogWarning($"Invalid ServiceBusConfig key:value pair: {part}");
+        }
+      }
+
+      return (connectionString, namespace_, queue, useMI);
+    }
+    else
+    {
+      // Legacy positional format: "connectionString,namespace,queue,useMI"
+      if (parts.Length != 4)
+      {
+        _logger?.LogWarning($"ServiceBusConfig must have exactly 4 comma-separated values (connectionString,namespace,queue,useMI). Found {parts.Length} values. Using defaults.");
+        return ("example-sb-connection-string", "", "requeststatus", false);
+      }
+
+      bool useMI = parts[3].Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
+      return (parts[0], parts[1], parts[2], useMI);
+    }
+  }
+
   private static SocketsHttpHandler getHandler(int initialDelaySecs, int IntervalSecs, int linuxRetryCount)
   {
     SocketsHttpHandler handler = new SocketsHttpHandler();
@@ -392,6 +466,11 @@ public static class BackendHostConfigurationExtensions
     }
 #endif
 
+    // Parse Service Bus configuration - supports both single combined variable and individual variables
+    // ServiceBusConfig format: "connectionString,namespace,queue,useMI"
+    var sbConfigStr = ReadEnvironmentVariableOrDefault("AsyncSBConfig", "");
+    var (sbConnStr, sbNamespace, sbQueue, sbUseMI) = ParseServiceBusConfig(sbConfigStr);
+
     // Create and return a BackendOptions object populated with values from environment variables or default values.
     var backendOptions = new BackendOptions
     {
@@ -402,10 +481,11 @@ public static class BackendHostConfigurationExtensions
       AsyncClientRequestHeader = ReadEnvironmentVariableOrDefault("AsyncClientRequestHeader", "AsyncMode"),
       AsyncClientConfigFieldName = ReadEnvironmentVariableOrDefault("AsyncClientConfigFieldName", "async-config"),
       AsyncModeEnabled = ReadEnvironmentVariableOrDefault("AsyncModeEnabled", false),
-      AsyncSBConnectionString = ReadEnvironmentVariableOrDefault("AsyncSBConnectionString", "example-sb-connection-string"),
-      AsyncSBNamespace = ReadEnvironmentVariableOrDefault("AsyncSBNamespace", ""),
-      AsyncSBQueue = ReadEnvironmentVariableOrDefault("AsyncSBQueue", "requeststatus"),
-      AsyncSBUseMI = ReadEnvironmentVariableOrDefault("AsyncSBUseMI", false), // Use managed identity for Service Bus
+      // Individual env vars override ServiceBusConfig if specified
+      AsyncSBConnectionString = ReadEnvironmentVariableOrDefault("AsyncSBConnectionString", sbConnStr),
+      AsyncSBNamespace = ReadEnvironmentVariableOrDefault("AsyncSBNamespace", sbNamespace),
+      AsyncSBQueue = ReadEnvironmentVariableOrDefault("AsyncSBQueue", sbQueue),
+      AsyncSBUseMI = ReadEnvironmentVariableOrDefault("AsyncSBUseMI", sbUseMI), // Use managed identity for Service Bus
       AsyncTimeout = ReadEnvironmentVariableOrDefault("AsyncTimeout", 30 * 60000),
       AsyncTriggerTimeout = ReadEnvironmentVariableOrDefault("AsyncTriggerTimeout", 10000),
       CircuitBreakerErrorThreshold = ReadEnvironmentVariableOrDefault("CBErrorThreshold", 50),
