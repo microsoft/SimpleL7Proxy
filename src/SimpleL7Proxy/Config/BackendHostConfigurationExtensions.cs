@@ -248,6 +248,59 @@ public static class BackendHostConfigurationExtensions
     return s.Split(',').Select(p => int.Parse(p.Trim())).ToList();
   }
 
+  // Generic configuration parser that supports both key:value pairs (order-independent) and legacy positional format
+  // Returns a dictionary of parsed values
+  private static Dictionary<string, string> ParseConfigString(string config, Dictionary<string, string[]> keyAliases, string configName)
+  {
+    var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    if (string.IsNullOrEmpty(config))
+      return result;
+
+    var parts = config.Split(',').Select(p => p.Trim()).ToArray();
+
+    // Check if it's the new key:value format
+    if (parts.Length > 0 && parts[0].Contains(':'))
+    {
+      // Parse as key:value pairs
+      foreach (var part in parts)
+      {
+        var kvp = part.Split(':', 2); // Split into max 2 parts to handle : in connection strings/URIs
+        if (kvp.Length == 2)
+        {
+          var key = kvp[0].Trim().ToLower();
+          var value = kvp[1].Trim();
+
+          // Find the canonical key name from aliases
+          string? canonicalKey = null;
+          foreach (var (canonical, aliases) in keyAliases)
+          {
+            if (aliases.Any(alias => alias.Equals(key, StringComparison.OrdinalIgnoreCase)))
+            {
+              canonicalKey = canonical;
+              break;
+            }
+          }
+
+          if (canonicalKey != null)
+          {
+            result[canonicalKey] = value;
+          }
+          else
+          {
+            _logger?.LogWarning($"Unknown {configName} key: {key}");
+          }
+        }
+        else
+        {
+          _logger?.LogWarning($"Invalid {configName} key:value pair: {part}");
+        }
+      }
+    }
+
+    return result;
+  }
+
   // Parses a comma-separated Service Bus configuration string into individual components
   // Format: "key1:value1,key2:value2,..." (order-independent)
   // Keys: connectionString (or cs), namespace (or ns), queue (or q), useMI (or mi)
@@ -255,56 +308,35 @@ public static class BackendHostConfigurationExtensions
   // Legacy format also supported: "connectionString,namespace,queue,useMI" (positional, must be in order)
   private static (string connectionString, string namespace_, string queue, bool useMI) ParseServiceBusConfig(string config)
   {
+    // Define default values
+    string connectionString = "example-sb-connection-string";
+    string namespace_ = "";
+    string queue = "requeststatus";
+    bool useMI = false;
+
     if (string.IsNullOrEmpty(config))
-      return ("example-sb-connection-string", "", "requeststatus", false);
+      return (connectionString, namespace_, queue, useMI);
 
     var parts = config.Split(',').Select(p => p.Trim()).ToArray();
-    
+
     // Check if it's the new key:value format
     if (parts.Length > 0 && parts[0].Contains(':'))
     {
-      // Parse as key:value pairs
-      string connectionString = "example-sb-connection-string";
-      string namespace_ = "";
-      string queue = "requeststatus";
-      bool useMI = false;
-
-      foreach (var part in parts)
+      // Use generic parser
+      var keyAliases = new Dictionary<string, string[]>
       {
-        var kvp = part.Split(':', 2); // Split into max 2 parts to handle : in connection strings
-        if (kvp.Length == 2)
-        {
-          var key = kvp[0].Trim().ToLower();
-          var value = kvp[1].Trim();
+        { "connectionString", new[] { "connectionstring", "cs" } },
+        { "namespace", new[] { "namespace", "ns" } },
+        { "queue", new[] { "queue", "q" } },
+        { "useMI", new[] { "usemi", "mi" } }
+      };
 
-          switch (key)
-          {
-            case "connectionstring":
-            case "cs":
-              connectionString = value;
-              break;
-            case "namespace":
-            case "ns":
-              namespace_ = value;
-              break;
-            case "queue":
-            case "q":
-              queue = value;
-              break;
-            case "usemi":
-            case "mi":
-              useMI = value.Equals("true", StringComparison.OrdinalIgnoreCase);
-              break;
-            default:
-              _logger?.LogWarning($"Unknown ServiceBusConfig key: {key}");
-              break;
-          }
-        }
-        else
-        {
-          _logger?.LogWarning($"Invalid ServiceBusConfig key:value pair: {part}");
-        }
-      }
+      var parsed = ParseConfigString(config, keyAliases, "AsyncSBConfig");
+
+      if (parsed.TryGetValue("connectionString", out var cs)) connectionString = cs;
+      if (parsed.TryGetValue("namespace", out var ns)) namespace_ = ns;
+      if (parsed.TryGetValue("queue", out var q)) queue = q;
+      if (parsed.TryGetValue("useMI", out var mi)) useMI = mi.Equals("true", StringComparison.OrdinalIgnoreCase);
 
       return (connectionString, namespace_, queue, useMI);
     }
@@ -314,11 +346,61 @@ public static class BackendHostConfigurationExtensions
       if (parts.Length != 4)
       {
         _logger?.LogWarning($"ServiceBusConfig must have exactly 4 comma-separated values (connectionString,namespace,queue,useMI). Found {parts.Length} values. Using defaults.");
-        return ("example-sb-connection-string", "", "requeststatus", false);
+        return (connectionString, namespace_, queue, useMI);
       }
 
-      bool useMI = parts[3].Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
+      useMI = parts[3].Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
       return (parts[0], parts[1], parts[2], useMI);
+    }
+  }
+
+  // Parses a comma-separated Blob Storage configuration string into individual components
+  // Format: "key1:value1,key2:value2,..." (order-independent)
+  // Keys: connectionString (or cs), accountUri (or uri), useMI (or mi)
+  // Example: "uri:https://mystorageaccount.blob.core.windows.net/,mi:true"
+  // Legacy format also supported: "connectionString,accountUri,useMI" (positional, must be in order)
+  private static (string connectionString, string accountUri, bool useMI) ParseBlobStorageConfig(string config)
+  {
+    // Define default values
+    string connectionString = "";
+    string accountUri = "https://example.blob.core.windows.net/";
+    bool useMI = false;
+
+    if (string.IsNullOrEmpty(config))
+      return (connectionString, accountUri, useMI);
+
+    var parts = config.Split(',').Select(p => p.Trim()).ToArray();
+
+    // Check if it's the new key:value format
+    if (parts.Length > 0 && parts[0].Contains(':'))
+    {
+      // Use generic parser
+      var keyAliases = new Dictionary<string, string[]>
+      {
+        { "connectionString", new[] { "connectionstring", "cs" } },
+        { "accountUri", new[] { "accounturi", "uri" } },
+        { "useMI", new[] { "usemi", "mi" } }
+      };
+
+      var parsed = ParseConfigString(config, keyAliases, "AsyncBlobStorageConfig");
+
+      if (parsed.TryGetValue("connectionString", out var cs)) connectionString = cs;
+      if (parsed.TryGetValue("accountUri", out var uri)) accountUri = uri;
+      if (parsed.TryGetValue("useMI", out var mi)) useMI = mi.Equals("true", StringComparison.OrdinalIgnoreCase);
+
+      return (connectionString, accountUri, useMI);
+    }
+    else
+    {
+      // Legacy positional format: "connectionString,accountUri,useMI"
+      if (parts.Length != 3)
+      {
+        _logger?.LogWarning($"AsyncBlobStorageConfig must have exactly 3 comma-separated values (connectionString,accountUri,useMI). Found {parts.Length} values. Using defaults.");
+        return (connectionString, accountUri, useMI);
+      }
+
+      useMI = parts[2].Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
+      return (parts[0], parts[1], useMI);
     }
   }
 
@@ -470,14 +552,16 @@ public static class BackendHostConfigurationExtensions
     // ServiceBusConfig format: "connectionString,namespace,queue,useMI"
     var sbConfigStr = ReadEnvironmentVariableOrDefault("AsyncSBConfig", "");
     var (sbConnStr, sbNamespace, sbQueue, sbUseMI) = ParseServiceBusConfig(sbConfigStr);
+    var (blobConnStr, blobAccountUri, blobUseMI) = ParseBlobStorageConfig(ReadEnvironmentVariableOrDefault("AsyncBlobStorageConfig", ""));
 
     // Create and return a BackendOptions object populated with values from environment variables or default values.
     var backendOptions = new BackendOptions
     {
       AcceptableStatusCodes = ReadEnvironmentVariableOrDefault("AcceptableStatusCodes", new int[] { 200, 202, 401, 403, 404, 408, 410, 412, 417, 400 }),
-      AsyncBlobStorageAccountUri = ReadEnvironmentVariableOrDefault("AsyncBlobStorageAccountUri", "https://example.blob.core.windows.net/"),
-      AsyncBlobStorageConnectionString = ReadEnvironmentVariableOrDefault("AsyncBlobStorageConnectionString", ""),
-      AsyncBlobStorageUseMI = ReadEnvironmentVariableOrDefault("AsyncBlobStorageUseMI", false),
+      // Individual env vars override AsyncBlobStorageConfig if specified
+      AsyncBlobStorageAccountUri = ReadEnvironmentVariableOrDefault("AsyncBlobStorageAccountUri", blobAccountUri),
+      AsyncBlobStorageConnectionString = ReadEnvironmentVariableOrDefault("AsyncBlobStorageConnectionString", blobConnStr),
+      AsyncBlobStorageUseMI = ReadEnvironmentVariableOrDefault("AsyncBlobStorageUseMI", blobUseMI),
       AsyncClientRequestHeader = ReadEnvironmentVariableOrDefault("AsyncClientRequestHeader", "AsyncMode"),
       AsyncClientConfigFieldName = ReadEnvironmentVariableOrDefault("AsyncClientConfigFieldName", "async-config"),
       AsyncModeEnabled = ReadEnvironmentVariableOrDefault("AsyncModeEnabled", false),
