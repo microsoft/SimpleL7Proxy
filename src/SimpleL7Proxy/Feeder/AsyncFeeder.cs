@@ -43,6 +43,7 @@ namespace SimpleL7Proxy.Feeder
         private readonly ServiceBusFactory _senderFactory;
         private static long counter = 0;
 
+        // REMOVE HARDCODED OPENAI CALL
         private static string openaicall = """
 {
   "temperature": 1,
@@ -125,6 +126,8 @@ namespace SimpleL7Proxy.Feeder
 
             _logger.LogInformation("[SERVICE] ✓ AsyncFeeder service starting...");
 
+            ServiceBusProcessor? processor = null;
+
             try
             {
                 // Configure the message and error handler options in the options object
@@ -136,13 +139,37 @@ namespace SimpleL7Proxy.Feeder
                 };
 
                 // get a processor that we can use to receive the message
-                var processor = _senderFactory.GetQueueProcessor("feeder", options);
+                processor = _senderFactory.GetQueueProcessor("feeder", options);
 
                 // add handler to process messages
                 processor.ProcessMessageAsync += MessageHandler;
                 processor.ProcessErrorAsync += ErrorHandler;
 
-                await processor.StartProcessingAsync().ConfigureAwait(false);
+                try
+                {
+                    await processor.StartProcessingAsync().ConfigureAwait(false);
+                    _logger.LogInformation("[SERVICE] ✓ AsyncFeeder successfully started processing messages from 'feeder' queue");
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    _logger.LogError(ex, 
+                        "[ERROR] UnauthorizedAccessException: Cannot access Service Bus queue 'feeder'. " +
+                        "Check that the managed identity has 'Azure Service Bus Data Receiver' role assigned to the queue. " +
+                        "Service will continue but will not process messages.");
+                    
+                    // Clean up processor and wait for shutdown signal instead of throwing
+                    await processor.DisposeAsync().ConfigureAwait(false);
+                    processor = null;
+                    
+                    // Wait for shutdown signal
+                    while (!isShuttingDown)
+                    {
+                        await Task.Delay(500, token).ConfigureAwait(false);
+                    }
+                    
+                    _logger.LogInformation("[SHUTDOWN] ✓ AsyncFeeder stopped (no processor was running)");
+                    return;
+                }
 
                 while (!isShuttingDown)
                 {
@@ -150,23 +177,37 @@ namespace SimpleL7Proxy.Feeder
                 }
 
                 await processor.StopProcessingAsync().ConfigureAwait(false);
-                await processor.DisposeAsync().ConfigureAwait(false);
                 _logger.LogInformation("[SHUTDOWN] ✓ AsyncFeeder stopped processing messages");
 
             }
             catch (TaskCanceledException)
             {
                 // Task was canceled, exit gracefully
-                _logger.LogInformation("AsyncFeeder service task was canceled.");
+                _logger.LogInformation("[SHUTDOWN] AsyncFeeder service task was canceled.");
             }
             catch (OperationCanceledException)
             {
                 // Operation was canceled, exit gracefully
-                _logger.LogInformation($"AsyncFeeder service shutdown initiated.");
+                _logger.LogInformation($"[SHUTDOWN] AsyncFeeder service shutdown initiated.");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "An error occurred while calling AsyncFeeder service.: " + ex);
+            }
+            finally
+            {
+                // Ensure processor is disposed
+                if (processor != null)
+                {
+                    try
+                    {
+                        await processor.DisposeAsync().ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[SHUTDOWN] Error disposing processor");
+                    }
+                }
             }
 
             _logger.LogInformation("[SHUTDOWN] ✓ AsyncFeeder service stopped");
@@ -377,6 +418,12 @@ namespace SimpleL7Proxy.Feeder
             if (args.Exception.Message.Contains("AzureCliCredential authentication failed"))
             {
                 _logger.LogError("AzureCliCredential authentication failed while receiving AsyncFeeder messages.");
+            }
+            else if (args.Exception is UnauthorizedAccessException)
+            {
+                _logger.LogError(args.Exception, 
+                    "UnauthorizedAccessException in AsyncFeeder: The identity does not have permission to access Service Bus queue 'feeder'. " +
+                    "Ensure the managed identity has 'Azure Service Bus Data Receiver' role assigned.");
             }
             else 
             {
