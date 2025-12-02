@@ -200,14 +200,14 @@ public static class BackendHostConfigurationExtensions
     return keyValuePairs;
   }
 
-  // Converts a List<string> to a dictionary of stgrings.
+  // Converts a List<string> to a dictionary of strings.
   private static Dictionary<string, string> KVStringPairs(List<string> list)
   {
     Dictionary<string, string> keyValuePairs = [];
 
     foreach (var item in list)
     {
-      var kvp = item.Split(':');
+      var kvp = item.Split('=');
       if (kvp.Length == 2)
       {
         keyValuePairs.Add(kvp[0].Trim(), kvp[1].Trim());
@@ -248,7 +248,7 @@ public static class BackendHostConfigurationExtensions
     return s.Split(',').Select(p => int.Parse(p.Trim())).ToList();
   }
 
-  // Generic configuration parser that supports both key:value pairs (order-independent) and legacy positional format
+  // Generic configuration parser that supports both key=value pairs (order-independent) and legacy positional format
   // Returns a dictionary of parsed values
   private static Dictionary<string, string> ParseConfigString(string config, Dictionary<string, string[]> keyAliases, string configName)
   {
@@ -259,13 +259,13 @@ public static class BackendHostConfigurationExtensions
 
     var parts = config.Split(',').Select(p => p.Trim()).ToArray();
 
-    // Check if it's the new key:value format
-    if (parts.Length > 0 && parts[0].Contains(':'))
+    // Check if it's the new key=value format
+    if (parts.Length > 0 && parts[0].Contains('='))
     {
-      // Parse as key:value pairs
+      // Parse as key=value pairs
       foreach (var part in parts)
       {
-        var kvp = part.Split(':', 2); // Split into max 2 parts to handle : in connection strings/URIs
+        var kvp = part.Split('=', 2); // Split into max 2 parts to handle = in connection strings/URIs
         if (kvp.Length == 2)
         {
           var key = kvp[0].Trim().ToLower();
@@ -319,8 +319,8 @@ public static class BackendHostConfigurationExtensions
 
     var parts = config.Split(',').Select(p => p.Trim()).ToArray();
 
-    // Check if it's the new key:value format
-    if (parts.Length > 0 && parts[0].Contains(':'))
+    // Check if it's the new key=value format
+    if (parts.Length > 0 && parts[0].Contains('='))
     {
       // Use generic parser
       var keyAliases = new Dictionary<string, string[]>
@@ -355,7 +355,7 @@ public static class BackendHostConfigurationExtensions
   }
 
   // Parses a comma-separated Blob Storage configuration string into individual components
-  // Format: "key1:value1,key2:value2,..." (order-independent)
+  // Format: "key1=value1,key2=value2,..." (order-independent)
   // Keys: connectionString (or cs), accountUri (or uri), useMI (or mi)
   // Example: "uri:https://mystorageaccount.blob.core.windows.net/,mi:true"
   // Legacy format also supported: "connectionString,accountUri,useMI" (positional, must be in order)
@@ -371,8 +371,8 @@ public static class BackendHostConfigurationExtensions
 
     var parts = config.Split(',').Select(p => p.Trim()).ToArray();
 
-    // Check if it's the new key:value format
-    if (parts.Length > 0 && parts[0].Contains(':'))
+    // Check if it's the new key=value format
+    if (parts.Length > 0 && parts[0].Contains('='))
     {
       // Use generic parser
       var keyAliases = new Dictionary<string, string[]>
