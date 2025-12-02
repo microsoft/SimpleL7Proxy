@@ -1,5 +1,3 @@
-using Azure.Core;
-using Azure.Identity;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -28,6 +26,16 @@ namespace SimpleL7Proxy.BackupAPI
         private Task? writerTask;
         CancellationTokenSource? _cancellationTokenSource;
         private readonly ServiceBusFactory _senderFactory;
+
+        // Statistics tracking - events sent per minute for the last 10 minutes
+        // Single instance, no locking needed - updated only by FeederTask
+        private readonly List<(DateTime Timestamp, int Count)> _minuteStats = new(10);
+        private int _currentMinuteCount = 0;
+        private DateTime _currentMinuteStart = DateTime.UtcNow;
+        
+        // Error tracking - errors per minute for the last 10 minutes
+        private readonly List<(DateTime Timestamp, int Count)> _minuteErrors = new(10);
+        private int _currentMinuteErrors = 0;
 
         // Batch tuning
         private const int MaxDrainPerCycle = 50; // max messages to drain from queue per cycle
@@ -105,6 +113,72 @@ namespace SimpleL7Proxy.BackupAPI
                 _logger.LogError(ex, "Failed to enqueue message to the status queue.");
                 return false; // Enqueue failed
             }
+        }
+
+        /// <summary>
+        /// Gets statistics for events sent in the last 10 minutes.
+        /// Returns a dictionary where key is minutes ago (0-9) and value is event count.
+        /// Thread-safe for infrequent reads from health probes.
+        /// </summary>
+        public Dictionary<int, int> GetEventStatistics()
+        {
+            var stats = new Dictionary<int, int>();
+            var now = DateTime.UtcNow;
+
+            // Initialize all 10 minutes with 0
+            for (int i = 0; i < 10; i++)
+            {
+                stats[i] = 0;
+            }
+
+            // Fill in historical data (immutable after minute rotation)
+            for (int i = 0; i < _minuteStats.Count; i++)
+            {
+                var (timestamp, count) = _minuteStats[i];
+                var minutesAgo = (int)(now - timestamp).TotalMinutes;
+                if (minutesAgo >= 0 && minutesAgo < 10)
+                {
+                    stats[minutesAgo] = count;
+                }
+            }
+
+            // Add current minute (may be stale by a few seconds)
+            stats[0] = _currentMinuteCount;
+
+            return stats;
+        }
+
+        /// <summary>
+        /// Gets error statistics for the last 10 minutes.
+        /// Returns a dictionary where key is minutes ago (0-9) and value is error count.
+        /// Thread-safe for infrequent reads from health probes.
+        /// </summary>
+        public Dictionary<int, int> GetErrorStatistics()
+        {
+            var stats = new Dictionary<int, int>();
+            var now = DateTime.UtcNow;
+
+            // Initialize all 10 minutes with 0
+            for (int i = 0; i < 10; i++)
+            {
+                stats[i] = 0;
+            }
+
+            // Fill in historical data (immutable after minute rotation)
+            for (int i = 0; i < _minuteErrors.Count; i++)
+            {
+                var (timestamp, count) = _minuteErrors[i];
+                var minutesAgo = (int)(now - timestamp).TotalMinutes;
+                if (minutesAgo >= 0 && minutesAgo < 10)
+                {
+                    stats[minutesAgo] = count;
+                }
+            }
+
+            // Add current minute (may be stale by a few seconds)
+            stats[0] = _currentMinuteErrors;
+
+            return stats;
         }
 
         public async Task EventWriter(CancellationToken token)
@@ -257,6 +331,9 @@ namespace SimpleL7Proxy.BackupAPI
                 {
                     await SendBatch(items, token).ConfigureAwait(false);
                     
+                    // Track successful sends
+                    RecordSuccessfulSend(items.Count);
+                    
                     // Success - log only if we had to retry
                     if (attempt > 1)
                     {
@@ -273,10 +350,53 @@ namespace SimpleL7Proxy.BackupAPI
                 }
                 catch (Exception ex)
                 {
-                    // Last attempt failed - log error and give up
+                    // Last attempt failed - track error and give up
+                    RecordError(items.Count);
                     _logger.LogError(ex, $"[ERROR] Failed to send batch of {items.Count} items after {maxRetries} attempts. Data loss occurred.");
                     return; // Give up
                 }
+            }
+        }
+
+        private void RecordSuccessfulSend(int count)
+        {
+            RotateMinuteIfNeeded();
+            _currentMinuteCount += count;
+        }
+
+        private void RecordError(int count)
+        {
+            RotateMinuteIfNeeded();
+            _currentMinuteErrors += count;
+        }
+
+        private void RotateMinuteIfNeeded()
+        {
+            var now = DateTime.UtcNow;
+            var minutesSinceStart = (now - _currentMinuteStart).TotalMinutes;
+
+            if (minutesSinceStart >= 1.0)
+            {
+                // Save current minute stats if non-zero
+                if (_currentMinuteCount > 0)
+                {
+                    _minuteStats.Add((_currentMinuteStart, _currentMinuteCount));
+                }
+
+                // Save current minute errors if non-zero
+                if (_currentMinuteErrors > 0)
+                {
+                    _minuteErrors.Add((_currentMinuteStart, _currentMinuteErrors));
+                }
+
+                // Remove stats older than 10 minutes (simple linear scan - only 10 items max)
+                _minuteStats.RemoveAll(s => (now - s.Timestamp).TotalMinutes >= 10);
+                _minuteErrors.RemoveAll(e => (now - e.Timestamp).TotalMinutes >= 10);
+
+                // Start new minute
+                _currentMinuteStart = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, 0, DateTimeKind.Utc);
+                _currentMinuteCount = 0;
+                _currentMinuteErrors = 0;
             }
         }
 

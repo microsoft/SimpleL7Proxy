@@ -7,6 +7,7 @@ using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Events;
+using SimpleL7Proxy.BackupAPI;
 
 namespace SimpleL7Proxy.Proxy;
 
@@ -52,6 +53,7 @@ public class HealthCheckService
     private readonly IConcurrentPriQueue<RequestData>? _requestsQueue;
     private readonly IUserPriorityService? _userPriority;
     private readonly IEventClient? _eventClient;
+    private readonly IBackupAPIService? _backupAPIService;
     private readonly Func<string> _getWorkerState;
     
     // Cache for health check responses to reduce allocations
@@ -82,13 +84,15 @@ public class HealthCheckService
         IOptions<BackendOptions> options,
         IConcurrentPriQueue<RequestData>? requestsQueue,
         IUserPriorityService? userPriority,
-        IEventClient? eventClient)
+        IEventClient? eventClient,
+        IBackupAPIService? backupAPIService = null)
     {
         _backends = backends ?? throw new ArgumentNullException(nameof(backends));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _requestsQueue = requestsQueue;
         _userPriority = userPriority;
         _eventClient = eventClient;
+        _backupAPIService = backupAPIService;
         _getWorkerState = GetWorkerState;
         
         // Pre-allocate StringBuilder to reduce allocations
@@ -371,6 +375,45 @@ public class HealthCheckService
                     _stringBuilder.Append("Disabled");
                 }
                 _stringBuilder.Append('\n');
+
+                // Add backup API service statistics
+                if (_backupAPIService != null)
+                {
+                    var eventStats = _backupAPIService.GetEventStatistics();
+                    var errorStats = _backupAPIService.GetErrorStatistics();
+                    
+                    var eventsLastMin = eventStats[0];
+                    var eventsLast5Min = eventStats.Take(5).Sum(x => x.Value);
+                    var eventsLast10Min = eventStats.Values.Sum();
+                    
+                    var errorsLastMin = errorStats[0];
+                    var errorsLast5Min = errorStats.Take(5).Sum(x => x.Value);
+                    var errorsLast10Min = errorStats.Values.Sum();
+                    
+                    var totalAttempts = eventsLast10Min + errorsLast10Min;
+                    var errorRate = totalAttempts > 0 ? (double)errorsLast10Min / totalAttempts * 100 : 0;
+                    
+                    _stringBuilder.Append("Backup API Service:\n")
+                        .Append("  Events (1/5/10 min): ")
+                        .Append(eventsLastMin)
+                        .Append(" / ")
+                        .Append(eventsLast5Min)
+                        .Append(" / ")
+                        .Append(eventsLast10Min)
+                        .Append("\n  Errors (1/5/10 min): ")
+                        .Append(errorsLastMin)
+                        .Append(" / ")
+                        .Append(errorsLast5Min)
+                        .Append(" / ")
+                        .Append(errorsLast10Min)
+                        .Append("\n  Error Rate (10min): ")
+                        .Append(errorRate.ToString("F2"))
+                        .Append("%\n");
+                }
+                else
+                {
+                    _stringBuilder.Append("Backup API Service: Disabled\n");
+                }
 
                 probeMessage = _stringBuilder.ToString();
             }
