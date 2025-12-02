@@ -102,7 +102,8 @@ namespace SimpleL7Proxy.BackupAPI
         {
             try
             {
-                _logger.LogDebug($"Backup: UserId: {message.userID}, Guid: {message.guid}, Status: {message.status}");
+                _logger.LogDebug("[BackupAPI:{Guid}] Status update enqueued - UserId: {UserId}, Status: {Status}, QueueDepth: {QueueCount}", 
+                    message.guid, message.userID, message.status, _statusQueue.Count + 1);
                 _statusQueue.Enqueue(message);
                 _queueSignal.Release();
 
@@ -110,7 +111,8 @@ namespace SimpleL7Proxy.BackupAPI
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to enqueue message to the status queue.");
+                _logger.LogError(ex, "[BackupAPI:{Guid}] Failed to enqueue status update - UserId: {UserId}", 
+                    message.guid, message.userID);
                 return false; // Enqueue failed
             }
         }
@@ -406,6 +408,8 @@ namespace SimpleL7Proxy.BackupAPI
             var sender = _senderFactory.GetQueueSender(_options.AsyncSBQueue);
 
             ServiceBusMessageBatch? currentBatch = null;
+            int batchesSent = 0;
+            
             try
             {
                 currentBatch = await sender.CreateMessageBatchAsync(token).ConfigureAwait(false);
@@ -414,19 +418,19 @@ namespace SimpleL7Proxy.BackupAPI
                 {
                     var message = new ServiceBusMessage(JsonSerializer.Serialize(item, jsonOptions));
 
-                    _logger.LogDebug("BackupAPI: Sending status update for UserId: {userid}, Status: {status}", item.userID, item.status);
-
                     if (!currentBatch.TryAddMessage(message))
                     {
                         // Send the full batch and start a new one
                         await sender.SendMessagesAsync(currentBatch, token).ConfigureAwait(false);
+                        batchesSent++;
                         currentBatch.Dispose();
                         currentBatch = await sender.CreateMessageBatchAsync(token).ConfigureAwait(false);
 
                         if (!currentBatch.TryAddMessage(message))
                         {
                             // Single message too large for an empty batch
-                            _logger.LogError("Message too large to add to batch for topic {TopicName}. Dropping.", "backupapi");
+                            _logger.LogError("[BackupAPI:Batch] Message too large for queue, Guid: {Guid}, UserId: {UserId}. Dropping message.", 
+                                item.guid, item.userID);
                         }
                     }
                 }
@@ -434,7 +438,11 @@ namespace SimpleL7Proxy.BackupAPI
                 if (currentBatch.Count > 0)
                 {
                     await sender.SendMessagesAsync(currentBatch, token).ConfigureAwait(false);
+                    batchesSent++;
                 }
+
+                _logger.LogTrace("[BackupAPI:Batch] Sent {MessageCount} status updates in {BatchCount} batches to queue {QueueName}", 
+                    items.Count, batchesSent, _options.AsyncSBQueue);
             }
             finally
             {

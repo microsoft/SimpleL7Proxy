@@ -57,16 +57,20 @@ public class RequestLifecycleManager
     /// </summary>
     public void TransitionToProcessing(RequestData request)
     {
+        var oldStatus = request.SBStatus;
+        
         switch (request.Type)
         {
             case RequestType.AsyncBackgroundCheck:
                 SetStatus(request, ServiceBusMessageStatusEnum.CheckingBackgroundRequestStatus, null);
-                _logger.LogDebug("Request {Guid} (BackgroundCheck) transitioned to CheckingBackgroundRequestStatus", request.Guid);
+                _logger.LogDebug("[Lifecycle:{Guid}] State transition: {OldStatus} → CheckingBackgroundRequestStatus - Type: {RequestType}", 
+                    request.Guid, oldStatus, request.Type);
                 break;
             
             default:
                 SetStatus(request, ServiceBusMessageStatusEnum.Processing, null);
-                _logger.LogDebug("Request {Guid} ({Type}) transitioned to Processing", request.Guid, request.Type);
+                _logger.LogDebug("[Lifecycle:{Guid}] State transition: {OldStatus} → Processing - Type: {RequestType}", 
+                    request.Guid, oldStatus, request.Type);
                 break;
         }
     }
@@ -81,30 +85,34 @@ public class RequestLifecycleManager
         {
             case RequestType.Sync:
                 SetStatus(request, ServiceBusMessageStatusEnum.Processed, null);
-                _logger.LogDebug("Sync request {Guid} processed successfully", request.Guid);
+                _logger.LogDebug("[Lifecycle:{Guid}] Sync request processed successfully - Status: {StatusCode}", 
+                    request.Guid, statusCode);
                 break;
 
             case RequestType.Async:
                 SetStatus(request, ServiceBusMessageStatusEnum.AsyncProcessed, RequestAPIStatusEnum.Completed);
-                _logger.LogInformation("Async request {Guid} completed successfully", request.Guid);
+                _logger.LogInformation("[Lifecycle:{Guid}] Async request completed successfully - Status: {StatusCode}", 
+                    request.Guid, statusCode);
                 break;
 
             case RequestType.AsyncBackground:
                 SetStatus(request, ServiceBusMessageStatusEnum.BackgroundRequestSubmitted, RequestAPIStatusEnum.BackgroundProcessing);
-                _logger.LogInformation("Background request {Guid} submitted with ID {BackgroundRequestId}", 
-                    request.Guid, request.BackgroundRequestId);
+                _logger.LogInformation("[Lifecycle:{Guid}] Background request submitted - BackgroundRequestId: {BackgroundRequestId}, Status: {StatusCode}", 
+                    request.Guid, request.BackgroundRequestId, statusCode);
                 break;
 
             case RequestType.AsyncBackgroundCheck:
                 if (request.BackgroundRequestCompleted)
                 {
                     SetStatus(request, ServiceBusMessageStatusEnum.AsyncProcessed, RequestAPIStatusEnum.Completed);
-                    _logger.LogInformation("Background check {Guid} completed successfully", request.Guid);
+                    _logger.LogInformation("[Lifecycle:{Guid}] Background check completed successfully - Status: {StatusCode}", 
+                        request.Guid, statusCode);
                 }
                 else
                 {
                     SetStatus(request, ServiceBusMessageStatusEnum.CheckingBackgroundRequestStatus, RequestAPIStatusEnum.BackgroundProcessing);
-                    _logger.LogInformation("Background check {Guid} still processing", request.Guid);
+                    _logger.LogInformation("[Lifecycle:{Guid}] Background check still processing - Status: {StatusCode}", 
+                        request.Guid, statusCode);
                 }
                 break;
         }

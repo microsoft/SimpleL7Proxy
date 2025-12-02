@@ -30,6 +30,10 @@ namespace SimpleL7Proxy.ServiceBus
         // Batch tuning
         private const int MaxDrainPerCycle = 50; // max messages to drain from queue per cycle
         private static readonly TimeSpan FlushIntervalMs = TimeSpan.FromMilliseconds(1000);    // small delay to coalesce bursts (when not shutting down)
+        
+        // Performance tracking
+        private int _totalMessagesProcessed = 0;
+        private int _totalBatchesSent = 0;
 
         public ServiceBusRequestService(IOptions<BackendOptions> options, ServiceBusFactory senderFactory, ILogger<ServiceBusRequestService> logger)
         {
@@ -64,7 +68,8 @@ namespace SimpleL7Proxy.ServiceBus
         {
             try
             {
-                _logger.LogDebug($"ServiceBus: UserId: {message.MID}, Guid: {message.Guid}, Status: {message.SBStatus} for Topic: {message.SBTopicName}");
+                _logger.LogDebug("[ServiceBus:{Guid}] Status update enqueued - UserId: {UserId}, Status: {Status}, Topic: {TopicName}, QueueDepth: {QueueCount}", 
+                    message.Guid, message.MID, message.SBStatus, message.SBTopicName, _statusQueue.Count + 1);
                 _statusQueue.Enqueue(new ServiceBusStatusMessage(message.Guid, message.SBTopicName, message.SBStatus.ToString()));
                 _queueSignal.Release();
 
@@ -72,7 +77,8 @@ namespace SimpleL7Proxy.ServiceBus
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to enqueue message to the status queue.");
+                _logger.LogError(ex, "[ServiceBus:{Guid}] Failed to enqueue status update - UserId: {UserId}, Status: {Status}", 
+                    message.Guid, message.MID, message.SBStatus);
                 return false; // Enqueue failed
             }
         }
@@ -164,10 +170,13 @@ namespace SimpleL7Proxy.ServiceBus
                             try
                             {
                                 await SendBatchesForTopicAsync(kvp.Key, kvp.Value, token).ConfigureAwait(false);
+                                _totalMessagesProcessed += kvp.Value.Count;
+                                _totalBatchesSent++;
                             }
                             catch (ArgumentException ex)
                             {
-                                _logger.LogError(ex, $"Error while sending to service bus. Topic: {kvp.Key}. Continuing.");
+                                _logger.LogError(ex, "[ServiceBus:FeederTask] Error sending batch to topic {TopicName} with {MessageCount} messages", 
+                                    kvp.Key, kvp.Value.Count);
                             }
                         }
                         drained.Clear();
@@ -182,9 +191,17 @@ namespace SimpleL7Proxy.ServiceBus
                     foreach (var kvp in byTopic)
                     {
                         await SendBatchesForTopicAsync(kvp.Key, kvp.Value, token).ConfigureAwait(false);
+                        _totalMessagesProcessed += kvp.Value.Count;
+                        _totalBatchesSent++;
                     }
                     drained.Clear();
 
+                    // Log performance metrics periodically
+                    if (_totalMessagesProcessed % 100 == 0 && _totalMessagesProcessed > 0)
+                    {
+                        _logger.LogInformation("[ServiceBus:Performance] Processed {TotalMessages} messages in {TotalBatches} batches, Current queue: {QueueCount}", 
+                            _totalMessagesProcessed, _totalBatchesSent, _statusQueue.Count);
+                    }
                 }
 
                 // Now wait for a signal before next round
@@ -192,8 +209,17 @@ namespace SimpleL7Proxy.ServiceBus
                 {
                     await _queueSignal.WaitAsync(token).ConfigureAwait(false);
                 }
-                
-                _logger.LogDebug($"Loop: cancelRequest: {token.IsCancellationRequested}, queueCount: {_statusQueue.Count}");
+                if (token.IsCancellationRequested)
+                {
+                    _logger.LogDebug("[ServiceBus:FeederTask] Cancellation requested - QueueRemaining: {QueueCount}", _statusQueue.Count);
+                }
+                else
+                {
+                    var timeSinceLastDrain = (DateTime.UtcNow - _lastDrainTime).TotalMilliseconds;
+                    _logger.LogDebug("[ServiceBus:FeederTask] Woke up - Queue: {QueueCount}, IdleTime: {IdleTime}ms", 
+                        _statusQueue.Count, timeSinceLastDrain);
+                }
+
             }
         }
 
@@ -216,6 +242,8 @@ namespace SimpleL7Proxy.ServiceBus
         {
             var sender = _senderFactory.GetSender(topicName);
             ServiceBusMessageBatch? currentBatch = null;
+            int batchesSent = 0;
+            
             try
             {
                 currentBatch = await sender.CreateMessageBatchAsync(token).ConfigureAwait(false);
@@ -228,13 +256,15 @@ namespace SimpleL7Proxy.ServiceBus
                     {
                         // Send the full batch and start a new one
                         await sender.SendMessagesAsync(currentBatch, token).ConfigureAwait(false);
+                        batchesSent++;
                         currentBatch.Dispose();
                         currentBatch = await sender.CreateMessageBatchAsync(token).ConfigureAwait(false);
 
                         if (!currentBatch.TryAddMessage(message))
                         {
                             // Single message too large for an empty batch
-                            _logger.LogError("Message too large to add to batch for topic {TopicName}. Dropping.", topicName);
+                            _logger.LogError("[ServiceBus:Batch] Message too large for topic {TopicName}, Guid: {Guid}. Dropping message.", 
+                                topicName, item.RequestGuid);
                         }
                     }
                 }
@@ -242,12 +272,35 @@ namespace SimpleL7Proxy.ServiceBus
                 if (currentBatch.Count > 0)
                 {
                     await sender.SendMessagesAsync(currentBatch, token).ConfigureAwait(false);
+                    batchesSent++;
                 }
+
+                _logger.LogTrace("[ServiceBus:Batch] Sent {MessageCount} messages in {BatchCount} batches to topic {TopicName}", 
+                    items.Count, batchesSent, topicName);
             }
             finally
             {
                 currentBatch?.Dispose();
             }
+        }
+
+        public (int totalMessages, int totalBatches, int queueDepth, bool isEnabled, string? connectionInfo) GetStatistics()
+        {
+            string? connectionInfo = null;
+            
+            if (_options.AsyncModeEnabled && _senderFactory != null)
+            {
+                // Get connection info from the factory (namespace endpoint)
+                connectionInfo = _senderFactory.GetConnectionInfo();
+            }
+            
+            return (
+                totalMessages: _totalMessagesProcessed,
+                totalBatches: _totalBatchesSent,
+                queueDepth: _statusQueue.Count,
+                isEnabled: _options.AsyncModeEnabled && isRunning,
+                connectionInfo: connectionInfo
+            );
         }
 
         public Task StopAsync(CancellationToken cancellationToken)

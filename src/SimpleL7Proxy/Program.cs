@@ -223,7 +223,10 @@ public class Program
         services.AddSingleton<IBlobWriter>(provider =>
         {
             var factory = provider.GetRequiredService<IBlobWriterFactory>();
-            return factory.CreateBlobWriter();
+            var blobWriter = factory.CreateBlobWriter();
+            var logger = provider.GetRequiredService<ILogger<Program>>();
+            logger.LogInformation("[INIT] ✓ BlobWriter initialized: {BlobWriterType}", blobWriter.GetType().Name);
+            return blobWriter;
         });
 
         services.AddTransient<IAsyncWorkerFactory, AsyncWorkerFactory>();
