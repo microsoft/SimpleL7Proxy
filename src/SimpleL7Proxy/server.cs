@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
 using System.Threading;
 using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.BlobStorage;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Events;
@@ -35,6 +36,7 @@ public class Server : BackgroundService
     private readonly IConcurrentPriQueue<RequestData> _requestsQueue;// = new ConcurrentPriQueue<RequestData>();
     //private readonly IServiceBusRequestService _serviceBusRequestService;
     private readonly ILogger<Server> _logger;
+    private readonly IBlobWriter _blobWriter;
     private static bool _isShuttingDown = false;
     private readonly string _priorityHeaderName;
 
@@ -56,6 +58,7 @@ public class Server : BackgroundService
         //IServiceBusRequestService serviceBusRequestService,
         IEventClient? eventHubClient,
         IBackendService backends,
+        IBlobWriter blobWriter,
         ILogger<Server> logger)
     {
         ArgumentNullException.ThrowIfNull(backendOptions, nameof(backendOptions));
@@ -65,6 +68,7 @@ public class Server : BackgroundService
         ArgumentNullException.ThrowIfNull(logger, nameof(logger));
         ArgumentNullException.ThrowIfNull(appLifetime, nameof(appLifetime));
         ArgumentNullException.ThrowIfNull(requestsQueue, nameof(requestsQueue));
+        ArgumentNullException.ThrowIfNull(blobWriter, nameof(blobWriter));
         //ArgumentNullException.ThrowIfNull(serviceBusRequestService, nameof(serviceBusRequestService));
 
 
@@ -75,6 +79,7 @@ public class Server : BackgroundService
         _userPriority = userPriority;
         _userProfile = userProfile;
         _logger = logger;
+        _blobWriter = blobWriter;
         _requestsQueue = requestsQueue;
         _priorityHeaderName = _options.PriorityKeyHeader;
 
@@ -151,7 +156,13 @@ public class Server : BackgroundService
         long counter = 0;
         int livenessPriority = _options.PriorityValues.Min();
         bool doUserProfile = _options.UseProfiles;
-        bool doAsync = _options.AsyncModeEnabled;
+        // Only enable async mode if configured AND blob storage is available (not using NullBlobWriter)
+        bool doAsync = _options.AsyncModeEnabled && !(_blobWriter is NullBlobWriter);
+        
+        if (_options.AsyncModeEnabled && _blobWriter is NullBlobWriter)
+        {
+            _logger.LogWarning("[CONFIG] AsyncModeEnabled is true but blob storage is disabled (NullBlobWriter). Async mode will be disabled.");
+        }
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -529,7 +540,8 @@ public class Server : BackgroundService
                         temp_ed["Message"] = "Enqueued request";
 
                         temp_ed.SendEvent();
-                        _logger.LogCritical($"Enque Pri: {priority}, User: {rd.UserID}, Async Allowed: {rd.runAsync}, Guid: {rd.Guid}  Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
+                        _logger.LogDebug("[Queue:Enqueue:{Guid}] Request queued - Priority: {Priority}, User: {UserId}, Async: {IsAsync}, QueueLen: {QueueLength}, CircuitBreaker: {CircuitBreakerOpen}, ActiveHosts: {ActiveHosts}",
+                            rd.Guid, priority, rd.UserID, rd.runAsync, _requestsQueue.thrdSafeCount, _backends.CheckFailedStatus(), _backends.ActiveHostCount());
                     }
                 }
                 else
