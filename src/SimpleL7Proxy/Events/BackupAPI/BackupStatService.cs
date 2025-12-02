@@ -12,7 +12,6 @@ using Azure.Messaging.ServiceBus;
 
 using SimpleL7Proxy.Config;
 using Shared.RequestAPI.Models;
-using System.Security.Policy;
 using SimpleL7Proxy.ServiceBus;
 
 
@@ -23,7 +22,7 @@ namespace SimpleL7Proxy.BackupAPI
 
         private readonly BackendOptions _options;
         private readonly ILogger<BackupAPIService> _logger;
-        public static readonly ConcurrentQueue<RequestAPIDocument> _statusQueue = new();
+        private static readonly ConcurrentQueue<RequestAPIDocument> _statusQueue = new();
         private readonly SemaphoreSlim _queueSignal = new SemaphoreSlim(0);
         private bool isShuttingDown = false;
         private Task? writerTask;
@@ -67,10 +66,9 @@ namespace SimpleL7Proxy.BackupAPI
 
             isShuttingDown = true;
 
-            // Signal the semaphore to wake up any waiting threads
-            _queueSignal.Release();
+            // Cancel the token to wake up any waiting operations
+            _cancellationTokenSource?.Cancel();
     
-            // DO NOT cancel the token - let the task complete naturally
             // The FeederTask will exit when isShuttingDown=true AND queue is empty
             
             if (writerTask != null)
@@ -197,7 +195,8 @@ namespace SimpleL7Proxy.BackupAPI
                         drained.Add(item);
                         if (drained.Count >= MaxDrainPerCycle)
                         {
-                            await SendBatch(drained, token).ConfigureAwait(false);
+                            // Always use CancellationToken.None for send operations to prevent data loss
+                            await SendBatchWithRetry(drained, CancellationToken.None).ConfigureAwait(false);
                             drained.Clear();
                         }
                     }
@@ -205,7 +204,8 @@ namespace SimpleL7Proxy.BackupAPI
                     // Send any remaining items
                     if (drained.Count > 0)
                     {
-                        await SendBatch(drained, token).ConfigureAwait(false);
+                        // Always use CancellationToken.None for send operations to prevent data loss
+                        await SendBatchWithRetry(drained, CancellationToken.None).ConfigureAwait(false);
                         drained.Clear();
                     }
 
@@ -222,7 +222,11 @@ namespace SimpleL7Proxy.BackupAPI
                         }
                     }
                     
-                    _logger.LogDebug($"Loop: shutting down: {isShuttingDown}, queueCount: {_statusQueue.Count}");
+                    if ( !isShuttingDown ) {
+                        _logger.LogDebug("Backup Status: waiting: queueCount: {count}", _statusQueue.Count);
+                    } else {
+                        _logger.LogDebug("Loop: shutting down: queueCount: {count}", _statusQueue.Count);
+                    }
                 }
                 catch (OperationCanceledException) when (isShuttingDown && _statusQueue.IsEmpty)
                 {
@@ -242,6 +246,39 @@ namespace SimpleL7Proxy.BackupAPI
             ReadCommentHandling = JsonCommentHandling.Skip,
             Converters = { new CaseInsensitiveEnumConverter<RequestAPIStatusEnum>() }
         };
+
+        private async Task SendBatchWithRetry(List<RequestAPIDocument> items, CancellationToken token, int maxRetries = 3)
+        {
+            if (items.Count == 0) return;
+
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
+            {
+                try
+                {
+                    await SendBatch(items, token).ConfigureAwait(false);
+                    
+                    // Success - log only if we had to retry
+                    if (attempt > 1)
+                    {
+                        _logger.LogInformation($"[RETRY] Successfully sent {items.Count} items on attempt {attempt}");
+                    }
+                    return; // Success!
+                }
+                catch (Exception ex) when (attempt < maxRetries)
+                {
+                    // Not the last attempt - retry with backoff
+                    var delayMs = attempt * 1000; // 1s, 2s, 3s...
+                    _logger.LogWarning(ex, $"[RETRY] Failed to send batch (attempt {attempt}/{maxRetries}), retrying in {delayMs}ms...");
+                    await Task.Delay(delayMs, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    // Last attempt failed - log error and give up
+                    _logger.LogError(ex, $"[ERROR] Failed to send batch of {items.Count} items after {maxRetries} attempts. Data loss occurred.");
+                    return; // Give up
+                }
+            }
+        }
 
 
         private async Task SendBatch(List<RequestAPIDocument> items, CancellationToken token)
