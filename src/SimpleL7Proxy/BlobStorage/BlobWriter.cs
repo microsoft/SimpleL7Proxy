@@ -285,6 +285,27 @@ namespace SimpleL7Proxy.BlobStorage
             }
         }
 
+        /// <summary>
+        /// Gets connection information for health check and diagnostics.
+        /// </summary>
+        /// <returns>A string describing the blob storage connection configuration.</returns>
+        public string GetConnectionInfo()
+        {
+            if (_blobServiceClient == null)
+            {
+                return "Not Initialized";
+            }
+
+            if (UsesMI)
+            {
+                return $"MI: {_blobServiceClient.Uri.Host}";
+            }
+            else
+            {
+                return $"ConnectionString: {_blobServiceClient.Uri.Host}";
+            }
+        }
+
         public void Dispose()
         {
             Dispose(true);

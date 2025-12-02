@@ -3,8 +3,10 @@ using System.Net;
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Options;
 using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.BlobStorage;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Queue;
+using SimpleL7Proxy.ServiceBus;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.BackupAPI;
@@ -54,6 +56,8 @@ public class HealthCheckService
     private readonly IUserPriorityService? _userPriority;
     private readonly IEventClient? _eventClient;
     private readonly IBackupAPIService? _backupAPIService;
+    private readonly IServiceBusRequestService? _serviceBusRequestService;
+    private readonly IBlobWriter? _blobWriter;
     private readonly Func<string> _getWorkerState;
     
     // Cache for health check responses to reduce allocations
@@ -85,6 +89,8 @@ public class HealthCheckService
         IConcurrentPriQueue<RequestData>? requestsQueue,
         IUserPriorityService? userPriority,
         IEventClient? eventClient,
+        IServiceBusRequestService? serviceBusRequestService = null,
+        IBlobWriter? blobWriter = null,
         IBackupAPIService? backupAPIService = null)
     {
         _backends = backends ?? throw new ArgumentNullException(nameof(backends));
@@ -92,6 +98,8 @@ public class HealthCheckService
         _requestsQueue = requestsQueue;
         _userPriority = userPriority;
         _eventClient = eventClient;
+        _serviceBusRequestService = serviceBusRequestService;
+        _blobWriter = blobWriter;
         _backupAPIService = backupAPIService;
         _getWorkerState = GetWorkerState;
         
@@ -413,6 +421,46 @@ public class HealthCheckService
                 else
                 {
                     _stringBuilder.Append("Backup API Service: Disabled\n");
+                }
+
+                // Add Service Bus statistics
+                if (_serviceBusRequestService != null)
+                {
+                    var sbStats = _serviceBusRequestService.GetStatistics();
+                    _stringBuilder.Append("Service Bus:\n")
+                        .Append("  Status: ")
+                        .Append(sbStats.isEnabled ? "Enabled" : "Disabled")
+                        .Append("\n  Connection: ")
+                        .Append(sbStats.connectionInfo ?? "N/A")
+                        .Append("\n  Total Messages: ")
+                        .Append(sbStats.totalMessages)
+                        .Append("\n  Total Batches: ")
+                        .Append(sbStats.totalBatches)
+                        .Append("\n  Queue Depth: ")
+                        .Append(sbStats.queueDepth)
+                        .Append('\n');
+                }
+                else
+                {
+                    _stringBuilder.Append("Service Bus: Not Configured\n");
+                }
+
+                // Add Blob Storage statistics
+                if (_blobWriter != null)
+                {
+                    var blobInfo = _blobWriter.GetConnectionInfo();
+                    _stringBuilder.Append("Blob Storage:\n")
+                        .Append("  Connection: ")
+                        .Append(blobInfo)
+                        .Append("\n  Initialized: ")
+                        .Append(_blobWriter.IsInitialized ? "Yes" : "No")
+                        .Append("\n  Async Mode: ")
+                        .Append(_options.AsyncModeEnabled ? "Enabled" : "Disabled")
+                        .Append('\n');
+                }
+                else
+                {
+                    _stringBuilder.Append("Blob Storage: Not Configured\n");
                 }
 
                 probeMessage = _stringBuilder.ToString();

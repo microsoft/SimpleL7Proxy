@@ -12,5 +12,6 @@ namespace SimpleL7Proxy.BlobStorage
         Task<string> GenerateSasTokenAsync(string userId, string blobName, TimeSpan expiryTime);
         Task<bool> InitClientAsync(string userId, string containerName);
         bool IsInitialized { get; }
+        string GetConnectionInfo();
     }
 }

@@ -177,5 +177,45 @@ namespace SimpleL7Proxy.ServiceBus
 
             return _client.CreateProcessor(queueName, options);
         }
+
+        /// <summary>
+        /// Gets connection information for health check and diagnostics.
+        /// </summary>
+        /// <returns>A string describing the Service Bus connection configuration.</returns>
+        public string? GetConnectionInfo()
+        {
+            var options = _optionsMonitor.CurrentValue;
+            
+            if (!options.AsyncModeEnabled)
+            {
+                return "Disabled";
+            }
+
+            if (options.AsyncSBUseMI)
+            {
+                return $"MI: {options.AsyncSBNamespace ?? "Not Configured"}";
+            }
+            else
+            {
+                var connStr = options.AsyncSBConnectionString;
+                if (string.IsNullOrWhiteSpace(connStr))
+                {
+                    return "ConnectionString: Not Configured";
+                }
+                
+                // Extract endpoint from connection string for display
+                var endpointStart = connStr.IndexOf("Endpoint=sb://", StringComparison.OrdinalIgnoreCase);
+                if (endpointStart >= 0)
+                {
+                    var endpointEnd = connStr.IndexOf(';', endpointStart);
+                    var endpoint = endpointEnd > endpointStart 
+                        ? connStr.Substring(endpointStart + 14, endpointEnd - endpointStart - 14)
+                        : connStr.Substring(endpointStart + 14);
+                    return $"ConnectionString: {endpoint}";
+                }
+                
+                return "ConnectionString: Configured";
+            }
+        }
     }
 }

@@ -7,5 +7,6 @@ namespace SimpleL7Proxy.ServiceBus
     {
         Task StopAsync(CancellationToken cancellationToken);
         bool updateStatus(RequestData message);
+        (int totalMessages, int totalBatches, int queueDepth, bool isEnabled, string? connectionInfo) GetStatistics();
     }
 }
