@@ -43,6 +43,12 @@ namespace SimpleL7Proxy.BlobStorage
             return "null://blob-storage-disabled";
         }
 
+        public string GetBlobUri(string userId, string blobName)
+        {
+            // Return a placeholder URI for disabled blob storage
+            return "null://blob-storage-disabled";
+        }
+
         public async Task<bool> InitClientAsync(string userId, string containerName)
         {
             _logger.LogWarning("[BlobWriter:Null] InitClientAsync called - UserId: {UserId}, Container: {ContainerName} (NULL implementation active, blob storage disabled)", 

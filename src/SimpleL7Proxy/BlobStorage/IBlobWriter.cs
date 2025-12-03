@@ -10,6 +10,7 @@ namespace SimpleL7Proxy.BlobStorage
         Task<Stream> ReadBlobAsStreamAsync(string userId, string blobName);
         Task<bool> DeleteBlobAsync(string userId, string blobName);
         Task<string> GenerateSasTokenAsync(string userId, string blobName, TimeSpan expiryTime);
+        string GetBlobUri(string userId, string blobName);
         Task<bool> InitClientAsync(string userId, string containerName);
         bool IsInitialized { get; }
         string GetConnectionInfo();
