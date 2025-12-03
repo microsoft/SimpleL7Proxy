@@ -35,6 +35,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     public string BlobContainerName { get; set; } = "";
     public bool runAsync { get; set; } = false;
     public string SBTopicName { get; set; } = "";
+    public AsyncClientInfo? AsyncClientConfig { get; set; } = null;
 
     private string _backgroundRequestId = "";
     public string BackgroundRequestId
