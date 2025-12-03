@@ -357,9 +357,11 @@ public class Server : BackgroundService
                                     rd.AsyncBlobAccessTimeoutSecs = clientInfo.AsyncBlobAccessTimeoutSecs;
                                     rd.BlobContainerName = clientInfo.ContainerName;
                                     rd.SBTopicName = clientInfo.SBTopicName;
+                                    rd.AsyncClientConfig = clientInfo; // Store the full config for AsyncWorker
                                     ed["AsyncBlobContainer"] = clientInfo.ContainerName;
                                     ed["AsyncSBTopic"] = clientInfo.SBTopicName;
                                     ed["BlobAccessTimeout"] = clientInfo.AsyncBlobAccessTimeoutSecs.ToString();
+                                    ed["GenerateSAS"] = clientInfo.GenerateSasTokens.ToString();
                                 }
 
                                 if (rd.Debug)
