@@ -2,6 +2,7 @@ using Azure.Storage;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Specialized;
 using Azure.Storage.Sas;
+using Azure;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -119,7 +120,29 @@ namespace SimpleL7Proxy.BlobStorage
             var blobClient = _containerClient.GetBlobClient(blobName);
 
             _logger.LogDebug("BlobWriter: Creating blob {ContainerName}/{BlobName} for user {UserId}", _containerClient.Name, blobName, userId);
-            // OpenWriteAsync will create the blob if it does not exist and return a writable stream.
+            
+            // Retry logic for 409 conflicts (concurrent writes)
+            const int maxRetries = 3;
+            const int baseDelayMs = 100;
+            
+            for (int attempt = 0; attempt < maxRetries; attempt++)
+            {
+                try
+                {
+                    // OpenWriteAsync will create the blob if it does not exist and return a writable stream.
+                    return await blobClient.OpenWriteAsync(overwrite: true).ConfigureAwait(false);
+                }
+                catch (Azure.RequestFailedException ex) when (ex.Status == 409 && attempt < maxRetries - 1)
+                {
+                    // 409 = Conflict - blob is likely being written by another process
+                    var delay = baseDelayMs * (int)Math.Pow(2, attempt); // Exponential backoff
+                    _logger.LogWarning("BlobWriter: Blob conflict (409) for {BlobName}, attempt {Attempt}/{MaxRetries} - retrying in {Delay}ms",
+                        blobName, attempt + 1, maxRetries, delay);
+                    await Task.Delay(delay).ConfigureAwait(false);
+                }
+            }
+            
+            // If we get here, all retries failed - try one last time and let any exception propagate
             return await blobClient.OpenWriteAsync(overwrite: true).ConfigureAwait(false);
         }
 
@@ -283,6 +306,34 @@ namespace SimpleL7Proxy.BlobStorage
                     UserId = userId
                 };
             }
+        }
+
+        /// <summary>
+        /// Gets the base URI for a blob without SAS token.
+        /// </summary>
+        /// <param name="userId">The user ID.</param>
+        /// <param name="blobName">The name of the blob.</param>
+        /// <returns>The base URI of the blob.</returns>
+        public string GetBlobUri(string userId, string blobName)
+        {
+            if (string.IsNullOrEmpty(blobName))
+            {
+                throw new ArgumentException("BlobName cannot be null or empty", nameof(blobName));
+            }
+
+            // Get the client for the userId
+            if (!_containerClients.TryGetValue(userId, out var _containerClient))
+            {
+                throw new BlobWriterException($"BlobContainerClient not initialized for userId: {userId}. Call InitializeClientAsync first.")
+                {
+                    Operation = "GetBlobUri",
+                    BlobName = blobName,
+                    UserId = userId
+                };
+            }
+
+            var blobClient = _containerClient.GetBlobClient(blobName);
+            return blobClient.Uri.ToString();
         }
 
         /// <summary>
