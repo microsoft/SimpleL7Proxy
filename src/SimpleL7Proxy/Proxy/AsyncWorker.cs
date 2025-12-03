@@ -45,6 +45,7 @@ namespace SimpleL7Proxy.Proxy
         string dataBlobName = "";
         string headerBlobName = "";
         private int AsyncTimeout;
+        private readonly bool _generateSasTokens;
         private static readonly JsonSerializerOptions SerializeOptions = new()
         {
             WriteIndented = true,
@@ -69,8 +70,11 @@ namespace SimpleL7Proxy.Proxy
             _userId = data.profileUserId;
             AsyncTimeout = AsyncTriggerTimeout;
 
-            _logger.LogDebug("[AsyncWorker:{Guid}] Initializing - UserId: {UserId}, Timeout: {Timeout}ms", 
-                data.Guid, data.profileUserId, AsyncTriggerTimeout);
+            // Determine if SAS tokens should be generated based on user profile config
+            _generateSasTokens = data.AsyncClientConfig?.GenerateSasTokens ?? false;
+
+            _logger.LogTrace("[AsyncWorker:{Guid}] Initializing - UserId: {UserId}, Timeout: {Timeout}ms, GenerateSAS: {GenerateSAS}", 
+                data.Guid, data.profileUserId, AsyncTriggerTimeout, _generateSasTokens);
             if (!data.runAsync)
             {
                 throw new ArgumentException("AsyncWorker can only be used for async requests.");
@@ -131,17 +135,28 @@ namespace SimpleL7Proxy.Proxy
 
                 headerBlobName = dataBlobName + "-Headers";
 
-                operation = "Re-Create Blobs ";
+                // Only create write streams for initial async requests, not for background checks
+                // Background checks READ the backend status response and write it to the SAME blobs,
+                // but they don't need write streams opened upfront during restore
+                if (!isBackground)
+                {
+                    operation = "Re-Create Blobs";
 
-                // get the streams
-                var dataStream = await _blobWriter.CreateBlobAndGetOutputStreamAsync(_userId, dataBlobName);
-                var headerStream = await _blobWriter.CreateBlobAndGetOutputStreamAsync(_userId, headerBlobName);
+                    // Get the write streams for initial async request recovery
+                    var dataStream = await _blobWriter.CreateBlobAndGetOutputStreamAsync(_userId, dataBlobName);
+                    var headerStream = await _blobWriter.CreateBlobAndGetOutputStreamAsync(_userId, headerBlobName);
 
-                _requestData.OutputStream = new BufferedStream(dataStream);
-                _hos = headerStream;
+                    _requestData.OutputStream = new BufferedStream(dataStream);
+                    _hos = headerStream;
 
-                _requestData.RequestAPIStatus = RequestAPIStatusEnum.ReProcessing;
-                //_backupAPIService.UpdateStatus(_requestAPIDocument);
+                    _requestData.RequestAPIStatus = RequestAPIStatusEnum.ReProcessing;
+                    //_backupAPIService.UpdateStatus(_requestAPIDocument);
+                }
+                else
+                {
+                    _logger.LogTrace("[AsyncWorker:{Guid}] Background check - skipping blob stream creation, status response will be written directly", 
+                        _requestData.Guid);
+                }
             }
             catch (BlobWriterException blobEx)
             {
@@ -161,20 +176,30 @@ namespace SimpleL7Proxy.Proxy
                 return;
             }
 
-            // create a SAS token for the blob
-            try
+            // create a SAS token for the blob (only if configured to do so)
+            if (_generateSasTokens)
             {
-                _dataBlobUri = await _blobWriter.GenerateSasTokenAsync(_userId, dataBlobName, TimeSpan.FromSeconds(_requestData.AsyncBlobAccessTimeoutSecs));
-                _headerBlobUri = await _blobWriter.GenerateSasTokenAsync(_userId, headerBlobName, TimeSpan.FromSeconds(_requestData.AsyncBlobAccessTimeoutSecs));
-                //_requestData.Context!.Response.Headers.Add("x-Data-Blob-SAS-URI", _dataBlobUri);
-                //_requestData.Context!.Response.Headers.Add("x-Header-Blob-SAS-URI", _headerBlobUri);
-            }
-            catch (Exception sasEx)
-            {
-                _logger.LogError(sasEx, "[AsyncWorker:{Guid}] Failed to create SAS token during restore", _requestData.Guid);
-                ErrorMessage = "Failed to create SAS token: " + sasEx.Message;
+                try
+                {
+                    _logger.LogDebug("[AsyncWorker:{Guid}] Generating SAS tokens for restore", _requestData.Guid);
+                    _dataBlobUri = await _blobWriter.GenerateSasTokenAsync(_userId, dataBlobName, TimeSpan.FromSeconds(_requestData.AsyncBlobAccessTimeoutSecs));
+                    _headerBlobUri = await _blobWriter.GenerateSasTokenAsync(_userId, headerBlobName, TimeSpan.FromSeconds(_requestData.AsyncBlobAccessTimeoutSecs));
+                    //_requestData.Context!.Response.Headers.Add("x-Data-Blob-SAS-URI", _dataBlobUri);
+                    //_requestData.Context!.Response.Headers.Add("x-Header-Blob-SAS-URI", _headerBlobUri);
+                }
+                catch (Exception sasEx)
+                {
+                    _logger.LogError(sasEx, "[AsyncWorker:{Guid}] Failed to create SAS token during restore", _requestData.Guid);
+                    ErrorMessage = "Failed to create SAS token: " + sasEx.Message;
 
-                return;
+                    return;
+                }
+            }
+            else
+            {
+                _logger.LogDebug("[AsyncWorker:{Guid}] SAS token generation skipped - providing base blob URIs", _requestData.Guid);
+                _dataBlobUri = _blobWriter.GetBlobUri(_userId, dataBlobName);
+                _headerBlobUri = _blobWriter.GetBlobUri(_userId, headerBlobName);
             }
 
             _logger.LogInformation("[AsyncWorker:{Guid}] Restore completed successfully - DataBlob: {DataBlobName}, HeaderBlob: {HeaderBlobName}", 
@@ -191,7 +216,7 @@ namespace SimpleL7Proxy.Proxy
             try
             {
 
-                _logger.LogDebug("[AsyncWorker:{Guid}] Starting with {Timeout}ms delay - UserId: {UserId}, MID: {MID}", 
+                _logger.LogTrace("[AsyncWorker:{Guid}] Starting with {Timeout}ms delay - UserId: {UserId}, MID: {MID}", 
                     _requestData.Guid, AsyncTimeout, _userId, _requestData.MID);
                 // wait state... can be cancelled by Terminate
                 if (AsyncTimeout > 10)
@@ -199,7 +224,7 @@ namespace SimpleL7Proxy.Proxy
                     await Task.Delay(AsyncTimeout, _cancellationTokenSource.Token).ConfigureAwait(false);
                 }
 
-                _logger.LogDebug("[AsyncWorker:{Guid}] Delay complete, initializing async processing", _requestData.Guid);
+                _logger.LogTrace("[AsyncWorker:{Guid}] Delay complete, initializing async processing", _requestData.Guid);
                 //_logger.LogInformation($"AsyncWorker: Delayed for {AsyncTimeout} ms");
                 // Atomically set to running (1) only if not started (0)
                 if (Interlocked.CompareExchange(ref _beginStartup, 1, 0) == 0)
@@ -213,15 +238,15 @@ namespace SimpleL7Proxy.Proxy
                     {
                         _requestData.RequestAPIStatus = RequestAPIStatusEnum.New;
 
-                        _logger.LogDebug("[AsyncWorker:{Guid}] Calling InitializeAsync", _requestData.Guid);
+                        _logger.LogTrace("[AsyncWorker:{Guid}] Calling InitializeAsync", _requestData.Guid);
                         await InitializeAsync().ConfigureAwait(false);
-                        _logger.LogDebug("[AsyncWorker:{Guid}] InitializeAsync completed", _requestData.Guid);
+                        _logger.LogTrace("[AsyncWorker:{Guid}] InitializeAsync completed", _requestData.Guid);
                         
                         dataBlobName = _requestData.Guid.ToString();
                         headerBlobName = dataBlobName + "-Headers";
 
                         operation = "Create Blobs ";
-                        _logger.LogDebug("[AsyncWorker:{Guid}] Creating blobs - Data: {DataBlob}, Header: {HeaderBlob}", 
+                        _logger.LogTrace("[AsyncWorker:{Guid}] Creating blobs - Data: {DataBlob}, Header: {HeaderBlob}", 
                             _requestData.Guid, dataBlobName, headerBlobName);
                         
                         // Run blob operations in parallel, storage operation separately since it has different return type
@@ -232,10 +257,10 @@ namespace SimpleL7Proxy.Proxy
 
                         var storageTask = UpdateBackup();  // backup the request data
 
-                        _logger.LogDebug("[AsyncWorker:{Guid}] Waiting for blob creation and backup tasks", _requestData.Guid);
+                        _logger.LogTrace("[AsyncWorker:{Guid}] Waiting for blob creation and backup tasks", _requestData.Guid);
                         // Wait for all to complete
                         await Task.WhenAll(dataStreamTask, headerStreamTask, storageTask).ConfigureAwait(false);
-                        _logger.LogDebug("[AsyncWorker:{Guid}] All blob and backup tasks completed", _requestData.Guid);
+                        _logger.LogTrace("[AsyncWorker:{Guid}] All blob and backup tasks completed", _requestData.Guid);
 
                         operation = "Get Streams";
                         // Get the results
@@ -265,24 +290,36 @@ namespace SimpleL7Proxy.Proxy
                         _taskCompletionSource.TrySetResult(false);
                         return;
                     }
-                    // create a SAS token for the blob
-                    try
+                    // create a SAS token for the blob (only if configured to do so)
+                    if (_generateSasTokens)
                     {
-                        _logger.LogDebug("[AsyncWorker:{Guid}] Generating SAS tokens for blobs", _requestData.Guid);
-                        _dataBlobUri = await _blobWriter.GenerateSasTokenAsync(_userId, dataBlobName, TimeSpan.FromSeconds(_requestData.AsyncBlobAccessTimeoutSecs));
-                        _headerBlobUri = await _blobWriter.GenerateSasTokenAsync(_userId, headerBlobName, TimeSpan.FromSeconds(_requestData.AsyncBlobAccessTimeoutSecs));
-                        _logger.LogDebug("[AsyncWorker:{Guid}] SAS tokens generated successfully", _requestData.Guid);
-                        
-                        _requestData.Context!.Response.Headers.Add("x-Data-Blob-SAS-URI", _dataBlobUri);
-                        _requestData.Context!.Response.Headers.Add("x-Header-Blob-SAS-URI", _headerBlobUri);
-                    }
-                    catch (Exception sasEx)
-                    {
-                        _logger.LogError(sasEx, "[AsyncWorker:{Guid}] Failed to create SAS token", _requestData.Guid);
-                        _taskCompletionSource.TrySetResult(false);
-                        ErrorMessage = "Failed to create SAS token: " + sasEx.Message;
+                        try
+                        {
+                            _logger.LogDebug("[AsyncWorker:{Guid}] Generating SAS tokens for blobs", _requestData.Guid);
+                            _dataBlobUri = await _blobWriter.GenerateSasTokenAsync(_userId, dataBlobName, TimeSpan.FromSeconds(_requestData.AsyncBlobAccessTimeoutSecs));
+                            _headerBlobUri = await _blobWriter.GenerateSasTokenAsync(_userId, headerBlobName, TimeSpan.FromSeconds(_requestData.AsyncBlobAccessTimeoutSecs));
+                            _logger.LogTrace("[AsyncWorker:{Guid}] SAS tokens generated successfully", _requestData.Guid);
+                            
+                            _requestData.Context!.Response.Headers.Add("x-Data-Blob-SAS-URI", _dataBlobUri);
+                            _requestData.Context!.Response.Headers.Add("x-Header-Blob-SAS-URI", _headerBlobUri);
+                        }
+                        catch (Exception sasEx)
+                        {
+                            _logger.LogError(sasEx, "[AsyncWorker:{Guid}] Failed to create SAS token", _requestData.Guid);
+                            _taskCompletionSource.TrySetResult(false);
+                            ErrorMessage = "Failed to create SAS token: " + sasEx.Message;
 
-                        return;
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogDebug("[AsyncWorker:{Guid}] SAS token generation skipped - providing base blob URIs", _requestData.Guid);
+                        _dataBlobUri = _blobWriter.GetBlobUri(_userId, dataBlobName);
+                        _headerBlobUri = _blobWriter.GetBlobUri(_userId, headerBlobName);
+                        
+                        _requestData.Context!.Response.Headers.Add("x-Data-Blob-URI", _dataBlobUri);
+                        _requestData.Context!.Response.Headers.Add("x-Header-Blob-URI", _headerBlobUri);
                     }
 
                     AsyncMessage Statusmessage = new()
@@ -438,7 +475,7 @@ namespace SimpleL7Proxy.Proxy
                 catch (Exception ex)
                 {
                     _logger.LogError("Failed to write headers (attempt {Attempt}): {Message}", attempt + 1, ex.Message);
-                    _logger.LogDebug("Exception details: {Exception}", ex);
+                    _logger.LogTrace("Exception details: {Exception}", ex);
 
                     // Don't retry for general exceptions
                     await ResetStreamAsync().ConfigureAwait(false);
