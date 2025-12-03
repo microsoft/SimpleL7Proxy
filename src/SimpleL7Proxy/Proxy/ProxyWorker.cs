@@ -10,7 +10,6 @@ using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.ServiceBus;
-using SimpleL7Proxy.BlobStorage;
 using SimpleL7Proxy.StreamProcessor;
 using Shared.RequestAPI.Models;
 
@@ -449,7 +448,7 @@ public class ProxyWorker
                         }
                         else
                         {
-                            _logger.LogWarning("[Worker:{Id}] Cleanup skipped for request {Guid} - Requeued: {IsRequeued}, Evicting: {IsEvicting}", 
+                            _logger.LogDebug("[Worker:{Id}] Cleanup skipped for request {Guid} - Requeued: {IsRequeued}, Evicting: {IsEvicting}", 
                                 _id, incomingRequest.Guid, incomingRequest.Requeued, _isEvictingAsyncRequest);
                         }
                     }
@@ -581,7 +580,7 @@ public class ProxyWorker
         request.Path = modifiedPath;
 
         var activeHosts = _backends.GetActiveHosts().Where(h => h.Config.PartialPath == request.Path || h.Config.PartialPath == "/").ToList();
-        _logger.LogInformation("[ProxyToBackEnd:{Guid}] Found {HostCount} backend hosts for path {Path}", 
+        _logger.LogDebug("[ProxyToBackEnd:{Guid}] Found {HostCount} backend hosts for path {Path}", 
             request.Guid, activeHosts.Count, request.Path);
 
         if (activeHosts.Count == 0)
@@ -1202,7 +1201,7 @@ public class ProxyWorker
     {
         ProxyEvent requestSummary = request.EventData;
 
-        _logger.LogInformation("Streaming response with processor. Requested: {ProcessorRequested}, ContentType: {ContentType}, Guid: {Guid}",
+        _logger.LogDebug("Streaming response with processor. Requested: {ProcessorRequested}, ContentType: {ContentType}, Guid: {Guid}",
             processWith, mediaType, request.Guid);
 
         IStreamProcessor processor = _streamProcessorFactory.GetStreamProcessor(processWith, out string resolvedProcessor);

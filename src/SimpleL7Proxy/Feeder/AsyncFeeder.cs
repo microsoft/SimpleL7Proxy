@@ -190,6 +190,10 @@ namespace SimpleL7Proxy.Feeder
                 // Operation was canceled, exit gracefully
                 _logger.LogInformation($"[SHUTDOWN] AsyncFeeder service shutdown initiated.");
             }
+            catch (InvalidOperationException ex)
+            {
+                _logger.LogError(ex, "Invalid operation in AsyncFeeder service.: " + ex);
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "An error occurred while calling AsyncFeeder service.: " + ex);
@@ -295,9 +299,10 @@ namespace SimpleL7Proxy.Feeder
                 rd.AsyncBlobAccessTimeoutSecs = clientInfo.AsyncBlobAccessTimeoutSecs;
                 rd.BlobContainerName = clientInfo.ContainerName;
                 rd.SBTopicName = clientInfo.SBTopicName;
+                rd.AsyncClientConfig = clientInfo; // Store the full config for AsyncWorker
 
-                _logger.LogDebug("AsyncFeeder: Retrieved user profile for UserID: {UserID}. AsyncBlobAccessTimeoutSecs: {AsyncBlobAccessTimeoutSecs}, BlobContainerName: {BlobContainerName}, SBTopicName: {SBTopicName}",
-                    rd.UserID, rd.AsyncBlobAccessTimeoutSecs, rd.BlobContainerName, rd.SBTopicName);
+                _logger.LogDebug("AsyncFeeder: Retrieved user profile for UserID: {UserID}. AsyncBlobAccessTimeoutSecs: {AsyncBlobAccessTimeoutSecs}, BlobContainerName: {BlobContainerName}, SBTopicName: {SBTopicName}, GenerateSAS: {GenerateSAS}",
+                    rd.UserID, rd.AsyncBlobAccessTimeoutSecs, rd.BlobContainerName, rd.SBTopicName, clientInfo.GenerateSasTokens);
             } 
             else
             {
@@ -373,7 +378,7 @@ namespace SimpleL7Proxy.Feeder
                     _userPriority.addRequest(rd.Guid, rd.UserID);
                     int userPriorityBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue) ? 1 : 0;
 
-                    _logger.LogInformation("AsyncFeeder: Enqueuing async request with ID: {Id}, MID: {Mid}, UserID: {UserID}", rd.Guid, rd.MID, rd.UserID);
+                    _logger.LogDebug("AsyncFeeder: Enqueuing async request with ID: {Id}, MID: {Mid}, UserID: {UserID}", rd.Guid, rd.MID, rd.UserID);
 
                     if (!_requestsQueue.Requeue(rd, rd.Priority, userPriorityBoost, rd.EnqueueTime))
                     {

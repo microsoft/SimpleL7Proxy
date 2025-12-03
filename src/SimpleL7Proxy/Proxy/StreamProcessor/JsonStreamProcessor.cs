@@ -259,7 +259,7 @@ namespace SimpleL7Proxy.StreamProcessor
         /// </summary>
         public override void GetStats(ProxyEvent eventData, HttpResponseHeaders headers)
         {
-            _logger?.LogDebug("Populating event data with {Count} statistics entries", data.Count);
+            _logger?.LogTrace("Populating event data with {Count} statistics entries", data.Count);
             PopulateEventData(eventData, headers);
         }
 
@@ -327,16 +327,16 @@ namespace SimpleL7Proxy.StreamProcessor
                 if (jsonLine.StartsWith("data: ", StringComparison.OrdinalIgnoreCase))
                 {
                     jsonLine = jsonLine.Substring(6).Trim();
-                    _logger?.LogDebug("Removed 'data: ' prefix from JSON line");
+                    _logger?.LogTrace("Removed 'data: ' prefix from JSON line");
                 }
 
                 var node = JsonNode.Parse(jsonLine);
-                _logger?.LogDebug("Successfully parsed JSON line");
+                _logger?.LogTrace("Successfully parsed JSON line");
                 return node;
             }
             catch (Exception ex)
             {
-                _logger?.LogDebug("Failed to parse JSON line: {Message}", ex.Message);
+                _logger?.LogTrace("Failed to parse JSON line: {Message}", ex.Message);
                 return null;
             }
         }
@@ -351,11 +351,11 @@ namespace SimpleL7Proxy.StreamProcessor
         {
             if (node is not JsonObject jsonObject)
             {
-                _logger?.LogDebug("ExtractAllFields called with non-JsonObject node");
+                _logger?.LogTrace("ExtractAllFields called with non-JsonObject node");
                 return;
             }
 
-            _logger?.LogDebug("Extracting fields from JSON object with prefix: '{Prefix}'", prefix);
+            _logger?.LogTrace("Extracting fields from JSON object with prefix: '{Prefix}'", prefix);
             int fieldCount = 0;
 
             foreach (var (key, value) in jsonObject)
@@ -398,7 +398,7 @@ namespace SimpleL7Proxy.StreamProcessor
                 }
             }
             
-            _logger?.LogDebug("Extracted {FieldCount} fields from JSON object", fieldCount);
+            _logger?.LogTrace("Extracted {FieldCount} fields from JSON object", fieldCount);
         }
 
         /// <summary>

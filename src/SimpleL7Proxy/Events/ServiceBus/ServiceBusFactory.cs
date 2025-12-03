@@ -150,7 +150,7 @@ namespace SimpleL7Proxy.ServiceBus
 
             if (!_senders.ContainsKey(topicName))
             {
-                _logger.LogInformation("Creating new ServiceBusSender for topic: {topicName}", topicName);
+                _logger.LogDebug("Creating new ServiceBusSender for topic: {topicName}", topicName);
                 _senders[topicName] = _client.CreateSender(topicName);
             }
             return _senders[topicName];
@@ -173,6 +173,14 @@ namespace SimpleL7Proxy.ServiceBus
             if (string.IsNullOrWhiteSpace(queueName))
             {
                 throw new ArgumentException("Queue name cannot be null or empty.", nameof(queueName));
+            }
+
+            if (_client == null)
+            {
+                throw new InvalidOperationException(
+                    "ServiceBusClient is not initialized. This usually means AsyncModeEnabled is false or " +
+                    "the Service Bus configuration (AsyncSBConnectionString or AsyncSBNamespace) is invalid. " +
+                    "Check the application logs for initialization errors.");
             }
 
             return _client.CreateProcessor(queueName, options);

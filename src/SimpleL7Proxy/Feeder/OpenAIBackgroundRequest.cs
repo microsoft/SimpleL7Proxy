@@ -46,7 +46,7 @@ namespace SimpleL7Proxy.Feeder
         public async Task HydrateRequestAsync(RequestData request)
         {
 
-            _logger.LogInformation($"OpenAIBackgroundRequest: Hydrating request {request.Guid} to check on status.");
+            _logger.LogDebug($"OpenAIBackgroundRequest: Hydrating request {request.Guid} to check on status.");
 
             await _backupService.RestoreIntoAsync(request);
             // restore the async fields:

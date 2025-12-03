@@ -187,7 +187,7 @@ public class RequestLifecycleManager
             return;
         }
 
-        _logger.LogInformation("Found background request for GUID: {Guid}, BackgroundRequestId: {BackgroundRequestId}",
+        _logger.LogDebug("Found background request for GUID: {Guid}, BackgroundRequestId: {BackgroundRequestId}",
             request.Guid, processor.BackgroundRequestId);
         
         request.IsBackground = true;
@@ -204,7 +204,7 @@ public class RequestLifecycleManager
         {
             // Scenario 1: Initial background request submission
             // Mark as BackgroundProcessing to trigger periodic polling
-            _logger.LogInformation("Updating async worker for background GUID: {Guid}, BackgroundRequestId: {BackgroundRequestId}",
+            _logger.LogDebug("Updating async worker for background GUID: {Guid}, BackgroundRequestId: {BackgroundRequestId}",
                 request.Guid, processor.BackgroundRequestId);
             await request.asyncWorker.UpdateBackup().ConfigureAwait(false);
             request.BackgroundRequestCompleted = false;
@@ -213,7 +213,7 @@ public class RequestLifecycleManager
         {
             // Scenario 2: Background check found completed task
             // Update status to Completed so caller can retrieve final results
-            _logger.LogInformation("Background processing completed for GUID: {Guid}, BackgroundRequestId: {BackgroundRequestId}",
+            _logger.LogDebug("Background processing completed for GUID: {Guid}, BackgroundRequestId: {BackgroundRequestId}",
                 request.Guid, processor.BackgroundRequestId);
             request.BackgroundRequestCompleted = true;
         }
