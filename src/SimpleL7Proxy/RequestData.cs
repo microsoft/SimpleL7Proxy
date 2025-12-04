@@ -71,7 +71,7 @@ public class RequestData : IDisposable, IAsyncDisposable
             if (_requestAPIDocument != null)
             {
                 _requestAPIDocument.status = value;
-                BackupAPIService.UpdateStatus(_requestAPIDocument);
+                BackupAPIService?.UpdateStatus(_requestAPIDocument);
             }
         }
     }
