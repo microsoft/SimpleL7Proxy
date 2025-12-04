@@ -27,7 +27,7 @@ public class UserProfile : BackgroundService, IUserProfileService
         _options = options.Value;
         _logger = logger;
         _UserIDFieldName = _options.UserIDFieldName;
-        _userInformation[Constants.Server] = new AsyncClientInfo(Constants.Server, Constants.Server, Constants.Server, 3600);
+        _userInformation[Constants.Server] = new AsyncClientInfo(Constants.Server, Constants.Server, Constants.Server, false, 3600);
 
         _logger.LogDebug("UserProfile service starting");
     }
@@ -340,7 +340,7 @@ public class UserProfile : BackgroundService, IUserProfileService
                 if (!bool.TryParse(value, out asyncEnabled) || !asyncEnabled)
                 {
                     _logger.LogWarning($"User profile: async mode not allowed for user {userId}.");
-                    return null;
+                    asyncEnabled = false;
                 }
             }
             else if (field == "containername")
@@ -369,7 +369,7 @@ public class UserProfile : BackgroundService, IUserProfileService
             }
         }
 
-        cachedInfo = new AsyncClientInfo(userId, containerName, topicName, timeoutSecs);
+        cachedInfo = new AsyncClientInfo(userId, containerName, topicName, asyncEnabled, timeoutSecs);
         _userInformation[userId] = cachedInfo;
         return cachedInfo;
     }

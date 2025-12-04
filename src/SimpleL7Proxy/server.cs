@@ -344,7 +344,7 @@ public class Server : BackgroundService
                             if (doAsync && bool.TryParse(rd.Headers[_options.AsyncClientRequestHeader], out var asyncEnabled) && asyncEnabled)
                             {
                                 var clientInfo = _userProfile.GetAsyncParams(rd.profileUserId);
-                                if (clientInfo != null)
+                                if (clientInfo != null && clientInfo.AsyncAllowed)
                                 {
                                     rd.runAsync = true;
                                     rd.AsyncBlobAccessTimeoutSecs = clientInfo.AsyncBlobAccessTimeoutSecs;
