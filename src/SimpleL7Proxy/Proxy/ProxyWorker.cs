@@ -38,7 +38,7 @@ public class ProxyWorker
     private readonly CancellationToken _cancellationToken;
     private static bool _debug = false;
     private static IConcurrentPriQueue<RequestData>? _requestsQueue;
-    private static IRequeueWorker _requeueDelayWorker;
+    private static IRequeueWorker? _requeueDelayWorker; // Initialized in constructor, only one instance
     private readonly IBackendService _backends;
     private readonly BackendOptions _options;
     private readonly TelemetryClient? _telemetryClient;
@@ -105,6 +105,8 @@ public class ProxyWorker
         _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
         _TimeoutHeaderName = _options.TimeoutHeader;
         if (_options.Client == null) throw new ArgumentNullException(nameof(_options.Client));
+
+        ArgumentNullException.ThrowIfNull(requeueDelayWorker, nameof(requeueDelayWorker));
         backendKeys = _options.DependancyHeaders;
         IDstr = ID.ToString();
         PreferredPriority = priority;
@@ -356,27 +358,31 @@ public class ProxyWorker
                     Interlocked.Increment(ref states[7]);
                     workerState = "Cleanup";
 
-                    if (isExpired)
+                    if ( incomingRequest.runAsync)
                     {
-                        incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Failed;
+                        if (isExpired)
+                        {
+                            incomingRequest.RequestAPIStatus = RequestAPIStatusEnum.Failed;
+                        }
+                        else if (!incomingRequest.IsBackground)
+                        {
+                            var isSuccessfulResponse = ((int)pr.StatusCode == 200 ||
+                                                        (int)pr.StatusCode == 206 || // Partial Content
+                                                        (int)pr.StatusCode == 201 || // Created
+                                                        (int)pr.StatusCode == 202);  // Accepted
+                            incomingRequest.RequestAPIStatus = isSuccessfulResponse
+                                ? RequestAPIStatusEnum.Completed
+                                : RequestAPIStatusEnum.Failed;
+                            incomingRequest.asyncWorker?.UpdateBackup();
+                        }
                     }
-                    else if (!incomingRequest.IsBackground)
-                    {
-                        var isSuccessfulResponse = ((int)pr.StatusCode == 200 ||
-                                                    (int)pr.StatusCode == 206 || // Partial Content
-                                                    (int)pr.StatusCode == 201 || // Created
-                                                    (int)pr.StatusCode == 202);  // Accepted
-                        incomingRequest.RequestAPIStatus = isSuccessfulResponse
-                            ? RequestAPIStatusEnum.Completed
-                            : RequestAPIStatusEnum.Failed;
-                        incomingRequest.asyncWorker?.UpdateBackup();
-                    }
+
 
                 }
                 catch (S7PRequeueException e)
                 {
                     // launches a delay task while the current worker goes back to the top of the loop for more work
-                    _requeueDelayWorker.DelayAsync(incomingRequest, e.RetryAfter);
+                    _requeueDelayWorker!.DelayAsync(incomingRequest, e.RetryAfter);
 
                 }
                 catch (ProxyErrorException e)
@@ -533,8 +539,8 @@ public class ProxyWorker
                             !incomingRequest.IsBackground)    // Not a background request - covers the background skip case
                         {
 
-                            if (workerState != "Cleanup")
-                                eventData["WorkerState"] = workerState;
+                            // if (workerState != "Cleanup")
+                            eventData["WorkerState"] = workerState;
 
                             incomingRequest.Cleanup();
 
@@ -778,6 +784,9 @@ public class ProxyWorker
                 // Read the body stream once and reuse it
                 byte[] bodyBytes = await request.CacheBodyAsync().ConfigureAwait(false);
 
+                Console.WriteLine("================Proxying request to backend: " + request.FullURL);
+
+
                 requestState = "Create Backend Request";
                 using (ByteArrayContent bodyContent = new(bodyBytes))
                 using (HttpRequestMessage proxyRequest = new(new(request.Method), request.FullURL))
@@ -827,7 +836,6 @@ public class ProxyWorker
                     }
 
                     // Send the request and get the response
-                    bool wasSuccess = false;
                     ProxyStartDate = DateTime.UtcNow;
                     Interlocked.Increment(ref states[3]);
                     try
@@ -960,7 +968,7 @@ public class ProxyWorker
                         {
                             // request was successful, so we can disable the skip
                             request.SkipDispose = false;
-                            wasSuccess = true;
+                            requestAttempt["RequestSuccess"] = "true"; // Track success in event data
                             bodyBytes = [];
                         }
 
