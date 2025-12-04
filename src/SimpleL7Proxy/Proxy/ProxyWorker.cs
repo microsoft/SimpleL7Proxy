@@ -784,9 +784,6 @@ public class ProxyWorker
                 // Read the body stream once and reuse it
                 byte[] bodyBytes = await request.CacheBodyAsync().ConfigureAwait(false);
 
-                Console.WriteLine("================Proxying request to backend: " + request.FullURL);
-
-
                 requestState = "Create Backend Request";
                 using (ByteArrayContent bodyContent = new(bodyBytes))
                 using (HttpRequestMessage proxyRequest = new(new(request.Method), request.FullURL))
