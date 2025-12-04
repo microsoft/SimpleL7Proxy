@@ -37,7 +37,6 @@ namespace SimpleL7Proxy.ServiceBus
             _senderFactory = senderFactory ?? throw new ArgumentNullException(nameof(senderFactory));
             _logger = logger;
             
-            _logger.LogInformation("ServiceBus feeder tasks configured:");
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
