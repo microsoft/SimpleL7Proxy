@@ -562,6 +562,7 @@ public static class BackendHostConfigurationExtensions
       AsyncBlobStorageAccountUri = ReadEnvironmentVariableOrDefault("AsyncBlobStorageAccountUri", blobAccountUri),
       AsyncBlobStorageConnectionString = ReadEnvironmentVariableOrDefault("AsyncBlobStorageConnectionString", blobConnStr),
       AsyncBlobStorageUseMI = ReadEnvironmentVariableOrDefault("AsyncBlobStorageUseMI", blobUseMI),
+      AsyncBlobWorkerCount = ReadEnvironmentVariableOrDefault("AsyncBlobWorkerCount", 2),
       AsyncClientRequestHeader = ReadEnvironmentVariableOrDefault("AsyncClientRequestHeader", "AsyncMode"),
       AsyncClientConfigFieldName = ReadEnvironmentVariableOrDefault("AsyncClientConfigFieldName", "async-config"),
       AsyncModeEnabled = ReadEnvironmentVariableOrDefault("AsyncModeEnabled", false),

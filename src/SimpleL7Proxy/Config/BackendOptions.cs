@@ -9,6 +9,7 @@ public class BackendOptions
     public string AsyncBlobStorageConnectionString { get; set; } = "example-connection-string";
     public bool AsyncBlobStorageUseMI { get; set; } = true;
     public string AsyncBlobStorageAccountUri { get; set; } = "https://mystorageaccount.blob.core.windows.net";
+    public int AsyncBlobWorkerCount { get; set; } = 2;
     public string AsyncClientRequestHeader { get; set; } = "AsyncMode";
     public string AsyncClientConfigFieldName { get; set; } = "async-config";
     public bool AsyncModeEnabled { get; set; } = false;
