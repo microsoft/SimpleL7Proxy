@@ -161,44 +161,52 @@ public class Backends : IBackendService
   private readonly Dictionary<string, bool> currentHostStatus = [];
   private async Task Run()
   {
-
-    using (HttpClient _client = CreateHttpClient())
+    try
     {
-      var intervalTime = TimeSpan.FromMilliseconds(_options.PollInterval).ToString(@"hh\:mm\:ss");
-      var timeoutTime = TimeSpan.FromMilliseconds(_options.PollTimeout).ToString(@"hh\:mm\:ss\.fff");
-      _logger.LogInformation($"[SERVICE] ✓ Backend Poller starting - Interval: {intervalTime} | Success Rate: {_successRate} | Timeout: {timeoutTime}");
-
-      _client.Timeout = TimeSpan.FromMilliseconds(_options.PollTimeout);
-
-      using (var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationToken))
+      using (HttpClient _client = CreateHttpClient())
       {
-        while (!linkedCts.Token.IsCancellationRequested && !_cancellationToken.IsCancellationRequested)
+        var intervalTime = TimeSpan.FromMilliseconds(_options.PollInterval).ToString(@"hh\:mm\:ss");
+        var timeoutTime = TimeSpan.FromMilliseconds(_options.PollTimeout).ToString(@"hh\:mm\:ss\.fff");
+        _logger.LogInformation($"[SERVICE] ✓ Backend Poller starting - Interval: {intervalTime} | Success Rate: {_successRate} | Timeout: {timeoutTime}");
+
+        _client.Timeout = TimeSpan.FromMilliseconds(_options.PollTimeout);
+
+        using (var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationToken))
         {
-          try
+          while (!linkedCts.Token.IsCancellationRequested && !_cancellationToken.IsCancellationRequested)
           {
-            await UpdateHostStatus(_client);
-            FilterActiveHosts();
-
-            if ((DateTime.Now - _lastStatusDisplay).TotalSeconds > 60)
+            try
             {
-              DisplayHostStatus();
-            }
+              await UpdateHostStatus(_client);
+              FilterActiveHosts();
 
-            await Task.Delay(_options.PollInterval, linkedCts.Token);
-          }
-          catch (OperationCanceledException)
-          {
-            _logger.LogInformation("[SHUTDOWN] ⏹ Backend Poller stopping");
-            break;
-          }
-          catch (Exception e)
-          {
-            _logger.LogError($"Backends: An unexpected error occurred: {e.Message}");
+              if ((DateTime.Now - _lastStatusDisplay).TotalSeconds > 60)
+              {
+                DisplayHostStatus();
+              }
+
+              await Task.Delay(_options.PollInterval, linkedCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+              _logger.LogInformation("[SHUTDOWN] ⏹ Backend Poller stopping");
+              break;
+            }
+            catch (Exception e)
+            {
+              _logger.LogError(e, "[BACKENDS] Unexpected error in poller loop - continuing");
+            }
           }
         }
-      }
 
-      _logger.LogInformation("[SHUTDOWN] ✓ Backend Poller stopped");
+        _logger.LogInformation("[SHUTDOWN] ✓ Backend Poller stopped");
+      }
+    }
+    catch (Exception ex)
+    {
+      // Catch any unhandled exceptions to prevent background service from crashing the host
+      _logger.LogError(ex, "[BACKENDS] CRITICAL: Unhandled exception in backend poller - service stopping");
+      throw; // Rethrow to let the host know the background service failed, but at least we logged it
     }
   }
 
