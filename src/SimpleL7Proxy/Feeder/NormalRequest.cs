@@ -70,7 +70,7 @@ namespace SimpleL7Proxy.Feeder
             request.asyncWorker = _asyncWorkerFactory.CreateAsync(request, 0);
 
             // let asyncworker restore the blob streams
-            await request.asyncWorker.RestoreAsync();
+            await request.asyncWorker.PrepareResponseStreamsAsync();
         }
 
     }
