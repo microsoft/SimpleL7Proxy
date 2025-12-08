@@ -114,7 +114,7 @@ public static class ProxyHelperUtils
         sb.AppendLine("Error processing request.  No active hosts were able to handle the request.");
         sb.AppendLine("Request Summary:");
         statusMatches = true;
-        currentStatusCode = -1;
+        currentStatusCode = 503; // Default to Service Unavailable if no hosts attempted
 
         var statusCodes = new List<int>();
 
@@ -151,6 +151,7 @@ public static class ProxyHelperUtils
                 currentStatusCode = statusCodes.Last();
             }
         }
+        // else: statusCodes.Count == 0, use default 503 Service Unavailable
         
         sb.AppendLine(JsonSerializer.Serialize(requestSummary, new JsonSerializerOptions { WriteIndented = true }));
         sb.AppendLine();
