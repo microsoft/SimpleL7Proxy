@@ -76,6 +76,9 @@ public class CircuitBreaker : ICircuitBreaker
         };
 
         logerror.SendEvent();
+
+        _logger.LogCritical("[ERROR] Circuit breaker {ID} tracked error with code {Code} at {Time}. Total errors in timeslice: {Count}", 
+            ID, code, now, hostFailureTimes2.Count);
     }
 
     // returns true if the service is in failure state
@@ -157,6 +160,45 @@ public class CircuitBreaker : ICircuitBreaker
     public static int GetTotalCircuitBreakersCount()
     {
         return _totalCircuitBreakersCount;
+    }
+
+    /// <summary>
+    /// Gets the current circuit breaker status details for logging and diagnostics
+    /// </summary>
+    /// <returns>A dictionary with circuit breaker status information</returns>
+    public Dictionary<string, string> GetCircuitBreakerStatus()
+    {
+        DateTime now = DateTime.UtcNow;
+        DateTime? oldestFailure = null;
+        DateTime? newestFailure = null;
+        double? timeUntilOldestExpires = null;
+        
+        // Get the oldest and newest failure times
+        if (hostFailureTimes2.TryPeek(out var oldest))
+        {
+            oldestFailure = oldest;
+            timeUntilOldestExpires = _failureTimeFrame - (now - oldest).TotalSeconds;
+            
+            // Get newest failure (last item in queue)
+            var allFailures = hostFailureTimes2.ToArray();
+            if (allFailures.Length > 0)
+            {
+                newestFailure = allFailures[allFailures.Length - 1];
+            }
+        }
+        
+        return new Dictionary<string, string>
+        {
+            ["ID"] = ID,
+            ["FailureCount"] = hostFailureTimes2.Count.ToString(),
+            ["FailureThreshold"] = _failureThreshold.ToString(),
+            ["TimeFrame"] = _failureTimeFrame.ToString(),
+            ["IsBlocked"] = _isCurrentlyBlocked.ToString(),
+            ["IsCurrentlyFailed"] = CheckFailedStatus().ToString(),
+            ["OldestFailure"] = oldestFailure?.ToString("o") ?? "None",
+            ["NewestFailure"] = newestFailure?.ToString("o") ?? "None",
+            ["SecondsUntilOldestExpires"] = timeUntilOldestExpires?.ToString("F1") ?? "N/A"
+        };
     }
 
 }
