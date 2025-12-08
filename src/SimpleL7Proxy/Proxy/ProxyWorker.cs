@@ -245,13 +245,37 @@ public class ProxyWorker
 
                     var conlen = pr.ContentHeaders?["Content-Length"] ?? "N/A";
                     var proxyTime = (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
+                    var statusCodeInt = (int)pr.StatusCode;
                     _logger.LogCritical("Pri: {Priority}, Stat: {StatusCode}, User: {user} Guid: {Guid} Type: {RequestType}, Processor: {Processor}, Len: {ContentLength}, {FullURL}, Deq: {DequeueTime}, Lat: {ProxyTime} ms",
-                        incomingRequest.Priority, (int)pr.StatusCode,
+                        incomingRequest.Priority, statusCodeInt,
                         incomingRequest.UserID ?? "N/A",
                         incomingRequest.Guid,
                         incomingRequest.Type,
                         pr.StreamingProcessor,
                         conlen, pr.FullURL, incomingRequest.DequeueTime.ToLocalTime().ToString("T"), proxyTime);
+
+                    // Log circuit breaker details when status code is -1
+                    if (statusCodeInt == -1 || statusCodeInt ==  503)
+                    {
+                        _logger.LogCritical("[CircuitBreaker] Status {StatusCode} detected for request {Guid}. Backend host: {Host}",
+                            statusCodeInt, incomingRequest.Guid, pr.BackendHostname);
+                        
+                        // Log circuit breaker status for all hosts
+                        var activeHosts = _backends.GetActiveHosts();
+                        foreach (var host in activeHosts)
+                        {
+                            var cbStatus = host.Config.GetCircuitBreakerStatus();
+                            _logger.LogCritical("[CircuitBreaker] Guid: {guid} Host {HostName} - FailureCount: {FailureCount}/{Threshold}, IsBlocked: {IsBlocked}, SecondsUntilUnblock: {SecondsUntilExpiry}, OldestFailure: {OldestFailure}, NewestFailure: {NewestFailure}",
+                                incomingRequest.Guid,
+                                host.Host,
+                                cbStatus["FailureCount"],
+                                cbStatus["FailureThreshold"],
+                                cbStatus["IsBlocked"],
+                                cbStatus["SecondsUntilOldestExpires"],
+                                cbStatus["OldestFailure"],
+                                cbStatus["NewestFailure"]);
+                        }
+                    }
 
                     // Populate final event data
                     _eventDataBuilder.PopulateFinalEventData(incomingRequest, lcontext);
@@ -587,16 +611,26 @@ public class ProxyWorker
         {
             _logger.LogWarning("[ProxyToBackEnd:{Guid}] ⚠ NO BACKEND HOSTS matched path {Path} - Request will fail", 
                 request.Guid, request.Path);
+            
+            // Log all available hosts and their paths for debugging
+            var allHosts = _backends.GetActiveHosts();
+            _logger.LogCritical("[ProxyToBackEnd:{Guid}] Available hosts and their paths:", request.Guid);
+            foreach (var h in allHosts)
+            {
+                var cbStatus = h.Config.GetCircuitBreakerStatus();
+                _logger.LogCritical("[ProxyToBackEnd:{Guid}]   - Host: {Host}, Path: {PartialPath}, CB-Failures: {FailureCount}/{Threshold}, CB-Blocked: {IsBlocked}", 
+                    request.Guid, h.Host, h.Config.PartialPath, cbStatus["FailureCount"], cbStatus["FailureThreshold"], cbStatus["IsBlocked"]);
+            }
         }
 
-        if (request.Debug)
+       // if (request.Debug)
         {
             // count the number of hosts
             int debugHostCount = 0;
             while (hostIterator.MoveNext())
             {
                 debugHostCount++;
-                _logger.LogDebug("Host {HostNumber}: {PartialPath} ({Guid})",
+                _logger.LogCritical("Host {HostNumber}: {PartialPath} ({Guid})",
                     debugHostCount, hostIterator.Current.Config.PartialPath, hostIterator.Current.Config.Guid);
             }
             // Reset the iterator to the beginning
@@ -612,7 +646,9 @@ public class ProxyWorker
 
             if (host.Config.CheckFailedStatus())
             {
-                _logger.LogDebug("[ProxyToBackEnd:{Guid}] Skipping failed host: {Host}", request.Guid, host.Host);
+                var cbStatus = host.Config.GetCircuitBreakerStatus();
+                _logger.LogCritical("[ProxyToBackEnd:{Guid}] ⚠ Circuit breaker BLOCKING host: {Host} - FailureCount: {FailureCount}/{Threshold}, Path: {PartialPath}, SecondsUntilUnblock: {SecondsUntilExpiry}", 
+                    request.Guid, host.Host, cbStatus["FailureCount"], cbStatus["FailureThreshold"], host.Config.PartialPath, cbStatus["SecondsUntilOldestExpires"]);
                 continue;
             }
 
@@ -891,32 +927,39 @@ public class ProxyWorker
                             {
                                 if (pr.Headers.Get(header) != null)
                                 {
-                                    pr.Headers.Remove(header);
-                                }
-                            }
+                        pr.Headers.Remove(header);
+                    }
+                }
 
-                            // ASYNC: If the request was triggered asynchronously, we need to write the response to the async worker blob
-                            // TODO: Move to caller to handle writing errors?
-                            // Store the response stream in proxyData and return to parent caller
-                            // WAS ASYNC SYNCHRONIZED?
-                            if (request.AsyncTriggered)
-                            {
-                                _logger.LogDebug("[ProxyToBackEnd:{Guid}] Writing headers to AsyncWorker blob", request.Guid);
-                                // Write the headers to the async worker blob [ the client connection is closed ]
-                                if (!await request.asyncWorker!.WriteHeaders(proxyResponse.StatusCode, pr.Headers))
-                                {
-                                    throw new ProxyErrorException(ProxyErrorException.ErrorType.AsyncWorkerError,
-                                                                HttpStatusCode.InternalServerError, "Failed to write headers to async worker");
-                                }
-                                _logger.LogDebug("[ProxyToBackEnd:{Guid}] Headers written successfully to AsyncWorker", request.Guid);
-                            }
-                            else
-                            {
-                                request.Context!.Response.StatusCode = (int)proxyResponse.StatusCode;
-                                request.Context.Response.Headers = pr.Headers;
-                            }
-
-                            string mediaType = proxyResponse.Content?.Headers?.ContentType?.MediaType ?? string.Empty;
+                // ASYNC: If the request was triggered asynchronously, we need to write the response to the async worker blob
+                // For background checks, skip header writing here - will be written in StreamResponseAsync if completed
+                // TODO: Move to caller to handle writing errors?
+                // Store the response stream in proxyData and return to parent caller
+                // WAS ASYNC SYNCHRONIZED?
+                if (request.AsyncTriggered)
+                {
+                    // Skip header write for background checks - will be handled in StreamResponseAsync
+                    if (!request.IsBackgroundCheck)
+                    {
+                        _logger.LogDebug("[ProxyToBackEnd:{Guid}] Writing headers to AsyncWorker blob", request.Guid);
+                        // Write the headers to the async worker blob [ the client connection is closed ]
+                        if (!await request.asyncWorker!.WriteHeaders(proxyResponse.StatusCode, pr.Headers))
+                        {
+                            throw new ProxyErrorException(ProxyErrorException.ErrorType.AsyncWorkerError,
+                                                        HttpStatusCode.InternalServerError, "Failed to write headers to async worker");
+                        }
+                        _logger.LogDebug("[ProxyToBackEnd:{Guid}] Headers written successfully to AsyncWorker", request.Guid);
+                    }
+                    else
+                    {
+                        _logger.LogDebug("[ProxyToBackEnd:{Guid}] Deferring header write for background check until completion status known", request.Guid);
+                    }
+                }
+                else
+                {
+                    request.Context!.Response.StatusCode = (int)proxyResponse.StatusCode;
+                    request.Context.Response.Headers = pr.Headers;
+                }                            string mediaType = proxyResponse.Content?.Headers?.ContentType?.MediaType ?? string.Empty;
 
                             // pull out the processor from response headers if it exists
                             if (host.Config.DirectMode)
@@ -1055,7 +1098,7 @@ public class ProxyWorker
                 hostIterator.RecordResult(host, successfulRequest);
 
                 // Track host status for circuit breaker
-                host.Config.TrackStatus(intCode, successfulRequest);
+                host.Config.TrackStatus(intCode, !successfulRequest);
 
                 if (!successfulRequest)
                 {
@@ -1099,37 +1142,87 @@ public class ProxyWorker
         lastStatusCode = (statusMatches) ? (HttpStatusCode)currentStatusCode : HttpStatusCode.BadGateway;
         // requestSummary.Type = EventType.ProxyError;
 
+        // ASYNC: Synchronize with AsyncWorker if it was started, even for error responses
+        // This ensures the 202 response was sent to client and blob streams are ready
+        if (request.runAsync && request.asyncWorker != null)
+        {
+            _logger.LogDebug("[ProxyToBackEnd:{Guid}] Synchronizing with AsyncWorker before writing error response", request.Guid);
+            if (!await request.asyncWorker.Synchronize())
+            {
+                _logger.LogWarning("[ProxyToBackEnd:{Guid}] AsyncWorker synchronization failed - Error: {Error}", 
+                    request.Guid, request.asyncWorker.ErrorMessage);
+                // AsyncWorker failed to start, so AsyncTriggered will be false
+                // Error response will go to HTTP context instead of blob
+            }
+            else
+            {
+                _logger.LogDebug("[ProxyToBackEnd:{Guid}] AsyncWorker synchronized successfully for error response", request.Guid);
+            }
+        }
+
         // STREAM SERVER ERROR RESPONSE.  Must respond because the request was not successful
         try
         {
-            if (!request.AsyncTriggered)
+            // For async requests that triggered, write error to blob via AsyncWorker
+            if (request.AsyncTriggered && request.asyncWorker != null)
+            {
+                _logger.LogInformation("Writing error response to AsyncWorker blob for request {Guid} - Status: {StatusCode}",
+                    request.Guid, lastStatusCode);
+                
+                // Write error headers to blob
+                var errorHeaders = new WebHeaderCollection
+                {
+                    ["x-Request-Queue-Duration"] = (request.DequeueTime - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms",
+                    ["x-Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms",
+                    ["x-ProxyHost"] = _options.HostName,
+                    ["x-MID"] = request.MID,
+                    ["Attempts"] = request.BackendAttempts.ToString()
+                };
+                
+                await request.asyncWorker.WriteHeaders(lastStatusCode, errorHeaders);
+                
+                // Write error body to blob - use lazy stream creation for background checks
+                if (request.IsBackgroundCheck)
+                {
+                    var outputStream = await request.asyncWorker.GetOrCreateDataStreamAsync();
+                    await outputStream.WriteAsync(Encoding.UTF8.GetBytes(sb.ToString())).ConfigureAwait(false);
+                    await outputStream.FlushAsync().ConfigureAwait(false);
+                }
+                else if (request.OutputStream != null)
+                {
+                    await request.OutputStream.WriteAsync(Encoding.UTF8.GetBytes(sb.ToString())).ConfigureAwait(false);
+                    await request.OutputStream.FlushAsync().ConfigureAwait(false);
+                }
+            }
+            // For synchronous requests or async that hasn't triggered, write to HTTP context
+            else if (!request.AsyncTriggered && request.Context != null)
             {
                 _logger.LogInformation("Response Status Code: {StatusCode} for request {Guid}",
                     lastStatusCode, request.Guid);
-                request.Context!.Response.StatusCode = (int)lastStatusCode;
+                request.Context.Response.StatusCode = (int)lastStatusCode;
                 request.Context.Response.KeepAlive = false;
-            }
-
-            if (request.Context != null)
-            {
+                
                 request.Context.Response.Headers["x-Request-Queue-Duration"] = (request.DequeueTime - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms";
                 request.Context.Response.Headers["x-Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms";
                 request.Context.Response.Headers["x-ProxyHost"] = _options.HostName;
                 request.Context.Response.Headers["x-MID"] = request.MID;
                 request.Context.Response.Headers["Attempts"] = request.BackendAttempts.ToString();
-            }
 
-            if (request.OutputStream != null)
+                await request.Context.Response.OutputStream.WriteAsync(Encoding.UTF8.GetBytes(sb.ToString())).ConfigureAwait(false);
+                await request.Context.Response.OutputStream.FlushAsync().ConfigureAwait(false);
+            }
+            else
             {
-                await request.OutputStream.WriteAsync(Encoding.UTF8.GetBytes(sb.ToString())).ConfigureAwait(false);
-                await request.OutputStream.FlushAsync().ConfigureAwait(false);
+                _logger.LogWarning("Cannot write error response for request {Guid} - Context: {HasContext}, AsyncTriggered: {AsyncTriggered}, AsyncWorker: {HasAsyncWorker}",
+                    request.Guid, request.Context != null, request.AsyncTriggered, request.asyncWorker != null);
             }
 
         }
         catch (Exception e)
         {
             // If we can't write the response, we can only log it
-            _logger.LogError(e, "Error writing response for request {Guid}", request.Guid);
+            _logger.LogError(e, "Error writing error response for request {Guid} - AsyncTriggered: {AsyncTriggered}", 
+                request.Guid, request.AsyncTriggered);
         }
 
 
@@ -1205,11 +1298,20 @@ public class ProxyWorker
             processWith, mediaType, request.Guid);
 
         IStreamProcessor processor = _streamProcessorFactory.GetStreamProcessor(processWith, out string resolvedProcessor);
+        MemoryStream? memoryBuffer = null;
+        
         try
         {
             _logger.LogDebug("Resolved processor: {ProcessorName} for request {Guid}", resolvedProcessor, request.Guid);
 
-            if (request.OutputStream != null)
+            // For background checks, buffer response in memory first, then conditionally write to blob
+            if (request.IsBackgroundCheck && request.asyncWorker != null)
+            {
+                _logger.LogDebug("Buffering background check response to memory for request {Guid}", request.Guid);
+                memoryBuffer = new MemoryStream();
+                await processor.CopyToAsync(proxyResponse.Content, memoryBuffer).ConfigureAwait(false);
+            }
+            else if (request.OutputStream != null)
             {
                 _logger.LogDebug("Starting to stream with processor : " + typeof(IStreamProcessor).ToString() + " for request {Guid}", request.Guid);
                 await processor.CopyToAsync(proxyResponse.Content, request.OutputStream).ConfigureAwait(false);
@@ -1242,6 +1344,35 @@ public class ProxyWorker
             try
             {
                 processor.GetStats(request.EventData, proxyResponse.Headers);
+                
+                // For background checks, only write to blob if completed or Debug mode
+                if (request.IsBackgroundCheck && request.asyncWorker != null && memoryBuffer != null)
+                {
+                    if (processor.BackgroundCompleted || request.Debug)
+                    {
+                        _logger.LogDebug("Background check completed or Debug mode - writing headers and {Bytes} bytes to blob for request {Guid}", 
+                            memoryBuffer.Length, request.Guid);
+                        
+                        // Copy headers from proxyResponse
+                        var pr = new ProxyData();
+                        ProxyHelperUtils.CopyResponseHeaders(proxyResponse, pr);
+                        
+                        // Write headers to blob
+                        await request.asyncWorker.WriteHeaders(proxyResponse.StatusCode, pr.Headers);
+                        
+                        // Write buffered data to blob
+                        var outputStream = await request.asyncWorker.GetOrCreateDataStreamAsync();
+                        memoryBuffer.Position = 0;
+                        await memoryBuffer.CopyToAsync(outputStream).ConfigureAwait(false);
+                        await outputStream.FlushAsync().ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        _logger.LogDebug("Background check in progress - discarding {Bytes} bytes for request {Guid}", 
+                            memoryBuffer.Length, request.Guid);
+                    }
+                }
+                
                 await _lifecycleManager.HandleBackgroundRequestLifecycle(request, processor).ConfigureAwait(false);
             }
             catch (Exception statsEx)
@@ -1250,6 +1381,8 @@ public class ProxyWorker
             }
             finally
             {
+                memoryBuffer?.Dispose();
+                
                 if (processor is IDisposable disposableProcessor)
                 {
                     try { disposableProcessor.Dispose(); }
