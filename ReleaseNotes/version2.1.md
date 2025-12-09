@@ -1,5 +1,20 @@
-# V2.1.33.p2 Release Notes#
+# Release Notes #
 
+
+Repo:
+* Moved docs to their own folder
+
+Policy:
+* Added x-ms-client-request-id to help debug with OpenAI in the future
+* copy back policy from stream version, disabled streaming
+* Retry if the endpoint returns a 200 with content-length = 0
+
+Proxy:
+* Warning: Fix compiler warnings
+* Don't report the service as "UP" until the userProfile is loaded 
+* UserConfigRequired triggers health check to fail if profiles are not loaded 
+
+## V2.1.33.p2 
 The following changs were implemented in this release.
 
 Proxy:
@@ -18,17 +33,16 @@ Null Server:
 * Enhancement: Added a server responding on port 3001
 * Enhancement: Added a /412error route code to help with testing
 
-# V2.1.33.p1 Release Notes
-
+## V2.1.33.p1
 Proxy: 
 * Bug Fix: turn off log_to_file
 
 
-# V2.1.32
+## V2.1.32
 * Enhancement: Internal worker states are not logged in case of incomplete proxy requests.
 * Enhancement: Default logPoller and LogProbes to off.
 
-# V2.1.31
+## V2.1.31
 
 Readme:
 * Enhancement: Update and move content from Readme into seperate markdown documents.
