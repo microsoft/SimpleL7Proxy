@@ -1,4 +1,14 @@
 # Release Notes #
+
+Proxy:
+* Bug fix for sync request when async is turned off
+* Don't report the service as "UP" until the userProfile is loaded 
+* UserConfigRequired triggers health check to fail if profiles are not loaded 
+
+Policy:
+* Added enhanced logging policy file
+* Retry if the endpoint returns a 200 with content-length = 0
+
 ## 2.2.8.p1
 
 Proxy:
