@@ -11,6 +11,8 @@ public class UserProfile : IUserProfile
     private Dictionary<string, Dictionary<string, string>> userProfiles = new Dictionary<string, Dictionary<string, string>>();
     private List<string> suspendedUserProfiles = new List<string>();
     private List<string> authAppIDs = new List<string>();
+    private static bool _isInitialized = false;
+
     public UserProfile(IBackendOptions options)
     {
         this.options = options;
@@ -36,20 +38,43 @@ public class UserProfile : IUserProfile
     {
         while (!cancellationToken.IsCancellationRequested)
         {
+            DateTime startTime = DateTime.UtcNow;
+            const int NormalDelayMs = 3600000; // 1 hour
+            const int ErrorDelayMs = 3000; // 3 seconds
+
             try
             {
                 await ReadUserConfigAsync(options.UserConfigUrl, ParsingMode.profileMode).ConfigureAwait(false);
                 await ReadUserConfigAsync(options.SuspendedUserConfigUrl, ParsingMode.SuspendedUserMode).ConfigureAwait(false);
                 await ReadUserConfigAsync(options.ValidateAuthAppIDUrl, ParsingMode.AuthAppIDMode).ConfigureAwait(false);
+
+                // Count users, initialized when at least one user profile is loaded
+                if (options.UserConfigRequired && userProfiles.Count > 0 && authAppIDs.Count > 0)
+                {
+                    _isInitialized = true;
+                }
+                else if (!options.UserConfigRequired)
+                {
+                    _isInitialized = true;
+                }
             }
             catch (Exception e)
             {
-                // Log error
                 Console.Error.WriteLine($"Error reading user config: {e.Message}");
+                _isInitialized = false;
             }
 
-            await Task.Delay(3600000, cancellationToken);
+            Console.WriteLine($"User profiles loaded - {userProfiles.Count} users found, {suspendedUserProfiles.Count} suspended users found, {authAppIDs.Count} auth app IDs found  Initialized: {_isInitialized} ");
+            int baseDelay = _isInitialized ? NormalDelayMs : ErrorDelayMs;
+            int elapsedMs = (int)(DateTime.UtcNow - startTime).TotalMilliseconds;
+            int remainingDelay = Math.Max(0, baseDelay - elapsedMs);
+            await Task.Delay(remainingDelay, cancellationToken);
         }
+    }
+
+    public bool ServiceIsReady()
+    {
+        return _isInitialized;
     }
 
     public async Task ReadUserConfigAsync(string config, ParsingMode mode)

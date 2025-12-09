@@ -74,6 +74,7 @@ public interface IBackendOptions
     bool UseOAuth { get; set; }
     bool UseOAuthGov { get; set; }
     bool UseUserConfig { get; set; }
+    bool UserConfigRequired { get; set; }
     bool UseProfiles { get; set; }
     string UserProfileHeader { get; set; }
     string UserConfigUrl { get; set; }
@@ -101,5 +102,6 @@ public interface IUserProfile
     public Dictionary<string, string> GetUserProfile(string userId);
     public bool IsUserSuspended(string userId);
     public bool IsAuthAppIDValid(string authAppId);
+    public bool ServiceIsReady();
 
 }

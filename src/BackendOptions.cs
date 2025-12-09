@@ -44,6 +44,7 @@ public class BackendOptions : IBackendOptions
     public bool UseOAuth { get; set; }
     public bool UseOAuthGov { get; set; } = false;
     public bool UseUserConfig { get; set; } = false;
+    public bool UserConfigRequired { get; set; } = false;
     public bool UseProfiles { get; set; } = false;
     public string UserProfileHeader { get; set; } = "";
     public string UserConfigUrl { get; set; } = "";

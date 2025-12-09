@@ -115,6 +115,7 @@ public class Program
                     options.UseOAuth = backendOptions.UseOAuth;
                     options.UseOAuthGov = backendOptions.UseOAuthGov;
                     options.UseProfiles = backendOptions.UseProfiles;
+                    options.UserConfigRequired = backendOptions.UserConfigRequired;
                     options.UserConfigUrl = backendOptions.UserConfigUrl;
                     options.UserPriorityThreshold = backendOptions.UserPriorityThreshold;
                     options.UserProfileHeader = backendOptions.UserProfileHeader;
@@ -147,12 +148,12 @@ public class Program
 
                     Console.WriteLine("AppInsights initialized with custom request tracking");
                 }
+                
+                bool.TryParse(Environment.GetEnvironmentVariable("LOGTOFILE"), out var log_to_file);
 
-
-                var log_to_file = false;  // DON'T EVER DO A CHECKIN WITH THIS SET TO TRUE
                 if (log_to_file)
                 {
-                    string logFileName = OS.Environment.GetEnvironmentVariable("LOGFILE") ?? "events.log";
+                    var logFileName = Environment.GetEnvironmentVariable("LOGFILE_NAME") ?? "events.json";
                     eventHubClient = new LogFileEventClient(logFileName);
                 }
                 else
@@ -731,6 +732,7 @@ public class Program
             UseOAuthGov = ReadEnvironmentVariableOrDefault("UseOAuthGov", false),
             UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", false),
             UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", "file:config.json"),
+            UserConfigRequired = ReadEnvironmentVariableOrDefault("UserConfigRequired", false),
             UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
             UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", "X-UserProfile"),
             ValidateAuthAppFieldName = ReadEnvironmentVariableOrDefault("ValidateAuthAppFieldName", "authAppID"),
