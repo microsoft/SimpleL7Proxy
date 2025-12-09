@@ -179,7 +179,7 @@ public class Program
 
         if (log_to_file)
         {
-            var logFileName = Environment.GetEnvironmentVariable("LOGFILE_NAME") ?? "events.log";
+            var logFileName = Environment.GetEnvironmentVariable("LOGFILE_NAME") ?? "events.json";
             services.AddProxyEventLogFileClient(logFileName, Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING"));
 
         }
