@@ -612,6 +612,7 @@ public class ProxyWorker
         // Cache these to avoid repeatedly calling the same methods
         int hostCount = _backends.ActiveHostCount();
         bool hasFailedHosts = _backends.CheckFailedStatus();
+        bool ProfilesReady = _profiles.ServiceIsReady();
 
         switch (path)
         {
@@ -647,10 +648,10 @@ public class ProxyWorker
 
             case Constants.Readiness:
             case Constants.Startup:
-                if (!readyToWork || hostCount == 0)
+                if (!readyToWork || hostCount == 0 || !ProfilesReady)
                 {
                     probeStatus = 503;
-                    probeMessage = "Not Ready .. hostCount = " + hostCount + " readyToWork = " + readyToWork;
+                    probeMessage = "Not Ready .. hostCount = " + hostCount + " readyToWork = " + readyToWork + " ProfilesReady = " + ProfilesReady + "\n";
                 }
                 break;
 
@@ -658,7 +659,7 @@ public class ProxyWorker
                 if (hostCount == 0)
                 {
                     probeStatus = 503;
-                    probeMessage = $"Not Lively.  Active Hosts: {hostCount} Failed Hosts: {hasFailedHosts}";
+                    probeMessage = $"Not Lively.  Active Hosts: {hostCount} Failed Hosts: {hasFailedHosts}  ProfilesLoaded: {ProfilesReady}\n" ;
                 }
                 break;
 
