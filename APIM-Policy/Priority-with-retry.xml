@@ -467,7 +467,20 @@
 			<choose>
 				<!-- If we got a 200, skip the retry and return the response -->
 				<when condition="@(context.Variables.GetValueOrDefault<bool>("callCompleted", false) && context.Response != null && context.Response.StatusCode == 200)">
-					<set-variable name="ShouldRetry" value="@(false)" />
+					<choose>
+                        <when condition="@(context.Response.Headers.ContainsKey("Transfer-Encoding") && context.Response.Headers["Transfer-Encoding"].Contains("chunked"))">
+                            <!-- For streaming responses, success is indicated by 200 status -->
+                            <set-variable name="ShouldRetry" value="@(false)" />
+                        </when>
+						<when condition="@( !context.Response.Headers.ContainsKey("Content-Length") || context.Response.Headers["Content-Length"].FirstOrDefault() == "0" || context.Response.Body is null )" >
+							<set-variable name="ShouldRetry" value="@(true)" />
+							<!-- <set-variable name="RetryCount" value="@(context.Variables.GetValueOrDefault<int>("RetryCount") + 1)" /> -->
+							<set-variable name="ShouldRequeue" value="@(false)" />
+						</when>
+						<otherwise>
+							<set-variable name="ShouldRetry" value="@(false)" />
+						</otherwise>
+					</choose>
 				</when>
 
                 <!-- If all backends are throttling, calculate sleep time and return a 429 -->
