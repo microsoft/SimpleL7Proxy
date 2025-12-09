@@ -94,6 +94,7 @@ public static class BackendHostConfigurationExtensions
       options.UseOAuthGov = backendOptions.UseOAuthGov;
       options.UseProfiles = backendOptions.UseProfiles;
       options.UserConfigUrl = backendOptions.UserConfigUrl;
+      options.UserConfigRequired = backendOptions.UserConfigRequired;
       options.UserPriorityThreshold = backendOptions.UserPriorityThreshold;
       options.UserProfileHeader = backendOptions.UserProfileHeader;
       options.ValidateAuthAppFieldName = backendOptions.ValidateAuthAppFieldName;
@@ -512,6 +513,7 @@ public static class BackendHostConfigurationExtensions
       UseOAuthGov = ReadEnvironmentVariableOrDefault("UseOAuthGov", false),
       UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", false),
       UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", "file:config.json"),
+      UserConfigRequired = ReadEnvironmentVariableOrDefault("UserConfigRequired", false),
       UserIDFieldName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "UserIDFieldName", "userId"), // migrate from LookupHeaderName
       UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
       UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", "X-UserProfile"),
