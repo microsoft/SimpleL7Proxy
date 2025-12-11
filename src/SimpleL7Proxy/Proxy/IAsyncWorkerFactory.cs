@@ -50,7 +50,7 @@ namespace SimpleL7Proxy.Proxy
             _logger.LogDebug("[AsyncWorkerFactory] Creating AsyncWorker for request {Guid} with timeout {Timeout}s", 
                 requestData.Guid, AsyncTriggerTimeout);
 
-            return new AsyncWorker(requestData, AsyncTriggerTimeout, _blobWriter, _logger, _requestBackupService);
+            return new AsyncWorker(requestData, AsyncTriggerTimeout, _blobWriter, _logger, _requestBackupService, _backendOptions);
         }
     }
 }
