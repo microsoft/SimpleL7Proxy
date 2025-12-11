@@ -134,7 +134,7 @@ public class ProxyWorker
                 {
                     continue;
                 }
-                _logger.LogInformation("[Worker:{Id}] Dequeued request {Guid} - Priority: {Priority}, Type: {Type}", 
+                _logger.LogTrace("[Worker:{Id}] Dequeued request {Guid} - Priority: {Priority}, Type: {Type}", 
                     _id, incomingRequest.Guid, incomingRequest.Priority, incomingRequest.Type);
             }
             catch (OperationCanceledException)
@@ -623,7 +623,7 @@ public class ProxyWorker
             }
         }
 
-       // if (request.Debug)
+        if (request.Debug)
         {
             // count the number of hosts
             int debugHostCount = 0;
@@ -927,39 +927,41 @@ public class ProxyWorker
                             {
                                 if (pr.Headers.Get(header) != null)
                                 {
-                        pr.Headers.Remove(header);
-                    }
-                }
+                                    pr.Headers.Remove(header);
+                                }
+                            }
 
-                // ASYNC: If the request was triggered asynchronously, we need to write the response to the async worker blob
-                // For background checks, skip header writing here - will be written in StreamResponseAsync if completed
-                // TODO: Move to caller to handle writing errors?
-                // Store the response stream in proxyData and return to parent caller
-                // WAS ASYNC SYNCHRONIZED?
-                if (request.AsyncTriggered)
-                {
-                    // Skip header write for background checks - will be handled in StreamResponseAsync
-                    if (!request.IsBackgroundCheck)
-                    {
-                        _logger.LogDebug("[ProxyToBackEnd:{Guid}] Writing headers to AsyncWorker blob", request.Guid);
-                        // Write the headers to the async worker blob [ the client connection is closed ]
-                        if (!await request.asyncWorker!.WriteHeaders(proxyResponse.StatusCode, pr.Headers))
-                        {
-                            throw new ProxyErrorException(ProxyErrorException.ErrorType.AsyncWorkerError,
-                                                        HttpStatusCode.InternalServerError, "Failed to write headers to async worker");
-                        }
-                        _logger.LogDebug("[ProxyToBackEnd:{Guid}] Headers written successfully to AsyncWorker", request.Guid);
-                    }
-                    else
-                    {
-                        _logger.LogDebug("[ProxyToBackEnd:{Guid}] Deferring header write for background check until completion status known", request.Guid);
-                    }
-                }
-                else
-                {
-                    request.Context!.Response.StatusCode = (int)proxyResponse.StatusCode;
-                    request.Context.Response.Headers = pr.Headers;
-                }                            string mediaType = proxyResponse.Content?.Headers?.ContentType?.MediaType ?? string.Empty;
+                            // ASYNC: If the request was triggered asynchronously, we need to write the response to the async worker blob
+                            // For background checks, skip header writing here - will be written in StreamResponseAsync if completed
+                            // TODO: Move to caller to handle writing errors?
+                            // Store the response stream in proxyData and return to parent caller
+                            // WAS ASYNC SYNCHRONIZED?
+                            if (request.AsyncTriggered)
+                            {
+                                // Skip header write for background checks - will be handled in StreamResponseAsync
+                                if (!request.IsBackgroundCheck)
+                                {
+                                    _logger.LogDebug("[ProxyToBackEnd:{Guid}] Writing headers to AsyncWorker blob", request.Guid);
+                                    // Write the headers to the async worker blob [ the client connection is closed ]
+                                    if (!await request.asyncWorker!.WriteHeaders(proxyResponse.StatusCode, pr.Headers))
+                                    {
+                                        throw new ProxyErrorException(ProxyErrorException.ErrorType.AsyncWorkerError,
+                                                                    HttpStatusCode.InternalServerError, "Failed to write headers to async worker");
+                                    }
+                                    _logger.LogDebug("[ProxyToBackEnd:{Guid}] Headers written successfully to AsyncWorker", request.Guid);
+                                }
+                                else
+                                {
+                                    _logger.LogDebug("[ProxyToBackEnd:{Guid}] Deferring header write for background check until completion status known", request.Guid);
+                                }
+                            }
+                            else
+                            {
+                                request.Context!.Response.StatusCode = (int)proxyResponse.StatusCode;
+                                request.Context.Response.Headers = pr.Headers;
+                            }
+                            
+                            string mediaType = proxyResponse.Content?.Headers?.ContentType?.MediaType ?? string.Empty;
 
                             // pull out the processor from response headers if it exists
                             if (host.Config.DirectMode)
@@ -1311,9 +1313,16 @@ public class ProxyWorker
                 memoryBuffer = new MemoryStream();
                 await processor.CopyToAsync(proxyResponse.Content, memoryBuffer).ConfigureAwait(false);
             }
+            else if (request.runAsync && request.asyncWorker != null)
+            {
+                // For async requests, use lazy stream creation to handle both normal and rehydrated requests
+                var outputStream = await request.asyncWorker.GetOrCreateDataStreamAsync().ConfigureAwait(false);
+                _logger.LogDebug("Streaming to async blob for request {Guid}", request.Guid);
+                await processor.CopyToAsync(proxyResponse.Content, outputStream).ConfigureAwait(false);
+            }
             else if (request.OutputStream != null)
             {
-                _logger.LogDebug("Starting to stream with processor : " + typeof(IStreamProcessor).ToString() + " for request {Guid}", request.Guid);
+                _logger.LogDebug("Streaming to client for request {Guid}", request.Guid);
                 await processor.CopyToAsync(proxyResponse.Content, request.OutputStream).ConfigureAwait(false);
             }
             else
