@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 
 using SimpleL7Proxy;
 using SimpleL7Proxy.BlobStorage;
+using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.ServiceBus;
@@ -39,6 +40,7 @@ namespace SimpleL7Proxy.Proxy
         private readonly IBlobWriter _blobWriter;
         private readonly ILogger<AsyncWorker> _logger;
         private readonly IRequestDataBackupService _requestBackupService;
+        private readonly BackendOptions _options;
         // private readonly IBackupAPIService _backupAPIService;
         public  bool ShouldReprocess { get; set; } = false; 
         public string ErrorMessage { get; set; } = "";
@@ -60,12 +62,16 @@ namespace SimpleL7Proxy.Proxy
         /// <param name="data">The request data.</param>
         /// <param name="blobWriter">The blob writer instance.</param>
         /// <param name="logger">The logger instance.</param>
-        public AsyncWorker(RequestData data, int AsyncTriggerTimeout, IBlobWriter blobWriter, ILogger<AsyncWorker> logger, IRequestDataBackupService requestBackupService)//, IBackupAPIService backupAPIService)
+        public AsyncWorker(RequestData data, int AsyncTriggerTimeout, 
+            IBlobWriter blobWriter, 
+            ILogger<AsyncWorker> logger, 
+            IRequestDataBackupService requestBackupService, BackendOptions backendOptions)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _requestData = data ?? throw new ArgumentNullException(nameof(data));
             _blobWriter = blobWriter ?? throw new ArgumentNullException(nameof(blobWriter));
             _requestBackupService = requestBackupService ?? throw new ArgumentNullException(nameof(requestBackupService));
+            _options = backendOptions ?? throw new ArgumentNullException(nameof(backendOptions));
             // _backupAPIService = backupAPIService ?? throw new ArgumentNullException(nameof(backupAPIService));
             _userId = data.profileUserId;
             AsyncTimeout = AsyncTriggerTimeout;
@@ -342,6 +348,17 @@ namespace SimpleL7Proxy.Proxy
                 {
 
                     _requestData.SBStatus = ServiceBusMessageStatusEnum.AsyncProcessing;
+
+                    try {
+                        // update the TTL based on the AsyncTTLSecs
+                        _requestData.CalculateExpiration(_options.AsyncTTLSecs, _options.TTLHeader);
+                    }
+                    catch ( ProxyErrorException ex) {
+                        // This should not happen as the header was already validated when the request was received
+                        _logger.LogError(ex, "[AsyncWorker:{Guid}] Failed to calculate expiration", _requestData.Guid);
+                        throw;
+                    }
+
                     _logger.LogInformation("[AsyncWorker:{Guid}] Async processing triggered - Status: {Status}", 
                         _requestData.Guid, _requestData.SBStatus);
                     var operation = "Initialize";
@@ -523,7 +540,8 @@ namespace SimpleL7Proxy.Proxy
                 }
                 catch (OutOfMemoryException e)
                 {
-                    _logger.LogError("Out of memory while writing headers (attempt {Attempt}): {Message}", attempt + 1, e.Message);
+                    _logger.LogError(e, "[AsyncWorker:{Guid}] Out of memory while writing headers (attempt {Attempt}/{Max}) - Blob: {HeaderBlob}", 
+                        _requestData.Guid, attempt + 1, MaxRetryAttempts, headerBlobName);
                     GC.Collect();
                     GC.WaitForPendingFinalizers();
 
@@ -533,11 +551,13 @@ namespace SimpleL7Proxy.Proxy
                 }
                 catch (IOException e)
                 {
-                    _logger.LogError("IO error while writing headers (attempt {Attempt}): {Message}", attempt + 1, e.Message);
+                    _logger.LogError(e, "[AsyncWorker:{Guid}] IO error while writing headers (attempt {Attempt}/{Max}) - Blob: {HeaderBlob}", 
+                        _requestData.Guid, attempt + 1, MaxRetryAttempts, headerBlobName);
 
                     if (e.InnerException is ObjectDisposedException)
                     {
-                        _logger.LogError("Stream was disposed, will recreate on next attempt");
+                        _logger.LogWarning("[AsyncWorker:{Guid}] Stream was disposed, will recreate on next attempt - InnerException: {InnerException}", 
+                            _requestData.Guid, e.InnerException.Message);
                     }
 
                     await Task.Delay(GetBackoffDelay(attempt, BaseRetryDelayMs)).ConfigureAwait(false);
@@ -545,8 +565,9 @@ namespace SimpleL7Proxy.Proxy
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError("Failed to write headers (attempt {Attempt}): {Message}", attempt + 1, ex.Message);
-                    _logger.LogTrace("Exception details: {Exception}", ex);
+                    _logger.LogError(ex, "[AsyncWorker:{Guid}] Failed to write headers (attempt {Attempt}/{Max}) - Blob: {HeaderBlob} - Type: {ExceptionType}", 
+                        _requestData.Guid, attempt + 1, MaxRetryAttempts, headerBlobName, ex.GetType().FullName);
+                    _logger.LogDebug("[AsyncWorker:{Guid}] Exception stack trace: {StackTrace}", _requestData.Guid, ex.StackTrace);
 
                     // Don't retry for general exceptions
                     await ResetStreamAsync().ConfigureAwait(false);
@@ -554,7 +575,8 @@ namespace SimpleL7Proxy.Proxy
                 }
             }
 
-            _logger.LogError("Failed to write headers after maximum retry attempts");
+            _logger.LogError("[AsyncWorker:{Guid}] Failed to write headers after {MaxAttempts} retry attempts - Blob: {HeaderBlob}", 
+                _requestData.Guid, MaxRetryAttempts, headerBlobName);
             return false;
         }
 
@@ -580,7 +602,8 @@ namespace SimpleL7Proxy.Proxy
                 catch (Exception ex)
                 {
                     Console.WriteLine($"[BLOB-TRACE] AsyncWorker.ResetStream | Action: Error | Guid: {_requestData.Guid} | Error: {ex.Message} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
-                    _logger.LogError("Error while resetting stream: {Message}", ex.Message);
+                    _logger.LogError(ex, "[AsyncWorker:{Guid}] Error while resetting stream - Type: {ExceptionType}", 
+                        _requestData.Guid, ex.GetType().FullName);
                 }
                 finally
                 {
