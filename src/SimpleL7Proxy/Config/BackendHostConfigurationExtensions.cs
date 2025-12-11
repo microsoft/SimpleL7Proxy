@@ -572,6 +572,7 @@ public static class BackendHostConfigurationExtensions
       AsyncSBQueue = ReadEnvironmentVariableOrDefault("AsyncSBQueue", sbQueue),
       AsyncSBUseMI = ReadEnvironmentVariableOrDefault("AsyncSBUseMI", sbUseMI), // Use managed identity for Service Bus
       AsyncTimeout = ReadEnvironmentVariableOrDefault("AsyncTimeout", 30 * 60000),
+      AsyncTTLSecs = ReadEnvironmentVariableOrDefault("AsyncTTLSecs", 24 * 60 * 60), // 24 hours
       AsyncTriggerTimeout = ReadEnvironmentVariableOrDefault("AsyncTriggerTimeout", 10000),
       CircuitBreakerErrorThreshold = ReadEnvironmentVariableOrDefault("CBErrorThreshold", 50),
       CircuitBreakerTimeslice = ReadEnvironmentVariableOrDefault("CBTimeslice", 60),

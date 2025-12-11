@@ -18,6 +18,7 @@ public class BackendOptions
     public bool AsyncSBUseMI { get; set; } = false; // Use managed identity for Service Bus
     public string AsyncSBNamespace { get; set; } = "example-namespace";
     public double AsyncTimeout { get; set; } = 30 * 60000; // 30 minutes
+    public int AsyncTTLSecs { get; set; } = 24 * 60 * 60; // 24 hours
     public int AsyncTriggerTimeout { get; set; } = 60000; // 1 minute
     public HttpClient? Client { get; set; }
     public string ContainerApp { get; set; } = "";
