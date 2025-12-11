@@ -87,7 +87,7 @@ public sealed class StreamProcessorFactory
     {
         if (!ProcessorFactories.TryGetValue(processorName, out var factory))
         {
-            _logger.LogWarning("Unknown processor requested: {Requested}. Falling back to default.", processorName);
+            _logger.LogDebug("Unknown processor requested: {Requested}. Falling back to default.", processorName);
             factory = ProcessorFactories[STREAM_PROCESSOR];
             resolvedProcessorName = STREAM_PROCESSOR;
         }
