@@ -85,10 +85,11 @@ namespace SimpleL7Proxy.BlobStorage
     /// <summary>
     /// Optimized queue-based blob write processor with per-worker batching.
     /// Each worker independently batches operations for the same container.
+    /// Operations for the same blob are routed to the same worker via hashing.
     /// </summary>
     public class BlobWriteQueue : IHostedService, IDisposable
     {
-        private readonly Channel<BlobWriteOperation> _queue;
+        private readonly Channel<BlobWriteOperation>[] _workerChannels;
         private readonly List<Task> _workers;
         private readonly CancellationTokenSource _shutdownCts;
         private readonly ILogger<BlobWriteQueue> _logger;
@@ -114,23 +115,31 @@ namespace SimpleL7Proxy.BlobStorage
             _shutdownCts = new CancellationTokenSource();
             _workers = new List<Task>();
 
-            // Create bounded or unbounded channel
-            if (_options.MaxQueueSize > 0)
+            // Create per-worker channels for worker affinity
+            _workerChannels = new Channel<BlobWriteOperation>[_options.WorkerCount];
+            var queueSizePerWorker = _options.MaxQueueSize > 0 ? _options.MaxQueueSize / _options.WorkerCount : 0;
+
+            for (int i = 0; i < _options.WorkerCount; i++)
             {
-                _queue = Channel.CreateBounded<BlobWriteOperation>(new BoundedChannelOptions(_options.MaxQueueSize)
+                if (queueSizePerWorker > 0)
                 {
-                    FullMode = BoundedChannelFullMode.Wait,
-                    SingleReader = false,
-                    SingleWriter = false
-                });
-            }
-            else
-            {
-                _queue = Channel.CreateUnbounded<BlobWriteOperation>(new UnboundedChannelOptions
+                    _workerChannels[i] = Channel.CreateBounded<BlobWriteOperation>(
+                        new BoundedChannelOptions(queueSizePerWorker)
+                        {
+                            FullMode = BoundedChannelFullMode.Wait,
+                            SingleReader = true,
+                            SingleWriter = false
+                        });
+                }
+                else
                 {
-                    SingleReader = false,
-                    SingleWriter = false
-                });
+                    _workerChannels[i] = Channel.CreateUnbounded<BlobWriteOperation>(
+                        new UnboundedChannelOptions
+                        {
+                            SingleReader = true,
+                            SingleWriter = false
+                        });
+                }
             }
 
             _logger.LogInformation(
@@ -144,6 +153,18 @@ namespace SimpleL7Proxy.BlobStorage
         }
 
         /// <summary>
+        /// Gets the worker index for a blob using consistent hashing.
+        /// This ensures operations for the same blob always go to the same worker.
+        /// </summary>
+        private int GetWorkerForBlob(string containerName, string blobName)
+        {
+            var blobKey = $"{containerName}/{blobName}";
+            var hash = blobKey.GetHashCode();
+            // Use absolute value and modulo to get positive index
+            return Math.Abs(hash) % _options.WorkerCount;
+        }
+
+        /// <summary>
         /// Enqueues a blob write operation.
         /// </summary>
         /// <param name="operation">The write operation to enqueue.</param>
@@ -153,12 +174,13 @@ namespace SimpleL7Proxy.BlobStorage
         {
             try
             {
-                await _queue.Writer.WriteAsync(operation, cancellationToken).ConfigureAwait(false);
+                var workerId = GetWorkerForBlob(operation.ContainerName, operation.BlobName);
+                await _workerChannels[workerId].Writer.WriteAsync(operation, cancellationToken).ConfigureAwait(false);
                 Interlocked.Increment(ref _operationsQueued);
 
                 _logger.LogTrace(
-                    "[BlobWriteQueue] Enqueued {OperationId} - Container: {Container}, Blob: {Blob}, Size: {Size}B",
-                    operation.OperationId, operation.ContainerName, operation.BlobName, operation.Data.Length);
+                    "[BlobWriteQueue] Enqueued {OperationId} to Worker-{WorkerId} - Container: {Container}, Blob: {Blob}, Size: {Size}B",
+                    operation.OperationId, workerId, operation.ContainerName, operation.BlobName, operation.Data.Length);
 
                 return true;
             }
@@ -188,7 +210,10 @@ namespace SimpleL7Proxy.BlobStorage
         public async Task StopAsync(CancellationToken cancellationToken)
         {
             _logger.LogInformation("[BlobWriteQueue] Stopping...");
-            _queue.Writer.Complete();
+            foreach (var channel in _workerChannels)
+            {
+                channel.Writer.Complete();
+            }
             _shutdownCts.Cancel();
 
             try
@@ -216,7 +241,7 @@ namespace SimpleL7Proxy.BlobStorage
                 // Each worker maintains its own batch buffer
                 var batchBuffer = new List<BlobWriteOperation>(_options.MaxBatchSize);
 
-                await foreach (var operation in _queue.Reader.ReadAllAsync(cancellationToken))
+                await foreach (var operation in _workerChannels[workerId].Reader.ReadAllAsync(cancellationToken))
                 {
                     try
                     {
@@ -343,9 +368,9 @@ namespace SimpleL7Proxy.BlobStorage
 
                 try
                 {
-                    if (await _queue.Reader.WaitToReadAsync(timeoutCts.Token).ConfigureAwait(false))
+                    if (await _workerChannels[workerId].Reader.WaitToReadAsync(timeoutCts.Token).ConfigureAwait(false))
                     {
-                        if (_queue.Reader.TryRead(out var nextOperation))
+                        if (_workerChannels[workerId].Reader.TryRead(out var nextOperation))
                         {
                             if (nextOperation.ContainerName == containerName)
                             {
@@ -391,8 +416,42 @@ namespace SimpleL7Proxy.BlobStorage
 
             try
             {
-                // Execute all writes in parallel
-                var writeTasks = batch.Select(async operation =>
+                // Deduplicate by container+blob name - keep only the LAST (most recent) write for each unique blob
+                // Group by both container and blob name to handle same blob name in different containers
+                var deduplicatedOps = batch
+                    .GroupBy(op => $"{op.ContainerName}/{op.BlobName}")
+                    .Select(group => group.OrderBy(op => op.EnqueuedAt).Last()) // Keep chronologically last operation
+                    .ToList();
+
+                var duplicateCount = batch.Count - deduplicatedOps.Count;
+                if (duplicateCount > 0)
+                {
+                    _logger.LogDebug("[Worker-{WorkerId}] Deduplicated {DuplicateCount} operations - Processing {UniqueCount} unique blobs",
+                        workerId, duplicateCount, deduplicatedOps.Count);
+                    
+                    // Mark duplicate (superseded) operations as successful
+                    var duplicateOps = batch
+                        .GroupBy(op => $"{op.ContainerName}/{op.BlobName}")
+                        .SelectMany(group => group.OrderBy(op => op.EnqueuedAt).SkipLast(1)); // All except the last
+                    
+                    foreach (var dupOp in duplicateOps)
+                    {
+                        _logger.LogTrace("[Worker-{WorkerId}] Operation {OperationId} superseded by later write to {Container}/{Blob} (enqueued at {EnqueuedAt})",
+                            workerId, dupOp.OperationId, dupOp.ContainerName, dupOp.BlobName, dupOp.EnqueuedAt.ToString("HH:mm:ss.fff"));
+                        
+                        dupOp.SetResult(new BlobWriteResult
+                        {
+                            Success = true,
+                            Duration = TimeSpan.Zero,
+                            QueueTime = DateTime.UtcNow - dupOp.EnqueuedAt
+                        });
+                        
+                        Interlocked.Increment(ref _operationsCompleted);
+                    }
+                }
+
+                // Execute all UNIQUE (most recent) writes in parallel
+                var writeTasks = deduplicatedOps.Select(async operation =>
                 {
                     var queueTime = DateTime.UtcNow - operation.EnqueuedAt;
                     var opSw = Stopwatch.StartNew();
@@ -425,8 +484,10 @@ namespace SimpleL7Proxy.BlobStorage
                     {
                         opSw.Stop();
 
-                        _logger.LogError(ex, "[Worker-{WorkerId}] Batch operation {OperationId} failed",
-                            workerId, operation.OperationId);
+                        _logger.LogError(ex, "[Worker-{WorkerId}] Batch operation {OperationId} failed - Container: {Container}, Blob: {Blob}, Type: {ExceptionType}",
+                            workerId, operation.OperationId, operation.ContainerName, operation.BlobName, ex.GetType().FullName);
+                        _logger.LogDebug("[Worker-{WorkerId}] Exception details - Message: {Message}, Stack: {Stack}",
+                            workerId, ex.Message, ex.StackTrace);
 
                         operation.SetResult(new BlobWriteResult
                         {
@@ -446,17 +507,23 @@ namespace SimpleL7Proxy.BlobStorage
                 sw.Stop();
                 Interlocked.Increment(ref _batchesExecuted);
 
-                var successCount = batch.Count(op => op.GetResultAsync().Result.Success);
+                var successCount = deduplicatedOps.Count(op => op.GetResultAsync().Result.Success);
 
-                _logger.LogDebug("[Worker-{WorkerId}] Batch completed - {Success}/{Total} in {Duration}ms",
-                    workerId, successCount, batch.Count, sw.ElapsedMilliseconds);
+                _logger.LogDebug("[Worker-{WorkerId}] Batch completed - {Success}/{Total} unique blobs in {Duration}ms (original batch: {OriginalCount})",
+                    workerId, successCount, deduplicatedOps.Count, sw.ElapsedMilliseconds, batch.Count);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[Worker-{WorkerId}] Batch execution failed", workerId);
+                _logger.LogError(ex, "[Worker-{WorkerId}] Batch execution failed - Type: {ExceptionType}, BatchSize: {BatchSize}", 
+                    workerId, ex.GetType().FullName, batch.Count);
+                _logger.LogDebug("[Worker-{WorkerId}] Batch failure details - Message: {Message}, Stack: {Stack}",
+                    workerId, ex.Message, ex.StackTrace);
 
                 foreach (var operation in batch.Where(op => !op.GetResultAsync().IsCompleted))
                 {
+                    _logger.LogWarning("[Worker-{WorkerId}] Marking operation {OperationId} as failed - Container: {Container}, Blob: {Blob}",
+                        workerId, operation.OperationId, operation.ContainerName, operation.BlobName);
+                    
                     operation.SetResult(new BlobWriteResult
                     {
                         Success = false,
@@ -470,26 +537,36 @@ namespace SimpleL7Proxy.BlobStorage
             }
         }
 
+        static string lastLog = "";
         private async Task MetricsLoop(CancellationToken cancellationToken)
         {
             while (!cancellationToken.IsCancellationRequested)
             {
                 try
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(_options.MetricsIntervalSeconds), cancellationToken)
-                        .ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromSeconds(_options.MetricsIntervalSeconds), cancellationToken)
+                    .ConfigureAwait(false);
 
-                    var queueDepth = _queue.Reader.Count;
-                    var avgQueueTime = _operationsCompleted > 0 ? _totalQueueTimeMs / _operationsCompleted : 0;
+                var queueDepth = _workerChannels.Sum(ch => ch.Reader.Count);
+                var avgQueueTime = _operationsCompleted > 0 ? _totalQueueTimeMs / _operationsCompleted : 0;
                     var avgProcessTime = _operationsCompleted > 0 ? _totalProcessTimeMs / _operationsCompleted : 0;
                     var successRate = _operationsQueued > 0 ? (double)_operationsCompleted / _operationsQueued : 0;
 
-                    _logger.LogInformation(
-                        "[BlobWriteQueue] Metrics - Queued: {Queued}, Completed: {Completed}, Failed: {Failed}, " +
-                        "Batches: {Batches}, Depth: {Depth}, SuccessRate: {SuccessRate:P2}, " +
-                        "AvgQueue: {AvgQueue}ms, AvgProcess: {AvgProcess}ms",
-                        _operationsQueued, _operationsCompleted, _operationsFailed, _batchesExecuted,
-                        queueDepth, successRate, avgQueueTime, avgProcessTime);
+                    var logline = $"[BlobWriteQueue] Metrics - Queued: {_operationsQueued}, Completed: {_operationsCompleted}, " +
+                        $"Failed: {_operationsFailed}, Batches: {_batchesExecuted}, Depth: {queueDepth}, " +
+                        $"SuccessRate: {successRate:P2}, AvgQueue: {avgQueueTime}ms, AvgProcess: {avgProcessTime}ms";
+
+                    if (logline != lastLog)
+                    {
+                        lastLog = logline;
+                    
+                        _logger.LogInformation(
+                            "[BlobWriteQueue] Metrics - Queued: {Queued}, Completed: {Completed}, Failed: {Failed}, " +
+                            "Batches: {Batches}, Depth: {Depth}, SuccessRate: {SuccessRate:P2}, " +
+                            "AvgQueue: {AvgQueue}ms, AvgProcess: {AvgProcess}ms",
+                            _operationsQueued, _operationsCompleted, _operationsFailed, _batchesExecuted,
+                            queueDepth, successRate, avgQueueTime, avgProcessTime);
+                    }
                 }
                 catch (OperationCanceledException)
                 {
@@ -501,6 +578,7 @@ namespace SimpleL7Proxy.BlobStorage
         public void Dispose()
         {
             _shutdownCts?.Dispose();
+            GC.SuppressFinalize(this);
         }
     }
 }
