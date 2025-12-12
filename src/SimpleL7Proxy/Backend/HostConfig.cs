@@ -50,7 +50,7 @@ namespace SimpleL7Proxy.Backend
     /// <summary>
     /// Tracks status for circuit breaker
     /// </summary>
-    public void TrackStatus(int code, bool wasException) => _circuitBreaker.TrackStatus(code, wasException);
+    public void TrackStatus(int code, bool wasFailure, string state) => _circuitBreaker.TrackStatus(code, wasFailure, state);
 
     /// <summary>
     /// Checks if this host's circuit breaker is in failed state
