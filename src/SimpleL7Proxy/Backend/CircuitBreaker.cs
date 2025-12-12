@@ -49,9 +49,9 @@ public class CircuitBreaker : ICircuitBreaker
             ID, _failureThreshold, _failureTimeFrame, _totalCircuitBreakersCount);
     }
 
-    public void TrackStatus(int code, bool wasException)
+    public void TrackStatus(int code, bool wasFailure, string state)
     {
-        if (_allowableCodes.Contains(code) && !wasException)
+        if (_allowableCodes.Contains(code) && !wasFailure)
         {
             return;
         }
@@ -69,9 +69,10 @@ public class CircuitBreaker : ICircuitBreaker
         {
             ["ID"] = ID,
             ["Code"] = code.ToString(),
-            ["Time"] = now.ToString(),
-            ["WasException"] = wasException.ToString(),
             ["Count"] = hostFailureTimes2.Count.ToString(),
+            ["Time"] = now.ToString(),
+            ["Success"] = (!wasFailure).ToString(),
+            ["State"] = state,
             Type = EventType.CircuitBreakerError
         };
 
