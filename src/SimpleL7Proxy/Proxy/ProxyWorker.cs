@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -771,7 +772,7 @@ public class ProxyWorker
                     {
                         // ASYNC: Calculate the timeout, start async worker
                         _isEvictingAsyncRequest = false;
-                        requestState = "Make Backend Request";
+                        requestState = "Backend Attempt ";
 
 
                         // Create ASYNC Worker if needed, and setup the timeout
@@ -839,7 +840,7 @@ public class ProxyWorker
                             intCode = (int)proxyResponse.StatusCode;
                             if ((intCode > 300 && intCode < 400) || intCode == 404 || intCode == 412 || intCode >= 500)
                             {
-                                requestState = "Call unsuccessful";
+                                requestState = "Backend proxy status code: " + intCode;
 
                                 foreach (var header in proxyResponse.Headers.ToList())
                                 {
@@ -1066,14 +1067,57 @@ public class ProxyWorker
             catch (Exception ex) when (ex is TaskCanceledException || ex is OperationCanceledException)
             {
                 // 408 Request Timeout - consolidates both TaskCanceledException and OperationCanceledException
+                intCode = (int) HttpStatusCode.RequestTimeout; // 408
                 PopulateTimeoutError(requestAttempt, request, proxyStartDate, ex is OperationCanceledException);
                 continue;
             }
             catch (HttpRequestException e)
             {
-                PopulateRequestAttemptError(requestAttempt, HttpStatusCode.BadRequest, 
+                HttpStatusCode statusCode = e.StatusCode ?? HttpStatusCode.BadGateway; // Default to 502 if no status code
+                
+                // If no status code from the exception, try to infer from inner exception or message
+                if (e.StatusCode == null)
+                {
+                    if (e.InnerException is SocketException socketEx)
+                    {
+                        switch (socketEx.SocketErrorCode)
+                        {
+                            case SocketError.HostNotFound:
+                            case SocketError.TryAgain:
+                            case SocketError.NoData:
+                                statusCode = HttpStatusCode.ServiceUnavailable; // 503
+                                break;
+                            case SocketError.TimedOut:
+                                statusCode = HttpStatusCode.RequestTimeout; // 408
+                                break;
+                            case SocketError.ConnectionRefused:
+                                statusCode = HttpStatusCode.BadGateway; // 502
+                                break;
+                        }
+                    }
+                    
+                    // Fallback to message parsing if still default
+                    if (statusCode == HttpStatusCode.BadGateway)
+                    {
+                        if (e.Message.Contains("name or service not known", StringComparison.OrdinalIgnoreCase) ||
+                            e.Message.Contains("No such host is known", StringComparison.OrdinalIgnoreCase) ||
+                            e.Message.Contains("Temporary failure in name resolution", StringComparison.OrdinalIgnoreCase) ||
+                            e.Message.Contains("Name resolution failed", StringComparison.OrdinalIgnoreCase))
+                        {
+                            statusCode = HttpStatusCode.ServiceUnavailable; // 503
+                        }
+                        else if (e.Message.Contains("timed out", StringComparison.OrdinalIgnoreCase))
+                        {
+                            statusCode = HttpStatusCode.RequestTimeout; // 408
+                        }
+                    }
+                }
+
+                PopulateRequestAttemptError(requestAttempt, statusCode, 
                     $"Bad Request: {e.Message}", 
                     "Operation Exception: HttpRequest");
+
+                requestState += ", HTTP Error Message: " + e.Message;
                 continue;
             }
             catch (Exception e)
@@ -1100,7 +1144,7 @@ public class ProxyWorker
                 hostIterator.RecordResult(host, successfulRequest);
 
                 // Track host status for circuit breaker
-                host.Config.TrackStatus(intCode, !successfulRequest);
+                host.Config.TrackStatus(intCode, !successfulRequest, requestState);
 
                 if (!successfulRequest)
                 {
