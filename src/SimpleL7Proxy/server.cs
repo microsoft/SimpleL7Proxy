@@ -158,11 +158,6 @@ public class Server : BackgroundService
         bool doUserProfile = _options.UseProfiles;
         // Only enable async mode if configured AND blob storage is available (not using NullBlobWriter)
         bool doAsync = _options.AsyncModeEnabled && !(_blobWriter is NullBlobWriter);
-        
-        if (_options.AsyncModeEnabled && _blobWriter is NullBlobWriter)
-        {
-            _logger.LogWarning("[CONFIG] AsyncModeEnabled is true but blob storage is disabled (NullBlobWriter). Async mode will be disabled.");
-        }
 
         while (!cancellationToken.IsCancellationRequested)
         {
