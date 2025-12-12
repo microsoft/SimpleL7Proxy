@@ -30,10 +30,15 @@ public static class BackendHostConfigurationExtensions
   static Dictionary<string, string> EnvVars = new Dictionary<string, string>();
 
 
-  public static IServiceCollection AddBackendHostConfiguration(this IServiceCollection services, ILogger logger)
+  public static BackendOptions CreateBackendOptions(ILogger logger)
   {
     _logger = logger;
-    var backendOptions = LoadBackendOptions();
+    return LoadBackendOptions();
+  }
+
+  public static IServiceCollection AddBackendHostConfiguration(this IServiceCollection services, ILogger logger, BackendOptions backendOptions)
+  {
+    _logger = logger;
 
     services.AddSingleton(backendOptions); // Direct singleton
     services.Configure<BackendOptions>(opt =>
