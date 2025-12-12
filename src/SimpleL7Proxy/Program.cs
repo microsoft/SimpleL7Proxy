@@ -217,58 +217,64 @@ public class Program
             services.AddProxyEventClient(Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING"));
         }
 
-        services.AddBackendHostConfiguration(startupLogger);
+        var backendOptions = BackendHostConfigurationExtensions.CreateBackendOptions(startupLogger);
+        services.AddBackendHostConfiguration(startupLogger, backendOptions);
 
-        services.AddSingleton<IBlobWriterFactory, BlobWriterFactory>();
-
-        // Create the underlying BlobWriter (not registered as IBlobWriter)
-        services.AddSingleton<BlobWriter>(provider =>
+        if (backendOptions.AsyncModeEnabled)
         {
-            var factory = provider.GetRequiredService<IBlobWriterFactory>();
-            var blobWriter = factory.CreateBlobWriter() as BlobWriter;
-            var logger = provider.GetRequiredService<ILogger<Program>>();
-            logger.LogInformation("[INIT] ✓ Underlying BlobWriter created: {BlobWriterType}", blobWriter?.GetType().Name ?? "Unknown");
-            return blobWriter!;
-        });
-
-        // Configure BlobWriteQueue options
-        services.AddSingleton(provider => 
-        {
-            var options = provider.GetRequiredService<IOptionsMonitor<BackendOptions>>().CurrentValue;
-            return new BlobWriteQueueOptions
+            services.AddSingleton<IBlobWriterFactory, BlobWriterFactory>();
+            // Create the underlying BlobWriter (not registered as IBlobWriter)
+            services.AddSingleton<BlobWriter>(provider =>
             {
-                WorkerCount = options.AsyncBlobWorkerCount,
-                MaxQueueSize = 10000,
-                BatchWaitTimeMs = 100,
-                MaxBatchSize = 25,
-                EnableBatching = true,
-                MetricsIntervalSeconds = 30
-            };
-        });
+                var factory = provider.GetRequiredService<IBlobWriterFactory>();
+                var blobWriter = factory.CreateBlobWriter() as BlobWriter;
+                var logger = provider.GetRequiredService<ILogger<Program>>();
+                logger.LogInformation("[INIT] ✓ Underlying BlobWriter created: {BlobWriterType}", blobWriter?.GetType().Name ?? "Unknown");
+                return blobWriter!;
+            });
 
-        // Register BlobWriteQueue as both singleton and hosted service
-        services.AddSingleton<BlobWriteQueue>();
-        services.AddHostedService(sp => sp.GetRequiredService<BlobWriteQueue>());
+            // Configure BlobWriteQueue options
+            services.AddSingleton(provider => 
+            {
+                return new BlobWriteQueueOptions
+                {
+                    WorkerCount = backendOptions.AsyncBlobWorkerCount,
+                    MaxQueueSize = 10000,
+                    BatchWaitTimeMs = 100,
+                    MaxBatchSize = 25,
+                    EnableBatching = true,
+                    MetricsIntervalSeconds = 30
+                };
+            });
 
-        // Register QueuedBlobWriter as the IBlobWriter implementation (wraps BlobWriter)
-        services.AddSingleton<IBlobWriter>(provider =>
-        {
-            var underlyingWriter = provider.GetRequiredService<BlobWriter>();
-            var queue = provider.GetRequiredService<BlobWriteQueue>();
-            var logger = provider.GetRequiredService<ILogger<QueuedBlobWriter>>();
-            
-            // Enable queue for writes - set to false to disable queuing
-            var queuedWriter = new QueuedBlobWriter(underlyingWriter, queue, logger, useQueueForWrites: true);
-            
-            var programLogger = provider.GetRequiredService<ILogger<Program>>();
-            programLogger.LogInformation("[INIT] ✓ QueuedBlobWriter initialized (wrapping {UnderlyingType})", 
-                underlyingWriter.GetType().Name);
-            
-            return queuedWriter;
-        });
+            // Register BlobWriteQueue as both singleton and hosted service
+            services.AddSingleton<BlobWriteQueue>();
+            services.AddHostedService(sp => sp.GetRequiredService<BlobWriteQueue>());
 
-        services.AddTransient<IAsyncWorkerFactory, AsyncWorkerFactory>();
+            // Register QueuedBlobWriter as the IBlobWriter implementation (wraps BlobWriter)
+            services.AddSingleton<IBlobWriter>(provider =>
+            {
+                var underlyingWriter = provider.GetRequiredService<BlobWriter>();
+                var queue = provider.GetRequiredService<BlobWriteQueue>();
+                var logger = provider.GetRequiredService<ILogger<QueuedBlobWriter>>();
+                
+                // Enable queue for writes - set to false to disable queuing
+                var queuedWriter = new QueuedBlobWriter(underlyingWriter, queue, logger, useQueueForWrites: true);
+                
+                var programLogger = provider.GetRequiredService<ILogger<Program>>();
+                programLogger.LogInformation("[INIT] ✓ QueuedBlobWriter initialized (wrapping {UnderlyingType})", 
+                    underlyingWriter.GetType().Name);
+                
+                return queuedWriter;
+            });
 
+            services.AddTransient<IAsyncWorkerFactory, AsyncWorkerFactory>();
+        }
+        else {
+            services.AddTransient<IAsyncWorkerFactory, NullAsyncWorkerFactory>();
+            services.AddSingleton<IBlobWriter, NullBlobWriter>();
+            services.AddSingleton<IRequestDataBackupService, NullRequestDataBackupService>();
+        }
         // services.AddSingleton<BlobWriter>(provider =>
         // {
         //     var optionsMonitor = provider.GetRequiredService<IOptionsMonitor<BackendOptions>>();
