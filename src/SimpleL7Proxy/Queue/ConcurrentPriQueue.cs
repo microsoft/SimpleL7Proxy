@@ -102,7 +102,7 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
         while (!cancellationToken.IsCancellationRequested)
         {
             // 40 seems good,  no timeout or 80ms gives reduced performance
-            await _enqueueEvent.WaitAsync(TimeSpan.FromMilliseconds(100), cancellationToken).ConfigureAwait(false); // Wait for an item to be added
+            await _enqueueEvent.WaitAsync(TimeSpan.FromMilliseconds(40), cancellationToken).ConfigureAwait(false); // Wait for an item to be added
 
             while (_priorityQueue.Count > 0 && _taskSignaler.HasWaitingTasks())
             {
