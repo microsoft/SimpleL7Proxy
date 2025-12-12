@@ -8,11 +8,6 @@ using SimpleL7Proxy.BackupAPI;
 
 namespace SimpleL7Proxy.Proxy
 {
-    public interface IAsyncWorkerFactory
-    {
-        AsyncWorker CreateAsync(RequestData requestData, int AsyncTriggerTimeout);
-    }
-
     public class AsyncWorkerFactory : IAsyncWorkerFactory
     {
         private readonly IBlobWriter _blobWriter;
@@ -32,7 +27,8 @@ namespace SimpleL7Proxy.Proxy
             _logger = logger;
             _requestBackupService = requestBackupService;
             _backendOptions = backendOptions.Value;
-            _backupAPIService = backupAPIService;   
+            _backupAPIService = backupAPIService;
+
             try
             {
                 _blobWriter.InitClientAsync(Constants.Server, Constants.Server).GetAwaiter().GetResult();
