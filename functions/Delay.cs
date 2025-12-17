@@ -5,14 +5,14 @@ using Microsoft.Extensions.Logging;
 
 namespace Company.Function
 {
-    public class delay
+    public class Delay
     {
-        private readonly ILogger<delay> _logger;
+        private readonly ILogger<Delay> _logger;
         private static readonly Random rng = new Random();
         private static readonly double mean = 1000.0;
         private static readonly double stdDev = 200.0;
 
-        public delay(ILogger<delay> logger)
+        public Delay(ILogger<Delay> logger)
         {
             _logger = logger;
         }

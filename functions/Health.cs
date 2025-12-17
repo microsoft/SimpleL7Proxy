@@ -5,11 +5,11 @@ using Microsoft.Extensions.Logging;
 
 namespace Company.Function
 {
-    public class health
+    public class Health
     {
-        private readonly ILogger<health> _logger;
+        private readonly ILogger<Health> _logger;
 
-        public health(ILogger<health> logger)
+        public Health(ILogger<Health> logger)
         {
             _logger = logger;
         }

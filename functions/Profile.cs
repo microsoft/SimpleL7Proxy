@@ -5,16 +5,16 @@ using Microsoft.Extensions.Logging;
 
 namespace Company.Function
 {
-    public class two
+    public class Profile
     {
-        private readonly ILogger<two> _logger;
+        private readonly ILogger<Profile> _logger;
 
-        public two(ILogger<two> logger)
+        public Profile(ILogger<Profile> logger)
         {
             _logger = logger;
         }
 
-        [Function("two")]
+        [Function("profile")]
         public IActionResult Run([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")] HttpRequest req)
         {
             var response = new object[]
