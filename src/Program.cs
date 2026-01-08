@@ -190,6 +190,8 @@ public class Program
 
                 services.AddSingleton<IBackendService, Backends>();
                 services.AddSingleton<IServer, Server>();
+                // Ensure ProbeServer updater runs as a background hosted service
+                services.AddSingleton<ProbeServer>();
             });
 
         var frameworkHost = hostBuilder.Build();
