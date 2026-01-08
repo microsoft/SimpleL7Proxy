@@ -58,7 +58,7 @@ public class Backends : IBackendService
         _successRate = bo.SuccessRate / 100.0;
         FailureThreshold = bo.CircuitBreakerErrorThreshold;
         FailureTimeFrame = bo.CircuitBreakerTimeslice;
-        allowableCodes = bo.AcceptableStatusCodes;
+        allowableCodes = new HashSet<int>(bo.AcceptableStatusCodes);
     }
 
     public Task Start()
@@ -80,11 +80,10 @@ public class Backends : IBackendService
         workerCancelTokenSource.Cancel();
     }
 
-    List<DateTime> hostFailureTimes = new List<DateTime>();
     ConcurrentQueue<DateTime> hostFailureTimes2 = new ConcurrentQueue<DateTime>();
     private readonly int FailureThreshold = 5;
     private readonly int FailureTimeFrame = 10; // seconds
-    static int[] allowableCodes = { 200, 401, 403, 408, 410, 412, 417, 400 };
+    static HashSet<int> allowableCodes = new HashSet<int> { 200, 401, 403, 408, 410, 412, 417, 400 };
 
     public List<BackendHost> GetActiveHosts()
     {
@@ -288,20 +287,22 @@ public class Backends : IBackendService
                 staticEvent.WriteOutput($"Checking host {host.url + host.probe_path}");
 
 
-            var request = new HttpRequestMessage(HttpMethod.Get, host.probeurl);
+            using var request = new HttpRequestMessage(HttpMethod.Get, host.probeurl);
             if (_options.UseOAuth)
             {
-                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", OAuth2Token());
+                var bearer = OAuth2Token();
+                if (!string.IsNullOrEmpty(bearer))
+                {
+                    request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearer);
+                }
             }
 
             var stopwatch = Stopwatch.StartNew();
 
             try
             {
-                // send and read the entire response
-                var response = await client.SendAsync(request, _cancellationToken);
-                var responseBody = await response.Content.ReadAsStringAsync(_cancellationToken);
-                response.EnsureSuccessStatusCode();
+                // Send request and read headers only
+                using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, _cancellationToken);
 
                 probeData["Code"] = response.StatusCode.ToString();
                 _isRunning = true;
