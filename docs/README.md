@@ -2,9 +2,11 @@
 
 SimpleL7Proxy is a lightweight yet powerful proxy service designed to direct network traffic between clients and servers at the application layer (Layer 7). It manages HTTP(s) requests with intelligent routing capabilities, automatically selecting the fastest available backend host based on continuous latency monitoring. The service excels as a regional internal proxy, ensuring traffic is routed to the optimal region for minimal latency.
 
-One of SimpleL7Proxy's key strengths is its priority-based request handling system, which implements a sophisticated queue that allows higher priority tasks to interrupt and preempt lower priority ones. This makes it particularly valuable for environments where business-critical requests need guaranteed faster processing times.
+One of SimpleL7Proxy's key strengths is its **custom priority-based request queuing** system, which implements a sophisticated queue that allows higher priority tasks to interrupt and preempt lower priority ones. This makes it particularly valuable for environments where business-critical requests need guaranteed faster processing times. The service provides **custom user profile-based routing** that enables per-user configurations, access control, and priority assignments tailored to specific user requirements.
 
-As an example, SimpleL7Proxy can serve as an intelligent router to Azure API Management service that has been configured with large language model endpoints.  In thes scenario, the proxy will add routing and scheduling capabilities while providing cross-regional load balancing and failover capability. The logs can be configured to send to event hub or application insights.
+Built with deep **integration with Azure's ecosystem**, SimpleL7Proxy natively supports Azure Application Insights and EventHub for comprehensive monitoring and analytics. The service captures **detailed request-level telemetry**, tracking every aspect of request processing including queue duration, processing time, worker assignments, and backend performance metrics. For high-throughput scenarios, SimpleL7Proxy offers **async processing capabilities with Azure Service Bus**, allowing long-running requests to be processed asynchronously with notifications delivered upon completion.
+
+As an example, SimpleL7Proxy can serve as an intelligent router to Azure API Management service that has been configured with large language model endpoints. In this scenario, the proxy will add routing and scheduling capabilities while providing cross-regional load balancing and failover capability, with all telemetry seamlessly flowing to Azure's monitoring infrastructure. 
 
 **Note:** If you are looking for the high performance APIM policy, see **[High perf APIM policy](test/APIM-Policy/readme.md)**.
 
@@ -45,12 +47,31 @@ SimpleL7Proxy is built for reliability and performance with these key capabiliti
 
 This design ensures your applications stay responsive even under heavy load while providing the observability needed for production environments.
 
-## Usage Scenarios
+## Real-World Use Cases
 
-- **Data Center Failover**: In an environment where multiple datacenters exist, SimpleL7Proxy can quickly fail over to a healthy host if one datacenter experiences service interruptions.
-- **Internal Regional Proxy**: Companies with multiple internal services across various geographic regions can route traffic locally using this proxy, ensuring low latency for internal applications.
-- **Priority Routing**: Financial or mission-critical requests can be given a higher priority to reduce processing delays in busy environments.
-- **Testing & Development**: Quickly spin up local or containerized instances to experiment with backend changes or new features, adjusting environment variables for test configurations.
+### Enterprise API Gateway Enhancement
+**Scenario**: A financial services company runs Azure API Management across multiple regions but needs advanced request prioritization for high-value clients.
+- **Solution**: Deploy SimpleL7Proxy in front of APIM to add custom priority queuing
+- **Benefits**: VIP customers get guaranteed sub-second response times while maintaining cost-effective regional load balancing
+- **Key Features**: User profile-based routing, detailed telemetry, automatic failover
+
+### Multi-Region AI/ML Workload Management
+**Scenario**: A SaaS company serves AI inference requests from OpenAI/Azure OpenAI across global regions with varying latency and cost profiles.
+- **Solution**: Use SimpleL7Proxy to intelligently route based on real-time latency monitoring while applying user-specific priority levels
+- **Benefits**: Automatic cost optimization through intelligent routing, priority handling for premium users, comprehensive request tracking
+- **Key Features**: Latency-based backend selection, async processing for long-running AI tasks, Azure Service Bus integration
+
+### High-Frequency Trading Infrastructure
+**Scenario**: A trading firm needs microsecond-level request prioritization for different trading algorithms and client tiers.
+- **Solution**: Deploy SimpleL7Proxy with dedicated worker threads for ultra-high priority trades
+- **Benefits**: Guaranteed processing order, anti-starvation protection, detailed per-request telemetry for compliance
+- **Key Features**: Preemptive priority queuing, request TTL management, real-time monitoring
+
+### Development and Testing Pipeline
+**Scenario**: DevOps teams need to test different proxy configurations (priority settings, worker allocation, queue parameters) before deploying to production.
+- **Solution**: Containerize SimpleL7Proxy with different environment variable configurations to test various proxy behaviors and performance characteristics
+- **Benefits**: Safe testing of proxy settings, performance validation under different loads, configuration optimization without production risk
+- **Key Features**: Environment variable configuration, containerized deployments, detailed telemetry for configuration comparison
 
 ---
 
