@@ -14,6 +14,7 @@ public enum EventType
   Exception,
   Poller,
   Probe,
+  ProfileError,
   ProxyError,
   ProxyRequest,
   ProxyRequestEnqueued,
@@ -243,7 +244,8 @@ private void TrackDependancy()
     };
 
     requestTelemetry.Timestamp = DateTimeOffset.UtcNow.Subtract(Duration);
-    requestTelemetry.HttpMethod = Method ?? "GET"; // Default to GET if Method is null
+    // HttpMethod property is obsolete; include method as a custom property instead
+    requestTelemetry.Properties["HttpMethod"] = Method ?? "GET";
     requestTelemetry.Source = "S7P"; // Custom source identifier
     requestTelemetry.Duration = Duration;
     requestTelemetry.Context.Operation.Id = requestId;
