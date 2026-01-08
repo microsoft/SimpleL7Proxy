@@ -3,15 +3,26 @@ using System.IO;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
+
+public class DeletedProfile
+{
+    public string UserId { get; set; } = string.Empty;
+    public DateTime DeletedAt { get; set; }
+    public DateTime ExpiresAt { get; set; }
+}
+
+// Tuned for read-heavy workloads .. profile updates only happen every hour
 public class UserProfile : IUserProfile
 {
     private readonly string lookupHeaderName;
     private IBackendOptions options;
 
-    private Dictionary<string, Dictionary<string, string>> userProfiles = new Dictionary<string, Dictionary<string, string>>();
-    private List<string> suspendedUserProfiles = new List<string>();
-    private List<string> authAppIDs = new List<string>();
+    private volatile Dictionary<string, Dictionary<string, string>> userProfiles = new Dictionary<string, Dictionary<string, string>>();
+    private volatile List<string> suspendedUserProfiles = new List<string>();
+    private volatile List<string> authAppIDs = new List<string>();
+    private volatile Dictionary<string, DeletedProfile> deletedProfiles = new Dictionary<string, DeletedProfile>();
     private static bool _isInitialized = false;
+    private static readonly TimeSpan SoftDeleteExpirationPeriod = TimeSpan.FromHours(6);
 
     public UserProfile(IBackendOptions options)
     {
@@ -31,6 +42,9 @@ public class UserProfile : IUserProfile
 
         // create a new task that reads the user config every hour
         Task.Run(() => ConfigReader(cancellationToken), cancellationToken);
+        
+        // create a background task to cleanup expired soft-deleted profiles
+        Task.Run(() => CleanupExpiredDeletedProfiles(cancellationToken), cancellationToken);
 
     }
 
@@ -231,21 +245,72 @@ public class UserProfile : IUserProfile
 
             if (mode == ParsingMode.SuspendedUserMode)
             {
-                suspendedUserProfiles = localSuspendedUserProfiles;
+                Interlocked.Exchange(ref suspendedUserProfiles, localSuspendedUserProfiles);
                 entityName = "Suspended Users";
                 entityValue = suspendedUserProfiles.Count;
             }
             else if (mode == ParsingMode.AuthAppIDMode)
             {
-                authAppIDs = localAuthAppIDs;
+                Interlocked.Exchange(ref authAppIDs, localAuthAppIDs);
                 entityName = "AuthAppIDs";
                 entityValue = authAppIDs.Count;
             }
             else if (mode == ParsingMode.profileMode)
             {
-                userProfiles = localUserProfiles;
+                // Capture current snapshot for comparison
+                var currentProfiles = userProfiles;
+                var currentDeleted = deletedProfiles;
+
+                // Find profiles that existed before but are missing in new config
+                var missingProfiles = currentProfiles.Keys
+                    .Where(userId => !localUserProfiles.ContainsKey(userId))
+                    .ToList();
+
+                // Create new deleted profiles dictionary with updates
+                var updatedDeleted = new Dictionary<string, DeletedProfile>(currentDeleted);
+
+                // Soft-delete missing profiles that aren't already deleted
+                int deletedCount = 0;
+                foreach (var userId in missingProfiles)
+                {
+                    if (!updatedDeleted.ContainsKey(userId) || updatedDeleted[userId].ExpiresAt <= DateTime.UtcNow)
+                    {
+                        var now = DateTime.UtcNow;
+                        updatedDeleted[userId] = new DeletedProfile
+                        {
+                            UserId = userId,
+                            DeletedAt = now,
+                            ExpiresAt = now.Add(SoftDeleteExpirationPeriod)
+                        };
+                        deletedCount++;
+                    }
+                }
+
+                // Restore profiles that reappear in the new config
+                var restoredProfiles = localUserProfiles.Keys
+                    .Where(userId => updatedDeleted.ContainsKey(userId))
+                    .ToList();
+
+                foreach (var userId in restoredProfiles)
+                {
+                    updatedDeleted.Remove(userId);
+                }
+
+                // Atomically swap both dictionaries
+                Interlocked.Exchange(ref userProfiles, localUserProfiles);
+                Interlocked.Exchange(ref deletedProfiles, updatedDeleted);
+
                 entityName = "User Profiles";
-                entityValue = userProfiles.Count;
+                entityValue = localUserProfiles.Count;
+
+                if (deletedCount > 0)
+                {
+                    Console.WriteLine($"Soft-deleted {deletedCount} profiles that were removed from config");
+                }
+                if (restoredProfiles.Count > 0)
+                {
+                    Console.WriteLine($"Restored {restoredProfiles.Count} profiles that reappeared in config");
+                }
             }
 
             Console.WriteLine($"Successfully parsed {entityName}.  Found {entityValue} user entities.");
@@ -256,13 +321,53 @@ public class UserProfile : IUserProfile
         }
     }
 
-    public Dictionary<string, string> GetUserProfile(string userId)
+    private async Task CleanupExpiredDeletedProfiles(CancellationToken cancellationToken)
     {
-        if (userProfiles.ContainsKey(userId))
+        while (!cancellationToken.IsCancellationRequested)
         {
-            return userProfiles[userId];
+            try
+            {
+                var now = DateTime.UtcNow;
+                var currentDeleted = deletedProfiles;
+                
+                var expiredProfiles = currentDeleted
+                    .Where(kvp => kvp.Value.ExpiresAt <= now)
+                    .Select(kvp => kvp.Key)
+                    .ToList();
+
+                if (expiredProfiles.Count > 0)
+                {
+                    // Create new dictionary without expired profiles
+                    var updatedDeleted = new Dictionary<string, DeletedProfile>(currentDeleted);
+                    foreach (var userId in expiredProfiles)
+                    {
+                        updatedDeleted.Remove(userId);
+                    }
+
+                    // Atomically swap
+                    Interlocked.Exchange(ref deletedProfiles, updatedDeleted);
+                    Console.WriteLine($"Cleaned up {expiredProfiles.Count} expired soft-deleted profiles");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Error cleaning up deleted profiles: {ex.Message}");
+            }
+
+            // Run cleanup every 30 minutes
+            await Task.Delay(TimeSpan.FromMinutes(30), cancellationToken);
         }
-        return new Dictionary<string, string>();
+    }
+
+    public (Dictionary<string, string> profile, bool isSoftDeleted) GetUserProfile(string userId)
+    {
+        bool isSoftDeleted = IsUserDeleted(userId);
+        
+        if (userProfiles.TryGetValue(userId, out var profile))
+        {
+            return (profile, isSoftDeleted);
+        }
+        return (new Dictionary<string, string>(), isSoftDeleted);
     }
 
     public bool IsUserSuspended(string userId)
@@ -278,6 +383,23 @@ public class UserProfile : IUserProfile
 
         // Check if the authAppId is in the list of valid authAppIDs
         return authAppIDs.Contains(authAppId);
+    }
+
+    public bool IsUserDeleted(string userId)
+    {
+        if (!deletedProfiles.TryGetValue(userId, out var deletedProfile))
+        {
+            return false;
+        }
+
+        // Check if the deletion has expired
+        if (deletedProfile.ExpiresAt <= DateTime.UtcNow)
+        {
+            // Expired, but don't remove here - cleanup task will handle it
+            return false;
+        }
+
+        return true;
     }
 
 }

@@ -99,7 +99,7 @@ public interface IUserPriority
 
 public interface IUserProfile
 {
-    public Dictionary<string, string> GetUserProfile(string userId);
+    public (Dictionary<string, string> profile, bool isSoftDeleted) GetUserProfile(string userId);
     public bool IsUserSuspended(string userId);
     public bool IsAuthAppIDValid(string authAppId);
     public bool ServiceIsReady();
