@@ -107,8 +107,10 @@ public class ConcurrentPriQueue<T>
     {
         try
         {
-            //Console.WriteLine("DequeueAsync: waiting for signal with priority " + preferredPriority);
-            var parameter = await _taskSignaler.WaitForSignalAsync(preferredPriority).ConfigureAwait(false);
+            // Register this worker's wait and nudge the signaler in case items already exist
+            var waitTask = _taskSignaler.WaitForSignalAsync(preferredPriority);
+            _enqueueEvent.Release(); // wake SignalWorker for potential item->worker pairing
+            var parameter = await waitTask.ConfigureAwait(false);
             return parameter;
         }
         catch (TaskCanceledException)
