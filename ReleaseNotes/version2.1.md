@@ -13,6 +13,9 @@ Proxy:
 * Warning: Fix compiler warnings
 * Don't report the service as "UP" until the userProfile is loaded 
 * UserConfigRequired triggers health check to fail if profiles are not loaded 
+* Implemented soft-delete for user profiles with alert if request received for a soft-deleted profile
+* Streamlined health probes
+* Don't force the HTTP connection to close to backend after each request
 
 ## V2.1.33.p2 
 The following changs were implemented in this release.
