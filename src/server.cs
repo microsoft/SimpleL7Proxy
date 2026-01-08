@@ -5,7 +5,6 @@ using Microsoft.ApplicationInsights.DataContracts;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 
-
 // This class represents a server that listens for HTTP requests and processes them.
 // It uses a priority queue to manage incoming requests and supports telemetry for monitoring.
 // If the incoming request has the S7PPriorityKey header, it will be assigned a priority based the S7PPriority header.
@@ -25,6 +24,8 @@ public class Server : IServer
     private static bool _isShuttingDown = false;
     private readonly string _priorityHeaderName;
     private static ProxyEvent _staticEvent = new ProxyEvent();
+    private readonly ProbeServer _probeServer;
+    private readonly Task _probeServerTask;
 
     // public void enqueueShutdownRequest() {
     //     var shutdownRequest = new RequestData(Constants.Shutdown);
@@ -53,6 +54,9 @@ public class Server : IServer
 
         var timeoutTime = TimeSpan.FromMilliseconds(_options.Timeout).ToString(@"hh\:mm\:ss\.fff");
         _staticEvent.WriteOutput($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
+        _probeServer = new ProbeServer(ProxyWorker.GetStatus );
+
+        _probeServerTask = _probeServer.StartAsync(_cancellationToken);
     }
 
     public ConcurrentPriQueue<RequestData> Queue()
@@ -129,7 +133,43 @@ public class Server : IServer
                     var requestId = _options.IDStr + counter.ToString();
 
                     //delayCts.Cancel();
-                    var rd = new RequestData(await getContextTask.ConfigureAwait(false), requestId);
+                    var lc = await getContextTask.ConfigureAwait(false);
+                    if ( lc == null || lc.Request == null )
+                    {
+                        continue;
+                    }
+
+                    // if it's a probe, then bypass all the below checks and enqueue the request 
+                    if (Constants.probes.Contains(lc.Request.Url?.PathAndQuery))
+                    {
+                        // Get ProbeData from pool using modulo rotation
+                        var probePath = lc!.Request.Url!.PathAndQuery;
+
+                        var fallthrough = false;
+
+                        // Fast-path for probes to avoid queue and worker latency
+                        switch (probePath)
+                        {
+                            case Constants.Liveness:
+                                await _probeServer.LivenessResponseAsync(lc);
+                                break;
+                            case Constants.Readiness:
+                                await _probeServer.ReadinessResponseAsync(lc);
+                                break;
+                            case Constants.Startup:
+                                await _probeServer.StartupResponseAsync(lc);
+                                break;
+                            default:
+                                fallthrough = true;
+                                break;
+
+                        }
+
+                        if (!fallthrough)
+                            continue;
+                    }
+
+                    var rd = new RequestData(lc, requestId);
                     ed = rd.EventData;
                     ed["Date"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
                     ed.Uri = rd.Context!.Request.Url!;
@@ -139,6 +179,7 @@ public class Server : IServer
                     ed["RequestHost"] = rd.Headers["Host"] ?? "N/A";
                     ed["RequestUserAgent"] = rd.Headers["User-Agent"] ?? "N/A";
                     // readiness probes:
+
                     // if it's a probe, then bypass all the below checks and enqueue the request 
                     if (Constants.probes.Contains(rd.Path))
                     {
@@ -195,7 +236,7 @@ public class Server : IServer
                                 var requestUser = rd.Headers[_options.UserProfileHeader];
                                 if (!string.IsNullOrEmpty(requestUser))
                                 {
-                                    var headers = _userProfile.GetUserProfile(requestUser);
+                                    (var headers, var isSoftDeleted) = _userProfile.GetUserProfile(requestUser);
 
                                     if (headers != null && headers.Count > 0)
                                     {
@@ -218,6 +259,17 @@ public class Server : IServer
                                             HttpStatusCode.Forbidden,
                                             "User profile not found: " + requestUser + "\n"
                                         );
+                                    }
+                                    
+                                    if (isSoftDeleted)
+                                    {
+                                        var type=ed.Type;
+                                        var message=ed["Message"];
+                                        ed.Type = EventType.ProfileError;
+                                        ed["Message"] = "Soft deleted profile access attempt";
+                                        ed.SendEvent();
+                                        ed.Type = type;
+                                        ed["Message"] = message;
                                     }
                                 }
                             }
