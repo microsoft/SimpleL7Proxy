@@ -18,7 +18,7 @@ RUN rm -f /app/out && mkdir -p /app/out
 RUN dotnet publish -c Release -o out
 
 # Use ASP.NET Core runtime image
-FROM mcr.microsoft.com/dotnet/runtime:9.0
+FROM mcr.microsoft.com/dotnet/runtime:9.0-noble-chiseled
 
 # Set the working directory.
 WORKDIR /app
