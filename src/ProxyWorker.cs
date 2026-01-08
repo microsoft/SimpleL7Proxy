@@ -9,6 +9,8 @@ using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.DataContracts;
 using System.Diagnostics;
 
+using Shared.HealthProbe;
+
 
 // The ProxyWorker class has the following main objectives:
 // 1. Read incoming requests from the queue, prioritizing the highest priority requests.
@@ -23,12 +25,12 @@ public class ProxyWorker
     private CancellationToken _cancellationToken;
     private static bool _debug = false;
     private static ConcurrentPriQueue<RequestData>? _requestsQueue;
-    private readonly IBackendService _backends;
-    private readonly BackendOptions _options;
+    private static IBackendService _backends = null!;
+    private static BackendOptions _options = null!;
     private readonly TelemetryClient? _telemetryClient;
     private readonly IEventHubClient? _eventHubClient;
     private IUserPriority _userPriority;
-    private IUserProfile _profiles;
+    private static IUserProfile _profiles = null!;
     private readonly string _TimeoutHeaderName;
     private string IDstr = "";
     public static int activeWorkers = 0;
@@ -472,6 +474,28 @@ public class ProxyWorker
         }
     }
 
+    public static HealthStatusEnum GetStatus()
+    {
+        bool ProfilesReady = !_options.UseProfiles || (_profiles?.ServiceIsReady() ?? false);
+        if (!readyToWork || !ProfilesReady)
+        {
+            return HealthStatusEnum.StartupWorkersNotReady;
+        }
+
+        int hostCount = _backends.ActiveHostCount();
+        if (hostCount == 0)
+        {
+            return HealthStatusEnum.ReadinessZeroHosts;
+        }
+
+        if (_backends.CheckFailedStatus())
+        {
+            return HealthStatusEnum.ReadinessFailedHosts;
+        }
+
+        return HealthStatusEnum.ReadinessReady;
+    }
+
     // Returns probe responses
     //
     // /startup - 200  if all workers started, there is at least 1 active host ... runs at fastest priority
@@ -487,7 +511,7 @@ public class ProxyWorker
         // Cache these to avoid repeatedly calling the same methods
         int hostCount = _backends.ActiveHostCount();
         bool hasFailedHosts = _backends.CheckFailedStatus();
-        bool ProfilesReady = _profiles.ServiceIsReady();
+        bool ProfilesReady = !_options.UseProfiles || (_profiles?.ServiceIsReady() ?? false);
 
         switch (path)
         {
@@ -735,7 +759,7 @@ public class ProxyWorker
                         proxyRequest.Content.Headers.ContentType = mediaTypeHeaderValue;
                     }
 
-                    proxyRequest.Headers.ConnectionClose = true;
+                    //proxyRequest.Headers.ConnectionClose = true;
 
                     // Log request headers if debugging is enabled
                     if (request.Debug)
