@@ -25,7 +25,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     public int Priority2 { get; set; }
     public int Timeout { get; set; }// calculated timeout
     public List<Dictionary<string, string>> incompleteRequests = new();
-    public ProxyEvent EventData = new ();
+    public ProxyEvent EventData = new (30);
     public Stream? Body { get; private set; }
     public string ExpireReason { get; set; } = "";
     public string ExpiresAtString { get; set; } = "";
@@ -162,6 +162,11 @@ public class RequestData : IDisposable, IAsyncDisposable
             Context?.Response?.OutputStream?.Dispose();
             Context?.Response?.Close();
             Context = null;
+            
+            // Clear EventData dictionary to release string references
+            EventData?.Clear();
+            incompleteRequests?.Clear();
+            BodyBytes = null;
         }
     }
 
@@ -216,6 +221,11 @@ public class RequestData : IDisposable, IAsyncDisposable
 
             Context?.Response?.Close();
             Context = null;
+            
+            // Clear EventData dictionary to release string references
+            EventData?.Clear();
+            incompleteRequests?.Clear();
+            BodyBytes = null;
         }
     }
 
