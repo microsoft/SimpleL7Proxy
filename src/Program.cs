@@ -668,23 +668,20 @@ public class Program
         var keepAliveDurationSecs = ReadEnvironmentVariableOrDefault("KeepAliveIdleTimeoutSecs", 1200); // 20 minutes
 
         var EnableMultipleHttp2Connections = ReadEnvironmentVariableOrDefault("EnableMultipleHttp2Connections", false);
-        var MultiConnLifetimeSecs = ReadEnvironmentVariableOrDefault("MultiConnLifetimeSecs", 10); // 10 seconds - VERY aggressive
-        var MultiConnIdleTimeoutSecs = ReadEnvironmentVariableOrDefault("MultiConnIdleTimeoutSecs", 5); // 5 seconds - release immediately
+        var MultiConnLifetimeSecs = ReadEnvironmentVariableOrDefault("MultiConnLifetimeSecs", 3600); // 1 hours
+        var MultiConnIdleTimeoutSecs = ReadEnvironmentVariableOrDefault("MultiConnIdleTimeoutSecs", 300); // 5 minutes
         var MultiConnMaxConns = ReadEnvironmentVariableOrDefault("MultiConnMaxConns", 4000); // 4000 connections
 
         var retryCount = keepAliveDurationSecs / KeepAlivePingIntervalSecs; // Calculate retry count 
         var handler = getHandler(KeepAliveInitialDelaySecs, KeepAlivePingIntervalSecs, retryCount);
 
-        // EXTREME settings to test connection pool cleanup
-        handler.ResponseDrainTimeout = TimeSpan.FromMilliseconds(500);  // 0.5s drain
-        handler.PooledConnectionIdleTimeout = TimeSpan.FromSeconds(MultiConnIdleTimeoutSecs);
-        handler.PooledConnectionLifetime = TimeSpan.FromSeconds(MultiConnLifetimeSecs);
-        handler.MaxConnectionsPerServer = 10;  // Force very low connection limit
-
         if (EnableMultipleHttp2Connections)
         {
             handler.EnableMultipleHttp2Connections = true;
+            handler.PooledConnectionLifetime = TimeSpan.FromSeconds(MultiConnLifetimeSecs);
+            handler.PooledConnectionIdleTimeout = TimeSpan.FromSeconds(MultiConnIdleTimeoutSecs);
             handler.MaxConnectionsPerServer = MultiConnMaxConns;
+            handler.ResponseDrainTimeout = TimeSpan.FromSeconds(keepAliveDurationSecs);
             Console.WriteLine("Multiple HTTP/2 connections enabled.");
         }
         else
