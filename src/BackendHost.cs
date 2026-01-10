@@ -19,6 +19,7 @@ public class BackendHost
     public string probeurl => _probeurl ??= System.Net.WebUtility.UrlDecode(new UriBuilder(protocol, ipaddr ?? host, port, probe_path).Uri.AbsoluteUri);
 
     private const int MaxData = 50;
+    private const int MaxPxLatencyQueueSize = 1000; // Limit queue to prevent unbounded growth
     private readonly Queue<double> latencies = new Queue<double>();
     private readonly Queue<bool> callSuccess = new Queue<bool>();
     public double calculatedAverageLatency { get; set; }
@@ -76,6 +77,12 @@ public class BackendHost
     public void AddPxLatency(double latency)
     {
         PxLatency.Enqueue(latency);
+        
+        // Prevent unbounded growth - if queue exceeds limit, remove oldest entries
+        while (PxLatency.Count > MaxPxLatencyQueueSize)
+        {
+            PxLatency.TryDequeue(out _);
+        }
     }
 
     public void AddError()
