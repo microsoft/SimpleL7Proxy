@@ -141,12 +141,26 @@ public class Program
 
                     // Configure telemetry to filter out duplicate logs
                     services.Configure<TelemetryConfiguration>(config =>
-                    {                           
+                    {
+                        // Configure ServerTelemetryChannel for aggressive flushing to reduce memory pressure
+                        var channel = new Microsoft.ApplicationInsights.WindowsServer.TelemetryChannel.ServerTelemetryChannel();
+                        channel.MaxTelemetryBufferCapacity = 100;  // Reduce buffer size (default 500)
+                        channel.MaxTransmissionBufferCapacity = 10; // Flush more frequently
+                        config.TelemetryChannel = channel;
+                        
                         config.TelemetryProcessorChainBuilder.Use(next => new RequestFilterTelemetryProcessor(next));
                         config.TelemetryProcessorChainBuilder.Build();
                     });
 
                     Console.WriteLine("AppInsights initialized with custom request tracking");
+                }
+                else
+                {
+                    // Register a null TelemetryClient to prevent null reference exceptions
+                    var nullConfig = TelemetryConfiguration.CreateDefault();
+                    nullConfig.DisableTelemetry = true;
+                    services.AddSingleton(new TelemetryClient(nullConfig));
+                    Console.WriteLine("AppInsights disabled - using null telemetry client");
                 }
                 
                 bool.TryParse(Environment.GetEnvironmentVariable("LOGTOFILE"), out var log_to_file);
@@ -363,6 +377,13 @@ public class Program
         if (eventHubClient != null)
         {
             await eventHubClient.StopTimer();
+        }
+
+        // Flush Application Insights telemetry buffer before shutdown
+        if (telemetryClient != null)
+        {
+            telemetryClient.FlushAsync(CancellationToken.None).Wait(TimeSpan.FromSeconds(5));
+            Console.WriteLine("Application Insights telemetry flushed");
         }
     }
 
@@ -647,20 +668,23 @@ public class Program
         var keepAliveDurationSecs = ReadEnvironmentVariableOrDefault("KeepAliveIdleTimeoutSecs", 1200); // 20 minutes
 
         var EnableMultipleHttp2Connections = ReadEnvironmentVariableOrDefault("EnableMultipleHttp2Connections", false);
-        var MultiConnLifetimeSecs = ReadEnvironmentVariableOrDefault("MultiConnLifetimeSecs", 3600); // 1 hours
-        var MultiConnIdleTimeoutSecs = ReadEnvironmentVariableOrDefault("MultiConnIdleTimeoutSecs", 300); // 5 minutes
+        var MultiConnLifetimeSecs = ReadEnvironmentVariableOrDefault("MultiConnLifetimeSecs", 10); // 10 seconds - VERY aggressive
+        var MultiConnIdleTimeoutSecs = ReadEnvironmentVariableOrDefault("MultiConnIdleTimeoutSecs", 5); // 5 seconds - release immediately
         var MultiConnMaxConns = ReadEnvironmentVariableOrDefault("MultiConnMaxConns", 4000); // 4000 connections
 
         var retryCount = keepAliveDurationSecs / KeepAlivePingIntervalSecs; // Calculate retry count 
         var handler = getHandler(KeepAliveInitialDelaySecs, KeepAlivePingIntervalSecs, retryCount);
 
+        // EXTREME settings to test connection pool cleanup
+        handler.ResponseDrainTimeout = TimeSpan.FromMilliseconds(500);  // 0.5s drain
+        handler.PooledConnectionIdleTimeout = TimeSpan.FromSeconds(MultiConnIdleTimeoutSecs);
+        handler.PooledConnectionLifetime = TimeSpan.FromSeconds(MultiConnLifetimeSecs);
+        handler.MaxConnectionsPerServer = 10;  // Force very low connection limit
+
         if (EnableMultipleHttp2Connections)
         {
             handler.EnableMultipleHttp2Connections = true;
-            handler.PooledConnectionLifetime = TimeSpan.FromSeconds(MultiConnLifetimeSecs);
-            handler.PooledConnectionIdleTimeout = TimeSpan.FromSeconds(MultiConnIdleTimeoutSecs);
             handler.MaxConnectionsPerServer = MultiConnMaxConns;
-            handler.ResponseDrainTimeout = TimeSpan.FromSeconds(keepAliveDurationSecs);
             Console.WriteLine("Multiple HTTP/2 connections enabled.");
         }
         else
