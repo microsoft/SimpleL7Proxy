@@ -282,6 +282,10 @@ public class ProxyWorker
                     Interlocked.Decrement(ref states[6]);
                     Interlocked.Increment(ref states[7]);
                     workerState = "Cleanup";
+
+                    // Dispose ProxyData to release memory immediately (headers, body byte arrays)
+                    pr?.Dispose();
+
                 }
                 catch (S7PRequeueException e)
                 {
@@ -430,6 +434,10 @@ public class ProxyWorker
                                 eventData["WorkerState"] = workerState;
 
                             eventData.SendEvent(); // Ensure the event at the completion of the request
+                            
+                            // Clear EventData after sending - request is complete
+                            eventData.ClearEventData();
+                            
                             if (doUserconfig)
                                 _userPriority.removeRequest(incomingRequest.UserID, incomingRequest.Guid);
 
@@ -443,7 +451,12 @@ public class ProxyWorker
                             //      lcontext.Response.StatusCode == (int)HttpStatusCode.OK);
 
                             lcontext?.Response.Close();
+
+                            // Explicitly dispose RequestData to release resources immediately
+                            // instead of waiting for GC finalization
+                            await incomingRequest.DisposeAsync().ConfigureAwait(false);
                         }
+                        
                     }
                     catch (Exception e)
                     {
@@ -476,6 +489,12 @@ public class ProxyWorker
 
     public static HealthStatusEnum GetStatus()
     {
+        // Guard against null references during early startup
+        if (_options == null || _backends == null)
+        {
+            return HealthStatusEnum.StartupWorkersNotReady;
+        }
+
         bool ProfilesReady = !_options.UseProfiles || (_profiles?.ServiceIsReady() ?? false);
         if (!readyToWork || !ProfilesReady)
         {
@@ -515,6 +534,29 @@ public class ProxyWorker
 
         switch (path)
         {
+            case Constants.ForceGC:
+                {
+                    probeMessage = "Garbage Collection Forced\n";
+                    probeMessage += $"Replica: {_options.HostName} {"".PadRight(30)} SimpleL7Proxy: {Constants.VERSION}\nBackend Hosts:\n  Active Hosts: {hostCount}  -  {(hasFailedHosts ? "FAILED HOSTS" : "All Hosts Operational")}\n";
+
+                    var gcMemInfo = GC.GetGCMemoryInfo();
+                    var process = System.Diagnostics.Process.GetCurrentProcess();                var memoryStats = $"\nMemory Statistics:\n" +
+                        $"  Total Managed Memory: {GC.GetTotalMemory(false) / 1024.0 / 1024.0:F2} MB\n" +
+                        $"  Working Set: {process.WorkingSet64 / 1024.0 / 1024.0:F2} MB\n" +
+                        $"  Private Memory: {process.PrivateMemorySize64 / 1024.0 / 1024.0:F2} MB\n" +
+                        $"  Heap Size: {gcMemInfo.HeapSizeBytes / 1024.0 / 1024.0:F2} MB\n" +
+                        $"  Fragmented: {gcMemInfo.FragmentedBytes / 1024.0 / 1024.0:F2} MB\n" +
+                        $"  Gen0 Collections: {GC.CollectionCount(0)}\n" +
+                        $"  Gen1 Collections: {GC.CollectionCount(1)}\n" +
+                        $"  Gen2 Collections: {GC.CollectionCount(2)}\n" +
+                        $"  High Memory Load: {gcMemInfo.MemoryLoadBytes / 1024.0 / 1024.0:F2} MB\n";
+                    probeMessage += memoryStats;
+                        
+                    GC.Collect(2, GCCollectionMode.Aggressive, true, true);
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect(2, GCCollectionMode.Aggressive, true, true);
+                }
+                break;
             case Constants.Health:
                 if (hostCount == 0 || hasFailedHosts)
                 {
@@ -541,7 +583,24 @@ public class ProxyWorker
                 var priority = $"User Priority Queue: {_userPriority?.GetState() ?? "N/A"}\n";
                 var requestQueue = $"Request Queue: {_requestsQueue?.thrdSafeCount.ToString() ?? "N/A"}\n";
                 var events = $"Event Hub: {(_eventHubClient != null ? $"Enabled  -  {_eventHubClient.Count} Items" : "Disabled")}\n";
-                probeMessage += stats + priority + requestQueue + events;
+
+                {
+                    // Memory and GC diagnostics
+                    var gcMemInfo = GC.GetGCMemoryInfo();
+                    var process = System.Diagnostics.Process.GetCurrentProcess();
+                    var memoryStats = $"\nMemory Statistics:\n" +
+                        $"  Total Managed Memory: {GC.GetTotalMemory(false) / 1024.0 / 1024.0:F2} MB\n" +
+                        $"  Working Set: {process.WorkingSet64 / 1024.0 / 1024.0:F2} MB\n" +
+                        $"  Private Memory: {process.PrivateMemorySize64 / 1024.0 / 1024.0:F2} MB\n" +
+                        $"  Heap Size: {gcMemInfo.HeapSizeBytes / 1024.0 / 1024.0:F2} MB\n" +
+                        $"  Fragmented: {gcMemInfo.FragmentedBytes / 1024.0 / 1024.0:F2} MB\n" +
+                        $"  Gen0 Collections: {GC.CollectionCount(0)}\n" +
+                        $"  Gen1 Collections: {GC.CollectionCount(1)}\n" +
+                        $"  Gen2 Collections: {GC.CollectionCount(2)}\n" +
+                        $"  High Memory Load: {gcMemInfo.MemoryLoadBytes / 1024.0 / 1024.0:F2} MB\n";
+                    
+                    probeMessage += stats + priority + requestQueue + events + memoryStats;
+                }
                 break;
 
             case Constants.Readiness:
@@ -612,13 +671,26 @@ public class ProxyWorker
         //     Console.WriteLine($"Response Header: {key} : {context.Response.Headers[key]}");
         // }
 
-        // Write the response body to the client as a byte array
-        if (pr.Body != null)
-        {
-            await using (var memoryStream = new MemoryStream(pr.Body))
+        if (pr.IsStreaming) {
+            // Write the response body to the client as a stream
+            if (pr.BodyResponseMessage != null)
             {
-                await memoryStream.CopyToAsync(context.Response.OutputStream).ConfigureAwait(false);
-                await context.Response.OutputStream.FlushAsync().ConfigureAwait(false);
+                await using (var responseStream = await pr.BodyResponseMessage.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                {
+                    await responseStream.CopyToAsync(context.Response.OutputStream).ConfigureAwait(false);
+                    await context.Response.OutputStream.FlushAsync().ConfigureAwait(false);
+                }
+            }
+        }
+        else {
+            // Write the response body to the client as a byte array
+            if (pr.Body != null)
+            {
+                await using (var memoryStream = new MemoryStream(pr.Body))
+                {
+                    await memoryStream.CopyToAsync(context.Response.OutputStream).ConfigureAwait(false);
+                    await context.Response.OutputStream.FlushAsync().ConfigureAwait(false);
+                }
             }
         }
     }
@@ -681,18 +753,27 @@ public class ProxyWorker
             bool successfulRequest = false;
             string requestState = "Init";
 
-            ProxyEvent requestAttempt = new(request.EventData)
+            // Create minimal requestAttempt without copying parent dictionary to reduce memory
+            //ProxyEvent requestAttempt = new(request.EventData)
+            // Allocate based on parent size plus a few extra for attempt-specific fields
+            ProxyEvent requestAttempt = new(request.EventData.Count + 5);
+            
+            // Copy parent dictionary entries (Ver, Revision, ContainerApp, etc.)
+            foreach (var kvp in request.EventData)
             {
-                Type = EventType.BackendRequest,
-                ParentId = request.ParentId,
-                MID = $"{request.MID}-{request.Attempts}",
-                Method = request.Method,
-                Uri = request.Context!.Request.Url!,
-                ["Request-Date"] = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffK"), 
-                ["Backend-Host"] = host.host,
-                ["Host-URL"] = host.url,
-                ["Attempt"] = request.Attempts.ToString()
-            };
+                requestAttempt[kvp.Key] = kvp.Value;
+            }
+            
+            // Set attempt-specific properties
+            requestAttempt.Type = EventType.BackendRequest;
+            requestAttempt.ParentId = request.ParentId;
+            requestAttempt.MID = $"{request.MID}-{request.Attempts}";
+            requestAttempt.Method = request.Method;
+            requestAttempt.Uri = request.Context!.Request.Url!;
+            requestAttempt["Request-Date"] = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffK");
+            requestAttempt["Backend-Host"] = host.host;
+            requestAttempt["Host-URL"] = host.url;
+            requestAttempt["Attempt"] = request.Attempts.ToString();
 
             // Try the request on each active host, stop if it worked
             try
@@ -780,7 +861,9 @@ public class ProxyWorker
 
                         // SEND THE REQUEST TO THE BACKEND USING THE APROPRIATE TIMEOUT
                         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(request.Timeout));
-                        using var proxyResponse = await _options.Client!.SendAsync(
+                        
+                        // Don't use 'using' here - response must stay alive for streaming mode
+                        var proxyResponse = await _options.Client!.SendAsync(
                             proxyRequest, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
 
                         var responseDate = DateTime.UtcNow;
@@ -788,6 +871,21 @@ public class ProxyWorker
                         requestAttempt.Status = proxyResponse.StatusCode;
 
                         requestState = "Process Backend Response";
+
+                        // Check if the status code of the response is in the set of allowed status codes, else try the next host
+                        var intCode = (int)proxyResponse.StatusCode;
+                        if ((intCode > 300 && intCode < 400) || intCode == 412 || intCode >= 500)
+                        {
+                            requestState = "Call unsuccessful";
+
+                            if (request.Debug)
+                            {
+                                Console.WriteLine($"Trying next host: Response: {proxyResponse.StatusCode}");
+                            }
+
+                            // The request did not succeed, try the next host
+                            continue;
+                        }
 
                         // Capture the response
                         ProxyData pr = new()
@@ -798,34 +896,6 @@ public class ProxyWorker
                             CalculatedHostLatency = host.calculatedAverageLatency,
                             BackendHostname = host.host
                         };
-
-                        // Check if the status code of the response is in the set of allowed status codes, else try the next host
-                        var intCode = (int)proxyResponse.StatusCode;
-                        if ((intCode > 300 && intCode < 400) || intCode == 412 || intCode >= 500)
-                        {
-                            requestState = "Call unsuccessful";
-
-                            if (request.Debug)
-                            {
-                                try
-                                {
-                                    // Read the response body so that we can get the byte length ( DEBUG ONLY )  
-                                    bodyBytes = [];
-                                    await GetProxyResponseAsync(proxyResponse, request, pr).ConfigureAwait(false);
-                                    Console.WriteLine($"Got: {pr.StatusCode} {pr.FullURL} {pr.ContentHeaders["Content-Length"]} Body: {pr?.Body?.Length} bytes");
-                                    Console.WriteLine($"< {pr?.Body}");
-                                }
-                                catch (Exception e)
-                                {
-                                    Console.Error.WriteLine($"Error reading from backend host: {e.Message}");
-                                }
-
-                                Console.WriteLine($"Trying next host: Response: {proxyResponse.StatusCode}");
-                            }
-
-                            // The request did not succeed, try the next host
-                            continue;
-                        }
 
                         host.AddPxLatency((responseDate - ProxyStartDate).TotalMilliseconds);
                         bodyBytes = [];
@@ -966,6 +1036,9 @@ public class ProxyWorker
                     var str = JsonSerializer.Serialize(miniDict);
                     Console.WriteLine(str);
                 }
+                
+                // Clear this attempt's copy after we're done with it
+                requestAttempt.ClearEventData();
             }
         }
 
@@ -1056,18 +1129,29 @@ public class ProxyWorker
     // Read the response from the proxy and set the response body
     private async Task GetProxyResponseAsync(HttpResponseMessage proxyResponse, RequestData request, ProxyData pr)
     {
-        // Get a stream to the response body
+        bool useStreaming = true;
+        
+        if (request.Debug)
+        {
+            LogHeaders(proxyResponse.Headers, "<");
+            LogHeaders(proxyResponse.Content.Headers, "  <");
+        }
+
+        // Copy across all the response headers to the client
+        CopyHeaders(proxyResponse, pr.Headers, pr.ContentHeaders);
+
+        pr.BodyResponseMessage = proxyResponse;
+
+        if (useStreaming)
+        {
+            // Store the backend response stream (readable) for streaming mode
+            pr.IsStreaming = true;
+            return;
+        }
+
+        // Get a stream to the response body for buffered mode
         await using (var responseBody = await proxyResponse.Content.ReadAsStreamAsync().ConfigureAwait(false))
         {
-            if (request.Debug)
-            {
-                LogHeaders(proxyResponse.Headers, "<");
-                LogHeaders(proxyResponse.Content.Headers, "  <");
-            }
-
-            // Copy across all the response headers to the client
-            CopyHeaders(proxyResponse, pr.Headers, pr.ContentHeaders);
-
             // Determine the encoding from the Content-Type header
             MediaTypeHeaderValue? contentType = proxyResponse.Content.Headers.ContentType;
             var encoding = GetEncodingFromContentType(contentType, request);
