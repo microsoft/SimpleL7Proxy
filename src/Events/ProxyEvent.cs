@@ -48,7 +48,15 @@ public class ProxyEvent : ConcurrentDictionary<string, string>
     _telemetryClient = telemetryClient ?? throw new ArgumentNullException(nameof(telemetryClient));
 
   }
-  public ProxyEvent() : base()
+  
+  public ProxyEvent() : base(1, 20, StringComparer.OrdinalIgnoreCase)
+  {
+    base["Ver"] = Constants.VERSION;
+    base["Revision"] = _options.Value.Revision;
+    base["ContainerApp"] = _options.Value.ContainerApp;
+  }
+
+  public ProxyEvent(int capacity) : base(1, capacity, StringComparer.OrdinalIgnoreCase)
   {
     base["Ver"] = Constants.VERSION;
     base["Revision"] = _options.Value.Revision;
@@ -376,6 +384,16 @@ private void TrackDependancy()
 
     // Convert the ProxyEvent to a dictionary for telemetry
     return this.ToDictionary((kvp) => kvp.Key, (kvp) => kvp.Value, StringComparer.OrdinalIgnoreCase);
+  }
+
+  /// <summary>
+  /// Clears all dictionary entries and resets properties to release memory.
+  /// Call this after SendEvent() to prevent memory leaks.
+  /// </summary>
+  public void ClearEventData()
+  {
+    base.Clear();
+    Exception = null;
   }
 }
 
