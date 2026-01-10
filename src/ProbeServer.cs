@@ -52,7 +52,7 @@ public class ProbeServer
             try {
                 _startupStatus = _readinessStatus = _getStatus();
             } catch (Exception ex) {
-                Console.WriteLine($"ProbeServer: Exception in status update: {ex.Message}");
+                Console.WriteLine($"ProbeServer: Exception in status update: {ex.Message}, Retrying...");
             }
 
         }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
