@@ -36,7 +36,13 @@ public class Backends : IBackendService
     private Azure.Core.AccessToken? AuthToken { get; set; }
     private readonly IEventHubClient? _eventHubClient;
     CancellationTokenSource workerCancelTokenSource = new CancellationTokenSource();
-    private ProxyEvent staticEvent = new() { Type = EventType.Backend }; 
+    private ProxyEvent staticEvent = new() { Type = EventType.Backend };
+    
+    // Reusable ProxyEvent instances for backend poller to reduce allocations
+    private readonly ProxyEvent _circuitBreakerEvent = new ProxyEvent(6);
+    private readonly ProxyEvent _statusEvent = new ProxyEvent(8);
+    private readonly ProxyEvent _oauthErrorEvent = new ProxyEvent(5);
+    private readonly ProxyEvent _probeEvent = new ProxyEvent(8); 
 
 
     //public Backends(List<BackendHost> hosts, HttpClient client, int interval, int successRate)
@@ -110,16 +116,16 @@ public class Backends : IBackendService
         }
 
         hostFailureTimes2.Enqueue(now);
-        ProxyEvent logerror = new ProxyEvent()
-        {
-            ["Code"] = code.ToString(),
-            ["Time"] = now.ToString(),
-            ["WasException"] = wasException.ToString(),
-            ["Count"] = hostFailureTimes2.Count.ToString(),
-            Type = EventType.CircuitBreakerError
-        };
+        
+        // Reuse and clear the circuit breaker event instance
+        _circuitBreakerEvent.Clear();
+        _circuitBreakerEvent.Type = EventType.CircuitBreakerError;
+        _circuitBreakerEvent["Code"] = code.ToString();
+        _circuitBreakerEvent["Time"] = now.ToString();
+        _circuitBreakerEvent["WasException"] = wasException.ToString();
+        _circuitBreakerEvent["Count"] = hostFailureTimes2.Count.ToString();
 
-        logerror.SendEvent();
+        _circuitBreakerEvent.SendEvent();
     }
 
     // returns true if the service is in failure state
@@ -271,14 +277,14 @@ public class Backends : IBackendService
     private async Task<bool> GetHostStatus(BackendHost host, HttpClient client)
     {
         double latency = 0;
-        ProxyEvent probeData = new()
-        {
-            ["ProxyHost"] = _options.HostName,
-            ["Backend-Host"] = host.host,
-            ["Port"] = host.port.ToString(),
-            ["Path"] = host.probe_path,
-            Type = EventType.Poller
-        };
+        
+        // Reuse and clear the probe event instance to avoid allocations
+        _probeEvent.Clear();
+        _probeEvent["ProxyHost"] = _options.HostName;
+        _probeEvent["Backend-Host"] = host.host;
+        _probeEvent["Port"] = host.port.ToString();
+        _probeEvent["Path"] = host.probe_path;
+        _probeEvent.Type = EventType.Poller;
 
         try
         {
@@ -304,8 +310,15 @@ public class Backends : IBackendService
                 // Send request and read headers only
                 using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, _cancellationToken);
 
-                probeData["Code"] = response.StatusCode.ToString();
+                _probeEvent["Code"] = response.StatusCode.ToString();
                 _isRunning = true;
+
+                // CRITICAL: Drain the response body to allow connection reuse
+                // Without this, undrained responses accumulate and leak memory
+                if (response.Content != null)
+                {
+                    await response.Content.ReadAsByteArrayAsync(_cancellationToken);
+                }
 
                 // If the response is successful, add the host to the active hosts
                 return response.IsSuccessStatusCode;
@@ -317,31 +330,31 @@ public class Backends : IBackendService
 
                 // Update the host with the new latency
                 host.AddLatency(latency);
-                probeData["Latency"] = latency.ToString() + " ms";
+                _probeEvent["Latency"] = latency.ToString() + " ms";
             }
         }
         catch (UriFormatException e)
         {
             // WriteOutput($"Poller: Could not check probe: {e.Message}");
-            probeData.Type = EventType.Exception;
-            probeData.Exception = e;
+            _probeEvent.Type = EventType.Exception;
+            _probeEvent.Exception = e;
             //"S7P-Uri Format Exception";
-            probeData["Code"] = "-";
+            _probeEvent["Code"] = "-";
         }
         catch (System.Threading.Tasks.TaskCanceledException e)
         {
             // WriteOutput($"Poller: Host Timeout: {host.host}");
-            probeData.Type = EventType.Exception;
-            probeData.Exception = e;
-            probeData["Code"] = "-";
-            probeData["Timeout"] = client.Timeout.TotalMilliseconds.ToString();
+            _probeEvent.Type = EventType.Exception;
+            _probeEvent.Exception = e;
+            _probeEvent["Code"] = "-";
+            _probeEvent["Timeout"] = client.Timeout.TotalMilliseconds.ToString();
         }
         catch (HttpRequestException e)
         {
             // WriteOutput($"Poller: Host {host.host} is down with exception: {e.Message}");
-            probeData.Type = EventType.Exception;
-            probeData.Exception = e;
-            probeData["Code"] = "-";
+            _probeEvent.Type = EventType.Exception;
+            _probeEvent.Exception = e;
+            _probeEvent["Code"] = "-";
         }
         catch (OperationCanceledException)
         {
@@ -352,21 +365,21 @@ public class Backends : IBackendService
         catch (System.Net.Sockets.SocketException e)
         {
             // WriteOutput($"Poller: Host {host.host} is down:  {e.Message}");
-            probeData.Type = EventType.Exception;
-            probeData.Exception = e;
-            probeData["Code"] = "-";
+            _probeEvent.Type = EventType.Exception;
+            _probeEvent.Exception = e;
+            _probeEvent["Code"] = "-";
         }
         catch (Exception e)
         {
             // Program.telemetryClient?.TrackException(e);
             // WriteErrorOutput($"Poller: Error: {e.Message}");
-            probeData.Type = EventType.Exception;
-            probeData.Exception = e;
-            probeData["Code"] = "-";
+            _probeEvent.Type = EventType.Exception;
+            _probeEvent.Exception = e;
+            _probeEvent["Code"] = "-";
         }
         finally
         {
-            probeData.SendEvent();
+            _probeEvent.SendEvent();
         }
 
         return false;
@@ -408,14 +421,13 @@ public class Backends : IBackendService
     // Display the status of the hosts
     private void DisplayHostStatus()
     {
-        ProxyEvent statusEvent = new ProxyEvent
-        {
-            Type = EventType.Backend,
-            ["Timestamp"] = DateTime.UtcNow.ToString("o"),
-            ["LoadBalanceMode"] = _options.LoadBalanceMode,
-            ["ActiveHostsCount"] = ActiveHostCount().ToString(),
-            ["SuccessRate"] = _successRate.ToString()
-        };
+        // Reuse and clear the status event instance
+        _statusEvent.Clear();
+        _statusEvent.Type = EventType.Backend;
+        _statusEvent["Timestamp"] = DateTime.UtcNow.ToString("o");
+        _statusEvent["LoadBalanceMode"] = _options.LoadBalanceMode;
+        _statusEvent["ActiveHostsCount"] = ActiveHostCount().ToString();
+        _statusEvent["SuccessRate"] = _successRate.ToString();
         
         StringBuilder sb = new StringBuilder();
         sb.Append("\n\n============ Host Status =========\n");
@@ -437,16 +449,16 @@ public class Backends : IBackendService
 
                 sb.Append($"{statusIndicator} Host: {host.url} Lat: {roundedLatency}ms Succ: {successRatePercentage}% {hoststatus}\n");
 
-                statusEvent[$"{counter}-Host"] = host.ToString();
-                statusEvent[$"{counter}-Latency"] = roundedLatency.ToString();
-                statusEvent[$"{counter}-SuccessRate"] = successRatePercentage.ToString();
-                statusEvent[$"{counter}-Calls"] = calls.ToString();
-                statusEvent[$"{counter}-Errors"] = errors.ToString();
-                statusEvent[$"{counter}-Average"] = average.ToString();
-                statusEvent[$"{counter}-Status"] = statusIndicator;
+                _statusEvent[$"{counter}-Host"] = host.ToString();
+                _statusEvent[$"{counter}-Latency"] = roundedLatency.ToString();
+                _statusEvent[$"{counter}-SuccessRate"] = successRatePercentage.ToString();
+                _statusEvent[$"{counter}-Calls"] = calls.ToString();
+                _statusEvent[$"{counter}-Errors"] = errors.ToString();
+                _statusEvent[$"{counter}-Average"] = average.ToString();
+                _statusEvent[$"{counter}-Status"] = statusIndicator;
             }
 
-        statusEvent.SendEvent();
+        _statusEvent.SendEvent();
 
         _lastStatusDisplay = DateTime.Now;
         _hostStatus = sb.ToString();
@@ -504,25 +516,21 @@ public class Backends : IBackendService
             }
             catch (OperationCanceledException e)
             {
-                ProxyEvent logEvent = new ProxyEvent
-                {
-                    Type = EventType.Exception,
-                    Exception = e,
-                    ["Message"] = "Auth Token fetching operation was canceled.",
-                    ["OAuthAudience"] = _options.OAuthAudience
-                };
-                logEvent.SendEvent();
+                _oauthErrorEvent.Clear();
+                _oauthErrorEvent.Type = EventType.Exception;
+                _oauthErrorEvent.Exception = e;
+                _oauthErrorEvent["Message"] = "Auth Token fetching operation was canceled.";
+                _oauthErrorEvent["OAuthAudience"] = _options.OAuthAudience;
+                _oauthErrorEvent.SendEvent();
             }
             catch (Exception e)
             {
-                ProxyEvent logEvent = new ProxyEvent
-                {
-                    Type = EventType.Exception,
-                    Exception = e,
-                    ["Message"] = $"An error occurred while fetching Auth Token: {e.Message}",
-                    ["OAuthAudience"] = _options.OAuthAudience
-                };
-                logEvent.SendEvent();
+                _oauthErrorEvent.Clear();
+                _oauthErrorEvent.Type = EventType.Exception;
+                _oauthErrorEvent.Exception = e;
+                _oauthErrorEvent["Message"] = $"An error occurred while fetching Auth Token: {e.Message}";
+                _oauthErrorEvent["OAuthAudience"] = _options.OAuthAudience;
+                _oauthErrorEvent.SendEvent();
 
             }
         }, _cancellationToken);
@@ -558,27 +566,23 @@ public class Backends : IBackendService
         }
         catch (AuthenticationFailedException ex)
         {
-            var logEvent = new ProxyEvent
-            {
-                Type = EventType.Exception,
-                Exception = ex,
-                ["Message"] = $"Authentication failed: {ex.Message}",
-                ["OAuthAudience"] = _options.OAuthAudience
-            };
-            logEvent.SendEvent();
+            _oauthErrorEvent.Clear();
+            _oauthErrorEvent.Type = EventType.Exception;
+            _oauthErrorEvent.Exception = ex;
+            _oauthErrorEvent["Message"] = $"Authentication failed: {ex.Message}";
+            _oauthErrorEvent["OAuthAudience"] = _options.OAuthAudience;
+            _oauthErrorEvent.SendEvent();
             // Handle the exception as needed, e.g., return a default value or rethrow the exception
             throw;
         }
         catch (Exception ex)
         {
-            ProxyEvent logEvent = new ProxyEvent
-            {
-                Type = EventType.Exception,
-                Exception = ex,
-                ["Message"] = $"An unexpected error occurred while fetching the token: {ex.Message}",
-                ["OAuthAudience"] = _options.OAuthAudience
-            };
-            logEvent.SendEvent();
+            _oauthErrorEvent.Clear();
+            _oauthErrorEvent.Type = EventType.Exception;
+            _oauthErrorEvent.Exception = ex;
+            _oauthErrorEvent["Message"] = $"An unexpected error occurred while fetching the token: {ex.Message}";
+            _oauthErrorEvent["OAuthAudience"] = _options.OAuthAudience;
+            _oauthErrorEvent.SendEvent();
 
             // Handle other potential exceptions
             throw;
