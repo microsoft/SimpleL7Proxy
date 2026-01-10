@@ -1,5 +1,6 @@
 # Release Notes #
 
+## V2.1.33.p5 
 
 Repo:
 * Moved docs to their own folder
@@ -16,6 +17,10 @@ Proxy:
 * Implemented soft-delete for user profiles with alert if request received for a soft-deleted profile
 * Streamlined health probes
 * Don't force the HTTP connection to close to backend after each request
+* Add /ForceGC to force GC
+* Add memory details to /health
+* Memory use improvements: Reuse proxy event objects throughout, pre-allocate size, eventhub client batch cleanup, stream response body rather than copy it.
+* bug fixes for when app insights and eventhub are disabled
 
 ## V2.1.33.p2 
 The following changs were implemented in this release.
