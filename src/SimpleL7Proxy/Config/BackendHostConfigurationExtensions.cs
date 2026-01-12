@@ -587,6 +587,7 @@ public static class BackendHostConfigurationExtensions
       DefaultTTLSecs = ReadEnvironmentVariableOrDefault("DefaultTTLSecs", 300),
       DependancyHeaders = ToArrayOfString(ReadEnvironmentVariableOrDefault("DependancyHeaders", "Backend-Host, Host-URL, Status, Duration, Error, Message, Request-Date, backendLog")),
       DisallowedHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("DisallowedHeaders", "")),
+      HealthProbeSidecar = ReadEnvironmentVariableOrDefault("HealthProbeSidecar", "Enabled=false;url=http://localhost:9000"),
       HostName = ReadEnvironmentVariableOrDefault("Hostname", replicaID),
       Hosts = new List<HostConfig>(),
       IDStr = $"{ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P")}-{replicaID}-",
@@ -601,7 +602,7 @@ public static class BackendHostConfigurationExtensions
       LogHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
       LogPoller = ReadEnvironmentVariableOrDefault("LogPoller", true),
       LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", true),
-      MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
+      MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 1000),
       MaxAttempts = ReadEnvironmentVariableOrDefault("MaxAttempts", 10),
       OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
       PollInterval = ReadEnvironmentVariableOrDefault("PollInterval", 15000),
@@ -664,6 +665,26 @@ public static class BackendHostConfigurationExtensions
       Console.WriteLine($"WARNING: Worker allocation exceeds total number of workers:{workerAllocation} > {backendOptions.Workers}");
       Console.WriteLine($"Adjusting total number of workers to {workerAllocation}. Fix PriorityWorkers if it isn't what you want.");
       backendOptions.Workers = workerAllocation;
+    }
+
+    // defined Healthprobe sidecar settings
+    var healthSettings = backendOptions.HealthProbeSidecar.Split(';', StringSplitOptions.RemoveEmptyEntries);
+    foreach (var setting in healthSettings)
+    {
+      var kvp = setting.Split('=', 2);
+      if (kvp.Length == 2)
+      {
+        var key = kvp[0].Trim().ToLower();
+        var value = kvp[1].Trim().ToLower();
+        if (key == "enabled")
+        {
+          backendOptions.HealthProbeSidecarEnabled = value == "true";
+        }
+        else if (key == "url" && !string.IsNullOrEmpty(value))
+        {
+          backendOptions.HealthProbeSidecarUrl = value;
+        }
+      }
     }
 
     // if (backendOptions.UniqueUserHeaders.Count > 0)
