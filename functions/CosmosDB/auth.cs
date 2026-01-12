@@ -50,4 +50,3 @@ namespace Company.Function
             return new JsonResult(response);
         }
     }
-}
