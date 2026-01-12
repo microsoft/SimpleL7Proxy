@@ -28,6 +28,9 @@ public class BackendOptions
     public int DefaultTTLSecs { get; set; }
     public string[] DependancyHeaders { get; set; } = [];
     public List<string> DisallowedHeaders { get; set; } = [];
+    public string HealthProbeSidecar { get; set; } = "Enabled=false; Url=http://localhost:9000";
+    public bool HealthProbeSidecarEnabled { get; set; } = false; 
+    public string HealthProbeSidecarUrl { get; set; } = "http://localhost/9000";
     public string HostName { get; set; } = "";
     public List<HostConfig> Hosts { get; set; } = [];
     public string IDStr { get; set; } = "S7P";
