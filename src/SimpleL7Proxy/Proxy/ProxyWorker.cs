@@ -111,9 +111,8 @@ public class ProxyWorker
         // CancellationTokenSource cts = new CancellationTokenSource();
         // CancellationToken token = cts.Token;
 
-        // increment the active workers count
-        HealthCheckService.IncrementActiveWorkers(_options.Workers);
-        if (_options.Workers == HealthCheckService.ActiveWorkers)
+        // increment the active workers count.   When all workers are active, the startup probe allows traffic. 
+        if (_options.Workers == HealthCheckService.IncrementActiveWorkers(_options.Workers))
         {
             s_readyToWork = true;
             // Always display
@@ -177,16 +176,6 @@ public class ProxyWorker
                 var eventData = incomingRequest.EventData;
                 try
                 {
-                    if (Constants.probes.Contains(incomingRequest.Path) && lcontext != null)
-                    {
-                        await _healthCheckService.HandleProbeRequestAsync(incomingRequest.Path, lcontext, eventData).ConfigureAwait(false);
-
-                        HealthCheckService.EnterState(_id, WorkerState.Cleanup);
-
-                        //Console.WriteLine($"Probe: {incomingRequest.Path} Status: {probeStatus} Message: {probeMessage}");
-
-                        continue;
-                    }
 
                     // Set the initial status based on request type
                     _lifecycleManager.TransitionToProcessing(incomingRequest);
@@ -258,7 +247,7 @@ public class ProxyWorker
                     // Log circuit breaker details when status code is -1
                     if (statusCodeInt == -1 || statusCodeInt ==  503)
                     {
-                        _logger.LogCritical("[CircuitBreaker] Status {StatusCode} detected for request {Guid}. Backend host: {Host}",
+                        _logger.LogCritical("[CircuitBreaker] Status {StatusCode} detected for request {Guid}. Backend host: {HFstreamost}",
                             statusCodeInt, incomingRequest.Guid, pr.BackendHostname);
                         
                         // Log circuit breaker status for all hosts
@@ -295,6 +284,8 @@ public class ProxyWorker
                         incomingRequest.asyncWorker?.UpdateBackup();
                     }
 
+                    // Dispose ProxyData to release memory immediately (headers, body byte arrays)
+                    pr?.Dispose();
                 }
                 catch (S7PRequeueException e)
                 {
@@ -491,6 +482,7 @@ public class ProxyWorker
                         errorEvent.SendEvent();
                         _logger.LogError(e, "[Worker:{Id}] CRITICAL: Unhandled error in finally block for request {Guid}", _id, incomingRequest!.Guid);
                     }
+
                 }
             }   // lifespan of incomingRequest
         }       // while running loop
@@ -500,6 +492,7 @@ public class ProxyWorker
         _logger.LogDebug("[SHUTDOWN] ✓ Worker {IdStr} stopped", _idStr);
     }
 
+    // gets called when the application is shutting down to evict any in-progress async requests
     public void ExpelAsyncRequest()
     {
         if (_asyncExpelSource != null)
@@ -581,7 +574,7 @@ public class ProxyWorker
 
         string modifiedPath = "";
         // Get an iterator for the active hosts based on the load balancing mode and iteration strategy
-        using var hostIterator = _options.IterationMode switch
+        var hostIterator = _options.IterationMode switch
         {
             IterationModeEnum.SinglePass => IteratorFactory.CreateSinglePassIterator(
                 _backends,
@@ -604,11 +597,12 @@ public class ProxyWorker
         };
         request.Path = modifiedPath;
 
-        var activeHosts = _backends.GetActiveHosts().Where(h => h.Config.PartialPath == request.Path || h.Config.PartialPath == "/").ToList();
+        var matchingHostCount = _backends.GetActiveHosts()
+            .Count(h => h.Config.PartialPath == request.Path || h.Config.PartialPath == "/");
         _logger.LogDebug("[ProxyToBackEnd:{Guid}] Found {HostCount} backend hosts for path {Path}", 
-            request.Guid, activeHosts.Count, request.Path);
+            request.Guid, matchingHostCount, request.Path);
 
-        if (activeHosts.Count == 0)
+        if (matchingHostCount == 0)
         {
             _logger.LogWarning("[ProxyToBackEnd:{Guid}] ⚠ NO BACKEND HOSTS matched path {Path} - Request will fail", 
                 request.Guid, request.Path);
@@ -752,7 +746,8 @@ public class ProxyWorker
                         // Even if there's no body, set the content type to application/json
                         proxyRequest.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
                     }
-                    proxyRequest.Headers.ConnectionClose = true;
+
+                    //proxyRequest.Headers.ConnectionClose = true;
 
                     // Log request headers if debugging is enabled
                     if (request.Debug)
@@ -840,10 +835,9 @@ public class ProxyWorker
                             intCode = (int)proxyResponse.StatusCode;
                             if ((intCode > 300 && intCode < 400) || intCode == 404 || intCode == 412 || intCode >= 500)
                             {
-                                requestState = "Backend proxy status code: " + intCode;
+                                requestState = $"Backend proxy status code: {intCode}";
 
-                                foreach (var header in proxyResponse.Headers.ToList())
-                                {
+                                foreach (var header in proxyResponse.Headers)                                {
                                     if (s_excludedHeaders.Contains(header.Key)) continue;
                                     requestAttempt[header.Key] = string.Join(", ", header.Value);
                                     //Console.WriteLine("requestAttempt[{0}] = {1}", header.Key, header.Value);
@@ -1032,6 +1026,7 @@ public class ProxyWorker
             }
             catch (S7PRequeueException e)
             {
+                intCode = (int)HttpStatusCode.TooManyRequests; // 429
                 PopulateRequestAttemptError(requestAttempt, HttpStatusCode.TooManyRequests, 
                     $"Requeue request: Retry-After = {e.RetryAfter}", 
                     "Will retry if no other hosts are available");
@@ -1043,6 +1038,7 @@ public class ProxyWorker
             catch (ProxyErrorException e)
             {
                 PopulateRequestAttemptError(requestAttempt, e.StatusCode, e.Message);
+                intCode = (int)e.StatusCode;
 
                 if (e.Type == ProxyErrorException.ErrorType.TTLExpired)
                     break;
@@ -1112,12 +1108,13 @@ public class ProxyWorker
                         }
                     }
                 }
+                intCode = (int)statusCode;
 
                 PopulateRequestAttemptError(requestAttempt, statusCode, 
                     $"Bad Request: {e.Message}", 
                     "Operation Exception: HttpRequest");
 
-                requestState += ", HTTP Error Message: " + e.Message;
+                requestState += $", statusCode = {statusCode}, HTTP Error Message: {e.Message}";
                 continue;
             }
             catch (Exception e)
@@ -1134,6 +1131,11 @@ public class ProxyWorker
 
                 PopulateRequestAttemptError(requestAttempt, HttpStatusCode.InternalServerError, 
                     $"Internal Error: {e.Message}");
+
+                intCode = (int)HttpStatusCode.InternalServerError;
+                requestState += ", Internal Error: " + e.Message;
+
+                continue;
             }
             finally
             {
@@ -1152,8 +1154,7 @@ public class ProxyWorker
                     miniDict["State"] = requestState;
                     incompleteRequests.Add(miniDict);
 
-                    var str = JsonSerializer.Serialize(miniDict);
-                    _logger.LogDebug(str);
+                    _logger.LogDebug(JsonSerializer.Serialize(miniDict));
                 }
 
             }
@@ -1386,11 +1387,12 @@ public class ProxyWorker
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error streaming response for request {Guid}", request.Guid);
+            _logger.LogError(ex, "Error streaming response for request {Guid}. Exception type: {ExceptionType}", 
+                request.Guid, ex.GetType().Name);
             throw new ProxyErrorException(
                 ProxyErrorException.ErrorType.ClientDisconnected,
                 HttpStatusCode.InternalServerError,
-                ex.Message);
+                $"{ex.GetType().Name}: {ex.Message}");
         }
         finally
         {
@@ -1455,6 +1457,8 @@ public class ProxyWorker
         double timeout = request.Timeout;
         CancellationTokenSource cts;
 
+        // ✅ Dispose old CTS before creating new one
+        _asyncExpelSource?.Dispose();
         if (request.runAsync)
         {
             timeout = _options.AsyncTimeout;
@@ -1466,8 +1470,6 @@ public class ProxyWorker
                 _ = request.asyncWorker.StartAsync();
             }
 
-            // ✅ Dispose old CTS before creating new one
-            _asyncExpelSource?.Dispose();
             _asyncExpelSource = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeout));
             cts = _asyncExpelSource;
         }
