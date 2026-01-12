@@ -21,6 +21,9 @@ HOSTMAP["local"]="localhost:8000||"
 HOSTMAP["openai3"]="nvmopenai3.openai.azure.com|openai|"
 HOSTMAP["nvm2"]="nvm2.openai.azure.com|openai|"
 HOSTMAP["foundry"]="localhost:8000|aif2/openai|"
+HOSTMAP["null"]="localhost:3000||"
+HOSTMAP["aca"]="simplel7dev.agreeableisland-74a4ba5f.eastus.azurecontainerapps.io|"
+HOSTMAP["aca-resp"]="simplel7dev.agreeableisland-74a4ba5f.eastus.azurecontainerapps.io|resp"
 # Add more host aliases as needed:
 # HOSTMAP["nvmtr3"]="nvmtr3apim.azure-api.net|somefolder|custom-api-key"
 
@@ -61,6 +64,7 @@ URLS["gemini-2.5-pro-stream"]="POST /file/gemini-2.5-pro-stream.txt"
 URLS["gpt5-nano-response"]="POST /file/gpt5-nano-response.txt"
 URLS["gpt5-nano"]="POST /file/gpt5-nano.txt"
 URLS["api"]="POST /openai/v1//chat/completions"
+URLS["echo"]="GET /echo/resource?param1=sample"
 
 
 # Parse command line arguments

@@ -1,7 +1,7 @@
 {
     "test_endpoint": "https://simplel7dev.agreeableisland-74a4ba5f.eastus.azurecontainerapps.io",
-    "duration_seconds": "5s",
-    "concurrency": 10,
+    "duration_seconds": "500s",
+    "concurrency": 500,
     "interrun_delay": "0ms",
     //"Entra_audience": "http://localhost:",
     //"Entra_clientID": "12345",
@@ -10,7 +10,7 @@
         {
             "name": "test1",
             "method": "GET",
-            "path": "/echo/resource?param1=sample1",
+            "path": "/api/delay",
             "timeout": "10s",
             "headers": {
               "test": "x",
