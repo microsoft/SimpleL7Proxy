@@ -10,38 +10,11 @@ using SimpleL7Proxy.ServiceBus;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.BackupAPI;
+using SimpleL7Proxy.Proxy;
+
+using Shared.HealthProbe;
 
 namespace SimpleL7Proxy.Proxy;
-
-/// <summary>
-/// Represents the different states a worker can be in during request processing
-/// </summary>
-public enum WorkerState
-{
-    /// <summary>Waiting to dequeue a request from the queue</summary>
-    Dequeuing = 0,
-    
-    /// <summary>Pre-processing the request (validation, setup)</summary>
-    PreProcessing = 1,
-    
-    /// <summary>Proxying the request to backend</summary>
-    Proxying = 2,
-    
-    /// <summary>Sending request to backend</summary>
-    Sending = 3,
-    
-    /// <summary>Receiving response from backend</summary>
-    Receiving = 4,
-    
-    /// <summary>Writing response to client</summary>
-    Writing = 5,
-    
-    /// <summary>Reporting/logging request results</summary>
-    Reporting = 6,
-    
-    /// <summary>Cleaning up request resources</summary>
-    Cleanup = 7
-}
 
 /// <summary>
 /// Optimized health check service that handles probe endpoints (/health, /readiness, /startup, /liveness).
@@ -81,7 +54,7 @@ public class HealthCheckService
     private static int _cleanupCount = 0;
 
     public static int ActiveWorkers => _activeWorkers;
-    public static bool IsReadyToWork => _readyToWork;
+    public static bool IsReadyToWork => System.Threading.Volatile.Read(ref _readyToWork);
     
     public HealthCheckService(
         IBackendService backends,
@@ -222,13 +195,14 @@ public class HealthCheckService
     /// <summary>
     /// Increment the active worker count and set ready status if all workers are active
     /// </summary>
-    public static void IncrementActiveWorkers(int totalWorkers)
+    public static int IncrementActiveWorkers(int totalWorkers)
     {
         int count = Interlocked.Increment(ref _activeWorkers);
         if (totalWorkers == count)
         {
-            _readyToWork = true;
+            System.Threading.Volatile.Write(ref _readyToWork, true);
         }
+        return count;
     }
 
     /// <summary>
@@ -246,72 +220,39 @@ public class HealthCheckService
         }
     }
 
-    /// <summary>
-    /// Processes a health check probe request and returns the appropriate status and message.
-    /// </summary>
-    /// <param name="path">The probe endpoint path (/health, /readiness, /startup, /liveness, /shutdown)</param>
-    /// <param name="probeStatus">Output: HTTP status code for the probe</param>
-    /// <param name="probeMessage">Output: Response message for the probe</param>
-    public void GetProbeResponse(string path, out int probeStatus, out string probeMessage)
+    public async Task HealthResponseAsync(HttpListenerContext lc)
     {
-        probeStatus = 200;
-        probeMessage = "OK\n";
-
-        // Cache these to avoid repeatedly calling the same methods
         int hostCount = _backends.ActiveHostCount();
         bool hasFailedHosts = _backends.CheckFailedStatus();
+        BuildHealthResponse(hostCount, hasFailedHosts, out int probeStatus, out string probeMessage);
 
-        switch (path)
+        try
         {
-            case Constants.Health:
-                BuildHealthResponse(hostCount, hasFailedHosts, out probeStatus, out probeMessage);
-                break;
+            lc.Response.ContentType = "text/plain";
+            lc.Response.Headers["Cache-Control"] = "no-cache";
+            lc.Response.Headers["Connection"] = "close";
 
-            case Constants.Readiness:
-            case Constants.Startup:
-                BuildReadinessResponse(hostCount, out probeStatus, out probeMessage);
-                break;
+            switch (probeStatus)
+            {
+                case 200:
+                    lc.Response.StatusCode = (int)HttpStatusCode.OK;
+                    break;
+                default:
+                    lc.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
+                    break;
+            }
 
-            case Constants.Liveness:
-                BuildLivenessResponse(hostCount, hasFailedHosts, out probeStatus, out probeMessage);
-                break;
-
-            case Constants.Shutdown:
-                // Shutdown is a signal to unwedge workers and shut down gracefully
-                break;
+            lc.Response.ContentLength64 = probeMessage.Length;
+            await lc.Response.OutputStream.WriteAsync(Encoding.UTF8.GetBytes(probeMessage), 0, probeMessage.Length);
         }
-    }
-
-    /// <summary>
-    /// Handles a probe request by processing it and writing the response to the HTTP context.
-    /// This method encapsulates the complete probe handling logic.
-    /// </summary>
-    /// <param name="path">The probe endpoint path</param>
-    /// <param name="context">The HTTP listener context to write the response to</param>
-    /// <param name="eventData">Event data for logging probe details</param>
-    /// <returns>A task representing the asynchronous operation</returns>
-    public async Task HandleProbeRequestAsync(string path, HttpListenerContext context, ProxyEvent eventData)
-    {
-        GetProbeResponse(path, out int probeStatus, out string probeMessage);
-
-        context.Response.StatusCode = probeStatus;
-        context.Response.ContentType = "text/plain";
-        context.Response.Headers.Add("Cache-Control", "no-cache");
-        context.Response.KeepAlive = false;
-
-        var healthMessage = Encoding.UTF8.GetBytes(probeMessage);
-        context.Response.ContentLength64 = healthMessage.Length;
-
-        await context.Response.OutputStream.WriteAsync(
-            healthMessage,
-            0,
-            healthMessage.Length).ConfigureAwait(false);
-
-        // Update event data for logging
-        eventData["Probe"] = path;
-        eventData["ProbeStatus"] = probeStatus.ToString();
-        eventData["ProbeMessage"] = probeMessage;
-        eventData.Type = EventType.Probe;
+        finally
+        {
+            try
+            {
+                lc.Response.Close();
+            }
+            catch { }
+        }   
     }
 
     private void BuildHealthResponse(int hostCount, bool hasFailedHosts, out int probeStatus, out string probeMessage)
@@ -336,6 +277,24 @@ public class HealthCheckService
                     .Append(hostCount)
                     .Append("  -  ")
                     .Append(hasFailedHosts ? "FAILED HOSTS" : "All Hosts Operational")
+                    .Append('\n');
+
+                // ThreadPool availability snapshot
+                ThreadPool.GetAvailableThreads(out int workersAvailable, out int ioAvailable);
+                ThreadPool.GetMinThreads(out int workersMin, out int ioMin);
+                ThreadPool.GetMaxThreads(out int workersMax, out int ioMax);
+                _stringBuilder.Append("ThreadPool:\n  Workers - Available/Min/Max: ")
+                    .Append(workersAvailable)
+                    .Append(" / ")
+                    .Append(workersMin)
+                    .Append(" / ")
+                    .Append(workersMax)
+                    .Append("\n  IOCP    - Available/Min/Max: ")
+                    .Append(ioAvailable)
+                    .Append(" / ")
+                    .Append(ioMin)
+                    .Append(" / ")
+                    .Append(ioMax)
                     .Append('\n');
 
                 var hosts = _backends.GetHosts();
@@ -469,31 +428,46 @@ public class HealthCheckService
         }
     }
 
-    private void BuildReadinessResponse(int hostCount, out int probeStatus, out string probeMessage)
+    public HealthStatusEnum GetReadinessStatus()
     {
-        if (!IsReadyToWork || hostCount == 0)
+        if (!IsReadyToWork)
         {
-            probeStatus = 503;
-            probeMessage = $"Not Ready .. hostCount = {hostCount} readyToWork = {IsReadyToWork}";
+            return HealthStatusEnum.ReadinessZeroHosts;
         }
-        else
-        {
-            probeStatus = 200;
-            probeMessage = "OK\n";
-        }
-    }
 
-    private void BuildLivenessResponse(int hostCount, bool hasFailedHosts, out int probeStatus, out string probeMessage)
-    {
+        int hostCount = _backends.ActiveHostCount();
         if (hostCount == 0)
         {
-            probeStatus = 503;
-            probeMessage = $"Not Lively.  Active Hosts: {hostCount} Failed Hosts: {hasFailedHosts}";
+            return HealthStatusEnum.ReadinessZeroHosts;
         }
-        else
+
+        if (_backends.CheckFailedStatus())
         {
-            probeStatus = 200;
-            probeMessage = "OK\n";
+            return HealthStatusEnum.ReadinessFailedHosts;
         }
+
+        return HealthStatusEnum.ReadinessReady;
+        
+    }
+
+    public HealthStatusEnum GetStartupStatus() {
+
+        if (!IsReadyToWork)
+        {
+            return HealthStatusEnum.StartupZeroHosts;
+        }
+
+        int hostCount = _backends.ActiveHostCount();
+        if (hostCount == 0)
+        {
+            return HealthStatusEnum.StartupZeroHosts;
+        }
+
+        if (_backends.CheckFailedStatus())
+        {
+            return HealthStatusEnum.StartupFailedHosts;
+        }
+
+        return HealthStatusEnum.StartupReady;   
     }
 }
