@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
+using System.Diagnostics;
 using System.Threading;
 using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.BlobStorage;
@@ -16,6 +17,8 @@ using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.ServiceBus;
 using System.Text;
+
+using Shared.HealthProbe;
 
 
 namespace SimpleL7Proxy;
@@ -39,9 +42,13 @@ public class Server : BackgroundService
     private readonly IBlobWriter _blobWriter;
     private static bool _isShuttingDown = false;
     private readonly string _priorityHeaderName;
+    private readonly HealthCheckService _healthService;
 
     private readonly IEventClient? _eventHubClient;
     private static ProxyEvent _staticEvent = new ProxyEvent();
+
+    private readonly ProbeServer _probeServer;
+
 
     // public void enqueueShutdownRequest() {
     //     var shutdownRequest = new RequestData(Constants.Shutdown);
@@ -59,6 +66,8 @@ public class Server : BackgroundService
         IEventClient? eventHubClient,
         IBackendService backends,
         IBlobWriter blobWriter,
+        HealthCheckService healthService,
+        ProbeServer probeServer,
         ILogger<Server> logger)
     {
         ArgumentNullException.ThrowIfNull(backendOptions, nameof(backendOptions));
@@ -69,9 +78,9 @@ public class Server : BackgroundService
         ArgumentNullException.ThrowIfNull(appLifetime, nameof(appLifetime));
         ArgumentNullException.ThrowIfNull(requestsQueue, nameof(requestsQueue));
         ArgumentNullException.ThrowIfNull(blobWriter, nameof(blobWriter));
+        ArgumentNullException.ThrowIfNull(healthService, nameof(healthService));
+        ArgumentNullException.ThrowIfNull(probeServer, nameof(probeServer));
         //ArgumentNullException.ThrowIfNull(serviceBusRequestService, nameof(serviceBusRequestService));
-
-
 
         _options = backendOptions.Value;
         _backends = backends;
@@ -80,13 +89,22 @@ public class Server : BackgroundService
         _userProfile = userProfile;
         _logger = logger;
         _blobWriter = blobWriter;
+        _healthService = healthService;
         _requestsQueue = requestsQueue;
         _priorityHeaderName = _options.PriorityKeyHeader;
+        _probeServer = probeServer;
 
         var _listeningUrl = $"http://+:{_options.Port}/";
 
         _httpListener = new HttpListener();
         _httpListener.Prefixes.Add(_listeningUrl);
+
+        // Initialize probe data pool to avoid allocations in hot path
+        // _probeDataPool = new ProbeData[ProbePoolSize];
+        // for (int i = 0; i < ProbePoolSize; i++)
+        // {
+        //     _probeDataPool[i] = new ProbeData();
+        // }
 
         var timeoutTime = TimeSpan.FromMilliseconds(_options.Timeout).ToString(@"hh\:mm\:ss\.fff");
         _logger.LogInformation($"[CONFIG] Server configuration - Port: {_options.Port} | Timeout: {timeoutTime} | Workers: {_options.Workers}");
@@ -141,7 +159,7 @@ public class Server : BackgroundService
 
         return backendStartTask.ContinueWith((x) => Run(cancellationToken), cancellationToken);
 
-    }
+    }  
 
     // Continuously listens for incoming HTTP requests and processes them.
     // Requests are enqueued with a priority based on specific headers.
@@ -154,6 +172,7 @@ public class Server : BackgroundService
         ArgumentNullException.ThrowIfNull(_options, nameof(_options));
 
         long counter = 0;
+        long pcounter = 0;
         int livenessPriority = _options.PriorityValues.Min();
         bool doUserProfile = _options.UseProfiles;
         // Only enable async mode if configured AND blob storage is available (not using NullBlobWriter)
@@ -177,6 +196,38 @@ public class Server : BackgroundService
                 // Cancel the delay task immedietly if the getContextTask completes first
                 if (completedTask == getContextTask)
                 {
+                    var lc = await getContextTask.ConfigureAwait(false);
+
+                    // if it's a probe, then bypass all the below checks and enqueue the request 
+                    if (Constants.probes.Contains(lc?.Request?.Url?.PathAndQuery))
+                    {
+                        // Get ProbeData from pool using modulo rotation
+                        var probePath = lc!.Request.Url!.PathAndQuery;
+                        // var probeData = _probeDataPool[pcounter % ProbePoolSize];
+                        Interlocked.Increment(ref pcounter);
+
+                        // Fast-path for probes to avoid queue and worker latency
+                        switch (probePath)
+                        {
+                            case Constants.Liveness:
+                                await _probeServer.LivenessResponseAsync(lc);
+                                break;
+                            case Constants.Readiness:
+                                await _probeServer.ReadinessResponseAsync(lc);
+                                break;
+                            case Constants.Startup:
+                                await _probeServer.StartupResponseAsync(lc);
+                                break;
+                            default:
+                                await _healthService.HealthResponseAsync(lc);
+                                break;
+
+                        }
+
+                        continue;
+                    }
+
+
                     int priority = _options.DefaultPriority;
                     int userPriorityBoost = 0;
                     var notEnqued = false;
@@ -188,7 +239,7 @@ public class Server : BackgroundService
                     var requestId = _options.IDStr + counter.ToString();
 
                     //delayCts.Cancel();
-                    var rd = new RequestData(await getContextTask.ConfigureAwait(false), requestId);
+                    var rd = new RequestData(lc, requestId);
                     ed = rd.EventData;
                     ed["Date"] = DateTime.UtcNow.ToString("o");
                     ed.Uri = rd.Context!.Request.Url!;
@@ -197,18 +248,6 @@ public class Server : BackgroundService
                     ed["Path"] = rd.Path ?? "N/A";
                     ed["RequestHost"] = rd.Headers["Host"] ?? "N/A";
                     ed["RequestUserAgent"] = rd.Headers["User-Agent"] ?? "N/A";
-                    // readiness probes:
-                    // if it's a probe, then bypass all the below checks and enqueue the request 
-                    if (Constants.probes.Contains(rd.Path))
-                    {
-
-                        // /startup runs a priority of 0,   otherwise run at highest priority ( lower is more urgent )
-                        priority = 0;//(rd.Path == Constants.Liveness || rd.Path == Constants.Health) ? livenessPriority : 0;
-
-                        // bypass all the below checks and enqueue the request
-                        _requestsQueue.Enqueue(rd, priority, userPriorityBoost, rd.EnqueueTime, true);
-                        continue;
-                    }
 
                     if (!_isShuttingDown)
                     {
