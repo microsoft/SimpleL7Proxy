@@ -12,7 +12,7 @@ public class ConcurrentSignal<T>
     // This is the main method to signal a task.  It will return a TaskCompletionSource that can be awaited.
     public Task<T> WaitForSignalAsync(int priority)
     {
-        var tcs = new TaskCompletionSource<T>();
+        var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
         var workerTask = new WorkerTask<T>(tcs, priority);
         if (priority == 0)
         {
