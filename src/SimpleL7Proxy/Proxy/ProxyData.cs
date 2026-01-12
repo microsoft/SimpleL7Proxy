@@ -2,7 +2,7 @@ using System.Net;
 
 namespace SimpleL7Proxy.Proxy;
 // This class represents the data returned from the downstream host.
-public class ProxyData
+public class ProxyData : IDisposable
 {
     public HttpStatusCode StatusCode { get; set; } = HttpStatusCode.OK;
     public WebHeaderCollection Headers { get; set; } = [];
@@ -27,5 +27,12 @@ public class ProxyData
         FullURL = "";
         BackendHostname = "";
         ResponseDate = DateTime.UtcNow;
+    }
+
+    public void Dispose()
+    {
+        Body = null; // Release large byte array immediately
+        Headers?.Clear();
+        ContentHeaders?.Clear();
     }
 }
