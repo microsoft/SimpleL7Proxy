@@ -143,8 +143,9 @@ public class Program
         }
         catch (Exception e)
         {
-            //Console.WriteLine(e.StackTrace);
+            Console.WriteLine(e.StackTrace);
             // Handle other exceptions that might occur
+
             startupLogger.LogError($"[ERROR] ✗ Unexpected startup error: {e.Message}");
             var pe = new ProxyEvent();
             pe.Type = EventType.Exception;
@@ -303,6 +304,10 @@ public class Program
         // services.AddSingleton<IBackgroundWorker, BackgroundWorker>();
 
         services.AddHostedService<Server>(provider => provider.GetRequiredService<Server>());
+
+        // Ensure ProbeServer updater runs as a background hosted service
+        services.AddSingleton<ProbeServer>();
+        services.AddHostedService(sp => sp.GetRequiredService<ProbeServer>());
 
         // ASYNC RELATED
         // Add storage service registration
