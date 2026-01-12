@@ -11,9 +11,16 @@ namespace SimpleL7Proxy.Backend
             get { return _hostname; }
             set
             {
-                // remove the protocol from the hostname if present
-                var uri = new Uri(value);
-                _hostname = uri.Host;
+                // Handle both full URIs (with scheme) and host-only strings
+                if (Uri.TryCreate(value, UriKind.Absolute, out var uri) || 
+                    Uri.TryCreate($"https://{value}", UriKind.Absolute, out uri))
+                {
+                    _hostname = uri.Host;
+                }
+                else
+                {
+                    throw new ArgumentException($"Invalid hostname: {value}", nameof(value));
+                }
             }
         }
         public string? IpAddr;
