@@ -125,6 +125,7 @@ public class EventHubClient : IEventClient, IHostedService
                 if (GetNextBatch(99) > 0)
                 {
                     await _producerClient.SendAsync(_batchData).ConfigureAwait(false);
+                    _batchData.Dispose();
                     _batchData = await _producerClient.CreateBatchAsync().ConfigureAwait(false);
                 }
 
@@ -148,6 +149,8 @@ public class EventHubClient : IEventClient, IHostedService
                 if (GetNextBatch(99) > 0)
                 {
                     await _producerClient.SendAsync(_batchData).ConfigureAwait(false);
+                    _batchData.Dispose();
+                    _batchData = await _producerClient.CreateBatchAsync().ConfigureAwait(false);
                 }
                 else
                 {
@@ -176,7 +179,8 @@ public class EventHubClient : IEventClient, IHostedService
                 break;
             }
 
-            if (_batchData.TryAdd(new EventData(Encoding.UTF8.GetBytes(log))))
+            var eventData = new EventData(Encoding.UTF8.GetBytes(log));
+            if (_batchData.TryAdd(eventData))
             {
                 Interlocked.Decrement(ref entryCount);
             }
