@@ -56,6 +56,10 @@ public class ProxyWorker
 
     private static string[] s_backendKeys = Array.Empty<string>();
 
+    // Static pre-allocated ProxyEvent objects for error scenarios to avoid expensive copy constructor
+    private static readonly ProxyEvent s_finallyBlockErrorEvent = new ProxyEvent(30);  // Base eventData (~20) + error fields (6) + buffer
+    private static readonly ProxyEvent s_backendRequestAttemptEvent = new ProxyEvent(25);  // Base eventData (~20) + attempt fields (7)
+
     public ProxyWorker(
         int id,
         int priority,
@@ -176,6 +180,30 @@ public class ProxyWorker
                 var eventData = incomingRequest.EventData;
                 try
                 {
+                    if (Constants.probes.Contains(incomingRequest.Path))
+                    {
+                        int hostCount = _backends.ActiveHostCount();
+                        bool hasFailedHosts = _backends.CheckFailedStatus();
+                        _healthCheckService.BuildHealthResponse(incomingRequest.Path, hostCount, hasFailedHosts, out int probeStatus, out string probeMessage);
+
+                        lcontext.Response.StatusCode = probeStatus;
+                        lcontext.Response.ContentType = "text/plain";
+                        lcontext.Response.Headers.Add("Cache-Control", "no-cache");
+                        lcontext.Response.KeepAlive = false;
+
+                        var healthMessage = Encoding.UTF8.GetBytes(probeMessage);
+                        lcontext.Response.ContentLength64 = healthMessage.Length;
+
+                        await lcontext.Response.OutputStream.WriteAsync(
+                            healthMessage,
+                            0,
+                            healthMessage.Length).ConfigureAwait(false);
+
+                        HealthCheckService.EnterState(_id, WorkerState.Cleanup);
+
+                        continue;
+                    }
+
 
                     // Set the initial status based on request type
                     _lifecycleManager.TransitionToProcessing(incomingRequest);
@@ -470,16 +498,29 @@ public class ProxyWorker
                     }
                     catch (Exception e)
                     {
-                        ProxyEvent errorEvent = new(eventData)
+                        // Reuse static error event
+                        s_finallyBlockErrorEvent.Clear();
+                        
+                        // Copy fields from eventData
+                        foreach (var kvp in eventData)
                         {
-                            Type = EventType.Exception,
-                            Exception = e,
-                            Status = HttpStatusCode.InternalServerError,
-                            ["WorkerState"] = workerState,
-                            ["Message"] = e.Message,
-                            ["StackTrace"] = e.StackTrace ?? "No Stack Trace"
-                        };
-                        errorEvent.SendEvent();
+                            s_finallyBlockErrorEvent[kvp.Key] = kvp.Value;
+                        }
+                        
+                        // Set error-specific properties
+                        s_finallyBlockErrorEvent.Type = EventType.Exception;
+                        s_finallyBlockErrorEvent.Exception = e;
+                        s_finallyBlockErrorEvent.Status = HttpStatusCode.InternalServerError;
+                        s_finallyBlockErrorEvent.MID = eventData.MID;
+                        s_finallyBlockErrorEvent.ParentId = eventData.ParentId;
+                        s_finallyBlockErrorEvent.Method = eventData.Method;
+                        s_finallyBlockErrorEvent.Duration = eventData.Duration;
+                        s_finallyBlockErrorEvent.Uri = eventData.Uri;
+                        s_finallyBlockErrorEvent["WorkerState"] = workerState;
+                        s_finallyBlockErrorEvent["Message"] = e.Message;
+                        s_finallyBlockErrorEvent["StackTrace"] = e.StackTrace ?? "No Stack Trace";
+                        
+                        s_finallyBlockErrorEvent.SendEvent();
                         _logger.LogError(e, "[Worker:{Id}] CRITICAL: Unhandled error in finally block for request {Guid}", _id, incomingRequest!.Guid);
                     }
 
@@ -653,18 +694,44 @@ public class ProxyWorker
                 request.Guid, host.Host, request.BackendAttempts);
             bool successfulRequest = false;
             string requestState = "Init";
+            // bool newcode = false;
+            ProxyEvent requestAttempt = null;
 
-            ProxyEvent requestAttempt = new(request.EventData)
-            {
-                Type = EventType.BackendRequest,
-                ParentId = request.ParentId,
-                MID = $"{request.MID}-{request.BackendAttempts}",
-                Method = request.Method,
-                ["Request-Date"] = DateTime.UtcNow.ToString("o"),
-                ["Backend-Host"] = host.Host,
-                ["Host-URL"] = host.Url,
-                ["Attempt"] = request.BackendAttempts.ToString()
-            };
+            // if (newcode) {
+            //     // Reuse static request attempt event
+            //     s_backendRequestAttemptEvent.Clear();
+                
+            //     // Copy essential fields from request.EventData
+            //     s_backendRequestAttemptEvent["EnqueueTime"] = request.EventData.TryGetValue("EnqueueTime", out var enqueueTime) ? enqueueTime : "N/A";
+            //     s_backendRequestAttemptEvent["RequestType"] = request.EventData.TryGetValue("RequestType", out var requestType) ? requestType : "N/A";
+            //     s_backendRequestAttemptEvent["Url"] = request.EventData.TryGetValue("Url", out var url) ? url : request.FullURL;
+                
+            //     // Set attempt-specific properties
+            //     s_backendRequestAttemptEvent.Type = EventType.BackendRequest;
+            //     s_backendRequestAttemptEvent.ParentId = request.ParentId;
+            //     s_backendRequestAttemptEvent.MID = $"{request.MID}-{request.BackendAttempts}";
+            //     s_backendRequestAttemptEvent.Method = request.Method;
+            //     s_backendRequestAttemptEvent["Request-Date"] = DateTime.UtcNow.ToString("o");
+            //     s_backendRequestAttemptEvent["Backend-Host"] = host.Host;
+            //     s_backendRequestAttemptEvent["Host-URL"] = host.Url;
+            //     s_backendRequestAttemptEvent["Attempt"] = request.BackendAttempts.ToString();
+                
+            //     requestAttempt = s_backendRequestAttemptEvent;                
+            // } else 
+            // {
+                requestAttempt = new ProxyEvent(request.EventData)
+                {
+                    Type = EventType.BackendRequest,
+                    ParentId = request.ParentId,
+                    MID = $"{request.MID}-{request.BackendAttempts}",
+                    Method = request.Method,
+                    ["Request-Date"] = DateTime.UtcNow.ToString("o"),
+                    ["Backend-Host"] = host.Host,
+                    ["Host-URL"] = host.Url,
+                    ["Attempt"] = request.BackendAttempts.ToString()
+                };
+
+            // }
 
             // Tracked as an attempt
             try
