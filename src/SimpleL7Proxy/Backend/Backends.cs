@@ -24,7 +24,7 @@ public class Backends : IBackendService
 {
   public List<BaseHostHealth> _backendHosts { get; set; }
   private List<BaseHostHealth> _activeHosts;
-  private readonly IHostHealthCollection _backendHostCollection; 
+  private readonly IHostHealthCollection _backendHostCollection;
 
   private readonly BackendOptions _options;
   private static readonly bool _debug = false;
@@ -41,6 +41,12 @@ public class Backends : IBackendService
   public bool CheckFailedStatus() => _circuitBreaker.CheckFailedStatus();
 
   private readonly IEventClient _eventClient;
+
+  // Reusable ProxyEvent instances for backend poller to reduce allocations
+  private readonly ProxyEvent _statusEvent = new ProxyEvent(8);
+  private readonly ProxyEvent _probeEvent = new ProxyEvent(8); 
+
+
   CancellationTokenSource workerCancelTokenSource = new CancellationTokenSource();
   private readonly ILogger<Backends> _logger;
   private static readonly ProxyEvent staticEvent = new ProxyEvent() { Type = EventType.Backend };
@@ -125,12 +131,12 @@ public class Backends : IBackendService
 
   public List<BaseHostHealth> GetSpecificPathHosts()
   {
-      return _backendHostCollection.SpecificPathHosts;
+    return _backendHostCollection.SpecificPathHosts;
   }
 
   public List<BaseHostHealth> GetCatchAllHosts()
   {
-      return _backendHostCollection.CatchAllHosts;
+    return _backendHostCollection.CatchAllHosts;
   }
   public async Task WaitForStartup(int timeout)
   {
@@ -269,14 +275,12 @@ public class Backends : IBackendService
     var probeableHost = (ProbeableHostHealth)host;
 
     double latency = 0;
-    ProxyEvent probeData = new()
-    {
-      ["ProxyHost"] = _options.HostName,
-      ["Backend-Host"] = host.Host,
-      ["Port"] = host.Port.ToString(),
-      ["Path"] = probeableHost.ProbePath,
-      Type = EventType.Poller
-    };
+    _probeEvent.Clear();
+    _probeEvent["ProxyHost"] = _options.HostName;
+    _probeEvent["Backend-Host"] = host.Host;
+    _probeEvent["Port"] = host.Port.ToString();
+    _probeEvent["Path"] = probeableHost.ProbePath;
+    _probeEvent.Type = EventType.Poller;
 
     try
     {
@@ -298,12 +302,17 @@ public class Backends : IBackendService
       try
       {
         // send and read the entire response
-        var response = await client.SendAsync(request, _cancellationToken);
-        var responseBody = await response.Content.ReadAsStringAsync(_cancellationToken);
-        response.EnsureSuccessStatusCode();
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, _cancellationToken);
 
-        probeData["Code"] = response.StatusCode.ToString();
+        _probeEvent["Code"] = response.StatusCode.ToString();
         _isRunning = true;
+
+        // CRITICAL: Drain the response body to allow connection reuse
+        // Without this, undrained responses accumulate and leak memory
+        if (response.Content != null)
+        {
+          await response.Content.ReadAsByteArrayAsync(_cancellationToken);
+        }
 
         // If the response is successful, add the host to the active hosts
         return response.IsSuccessStatusCode;
@@ -315,30 +324,56 @@ public class Backends : IBackendService
 
         // Update the host with the new latency
         host.AddLatency(latency);
-        probeData["Latency"] = latency.ToString() + " ms";
+        _probeEvent["Latency"] = latency.ToString() + " ms";
       }
     }
-    catch (TaskCanceledException e)
+    catch (UriFormatException e)
     {
-      probeData.Type = EventType.Exception;
-      probeData.Exception = e;
-      probeData["Code"] = "-";
-      probeData["Timeout"] = client.Timeout.TotalMilliseconds.ToString();
+      // WriteOutput($"Poller: Could not check probe: {e.Message}");
+      _probeEvent.Type = EventType.Exception;
+      _probeEvent.Exception = e;
+      //"S7P-Uri Format Exception";
+      _probeEvent["Code"] = "-";
+    }
+    catch (System.Threading.Tasks.TaskCanceledException e)
+    {
+      // WriteOutput($"Poller: Host Timeout: {host.host}");
+      _probeEvent.Type = EventType.Exception;
+      _probeEvent.Exception = e;
+      _probeEvent["Code"] = "-";
+      _probeEvent["Timeout"] = client.Timeout.TotalMilliseconds.ToString();
+    }
+    catch (HttpRequestException e)
+    {
+      // WriteOutput($"Poller: Host {host.host} is down with exception: {e.Message}");
+      _probeEvent.Type = EventType.Exception;
+      _probeEvent.Exception = e;
+      _probeEvent["Code"] = "-";
     }
     catch (OperationCanceledException)
     {
+      // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
       staticEvent.WriteOutput("Poller: Stopping the server.");
       throw; // Exit the loop
     }
+    catch (System.Net.Sockets.SocketException e)
+    {
+      // WriteOutput($"Poller: Host {host.host} is down:  {e.Message}");
+      _probeEvent.Type = EventType.Exception;
+      _probeEvent.Exception = e;
+      _probeEvent["Code"] = "-";
+    }
     catch (Exception e)
     {
-      probeData.Type = EventType.Exception;
-      probeData.Exception = e;
-      probeData["Code"] = "-";
+      // Program.telemetryClient?.TrackException(e);
+      // WriteErrorOutput($"Poller: Error: {e.Message}");
+      _probeEvent.Type = EventType.Exception;
+      _probeEvent.Exception = e;
+      _probeEvent["Code"] = "-";
     }
     finally
     {
-      probeData.SendEvent();
+      _probeEvent.SendEvent();
     }
 
     return false;
@@ -387,14 +422,13 @@ public class Backends : IBackendService
   // Display the status of the hosts
   private void DisplayHostStatus()
   {
-    ProxyEvent statusEvent = new ProxyEvent
-    {
-      Type = EventType.Backend,
-      ["Timestamp"] = DateTime.UtcNow.ToString("o"),
-      ["LoadBalanceMode"] = _options.LoadBalanceMode,
-      ["ActiveHostsCount"] = ActiveHostCount().ToString(),
-      ["SuccessRate"] = _successRate.ToString()
-    };
+    // Reuse and clear the status event instance
+    _statusEvent.Clear();
+    _statusEvent.Type = EventType.Backend;
+    _statusEvent["Timestamp"] = DateTime.UtcNow.ToString("o");
+    _statusEvent["LoadBalanceMode"] = _options.LoadBalanceMode;
+    _statusEvent["ActiveHostsCount"] = ActiveHostCount().ToString();
+    _statusEvent["SuccessRate"] = _successRate.ToString();
 
     StringBuilder sb = new StringBuilder();
     sb.Append("\n\n============ Host Status =========\n");
@@ -417,16 +451,16 @@ public class Backends : IBackendService
 
         sb.Append($"{statusIndicator} Host: {host.Url} Lat: {roundedLatency}ms Succ: {successRatePercentage}% {hoststatus}\n");
 
-        statusEvent[$"{counter}-Host"] = host.ToString();
-        statusEvent[$"{counter}-Latency"] = roundedLatency.ToString();
-        statusEvent[$"{counter}-SuccessRate"] = successRatePercentage.ToString();
-        statusEvent[$"{counter}-Calls"] = calls.ToString();
-        statusEvent[$"{counter}-Errors"] = errors.ToString();
-        statusEvent[$"{counter}-Average"] = average.ToString();
-        statusEvent[$"{counter}-Status"] = statusIndicator;
+        _statusEvent[$"{counter}-Host"] = host.ToString();
+        _statusEvent[$"{counter}-Latency"] = roundedLatency.ToString();
+        _statusEvent[$"{counter}-SuccessRate"] = successRatePercentage.ToString();
+        _statusEvent[$"{counter}-Calls"] = calls.ToString();
+        _statusEvent[$"{counter}-Errors"] = errors.ToString();
+        _statusEvent[$"{counter}-Average"] = average.ToString();
+        _statusEvent[$"{counter}-Status"] = statusIndicator;
       }
 
-    statusEvent.SendEvent();
+    _statusEvent.SendEvent();
 
     _lastStatusDisplay = DateTime.Now;
     HostStatus = sb.ToString();
