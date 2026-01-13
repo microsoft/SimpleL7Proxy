@@ -28,66 +28,66 @@ public class EventHubClient : IEventClient, IHostedService
     private static int entryCount = 0;
     //public EventHubClient(string connectionString, string eventHubName, ILogger<EventHubClient>? logger = null)
 
-    public EventHubClient(EventHubConfig config, ILogger<EventHubClient> logger)
+    public EventHubClient(EventHubConfig? config, ILogger<EventHubClient> logger)
     {
         _config = config;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-
-        if ( (!string.IsNullOrEmpty(config.ConnectionString) && !string.IsNullOrEmpty(config.EventHubName)) ||
-             (!string.IsNullOrEmpty(config.EventHubNamespace) && !string.IsNullOrEmpty(config.EventHubName))
-           )
-        {
-            // we will try to start it up
-            return;
-        }
-
-        // We know that it won't be running.
-        isRunning = false;
-        _producerClient = null;
-        _batchData = null;
-        return;
-        
+        // All initialization happens in StartAsync
     }
 
     public int Count => _logBuffer.Count;
 
     public async Task StartAsync(CancellationToken cancellationToken) {
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(_config?.StartupSeconds ?? 10));
-        try {
-            if (!string.IsNullOrEmpty(_config?.ConnectionString))
-            {
+        // Handle null or invalid configuration gracefully - just don't start the service
+        if (_config == null)
+        {
+            _logger.LogInformation("EventHubClient configuration is null. EventHub will not be started.");
+            isRunning = false;
+            return;
+        }
 
+        // Validate configuration has minimum required information
+        bool hasConnectionString = !string.IsNullOrEmpty(_config.ConnectionString) && !string.IsNullOrEmpty(_config.EventHubName);
+        bool hasNamespace = !string.IsNullOrEmpty(_config.EventHubNamespace) && !string.IsNullOrEmpty(_config.EventHubName);
+        
+        if (!hasConnectionString && !hasNamespace)
+        {
+            _logger.LogInformation("EventHubClient configuration is incomplete. EventHub will not be started.");
+            isRunning = false;
+            return;
+        }
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(_config.StartupSeconds));
+        try {
+            if (!string.IsNullOrEmpty(_config.ConnectionString))
+            {
                 _producerClient = new EventHubProducerClient(_config.ConnectionString, _config.EventHubName);
             }
-            else if ( !string.IsNullOrEmpty(_config?.EventHubNamespace) && !string.IsNullOrEmpty(_config?.EventHubName) )
+            else if (!string.IsNullOrEmpty(_config.EventHubNamespace))
             {
                 var fullyQualifiedNamespace = _config.EventHubNamespace;
                 if (!fullyQualifiedNamespace.EndsWith(".servicebus.windows.net"))
-                    fullyQualifiedNamespace = $"{_config?.EventHubNamespace}.servicebus.windows.net";
+                    fullyQualifiedNamespace = $"{_config.EventHubNamespace}.servicebus.windows.net";
             
-                _producerClient = new EventHubProducerClient(fullyQualifiedNamespace, _config?.EventHubName, new Azure.Identity.DefaultAzureCredential());
-            } else
-            {
-                _logger.LogError("EventHubClient configuration is invalid. Missing connection information.");
-                throw new InvalidOperationException("EventHubClient configuration is invalid. Missing connection information.");
+                _producerClient = new EventHubProducerClient(fullyQualifiedNamespace, _config.EventHubName, new Azure.Identity.DefaultAzureCredential());
             }
             
-            _batchData = await _producerClient.CreateBatchAsync(cts.Token).ConfigureAwait(false);
+            _batchData = await _producerClient!.CreateBatchAsync(cts.Token).ConfigureAwait(false);
             workerCancelToken = cancellationTokenSource.Token;
             isRunning = true;
+            
+            _logger.LogCritical("[SERVICE] ✓ EventHub Client started successfully");
+            writerTask = Task.Run(() => EventWriter(workerCancelToken), workerCancelToken);
         }
         catch (OperationCanceledException) {
             _logger.LogError("EventHubClient setup timed out");
+            isRunning = false;
             throw new TimeoutException("EventHubClient setup timed out.");
         }
         catch (Exception ex) {
             _logger.LogError(ex, "Failed to setup EventHubClient");
+            isRunning = false;
             throw new Exception("Failed to setup EventHubClient.", ex);
-        }
-
-        _logger.LogCritical("[SERVICE] ✓ EventHub Client starting");
-        if (isRunning && _producerClient is not null && _batchData is not null) {
-            writerTask = Task.Run(() => EventWriter(workerCancelToken), workerCancelToken);
         }
     }
 
