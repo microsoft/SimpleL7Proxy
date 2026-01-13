@@ -172,7 +172,6 @@ public class Server : BackgroundService
         ArgumentNullException.ThrowIfNull(_options, nameof(_options));
 
         long counter = 0;
-        long pcounter = 0;
         int livenessPriority = _options.PriorityValues.Min();
         bool doUserProfile = _options.UseProfiles;
         // Only enable async mode if configured AND blob storage is available (not using NullBlobWriter)
@@ -203,8 +202,7 @@ public class Server : BackgroundService
                     {
                         // Get ProbeData from pool using modulo rotation
                         var probePath = lc!.Request.Url!.PathAndQuery;
-                        // var probeData = _probeDataPool[pcounter % ProbePoolSize];
-                        Interlocked.Increment(ref pcounter);
+                        var fallthrough = false;
 
                         // Fast-path for probes to avoid queue and worker latency
                         switch (probePath)
@@ -219,12 +217,13 @@ public class Server : BackgroundService
                                 await _probeServer.StartupResponseAsync(lc);
                                 break;
                             default:
-                                await _healthService.HealthResponseAsync(lc);
+                                fallthrough = true;
                                 break;
 
                         }
 
-                        continue;
+                        if (!fallthrough)
+                            continue;
                     }
 
 
@@ -248,6 +247,18 @@ public class Server : BackgroundService
                     ed["Path"] = rd.Path ?? "N/A";
                     ed["RequestHost"] = rd.Headers["Host"] ?? "N/A";
                     ed["RequestUserAgent"] = rd.Headers["User-Agent"] ?? "N/A";
+
+                    // if it's a probe, then bypass all the below checks and enqueue the request 
+                    if (Constants.probes.Contains(rd.Path))
+                    {
+
+                        // /startup runs a priority of 0,   otherwise run at highest priority ( lower is more urgent )
+                        priority = 0;//(rd.Path == Constants.Liveness || rd.Path == Constants.Health) ? livenessPriority : 0;
+
+                        // bypass all the below checks and enqueue the request
+                        _requestsQueue.Enqueue(rd, priority, userPriorityBoost, rd.EnqueueTime, true);
+                        continue;
+                    }
 
                     if (!_isShuttingDown)
                     {
