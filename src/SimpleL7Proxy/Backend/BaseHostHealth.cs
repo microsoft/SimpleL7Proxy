@@ -19,6 +19,7 @@ public abstract class BaseHostHealth
   public double CalculatedAverageLatency { get; set; }
 
   private const int MaxData = 50;
+  private const int MaxPxLatencyQueueSize = 1000; // Limit queue to prevent unbounded growth
   protected readonly Queue<double> _latencies = new();
 
   // Runtime performance tracking (separate from health checks)
@@ -41,6 +42,12 @@ public abstract class BaseHostHealth
   public void AddPxLatency(double latency)
   {
     _pxLatency.Enqueue(latency);
+
+    // Prevent unbounded growth - if queue exceeds limit, remove oldest entries
+    while (_pxLatency.Count > MaxPxLatencyQueueSize)
+    {
+        _pxLatency.TryDequeue(out _);
+    }
   }
 
   public void AddError()
