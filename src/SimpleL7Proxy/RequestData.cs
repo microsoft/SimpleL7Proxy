@@ -174,6 +174,25 @@ public class RequestData : IDisposable, IAsyncDisposable
         BackendOptionsStatic ??= backendOptions;
     }
 
+    /// <summary>
+    /// Parameterless constructor for pre-allocation (used by ProbeData)
+    /// </summary>
+    public RequestData()
+    {
+        Path = string.Empty;
+        Method = string.Empty;
+        Headers = new WebHeaderCollection();
+        Body = null;
+        Context = null;
+        Timestamp = DateTime.UtcNow;
+        ExpiresAt = DateTime.MinValue;
+        FullURL = string.Empty;
+        Debug = false;
+        MID = string.Empty;
+        OutputStream = null;
+    }
+
+    // Used by AsyncFeeder
     public RequestData(string id, Guid guid, string mid, string path, string method, DateTime enqueueTime, Dictionary<string, string> headers)
     {
         if (string.IsNullOrEmpty(path))
@@ -232,6 +251,7 @@ public class RequestData : IDisposable, IAsyncDisposable
         BodyBytes = bytes;
         Body = new MemoryStream(bytes);
     }
+
 
     public RequestData(HttpListenerContext context, string mid)
     {
