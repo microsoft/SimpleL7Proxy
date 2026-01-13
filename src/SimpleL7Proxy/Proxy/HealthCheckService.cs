@@ -32,17 +32,17 @@ public class HealthCheckService
     private readonly IServiceBusRequestService? _serviceBusRequestService;
     private readonly IBlobWriter? _blobWriter;
     private readonly Func<string> _getWorkerState;
-    
+
     // Cache for health check responses to reduce allocations
     private readonly StringBuilder _stringBuilder;
 
     // Worker state tracking - using individual fields for better clarity and performance
     private static int _activeWorkers = 0;
     private static bool _readyToWork = false;
-    
+
     // Track current state per worker ID
     private static readonly ConcurrentDictionary<int, WorkerState?> _workerCurrentState = new();
-    
+
     // State counters for each worker state (thread-safe via Interlocked operations)
     private static int _dequeueingCount = 0;
     private static int _preProcessingCount = 0;
@@ -55,7 +55,7 @@ public class HealthCheckService
 
     public static int ActiveWorkers => _activeWorkers;
     public static bool IsReadyToWork => System.Threading.Volatile.Read(ref _readyToWork);
-    
+
     public HealthCheckService(
         IBackendService backends,
         IOptions<BackendOptions> options,
@@ -75,7 +75,7 @@ public class HealthCheckService
         _blobWriter = blobWriter;
         _backupAPIService = backupAPIService;
         _getWorkerState = GetWorkerState;
-        
+
         // Pre-allocate StringBuilder to reduce allocations
         _stringBuilder = new StringBuilder(512);
     }
@@ -108,7 +108,7 @@ public class HealthCheckService
                 }
                 return newState;
             });
-        
+
         // If this is the first time we're seeing this worker, oldState will be the newState we just set
         // Otherwise, oldState is the previous value and we've already exited it in the update function
         if (oldState.Equals(newState))
@@ -212,7 +212,7 @@ public class HealthCheckService
     public static void DecrementActiveWorkers(int workerId)
     {
         Interlocked.Decrement(ref _activeWorkers);
-        
+
         // Exit the worker's current state if it has one
         if (_workerCurrentState.TryRemove(workerId, out var currentState) && currentState.HasValue)
         {
@@ -220,211 +220,297 @@ public class HealthCheckService
         }
     }
 
-    public async Task HealthResponseAsync(HttpListenerContext lc)
+    // public async Task HealthResponseAsync(HttpListenerContext lc)
+    // {
+    //     int hostCount = _backends.ActiveHostCount();
+    //     bool hasFailedHosts = _backends.CheckFailedStatus();
+    //     BuildHealthResponse(hostCount, hasFailedHosts, out int probeStatus, out string probeMessage);
+
+    //     try
+    //     {
+    //         lc.Response.ContentType = "text/plain";
+    //         lc.Response.Headers["Cache-Control"] = "no-cache";
+    //         lc.Response.Headers["Connection"] = "close";
+
+    //         switch (probeStatus)
+    //         {
+    //             case 200:
+    //                 lc.Response.StatusCode = (int)HttpStatusCode.OK;
+    //                 break;
+    //             default:
+    //                 lc.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
+    //                 break;
+    //         }
+
+    //         lc.Response.ContentLength64 = probeMessage.Length;
+    //         await lc.Response.OutputStream.WriteAsync(Encoding.UTF8.GetBytes(probeMessage), 0, probeMessage.Length);
+    //     }
+    //     finally
+    //     {
+    //         try
+    //         {
+    //             lc.Response.Close();
+    //         }
+    //         catch { }
+    //     }   
+    // }
+
+    public void BuildHealthResponse(string path, int hostCount, bool hasFailedHosts, out int probeStatus, out string probeMessage)
     {
-        int hostCount = _backends.ActiveHostCount();
-        bool hasFailedHosts = _backends.CheckFailedStatus();
-        BuildHealthResponse(hostCount, hasFailedHosts, out int probeStatus, out string probeMessage);
-
-        try
+        switch (path)
         {
-            lc.Response.ContentType = "text/plain";
-            lc.Response.Headers["Cache-Control"] = "no-cache";
-            lc.Response.Headers["Connection"] = "close";
-
-            switch (probeStatus)
-            {
-                case 200:
-                    lc.Response.StatusCode = (int)HttpStatusCode.OK;
-                    break;
-                default:
-                    lc.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
-                    break;
-            }
-
-            lc.Response.ContentLength64 = probeMessage.Length;
-            await lc.Response.OutputStream.WriteAsync(Encoding.UTF8.GetBytes(probeMessage), 0, probeMessage.Length);
-        }
-        finally
-        {
-            try
-            {
-                lc.Response.Close();
-            }
-            catch { }
-        }   
-    }
-
-    private void BuildHealthResponse(int hostCount, bool hasFailedHosts, out int probeStatus, out string probeMessage)
-    {
-        if (hostCount == 0 || hasFailedHosts)
-        {
-            probeStatus = 503;
-            probeMessage = $"Not Healthy.  Active Hosts: {hostCount} Failed Hosts: {hasFailedHosts}\n";
-        }
-        else
-        {
-            // Use pre-allocated StringBuilder to reduce allocations
-            lock (_stringBuilder)
-            {
-                _stringBuilder.Clear();
-                _stringBuilder.Append("Replica: ")
-                    .Append(_options.HostName)
-                    .Append("".PadRight(30))
-                    .Append(" SimpleL7Proxy: ")
-                    .Append(Constants.VERSION)
-                    .Append("\nBackend Hosts:\n  Active Hosts: ")
-                    .Append(hostCount)
-                    .Append("  -  ")
-                    .Append(hasFailedHosts ? "FAILED HOSTS" : "All Hosts Operational")
-                    .Append('\n');
-
-                // ThreadPool availability snapshot
-                ThreadPool.GetAvailableThreads(out int workersAvailable, out int ioAvailable);
-                ThreadPool.GetMinThreads(out int workersMin, out int ioMin);
-                ThreadPool.GetMaxThreads(out int workersMax, out int ioMax);
-                _stringBuilder.Append("ThreadPool:\n  Workers - Available/Min/Max: ")
-                    .Append(workersAvailable)
-                    .Append(" / ")
-                    .Append(workersMin)
-                    .Append(" / ")
-                    .Append(workersMax)
-                    .Append("\n  IOCP    - Available/Min/Max: ")
-                    .Append(ioAvailable)
-                    .Append(" / ")
-                    .Append(ioMin)
-                    .Append(" / ")
-                    .Append(ioMax)
-                    .Append('\n');
-
-                var hosts = _backends.GetHosts();
-                if (hosts.Count > 0)
+            case Constants.ForceGC:
                 {
-                    foreach (var host in hosts)
+                    probeStatus = 200;
+                    probeMessage = "Garbage Collection Forced\n";
+                    var sb = new StringBuilder();
+                    sb.Append("Replica: ")
+                        .Append(_options.HostName)
+                        .Append("".PadRight(30))
+                        .Append(" SimpleL7Proxy: ")
+                        .Append(Constants.VERSION)
+                        .Append("\nBackend Hosts:\n  Active Hosts: ")
+                        .Append(hostCount)
+                        .Append("  -  ")
+                        .Append(hasFailedHosts ? "FAILED HOSTS" : "All Hosts Operational")
+                        .Append('\n');
+
+                    var gcMemInfo = GC.GetGCMemoryInfo();
+                    var process = System.Diagnostics.Process.GetCurrentProcess();
+                    sb.Append("\nMemory Statistics:\n")
+                        .Append("  Total Managed Memory: ")
+                        .Append((GC.GetTotalMemory(false) / 1024.0 / 1024.0).ToString("F2"))
+                        .Append(" MB\n  Working Set: ")
+                        .Append((process.WorkingSet64 / 1024.0 / 1024.0).ToString("F2"))
+                        .Append(" MB\n  Private Memory: ")
+                        .Append((process.PrivateMemorySize64 / 1024.0 / 1024.0).ToString("F2"))
+                        .Append(" MB\n  Heap Size: ")
+                        .Append((gcMemInfo.HeapSizeBytes / 1024.0 / 1024.0).ToString("F2"))
+                        .Append(" MB\n  Fragmented: ")
+                        .Append((gcMemInfo.FragmentedBytes / 1024.0 / 1024.0).ToString("F2"))
+                        .Append(" MB\n  Gen0 Collections: ")
+                        .Append(GC.CollectionCount(0))
+                        .Append("\n  Gen1 Collections: ")
+                        .Append(GC.CollectionCount(1))
+                        .Append("\n  Gen2 Collections: ")
+                        .Append(GC.CollectionCount(2))
+                        .Append("\n  High Memory Load: ")
+                        .Append((gcMemInfo.MemoryLoadBytes / 1024.0 / 1024.0).ToString("F2"))
+                        .Append(" MB\n");
+                    
+                    probeMessage += sb.ToString();
+
+                    GC.Collect(2, GCCollectionMode.Aggressive, true, true);
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect(2, GCCollectionMode.Aggressive, true, true);
+                }
+                break;
+
+            case Constants.Health:
+                {
+                    if (hostCount == 0 || hasFailedHosts)
                     {
-                        _stringBuilder.Append(" Name: ")
-                            .Append(host.Host)
-                            .Append("  Status: ")
-                            .Append(host.GetStatus(out int calls, out int errorCalls, out double average))
-                            .Append('\n');
+                        probeStatus = 503;
+                        probeMessage = $"Not Healthy.  Active Hosts: {hostCount} Failed Hosts: {hasFailedHosts}\n";
+                    }
+                    else
+                    {
+                        // Use pre-allocated StringBuilder to reduce allocations
+                        lock (_stringBuilder)
+                        {
+                            _stringBuilder.Clear();
+                            _stringBuilder.Append("Replica: ")
+                                .Append(_options.HostName)
+                                .Append("".PadRight(30))
+                                .Append(" SimpleL7Proxy: ")
+                                .Append(Constants.VERSION)
+                                .Append("\nBackend Hosts:\n  Active Hosts: ")
+                                .Append(hostCount)
+                                .Append("  -  ")
+                                .Append(hasFailedHosts ? "FAILED HOSTS" : "All Hosts Operational")
+                                .Append('\n');
+
+                            // ThreadPool availability snapshot
+                            ThreadPool.GetAvailableThreads(out int workersAvailable, out int ioAvailable);
+                            ThreadPool.GetMinThreads(out int workersMin, out int ioMin);
+                            ThreadPool.GetMaxThreads(out int workersMax, out int ioMax);
+                            _stringBuilder.Append("ThreadPool:\n  Workers - Available/Min/Max: ")
+                                .Append(workersAvailable)
+                                .Append(" / ")
+                                .Append(workersMin)
+                                .Append(" / ")
+                                .Append(workersMax)
+                                .Append("\n  IOCP    - Available/Min/Max: ")
+                                .Append(ioAvailable)
+                                .Append(" / ")
+                                .Append(ioMin)
+                                .Append(" / ")
+                                .Append(ioMax)
+                                .Append('\n');
+
+                            var hosts = _backends.GetHosts();
+                            if (hosts.Count > 0)
+                            {
+                                foreach (var host in hosts)
+                                {
+                                    _stringBuilder.Append(" Name: ")
+                                        .Append(host.Host)
+                                        .Append("  Status: ")
+                                        .Append(host.GetStatus(out int calls, out int errorCalls, out double average))
+                                        .Append('\n');
+                                }
+                            }
+                            else
+                            {
+                                _stringBuilder.Append("No Hosts\n");
+                            }
+
+                            // Add worker statistics
+                            _stringBuilder.Append("Worker Statistics:\n ")
+                                .Append(_getWorkerState())
+                                .Append('\n');
+
+                            // Add user priority queue state
+                            _stringBuilder.Append("User Priority Queue: ")
+                                .Append(_userPriority?.GetState() ?? "N/A")
+                                .Append('\n');
+
+                            // Add request queue count
+                            _stringBuilder.Append("Request Queue: ")
+                                .Append(_requestsQueue?.thrdSafeCount.ToString() ?? "N/A")
+                                .Append('\n');
+
+                            // Add event hub status
+                            _stringBuilder.Append("Event Hub: ");
+                            if (_eventClient != null)
+                            {
+                                _stringBuilder.Append("Enabled  -  ")
+                                    .Append(_eventClient.Count)
+                                    .Append(" Items");
+                            }
+                            else
+                            {
+                                _stringBuilder.Append("Disabled");
+                            }
+                            _stringBuilder.Append('\n');
+
+                            // Add backup API service statistics
+                            if (_backupAPIService != null)
+                            {
+                                var eventStats = _backupAPIService.GetEventStatistics();
+                                var errorStats = _backupAPIService.GetErrorStatistics();
+
+                                var eventsLastMin = eventStats[0];
+                                var eventsLast5Min = eventStats.Take(5).Sum(x => x.Value);
+                                var eventsLast10Min = eventStats.Values.Sum();
+
+                                var errorsLastMin = errorStats[0];
+                                var errorsLast5Min = errorStats.Take(5).Sum(x => x.Value);
+                                var errorsLast10Min = errorStats.Values.Sum();
+
+                                var totalAttempts = eventsLast10Min + errorsLast10Min;
+                                var errorRate = totalAttempts > 0 ? (double)errorsLast10Min / totalAttempts * 100 : 0;
+
+                                _stringBuilder.Append("Backup API Service:\n")
+                                    .Append("  Events (1/5/10 min): ")
+                                    .Append(eventsLastMin)
+                                    .Append(" / ")
+                                    .Append(eventsLast5Min)
+                                    .Append(" / ")
+                                    .Append(eventsLast10Min)
+                                    .Append("\n  Errors (1/5/10 min): ")
+                                    .Append(errorsLastMin)
+                                    .Append(" / ")
+                                    .Append(errorsLast5Min)
+                                    .Append(" / ")
+                                    .Append(errorsLast10Min)
+                                    .Append("\n  Error Rate (10min): ")
+                                    .Append(errorRate.ToString("F2"))
+                                    .Append("%\n");
+                            }
+                            else
+                            {
+                                _stringBuilder.Append("Backup API Service: Disabled\n");
+                            }
+
+                            // Add Service Bus statistics
+                            if (_serviceBusRequestService != null)
+                            {
+                                var sbStats = _serviceBusRequestService.GetStatistics();
+                                _stringBuilder.Append("Service Bus:\n")
+                                    .Append("  Status: ")
+                                    .Append(sbStats.isEnabled ? "Enabled" : "Disabled")
+                                    .Append("\n  Connection: ")
+                                    .Append(sbStats.connectionInfo ?? "N/A")
+                                    .Append("\n  Total Messages: ")
+                                    .Append(sbStats.totalMessages)
+                                    .Append("\n  Total Batches: ")
+                                    .Append(sbStats.totalBatches)
+                                    .Append("\n  Queue Depth: ")
+                                    .Append(sbStats.queueDepth)
+                                    .Append('\n');
+                            }
+                            else
+                            {
+                                _stringBuilder.Append("Service Bus: Not Configured\n");
+                            }
+
+                            // Add Blob Storage statistics
+                            if (_blobWriter != null)
+                            {
+                                var blobInfo = _blobWriter.GetConnectionInfo();
+                                _stringBuilder.Append("Blob Storage:\n")
+                                    .Append("  Connection: ")
+                                    .Append(blobInfo)
+                                    .Append("\n  Initialized: ")
+                                    .Append(_blobWriter.IsInitialized ? "Yes" : "No")
+                                    .Append("\n  Async Mode: ")
+                                    .Append(_options.AsyncModeEnabled ? "Enabled" : "Disabled")
+                                    .Append('\n');
+                            }
+                            else
+                            {
+                                _stringBuilder.Append("Blob Storage: Not Configured\n");
+                            }
+
+                            {
+                                // Memory and GC diagnostics
+                                var gcMemInfo = GC.GetGCMemoryInfo();
+                                var process = System.Diagnostics.Process.GetCurrentProcess();
+                                _stringBuilder.Append("\nMemory Statistics:\n")
+                                    .Append("  Total Managed Memory: ")
+                                    .Append((GC.GetTotalMemory(false) / 1024.0 / 1024.0).ToString("F2"))
+                                    .Append(" MB\n  Working Set: ")
+                                    .Append((process.WorkingSet64 / 1024.0 / 1024.0).ToString("F2"))
+                                    .Append(" MB\n  Private Memory: ")
+                                    .Append((process.PrivateMemorySize64 / 1024.0 / 1024.0).ToString("F2"))
+                                    .Append(" MB\n  Heap Size: ")
+                                    .Append((gcMemInfo.HeapSizeBytes / 1024.0 / 1024.0).ToString("F2"))
+                                    .Append(" MB\n  Fragmented: ")
+                                    .Append((gcMemInfo.FragmentedBytes / 1024.0 / 1024.0).ToString("F2"))
+                                    .Append(" MB\n  Gen0 Collections: ")
+                                    .Append(GC.CollectionCount(0))
+                                    .Append("\n  Gen1 Collections: ")
+                                    .Append(GC.CollectionCount(1))
+                                    .Append("\n  Gen2 Collections: ")
+                                    .Append(GC.CollectionCount(2))
+                                    .Append("\n  High Memory Load: ")
+                                    .Append((gcMemInfo.MemoryLoadBytes / 1024.0 / 1024.0).ToString("F2"))
+                                    .Append(" MB\n");
+                            }
+
+
+                            probeMessage = _stringBuilder.ToString();
+                        }
+                        probeStatus = 200;
                     }
                 }
-                else
-                {
-                    _stringBuilder.Append("No Hosts\n");
-                }
+                break;
 
-                // Add worker statistics
-                _stringBuilder.Append("Worker Statistics:\n ")
-                    .Append(_getWorkerState())
-                    .Append('\n');
-
-                // Add user priority queue state
-                _stringBuilder.Append("User Priority Queue: ")
-                    .Append(_userPriority?.GetState() ?? "N/A")
-                    .Append('\n');
-
-                // Add request queue count
-                _stringBuilder.Append("Request Queue: ")
-                    .Append(_requestsQueue?.thrdSafeCount.ToString() ?? "N/A")
-                    .Append('\n');
-
-                // Add event hub status
-                _stringBuilder.Append("Event Hub: ");
-                if (_eventClient != null)
-                {
-                    _stringBuilder.Append("Enabled  -  ")
-                        .Append(_eventClient.Count)
-                        .Append(" Items");
-                }
-                else
-                {
-                    _stringBuilder.Append("Disabled");
-                }
-                _stringBuilder.Append('\n');
-
-                // Add backup API service statistics
-                if (_backupAPIService != null)
-                {
-                    var eventStats = _backupAPIService.GetEventStatistics();
-                    var errorStats = _backupAPIService.GetErrorStatistics();
-                    
-                    var eventsLastMin = eventStats[0];
-                    var eventsLast5Min = eventStats.Take(5).Sum(x => x.Value);
-                    var eventsLast10Min = eventStats.Values.Sum();
-                    
-                    var errorsLastMin = errorStats[0];
-                    var errorsLast5Min = errorStats.Take(5).Sum(x => x.Value);
-                    var errorsLast10Min = errorStats.Values.Sum();
-                    
-                    var totalAttempts = eventsLast10Min + errorsLast10Min;
-                    var errorRate = totalAttempts > 0 ? (double)errorsLast10Min / totalAttempts * 100 : 0;
-                    
-                    _stringBuilder.Append("Backup API Service:\n")
-                        .Append("  Events (1/5/10 min): ")
-                        .Append(eventsLastMin)
-                        .Append(" / ")
-                        .Append(eventsLast5Min)
-                        .Append(" / ")
-                        .Append(eventsLast10Min)
-                        .Append("\n  Errors (1/5/10 min): ")
-                        .Append(errorsLastMin)
-                        .Append(" / ")
-                        .Append(errorsLast5Min)
-                        .Append(" / ")
-                        .Append(errorsLast10Min)
-                        .Append("\n  Error Rate (10min): ")
-                        .Append(errorRate.ToString("F2"))
-                        .Append("%\n");
-                }
-                else
-                {
-                    _stringBuilder.Append("Backup API Service: Disabled\n");
-                }
-
-                // Add Service Bus statistics
-                if (_serviceBusRequestService != null)
-                {
-                    var sbStats = _serviceBusRequestService.GetStatistics();
-                    _stringBuilder.Append("Service Bus:\n")
-                        .Append("  Status: ")
-                        .Append(sbStats.isEnabled ? "Enabled" : "Disabled")
-                        .Append("\n  Connection: ")
-                        .Append(sbStats.connectionInfo ?? "N/A")
-                        .Append("\n  Total Messages: ")
-                        .Append(sbStats.totalMessages)
-                        .Append("\n  Total Batches: ")
-                        .Append(sbStats.totalBatches)
-                        .Append("\n  Queue Depth: ")
-                        .Append(sbStats.queueDepth)
-                        .Append('\n');
-                }
-                else
-                {
-                    _stringBuilder.Append("Service Bus: Not Configured\n");
-                }
-
-                // Add Blob Storage statistics
-                if (_blobWriter != null)
-                {
-                    var blobInfo = _blobWriter.GetConnectionInfo();
-                    _stringBuilder.Append("Blob Storage:\n")
-                        .Append("  Connection: ")
-                        .Append(blobInfo)
-                        .Append("\n  Initialized: ")
-                        .Append(_blobWriter.IsInitialized ? "Yes" : "No")
-                        .Append("\n  Async Mode: ")
-                        .Append(_options.AsyncModeEnabled ? "Enabled" : "Disabled")
-                        .Append('\n');
-                }
-                else
-                {
-                    _stringBuilder.Append("Blob Storage: Not Configured\n");
-                }
-
-                probeMessage = _stringBuilder.ToString();
-            }
-            probeStatus = 200;
+            default:
+                probeStatus = 404;
+                probeMessage = "Unknown endpoint\n";
+                break;
         }
     }
 
@@ -447,10 +533,11 @@ public class HealthCheckService
         }
 
         return HealthStatusEnum.ReadinessReady;
-        
+
     }
 
-    public HealthStatusEnum GetStartupStatus() {
+    public HealthStatusEnum GetStartupStatus()
+    {
 
         if (!IsReadyToWork)
         {
@@ -468,6 +555,6 @@ public class HealthCheckService
             return HealthStatusEnum.StartupFailedHosts;
         }
 
-        return HealthStatusEnum.StartupReady;   
+        return HealthStatusEnum.StartupReady;
     }
 }
