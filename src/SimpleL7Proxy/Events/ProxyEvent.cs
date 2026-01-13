@@ -5,6 +5,7 @@ using Microsoft.ApplicationInsights.DataContracts;
 using System.Net;
 
 using SimpleL7Proxy.Config;
+using SimpleL7Proxy.User;
 
 namespace SimpleL7Proxy.Events
 {
@@ -20,6 +21,7 @@ namespace SimpleL7Proxy.Events
     Exception,
     Poller,
     Probe,
+    ProfileError,
     ProxyError,
     ProxyRequest,
     ProxyRequestEnqueued,
@@ -34,10 +36,11 @@ namespace SimpleL7Proxy.Events
     private static IOptions<BackendOptions> _options = null!;
     private static IEventClient? _eventHubClient;
     private static TelemetryClient? _telemetryClient;
+    private static readonly Uri LOCALHOSTURI = new Uri("http://localhost"); 
 
     public EventType Type { get; set; } = EventType.Console;
     public HttpStatusCode Status { get; set; } = 0;
-    public Uri Uri { get; set; } = new Uri("http://localhost");
+    public Uri Uri { get; set; } = LOCALHOSTURI;
     public string? MID { get; set; } = "";
     public string? ParentId { get; set; } = "";
     public string? Method { get; set; } = "GET";
@@ -54,11 +57,15 @@ namespace SimpleL7Proxy.Events
       _telemetryClient = telemetryClient ?? throw new ArgumentNullException(nameof(telemetryClient));
 
     }
-    public ProxyEvent() : base()
+
+    public ProxyEvent() : base(1, 20, StringComparer.OrdinalIgnoreCase)
     {
-      base["Ver"] = Constants.VERSION;
-      base["Revision"] = _options.Value.Revision;
-      base["ContainerApp"] = _options.Value.ContainerApp;
+      // Ver, Revision, ContainerApp added at send time, not stored
+    }
+
+    public ProxyEvent(int capacity) : base(1, capacity, StringComparer.OrdinalIgnoreCase)
+    {
+      // Ver, Revision, ContainerApp added at send time, not stored
     }
 
     public ProxyEvent(ProxyEvent other) : base(other)
@@ -148,6 +155,9 @@ namespace SimpleL7Proxy.Events
 
         this["Status"] = ((int)Status).ToString();
         this["Method"] = Method ?? "GET"; // Default to GET if Method is null
+        
+        // Add replica-lifetime values at send time
+        
         if (_telemetryClient is not null)
         {
           if (logDependency) TrackDependancy();
@@ -160,6 +170,9 @@ namespace SimpleL7Proxy.Events
         {
           this["Type"] = "S7P-" + Type.ToString();
           this["MID"] = MID ?? "N/A";
+          this["Ver"] = Constants.VERSION;
+          this["Revision"] = _options.Value.Revision;
+          this["ContainerApp"] = _options.Value.ContainerApp;
           // Send the event to Event Hub
           _eventHubClient.SendData(this);
         }
@@ -219,6 +232,10 @@ namespace SimpleL7Proxy.Events
       // Set the timestamp
       dependencyTelemetry.Timestamp = DateTimeOffset.UtcNow.Subtract(Duration);
       dependencyTelemetry.Id = MID;
+      dependencyTelemetry.Properties["Ver"] = Constants.VERSION;
+      dependencyTelemetry.Properties["Revision"] = _options.Value.Revision;
+      dependencyTelemetry.Properties["ContainerApp"] = _options.Value.ContainerApp;
+
       // Add custom properties
       foreach (var kvp in this)
       {
@@ -259,6 +276,9 @@ namespace SimpleL7Proxy.Events
 
       // Add a special flag to mark this as our custom telemetry
       requestTelemetry.Properties["CustomTracked"] = "true";
+      requestTelemetry.Properties["Ver"] = Constants.VERSION;
+      requestTelemetry.Properties["Revision"] = _options.Value.Revision;
+      requestTelemetry.Properties["ContainerApp"] = _options.Value.ContainerApp;
 
       foreach (var kvp in this)
       {
@@ -272,6 +292,10 @@ namespace SimpleL7Proxy.Events
     {
       this["ExceptionType"] = Exception?.GetType().ToString() ?? "Unknown";
       this["Message"] = Exception?.Message ?? "No exception message";
+      this["Ver"] = Constants.VERSION;
+      this["Revision"] = _options.Value.Revision;
+      this["ContainerApp"] = _options.Value.ContainerApp;
+
       _telemetryClient?.TrackException(Exception, this.ToDictionary());
     }
 
@@ -385,5 +409,16 @@ namespace SimpleL7Proxy.Events
       // Convert the ProxyEvent to a dictionary for telemetry
       return this.ToDictionary((kvp) => kvp.Key, (kvp) => kvp.Value, StringComparer.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// Clears all dictionary entries and resets properties to release memory.
+    /// Call this after SendEvent() to prevent memory leaks.
+    /// </summary>
+    public void ClearEventData()
+    {
+      base.Clear();
+      Exception = null;
+    }
   }
+
 }
