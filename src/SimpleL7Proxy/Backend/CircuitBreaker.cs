@@ -14,12 +14,13 @@ public class CircuitBreaker : ICircuitBreaker
     private ConcurrentQueue<DateTime> hostFailureTimes2 = new();
     private readonly int _failureThreshold;
     private readonly int _failureTimeFrame;
-    private readonly int[] _allowableCodes;
+    private readonly HashSet<int> _allowableCodes;
     private readonly ILogger<CircuitBreaker> _logger;
     
     // Global counters using Interlocked operations
     private static int _totalCircuitBreakersCount = 0;
     private static int _blockedCircuitBreakersCount = 0;
+    private readonly ProxyEvent _circuitBreakerEvent = new ProxyEvent(6);
     
     // Instance state tracking
     private bool _isCurrentlyBlocked = false;
@@ -34,7 +35,7 @@ public class CircuitBreaker : ICircuitBreaker
         var backendOptions = options.Value;
         _failureThreshold = backendOptions.CircuitBreakerErrorThreshold;
         _failureTimeFrame = backendOptions.CircuitBreakerTimeslice;
-        _allowableCodes = backendOptions.AcceptableStatusCodes ?? new[] { 200, 401, 403, 408, 410, 412, 417, 400 };
+        _allowableCodes = new HashSet<int>(backendOptions.AcceptableStatusCodes ?? new[] { 200, 401, 403, 408, 410, 412, 417, 400 });
         _logger = logger;
 
         // Register this circuit breaker globally
@@ -65,18 +66,15 @@ public class CircuitBreaker : ICircuitBreaker
         }
 
         hostFailureTimes2.Enqueue(now);
-        ProxyEvent logerror = new ProxyEvent()
-        {
-            ["ID"] = ID,
-            ["Code"] = code.ToString(),
-            ["Count"] = hostFailureTimes2.Count.ToString(),
-            ["Time"] = now.ToString(),
-            ["Success"] = (!wasFailure).ToString(),
-            ["State"] = state,
-            Type = EventType.CircuitBreakerError
-        };
+        // Reuse and clear the circuit breaker event instance
+        _circuitBreakerEvent.Clear();
+        _circuitBreakerEvent.Type = EventType.CircuitBreakerError;
+        _circuitBreakerEvent["Code"] = code.ToString();
+        _circuitBreakerEvent["Time"] = now.ToString();
+        _circuitBreakerEvent["Success"] = (!wasFailure).ToString();
+        _circuitBreakerEvent["Count"] = hostFailureTimes2.Count.ToString();
 
-        logerror.SendEvent();
+        _circuitBreakerEvent.SendEvent();
 
         _logger.LogCritical("[ERROR] Circuit breaker {ID} tracked error with code {Code} at {Time}. Total errors in timeslice: {Count}", 
             ID, code, now, hostFailureTimes2.Count);
