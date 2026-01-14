@@ -1,5 +1,10 @@
 # Release Notes #
 
+## V2.1.33.p5-2
+
+Proxy:
+* Fix possible loss of Ver, Revision, and ContainerApp in telemetry logging
+
 ## V2.1.33.p5 
 
 Repo:
