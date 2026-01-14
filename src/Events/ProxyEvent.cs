@@ -51,16 +51,16 @@ public class ProxyEvent : ConcurrentDictionary<string, string>
   
   public ProxyEvent() : base(1, 20, StringComparer.OrdinalIgnoreCase)
   {
-    base["Ver"] = Constants.VERSION;
-    base["Revision"] = _options.Value.Revision;
-    base["ContainerApp"] = _options.Value.ContainerApp;
+    // base["Ver"] = Constants.VERSION;
+    // base["Revision"] = _options.Value.Revision;
+    // base["ContainerApp"] = _options.Value.ContainerApp;
   }
 
   public ProxyEvent(int capacity) : base(1, capacity, StringComparer.OrdinalIgnoreCase)
   {
-    base["Ver"] = Constants.VERSION;
-    base["Revision"] = _options.Value.Revision;
-    base["ContainerApp"] = _options.Value.ContainerApp;
+    // base["Ver"] = Constants.VERSION;
+    // base["Revision"] = _options.Value.Revision;
+    // base["ContainerApp"] = _options.Value.ContainerApp;
   }
 
   public ProxyEvent(ProxyEvent other) : base(other)
@@ -191,6 +191,10 @@ public class ProxyEvent : ConcurrentDictionary<string, string>
       }
     }
 
+    eventTelemetry.Properties["Ver"] = Constants.VERSION;
+    eventTelemetry.Properties["Revision"] = _options.Value.Revision;
+    eventTelemetry.Properties["ContainerApp"] = _options.Value.ContainerApp;
+
     // Add all properties except MID and ParentId (which go in the operation context)
     foreach (var kvp in this)
     {
@@ -221,6 +225,10 @@ private void TrackDependancy()
     // Set the timestamp
     dependencyTelemetry.Timestamp = DateTimeOffset.UtcNow.Subtract(Duration);
     dependencyTelemetry.Id = MID;
+    dependencyTelemetry.Properties["Ver"] = Constants.VERSION;
+    dependencyTelemetry.Properties["Revision"] = _options.Value.Revision;
+    dependencyTelemetry.Properties["ContainerApp"] = _options.Value.ContainerApp;
+
     // Add custom properties
     foreach (var kvp in this)
     {
@@ -261,6 +269,9 @@ private void TrackDependancy()
 
     // Add a special flag to mark this as our custom telemetry
     requestTelemetry.Properties["CustomTracked"] = "true";
+    requestTelemetry.Properties["Ver"] = Constants.VERSION;
+    requestTelemetry.Properties["Revision"] = _options.Value.Revision;
+    requestTelemetry.Properties["ContainerApp"] = _options.Value.ContainerApp;
 
     foreach (var kvp in this)
     {
@@ -272,6 +283,10 @@ private void TrackDependancy()
 
   private void TrackException()
   {
+    this["Ver"] = Constants.VERSION;
+    this["Revision"] = _options.Value.Revision;
+    this["ContainerApp"] = _options.Value.ContainerApp;
+
     _telemetryClient?.TrackException(Exception, this.ToDictionary());
   }
 
