@@ -8,6 +8,7 @@ public class ProxyData : IDisposable
     public WebHeaderCollection Headers { get; set; } = [];
     public WebHeaderCollection ContentHeaders { get; set; } = [];
     public byte[]? Body { get; set; }
+    public HttpResponseMessage? BodyResponseMessage { get; set; } = null;
 
     public string FullURL { get; set; } = string.Empty;
 
@@ -32,6 +33,8 @@ public class ProxyData : IDisposable
     public void Dispose()
     {
         Body = null; // Release large byte array immediately
+        BodyResponseMessage?.Dispose();
+        BodyResponseMessage = null;
         Headers?.Clear();
         ContentHeaders?.Clear();
     }
