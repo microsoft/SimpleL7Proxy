@@ -57,8 +57,7 @@ namespace SimpleL7Proxy.Backend
     /// </summary>
     public bool CheckFailedStatus() => _circuitBreaker.CheckFailedStatus();
 
-    public Dictionary<string, string> GetCircuitBreakerStatus() => _circuitBreaker.GetCircuitBreakerStatus();
-
+    public string GetCircuitBreakerStatusString() => _circuitBreaker.GetCircuitBreakerStatusString();
 
     /// <summary>
     /// Initializes the HostConfig with required dependencies

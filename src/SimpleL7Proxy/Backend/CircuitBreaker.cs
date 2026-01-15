@@ -56,6 +56,7 @@ public class CircuitBreaker : ICircuitBreaker
         {
             return;
         }
+        _logger.LogCritical("Tracking failure for circuit breaker {ID} with code {Code} : codes {codes}", ID, code, string.Join(",", _allowableCodes));
 
         DateTime now = DateTime.UtcNow;
 
@@ -76,8 +77,8 @@ public class CircuitBreaker : ICircuitBreaker
 
         _circuitBreakerEvent.SendEvent();
 
-        _logger.LogCritical("[ERROR] Circuit breaker {ID} tracked error with code {Code} at {Time}. Total errors in timeslice: {Count}", 
-            ID, code, now, hostFailureTimes2.Count);
+        _logger.LogCritical("[CB-ERROR] cbid-{ID}, Error code: {Code}, Timeslice Errors: {Count}, State: {State}", 
+            ID, code, hostFailureTimes2.Count, state);
     }
 
     // returns true if the service is in failure state
@@ -110,14 +111,14 @@ public class CircuitBreaker : ICircuitBreaker
         {
             _isCurrentlyBlocked = true;
             Interlocked.Increment(ref _blockedCircuitBreakersCount);
-            _logger.LogDebug("Circuit breaker {ID} is now blocked. Blocked count: {BlockedCount}", 
+            _logger.LogCritical("[CB LOCK] ID: {ID}, Count: {BlockedCount}", 
                 ID, _blockedCircuitBreakersCount);
         }
         else if (!isCurrentlyFailed && _isCurrentlyBlocked)
         {
             _isCurrentlyBlocked = false;
             Interlocked.Decrement(ref _blockedCircuitBreakersCount);
-            _logger.LogDebug("Circuit breaker {ID} is no longer blocked. Blocked count: {BlockedCount}", 
+            _logger.LogCritical("[CB UNLOCK] ID: {ID}, Count: {BlockedCount}", 
                 ID, _blockedCircuitBreakersCount);
         }
         
@@ -164,8 +165,8 @@ public class CircuitBreaker : ICircuitBreaker
     /// <summary>
     /// Gets the current circuit breaker status details for logging and diagnostics
     /// </summary>
-    /// <returns>A dictionary with circuit breaker status information</returns>
-    public Dictionary<string, string> GetCircuitBreakerStatus()
+    /// <returns>A string with circuit breaker status information</returns>
+    public string GetCircuitBreakerStatusString()
     {
         DateTime now = DateTime.UtcNow;
         DateTime? oldestFailure = null;
@@ -186,18 +187,24 @@ public class CircuitBreaker : ICircuitBreaker
             }
         }
         
-        return new Dictionary<string, string>
+        TimeSpan delta = newestFailure.HasValue && oldestFailure.HasValue
+            ? newestFailure.Value - oldestFailure.Value
+            : TimeSpan.Zero;
+
+        var d= new Dictionary<string, string>
         {
-            ["ID"] = ID,
-            ["FailureCount"] = hostFailureTimes2.Count.ToString(),
-            ["FailureThreshold"] = _failureThreshold.ToString(),
-            ["TimeFrame"] = _failureTimeFrame.ToString(),
-            ["IsBlocked"] = _isCurrentlyBlocked.ToString(),
-            ["IsCurrentlyFailed"] = CheckFailedStatus().ToString(),
-            ["OldestFailure"] = oldestFailure?.ToString("o") ?? "None",
-            ["NewestFailure"] = newestFailure?.ToString("o") ?? "None",
-            ["SecondsUntilOldestExpires"] = timeUntilOldestExpires?.ToString("F1") ?? "N/A"
+            ["cbId"] = ID,
+            ["errCnt"] = hostFailureTimes2.Count.ToString(),
+            ["errMax"] = _failureThreshold.ToString(),
+            ["winSec"] = _failureTimeFrame.ToString(),
+            ["blocked"] = _isCurrentlyBlocked.ToString(),
+            ["failed"] = CheckFailedStatus().ToString(),
+            ["expIn"] = timeUntilOldestExpires?.ToString("F1") ?? "N/A",
+            ["span"] = delta.ToString("c")
         };
+
+        return $"FailureCount: {d["errCnt"]}/{d["errMax"]}, IsBlocked: {d["blocked"]}, SecondsUntilUnblock: {d["expIn"]}, OldestFailure: {d["span"]}, NewestFailure: {d["span"]}";
     }
+
 
 }
