@@ -286,7 +286,7 @@ public class ProxyWorker
                     eventData.Status = pr.StatusCode;
                     _eventDataBuilder.PopulateHeaderEventData(incomingRequest, pr.Headers);
 
-                    // Determine final status based on response
+                    // Update status based on response ( in async mode )
                     switch (pr.StatusCode)
                     {
                         case HttpStatusCode.PreconditionFailed:
@@ -304,6 +304,7 @@ public class ProxyWorker
                             _lifecycleManager.TransitionToFailed(incomingRequest, pr.StatusCode);
                             break;
                     }
+                    
 
                     // Connect the streams and write the response to the client
                     await WriteResponseAsync(incomingRequest, pr).ConfigureAwait(false);
@@ -659,11 +660,11 @@ public class ProxyWorker
         }
     }
 
-    // gets called when the application is shutting down to evict any in-progress async requests
     public void ExpelAsyncRequest()
     {
         if (_asyncExpelSource != null)
         {
+            // Called during shutdown to evict any in-progress async requests ... then worker will exit
             _isEvictingAsyncRequest = true;
             _logger.LogDebug("Expelling async request in progress, cancelling the token.");
             _asyncExpelSource.Cancel();
@@ -1501,7 +1502,11 @@ public class ProxyWorker
         string processWith = pr.StreamingProcessor ?? "DefaultStream";
         var proxyResponse = pr.BodyResponseMessage;
 
-        //?? throw new ArgumentNullException(nameof(pr.BodyResponseMessage), "Proxy response message is null");
+        if (proxyResponse == null)
+        {
+            _logger.LogError("Null Proxy response: Guid: {Guid}, Details: {details}", request.Guid, pr.ToString());
+            return;
+        }
 
         IStreamProcessor processor = _streamProcessorFactory.GetStreamProcessor(processWith, out string resolvedProcessor);
         MemoryStream? memoryBuffer = null;
@@ -1552,7 +1557,12 @@ public class ProxyWorker
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error streaming response for request {Guid}", request.Guid);
+            _logger.LogError(ex, "Error streaming response for request {Guid}. Type: {ExType}, Message: {ExMessage}, StackTrace: {StackTrace}, InnerException: {InnerEx}",
+                request.Guid, 
+                ex.GetType().FullName, 
+                ex.Message, 
+                ex.StackTrace,
+                ex.InnerException?.ToString() ?? "none");
             // throw new ProxyErrorException(
             //     ProxyErrorException.ErrorType.ClientDisconnected,
             //     HttpStatusCode.InternalServerError,
