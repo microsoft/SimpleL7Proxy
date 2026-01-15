@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Options;
 
 using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.Backend.Iterators;
 
 using Azure.Messaging.ServiceBus;
 
@@ -331,6 +332,23 @@ public class Program
 
         // Stream processor factory - optimized singleton for high-throughput scenarios
         services.AddSingleton<StreamProcessorFactory>();
+
+        // Shared Iterator Registry - conditionally registered based on UseSharedIterators option
+        // When enabled, requests to the same path share the same iterator for fair distribution
+        services.AddSingleton<ISharedIteratorRegistry>(sp =>
+        {
+            var options = sp.GetRequiredService<IOptions<BackendOptions>>().Value;
+            if (!options.UseSharedIterators)
+            {
+                // Return null - ProxyWorkerCollection handles null gracefully
+                return null!;
+            }
+            var logger = sp.GetRequiredService<ILogger<SharedIteratorRegistry>>();
+            return new SharedIteratorRegistry(
+                logger,
+                options.SharedIteratorTTLSeconds,
+                options.SharedIteratorCleanupIntervalSeconds);
+        });
 
         services.AddHostedService<ProxyWorkerCollection>();
         services.AddTransient(source => new CancellationTokenSource());

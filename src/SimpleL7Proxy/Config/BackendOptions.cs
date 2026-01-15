@@ -82,4 +82,24 @@ public class BackendOptions
     public string ValidateAuthAppFieldName { get; set; } = "";
     public string ValidateAuthAppIDHeader { get; set; } = "";
     public int Workers { get; set; }
+    
+    // Shared Iterator Settings
+    /// <summary>
+    /// When true, requests to the same path share the same host iterator,
+    /// ensuring fair round-robin distribution across concurrent requests.
+    /// Default: false (each request gets its own iterator)
+    /// </summary>
+    public bool UseSharedIterators { get; set; } = false;
+    
+    /// <summary>
+    /// How long (in seconds) an unused shared iterator lives before cleanup.
+    /// Default: 60 seconds
+    /// </summary>
+    public int SharedIteratorTTLSeconds { get; set; } = 60;
+    
+    /// <summary>
+    /// How often (in seconds) to run cleanup of stale shared iterators.
+    /// Default: 30 seconds
+    /// </summary>
+    public int SharedIteratorCleanupIntervalSeconds { get; set; } = 30;
 }

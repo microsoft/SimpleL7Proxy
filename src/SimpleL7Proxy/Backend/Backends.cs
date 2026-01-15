@@ -41,6 +41,7 @@ public class Backends : IBackendService
   public bool CheckFailedStatus() => _circuitBreaker.CheckFailedStatus();
 
   private readonly IEventClient _eventClient;
+  private readonly ISharedIteratorRegistry? _sharedIteratorRegistry;
 
   // Reusable ProxyEvent instances for backend poller to reduce allocations
   private readonly ProxyEvent _statusEvent = new ProxyEvent(8);
@@ -60,7 +61,8 @@ public class Backends : IBackendService
       IHostApplicationLifetime appLifetime,               //
       IEventClient? eventClient,
       CancellationTokenSource cancellationTokenSource,    //
-      ILogger<Backends> logger)
+      ILogger<Backends> logger,
+      ISharedIteratorRegistry? sharedIteratorRegistry = null)
   {
     if (options == null) throw new ArgumentNullException(nameof(options));
     if (options.Value == null) throw new ArgumentNullException(nameof(options.Value));
@@ -77,6 +79,7 @@ public class Backends : IBackendService
 
     _eventClient = eventClient;
     _circuitBreaker = circuitBreaker;
+    _sharedIteratorRegistry = sharedIteratorRegistry;
     _backendHostCollection = backendHostCollection;
     _backendHosts = backendHostCollection.Hosts;
     _options = options.Value;
@@ -401,6 +404,12 @@ public class Backends : IBackendService
     {
       InvalidateIteratorCache();
     }
+    else
+    {
+      // Even if host list didn't change, invalidate shared iterators
+      // so they get fresh latency ordering on next request
+      _sharedIteratorRegistry?.InvalidateAll();
+    }
   }
 
   /// <summary>
@@ -511,6 +520,9 @@ public class Backends : IBackendService
   private void InvalidateIteratorCache()
   {
     IteratorFactory.InvalidateCache();
+    
+    // Also invalidate shared iterators so they get fresh latency ordering
+    _sharedIteratorRegistry?.InvalidateAll();
   }
 
 }

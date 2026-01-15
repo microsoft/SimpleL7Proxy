@@ -262,4 +262,82 @@ public static class IteratorFactory
     /// Gets the current cache version for diagnostics.
     /// </summary>
     public static int GetCacheVersion() => _cacheVersion;
+
+    /// <summary>
+    /// Creates a SharedHostIterator for use with the SharedIteratorRegistry.
+    /// This creates a circular iterator that can be shared across multiple concurrent requests.
+    /// </summary>
+    /// <param name="backendService">The backend service to get active hosts from</param>
+    /// <param name="loadBalanceMode">Load balancing strategy (used for initial ordering)</param>
+    /// <param name="fullURL">The full URL for the request to filter hosts by path</param>
+    /// <param name="modifiedPath">Output: the path with matched prefix removed</param>
+    /// <returns>A SharedHostIterator configured for circular iteration</returns>
+    public static SharedHostIterator CreateSharedIterator(
+        IBackendService backendService,
+        string loadBalanceMode,
+        string fullURL,
+        out string modifiedPath)
+    {
+        // Get pre-categorized hosts from backend service
+        var specificHosts = backendService.GetSpecificPathHosts();
+        var catchAllHosts = backendService.GetCatchAllHosts();
+        
+        if ((specificHosts?.Count ?? 0) == 0 && (catchAllHosts?.Count ?? 0) == 0)
+        {
+            modifiedPath = fullURL;
+            return new SharedHostIterator(new List<BaseHostHealth>(), fullURL, IterationModeEnum.SinglePass);
+        }
+
+        // Extract path from fullURL to filter hosts
+        var requestPath = ExtractPathFromURL(fullURL);
+        var (filteredHosts, mp) = FilterHostsByPath(specificHosts!, catchAllHosts!, requestPath);
+        modifiedPath = mp;
+
+        // Order hosts based on load balance mode for initial distribution
+        var orderedHosts = loadBalanceMode switch
+        {
+            Constants.Latency => filteredHosts.OrderBy(h => h.CalculatedAverageLatency).ToList(),
+            Constants.Random => filteredHosts.OrderBy(_ => _threadRandom.Value!.Next()).ToList(),
+            _ => filteredHosts // Round-robin uses natural order
+        };
+
+        return new SharedHostIterator(orderedHosts, requestPath, IterationModeEnum.SinglePass);
+    }
+
+    /// <summary>
+    /// Gets the filtered hosts for a given path without creating an iterator.
+    /// Useful for the SharedIteratorRegistry to create SharedHostIterators.
+    /// </summary>
+    /// <param name="backendService">The backend service to get active hosts from</param>
+    /// <param name="loadBalanceMode">Load balancing strategy (used for initial ordering)</param>
+    /// <param name="fullURL">The full URL for the request to filter hosts by path</param>
+    /// <param name="modifiedPath">Output: the path with matched prefix removed</param>
+    /// <returns>List of filtered and ordered hosts</returns>
+    public static List<BaseHostHealth> GetFilteredHosts(
+        IBackendService backendService,
+        string loadBalanceMode,
+        string fullURL,
+        out string modifiedPath)
+    {
+        var specificHosts = backendService.GetSpecificPathHosts();
+        var catchAllHosts = backendService.GetCatchAllHosts();
+        
+        if ((specificHosts?.Count ?? 0) == 0 && (catchAllHosts?.Count ?? 0) == 0)
+        {
+            modifiedPath = fullURL;
+            return new List<BaseHostHealth>();
+        }
+
+        var requestPath = ExtractPathFromURL(fullURL);
+        var (filteredHosts, mp) = FilterHostsByPath(specificHosts!, catchAllHosts!, requestPath);
+        modifiedPath = mp;
+
+        // Order hosts based on load balance mode
+        return loadBalanceMode switch
+        {
+            Constants.Latency => filteredHosts.OrderBy(h => h.CalculatedAverageLatency).ToList(),
+            Constants.Random => filteredHosts.OrderBy(_ => _threadRandom.Value!.Next()).ToList(),
+            _ => filteredHosts
+        };
+    }
 }

@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Abstractions;
 using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.Backend.Iterators;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Queue;
@@ -30,6 +31,7 @@ public class ProxyWorkerCollection : BackgroundService
   private readonly HealthCheckService _healthCheckService;
   private readonly RequestLifecycleManager _lifecycleManager;
   private readonly EventDataBuilder _eventDataBuilder;
+  private readonly ISharedIteratorRegistry? _sharedIteratorRegistry;
   private static readonly List<ProxyWorker> _workers = new();
   private static readonly List<Task> _tasks = new();
 
@@ -48,7 +50,8 @@ public class ProxyWorkerCollection : BackgroundService
     StreamProcessorFactory streamProcessorFactory,
     RequestLifecycleManager lifecycleManager,
     EventDataBuilder eventDataBuilder,
-    HealthCheckService healthCheckService)
+    HealthCheckService healthCheckService,
+    ISharedIteratorRegistry? sharedIteratorRegistry = null)
   //,ProxyStreamWriter proxyStreamWriter)
   {
     _backendOptions = backendOptions.Value;
@@ -65,6 +68,7 @@ public class ProxyWorkerCollection : BackgroundService
     _lifecycleManager = lifecycleManager;
     _eventDataBuilder = eventDataBuilder;
     _healthCheckService = healthCheckService;
+    _sharedIteratorRegistry = sharedIteratorRegistry;
   }
 
   protected override Task ExecuteAsync(CancellationToken cancellationToken)
@@ -115,6 +119,7 @@ public class ProxyWorkerCollection : BackgroundService
         _lifecycleManager,
         _eventDataBuilder,
         _healthCheckService,
+        _sharedIteratorRegistry,
         //_proxyStreamWriter,
         _internalCancellationTokenSource.Token));
     }

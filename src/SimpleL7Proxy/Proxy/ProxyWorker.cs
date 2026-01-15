@@ -55,6 +55,7 @@ public class ProxyWorker
     private readonly HealthCheckService _healthCheckService;
 
     private static string[] s_backendKeys = Array.Empty<string>();
+    private readonly ISharedIteratorRegistry? _sharedIteratorRegistry;
 
     // Static pre-allocated ProxyEvent objects for error scenarios to avoid expensive copy constructor
     private static readonly ProxyEvent s_finallyBlockErrorEvent = new ProxyEvent(30);  // Base eventData (~20) + error fields (6) + buffer
@@ -76,6 +77,7 @@ public class ProxyWorker
         RequestLifecycleManager lifecycleManager,
         EventDataBuilder eventDataBuilder,
         HealthCheckService healthCheckService,
+        ISharedIteratorRegistry? sharedIteratorRegistry,
         //ProxyStreamWriter proxyStreamWriter,
         CancellationToken cancellationToken)
     {
@@ -101,6 +103,7 @@ public class ProxyWorker
         _idStr = id.ToString();
         _preferredPriority = priority;
         _healthCheckService = healthCheckService ?? throw new ArgumentNullException(nameof(healthCheckService));
+        _sharedIteratorRegistry = sharedIteratorRegistry; // Optional - null if UseSharedIterators is false
     }
 
     /// <summary>
@@ -768,28 +771,56 @@ public class ProxyWorker
         List<S7PRequeueException> retryAfter = new();
 
         string modifiedPath = "";
-        // Get an iterator for the active hosts based on the load balancing mode and iteration strategy
-        var hostIterator = _options.IterationMode switch
+        
+        // Get an iterator for the active hosts based on configuration:
+        // - UseSharedIterators=true: Share iterator by path for fair distribution across concurrent requests
+        // - UseSharedIterators=false: Each request gets its own iterator (default)
+        IHostIterator? hostIterator = null;
+        ISharedHostIterator? sharedIterator = null;
+        
+        if (_options.UseSharedIterators && _sharedIteratorRegistry != null)
         {
-            IterationModeEnum.SinglePass => IteratorFactory.CreateSinglePassIterator(
-                _backends,
-                _options.LoadBalanceMode,
+            // Use shared iterator - multiple requests to same path share the same iterator
+            sharedIterator = _sharedIteratorRegistry.GetOrCreate(
                 request.Path,
-                out modifiedPath),
+                () => IteratorFactory.CreateSinglePassIterator(
+                    _backends,
+                    _options.LoadBalanceMode,
+                    request.Path,
+                    out modifiedPath));
+            
+            // Get modified path from factory for shared iterator case
+            _ = IteratorFactory.GetFilteredHosts(_backends, _options.LoadBalanceMode, request.Path, out modifiedPath);
+            
+            _logger.LogDebug(
+                "[ProxyToBackEnd:{Guid}] Using SHARED iterator for path '{Path}' with {HostCount} hosts",
+                request.Guid, request.Path, sharedIterator.HostCount);
+        }
+        else
+        {
+            // Use per-request iterator (original behavior)
+            hostIterator = _options.IterationMode switch
+            {
+                IterationModeEnum.SinglePass => IteratorFactory.CreateSinglePassIterator(
+                    _backends,
+                    _options.LoadBalanceMode,
+                    request.Path,
+                    out modifiedPath),
 
-            IterationModeEnum.MultiPass => IteratorFactory.CreateMultiPassIterator(
-                _backends,
-                _options.LoadBalanceMode,
-                _options.MaxAttempts,
-                request.Path,
-                out modifiedPath),
+                IterationModeEnum.MultiPass => IteratorFactory.CreateMultiPassIterator(
+                    _backends,
+                    _options.LoadBalanceMode,
+                    _options.MaxAttempts,
+                    request.Path,
+                    out modifiedPath),
 
-            _ => IteratorFactory.CreateSinglePassIterator(
-                _backends,
-                _options.LoadBalanceMode,
-                request.Path,
-                out modifiedPath)
-        };
+                _ => IteratorFactory.CreateSinglePassIterator(
+                    _backends,
+                    _options.LoadBalanceMode,
+                    request.Path,
+                    out modifiedPath)
+            };
+        }
         request.Path = modifiedPath;
 
         var matchingHostCount = _backends.GetActiveHosts()
@@ -813,25 +844,11 @@ public class ProxyWorker
             }
         }
 
-        if (request.Debug)
-        {
-            // count the number of hosts
-            int debugHostCount = 0;
-            while (hostIterator.MoveNext())
-            {
-                debugHostCount++;
-                _logger.LogCritical("Host {HostNumber}: {PartialPath} ({Guid})",
-                    debugHostCount, hostIterator.Current.Config.PartialPath, hostIterator.Current.Config.Guid);
-            }
-            // Reset the iterator to the beginning
-            hostIterator.Reset();
-            _logger.LogDebug("Matched Hosts: {HostCount} for URL: {RequestPath}", debugHostCount, request.Path);
-        }
-
         // Try the request on each active host, stop if it worked
-        while (hostIterator.MoveNext())
+        // Use helper method to abstract over shared vs per-request iterators
+        BaseHostHealth? host;
+        while (TryGetNextHost(hostIterator, sharedIterator, out host) && host != null)
         {
-            var host = hostIterator.Current;
             DateTime proxyStartDate = DateTime.UtcNow;
 
             if (host.Config.CheckFailedStatus())
@@ -1242,7 +1259,12 @@ public class ProxyWorker
                 // Add the request attempt to the summary
                 requestAttempt.Duration = DateTime.UtcNow - proxyStartDate;
                 requestAttempt.SendEvent();  // Log the dependent request attempt
-                hostIterator.RecordResult(host, SuccessfulRequest);
+                
+                // Record result for iterator (shared or per-request)
+                if (sharedIterator != null)
+                    sharedIterator.RecordResult(host, SuccessfulRequest);
+                else
+                    hostIterator?.RecordResult(host, SuccessfulRequest);
 
                 // Track host status for circuit breaker
                 if (intCode != 412 && intCode != 429)
@@ -1637,6 +1659,33 @@ public class ProxyWorker
         "Keep-Alive", "Upgrade", "Trailer", "TE", "Date", "Server"
     };
 
-
+    /// <summary>
+    /// Helper method to abstract over shared vs per-request iterators.
+    /// For shared iterators: uses TryGetNextHost (circular, thread-safe)
+    /// For per-request iterators: uses MoveNext/Current pattern
+    /// </summary>
+    /// <param name="perRequestIterator">Per-request iterator (null if using shared)</param>
+    /// <param name="sharedIterator">Shared iterator (null if using per-request)</param>
+    /// <param name="host">Output: the next host, or null if none available</param>
+    /// <returns>True if a host was retrieved, false if iteration is complete</returns>
+    private static bool TryGetNextHost(
+        IHostIterator? perRequestIterator,
+        ISharedHostIterator? sharedIterator,
+        out BaseHostHealth? host)
+    {
+        if (sharedIterator != null)
+        {
+            // Shared iterator - uses atomic TryGetNextHost
+            return sharedIterator.TryGetNextHost(out host);
+        }
+        
+        if (perRequestIterator != null && perRequestIterator.MoveNext())
+        {
+            host = perRequestIterator.Current;
+            return true;
+        }
+        
+        host = null;
+        return false;
+    }
 }
-
