@@ -57,6 +57,8 @@ public class RequestLifecycleManager
     /// </summary>
     public void TransitionToProcessing(RequestData request)
     {
+        if ( !_options.AsyncModeEnabled) return;
+
         var oldStatus = request.SBStatus;
         
         switch (request.Type)
@@ -81,6 +83,8 @@ public class RequestLifecycleManager
     /// </summary>
     public void TransitionToSuccess(RequestData request, HttpStatusCode statusCode)
     {
+        if ( !_options.AsyncModeEnabled) return;
+
         switch (request.Type)
         {
             case RequestType.Sync:
@@ -124,6 +128,8 @@ public class RequestLifecycleManager
     /// </summary>
     public void TransitionToFailed(RequestData request, HttpStatusCode statusCode, string? reason = null)
     {
+        if (!_options.AsyncModeEnabled) return;
+
         switch (request.Type)
         {
             case RequestType.Sync:
@@ -148,6 +154,8 @@ public class RequestLifecycleManager
     /// </summary>
     public void TransitionToExpired(RequestData request)
     {
+        if (!_options.AsyncModeEnabled) return;
+        
         SetStatus(request, ServiceBusMessageStatusEnum.Expired, 
             request.runAsync ? RequestAPIStatusEnum.Failed : null);
         
