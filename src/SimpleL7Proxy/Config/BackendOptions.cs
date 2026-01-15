@@ -68,6 +68,7 @@ public class BackendOptions
     public int Timeout { get; set; }
     public string TimeoutHeader { get; set; } = "";
     public int TerminationGracePeriodSeconds { get; set; }
+    public bool TrackWorkers { get; set; } = false;
     public string TTLHeader { get; set; } = "";
     public List<string> UniqueUserHeaders { get; set; } = [];
     public bool UseOAuth { get; set; }
