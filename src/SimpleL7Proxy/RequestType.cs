@@ -2,6 +2,58 @@
 /// Defines the type of request being processed by the proxy worker.
 /// This enum clarifies the four distinct request handling modes.
 /// </summary>
+
+/*
+ * REQUEST EXECUTION MODES:
+ * 
+ * ┌──────────────────────────────────────────────────────────────────────────────┐
+ * │                           STATE TRANSITIONS                                  │
+ * │                                                                              │
+ * │   ┌──────────┐    runAsync=true OR     ┌──────────┐                          │
+ * │   │   SYNC   │ ──────timeout near────► │  ASYNC   │                          │
+ * │   │          │                         │          │                          │
+ * │   │ runAsync │                         │ runAsync │                          │
+ * │   │ = false  │                         │ = true   │                          │
+ * │   └────┬─────┘                         └────┬─────┘                          │
+ * │        │                                    │                                │
+ * │        ▼                                    │  batch ID detected             │
+ * │   ┌─────────┐                               ▼                                │
+ * │   │ Client  │                         ┌───────────────┐                      │
+ * │   │ HTTP    │                         │ ASYNC         │                      │
+ * │   │ Response│                         │ BACKGROUND    │                      │
+ * │   └─────────┘                         │ IsBackground  │                      │
+ * │                                       │ = true        │                      │
+ * │                                       └───────┬───────┘                      │
+ * │                                               │                              │
+ * │                                               │  Azure Function schedules    │
+ * │                                               ▼                              │
+ * │                                       ┌────────────────────┐                 │
+ * │                                       │ ASYNC BACKGROUND   │                 │
+ * │                                       │ CHECK              │◄────┐           │
+ * │                                       │ IsBackgroundCheck  │     │ pending   │
+ * │                                       │ = true             │─────┘           │
+ * │                                       └────────┬───────────┘                 │
+ * │                                                │ complete                    │
+ * │                                                ▼                             │
+ * │                                       ┌─────────────────┐                    │
+ * │                                       │  Blob Storage   │                    │
+ * │                                       │  (final result) │                    │
+ * │                                       └─────────────────┘                    │
+ * └──────────────────────────────────────────────────────────────────────────────┘
+ * 
+ * KEY FLAGS:
+ *   runAsync          → Response goes to blob storage (not client)
+ *   AsyncTriggered    → AsyncWorker.StartAsync() completed setup  
+ *   IsBackground      → Backend returned batch ID for later completion
+ *   IsBackgroundCheck → Polling for batch completion status
+ * 
+ * RESPONSE ROUTING:
+ *   Sync            → request.Context.Response (HTTP connection)
+ *   Async           → asyncWorker → blob storage
+ *   AsyncBackground → batch ID → blob + RequestAPI status update
+ *   AsyncBgCheck    → memory buffer → blob if complete, else re-queue
+ */ 
+
 public enum RequestType
 {
     /// <summary>

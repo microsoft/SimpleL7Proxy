@@ -136,7 +136,7 @@ public class RequestLifecycleManager
             case RequestType.AsyncBackground:
             case RequestType.AsyncBackgroundCheck:
                 SetStatus(request, ServiceBusMessageStatusEnum.Failed, RequestAPIStatusEnum.Failed);
-                _logger.LogWarning("Request {Guid} (Type: {Type}) failed with status {StatusCode}. Reason: {Reason}", 
+                _logger.LogWarning("Async Request {Guid} (Type: {Type}) failed with status {StatusCode}. Reason: {Reason}", 
                     request.Guid, request.Type, statusCode, reason ?? "Unknown");
                 break;
         }
