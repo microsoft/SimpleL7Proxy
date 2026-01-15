@@ -119,7 +119,7 @@ namespace test.generator.generator_one
         static int sendTimeout;
         static int _testNumber = 0;
         static int unreadyTasks = 0;
-        public async Task StartAsync(CancellationToken cancellationToken2)
+        public async Task<bool> StartAsync(CancellationToken cancellationToken2)
         {
             // Start the server
             Console.WriteLine("Server started");
@@ -145,10 +145,14 @@ namespace test.generator.generator_one
 
                 var endTime = DateTime.Now.AddMilliseconds(duration);
                 Console.WriteLine($"{DateTime.Now} Endpoint: {test_endpoint}  Concurrency: {concurrency}  EndTime: {endTime}  Delay: {delay}ms");
+                Console.WriteLine("Press SPACEBAR to interrupt the current run");
 
                 var cancellationTokenSource = new CancellationTokenSource();
                 var cancellationToken = cancellationTokenSource.Token;
                 List<Task> tasks = new List<Task>();
+
+                // Start a background task to monitor for spacebar press
+                var keyMonitorTask = Task.Run(() => MonitorKeyPress(cancellationTokenSource));
 
                 // reset the test number and stats
                 _testNumber = receiveTimeout = sendTimeout = 0;
@@ -177,7 +181,7 @@ namespace test.generator.generator_one
                 await WaitForStartup();
 
                 // Do this while there are active threads.  Each thread exits after the duration has expired
-                while (stats[0] > 0)
+                while (stats[0] > 0 && !cancellationToken.IsCancellationRequested)
                 {
                     // Make a snapshot of the response stats    
                     Array.Copy(responseStats, responseStatsCopy, 600);
@@ -208,6 +212,12 @@ namespace test.generator.generator_one
                     await Task.Delay(1000);
                 }
 
+                // Cancel the operation if spacebar was pressed
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    Console.WriteLine("\nRun interrupted by user (SPACEBAR pressed)");
+                }
+
                 await Task.WhenAll(tasks);
 
                 Console.WriteLine($"Tests Completed {_requestCount} rquests.");
@@ -234,13 +244,39 @@ namespace test.generator.generator_one
                 Console.WriteLine($"{DateTime.Now:HH:mm:ss} Total Requests: {totalRequests}  Success % {successP}  {reqsPerSec} Reqs/Sec   Avg Latency: {latencyFlt} ms Total Time: {durationStr}");
 
                 // Wait for a key press to cancel
-                Console.WriteLine("\n\nPress q to exit, any other key to repeat: ");
+                Console.WriteLine("\n\nPress 'r' to repeat, 'c' to reload config, 'q' to quit: ");
                 var k = Console.ReadKey();
 
-                if (k.KeyChar == 'q')
+                if (k.KeyChar == 'q' || k.KeyChar == 'Q')
                 {
-                    break;
+                    return false;
                 }
+                else if (k.KeyChar == 'c' || k.KeyChar == 'C')
+                {
+                    Console.WriteLine("\nReloading configuration...\n");
+                    return true;
+                }
+                else if (k.KeyChar == 'r' || k.KeyChar == 'R')
+                {
+                    Console.WriteLine("\nRepeating test...\n");
+                }
+            }
+        }
+
+        private void MonitorKeyPress(CancellationTokenSource cancellationTokenSource)
+        {
+            while (!cancellationTokenSource.Token.IsCancellationRequested)
+            {
+                if (Console.KeyAvailable)
+                {
+                    var key = Console.ReadKey(true);
+                    if (key.Key == ConsoleKey.Spacebar)
+                    {
+                        cancellationTokenSource.Cancel();
+                        break;
+                    }
+                }
+                Thread.Sleep(100); // Check every 100ms to avoid high CPU usage
             }
         }
 
