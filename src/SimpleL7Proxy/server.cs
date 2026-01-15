@@ -49,12 +49,6 @@ public class Server : BackgroundService
 
     private readonly ProbeServer _probeServer;
 
-
-    // public void enqueueShutdownRequest() {
-    //     var shutdownRequest = new RequestData(Constants.Shutdown);
-    //     _requestsQueue.Enqueue(shutdownRequest, 3, 0, DateTime.UtcNow, true);
-    // }
-
     // Constructor to initialize the server with backend options and telemetry client.
     public Server(
         IConcurrentPriQueue<RequestData> requestsQueue,
