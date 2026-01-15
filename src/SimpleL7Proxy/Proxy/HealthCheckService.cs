@@ -24,7 +24,7 @@ namespace SimpleL7Proxy.Proxy;
 public class HealthCheckService
 {
     private readonly IBackendService _backends;
-    private readonly BackendOptions _options;
+    private static BackendOptions _options;
     private readonly IConcurrentPriQueue<RequestData>? _requestsQueue;
     private readonly IUserPriorityService? _userPriority;
     private readonly IEventClient? _eventClient;
@@ -95,6 +95,8 @@ public class HealthCheckService
     /// <param name="newState">The state to enter</param>
     public static void EnterState(int workerId, WorkerState newState)
     {
+        if ( !_options.TrackWorkers) return;
+
         // Get and update the current state atomically
         var oldState = _workerCurrentState.AddOrUpdate(
             workerId,
