@@ -18,18 +18,20 @@ Unlike proprietary gateways, SimpleL7Proxy is a **fully open-source, self-hosted
 
 
 
-##The Open Source Advantage##
+## The Open Source Advantage ##
 
 While commercial alternatives like Portkey.ai or Helicone offer managed services, and LiteLLM provides broad provider support, **SimpleL7Proxy** is uniquely optimized for the Azure ecosystem.
 By leveraging a self-hosted architecture on Azure Container Apps, organizations maintain complete ownership of the data plane. This eliminates third-party dependency, simplifies Azure API Management policy integration, and allows for deep extensibility that proprietary "black box" gateways cannot match.
 
-##Supported Architectural Scenarios##
+## Supported Architectural Scenarios ##
 
 **SimpleL7Proxy** is designed to be the backbone of your AI platform, seamlessly integrating with:
 
 * **[Azure AI Foundry](docs/AI_FOUNDRY_INTEGRATION.md):** Advanced routing and rate-limiting for model endpoints.
-* **Azure API Management (APIM):** Enhancing the APIM policy engine with sophisticated queuing and async state management.
+* **[Azure API Management (APIM)](https://learn.microsoft.com/en-us/azure/api-management/api-management-key-concepts):** Enhancing the APIM platform with sophisticated queuing and async state management.
+* **[Custom APIM Policy](APIM-Policy/readme.md):** A reference policy implementation for high-throughput, resilient backend connectivity.
 * **Sovereign & Hybrid Cloud:** Standardizing AI egress and governance across public and government regions.
+* **Multi-Cloud Portability:** The Docker-based architecture supports any orchestrator; organizations have successfully run the proxy in **AWS** and **GCP**.
 
 ## When to Choose SimpleL7Proxy
 
@@ -42,8 +44,10 @@ By leveraging a self-hosted architecture on Azure Container Apps, organizations 
 *   **Azure Stack integration**: This proxy is deeply integrated with **Azure Managed Identity**, **APIM**, **ACA** and **AI Foundry**. 
 
 ### When to Consider Alternatives
-*   **Managed Service Preference**: If you prefer a SaaS solution and do not want to manage Azure Container Apps infrastructure, consider managed gateways like Portkey.ai or Helicone.
-*   **Basic Routing**: If you only require simple round-robin load balancing without priority queuing or token inspection, standard Azure Application Gateway is less complex to maintain.
+*   **Managed Service Preference**: If you prefer a SaaS solution and do not want to manage [Azure Container Apps](https://learn.microsoft.com/en-us/azure/container-apps/overview) infrastructure, consider managed gateways like Portkey.ai or Helicone.
+*   **Basic Routing**: If you only require simple round-robin load balancing without priority queuing or token inspection, standard [Azure Application Gateway](https://learn.microsoft.com/en-us/azure/application-gateway/overview) is less complex to maintain.
+*   **Azure API Management (APIM)**: Offers native public/private gateways and streaming token counting. However, it does not support **Priority Queuing**, **User Profiles**, or deep **Stream Inspection/Modification**. *Note: When using APIM as a backend for SimpleL7Proxy, use our [Recommended High-Throughput Policy](APIM-Policy/readme.md).*
+
 
 ## Capabilities:
 
@@ -55,6 +59,7 @@ By leveraging a self-hosted architecture on Azure Container Apps, organizations 
 ### Reliability
 - **Global Traffic Steering & Automated Failover:** Ensure business continuity with **Multi-Region Traffic Distribution** and high-speed **DNS Propagation** for instant disaster recovery.
 - **Resilient Request Handling:** Mitigate transient failures using automated **Retry Policies** and built-in **[Circuit Breaker](docs/CIRCUIT_BREAKER.md)** patterns to protect backend health during outages.
+- **Dedicated Health Probing:** Ensure high availability under load with a dedicated **[Health Probe Sidecar](docs/HEALTH_CHECKING.md)** architecture that isolates Kubernetes probes from request processing.
 - **Temporal Request Validation:** Maintain system integrity by automatically expiring stale requests via **TTL (Time-to-Live) Management**, preventing the processing of outdated data.
 
 ### Performance Efficiency
@@ -81,8 +86,6 @@ By leveraging a self-hosted architecture on Azure Container Apps, organizations 
 
 # Arch Diagram
 ![Architecture Diagram](docs/arch.png)
-
-Documentation is located in the [docs/README.md](docs/README.md) file.
 
 ## Local Development Setup
 
