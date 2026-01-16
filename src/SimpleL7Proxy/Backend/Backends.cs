@@ -32,7 +32,6 @@ public class Backends : IBackendService
   private static double _successRate;
   private static DateTime _lastStatusDisplay = DateTime.Now - TimeSpan.FromMinutes(10);  // Force display on first run
   private static DateTime _lastGCTime = DateTime.Now;
-  private static bool _isRunning = false;
   private readonly ICircuitBreaker _circuitBreaker;
 
   private CancellationTokenSource _cancellationTokenSource;
@@ -308,7 +307,6 @@ public class Backends : IBackendService
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, _cancellationToken);
 
         _probeEvent["Code"] = response.StatusCode.ToString();
-        _isRunning = true;
 
         // CRITICAL: Drain the response body to allow connection reuse
         // Without this, undrained responses accumulate and leak memory

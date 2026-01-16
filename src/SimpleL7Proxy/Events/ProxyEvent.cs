@@ -171,7 +171,7 @@ namespace SimpleL7Proxy.Events
           this["Type"] = "S7P-" + Type.ToString();
           this["MID"] = MID ?? "N/A";
           this["Ver"] = Constants.VERSION;
-          this["Revision"] = _options.Value.Revision;
+          this["Revision"] = _options!.Value.Revision;
           this["ContainerApp"] = _options.Value.ContainerApp;
           // Send the event to Event Hub
           _eventHubClient.SendData(this);

@@ -1,5 +1,7 @@
 # Release Notes #
 
+## 2.2.9
+
 Proxy:
 * Added CheckingBackgroundRequestStatus and BackgroundRequestSubmitted as a status for background requests
 * Fix bugs related to background request lifecycle
@@ -27,11 +29,23 @@ Proxy:
 * Add streamlined probe server with ability to run as side car
 * Reworked ProxyWroker to match the response flow from the 2.1.x release
 * Track HTTP response in proxy data and dispose after delivery to client 
+* Updated to dotnet 10 and latest stable libs
+* Updated Dockerimage for dotnet 10 build
 
 Policy:
 * Update backend logs for better readability
 * Created a V2 policy for readability improvements
 * Added section to return 408 on timeout, 429 on concurrencyLimits, and on 400 return response body
+
+## 2.2.8.p1
+
+Proxy:
+* Added CheckingBackgroundRequestStatus and BackgroundRequestSubmitted as a status for background requests
+* Fix bugs related to background request lifecycle
+
+Policy:
+* Update backend logs for better readability
+* Created a V2 policy for readability improvements
 
 ## 2.2.8
 

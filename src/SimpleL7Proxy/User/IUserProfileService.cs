@@ -8,6 +8,5 @@ public interface IUserProfileService
     public bool IsAuthAppIDValid(string? authAppId);
     //public bool AsyncAllowed(string UserId);
     public AsyncClientInfo? GetAsyncParams(string UserId);
-    public bool ServiceIsReady();
 
 }

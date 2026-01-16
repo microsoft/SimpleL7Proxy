@@ -24,7 +24,7 @@ namespace SimpleL7Proxy.Proxy;
 public class HealthCheckService
 {
     private readonly IBackendService _backends;
-    private static BackendOptions _options;
+    private static BackendOptions _options=null!;
     private readonly IConcurrentPriQueue<RequestData>? _requestsQueue;
     private readonly IUserPriorityService? _userPriority;
     private readonly IEventClient? _eventClient;

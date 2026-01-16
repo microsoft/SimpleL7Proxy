@@ -76,7 +76,6 @@ public class BackendOptions
     public bool UseProfiles { get; set; } = false;
     public string UserProfileHeader { get; set; } = "";
     public string UserConfigUrl { get; set; } = "";
-    public bool UserConfigRequired { get; set; } = false;
     public float UserPriorityThreshold { get; set; }
     public Dictionary<string, string> ValidateHeaders { get; set; } = [];
     public bool ValidateAuthAppID { get; set; } = false;
