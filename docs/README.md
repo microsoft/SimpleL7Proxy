@@ -27,7 +27,7 @@ By leveraging a self-hosted architecture on Azure Container Apps, organizations 
 
 **SimpleL7Proxy** is designed to be the backbone of your AI platform, seamlessly integrating with:
 
-* **Azure AI Foundry:** Advanced routing and rate-limiting for model endpoints.
+* **[Azure AI Foundry](docs/AI_FOUNDRY_INTEGRATION.md):** Advanced routing and rate-limiting for model endpoints.
 * **Azure API Management (APIM):** Enhancing the APIM policy engine with sophisticated queuing and async state management.
 * **Sovereign & Hybrid Cloud:** Standardizing AI egress and governance across public and government regions.
 
@@ -54,7 +54,7 @@ By leveraging a self-hosted architecture on Azure Container Apps, organizations 
 
 ### Reliability
 - **Global Traffic Steering & Automated Failover:** Ensure business continuity with **Multi-Region Traffic Distribution** and high-speed **DNS Propagation** for instant disaster recovery.
-- **Resilient Request Handling:** Mitigate transient failures using automated **Retry Policies** and built-in **Circuit Breaker** patterns to protect backend health during outages.
+- **Resilient Request Handling:** Mitigate transient failures using automated **Retry Policies** and built-in **[Circuit Breaker](docs/CIRCUIT_BREAKER.md)** patterns to protect backend health during outages.
 - **Temporal Request Validation:** Maintain system integrity by automatically expiring stale requests via **TTL (Time-to-Live) Management**, preventing the processing of outdated data.
 
 ### Performance Efficiency
@@ -63,7 +63,7 @@ By leveraging a self-hosted architecture on Azure Container Apps, organizations 
 - **Integrated Async/Sync Processing:** Deliver seamless user experiences with native support for both **Real-Time Synchronous** and **Decoupled Asynchronous** messaging patterns.
 
 ### Operational Excellence
-- **Advanced AI Observability:** Real-time **Token Usage Telemetry** for generative AI workloads, providing precise metric capture even for high-velocity **Streaming Responses**.
+- **Advanced AI Observability:** Real-time **[Token Usage Telemetry](docs/OBSERVABILITY.md)** for generative AI workloads, providing precise metric capture even for high-velocity **Streaming Responses**.
 - **Automated Resource Safeguards:** Prevent service degradation with **Proactive Throttling** and intelligent **Circuit Breaker rejection** when backend thresholds are exceeded.
 
 ### Cost Optimization
@@ -86,76 +86,13 @@ Documentation is located in the [docs/README.md](docs/README.md) file.
 
 ## Local Development Setup
 
-For local development and testing, SimpleL7Proxy includes a setup script that configures the proxy to run on your local machine:
+For local development and testing, SimpleL7Proxy includes an interactive setup script (`local-setup.sh`) to configure the proxy environment.
 
-```bash
-# Navigate to the .azure directory and run the setup script
-cd .azure
-./local-setup.sh
-```
-
-The `local-setup.sh` script provides an interactive configuration process that:
-
-- **Backend Selection**: Choose how the proxy connects to your APIs:
-  - `apim` - Connect to an existing Azure API Management gateway
-  - `null` - Use local mock/null servers for testing
-  - `real` - Connect directly to real backend URLs
-
-- **Configuration**: Set up proxy port, backend URLs, health probe paths, and request timeouts
-
-- **Environment Generation**: Creates a `.azure/local-dev.env` file with all necessary environment variables
-
-- **Instructions**: Provides step-by-step guidance for starting the proxy and any required test servers
-
-This script is ideal for:
-- Local development and debugging
-- Testing proxy functionality without cloud deployment
-- Rapid prototyping and experimentation
-- Integration testing with mock services
-
-After running the setup script, follow the provided instructions to start the proxy locally and begin testing.
+For detailed instructions on local setup, manual configuration, and running mock backends, see [Development and Testing](docs/DEVELOPMENT.md).
 
 ## Deployment
 
-SimpleL7Proxy can be deployed using the Azure Developer CLI (AZD) with an interactive setup script that guides you through the entire process:
+SimpleL7Proxy is designed to be deployed to Azure Container Apps (ACA) using the Azure Developer CLI (AZD).
 
-```bash
-# Navigate to the .azure directory and run the setup script
-cd .azure
-./setup.sh
-```
-
-The `setup.sh` script provides a deployment wizard that:
-
-### Prerequisites Check
-- Verifies Azure Developer CLI (AZD) installation
-- Confirms Azure CLI availability
-- Validates authentication requirements
-
-### Deployment Scenarios
-Choose from predefined deployment scenarios:
-1. **Local proxy with public APIM** - Run proxy locally while connecting to Azure API Management
-2. **ACA proxy with public APIM** (Recommended) - Deploy as Azure Container App with public APIM
-3. **VNET proxy deployment** - Deploy within Virtual Network for enhanced security
-
-### Environment Templates
-Apply optimized configuration templates for your specific operational needs:
-- [Standard Production](/.azure/env-templates/standard-production.env): Balanced for most production workloads
-- [High Performance](/.azure/env-templates/high-performance.env): Optimized for maximum throughput and low latency
-- [Cost Optimized](/.azure/env-templates/cost-optimized.env): Minimizes resource usage and cost
-- [High Availability](/.azure/env-templates/high-availability.env): Maximized for resilience and uptime
-- [Development](/.azure/env-templates/development.env): Configured for development and testing
-
-### Configuration Management
-- Interactive prompts for Azure subscription and resource configuration
-- Backend URL setup with support for multiple endpoints
-- Timeout and performance parameter configuration
-- Automatic environment variable generation for AZD
-
-### Next Steps After Setup
-The script provides clear next steps based on your chosen scenario:
-- **Cloud deployment**: Run `azd up` to provision and deploy everything
-- **Local development**: Navigate to `src/SimpleL7Proxy` and run `dotnet run`
-
-For detailed deployment instructions, see [Container Deployment](docs/CONTAINER_DEPLOYMENT.md).
+For comprehensive deployment instructions, including standard, high-performance, and VNET-secured scenarios, see [Container Deployment](docs/CONTAINER_DEPLOYMENT.md).
 

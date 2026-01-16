@@ -2,25 +2,7 @@
 
 ## Environment Variables Reference
 
-| Variable Name | Default Value | Description |
-|---------------|---------------|-------------|
-| `AsyncModeEnabled` | `false` | Enables async processing mode for the proxy |
-| `AsyncClientRequestHeader` | `AsyncMode` | Header name that clients send to enable async processing |
-| `AsyncTimeout` | `1800000` (30 min) | Maximum time (ms) an async request is allowed to run |
-| `AsyncTriggerTimeout` | `10000` (10 sec) | Time (ms) after which a request becomes async |
-| `AsyncClientConfigFieldName` | 'async-config` | Field containing: enabled=<true|false>, containername=<client blob container name>, topic=<client topic name>, timeout=<number of seconds for sas token> | 
-| `AsyncSBConnectionString` | `example-sb-connection-string` | Service Bus connection string (Option A authentication) |
-| `AsyncSBUseMI` | `false` | Use managed identity for Service Bus authentication |
-| `AsyncSBNamespace` | `""` (empty) | Fully-qualified Service Bus namespace (for managed identity) |
-| `AsyncBlobStorageConnectionString` | `""` (empty) | Blob storage connection string (Option A authentication) |
-| `AsyncBlobStorageUseMI` | `false` | Use managed identity for blob storage authentication |
-| `AsyncBlobStorageAccountUri` | `https://example.blob.core.windows.net/` | Storage account URI (for managed identity) |
-
-**Notes:**
-- Empty string defaults indicate no default value is provided
-- Profile field names are user-configurable and defined per deployment
-- Authentication options (A or B) are mutually exclusive - choose one method per service
-
+For the complete list of Async-related environment variables and their default values, please refer to the **Async Processing Variables** section in [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md#async-processing-variables).
 
 This document describes how to configure the proxy for asynchronous operation mode. When enabled, the proxy can handle requests asynchronously, providing status updates via Azure Service Bus and storing request/response data in Azure Blob Storage.
 

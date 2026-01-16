@@ -4,6 +4,22 @@ This document provides guidance for setting up SimpleL7Proxy for development and
 
 ## Local Development Setup
 
+### Automated Setup (Recommended)
+
+SimpleL7Proxy includes a setup script that configures the proxy to run on your local machine using an interactive wizard.
+
+```bash
+# Navigate to the .azure directory and run the setup script
+cd .azure
+./local-setup.sh
+```
+
+The script will guide you through connecting to backends (Mock or Real) and generating a local environment file.
+
+### Manual Setup
+
+If you prefer to configure the environment manually:
+
 ### Prerequisites
 - .NET SDK 9.0 or later
 - Git (for cloning the repository)
