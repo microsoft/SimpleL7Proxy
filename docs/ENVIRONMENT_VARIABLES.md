@@ -38,6 +38,13 @@ For production deployments, consider also configuring:
 | **TERMINATION_GRACE_PERIOD_SECONDS** | int | The number of seconds SimpleL7Proxy waits before forcing itself to shut down.                                                                                                             | 30                                       |
 | **Workers**                   | int | The number of worker threads used to process incoming proxy requests.                                                                                                                            | 10                                       |
 
+## Health Check Configuration
+
+| Variable                       | Type | Description                                                                                                                                                                                        | Default                                  |
+| ----------------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| **HealthProbeSidecar**        | string | Single configuration string for the health probe sidecar. Format: `Enabled=[true/false];url=[url]`. | `Enabled=false;url=http://localhost:9000` |
+| **HEALTHPROBE_PORT**          | int | (Sidecar Only) The port the sidecar listens on for Kubernetes probes (/liveness, /readiness). This must match the port in your K8s/ACA probe config. | 9000                                     |
+
 ## Security & Access Control
 
 | Variable                       | Type | Description                                                                                                                                                                                        | Default                                  |
@@ -133,11 +140,7 @@ For production deployments, consider also configuring:
 
 ## Backend Configuration Variables
 
-| **HealthProbeSidecar**        | string | Configuration for sidecar health probes (format: "Enabled=true;url=...").                               | Enabled=false;url=http://localhost:9000  |
-| **IterationMode**             | string | Controls how the proxy iterates through backends (SinglePass).                                           | SinglePass                               |
-| **LoadBalanceMode**           | string | Load balancing strategy: 'latency', 'roundrobin', or 'random'.                                          | latency                                  |
-| **MaxAttempts**               | int | Maximum number of retry attempts for a request.                                                                   | 10                                       |
-| **riable                       | Type | Description                                                                                                         | Default                                  |
+| Variable                       | Type | Description                                                                                                         | Default                                  |
 | ----------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | **AcceptableStatusCodes**     | int array | The list of HTTP status codes considered successful. If a host returns a code not in this list, it's deemed a failure. | 200, 401, 403, 404, 408, 410, 412, 417, 400 |
 | **APPENDHOSTSFILE / AppendHostsFile** | bool | If true, appends host/IP pairs to /etc/hosts for DNS resolution. Both case variants are supported.      | false                                    |
@@ -146,7 +149,10 @@ For production deployments, consider also configuring:
 | **DnsRefreshTimeout**         | int | The number of milliseconds to force a DNS refresh, useful for making services fail over more quickly.             | 120000                                   |
 | **Host1, Host2, ...**         | string | Up to 9 backend servers can be specified. Supports Connection Strings or Simple URLs. See [Backend Host Configuration](BACKEND_HOSTS.md) for full details. | None                                     |
 | **HostName**                  | string | A logical name for the backend host used for identification and logging.                                          | Default                                  |
+| **IterationMode**             | string | Controls how the proxy iterates through backends (SinglePass).                                           | SinglePass                               |
 | **IP1, IP2, ...**             | string | IP addresses that map to corresponding Host entries if DNS is unavailable. Ignored if `ipaddress` is set in connection string. | None                                     |
+| **LoadBalanceMode**           | string | Load balancing strategy: 'latency', 'roundrobin', or 'random'.                                          | latency                                  |
+| **MaxAttempts**               | int | Maximum number of retry attempts for a request.                                                                   | 10                                       |
 | **OAuthAudience**             | string | The audience used for OAuth token requests, if **UseOAuth** is enabled.                                                                                                           | None                                     |
 | **PollInterval**              | int | The interval (in milliseconds) at which SimpleL7Proxy polls the backend servers.                                  | 15000                                    |
 | **PollTimeout**               | int | The timeout (in milliseconds) for each server poll request.                                                       | 3000                                     |
