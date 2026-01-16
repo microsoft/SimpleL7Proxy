@@ -1,96 +1,161 @@
-# SimpleL7Proxy
+# SimpleL7Proxy: Enterprise AI Gateway for Azure #
 
-SimpleL7Proxy is a lightweight yet powerful proxy service designed to direct network traffic between clients and servers at the application layer (Layer 7). It manages HTTP(s) requests with intelligent routing capabilities, automatically selecting the fastest available backend host based on continuous latency monitoring. The service excels as a regional internal proxy, ensuring traffic is routed to the optimal region for minimal latency.
+SimpleL7Proxy is a high-performance, intelligent Layer 7 router engineered to optimize **Large Language Model (LLM)** workloads. Deployed alongside **Azure API Management** and **AI Foundry**, it provides an advanced orchestration layer for **(LLM)** model providers.
 
-One of SimpleL7Proxy's key strengths is its priority-based request handling system, which implements a sophisticated queue that allows higher priority tasks to interrupt and preempt lower priority ones. This makes it particularly valuable for environments where business-critical requests need guaranteed faster processing times.
+Unlike proprietary gateways, SimpleL7Proxy is a **fully open-source, self-hosted solution,** offering unparalleled customization for data residency, sovereign cloud requirements (GCC High), and bespoke enterprise logic.
 
-As an example, SimpleL7Proxy can serve as an intelligent router to Azure API Management service that has been configured with large language model endpoints.  In thes scenario, the proxy will add routing and scheduling capabilities while providing cross-regional load balancing and failover capability. The logs can be configured to send to event hub or application insights.
+## Core Value Propositions
 
-**Note:** If you are looking for the high performance APIM policy, see **[High perf APIM policy](../APIM-Policy/readme.md)**.
+| Challenge | Enterprise-Grade Solution |
+|-----------|--------------------------|
+| **Workload Contention** | **Tiered Priority Queuing:** Preemptive scheduling ensures mission-critical AI requests bypass background batch processing. |
+| **Resource Monopolization** | **Fair-Share Governance:** Granular user/group throttling prevents "noisy neighbor" scenarios and ensures equitable capacity distribution. |
+| **System Instability** | **Self-Healing Resiliency:** Integrated Circuit Breaker and automated Retry patterns prevent backend failures from cascading into outages. |
+| **Observability Gaps** | **Streaming Telemetry:** Real-time capture of AI token metrics and consumption data, even across high-velocity streaming responses. |
+| **Regional Latency** | **Global Traffic Steering:** Intelligent multi-region load balancing with latency-based routing for optimal response times. |
+| **Timeout Constraints** | **Stateful Async Orchestration:** Native support for long-running requests (>30 min) via Azure Service Bus notifications and status tracking. |
+| **Compliance Barriers** | **Zero-Trust Connectivity:** Hardened with VNET Injection, Managed Identity, and OAuth2, purpose-built for regulated industries and Gov Cloud. |
+
+
+
+##The Open Source Advantage##
+
+While commercial alternatives like Portkey.ai or Helicone offer managed services, and LiteLLM provides broad provider support, **SimpleL7Proxy** is uniquely optimized for the Azure ecosystem.
+By leveraging a self-hosted architecture on Azure Container Apps, organizations maintain complete ownership of the data plane. This eliminates third-party dependency, simplifies Azure API Management policy integration, and allows for deep extensibility that proprietary "black box" gateways cannot match.
+
+##Supported Architectural Scenarios##
+
+**SimpleL7Proxy** is designed to be the backbone of your AI platform, seamlessly integrating with:
+
+* **Azure AI Foundry:** Advanced routing and rate-limiting for model endpoints.
+* **Azure API Management (APIM):** Enhancing the APIM policy engine with sophisticated queuing and async state management.
+* **Sovereign & Hybrid Cloud:** Standardizing AI egress and governance across public and government regions.
+
+## When to Choose SimpleL7Proxy
+
+### Ideal Use Cases
+*   **Mixed Workloads**: You need to prevent batch processing (e.g., embeddings, summarization) from blocking interactive users (e.g., chat) using **Preemptive Priority Queuing**.
+*   **Long-Running Operations**: Your AI tasks exceed standard HTTP timeouts (30+ minutes) and require **Async/Stateful** execution.
+*   **Strict Compliance**: You require a **fully self-hosted** solution that runs entirely within your VNET (e.g., Gov Cloud) with no data egress to third-party gateways.
+*   **Cost Management**: You want to maximize efficient use of fixed-capacity (PTU) throughput before spilling over to Pay-As-You-Go.
+*   **Deep Observability**: You need to capture **Token Usage** metrics from streaming LLM responses for chargeback or auditing.
+*   **Azure Stack integration**: This proxy is deeply integrated with **Azure Managed Identity**, **APIM**, **ACA** and **AI Foundry**. 
+
+### When to Consider Alternatives
+*   **Managed Service Preference**: If you prefer a SaaS solution and do not want to manage Azure Container Apps infrastructure, consider managed gateways like Portkey.ai or Helicone.
+*   **Basic Routing**: If you only require simple round-robin load balancing without priority queuing or token inspection, standard Azure Application Gateway is less complex to maintain.
+
+## Capabilities:
+
+### Security
+- ** Virtual Network Injection:** Secure mission-critical workloads with native **VNET Integration** and identity-based access through [Microsoft Entra ID (Managed Identity)](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview) across public and sovereign regions.
+- **Identity-Driven Edge Security:** Enforce **Zero Trust** principles with integrated **OAuth2 authentication** and customizable **Header Policy Enforcement** to validate or restrict inbound request structures.
+- **Dynamic Access Governance:** Centrally manage user and group permissions via **External Configuration Providers**, enabling real-time suspension or restriction of access without code changes.
+
+### Reliability
+- **Global Traffic Steering & Automated Failover:** Ensure business continuity with **Multi-Region Traffic Distribution** and high-speed **DNS Propagation** for instant disaster recovery.
+- **Resilient Request Handling:** Mitigate transient failures using automated **Retry Policies** and built-in **Circuit Breaker** patterns to protect backend health during outages.
+- **Temporal Request Validation:** Maintain system integrity by automatically expiring stale requests via **TTL (Time-to-Live) Management**, preventing the processing of outdated data.
+
+### Performance Efficiency
+- **Intelligent Traffic Management:** Optimize response times with **Adaptive Load Balancing**, supporting latency-based, weighted round-robin, and randomized routing modes.
+- **Tiered Workload Prioritization:** Guarantee performance for critical tasks through **Configurable Priority Levels** and isolated **Dedicated Worker Threads**.
+- **Integrated Async/Sync Processing:** Deliver seamless user experiences with native support for both **Real-Time Synchronous** and **Decoupled Asynchronous** messaging patterns.
+
+### Operational Excellence
+- **Advanced AI Observability:** Real-time **Token Usage Telemetry** for generative AI workloads, providing precise metric capture even for high-velocity **Streaming Responses**.
+- **Automated Resource Safeguards:** Prevent service degradation with **Proactive Throttling** and intelligent **Circuit Breaker rejection** when backend thresholds are exceeded.
+
+### Cost Optimization
+- **Fair-Share Resource Governance:** Maximize ROI by preventing resource monopolization through **User-Level Throttling** and **Anti-Starvation** algorithms to ensure equitable allocation.
+
+
+
+## APIM Policy Scenarios:
+* Route high-priority requests to designated backend services.
+* Sustain high throughput, exceeding 23M TPM.
+* Control concurrency for each backend independently.
+* Enable streaming with real-time token capture.
+* Enforce backend timeouts to ensure responsiveness.
+* Maximize PTU  usage, while choosing which priorities use PayGo.
 
 # Arch Diagram
-![Architecture Diagram](arch.png)
+![Architecture Diagram](docs/arch.png)
 
-## Getting Started Quickly
+Documentation is located in the [docs/README.md](docs/README.md) file.
 
-Want to try SimpleL7Proxy right now? You can have it running in under 5 minutes with dummy backends:
+## Local Development Setup
 
-1. **Prerequisites**: .NET SDK 9.0 installed
-2. **Clone and run**: Set up two simple mock backends and start the proxy
-3. **Test**: Send requests and see intelligent load balancing in action
+For local development and testing, SimpleL7Proxy includes a setup script that configures the proxy to run on your local machine:
 
-For detailed step-by-step instructions including setting up mock backends, see **[Development & Testing Guide](DEVELOPMENT.md#local-development-setup)**.
+```bash
+# Navigate to the .azure directory and run the setup script
+cd .azure
+./local-setup.sh
+```
 
-## Features
+The `local-setup.sh` script provides an interactive configuration process that:
 
-SimpleL7Proxy is built for reliability and performance with these key capabilities:
+- **Backend Selection**: Choose how the proxy connects to your APIs:
+  - `apim` - Connect to an existing Azure API Management gateway
+  - `null` - Use local mock/null servers for testing
+  - `real` - Connect directly to real backend URLs
 
-### Core Proxy Functionality
-- **HTTP/HTTPS Traffic Handling**: Processes all standard web traffic with full SSL/TLS support and optional SSL termination
-- **Intelligent Load Balancing**: Automatically routes requests to the most responsive backend by continuously measuring server response times.  Can also be configured for round-robin and random.
-- **Automatic Failover**: Instantly switches to healthy servers when backends become unresponsive or start failing
+- **Configuration**: Set up proxy port, backend URLs, health probe paths, and request timeouts
 
-### Smart Request Management
-- **Priority-Based Queuing**: Route urgent requests ahead of regular traffic using configurable priority levels
-- **Request Expiration**: Automatically drop old requests using TTL (time-to-live) to prevent processing stale data
-- **Dedicated Worker Threads**: Assign specific workers to handle different priority levels for guaranteed performance
-- **User Profile-Based Control**: Validate incoming requests and apply per-user configurations including access control, custom priority assignment, and anti-starvation protection to prevent resource monopolization
+- **Environment Generation**: Creates a `.azure/local-dev.env` file with all necessary environment variables
 
-### Enterprise Operations
-- **Comprehensive Monitoring**: Track every request with detailed metrics including processing time, queue duration, and worker assignments
-- **Azure Integration**: Native support for Application Insights logging and EventHub streaming for real-time analytics
-- **Flexible Configuration**: Manage all settings through environment variables for easy deployment across environments
+- **Instructions**: Provides step-by-step guidance for starting the proxy and any required test servers
 
-### Advanced Capabilities
-- **Async Processing**: Handle long-running requests with Service Bus notifications when complete (available in Streaming Branch)
-- **Cross-Platform Support**: Runs on Windows, Linux, and macOS without modification
-- **High Concurrency**: Efficiently processes concurrent requests and can be configured with auto-scale when deployed to Azure.
+This script is ideal for:
+- Local development and debugging
+- Testing proxy functionality without cloud deployment
+- Rapid prototyping and experimentation
+- Integration testing with mock services
 
-This design ensures your applications stay responsive even under heavy load while providing the observability needed for production environments.
+After running the setup script, follow the provided instructions to start the proxy locally and begin testing.
 
-## Usage Scenarios
+## Deployment
 
-- **Data Center Failover**: In an environment where multiple datacenters exist, SimpleL7Proxy can quickly fail over to a healthy host if one datacenter experiences service interruptions.
-- **Internal Regional Proxy**: Companies with multiple internal services across various geographic regions can route traffic locally using this proxy, ensuring low latency for internal applications.
-- **Priority Routing**: Financial or mission-critical requests can be given a higher priority to reduce processing delays in busy environments.
-- **Testing & Development**: Quickly spin up local or containerized instances to experiment with backend changes or new features, adjusting environment variables for test configurations.
+SimpleL7Proxy can be deployed using the Azure Developer CLI (AZD) with an interactive setup script that guides you through the entire process:
 
----
+```bash
+# Navigate to the .azure directory and run the setup script
+cd .azure
+./setup.sh
+```
 
-In the diagram below, a client connected to the proxy which has 3 backend hosts. The proxy identified the host with the lowest latency (Host 2) to make the request to.
+The `setup.sh` script provides a deployment wizard that:
 
-![image](https://github.com/nagendramishr/SimpleL7Proxy/assets/81572024/d2b09ebb-1bce-41a7-879a-ac90aa5ae227)
+### Prerequisites Check
+- Verifies Azure Developer CLI (AZD) installation
+- Confirms Azure CLI availability
+- Validates authentication requirements
 
-## Configuration
+### Deployment Scenarios
+Choose from predefined deployment scenarios:
+1. **Local proxy with public APIM** - Run proxy locally while connecting to Azure API Management
+2. **ACA proxy with public APIM** (Recommended) - Deploy as Azure Container App with public APIM
+3. **VNET proxy deployment** - Deploy within Virtual Network for enhanced security
 
-SimpleL7Proxy supports various deployment scenarios through environment variable configuration:
+### Environment Templates
+Apply optimized configuration templates for your specific operational needs:
+- [Standard Production](/.azure/env-templates/standard-production.env): Balanced for most production workloads
+- [High Performance](/.azure/env-templates/high-performance.env): Optimized for maximum throughput and low latency
+- [Cost Optimized](/.azure/env-templates/cost-optimized.env): Minimizes resource usage and cost
+- [High Availability](/.azure/env-templates/high-availability.env): Maximized for resilience and uptime
+- [Development](/.azure/env-templates/development.env): Configured for development and testing
 
-- **[Configuration Examples](SCENARIOS.md)** - Detailed examples for high availability, security-focused, performance-optimized, and async processing configurations
-- **[Development & Testing](DEVELOPMENT.md)** - Local development setup, testing scenarios, debugging tips, and container development
-- **[Container Deployment](CONTAINER_DEPLOYMENT.md)** - Docker and Azure Container Apps deployment instructions
+### Configuration Management
+- Interactive prompts for Azure subscription and resource configuration
+- Backend URL setup with support for multiple endpoints
+- Timeout and performance parameter configuration
+- Automatic environment variable generation for AZD
 
-### Environment Variables
+### Next Steps After Setup
+The script provides clear next steps based on your chosen scenario:
+- **Cloud deployment**: Run `azd up` to provision and deploy everything
+- **Local development**: Navigate to `src/SimpleL7Proxy` and run `dotnet run`
 
-The proxy is configured through environment variables organized into functional categories:
-
-- **[Core Configuration](ENVIRONMENT_VARIABLES.md#core-configuration-variables)** - Essential settings for basic proxy operation (port, workers, queue length)
-- **[Request Processing](ENVIRONMENT_VARIABLES.md#request-processing-variables)** - Controls how incoming requests are handled, prioritized, and validated
-- **[Logging & Monitoring](ENVIRONMENT_VARIABLES.md#logging--monitoring-variables)** - Options for logging to Application Insights, EventHub, or files
-- **[Async Processing](ENVIRONMENT_VARIABLES.md#async-processing-variables)** - Configuration for asynchronous request handling with Azure storage
-- **[Connection Management](ENVIRONMENT_VARIABLES.md#connection-management-variables)** - Controls for HTTP connections, keep-alive settings, and SSL
-- **[Backend Configuration](ENVIRONMENT_VARIABLES.md#backend-configuration-variables)** - Settings for backend servers, health checks, and failover behavior
-- **[User Profiles](USER_PROFILES.md)** - Configure per-user settings, request validation, and access control
-
-For complete details, see the **[Environment Variables Reference](ENVIRONMENT_VARIABLES.md)**.
-
-## Request Validation
-
-For information about request validation and user profiles, see the **[Request Validation Guide](REQUEST_VALIDATION.md)**.
-
-## Response Codes and Headers
-
-For details about proxy response codes and headers, see the **[Response Codes and Headers Reference](RESPONSE_CODES.md)**.
-
-
-
+For detailed deployment instructions, see [Container Deployment](docs/CONTAINER_DEPLOYMENT.md).
 

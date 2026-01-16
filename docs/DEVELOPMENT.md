@@ -257,7 +257,7 @@ Create `.vscode/launch.json`:
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "build",
-      "program": "${workspaceFolder}/bin/Debug/net9.0/SimpleL7Proxy.dll",
+      "program": "${workspaceFolder}/bin/Debug/net10.0/SimpleL7Proxy.dll",
       "args": [],
       "cwd": "${workspaceFolder}",
       "stopAtEntry": false,

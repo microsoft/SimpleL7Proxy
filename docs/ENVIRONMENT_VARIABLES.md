@@ -29,22 +29,27 @@ For production deployments, consider also configuring:
 - **LogAllRequestHeaders**: Set to `true` for debugging
 - **APPINSIGHTS_CONNECTIONSTRING**: For monitoring in Azure
 
-## Core Configuration Variables
+## Basic Configuration
 
 | Variable                       | Type | Description                                                                                                                                                                                        | Default                                  |
 | ----------------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | **MaxQueueLength**             | int | Sets the maximum number of requests allowed in the queue.                                                                                                                        | 10                                       |
 | **Port**                      | int | The port on which SimpleL7Proxy listens for incoming traffic.                                                                                                                                    | 80                                       |
-| **SuspendedUserConfigUrl**      | string | URL or file path to fetch the list of suspended users.                                                                                                | file:config.json                         |
 | **TERMINATION_GRACE_PERIOD_SECONDS** | int | The number of seconds SimpleL7Proxy waits before forcing itself to shut down.                                                                                                             | 30                                       |
+| **Workers**                   | int | The number of worker threads used to process incoming proxy requests.                                                                                                                            | 10                                       |
+
+## Security & Access Control
+
+| Variable                       | Type | Description                                                                                                                                                                                        | Default                                  |
+| ----------------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| **SuspendedUserConfigUrl**      | string | URL or file path to fetch the list of suspended users.                                                                                                | file:config.json                         |
 | **UseProfiles**                | bool | If true, enables user profile functionality for custom handling based on user profiles.                                                               | false                                    |
 | **UserConfigUrl**             | string | URL or file path to fetch user configuration data.                                                                                                     | file:config.json                         |
-| **UserPriorityThreshold**     | float | Floating point threshold value for user priority calculations (lower values make priority promotion more likely). If a user owns more than this percentage of the requests, its priority is lowered. This prevents greedy users from using all the resources.                                    | 0.1                                      |
+| **UserPriorityThreshold**     | float | Floating point threshold (0.0-1.0) for user priority calculations. If a user owns more than this percentage of requests, their priority is lowered to prevent monopolization. For details, see [Advanced Configuration](ADVANCED_CONFIGURATION.md#user-governance). | 0.1                                      |
 | **ValidateAuthAppFieldName**    | string | Name of the field in the authentication payload to validate as the App ID.                                                                            | authAppID                                |
 | **ValidateAuthAppID**           | bool | If true, enables validation of an application ID in the request for authentication. Entra has a limit of 13 application IDs, use this setting to make the check in the proxy code.                                                                  | false                                    |
 | **ValidateAuthAppIDHeader**     | string | Name of the header containing the App ID to validate.                                                                                                 | X-MS-CLIENT-PRINCIPAL-ID                 |
 | **ValidateAuthAppIDUrl**        | string | URL or file path to fetch the list of valid App IDs for authentication.                                                                               | file:auth.json                           |
-| **Workers**                   | int | The number of worker threads used to process incoming proxy requests.                                                                                                                            | 10                                       |
 
 ## Request Processing Variables
 
@@ -52,18 +57,21 @@ For production deployments, consider also configuring:
 | ----------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | **DefaultPriority**           | int | The default request priority when none other is specified.                                                                                                                                        | 2                                        |
 | **DefaultTTLSecs**            | int | The default time-to-live for a request in seconds.                                                                                                                                               | 300                                      |
+| **DependancyHeaders**         | string | Comma-separated list of headers to track dependency information.                                                                                                      | "Backend-Host, Host-URL..."              |
 | **DisallowedHeaders**         | string | A comma-separated list of headers that should be removed or disallowed when forwarding requests.                                                                                                  | None                                     |
 | **UserIDFieldName**          | string | The header name used to look up user information in configuration files.                                                                               | userId                                   |
 | **PriorityKeyHeader**          | string | Name of the header that contains the priority key for determining request priority.                                                                     | S7PPriorityKey                           |
-| **PriorityKeys**              | int array | A comma-separated list of keys that correspond to the header 'S7PPriorityKey'. Both **PriorityKeys** and **PriorityValues** should have the same number of elements.  | "12345,234"                                |
-| **PriorityValues**            | int array | A comma-separated list of priorities that map to the **PriorityKeys**. Both **PriorityKeys** and **PriorityValues** should have the same number of elements.   | "1,3"                                      |
-| **PriorityWorkers**           | string | A comma-separated list (e.g., "2:1,3:1") specifying how many worker threads are assigned to each priority. The first number in the tuple is the priority and the second is the number of dedicated workers for that priority level.                                                                                       | 2:1,3:1                                  |
+| **PriorityKeys**              | int array | Comma-separated list of keys for the header 'S7PPriorityKey'. See [Advanced Configuration](ADVANCED_CONFIGURATION.md#priority-management) for examples.  | "12345,234"                                |
+| **PriorityValues**            | int array | Comma-separated list of priorities mapping to **PriorityKeys**. See [Advanced Configuration](ADVANCED_CONFIGURATION.md#priority-management) for examples.   | "1,3"                                      |
+| **PriorityWorkers**           | string | Comma-separated list (e.g., "2:1,3:1") specifying worker threads per priority. See [Advanced Configuration](ADVANCED_CONFIGURATION.md#priority-management) for examples.                                                                                       | 2:1,3:1                                  |
 | **RequiredHeaders**           | string | A comma-separated list of headers required for incoming requests to be deemed valid.                                                                                                             | None                                     |
+| **StripRequestHeaders**       | string | Comma-separated list of headers to remove from the request before forwarding.                                                                         | (empty)                                  |
+| **StripResponseHeaders**      | string | Comma-separated list of headers to remove from the response before returning to client.                                                               | (empty)                                  |
 | **TimeoutHeader**               | string | Name of the header used to specify per-request timeout (in ms).                                                                                       | S7PTimeout                               |
 | **TTLHeader**                  | string | Name of the header used to specify time-to-live for requests.                                                                                         | S7PTTL                                   |
 | **UniqueUserHeaders**         | string | A list of header names that uniquely identify the caller or user.                                                                                                                               | X-UserID                                 |
 | **UserProfileHeader**         | string | Name of the header that contains user profile information when UseProfiles is enabled.                                                                 | X-UserProfile                            |
-| **ValidateHeaders**           | string | Comma-separated list of key:value pairs for header validation.                                                     | (empty)                                  |
+| **ValidateHeaders**           | string | Comma-separated list of key:value pairs for header validation. See [Advanced Configuration](ADVANCED_CONFIGURATION.md#header-validation) for examples.                                                     | (empty)                                  |
 
 ## Logging & Monitoring Variables
 
@@ -83,15 +91,27 @@ For production deployments, consider also configuring:
 | **LogHeaders**                  | string | Comma-separated list of specific headers to log for debugging.                                                                                        | (empty)                                  |
 | **LogProbes**                  | bool | If true, logs details about health probe requests to backends.                                                                                        | false                                    |
 | **LogConsoleEvent**           | bool | If true, logs events to the console output.                                                                      | true                                     |
+| **LogConsole**                | bool | Enables general console logging.                                                                                 | true                                     |
+| **LogPoller**                 | bool | Enables logging for the backend poller.                                                                          | true                                     |
+| **StorageDbContainerName**    | string | Container name for request storage if enabled.                                                                   | Requests                                 |
+| **StorageDbEnabled**          | bool | Enables archiving requests to storage.                                                                           | false                                    |
 | **RequestIDPrefix**           | string | The prefix appended to every request ID.                                                                                                                                                         | S7P                                      |
 
 ## Async Processing Variables
 
 | Variable                       | Type | Description                                                                                                         | Default                                  |
-| ----------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| **AsyncModeEnabled**          | bool | If true, enables asynchronous request processing. This triggers the server to connect to blob storage and the service bus.                            | false                                    |
+| -------BlobStorageAccountUri**| string | Uri for Blob Storage (overrides AsyncBlobStorageConfig).                                                 | (empty)                                  |
+| **AsyncBlobStorageUseMI**     | bool | Use Managed Identity for Blob Storage.                                                                   | false                                    |
+| **AsyncBlobWorkerCount**      | int | Number of workers for async blob processing.                                                                     | 2                                        |
+| **AsyncClientConfigFieldName**  | string | User profile field name that designates if the client configuration. It contains enabled, containername, topic, timeout.                         | async-config                            |
+| **AsyncClientRequestHeader**  | string | Header indicating async mode is requested.                                                               | AsyncMode                                |
+| **AsyncSBConnectionString**   | string | Azure Service Bus connection string for async operations.                                                          | example-sb-connection-string             |
+| **AsyncSBNamespace**          | string | Service Bus namespace (overrides AsyncSBConfig).                                                         | (empty)                                  |
+| **AsyncSBQueue**              | string | Service Bus queue name (overrides AsyncSBConfig).                                                        | (empty)                                  |
+| **AsyncSBUseMI**              | bool | Use Managed Identity for Service Bus.                                                                    | false                                    |
+| **AsyncTTLSecs**              | int | TTL for async requests in seconds.                                                                       | 86400 (24 hours)                         |
+| **AsyncTriggerTimeout**       | int | Timeout for async trigger operations in ms.                                                              | 10000                          | false                                    |
 | **AsyncTimeout**              | int | Timeout in milliseconds for async operations. The maximum amount of time async request will run for.       | 1800000 (30 min)                        |
-| **AsyncClientBlobTimeoutFieldName** | string | User profile field name that contains number of seconds the blob will have access for. After this number of seconds, the blob will no longer be accessible (but not deleted).  | async-blobaccess-timeout | 
 | **AsyncBlobStorageConnectionString** | string | Connection string for Azure Blob Storage used in async mode.                                             | example-connection-string                |
 | **AsyncClientConfigFieldName**  | string | User profile field name that designates if the client configuration. It contains enabled, containername, topic, timeout.                         | async-config                            |
 | **AsyncSBConnectionString**   | string | Azure Service Bus connection string for async operations.                                                          | example-sb-connection-string             |
@@ -113,20 +133,24 @@ For production deployments, consider also configuring:
 
 ## Backend Configuration Variables
 
-| Variable                       | Type | Description                                                                                                         | Default                                  |
+| **HealthProbeSidecar**        | string | Configuration for sidecar health probes (format: "Enabled=true;url=...").                               | Enabled=false;url=http://localhost:9000  |
+| **IterationMode**             | string | Controls how the proxy iterates through backends (SinglePass).                                           | SinglePass                               |
+| **LoadBalanceMode**           | string | Load balancing strategy: 'latency', 'roundrobin', or 'random'.                                          | latency                                  |
+| **MaxAttempts**               | int | Maximum number of retry attempts for a request.                                                                   | 10                                       |
+| **riable                       | Type | Description                                                                                                         | Default                                  |
 | ----------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | **AcceptableStatusCodes**     | int array | The list of HTTP status codes considered successful. If a host returns a code not in this list, it's deemed a failure. | 200, 401, 403, 404, 408, 410, 412, 417, 400 |
 | **APPENDHOSTSFILE / AppendHostsFile** | bool | If true, appends host/IP pairs to /etc/hosts for DNS resolution. Both case variants are supported.      | false                                    |
 | **CBErrorThreshold**          | int | The error threshold percentage for the circuit breaker. If the error rate surpasses this value in **CBTimeslice** time period, the circuit breaks.     | 50                                       |
 | **CBTimeslice**               | int | The duration (in seconds) of the sampling window for the circuit breaker's error rate.                             | 60                                       |
 | **DnsRefreshTimeout**         | int | The number of milliseconds to force a DNS refresh, useful for making services fail over more quickly.             | 120000                                   |
-| **Host1, Host2, ...**         | string | Up to 9 backend servers can be specified. Each Host should be in the form "http(s)://fqdnhostname" for proper DNS resolution. | None                                     |
+| **Host1, Host2, ...**         | string | Up to 9 backend servers can be specified. Supports Connection Strings or Simple URLs. See [Backend Host Configuration](BACKEND_HOSTS.md) for full details. | None                                     |
 | **HostName**                  | string | A logical name for the backend host used for identification and logging.                                          | Default                                  |
-| **IP1, IP2, ...**             | string | IP addresses that map to corresponding Host entries if DNS is unavailable. Must define Host, IP, and APPENDHOSTSFILE. | None                                     |
+| **IP1, IP2, ...**             | string | IP addresses that map to corresponding Host entries if DNS is unavailable. Ignored if `ipaddress` is set in connection string. | None                                     |
 | **OAuthAudience**             | string | The audience used for OAuth token requests, if **UseOAuth** is enabled.                                                                                                           | None                                     |
 | **PollInterval**              | int | The interval (in milliseconds) at which SimpleL7Proxy polls the backend servers.                                  | 15000                                    |
 | **PollTimeout**               | int | The timeout (in milliseconds) for each server poll request.                                                       | 3000                                     |
-| **Probe_path1, Probe_path2, ...** | string | Path(s) to health check endpoints for each backend host (e.g., /health, /readiness).                         | echo/resource?param1=sample              |
+| **Probe_path1, Probe_path2, ...** | string | Path(s) to health check endpoints for each backend host. Ignored if `probe` is set in connection string.                         | echo/resource?param1=sample              |
 | **SuccessRate**               | int | The minimum success rate (percentage) a backend must maintain to stay active.                                    | 80                                       |
 | **Timeout**                   | int | Connection timeout (in milliseconds) for each backend request. If exceeded, SimpleL7Proxy tries the next available host. | 1200000 (20 mins)                        |
 | **UseOAuth**                  | bool | Enables or disables OAuth token fetching for outgoing requests.                                                  | false                                    |
