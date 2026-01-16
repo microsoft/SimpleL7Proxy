@@ -31,7 +31,9 @@ namespace Company.Function
 
             await Task.Delay((int)delay);
 
-            return new OkObjectResult("Welcome to Azure Functions!");
+            var story = Novel.content;
+
+            return new OkObjectResult(story);
         }
     }
 }
