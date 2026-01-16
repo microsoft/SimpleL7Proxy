@@ -1,6 +1,18 @@
 # Priority-with-retry: Advanced APIM Policy for Azure OpenAI
 
-The **Priority-with-retry** policy provides enterprise-grade routing, throttling, and resiliency for Azure OpenAI workloads. It offers granular control over priority, concurrency, and cost when standard load balancing is insufficient.
+The **Priority-with-retry** policy is the **essential routing engine** when using **SimpleL7Proxy** with Azure API Management. It ensures that priority signals, affinity tokens, and throttling backpressure are correctly communicated between the proxy and backend models.
+
+> **Implementation Note:** SimpleL7Proxy should always be paired with this policy (or one derived from it). Using generic routing policies will result in a loss of priority queuing capabilities and observability.
+
+Beyond proxy integration, this policy provides enterprise-grade routing, throttling, and resiliency for any Azure OpenAI workload. Furthermore, since most other LLM providers mimic OpenAI's API structure and headers (for streaming, rate limits, etc.), this policy will likely work with other model backends with minimal adaptation.
+
+## When to Use This Policy
+
+Use this policy when you need:
+1. **Tiered Service Levels:** Guarantee capacity for critical apps while throttling background tasks.
+2. **Cost Optimization:** Maximize PTU utilization and restrict PayGo usage to specific priorities.
+3. **High Availability:** Automatically failover between regions and backend types.
+4. **Throttling Management:** Provide specific signals to clients (like SimpleL7Proxy) to queue requests during high load instead of failing immediately.
 
 ## Key Capabilities
 
@@ -12,26 +24,10 @@ The **Priority-with-retry** policy provides enterprise-grade routing, throttling
 - **Streaming Support:** Fully compatible with streaming responses.
 - **Observability:** Detailed execution logs via the `backendLog` response header.
 
+## Control Flow
+
 ![Request Flow](./Flow.png)
 
-## When to Use This Policy
-
-Use this policy when you need:
-1. **Tiered Service Levels:** Guarantee capacity for critical apps while throttling background tasks.
-2. **Cost Optimization:** Maximize PTU utilization and restrict PayGo usage to specific priorities.
-3. **High Availability:** Automatically failover between regions and backend types.
-4. **Throttling Management:** Use internal queuing instead of immediate rejection (429s).
-
-
-## Example Scenarios
-
-The Priority-with-retry policy can be applied to various business scenarios with different optimization goals:
-
-1. [**Financial Services Scenario**](./scenarios/financial-services-scenario.md) - Prioritizing performance for critical trading operations while managing costs for lower-priority workloads.
-2. [**Cost Optimization Scenario**](./scenarios/cost-optimization-scenario.md) - Focusing on minimizing Azure OpenAI costs while maintaining acceptable performance for all workloads.
-3. [**High Availability Scenario**](./scenarios/high-availability-scenario.md) - Ensuring maximum service availability across multiple regions and deployment types.
-
-Each scenario demonstrates how to configure the policy to meet different business requirements.
 
 ## Configuration Guide
 
@@ -49,7 +45,7 @@ Locate the `listBackends` variable initialization in the `<inbound>` region. Add
         { "ModelType", "PTU" },          // Informational label for logging
         { "acceptablePriorities", new JArray(1, 2, 3) }, // Priorities this backend can handle
         { "LimitConcurrency", "high" },  // high (100), medium (50), low (10), or off
-        { "BufferResponse", true },      // Required for stream handling adjustments
+        { "BufferResponse", false },     // Set to false for Streaming; true to buffer full response
         { "Timeout", 120 },              // Backend timeout in seconds
         { "api-key", "your-api-key" }    // Leave blank if using Managed Identity
     });
@@ -102,6 +98,17 @@ While this policy is optimized for the **SimpleL7Proxy**, it serves as a powerfu
 | **Affinity** | `x-backend-affinity` | Returns the hash of the backend used. The client should store this for subsequent requests in the same session. |
 | **Requeue Signal** | `S7PREQUEUE` | If `true` on a `429` response, it indicates a soft throttle (capacity full). SimpleL7Proxy queues these; standalone clients should sleep for `retry-after-ms`. |
 | **Retry Delay** | `retry-after-ms` | Detailed backoff time (in ms) recommended before the next attempt. |
+
+## Example Scenarios
+
+The Priority-with-retry policy can be applied to various business scenarios with different optimization goals:
+
+1. [**Financial Services Scenario**](./scenarios/financial-services-scenario.md) - Prioritizing performance for critical trading operations while managing costs for lower-priority workloads.
+2. [**Cost Optimization Scenario**](./scenarios/cost-optimization-scenario.md) - Focusing on minimizing Azure OpenAI costs while maintaining acceptable performance for all workloads.
+3. [**High Availability Scenario**](./scenarios/high-availability-scenario.md) - Ensuring maximum service availability across multiple regions and deployment types.
+
+Each scenario demonstrates how to configure the policy to meet different business requirements.
+
 
 ## FAQ
 
