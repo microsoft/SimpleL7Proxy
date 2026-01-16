@@ -521,8 +521,8 @@ public class ProxyWorker
                         {
                             _logger.LogDebug("[Worker:{Id}] Performing cleanup for request {Guid}", _id, incomingRequest.Guid);
 
-                            // if (workerState != "Cleanup")
-                            eventData["WorkerState"] = workerState;
+                            if (workerState != "Cleanup")
+                                eventData["WorkerState"] = workerState;
 
                             incomingRequest.Cleanup();
 

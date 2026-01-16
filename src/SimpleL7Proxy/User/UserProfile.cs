@@ -22,14 +22,12 @@ public class UserProfile : BackgroundService, IUserProfileService
     private List<string> suspendedUserProfiles = new List<string>();
     private List<string> authAppIDs = new List<string>();
 
-    private static bool _isInitialized = false;
-
     public UserProfile(IOptions<BackendOptions> options, ILogger<UserProfile> logger)
     {
         _options = options.Value;
         _logger = logger;
         _UserIDFieldName = _options.UserIDFieldName;
-        _userInformation[Constants.Server] = new AsyncClientInfo(Constants.Server, Constants.Server, Constants.Server, false, 3600);
+        _userInformation[Constants.Server] = new AsyncClientInfo(Constants.Server, Constants.Server, Constants.Server, 3600);
 
         _logger.LogDebug("[INIT] UserProfile service starting");
     }
@@ -67,47 +65,22 @@ public class UserProfile : BackgroundService, IUserProfileService
 
     public async Task ConfigReader(CancellationToken cancellationToken)
     {
-
         while (!cancellationToken.IsCancellationRequested)
         {
-            DateTime startTime = DateTime.UtcNow;
-            const int NormalDelayMs = 3600000; // 1 hour
-            const int ErrorDelayMs = 3000; // 3 seconds
-
             try
             {
                 await ReadUserConfigAsync(_options.UserConfigUrl, ParsingMode.profileMode).ConfigureAwait(false);
                 await ReadUserConfigAsync(_options.SuspendedUserConfigUrl, ParsingMode.SuspendedUserMode).ConfigureAwait(false);
                 await ReadUserConfigAsync(_options.ValidateAuthAppIDUrl, ParsingMode.AuthAppIDMode).ConfigureAwait(false);
-
-                // Count users, initialized when at least one user profile is loaded
-                if (_options.UserConfigRequired && userProfiles.Count > 0 && authAppIDs.Count > 0)
-                {
-                    _isInitialized = true;
-                }
-                else if (!_options.UserConfigRequired)
-                {
-                    _isInitialized = true;
-                }
             }
             catch (Exception e)
             {
-                _logger.LogError($"Error reading user config: {e.Message}");
-                _isInitialized = false;
+                // Log error
+                _logger.LogInformation($"Error reading user config: {e.Message}");
             }
 
-            _logger.LogInformation($"[DATA] ✓ User profiles loaded - {userProfiles.Count} users found, {suspendedUserProfiles.Count} suspended users found, {authAppIDs.Count} auth app IDs found  Initialized: {_isInitialized} " );
-
-            int baseDelay = _isInitialized ? NormalDelayMs : ErrorDelayMs;
-            int elapsedMs = (int)(DateTime.UtcNow - startTime).TotalMilliseconds;
-            int remainingDelay = Math.Max(0, baseDelay - elapsedMs);
-            await Task.Delay(remainingDelay, cancellationToken);
+            await Task.Delay(3600000, cancellationToken);
         }
-    }
-
-    public bool ServiceIsReady()
-    {
-        return _isInitialized;
     }
 
     public async Task ReadUserConfigAsync(string config, ParsingMode mode)
@@ -368,7 +341,7 @@ public class UserProfile : BackgroundService, IUserProfileService
                 if (!bool.TryParse(value, out asyncEnabled) || !asyncEnabled)
                 {
                     _logger.LogWarning($"User profile: async mode not allowed for user {userId}.");
-                    asyncEnabled = false;
+                    return null;
                 }
             }
             else if (field == "containername")
