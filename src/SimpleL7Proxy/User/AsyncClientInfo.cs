@@ -16,6 +16,7 @@ namespace SimpleL7Proxy.User
             UserId = userId;
             ContainerName = containerName;
             SBTopicName = sbTopicName;
+            AsyncAllowed = asyncAllowed;
             AsyncBlobAccessTimeoutSecs = asyncBlobAccessTimeoutSecs;
             GenerateSasTokens = generateSasTokens;
         }

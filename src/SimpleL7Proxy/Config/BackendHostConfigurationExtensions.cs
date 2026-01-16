@@ -629,6 +629,7 @@ public static class BackendHostConfigurationExtensions
       UseOAuthGov = ReadEnvironmentVariableOrDefault("UseOAuthGov", false),
       UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", false),
       UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", "file:config.json"),
+      UserConfigRequired = ReadEnvironmentVariableOrDefault("UserConfigRequired", false),
       UserIDFieldName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "UserIDFieldName", "userId"), // migrate from LookupHeaderName
       UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
       UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", "X-UserProfile"),
