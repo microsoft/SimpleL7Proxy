@@ -21,8 +21,6 @@ namespace Company.Function
         [Function("streamdelay")]
         public async Task Run([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")] HttpRequest req)
         {
-            // _logger.LogInformation("C# HTTP trigger function processed a request.");
-
             // Generate a delay using a normal distribution with mean 1000 ms and standard deviation 200 ms
             double u1 = 1.0 - rng.NextDouble(); // uniform(0,1] random doubles
             double u2 = 1.0 - rng.NextDouble();
@@ -61,6 +59,8 @@ namespace Company.Function
                     await Task.Delay(10); // slight delay to simulate streaming                
                 }
             }
+
+            _logger.LogInformation("Completed api/StreamDelay response.");
         }
 
         private static string GetCopilotNovelStory()
