@@ -35,6 +35,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     public string BlobContainerName { get; set; } = "";
     public bool runAsync { get; set; } = false;
     public string SBTopicName { get; set; } = "";
+    public AsyncClientInfo? AsyncClientConfig { get; set; } = null;
 
     private string _backgroundRequestId = "";
     public string BackgroundRequestId
@@ -60,6 +61,35 @@ public class RequestData : IDisposable, IAsyncDisposable
         }
     }
     public bool IsBackgroundCheck { get; set; } = false;
+    public bool BackgroundRequestCompleted { get; set; } = false;
+    
+    /// <summary>
+    /// Computed request type based on async flags and background state.
+    /// Determines processing mode: Sync, Async, AsyncBackground, or AsyncBackgroundCheck.
+    /// </summary>
+    public RequestType Type
+    {
+        get
+        {
+            if (!runAsync)
+            {
+                return RequestType.Sync;
+            }
+
+            if (IsBackgroundCheck)
+            {
+                return RequestType.AsyncBackgroundCheck;
+            }
+
+            if (IsBackground)
+            {
+                return RequestType.AsyncBackground;
+            }
+
+            return RequestType.Async;
+        }
+    }
+    
     public RequestAPIDocument? _requestAPIDocument; // For tracking async and background status updates
     public RequestAPIStatusEnum RequestAPIStatus
     {
@@ -71,7 +101,10 @@ public class RequestData : IDisposable, IAsyncDisposable
             if (_requestAPIDocument != null)
             {
                 _requestAPIDocument.status = value;
-                BackupAPIService?.UpdateStatus(_requestAPIDocument);
+                if (runAsync)
+                {
+                    BackupAPIService!.UpdateStatus(_requestAPIDocument);
+                }
             }
         }
     }
@@ -141,6 +174,25 @@ public class RequestData : IDisposable, IAsyncDisposable
         BackendOptionsStatic ??= backendOptions;
     }
 
+    /// <summary>
+    /// Parameterless constructor for pre-allocation (used by ProbeData)
+    /// </summary>
+    public RequestData()
+    {
+        Path = string.Empty;
+        Method = string.Empty;
+        Headers = new WebHeaderCollection();
+        Body = null;
+        Context = null;
+        Timestamp = DateTime.UtcNow;
+        ExpiresAt = DateTime.MinValue;
+        FullURL = string.Empty;
+        Debug = false;
+        MID = string.Empty;
+        OutputStream = null;
+    }
+
+    // Used by AsyncFeeder
     public RequestData(string id, Guid guid, string mid, string path, string method, DateTime enqueueTime, Dictionary<string, string> headers)
     {
         if (string.IsNullOrEmpty(path))
@@ -199,6 +251,7 @@ public class RequestData : IDisposable, IAsyncDisposable
         BodyBytes = bytes;
         Body = new MemoryStream(bytes);
     }
+
 
     public RequestData(HttpListenerContext context, string mid)
     {
@@ -303,7 +356,7 @@ public class RequestData : IDisposable, IAsyncDisposable
             ExpiresAt = EnqueueTime.AddMilliseconds(ttlMsToUse);
         }
 
-        ExpiresAtString = ExpiresAt.ToString("yyyy-MM-ddTHH:mm:ssZ");
+        ExpiresAtString = ExpiresAt.ToString("o");
     }
 
     public void Cleanup()

@@ -28,6 +28,8 @@ namespace SimpleL7Proxy.Feeder
 
         private readonly BackendOptions _options;
         private readonly ILogger<AsyncFeeder> _logger;
+        private readonly IUserProfileService _userProfile;
+        private readonly IRequestDataBackupService _requestBackupService;
 
         private readonly IRequestProcessor _normalRequest;
         private readonly IRequestProcessor _openAIRequest;
@@ -39,12 +41,37 @@ namespace SimpleL7Proxy.Feeder
         private Task? readerTask;
         CancellationTokenSource? _cancellationTokenSource;
         private readonly ServiceBusFactory _senderFactory;
+        private static long counter = 0;
+
+        // REMOVE HARDCODED OPENAI CALL
+        private static string openaicall = """
+{
+  "temperature": 1,
+  "top_p": 1,
+  "stop": null,
+  "max_tokens": 4096,
+  "presence_penalty": 0,
+  "frequency_penalty": 0,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are an AI assistant that helps people find information."
+    },
+    {
+      "role": "user",
+      "content": "__CONTENT__"
+    }
+  ]
+}
+""";  // Closing the string literal
 
         // Batch tuning
         private static readonly TimeSpan FlushIntervalMs = TimeSpan.FromMilliseconds(1000);    // small delay to coalesce bursts (when not shutting down)
 
         public AsyncFeeder(IOptions<BackendOptions> options,
                             IUserPriorityService userPriority,
+                            IUserProfileService userProfile,
+                            IRequestDataBackupService requestBackupService,
                             ServiceBusFactory senderFactory,
                             NormalRequest normalRequest,
                             OpenAIBackgroundRequest openAIRequest,
@@ -53,6 +80,8 @@ namespace SimpleL7Proxy.Feeder
         {
             _options = options.Value;
             _userPriority = userPriority;
+            _userProfile = userProfile;
+            _requestBackupService = requestBackupService;
             _senderFactory = senderFactory;
             _normalRequest = normalRequest;
             _openAIRequest = openAIRequest;
@@ -193,25 +222,43 @@ namespace SimpleL7Proxy.Feeder
         {
             var message = args.Message;
             var messageFromSB = message.Body.ToString();
+            var requestData = RequestDataParser.ParseRequestData(messageFromSB);
 
             try
             {
+
                 // RequestAPIDocument comes from the status queue, only minimal fields populated
-                var requestMsg = JsonSerializer.Deserialize<RequestAPIDocument>(messageFromSB);
-                if (requestMsg == null || string.IsNullOrEmpty(requestMsg.guid))
+                if (requestData is RequestAPIDocument requestMsg)
                 {
-                    _logger.LogWarning("AsyncFeeder: Received invalid message that could not be deserialized to RequestAPIDocument.");
-                    return;
+                    // this is either a status check on a background request, or a brand new request
+                    bool isBackground = requestMsg.isBackground == true && requestMsg.status == RequestAPIStatusEnum.BackgroundProcessing;
+
+                    var rd = ConvertDocumentToRequest(requestMsg, isBackground);
+                    if (rd != null)
+                    {
+                        rd.RecoveryProcessor = isBackground ? _openAIRequest : _normalRequest;
+                    }
+
+                }
+                else if (requestData is RequestMessage msg)
+                {
+                    var rd = await ConvertToNewRequestAsync(msg).ConfigureAwait(false);
+                    if (rd != null)
+                    {
+                        rd.RecoveryProcessor = _normalRequest;
+                    }
+
+                    // Handle simple message
+                    _logger.LogInformation("AsyncFeeder: UserID: {UserID}, ID: {Id}", msg.UserID, msg.Id);
+                    //_logger.LogInformation("AsyncFeeder: Message content: {MessageContent}", messageFromSB);
                 }
 
-                // this is either a status check on a background request, or a brand new request
-                bool isBackground = requestMsg.isBackground == true && requestMsg.status == RequestAPIStatusEnum.BackgroundProcessing;
-
-                var rd = ConvertDocumentToRequest(requestMsg, isBackground);
-                if (rd != null)
+                else
                 {
-                    rd.RecoveryProcessor = isBackground ? _openAIRequest : _normalRequest;
+                    _logger.LogWarning("AsyncFeeder: Unknown message type received from Service Bus.");
+                    _logger.LogInformation("AsyncFeeder: Message content: {MessageContent}", messageFromSB);
                 }
+
 
                 // mark the request as completed
                 await args.CompleteMessageAsync(message);
@@ -224,7 +271,89 @@ namespace SimpleL7Proxy.Feeder
             }
         }
 
+        public async Task<RequestData?> ConvertToNewRequestAsync(RequestMessage message)
+        {
+            Interlocked.Increment(ref counter);
+            var requestId = _options.IDStr + "_Feeder_" + counter.ToString();
+            var messageGuid = ((IRequestData)message).Guid;
+            var guid = string.IsNullOrEmpty(messageGuid) ? Guid.NewGuid() : new Guid(messageGuid);
+
+            RequestData rd = new("foo",
+                guid, // Use the resolved guid instead of message.Guid
+                requestId,
+                message.Path ?? "/",
+                "POST",
+                DateTime.UtcNow,
+                new Dictionary<string, string>(){["Content-Type"] = "application/json", ["S7PDEBUG"] = "true"});
+
+            rd.FullURL = rd.Path; // for async requests, FullURL is same as Path
+
+            rd.CalculateExpiration(_options.DefaultTTLSecs, _options.TTLHeader);
+
+            rd.profileUserId = rd.UserID = message.UserID ?? string.Empty;
+
+            var clientInfo = _userProfile.GetAsyncParams(rd.profileUserId);
+            if (clientInfo != null)
+            {
+                rd.runAsync = true;
+                rd.AsyncBlobAccessTimeoutSecs = clientInfo.AsyncBlobAccessTimeoutSecs;
+                rd.BlobContainerName = clientInfo.ContainerName;
+                rd.SBTopicName = clientInfo.SBTopicName;
+                rd.AsyncClientConfig = clientInfo; // Store the full config for AsyncWorker
+
+                _logger.LogDebug("AsyncFeeder: Retrieved user profile for UserID: {UserID}. AsyncBlobAccessTimeoutSecs: {AsyncBlobAccessTimeoutSecs}, BlobContainerName: {BlobContainerName}, SBTopicName: {SBTopicName}, GenerateSAS: {GenerateSAS}",
+                    rd.UserID, rd.AsyncBlobAccessTimeoutSecs, rd.BlobContainerName, rd.SBTopicName, clientInfo.GenerateSasTokens);
+            } 
+            else
+            {
+                _logger.LogWarning("AsyncFeeder: User profile not found for UserID: {UserID}. Using default async settings.", rd.UserID);
+            }
+
+            var bodyString =  openaicall.Replace("__CONTENT__", message.Body) ?? string.Empty;
+            var bodyBytes = System.Text.Encoding.UTF8.GetBytes(bodyString);
+            rd.setBody(bodyBytes);
+
+            
+
+            if (int.TryParse(message.Priority, out int priorityValue))
+            {
+                rd.Priority = priorityValue;
+            }
+            else
+            {
+                rd.Priority = 1; // Default priority
+            }
+            
+            rd.IsBackground = false;
+            rd.BackgroundRequestId = string.Empty;
+
+            await _requestBackupService.BackupAsync(rd).ConfigureAwait(false);
+
+            // re-establish job as an incoming request
+            if (_options.UseProfiles)
+            {
+                _userPriority.addRequest(rd.Guid, rd.UserID);
+                int userPriorityBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue) ? 1 : 0;
+
+                _logger.LogDebug("AsyncFeeder: Enqueuing async request with ID: {Id}, MID: {Mid}, UserID: {UserID}", rd.Guid, rd.MID, rd.UserID);
+
+                if (!_requestsQueue.Requeue(rd, rd.Priority, userPriorityBoost, rd.EnqueueTime))
+                {
+                    _logger.LogWarning("AsyncFeeder: Failed to enqueue request with ID: {guid}", rd.Guid);
+                    return null;
+                }
+
+                return rd;
+            }
+            else
+            {
+                _logger.LogError("AsyncFeeder: User profiles are disabled, cannot process async request with ID: {Id}, MID: {Mid}", rd.Guid, rd.MID);
+                return null;
+            }
+        }
+
         // Convert the minimal RequestAPIDocument from the queue into a full RequestData by restoring from blob storage
+
         public RequestData? ConvertDocumentToRequest(RequestAPIDocument data, bool isBackground)
         {
             try
@@ -249,7 +378,7 @@ namespace SimpleL7Proxy.Feeder
                     _userPriority.addRequest(rd.Guid, rd.UserID);
                     int userPriorityBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue) ? 1 : 0;
 
-                    _logger.LogInformation("AsyncFeeder: Enqueuing async request with ID: {Id}, MID: {Mid}, UserID: {UserID}", rd.Guid, rd.MID, rd.UserID);
+                    _logger.LogDebug("AsyncFeeder: Enqueuing async request with ID: {Id}, MID: {Mid}, UserID: {UserID}", rd.Guid, rd.MID, rd.UserID);
 
                     if (!_requestsQueue.Requeue(rd, rd.Priority, userPriorityBoost, rd.EnqueueTime))
                     {
@@ -291,8 +420,20 @@ namespace SimpleL7Proxy.Feeder
 
         private async Task ErrorHandler(ProcessErrorEventArgs args)
         {
-
-            _logger.LogError(args.Exception, "Error in AsyncFeeder message handler: " + args.Exception.Message);
+            if (args.Exception.Message.Contains("AzureCliCredential authentication failed"))
+            {
+                _logger.LogError("AzureCliCredential authentication failed while receiving AsyncFeeder messages.");
+            }
+            else if (args.Exception is UnauthorizedAccessException)
+            {
+                _logger.LogError(args.Exception, 
+                    "UnauthorizedAccessException in AsyncFeeder: The identity does not have permission to access Service Bus queue 'feeder'. " +
+                    "Ensure the managed identity has 'Azure Service Bus Data Receiver' role assigned.");
+            }
+            else 
+            {
+                _logger.LogError(args.Exception, "Error in AsyncFeeder message handler: " + args.Exception.Message);
+            }
             // Handle the error (e.g., log it, send it to a monitoring system, etc.)
 
 

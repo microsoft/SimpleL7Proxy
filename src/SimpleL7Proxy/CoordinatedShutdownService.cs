@@ -19,6 +19,7 @@ public class CoordinatedShutdownService : IHostedService
     // Inject other services if needed
     private readonly ILogger<CoordinatedShutdownService> _logger;
     private readonly Server _server;
+    private readonly BackendTokenProvider _backendTokenProvider;
     private readonly BackendOptions _options;
     private readonly IEventClient? _eventClient;
     private readonly IServiceBusRequestService _serviceBusRequestService;
@@ -32,6 +33,7 @@ public class CoordinatedShutdownService : IHostedService
     public CoordinatedShutdownService(IHostApplicationLifetime appLifetime,
         IOptions<BackendOptions> backendOptions,
         IConcurrentPriQueue<RequestData> queue,
+        BackendTokenProvider backendTokenProvider,
         IBackendService backends,
         IEventClient? eventClient,
         IServiceBusRequestService serviceBusRequestService,
@@ -50,6 +52,7 @@ public class CoordinatedShutdownService : IHostedService
         _serviceBusRequestService = serviceBusRequestService;
         _backupAPIService = backupAPIService;
         _asyncFeeder = asyncFeeder;
+        _backendTokenProvider = backendTokenProvider;
         _requeueWorker = requeueWorker;
         _options = backendOptions.Value;
     }
@@ -92,8 +95,8 @@ public class CoordinatedShutdownService : IHostedService
             ["Timestamp"] = DateTime.UtcNow.ToString("o"),
             ["BackendStatus"] = _backends.HostStatus,
             ["QueueCount"] = _queue.thrdSafeCount.ToString(),
-            ["ActiveWorkers"] = ProxyWorker.activeWorkers.ToString(),
-            ["WorkerStates"] = string.Join(", ", ProxyWorker.GetState())
+            ["ActiveWorkers"] = HealthCheckService.ActiveWorkers.ToString(),
+            ["WorkerStates"] = string.Join(", ", HealthCheckService.GetWorkerState())
         };
         data.SendEvent();
 
@@ -109,11 +112,11 @@ public class CoordinatedShutdownService : IHostedService
             ["Timestamp"] = DateTime.UtcNow.ToString("o"),
             ["BackendStatus"] = _backends.HostStatus,
             ["QueueCount"] = _queue.thrdSafeCount.ToString(),
-            ["ActiveWorkers"] = ProxyWorker.activeWorkers.ToString(),
-            ["WorkerStates"] = string.Join(", ", ProxyWorker.GetState())
+            ["ActiveWorkers"] = HealthCheckService.ActiveWorkers.ToString(),
+            ["WorkerStates"] = string.Join(", ", HealthCheckService.GetWorkerState())
         };
         data.SendEvent();
-
+        _backendTokenProvider?.StopAsync(cancellationToken).ConfigureAwait(false);
         _backupAPIService?.StopAsync(cancellationToken).ConfigureAwait(false);
         _serviceBusRequestService?.StopAsync(cancellationToken).ConfigureAwait(false);
         _eventClient?.StopTimer();

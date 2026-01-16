@@ -19,25 +19,31 @@ public class Startup
             .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
             .Build();
 
-        // create the ConfigBuilder
-        var configBuilder = new ConfigBuilder(config);
+        bool shouldReload = true;
+        
+        while (shouldReload)
+        {
+            // Reload configuration
+            config = new ConfigurationBuilder()
+                .SetBasePath(Directory.GetCurrentDirectory())
+                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+                .Build();
 
-        // create the HttpClient
-        using var httpClient = new HttpClient();
+            // create the ConfigBuilder
+            var configBuilder = new ConfigBuilder(config);
 
-        // create the CancellationTokenSource
-        using var cts = new CancellationTokenSource();
+            // create the HttpClient
+            using var httpClient = new HttpClient();
 
-        // create the server
-        var server = new Server(configBuilder, httpClient);
+            // create the CancellationTokenSource
+            using var cts = new CancellationTokenSource();
 
-        // Start the server with the cancellation token
-        var serverTask = server.StartAsync(cts.Token);
+            // create the server
+            var server = new Server(configBuilder, httpClient);
 
-        cts.Cancel();
-
-        // Wait for the server to stop
-        await serverTask;
+            // Start the server with the cancellation token
+            shouldReload = await server.StartAsync(cts.Token);
+        }
     }
 }
 }

@@ -6,8 +6,10 @@ using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
+using System.Diagnostics;
 using System.Threading;
 using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.BlobStorage;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Events;
@@ -15,6 +17,8 @@ using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.ServiceBus;
 using System.Text;
+
+using Shared.HealthProbe;
 
 
 namespace SimpleL7Proxy;
@@ -25,7 +29,6 @@ public class Server : BackgroundService
 {
     //    private readonly IBackendOptions? _options;
     private readonly BackendOptions _options;
-    private readonly TelemetryClient? _telemetryClient; // Add this line
     private readonly HttpListener _httpListener;
 
     private readonly IBackendService _backends;
@@ -36,16 +39,15 @@ public class Server : BackgroundService
     private readonly IConcurrentPriQueue<RequestData> _requestsQueue;// = new ConcurrentPriQueue<RequestData>();
     //private readonly IServiceBusRequestService _serviceBusRequestService;
     private readonly ILogger<Server> _logger;
+    private readonly IBlobWriter _blobWriter;
     private static bool _isShuttingDown = false;
     private readonly string _priorityHeaderName;
+    private readonly HealthCheckService _healthService;
 
     private readonly IEventClient? _eventHubClient;
     private static ProxyEvent _staticEvent = new ProxyEvent();
 
-    // public void enqueueShutdownRequest() {
-    //     var shutdownRequest = new RequestData(Constants.Shutdown);
-    //     _requestsQueue.Enqueue(shutdownRequest, 3, 0, DateTime.UtcNow, true);
-    // }
+    private readonly ProbeServer _probeServer;
 
     // Constructor to initialize the server with backend options and telemetry client.
     public Server(
@@ -57,7 +59,9 @@ public class Server : BackgroundService
         //IServiceBusRequestService serviceBusRequestService,
         IEventClient? eventHubClient,
         IBackendService backends,
-        TelemetryClient? telemetryClient,
+        IBlobWriter blobWriter,
+        HealthCheckService healthService,
+        ProbeServer probeServer,
         ILogger<Server> logger)
     {
         ArgumentNullException.ThrowIfNull(backendOptions, nameof(backendOptions));
@@ -66,26 +70,35 @@ public class Server : BackgroundService
         ArgumentNullException.ThrowIfNull(userProfile, nameof(userProfile));
         ArgumentNullException.ThrowIfNull(logger, nameof(logger));
         ArgumentNullException.ThrowIfNull(appLifetime, nameof(appLifetime));
-        //ArgumentNullException.ThrowIfNull(telemetryClient, nameof(telemetryClient));
         ArgumentNullException.ThrowIfNull(requestsQueue, nameof(requestsQueue));
+        ArgumentNullException.ThrowIfNull(blobWriter, nameof(blobWriter));
+        ArgumentNullException.ThrowIfNull(healthService, nameof(healthService));
+        ArgumentNullException.ThrowIfNull(probeServer, nameof(probeServer));
         //ArgumentNullException.ThrowIfNull(serviceBusRequestService, nameof(serviceBusRequestService));
-
-
 
         _options = backendOptions.Value;
         _backends = backends;
         _eventHubClient = eventHubClient;
-        _telemetryClient = telemetryClient;
         _userPriority = userPriority;
         _userProfile = userProfile;
         _logger = logger;
+        _blobWriter = blobWriter;
+        _healthService = healthService;
         _requestsQueue = requestsQueue;
         _priorityHeaderName = _options.PriorityKeyHeader;
+        _probeServer = probeServer;
 
         var _listeningUrl = $"http://+:{_options.Port}/";
 
         _httpListener = new HttpListener();
         _httpListener.Prefixes.Add(_listeningUrl);
+
+        // Initialize probe data pool to avoid allocations in hot path
+        // _probeDataPool = new ProbeData[ProbePoolSize];
+        // for (int i = 0; i < ProbePoolSize; i++)
+        // {
+        //     _probeDataPool[i] = new ProbeData();
+        // }
 
         var timeoutTime = TimeSpan.FromMilliseconds(_options.Timeout).ToString(@"hh\:mm\:ss\.fff");
         _logger.LogInformation($"[CONFIG] Server configuration - Port: {_options.Port} | Timeout: {timeoutTime} | Workers: {_options.Workers}");
@@ -140,7 +153,7 @@ public class Server : BackgroundService
 
         return backendStartTask.ContinueWith((x) => Run(cancellationToken), cancellationToken);
 
-    }
+    }  
 
     // Continuously listens for incoming HTTP requests and processes them.
     // Requests are enqueued with a priority based on specific headers.
@@ -155,13 +168,13 @@ public class Server : BackgroundService
         long counter = 0;
         int livenessPriority = _options.PriorityValues.Min();
         bool doUserProfile = _options.UseProfiles;
-        bool doAsync = _options.AsyncModeEnabled;
+        // Only enable async mode if configured AND blob storage is available (not using NullBlobWriter)
+        bool doAsync = _options.AsyncModeEnabled && !(_blobWriter is NullBlobWriter);
 
         while (!cancellationToken.IsCancellationRequested)
         {
             ProxyEvent ed = null!;
 
-            //using var operation = _telemetryClient.StartOperation<RequestTelemetry>("IncomingRequest");
             try
             {
                 // Use the CancellationToken to asynchronously wait for an HTTP request.
@@ -176,6 +189,38 @@ public class Server : BackgroundService
                 // Cancel the delay task immedietly if the getContextTask completes first
                 if (completedTask == getContextTask)
                 {
+                    var lc = await getContextTask.ConfigureAwait(false);
+
+                    // if it's a probe, then bypass all the below checks and enqueue the request 
+                    if (Constants.probes.Contains(lc?.Request?.Url?.PathAndQuery))
+                    {
+                        // Get ProbeData from pool using modulo rotation
+                        var probePath = lc!.Request.Url!.PathAndQuery;
+                        var fallthrough = false;
+
+                        // Fast-path for probes to avoid queue and worker latency
+                        switch (probePath)
+                        {
+                            case Constants.Liveness:
+                                await _probeServer.LivenessResponseAsync(lc);
+                                break;
+                            case Constants.Readiness:
+                                await _probeServer.ReadinessResponseAsync(lc);
+                                break;
+                            case Constants.Startup:
+                                await _probeServer.StartupResponseAsync(lc);
+                                break;
+                            default:
+                                fallthrough = true;
+                                break;
+
+                        }
+
+                        if (!fallthrough)
+                            continue;
+                    }
+
+
                     int priority = _options.DefaultPriority;
                     int userPriorityBoost = 0;
                     var notEnqued = false;
@@ -187,16 +232,16 @@ public class Server : BackgroundService
                     var requestId = _options.IDStr + counter.ToString();
 
                     //delayCts.Cancel();
-                    var rd = new RequestData(await getContextTask.ConfigureAwait(false), requestId);
+                    var rd = new RequestData(lc, requestId);
                     ed = rd.EventData;
-                    ed["Date"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
+                    ed["Date"] = DateTime.UtcNow.ToString("o");
                     ed.Uri = rd.Context!.Request.Url!;
                     ed.Method = rd.Method ?? "N/A";
 
                     ed["Path"] = rd.Path ?? "N/A";
                     ed["RequestHost"] = rd.Headers["Host"] ?? "N/A";
                     ed["RequestUserAgent"] = rd.Headers["User-Agent"] ?? "N/A";
-                    // readiness probes:
+
                     // if it's a probe, then bypass all the below checks and enqueue the request 
                     if (Constants.probes.Contains(rd.Path))
                     {
@@ -283,6 +328,7 @@ public class Server : BackgroundService
                             // Check for any required headers
                             if (_options.RequiredHeaders.Count > 0)
                             {
+                                // Note: Returns the first missing required header only
                                 var missing = _options.RequiredHeaders.FirstOrDefault(x => string.IsNullOrEmpty(rd.Headers[x]));
                                 if (!string.IsNullOrEmpty(missing))
                                 {
@@ -292,7 +338,7 @@ public class Server : BackgroundService
                                     throw new ProxyErrorException(
                                         ProxyErrorException.ErrorType.IncompleteHeaders,
                                         HttpStatusCode.ExpectationFailed,
-                                        "Required header is missing: " + missing + "\n"
+                                        "Required header is missing: " + missing
                                     );
                                 }
                             }
@@ -350,9 +396,11 @@ public class Server : BackgroundService
                                     rd.AsyncBlobAccessTimeoutSecs = clientInfo.AsyncBlobAccessTimeoutSecs;
                                     rd.BlobContainerName = clientInfo.ContainerName;
                                     rd.SBTopicName = clientInfo.SBTopicName;
+                                    rd.AsyncClientConfig = clientInfo; // Store the full config for AsyncWorker
                                     ed["AsyncBlobContainer"] = clientInfo.ContainerName;
                                     ed["AsyncSBTopic"] = clientInfo.SBTopicName;
                                     ed["BlobAccessTimeout"] = clientInfo.AsyncBlobAccessTimeoutSecs.ToString();
+                                    ed["GenerateSAS"] = clientInfo.GenerateSasTokens.ToString();
                                 }
 
                                 if (rd.Debug)
@@ -511,8 +559,14 @@ public class Server : BackgroundService
                             }
                             catch (Exception ex)
                             {
-                                _logger.LogError($"Request was not enqueue'd and got an error writing on network: {ex.Message}");
-                                ed["ErrorWritingResponse"] = ex.Message;
+                                var msg = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+
+                                if (!msg.Contains("Broken pipe") && !msg.Contains("Unable to write data to the transport connection"))
+                                {
+                                    _logger.LogError($"Request was not enqueue'd and got an error writing on network: {msg}");                               
+                                }
+                                    
+                                ed["ErrorWritingResponse"] = msg;
                             }
                             _staticEvent.WriteOutput($"Pri: {priority} Stat: 429 Path: {rd.Path}");
                         }
@@ -527,7 +581,8 @@ public class Server : BackgroundService
                         temp_ed["Message"] = "Enqueued request";
 
                         temp_ed.SendEvent();
-                        _logger.LogCritical($"Enque Pri: {priority}, User: {rd.UserID}, Async: {rd.runAsync}, Guid: {rd.Guid}  Q-Len: {_requestsQueue.thrdSafeCount}, CB: {_backends.CheckFailedStatus()}, Hosts: {_backends.ActiveHostCount()} ");
+                        _logger.LogDebug("[Queue:Enqueue:{Guid}] Request queued - Priority: {Priority}, User: {UserId}, Async: {IsAsync}, QueueLen: {QueueLength}, CircuitBreaker: {CircuitBreakerOpen}, ActiveHosts: {ActiveHosts}",
+                            rd.Guid, priority, rd.UserID, rd.runAsync, _requestsQueue.thrdSafeCount, _backends.CheckFailedStatus(), _backends.ActiveHostCount());
                     }
                 }
                 else
@@ -548,7 +603,7 @@ public class Server : BackgroundService
             }
             catch (Exception e)
             {
-                _telemetryClient?.TrackException(e);
+                _logger.LogError(e, "An error occurred");
                 _staticEvent.WriteOutput($"Error: {e.Message}\n{e.StackTrace}");
             }
         }

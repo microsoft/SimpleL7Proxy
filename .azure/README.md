@@ -140,4 +140,4 @@ azd down
 
 ## Additional Documentation
 
-For more information about SimpleL7Proxy, refer to the [main documentation](docs/README.md).
+For more information about SimpleL7Proxy, refer to the [main documentation](../README.md).

@@ -46,42 +46,71 @@ namespace SimpleL7Proxy.Feeder
         public async Task HydrateRequestAsync(RequestData request)
         {
 
-            _logger.LogInformation($"OpenAIBackgroundRequest: Hydrating request {request.Guid} to check on status.");
+            _logger.LogDebug($"OpenAIBackgroundRequest: Hydrating request {request.Guid} to check on status.");
 
             await _backupService.RestoreIntoAsync(request);
+            
+            // Validate that required fields were restored
+            if (string.IsNullOrEmpty(request.profileUserId))
+            {
+                _logger.LogError("OpenAIBackgroundRequest: profileUserId is null or empty after restore for request {Guid}", request.Guid);
+                throw new InvalidOperationException($"Failed to restore profileUserId for request {request.Guid}");
+            }
+            
+            if (string.IsNullOrEmpty(request.BlobContainerName))
+            {
+                _logger.LogError("OpenAIBackgroundRequest: BlobContainerName is null or empty after restore for request {Guid}", request.Guid);
+                throw new InvalidOperationException($"Failed to restore BlobContainerName for request {request.Guid}");
+            }
+            
             // restore the async fields:
             request.IsBackgroundCheck = true;
             request.runAsync = true;
             request.AsyncTriggered = true;
             request.asyncWorker = _asyncWorkerFactory.CreateAsync(request, 0);
 
-            // let asyncworker restore the blob streams
-            await request.asyncWorker.RestoreAsync(isBackground: true);
+            // Initialize for background check - blobs will be created lazily when first written to
+            await request.asyncWorker.InitializeForBackgroundCheck();
 
-            // Handle URLs with query parameters when appending BackgroundRequestId
+            // Transform URL from POST /resp/responses?api-version=... to GET /resp/v1/responses/{backgroundRequestId}
             try
             {
                 UriBuilder uriBuilder = new UriBuilder(request.FullURL);
                 
                 // Check if the BackgroundRequestId is already in the path
-                string path = uriBuilder.Path.TrimEnd('/');
-                if (!path.EndsWith($"/{request.BackgroundRequestId}") && !path.Contains($"/{request.BackgroundRequestId}/"))
-                {
-                    // Append BackgroundRequestId to the path, ensuring proper path structure
-                    uriBuilder.Path = $"{path}/{request.BackgroundRequestId}";
-                    _logger.LogDebug($"Appending request ID to URL: {uriBuilder.Uri}");
-                }
-                else
+                if (uriBuilder.Path.Contains($"/{request.BackgroundRequestId}"))
                 {
                     _logger.LogDebug($"URL already contains request ID: {uriBuilder.Uri}");
                 }
+                else
+                {
+                    // Transform the path: /resp/responses -> /resp/v1/responses/{backgroundRequestId}
+                    // Remove trailing slashes and handle path replacement
+                    string basePath = uriBuilder.Path.TrimEnd('/');
+                    
+                    // Replace "responses" with "v1/responses/{backgroundRequestId}"
+                    if (basePath.EndsWith("/responses"))
+                    {
+                        basePath = basePath.Substring(0, basePath.LastIndexOf("/responses"));
+                        uriBuilder.Path = $"{basePath}/v1/responses/{request.BackgroundRequestId}";
+                    }
+                    else
+                    {
+                        // Fallback: just append the background request ID
+                        uriBuilder.Path = $"{basePath}/{request.BackgroundRequestId}";
+                    }
+                    
+                    // Remove query parameters for status check
+                    uriBuilder.Query = string.Empty;
+                    
+                    _logger.LogDebug($"Transformed URL for background check: {uriBuilder.Uri}");
+                }
                 
-                // UriBuilder handles all the complexities of maintaining proper URL structure
                 request.FullURL = uriBuilder.Uri.ToString();
+                request.Path = new Uri(request.FullURL).PathAndQuery;
                 request.Method = "GET";
-                request.Path = uriBuilder.Uri.PathAndQuery;
                 
-                _logger.LogDebug($"Updated URL for background request check: {request.FullURL}");
+                _logger.LogDebug($"Updated for background check - FullURL: {request.FullURL}, Path: {request.Path}");
             }
             catch (UriFormatException ex)
             {

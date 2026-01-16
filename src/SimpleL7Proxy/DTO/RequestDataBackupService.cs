@@ -15,13 +15,15 @@ namespace SimpleL7Proxy.DTO
         public RequestDataBackupService(IBlobWriter blobWriter, ILogger<RequestDataBackupService> logger)
         {
             _logger = logger;
-            _logger.LogDebug("Backup Service starting");
+            _logger.LogDebug("[INIT] BackupAPI Service starting");
             _blobWriter = blobWriter;
         }
 
         public async Task RestoreIntoAsync(RequestData rdata)
         {
             string blobname = rdata.Guid.ToString();
+            
+            _logger.LogTrace($"[BLOB-TRACE] BackupService.RestoreIntoAsync | Action: Start | Guid: {rdata.Guid} | Container: {Constants.Server} | Blob: {blobname} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
             
             try
             {
@@ -46,17 +48,21 @@ namespace SimpleL7Proxy.DTO
                 var bodyBlobName = blobname + ".body";
                 if (await _blobWriter.BlobExistsAsync(Constants.Server, bodyBlobName))
                 {
+                    _logger.LogTrace($"[BLOB-TRACE] BackupService.RestoreIntoAsync | Action: ReadBody | Guid: {rdata.Guid} | Container: {Constants.Server} | Blob: {bodyBlobName} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
                     using Stream bodyStream = await _blobWriter.ReadBlobAsStreamAsync(Constants.Server, bodyBlobName);
                     var bodyStreamReader = new StreamReader(bodyStream);
                     var datastr = await bodyStreamReader.ReadToEndAsync();
                     rdata.setBody(Encoding.UTF8.GetBytes(datastr));
+                    _logger.LogTrace($"[BLOB-TRACE] BackupService.RestoreIntoAsync | Action: ReadBody-Complete | Guid: {rdata.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
                 }
 
+                _logger.LogTrace($"[BLOB-TRACE] BackupService.RestoreIntoAsync | Action: Complete | Guid: {rdata.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
                 return;
             }
-            catch (BlobWriterException)
+            catch (BlobWriterException e)
             {
                 _logger.LogInformation($"Blob {blobname} error reading from blob.");
+                _logger.LogError(e.StackTrace);
                 throw;
             }
             catch (JsonException ex)
@@ -75,12 +81,13 @@ namespace SimpleL7Proxy.DTO
         {
             var operation = "Creating blob";
 
+            _logger.LogTrace($"[BLOB-TRACE] BackupService.BackupAsync | Action: Start | Guid: {requestData.Guid} | Container: {Constants.Server} | Blob: {requestData.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+
             try
             {
-                _logger.LogDebug($"Backing up request {requestData.Guid}");
                 operation = "Serializing request data";
 
-                _logger.LogDebug($" Backing up request {requestData.Guid}  URL: {requestData.FullURL} ");
+                _logger.LogDebug("BackupAPI: Backing up request {guid}", requestData.Guid);
                 var dto = new RequestDataDtoV1(requestData);
                 var json = JsonSerializer.Serialize(dto, new JsonSerializerOptions
                 {
@@ -95,26 +102,33 @@ namespace SimpleL7Proxy.DTO
                 {
                     await writer.WriteAsync(jsonBytes, 0, jsonBytes.Length);
                     await writer.FlushAsync();
+                    _logger.LogTrace($"[BLOB-TRACE] BackupService.BackupAsync | Action: Written | Guid: {requestData.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
                 }
 
                 // Only write out the body bytes blob the first time.. The body does not change on retries 
                 if (requestData.BodyBytes != null)
                 {
-                    var exists = await _blobWriter.BlobExistsAsync(Constants.Server, requestData.Guid.ToString() + ".body");
+                    var bodyBlobName = requestData.Guid.ToString() + ".body";
+                    var exists = await _blobWriter.BlobExistsAsync(Constants.Server, bodyBlobName);
                     if (exists)
                     {
+                        _logger.LogTrace($"[BLOB-TRACE] BackupService.BackupAsync | Action: BodyExists-Skip | Guid: {requestData.Guid} | Blob: {bodyBlobName} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
                         _logger.LogDebug($"Backup blob for body of request {requestData.Guid} already exists. Skipping write.");
                         return;
                     }
 
-                    await using (var stream = await _blobWriter.CreateBlobAndGetOutputStreamAsync(Constants.Server, requestData.Guid.ToString() + ".body"))
+                    _logger.LogTrace($"[BLOB-TRACE] BackupService.BackupAsync | Action: WriteBody | Guid: {requestData.Guid} | Container: {Constants.Server} | Blob: {bodyBlobName} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                    await using (var stream = await _blobWriter.CreateBlobAndGetOutputStreamAsync(Constants.Server, bodyBlobName))
                     await using (var writer = new BufferedStream(stream))
                     {
                         await writer.WriteAsync(requestData.BodyBytes, 0, requestData.BodyBytes.Length);
                         await writer.FlushAsync();
+                        _logger.LogTrace($"[BLOB-TRACE] BackupService.BackupAsync | Action: WriteBody-Complete | Guid: {requestData.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
                     }
 
                 }
+                
+                _logger.LogTrace($"[BLOB-TRACE] BackupService.BackupAsync | Action: Complete | Guid: {requestData.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
 
                 _logger.LogDebug($"Backup of request {requestData.Guid} completed successfully.");
             }

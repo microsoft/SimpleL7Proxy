@@ -115,7 +115,7 @@ Based on the BackendHostConfigurationExtensions.cs file, here are ALL the enviro
 |----------|---------|------|-------------|
 | RequiredHeaders | "" | string | Required headers for requests |
 | DisallowedHeaders | "" | string | Headers not allowed in requests |
-| StripHeaders | "" | string | Headers to strip from requests |
+| StripResponseHeaders | "" | string | Headers to strip from responses |
 | ValidateHeaders | "" | string | Headers to validate (key:value pairs) |
 | TimeoutHeader | "S7PTimeout" | string | Header for timeout value |
 | TTLHeader | "S7PTTL" | string | Header for TTL value |

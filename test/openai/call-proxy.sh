@@ -8,18 +8,22 @@
 # Default API key (fallback if not specified in HOSTMAP)
 # source env.sh
 
-
 # Map host aliases to hostname|folder|apikey (use empty after | for no folder, use empty for default APIKEY)
 declare -A HOSTMAP
 HOSTMAP["tr2"]="nvmtr2apim.azure-api.net|bf2|"
 HOSTMAP["tr2-o"]="nvmtr2apim.azure-api.net|resp|"
 HOSTMAP["apim2"]="nvmmcpapim2.azure-api.net||"
 HOSTMAP["local-ai"]="localhost:8000|openai|"
+HOSTMAP["local-echo"]="localhost:8000|echo|"
 HOSTMAP["local-resp"]="localhost:8000|resp|"
+HOSTMAP["local-direct"]="localhost:8000|api2/openai|"
 HOSTMAP["local"]="localhost:8000||"
 HOSTMAP["openai3"]="nvmopenai3.openai.azure.com|openai|"
 HOSTMAP["nvm2"]="nvm2.openai.azure.com|openai|"
 HOSTMAP["foundry"]="localhost:8000|aif2/openai|"
+HOSTMAP["null"]="localhost:3000||"
+HOSTMAP["aca"]="simplel7dev.agreeableisland-74a4ba5f.eastus.azurecontainerapps.io|"
+HOSTMAP["aca-resp"]="simplel7dev.agreeableisland-74a4ba5f.eastus.azurecontainerapps.io|resp"
 # Add more host aliases as needed:
 # HOSTMAP["nvmtr3"]="nvmtr3apim.azure-api.net|somefolder|custom-api-key"
 
@@ -32,7 +36,9 @@ URLS["4.1response"]="GET /v1/responses"
 URLS["chat"]="POST /deployments/d1/chat/completions?api-version=2025-01-01-preview"
 URLS["request"]="POST /responses?api-version=2025-04-01-preview"
 URLS["check"]="POST /deployments/d1/chat/check?api-version=2025-01-01-preview"
+URLS["direct-chat"]="POST /openai/v1/chat/completions?api-version=2024-05-01-preview"
 URLS["multiline"]="POST /multiline"
+URLS["resource"]="GET /resource?param1=sample"
 URLS["400"]="POST /400error"
 URLS["401"]="POST /401error"
 URLS["403"]="POST /403error"
@@ -41,22 +47,34 @@ URLS["412"]="POST /412error"
 URLS["421"]="POST /421error"
 URLS["429"]="POST /429error"
 URLS["500"]="POST /500error"
+URLS["health"]="GET /health"
+URLS["sleep10"]="POST /delay10seconds"
+URLS["sleep100"]="POST /delay100seconds"
+URLS["sleep200"]="POST /delay200seconds"
+URLS["sleep400"]="POST /delay400seconds"
+URLS["sleep800"]="POST /delay800seconds"
 URLS["4o-mini.txt"]="POST /file/4o-mini.txt"
 URLS["claude-3.5"]="POST /file/claude-3.5-haiku.txt"
 URLS["claude-sonnet"]="POST /file/claude-sonnet-3.5.txt"
 URLS["embeddings"]="POST /file/embeddings.txt"
 URLS["gemini-2.5"]="POST /file/gemini-2.5.txt"
+URLS["gemini-2.5-pro.txt"]="POST /file/gemini-2.5-pro.txt"
 URLS["gemini-2.5-pro-chat"]="POST /file/gemini-2.5-pro-chat.txt"
 URLS["gemini-2.5-pro-stream"]="POST /file/gemini-2.5-pro-stream.txt"
 URLS["gpt5-nano-response"]="POST /file/gpt5-nano-response.txt"
 URLS["gpt5-nano"]="POST /file/gpt5-nano.txt"
+URLS["api"]="POST /openai/v1//chat/completions"
+URLS["echo"]="GET /echo/resource?param1=sample"
 
 
 # Parse command line arguments
 verbose=""
 asyncmode="false"
 debugmode="false"
+expiredelta="900"
 response_id=""
+custom_apikey=""
+show_timestamps="true"
 args=()
 
 # Process arguments to extract flags and positional parameters
@@ -73,12 +91,24 @@ while [ $i -lt $# ]; do
     -d|--debug)
       debugmode="true"
       ;;
+    -n|--no-timestamps)
+      show_timestamps="false"
+      ;;
     --rid)
       ((i++))
       if [ $i -le $# ]; then
         response_id="${!i}"
       else
         echo "Error: --rid requires a value"
+        exit 1
+      fi
+      ;;
+    --key)
+      ((i++))
+      if [ $i -le $# ]; then
+        custom_apikey="${!i}"
+      else
+        echo "Error: --key requires a value"
         exit 1
       fi
       ;;
@@ -93,7 +123,7 @@ requesttype="${args[1],,}"
 jsonfile="${args[2]}"
 
 if [ -z "$hostalias" ]; then
-  echo "Usage: call-proxy <hostalias> [requesttype] [jsonfile] [--rid response_id] [-v] [-a|--async] [-d|--debug]"
+  echo "Usage: call-proxy <hostalias> [requesttype] [jsonfile] [--rid response_id] [--key api_key] [-v] [-a|--async] [-d|--debug] [-n|--no-timestamps]"
   echo " Examples:"
   echo "  ./call-proxy.sh local multiline openai_call1.json -v -a"
   echo "  ./call-proxy.sh local embeddings openai_call1.json -v -a"
@@ -104,6 +134,8 @@ if [ -z "$hostalias" ]; then
   echo "  ./call-proxy.sh local gemini-2.5-pro--chat"
   echo "  ./call-proxy.sh tr2-o 4.1request openai_call-bg.json"
   echo "  ./call-proxy.sh local-resp 4.1response --rid <response_id> "
+  echo "  ./call-proxy.sh local chat openai_call1.json --key abcdef"
+  echo "  ./call-proxy.sh local chat openai_call1.json -n"
   exit 1
 fi
 
@@ -168,7 +200,11 @@ else
   fullurl="$scheme://$hostname$partialurl"
 fi
 
-echo "[$(date +%s%3N)] Calling: $fullurl"
+if [ "$show_timestamps" = "true" ]; then
+  echo "[$(date +%s%3N)] Calling: $fullurl"
+else
+  echo "Calling: $fullurl"
+fi
 echo "----------------------------------------"
 
 # Execute curl with appropriate method
@@ -176,29 +212,43 @@ curl_cmd=(
   curl -X "$http_method" "$fullurl"
   -H "Content-Type: application/json; charset=UTF-8"
   -H "Ocp-Apim-Subscription-Key: $APIMKEY"
-  -H "api-key: $apikey"
+  -H "S7PTTL: $expiredelta"
   -H "test: x" -H "xx: Value1" -H "X-UserProfile: 123456"
-  -H "x-backend-affinity: 3ee113511b77c0e2605e"
 )
+
+# Add api-key header if --key parameter was provided
+if [ -n "$custom_apikey" ]; then
+  curl_cmd+=( -H "api-key: $custom_apikey" )
+else
+  curl_cmd+=( -H "api-key: $apikey" )
+fi
 
 if [ "$asyncmode" = "true" ]; then
   curl_cmd+=( -H "AsyncMode: true" )
 fi
 
 if [ "$debugmode" = "true" ]; then
-  curl_cmd+=( -H "S&PDEBUG: true" )
+  curl_cmd+=( -H "S7PDEBUG: true" )
 fi
 
 curl_cmd+=( --no-buffer $verbose )
 
 if [ "$http_method" = "GET" ]; then
   curl_cmd+=(-w "\n----------------------------------------\n[Status Code: %{http_code}]\n")
-  "${curl_cmd[@]}" | while IFS= read -r line; do
-    echo "[$(date +%s%3N)] $line"
-  done
+  if [ "$show_timestamps" = "true" ]; then
+    "${curl_cmd[@]}" | while IFS= read -r line; do
+      echo "[$(date +%s%3N)] $line"
+    done
+  else
+    "${curl_cmd[@]}"
+  fi
 else
   curl_cmd+=(-d @"$jsonfile" -w "\n----------------------------------------\n[Status Code: %{http_code}]\n")
-  "${curl_cmd[@]}" | while IFS= read -r line; do
-    echo "[$(date +%s%3N)] $line"
-  done
+  if [ "$show_timestamps" = "true" ]; then
+    "${curl_cmd[@]}" | while IFS= read -r line; do
+      echo "[$(date +%s%3N)] $line"
+    done
+  else
+    "${curl_cmd[@]}"
+  fi
 fi

@@ -16,13 +16,39 @@ import argparse
 httpd = None  # Declare httpd as a global variable
 
 class MyHandler(http.server.BaseHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        self.gotAuth = ""
+        super().__init__(*args, **kwargs)
+    
+    def log_message(self, format, *args):
+        """Override the default log message to include Authorization info"""
+        auth_info = f"[AUTH: {self.gotAuth}]" if self.gotAuth else "[AUTH: None]"
+        # Insert auth info before the request method
+        original_message = format % args
+        # Split the message to insert auth info in the right place
+        parts = original_message.split('"')
+        if len(parts) >= 2:
+            # Insert auth info before the quoted request
+            modified_message = f'{parts[0]}{auth_info} "{parts[1]}"'
+            if len(parts) > 2:
+                modified_message += '"'.join(parts[2:])
+        else:
+            modified_message = f"{original_message} {auth_info}"
+        
+        print(f"{self.address_string()} - - [{self.log_date_time_string()}] {modified_message}")
+
     def do_POST(self):
         self.do_GET()
         
     def do_GET(self):
         parsed_path = urlparse(self.path)
         query_params = parse_qs(parsed_path.query)
-
+        # check if Authorization header is present
+        self.gotAuth = ""
+        for header, value in self.headers.items():
+            if header == "Authorization":
+                self.gotAuth = (len(value) > 1) and "yes" or "no"
+        
         # Example: /health endpoint
         if parsed_path.path == '/health':
             self.send_response(200)
@@ -32,6 +58,9 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             return
         
         if parsed_path.path == '/429error':
+            sleep_time = random.uniform(1, 1.5)  # Random sleep time
+            print("Sleeping before sending error response..." + str(sleep_time) + " seconds")
+            time.sleep(sleep_time)
 
             # Read the body
             content_length = int(self.headers.get('Content-Length', 0))  # Get the length of the body
@@ -47,6 +76,8 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         
         # Pattern: /{code}error   ex: /412error, /500error, etc.
         if parsed_path.path.endswith('error') and len(parsed_path.path) > 5:
+
+        
             try:
                 # Extract error code from /{code}error format
                 error_code_str = parsed_path.path[1:-5]  # Remove leading '/' and trailing 'error'
@@ -65,13 +96,20 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.close()
             print("Connection closed")
             return
-
-        if parsed_path.path == '/delay800seconds':
-            time.sleep(800)
-            self.wfile.close()
-            print("Connection closed")
+        
+        # Handle delay endpoints with pattern matching
+        delay_patterns = {
+            '/delay10seconds': 10,
+            '/delay100seconds': 100,
+            '/delay200seconds': 200,
+            '/delay400seconds': 400,
+            '/delay800seconds': 800
+        }
+        
+        if parsed_path.path in delay_patterns:
+            delay_seconds = delay_patterns[parsed_path.path]
+            self.handle_delay_endpoint(delay_seconds)
             return
-
                 
         if parsed_path.path == '/echo/requeueME':
 
@@ -109,60 +147,24 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         if parsed_path.path.startswith('/openai'):
             sleep_time = random.uniform(5, 6)  # Random sleep time
             time.sleep(sleep_time)
-            
-            request_sequence, queue_time, process_time, s7pid = self.extract_request_headers()
-            self.send_response(200)
-            self.set_streaming_response_headers(request_sequence, queue_time, process_time, s7pid)
-            self.send_header('TOKENPROCESSOR', 'OpenAI')
-            self.end_headers()
-
-            self.stream_file_contents("openAI.txt")
-
-            # Send the zero-length chunk to indicate the end of the response
-            self.wfile.write(b"0\r\n\r\n")
-            self.wfile.flush()
+            self.send_streaming_response("openAI.txt", "OpenAI")
             return
 
         if parsed_path.path == '/openai-ml':
             sleep_time = random.uniform(.4, .7)  # Random sleep time 
             time.sleep(sleep_time)
-            
-            request_sequence, queue_time, process_time, s7pid = self.extract_request_headers()
-            self.send_response(200)
-            self.set_streaming_response_headers(request_sequence, queue_time, process_time, s7pid)
-            self.send_header('TOKENPROCESSOR', 'MultiLineAllUsage')
-            self.end_headers()
-
-            self.stream_file_contents("openAI.txt")
-
-            # Send the zero-length chunk to indicate the end of the response
-            self.wfile.write(b"0\r\n\r\n")
-            self.wfile.flush()
+            self.send_streaming_response("openAI.txt", "MultiLineAllUsage")
             return
         
         if parsed_path.path == '/multiline':
             sleep_time = random.uniform(.4, .7)  # Random sleep time 
             time.sleep(sleep_time)
-
-            request_sequence, queue_time, process_time, s7pid = self.extract_request_headers()
-            self.send_response(200)
-            self.set_streaming_response_headers(request_sequence, queue_time, process_time, s7pid)
-            self.send_header('TOKENPROCESSOR', 'MultiLineAllUsage')
-
-            self.end_headers()
-
-            self.stream_file_contents("multiline.txt")
-
-            # Send the zero-length chunk to indicate the end of the response
-            self.wfile.write(b"0\r\n\r\n")
-            self.wfile.flush()
+            self.send_streaming_response("multiline.txt", "MultiLineAllUsage")
             return
 
         if parsed_path.path.startswith('/file/'):
-        
-            filename= parsed_path.path[len('/file/'):]
-            # make  sure the file exists
-
+            filename = parsed_path.path[len('/file/'):]
+            # Make sure the file exists
             if not os.path.exists(filename):
                 self.send_response(404)
                 self.end_headers()
@@ -171,27 +173,14 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
 
             sleep_time = random.uniform(.4, .7)  # Random sleep time
             time.sleep(sleep_time)
-
-            request_sequence, queue_time, process_time, s7pid = self.extract_request_headers()
-            self.send_response(200)
-            self.set_streaming_response_headers(request_sequence, queue_time, process_time, s7pid)
-            self.send_header('TOKENPROCESSOR', 'MultiLineAllUsage')
-
-            self.end_headers()
-
-            self.stream_file_contents(filename)
-
-            # Send the zero-length chunk to indicate the end of the response
-            self.wfile.write(b"0\r\n\r\n")
-            self.wfile.flush()
+            self.send_streaming_response(filename, "MultiLineAllUsage")
             return
 
         # Default response
-
         # Extract specific headers
         request_sequence, queue_time, process_time, s7pid = self.extract_request_headers()
 
-        # Sleep for a random number from 4 to 5 seconds
+        # Sleep for a random number from 60 to 65 seconds
         sleep_time = random.uniform(60, 65)  # Random sleep time 
         time.sleep(sleep_time)
 
@@ -206,7 +195,6 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         # Stream file contents line by line with a 1-second delay
         self.stream_file_contents("stream_data.txt")
 
-
         # Send the zero-length chunk to indicate the end of the response
         self.wfile.write(b"0\r\n\r\n")
         self.wfile.flush()
@@ -217,6 +205,37 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         process_time = self.headers.get('x-Request-Process-Duration', 'N/A')
         s7pid = self.headers.get('x-S7PID', 'N/A')
         return request_sequence,queue_time,process_time,s7pid
+    
+    def handle_delay_endpoint(self, delay_seconds):
+        """Handle delay endpoints with the specified delay time."""
+        print(f"Delaying for {delay_seconds} seconds...")
+        time.sleep(delay_seconds)
+        
+        request_sequence, queue_time, process_time, s7pid = self.extract_request_headers()
+        self.send_response(200)
+        self.set_streaming_response_headers(request_sequence, queue_time, process_time, s7pid)
+        self.send_header('TOKENPROCESSOR', 'OpenAI')
+        self.end_headers()
+
+        self.stream_file_contents("openAI.txt")
+        
+        # Send the zero-length chunk to indicate the end of the response
+        self.wfile.write(b"0\r\n\r\n")
+        self.wfile.flush()
+    
+    def send_streaming_response(self, filename="openAI.txt", processor="OpenAI"):
+        """Send a streaming response with the specified file and processor."""
+        request_sequence, queue_time, process_time, s7pid = self.extract_request_headers()
+        self.send_response(200)
+        self.set_streaming_response_headers(request_sequence, queue_time, process_time, s7pid)
+        self.send_header('TOKENPROCESSOR', processor)
+        self.end_headers()
+
+        self.stream_file_contents(filename)
+        
+        # Send the zero-length chunk to indicate the end of the response
+        self.wfile.write(b"0\r\n\r\n")
+        self.wfile.flush()
     
     def set_streaming_response_headers(self, request_sequence, queue_time, process_time, s7pid):
         self.send_header("x-Request-Sequence", request_sequence)

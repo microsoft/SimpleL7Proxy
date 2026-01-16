@@ -31,7 +31,7 @@ public class UserProfile : BackgroundService, IUserProfileService
         _UserIDFieldName = _options.UserIDFieldName;
         _userInformation[Constants.Server] = new AsyncClientInfo(Constants.Server, Constants.Server, Constants.Server, false, 3600);
 
-        _logger.LogDebug("UserProfile service starting");
+        _logger.LogDebug("[INIT] UserProfile service starting");
     }
     public enum ParsingMode
     {
@@ -356,6 +356,7 @@ public class UserProfile : BackgroundService, IUserProfileService
         string containerName = string.Empty;
         string topicName = string.Empty;
         int timeoutSecs = 0;
+        bool generateSasTokens = false; // Default to false - SAS tokens not generated unless explicitly requested
 
         foreach (var keyValuePair in asyncConfigParts)
         {
@@ -394,9 +395,17 @@ public class UserProfile : BackgroundService, IUserProfileService
                     _logger.LogWarning($"User profile: defaulting async blob access timeout for user {userId} with {timeoutSecs}.");
                 }
             }
+            else if (field == "generatesas")
+            {
+                if (!bool.TryParse(value, out generateSasTokens))
+                {
+                    generateSasTokens = false;
+                    _logger.LogWarning($"User profile: invalid generateSAS value for user {userId}, defaulting to false.");
+                }
+            }
         }
 
-        cachedInfo = new AsyncClientInfo(userId, containerName, topicName, asyncEnabled, timeoutSecs);
+        cachedInfo = new AsyncClientInfo(userId, containerName, topicName, timeoutSecs, generateSasTokens);
         _userInformation[userId] = cachedInfo;
         return cachedInfo;
     }

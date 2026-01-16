@@ -8,13 +8,16 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Options;
 
+using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.Backend.Iterators;
+
 using Azure.Messaging.ServiceBus;
 
-using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Queue;
+using SimpleL7Proxy.StreamProcessor;
 using SimpleL7Proxy.User;
 //using SimpleL7Proxy.EventGrid;
 using SimpleL7Proxy.ServiceBus;
@@ -22,7 +25,6 @@ using SimpleL7Proxy.BlobStorage;
 using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.BackupAPI;
 using SimpleL7Proxy.Feeder;
-
 
 using System.Net;
 using System.Text;
@@ -43,7 +45,7 @@ namespace SimpleL7Proxy;
 
 public class Program
 {
-    
+
     public static async Task Main(string[] args)
     {
         Banner.Display();
@@ -84,11 +86,24 @@ public class Program
         var options = serviceProvider.GetRequiredService<IOptions<BackendOptions>>();
         var eventHubClient = serviceProvider.GetService<IEventClient>();
         var telemetryClient = serviceProvider.GetRequiredService<TelemetryClient>();
+        var backendTokenProvider = serviceProvider.GetRequiredService<BackendTokenProvider>();
+
+        // Initialize static logger for all stream processors
+        var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
+        var streamProcessorLogger = loggerFactory.CreateLogger("StreamProcessor");
+        BaseStreamProcessor.SetLogger(streamProcessorLogger);
+        startupLogger.LogInformation("[INIT] ✓ Stream processor logger initialized");
 
         // Initialize ProxyEvent with BackendOptions
 
         ProxyEvent.Initialize(options, eventHubClient, telemetryClient);
-    
+
+        // Initialize HostConfig with all required dependencies including service provider for circuit breaker DI
+        HostConfig.Initialize(backendTokenProvider, startupLogger, serviceProvider);
+
+        // Register backends after DI container is built and HostConfig is initialized
+        BackendHostConfigurationExtensions.RegisterBackends(options.Value);
+
         try
         {
             //ServiceBusRequestService? serviceBusService = null;
@@ -129,8 +144,13 @@ public class Program
         }
         catch (Exception e)
         {
+            Console.WriteLine(e.StackTrace);
             // Handle other exceptions that might occur
+
             startupLogger.LogError($"[ERROR] ✗ Unexpected startup error: {e.Message}");
+            var pe = new ProxyEvent();
+            pe.Type = EventType.Exception;
+            pe.SendEvent();
         }
     }
 
@@ -179,7 +199,7 @@ public class Program
 
         if (log_to_file)
         {
-            var logFileName = Environment.GetEnvironmentVariable("LOGFILE_NAME") ?? "events.json";
+            var logFileName = Environment.GetEnvironmentVariable("LOGFILE_NAME") ?? "eventslog.json";
             services.AddProxyEventLogFileClient(logFileName, Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING"));
 
         }
@@ -187,22 +207,76 @@ public class Program
         {
             var eventHubConnectionString = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING");
             var eventHubName = Environment.GetEnvironmentVariable("EVENTHUB_NAME");
+            var eventHubNamespace = Environment.GetEnvironmentVariable("EVENTHUB_NAMESPACE");
+            var eventHubStartupSecondsStr = Environment.GetEnvironmentVariable("EVENTHUB_STARTUP_SECONDS");
 
-            services.AddSingleton(new EventHubConfig(eventHubConnectionString!, eventHubName!));
-            services.AddProxyEventClient(eventHubConnectionString, eventHubName, Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING"));
+            // default to 10 if it's not set or invalid
+            if (!int.TryParse(eventHubStartupSecondsStr, out _))
+                eventHubStartupSecondsStr = "10";
+            _ = int.TryParse(eventHubStartupSecondsStr, out var eventHubStartupSeconds);
+
+            services.AddSingleton(new EventHubConfig(eventHubConnectionString!, eventHubName!, eventHubNamespace!, eventHubStartupSeconds));
+            services.AddProxyEventClient(Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING"));
         }
 
-        services.AddBackendHostConfiguration(startupLogger);
+        var backendOptions = BackendHostConfigurationExtensions.CreateBackendOptions(startupLogger);
+        services.AddBackendHostConfiguration(startupLogger, backendOptions);
 
-        services.AddSingleton<IBlobWriterFactory, BlobWriterFactory>();
-        services.AddSingleton<IBlobWriter>(provider =>
+        if (backendOptions.AsyncModeEnabled)
         {
-            var factory = provider.GetRequiredService<IBlobWriterFactory>();
-            return factory.CreateBlobWriter();
-        });
+            services.AddSingleton<IBlobWriterFactory, BlobWriterFactory>();
+            // Create the underlying BlobWriter (not registered as IBlobWriter)
+            services.AddSingleton<BlobWriter>(provider =>
+            {
+                var factory = provider.GetRequiredService<IBlobWriterFactory>();
+                var blobWriter = factory.CreateBlobWriter() as BlobWriter;
+                var logger = provider.GetRequiredService<ILogger<Program>>();
+                logger.LogInformation("[INIT] ✓ Underlying BlobWriter created: {BlobWriterType}", blobWriter?.GetType().Name ?? "Unknown");
+                return blobWriter!;
+            });
 
-        services.AddTransient<IAsyncWorkerFactory, AsyncWorkerFactory>();
+            // Configure BlobWriteQueue options
+            services.AddSingleton(provider => 
+            {
+                return new BlobWriteQueueOptions
+                {
+                    WorkerCount = backendOptions.AsyncBlobWorkerCount,
+                    MaxQueueSize = 10000,
+                    BatchWaitTimeMs = 100,
+                    MaxBatchSize = 25,
+                    EnableBatching = true,
+                    MetricsIntervalSeconds = 30
+                };
+            });
 
+            // Register BlobWriteQueue as both singleton and hosted service
+            services.AddSingleton<BlobWriteQueue>();
+            services.AddHostedService(sp => sp.GetRequiredService<BlobWriteQueue>());
+
+            // Register QueuedBlobWriter as the IBlobWriter implementation (wraps BlobWriter)
+            services.AddSingleton<IBlobWriter>(provider =>
+            {
+                var underlyingWriter = provider.GetRequiredService<BlobWriter>();
+                var queue = provider.GetRequiredService<BlobWriteQueue>();
+                var logger = provider.GetRequiredService<ILogger<QueuedBlobWriter>>();
+                
+                // Enable queue for writes - set to false to disable queuing
+                var queuedWriter = new QueuedBlobWriter(underlyingWriter, queue, logger, useQueueForWrites: true);
+                
+                var programLogger = provider.GetRequiredService<ILogger<Program>>();
+                programLogger.LogInformation("[INIT] ✓ QueuedBlobWriter initialized (wrapping {UnderlyingType})", 
+                    underlyingWriter.GetType().Name);
+                
+                return queuedWriter;
+            });
+
+            services.AddTransient<IAsyncWorkerFactory, AsyncWorkerFactory>();
+        }
+        else {
+            services.AddTransient<IAsyncWorkerFactory, NullAsyncWorkerFactory>();
+            services.AddSingleton<IBlobWriter, NullBlobWriter>();
+            services.AddSingleton<IRequestDataBackupService, NullRequestDataBackupService>();
+        }
         // services.AddSingleton<BlobWriter>(provider =>
         // {
         //     var optionsMonitor = provider.GetRequiredService<IOptionsMonitor<BackendOptions>>();
@@ -215,15 +289,26 @@ public class Program
 
         services.AddSingleton<IRequeueWorker, RequeueDelayWorker>();
 
+        services.AddTransient<ICircuitBreaker, CircuitBreaker>();
         services.AddSingleton<IBackendService, Backends>();
         services.AddSingleton<Server>();
         services.AddSingleton<ConcurrentSignal<RequestData>>();
         services.AddSingleton<IConcurrentPriQueue<RequestData>, ConcurrentPriQueue<RequestData>>();
         //services.AddSingleton<ProxyStreamWriter>();
-        services.AddSingleton<IBackendHostHealthCollection, BackendHostHealthCollection>();
+        services.AddSingleton<IHostHealthCollection, HostHealthCollection>();
+        services.AddSingleton<HealthCheckService>();
+        services.AddSingleton<RequestLifecycleManager>();
+        services.AddSingleton<EventDataBuilder>();
+
+        services.AddSingleton<BackendTokenProvider>();
+        services.AddHostedService<BackendTokenProvider>();
         // services.AddSingleton<IBackgroundWorker, BackgroundWorker>();
 
         services.AddHostedService<Server>(provider => provider.GetRequiredService<Server>());
+
+        // Ensure ProbeServer updater runs as a background hosted service
+        services.AddSingleton<ProbeServer>();
+        services.AddHostedService(sp => sp.GetRequiredService<ProbeServer>());
 
         // ASYNC RELATED
         // Add storage service registration
@@ -240,14 +325,34 @@ public class Program
         services.AddSingleton<IAsyncFeeder, AsyncFeeder>();
         services.AddSingleton<NormalRequest>();
         services.AddSingleton<OpenAIBackgroundRequest>();
+
         // services.AddSingleton<IRequestProcessor, NormalRequest>();
 
         services.AddHostedService(sp => (AsyncFeeder)sp.GetRequiredService<IAsyncFeeder>());
+
+        // Stream processor factory - optimized singleton for high-throughput scenarios
+        services.AddSingleton<StreamProcessorFactory>();
+
+        // Shared Iterator Registry - conditionally registered based on UseSharedIterators option
+        // When enabled, requests to the same path share the same iterator for fair distribution
+        services.AddSingleton<ISharedIteratorRegistry>(sp =>
+        {
+            var options = sp.GetRequiredService<IOptions<BackendOptions>>().Value;
+            if (!options.UseSharedIterators)
+            {
+                // Return null - ProxyWorkerCollection handles null gracefully
+                return null!;
+            }
+            var logger = sp.GetRequiredService<ILogger<SharedIteratorRegistry>>();
+            return new SharedIteratorRegistry(
+                logger,
+                options.SharedIteratorTTLSeconds,
+                options.SharedIteratorCleanupIntervalSeconds);
+        });
 
         services.AddHostedService<ProxyWorkerCollection>();
         services.AddTransient(source => new CancellationTokenSource());
         services.AddHostedService<CoordinatedShutdownService>();
         services.AddHostedService<UserProfile>(provider => provider.GetRequiredService<UserProfile>());
-
     }
 }

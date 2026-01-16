@@ -6,6 +6,12 @@ using Shared.RequestAPI.Models;
 
 namespace RequestAPI;
 
+/// <summary>
+/// Azure Function that runs every minute to resubmit requests that need reprocessing.
+/// Queries Cosmos DB for documents with status = NeedsReprocessing (4), updates them to ReSubmitted (5),
+/// and sends them back to the Service Bus queue for reprocessing.
+/// </summary>
+
 public class ReFeeder
 {
     private readonly ILogger _logger;

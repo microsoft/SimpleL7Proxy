@@ -56,15 +56,21 @@ namespace SimpleL7Proxy.Feeder
 
         private async Task DataFromBlob(RequestData request)
         {
-            // populate the fields that were stored in the backup blob
-            await _backupService.RestoreIntoAsync(request);
+            if ( request.BodyBytes == null || request.BodyBytes.Length == 0)
+            {
+                // populate the fields that were stored in the backup blob
+                await _backupService.RestoreIntoAsync(request);
+            }
             // restore the async fields:
             request.runAsync = true;
             request.AsyncTriggered = true;
+
+            _logger.LogDebug("Creating async worker for request {Guid} URL: {FullURL} UserId: {UserID} ",
+                request.Guid, request.FullURL, request.UserID);
             request.asyncWorker = _asyncWorkerFactory.CreateAsync(request, 0);
 
             // let asyncworker restore the blob streams
-            await request.asyncWorker.RestoreAsync();
+            await request.asyncWorker.PrepareResponseStreamsAsync();
         }
 
     }

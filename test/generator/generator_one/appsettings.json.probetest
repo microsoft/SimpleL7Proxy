@@ -1,0 +1,22 @@
+{
+    "test_endpoint": "http://localhost:9000",
+    "duration_seconds": "500s",
+    "concurrency": 5,
+    "interrun_delay": "0ms",
+    //"Entra_audience": "http://localhost:",
+    //"Entra_clientID": "12345",
+    //"Entra_tenantID": "12345",
+    "tests": [
+        {
+            "name": "test1",
+            "method": "GET",
+            "path": "/readiness",
+            "timeout": "10s",
+            "headers": {
+              "test": "x",
+              "xx" : "Value1",
+              "x-userprofile": "123456"
+    	    }
+        }
+    ]
+}

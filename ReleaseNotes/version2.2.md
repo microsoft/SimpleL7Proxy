@@ -1,18 +1,37 @@
 # Release Notes #
 
 Proxy:
-* Bug fix for sync request when async is turned off
-* Don't report the service as "UP" until the userProfile is loaded 
-* UserConfigRequired triggers health check to fail if profiles are not loaded 
+* Added CheckingBackgroundRequestStatus and BackgroundRequestSubmitted as a status for background requests
+* Fix bugs related to background request lifecycle
+* Bug fixes for async processed request status updates
+* Added support to connect to EventHub via managed identity
+* Added configurable delay to wait for EventHub startup
+* Refactor configuration startup to use reflection
+* Update client library versions for Core, Identity, ServiceBus, BlobStorage and DI
+* Minor perf improvement parsing headers
+* Added consolidated AsyncSBConfig env var
+* Added check for unauthorized access during startup
+* Enhanced logging in debug level
+* Make the SAS generation configurable in the user profile, default to off
+* Added a blob worker queue to reduce resource contention
+* Refactored code to utilize the blob workers 
+* Capture backend config errors
+* Fix circuit breaker usage, add CB stats to health
+* Streamline blob creation until needed
+* Add AsyncTTLSecs as config parameter
+* Improve performance of probe requests
+* Capture error codes from inner exception on HttpException
+* Don't read the body for probe queries to the backends
+* Bug fix for null eventhub client
+* Streamline memory used by event objects
+* Add streamlined probe server with ability to run as side car
+* Reworked ProxyWroker to match the response flow from the 2.1.x release
+* Track HTTP response in proxy data and dispose after delivery to client 
 
 Policy:
-* Added enhanced logging policy file
-* Retry if the endpoint returns a 200 with content-length = 0
-
-## 2.2.8.p1
-
-Proxy:
-* Bug fix for timeouts greater than 100 seconds
+* Update backend logs for better readability
+* Created a V2 policy for readability improvements
+* Added section to return 408 on timeout, 429 on concurrencyLimits, and on 400 return response body
 
 ## 2.2.8
 

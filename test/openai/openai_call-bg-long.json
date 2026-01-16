@@ -1,0 +1,10 @@
+{
+    "input": [
+        {
+            "role": "user",
+            "content": "I am going to delhi; what should I see? tell me about all the landmarks and why they are important historically.  With each story, also tell me a timeline of all the main characters and how they each died.  Make sure to include the any details help to unsderstand the backstory.  Conclude with a detailed time estimate the amount of time I would spend doing these activities, taking into account the the bus schedules for the trip.  Include the necessary details for the trip changes for each day of the week.  Also give a recommendation to stay at a hotel for my starting point considering that I am a vegetarian. given response should be filled with no less than 20 details per location.  Do not summarize. instead expond each fact so that it is easy to understand and plan with.  Make four responses, the second response should be in markup while the first is in text.  the third and fourth responses should redo the entire process for visiting a beach city in France. finally, dont reverse every sentence but ensure readability. "
+        }
+    ],
+    "background": true,
+    "model": "gpt-4.1"
+}

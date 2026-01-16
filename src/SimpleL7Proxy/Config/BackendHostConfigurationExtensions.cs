@@ -4,7 +4,7 @@ using Microsoft.ApplicationInsights.WorkerService;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging; 
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OS = System;
 using System;
@@ -16,8 +16,10 @@ using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using System.Reflection;
 
 using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.Backend.Iterators;
 using SimpleL7Proxy.Events;
 
 namespace SimpleL7Proxy.Config;
@@ -28,83 +30,27 @@ public static class BackendHostConfigurationExtensions
   static Dictionary<string, string> EnvVars = new Dictionary<string, string>();
 
 
-  public static IServiceCollection AddBackendHostConfiguration(this IServiceCollection services, ILogger logger)
+  public static BackendOptions CreateBackendOptions(ILogger logger)
   {
-    var backendOptions = LoadBackendOptions();
+    _logger = logger;
+    return LoadBackendOptions();
+  }
+
+  public static IServiceCollection AddBackendHostConfiguration(this IServiceCollection services, ILogger logger, BackendOptions backendOptions)
+  {
     _logger = logger;
 
-    services.Configure<BackendOptions>(options =>
+    services.AddSingleton(backendOptions); // Direct singleton
+    services.Configure<BackendOptions>(opt =>
     {
-      options.AcceptableStatusCodes = backendOptions.AcceptableStatusCodes;
-      options.AsyncBlobStorageAccountUri = backendOptions.AsyncBlobStorageAccountUri;
-      options.AsyncBlobStorageConnectionString = backendOptions.AsyncBlobStorageConnectionString;
-      options.AsyncBlobStorageUseMI = backendOptions.AsyncBlobStorageUseMI;
-      options.AsyncClientRequestHeader = backendOptions.AsyncClientRequestHeader;
-      options.AsyncClientConfigFieldName = backendOptions.AsyncClientConfigFieldName;
-      options.AsyncModeEnabled = backendOptions.AsyncModeEnabled;
-      options.AsyncSBConnectionString = backendOptions.AsyncSBConnectionString;
-      options.AsyncSBNamespace = backendOptions.AsyncSBNamespace;
-      options.AsyncSBQueue = backendOptions.AsyncSBQueue;
-      options.AsyncSBUseMI = backendOptions.AsyncSBUseMI;
-      options.AsyncTimeout = backendOptions.AsyncTimeout;
-      options.AsyncTriggerTimeout = backendOptions.AsyncTriggerTimeout;
-      options.CircuitBreakerErrorThreshold = backendOptions.CircuitBreakerErrorThreshold;
-      options.CircuitBreakerTimeslice = backendOptions.CircuitBreakerTimeslice;
-      options.Client = backendOptions.Client;
-      options.ContainerApp = backendOptions.ContainerApp;
-      options.DefaultPriority = backendOptions.DefaultPriority;
-      options.DefaultTTLSecs = backendOptions.DefaultTTLSecs;
-      options.DisallowedHeaders = backendOptions.DisallowedHeaders;
-      options.HostName = backendOptions.HostName;
-      options.Hosts = backendOptions.Hosts;
-      options.IDStr = backendOptions.IDStr;
-      options.LoadBalanceMode = backendOptions.LoadBalanceMode;
-      options.LogAllRequestHeaders = backendOptions.LogAllRequestHeaders;
-      options.LogAllRequestHeadersExcept = backendOptions.LogAllRequestHeadersExcept;
-      options.LogAllResponseHeaders = backendOptions.LogAllResponseHeaders;
-      options.LogAllResponseHeadersExcept = backendOptions.LogAllResponseHeadersExcept;
-      options.LogConsole = backendOptions.LogConsole;
-      options.LogConsoleEvent = backendOptions.LogConsoleEvent;
-      options.LogHeaders = backendOptions.LogHeaders;
-      options.LogPoller = backendOptions.LogPoller;
-      options.LogProbes = backendOptions.LogProbes;
-      options.UserIDFieldName = backendOptions.UserIDFieldName;
-      options.MaxQueueLength = backendOptions.MaxQueueLength;
-      options.OAuthAudience = backendOptions.OAuthAudience;
-      options.PollInterval = backendOptions.PollInterval;
-      options.PollTimeout = backendOptions.PollTimeout;
-      options.Port = backendOptions.Port;
-      options.PriorityKeyHeader = backendOptions.PriorityKeyHeader;
-      options.PriorityKeys = backendOptions.PriorityKeys;
-      options.PriorityValues = backendOptions.PriorityValues;
-      options.PriorityWorkers = backendOptions.PriorityWorkers;
-      options.RequiredHeaders = backendOptions.RequiredHeaders;
-      options.Revision = backendOptions.Revision;
-      options.SuccessRate = backendOptions.SuccessRate;
-      options.SuspendedUserConfigUrl = backendOptions.SuspendedUserConfigUrl;
-      options.StorageDbEnabled = backendOptions.StorageDbEnabled;
-      options.StorageDbContainerName = backendOptions.StorageDbContainerName;
-      options.StripHeaders = backendOptions.StripHeaders;
-      options.TerminationGracePeriodSeconds = backendOptions.TerminationGracePeriodSeconds;
-      options.Timeout = backendOptions.Timeout;
-      options.TimeoutHeader = backendOptions.TimeoutHeader;
-      options.TTLHeader = backendOptions.TTLHeader;
-      options.UniqueUserHeaders = backendOptions.UniqueUserHeaders;
-      options.UseOAuth = backendOptions.UseOAuth;
-      options.UseOAuthGov = backendOptions.UseOAuthGov;
-      options.UseProfiles = backendOptions.UseProfiles;
-      options.UserConfigUrl = backendOptions.UserConfigUrl;
-      options.UserConfigRequired = backendOptions.UserConfigRequired;
-      options.UserPriorityThreshold = backendOptions.UserPriorityThreshold;
-      options.UserProfileHeader = backendOptions.UserProfileHeader;
-      options.ValidateAuthAppFieldName = backendOptions.ValidateAuthAppFieldName;
-      options.ValidateAuthAppID = backendOptions.ValidateAuthAppID;
-      options.ValidateAuthAppIDHeader = backendOptions.ValidateAuthAppIDHeader;
-      options.ValidateAuthAppIDUrl = backendOptions.ValidateAuthAppIDUrl;
-      options.ValidateHeaders = backendOptions.ValidateHeaders;
-      options.Workers = backendOptions.Workers;
+      // Copy all properties from backendOptions to opt
+      foreach (var prop in typeof(BackendOptions).GetProperties())
+      {
+        if (prop.CanWrite && prop.CanRead)
+          prop.SetValue(opt, prop.GetValue(backendOptions));
+      }
     });
-
+    
     return services;
   }
 
@@ -145,6 +91,18 @@ public static class BackendHostConfigurationExtensions
     // Record and return the value
     EnvVars[variableName] = result;
     return result;
+  }
+
+  private static IterationModeEnum ReadEnvironmentVariableOrDefault(string variableName, IterationModeEnum defaultValue)
+  {
+    string? envValue = Environment.GetEnvironmentVariable(variableName)?.Trim();
+    if (string.IsNullOrEmpty(envValue) || !Enum.TryParse(envValue, out IterationModeEnum value))
+    {
+      EnvVars[variableName] = defaultValue.ToString();
+      return defaultValue;
+    }
+    EnvVars[variableName] = value.ToString();
+    return value;
   }
 
   private static bool ReadEnvironmentVariableOrDefault(string variableName, bool defaultValue)
@@ -247,14 +205,14 @@ public static class BackendHostConfigurationExtensions
     return keyValuePairs;
   }
 
-  // Converts a List<string> to a dictionary of stgrings.
+  // Converts a List<string> to a dictionary of strings.
   private static Dictionary<string, string> KVStringPairs(List<string> list)
   {
     Dictionary<string, string> keyValuePairs = [];
 
     foreach (var item in list)
     {
-      var kvp = item.Split(':');
+      var kvp = item.Split('=');
       if (kvp.Length == 2)
       {
         keyValuePairs.Add(kvp[0].Trim(), kvp[1].Trim());
@@ -277,7 +235,7 @@ public static class BackendHostConfigurationExtensions
     return [.. s.Split(',').Select(p => p.Trim())];
   }
 
-    // Converts a comma-separated string to a list of strings.
+  // Converts a comma-separated string to a list of strings.
   private static string[] ToArrayOfString(string s)
   {
     if (String.IsNullOrEmpty(s))
@@ -289,23 +247,166 @@ public static class BackendHostConfigurationExtensions
   // Converts a comma-separated string to a list of integers.
   private static List<int> ToListOfInt(string s)
   {
+    if (String.IsNullOrEmpty(s))
+      return new List<int>();
 
-    // parse each value in the list
-    List<int> ints = new List<int>();
-    foreach (var item in s.Split(','))
+    return s.Split(',').Select(p => int.Parse(p.Trim())).ToList();
+  }
+
+  // Generic configuration parser that supports both key=value pairs (order-independent) and legacy positional format
+  // Returns a dictionary of parsed values
+  private static Dictionary<string, string> ParseConfigString(string config, Dictionary<string, string[]> keyAliases, string configName)
+  {
+    var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    if (string.IsNullOrEmpty(config))
+      return result;
+
+    var parts = config.Split(',').Select(p => p.Trim()).ToArray();
+
+    // Check if it's the new key=value format
+    if (parts.Length > 0 && parts[0].Contains('='))
     {
-      if (int.TryParse(item.Trim(), out int value))
+      // Parse as key=value pairs
+      foreach (var part in parts)
       {
-        ints.Add(value);
-      }
-      else
-      {
-        _logger?.LogWarning($"Could not parse {item} as an integer, defaulting to 5");
-        ints.Add(5);
+        var kvp = part.Split('=', 2); // Split into max 2 parts to handle = in connection strings/URIs
+        if (kvp.Length == 2)
+        {
+          var key = kvp[0].Trim().ToLower();
+          var value = kvp[1].Trim();
+
+          // Find the canonical key name from aliases
+          string? canonicalKey = null;
+          foreach (var (canonical, aliases) in keyAliases)
+          {
+            if (aliases.Any(alias => alias.Equals(key, StringComparison.OrdinalIgnoreCase)))
+            {
+              canonicalKey = canonical;
+              break;
+            }
+          }
+
+          if (canonicalKey != null)
+          {
+            result[canonicalKey] = value;
+          }
+          else
+          {
+            _logger?.LogWarning($"Unknown {configName} key: {key}");
+          }
+        }
+        else
+        {
+          _logger?.LogWarning($"Invalid {configName} key:value pair: {part}");
+        }
       }
     }
 
-    return s.Split(',').Select(p => int.Parse(p.Trim())).ToList();
+    return result;
+  }
+
+  // Parses a comma-separated Service Bus configuration string into individual components
+  // Format: "key1:value1,key2:value2,..." (order-independent)
+  // Keys: connectionString (or cs), namespace (or ns), queue (or q), useMI (or mi)
+  // Example: "cs:Endpoint=sb://...,ns:mysbnamespace,q:myqueue,mi:true"
+  // Legacy format also supported: "connectionString,namespace,queue,useMI" (positional, must be in order)
+  private static (string connectionString, string namespace_, string queue, bool useMI) ParseServiceBusConfig(string config)
+  {
+    // Define default values
+    string connectionString = "example-sb-connection-string";
+    string namespace_ = "";
+    string queue = "requeststatus";
+    bool useMI = false;
+
+    if (string.IsNullOrEmpty(config))
+      return (connectionString, namespace_, queue, useMI);
+
+    var parts = config.Split(',').Select(p => p.Trim()).ToArray();
+
+    // Check if it's the new key=value format
+    if (parts.Length > 0 && parts[0].Contains('='))
+    {
+      // Use generic parser
+      var keyAliases = new Dictionary<string, string[]>
+      {
+        { "connectionString", new[] { "connectionstring", "cs" } },
+        { "namespace", new[] { "namespace", "ns" } },
+        { "queue", new[] { "queue", "q" } },
+        { "useMI", new[] { "usemi", "mi" } }
+      };
+
+      var parsed = ParseConfigString(config, keyAliases, "AsyncSBConfig");
+
+      if (parsed.TryGetValue("connectionString", out var cs)) connectionString = cs;
+      if (parsed.TryGetValue("namespace", out var ns)) namespace_ = ns;
+      if (parsed.TryGetValue("queue", out var q)) queue = q;
+      if (parsed.TryGetValue("useMI", out var mi)) useMI = mi.Equals("true", StringComparison.OrdinalIgnoreCase);
+
+      return (connectionString, namespace_, queue, useMI);
+    }
+    else
+    {
+      // Legacy positional format: "connectionString,namespace,queue,useMI"
+      if (parts.Length != 4)
+      {
+        _logger?.LogWarning($"ServiceBusConfig must have exactly 4 comma-separated values (connectionString,namespace,queue,useMI). Found {parts.Length} values. Using defaults.");
+        return (connectionString, namespace_, queue, useMI);
+      }
+
+      useMI = parts[3].Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
+      return (parts[0], parts[1], parts[2], useMI);
+    }
+  }
+
+  // Parses a comma-separated Blob Storage configuration string into individual components
+  // Format: "key1=value1,key2=value2,..." (order-independent)
+  // Keys: connectionString (or cs), accountUri (or uri), useMI (or mi)
+  // Example: "uri:https://mystorageaccount.blob.core.windows.net/,mi:true"
+  // Legacy format also supported: "connectionString,accountUri,useMI" (positional, must be in order)
+  private static (string connectionString, string accountUri, bool useMI) ParseBlobStorageConfig(string config)
+  {
+    // Define default values
+    string connectionString = "";
+    string accountUri = "https://example.blob.core.windows.net/";
+    bool useMI = false;
+
+    if (string.IsNullOrEmpty(config))
+      return (connectionString, accountUri, useMI);
+
+    var parts = config.Split(',').Select(p => p.Trim()).ToArray();
+
+    // Check if it's the new key=value format
+    if (parts.Length > 0 && parts[0].Contains('='))
+    {
+      // Use generic parser
+      var keyAliases = new Dictionary<string, string[]>
+      {
+        { "connectionString", new[] { "connectionstring", "cs" } },
+        { "accountUri", new[] { "accounturi", "uri" } },
+        { "useMI", new[] { "usemi", "mi" } }
+      };
+
+      var parsed = ParseConfigString(config, keyAliases, "AsyncBlobStorageConfig");
+
+      if (parsed.TryGetValue("connectionString", out var cs)) connectionString = cs;
+      if (parsed.TryGetValue("accountUri", out var uri)) accountUri = uri;
+      if (parsed.TryGetValue("useMI", out var mi)) useMI = mi.Equals("true", StringComparison.OrdinalIgnoreCase);
+
+      return (connectionString, accountUri, useMI);
+    }
+    else
+    {
+      // Legacy positional format: "connectionString,accountUri,useMI"
+      if (parts.Length != 3)
+      {
+        _logger?.LogWarning($"AsyncBlobStorageConfig must have exactly 3 comma-separated values (connectionString,accountUri,useMI). Found {parts.Length} values. Using defaults.");
+        return (connectionString, accountUri, useMI);
+      }
+
+      useMI = parts[2].Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
+      return (parts[0], parts[1], useMI);
+    }
   }
 
   private static SocketsHttpHandler getHandler(int initialDelaySecs, int IntervalSecs, int linuxRetryCount)
@@ -437,6 +538,7 @@ public static class BackendHostConfigurationExtensions
     // set timeout to large ti disable it at HttpClient level.  Will use token cancellation for timeout instead.
     _client.Timeout = Timeout.InfiniteTimeSpan;
 
+
     string replicaID = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REPLICA_NAME", "01");
 #if DEBUG
     // Load appsettings.json only in Debug mode
@@ -451,21 +553,31 @@ public static class BackendHostConfigurationExtensions
     }
 #endif
 
+    // Parse Service Bus configuration - supports both single combined variable and individual variables
+    // ServiceBusConfig format: "connectionString,namespace,queue,useMI"
+    var sbConfigStr = ReadEnvironmentVariableOrDefault("AsyncSBConfig", "");
+    var (sbConnStr, sbNamespace, sbQueue, sbUseMI) = ParseServiceBusConfig(sbConfigStr);
+    var (blobConnStr, blobAccountUri, blobUseMI) = ParseBlobStorageConfig(ReadEnvironmentVariableOrDefault("AsyncBlobStorageConfig", ""));
+
     // Create and return a BackendOptions object populated with values from environment variables or default values.
     var backendOptions = new BackendOptions
     {
       AcceptableStatusCodes = ReadEnvironmentVariableOrDefault("AcceptableStatusCodes", new int[] { 200, 202, 401, 403, 404, 408, 410, 412, 417, 400 }),
-      AsyncBlobStorageAccountUri = ReadEnvironmentVariableOrDefault("AsyncBlobStorageAccountUri", "https://example.blob.core.windows.net/"),
-      AsyncBlobStorageConnectionString = ReadEnvironmentVariableOrDefault("AsyncBlobStorageConnectionString", ""),
-      AsyncBlobStorageUseMI = ReadEnvironmentVariableOrDefault("AsyncBlobStorageUseMI", false),
+      // Individual env vars override AsyncBlobStorageConfig if specified
+      AsyncBlobStorageAccountUri = ReadEnvironmentVariableOrDefault("AsyncBlobStorageAccountUri", blobAccountUri),
+      AsyncBlobStorageConnectionString = ReadEnvironmentVariableOrDefault("AsyncBlobStorageConnectionString", blobConnStr),
+      AsyncBlobStorageUseMI = ReadEnvironmentVariableOrDefault("AsyncBlobStorageUseMI", blobUseMI),
+      AsyncBlobWorkerCount = ReadEnvironmentVariableOrDefault("AsyncBlobWorkerCount", 2),
       AsyncClientRequestHeader = ReadEnvironmentVariableOrDefault("AsyncClientRequestHeader", "AsyncMode"),
       AsyncClientConfigFieldName = ReadEnvironmentVariableOrDefault("AsyncClientConfigFieldName", "async-config"),
       AsyncModeEnabled = ReadEnvironmentVariableOrDefault("AsyncModeEnabled", false),
-      AsyncSBConnectionString = ReadEnvironmentVariableOrDefault("AsyncSBConnectionString", "example-sb-connection-string"),
-      AsyncSBNamespace = ReadEnvironmentVariableOrDefault("AsyncSBNamespace", ""),
-      AsyncSBQueue = ReadEnvironmentVariableOrDefault("AsyncSBQueue", "requeststatus"),
-      AsyncSBUseMI = ReadEnvironmentVariableOrDefault("AsyncSBUseMI", false), // Use managed identity for Service Bus
+      // Individual env vars override ServiceBusConfig if specified
+      AsyncSBConnectionString = ReadEnvironmentVariableOrDefault("AsyncSBConnectionString", sbConnStr),
+      AsyncSBNamespace = ReadEnvironmentVariableOrDefault("AsyncSBNamespace", sbNamespace),
+      AsyncSBQueue = ReadEnvironmentVariableOrDefault("AsyncSBQueue", sbQueue),
+      AsyncSBUseMI = ReadEnvironmentVariableOrDefault("AsyncSBUseMI", sbUseMI), // Use managed identity for Service Bus
       AsyncTimeout = ReadEnvironmentVariableOrDefault("AsyncTimeout", 30 * 60000),
+      AsyncTTLSecs = ReadEnvironmentVariableOrDefault("AsyncTTLSecs", 24 * 60 * 60), // 24 hours
       AsyncTriggerTimeout = ReadEnvironmentVariableOrDefault("AsyncTriggerTimeout", 10000),
       CircuitBreakerErrorThreshold = ReadEnvironmentVariableOrDefault("CBErrorThreshold", 50),
       CircuitBreakerTimeslice = ReadEnvironmentVariableOrDefault("CBTimeslice", 60),
@@ -475,9 +587,11 @@ public static class BackendHostConfigurationExtensions
       DefaultTTLSecs = ReadEnvironmentVariableOrDefault("DefaultTTLSecs", 300),
       DependancyHeaders = ToArrayOfString(ReadEnvironmentVariableOrDefault("DependancyHeaders", "Backend-Host, Host-URL, Status, Duration, Error, Message, Request-Date, backendLog")),
       DisallowedHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("DisallowedHeaders", "")),
+      HealthProbeSidecar = ReadEnvironmentVariableOrDefault("HealthProbeSidecar", "Enabled=false;url=http://localhost:9000"),
       HostName = ReadEnvironmentVariableOrDefault("Hostname", replicaID),
-      Hosts = new List<BackendHostConfig>(),
+      Hosts = new List<HostConfig>(),
       IDStr = $"{ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P")}-{replicaID}-",
+      IterationMode = ReadEnvironmentVariableOrDefault("IterationMode", IterationModeEnum.SinglePass),
       LoadBalanceMode = ReadEnvironmentVariableOrDefault("LoadBalanceMode", "latency"), // "latency", "roundrobin", "random"
       LogAllRequestHeaders = ReadEnvironmentVariableOrDefault("LogAllRequestHeaders", false),
       LogAllRequestHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllRequestHeadersExcept", "Authorization")),
@@ -488,7 +602,8 @@ public static class BackendHostConfigurationExtensions
       LogHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
       LogPoller = ReadEnvironmentVariableOrDefault("LogPoller", true),
       LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", true),
-      MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 10),
+      MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 1000),
+      MaxAttempts = ReadEnvironmentVariableOrDefault("MaxAttempts", 10),
       OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
       PollInterval = ReadEnvironmentVariableOrDefault("PollInterval", 15000),
       PollTimeout = ReadEnvironmentVariableOrDefault("PollTimeout", 3000),
@@ -501,7 +616,8 @@ public static class BackendHostConfigurationExtensions
       Revision = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REVISION", "revisionID"),
       SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
       SuspendedUserConfigUrl = ReadEnvironmentVariableOrDefault("SuspendedUserConfigUrl", "file:config.json"),
-      StripHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("StripHeaders", "")),
+      StripResponseHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("StripResponseHeaders", "")),
+      StripRequestHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("StripRequestHeaders", "")),
       StorageDbEnabled = ReadEnvironmentVariableOrDefault("StorageDbEnabled", false),
       StorageDbContainerName = ReadEnvironmentVariableOrDefault("StorageDbContainerName", "Requests"),
       TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
@@ -525,45 +641,7 @@ public static class BackendHostConfigurationExtensions
       Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
     };
 
-
-
-    //backendOptions.Client.Timeout = TimeSpan.FromMilliseconds(backendOptions.Timeout);
-    int i = 1;
-    StringBuilder sb = new();
-    while (true)
-    {
-
-      var hostname = Environment.GetEnvironmentVariable($"Host{i}")?.Trim();
-      if (string.IsNullOrEmpty(hostname)) break;
-
-      var probePath = Environment.GetEnvironmentVariable($"Probe_path{i}")?.Trim();
-      var ip = Environment.GetEnvironmentVariable($"IP{i}")?.Trim();
-
-      try
-      {
-        _logger?.LogInformation($"Found host {hostname} with probe path {probePath} and IP {ip}");
-
-        BackendHostConfig bh = new BackendHostConfig(hostname, probePath);
-
-        backendOptions.Hosts.Add(bh);
-
-        sb.AppendLine($"{ip} {bh.Host}");
-      }
-      catch (UriFormatException e)
-      {
-        _logger?.LogError($"Could not add Host{i} with {hostname} : {e.Message}");
-      }
-
-      i++;
-    }
-
-    if (Environment.GetEnvironmentVariable("APPENDHOSTSFILE")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true ||
-        Environment.GetEnvironmentVariable("AppendHostsFile")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true)
-    {
-      _logger?.LogInformation($"Appending {sb} to /etc/hosts");
-      using StreamWriter sw = File.AppendText("/etc/hosts");
-      sw.WriteLine(sb.ToString());
-    }
+    // RegisterBackends will be called after DI container is built to avoid service provider dependency issues
 
     // confirm the number of priority keys and values match
     if (backendOptions.PriorityKeys.Count != backendOptions.PriorityValues.Count)
@@ -588,6 +666,26 @@ public static class BackendHostConfigurationExtensions
       Console.WriteLine($"WARNING: Worker allocation exceeds total number of workers:{workerAllocation} > {backendOptions.Workers}");
       Console.WriteLine($"Adjusting total number of workers to {workerAllocation}. Fix PriorityWorkers if it isn't what you want.");
       backendOptions.Workers = workerAllocation;
+    }
+
+    // defined Healthprobe sidecar settings
+    var healthSettings = backendOptions.HealthProbeSidecar.Split(';', StringSplitOptions.RemoveEmptyEntries);
+    foreach (var setting in healthSettings)
+    {
+      var kvp = setting.Split('=', 2);
+      if (kvp.Length == 2)
+      {
+        var key = kvp[0].Trim().ToLower();
+        var value = kvp[1].Trim().ToLower();
+        if (key == "enabled")
+        {
+          backendOptions.HealthProbeSidecarEnabled = value == "true";
+        }
+        else if (key == "url" && !string.IsNullOrEmpty(value))
+        {
+          backendOptions.HealthProbeSidecarUrl = value;
+        }
+      }
     }
 
     // if (backendOptions.UniqueUserHeaders.Count > 0)
@@ -640,6 +738,49 @@ public static class BackendHostConfigurationExtensions
     OutputEnvVars();
 
     return backendOptions;
+  }
+
+  public static void RegisterBackends(BackendOptions backendOptions)
+  {
+    //backendOptions.Client.Timeout = TimeSpan.FromMilliseconds(backendOptions.Timeout);
+    int i = 1;
+    StringBuilder sb = new();
+    while (true)
+    {
+
+      var hostname = Environment.GetEnvironmentVariable($"Host{i}")?.Trim();
+      if (string.IsNullOrEmpty(hostname)) break;
+
+      var probePath = Environment.GetEnvironmentVariable($"Probe_path{i}")?.Trim();
+      var ip = Environment.GetEnvironmentVariable($"IP{i}")?.Trim();
+
+      try
+      {
+        _logger?.LogDebug($"Found host {hostname} with probe path {probePath} and IP {ip}");
+
+        // Resolve HostConfig from DI using the factory
+        HostConfig bh = new HostConfig(hostname, probePath, ip, backendOptions.OAuthAudience);
+        backendOptions.Hosts.Add(bh);
+
+        sb.AppendLine($"{ip} {bh.Host}");
+      }
+
+      catch (UriFormatException e)
+      {
+        _logger?.LogError($"Could not add Host{i} with {hostname} : {e.Message}");
+        Console.WriteLine(e.StackTrace);
+      }
+
+      i++;
+    }
+
+    if (Environment.GetEnvironmentVariable("APPENDHOSTSFILE")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true ||
+        Environment.GetEnvironmentVariable("AppendHostsFile")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true)
+    {
+      _logger?.LogInformation($"Appending {sb} to /etc/hosts");
+      using StreamWriter sw = File.AppendText("/etc/hosts");
+      sw.WriteLine(sb.ToString());
+    }
   }
 
   private static void OutputEnvVars()

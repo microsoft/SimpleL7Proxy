@@ -53,14 +53,26 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
 
     public bool Enqueue(T item, int priority, int priority2, DateTime timestamp, bool allowOverflow = false)
     {
-        // Priority 0 is reserved for the probe requests, get the probe worker.  If not available, enqueue the request.
+        // Lock-free fast path for priority 0 (probe requests)
         if (priority == 0) {
+            // Try dedicated probe worker first
             var t = _taskSignaler.GetNextProbeTask();
             if (t != null)
             {
                 t.TaskCompletionSource.SetResult(item);
                 return true;
             }
+            
+            // Try any available worker next (still lock-free)
+            var anyWorker = _taskSignaler.GetNextTask();
+            if (anyWorker != null)
+            {
+                anyWorker.TaskCompletionSource.SetResult(item);
+                return true;
+            }
+            
+            // Only queue if NO workers available at all
+            // This should be rare for probe requests
         }
 
         var queueItem = new PriorityQueueItem<T>(item, priority, priority2, timestamp);
@@ -96,21 +108,22 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
             {
                 //Console.WriteLine("SignalWorker: Woke up .. getting task");
                 var nextWorker = _taskSignaler.GetNextTask();
-                if (nextWorker == null)
+                if (nextWorker == null) continue;
+                
+                lock (_lock)
                 {
-                    continue;
-                }
-                try {
-                    lock (_lock)
+                    // Check inside lock to handle race
+                    if (_priorityQueue.Count == 0)
                     {
-                        nextWorker.TaskCompletionSource.SetResult( _priorityQueue.Dequeue(nextWorker.Priority) );                    
+                        _taskSignaler.ReQueueTask(nextWorker);
+                        break; // No more work
                     }
-                } catch (InvalidOperationException) {
-                    // This should never happen. It means that the queue is empty after we checked that the count was > 0
-                    // put the worker back in the queue   
-                    Console.WriteLine("SignalWorker: InvalidOperationException - requeuing task  Priority: " + nextWorker.Priority);  
-                    _taskSignaler.ReQueueTask(nextWorker);               
+
+                    // Dequeue and deliver in one atomic operation
+                    var item = _priorityQueue.Dequeue(nextWorker.Priority);
+                    nextWorker.TaskCompletionSource.SetResult(item);
                 }
+
             }
         }
 
@@ -124,8 +137,10 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
     {
         try
         {
-            //Console.WriteLine("DequeueAsync: waiting for signal with priority " + preferredPriority);
-            var parameter = await _taskSignaler.WaitForSignalAsync(preferredPriority).ConfigureAwait(false);
+            // Register this worker's wait and nudge the signaler in case items already exist
+            var waitTask = _taskSignaler.WaitForSignalAsync(preferredPriority);
+            _enqueueEvent.Release(); // wake SignalWorker for potential item->worker pairing
+            var parameter = await waitTask.ConfigureAwait(false);
             return parameter;
         }
         catch (TaskCanceledException)

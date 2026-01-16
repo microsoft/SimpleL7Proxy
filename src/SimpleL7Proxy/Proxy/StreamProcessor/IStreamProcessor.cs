@@ -25,5 +25,6 @@ namespace SimpleL7Proxy.StreamProcessor
 
         // Partial method to indicate if the request is running in background mode
         string BackgroundRequestId { get; }
+        bool BackgroundCompleted { get; }
     }
 }

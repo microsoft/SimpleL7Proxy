@@ -1,4 +1,5 @@
 using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.Backend.Iterators;
 
 namespace SimpleL7Proxy.Config;
 
@@ -8,6 +9,7 @@ public class BackendOptions
     public string AsyncBlobStorageConnectionString { get; set; } = "example-connection-string";
     public bool AsyncBlobStorageUseMI { get; set; } = true;
     public string AsyncBlobStorageAccountUri { get; set; } = "https://mystorageaccount.blob.core.windows.net";
+    public int AsyncBlobWorkerCount { get; set; } = 2;
     public string AsyncClientRequestHeader { get; set; } = "AsyncMode";
     public string AsyncClientConfigFieldName { get; set; } = "async-config";
     public bool AsyncModeEnabled { get; set; } = false;
@@ -16,6 +18,7 @@ public class BackendOptions
     public bool AsyncSBUseMI { get; set; } = false; // Use managed identity for Service Bus
     public string AsyncSBNamespace { get; set; } = "example-namespace";
     public double AsyncTimeout { get; set; } = 30 * 60000; // 30 minutes
+    public int AsyncTTLSecs { get; set; } = 24 * 60 * 60; // 24 hours
     public int AsyncTriggerTimeout { get; set; } = 60000; // 1 minute
     public HttpClient? Client { get; set; }
     public string ContainerApp { get; set; } = "";
@@ -25,9 +28,13 @@ public class BackendOptions
     public int DefaultTTLSecs { get; set; }
     public string[] DependancyHeaders { get; set; } = [];
     public List<string> DisallowedHeaders { get; set; } = [];
+    public string HealthProbeSidecar { get; set; } = "Enabled=false; Url=http://localhost:9000";
+    public bool HealthProbeSidecarEnabled { get; set; } = false; 
+    public string HealthProbeSidecarUrl { get; set; } = "http://localhost/9000";
     public string HostName { get; set; } = "";
-    public List<BackendHostConfig> Hosts { get; set; } = [];
+    public List<HostConfig> Hosts { get; set; } = [];
     public string IDStr { get; set; } = "S7P";
+    public IterationModeEnum IterationMode { get; set; }
     public string LoadBalanceMode { get; set; } = "latency"; // "latency", "roundrobin", "random"
     public bool LogConsole { get; set; }
     public bool LogConsoleEvent { get; set; }
@@ -40,6 +47,7 @@ public class BackendOptions
     public List<string> LogAllResponseHeadersExcept { get; set; } = [];
     public string UserIDFieldName { get; set; } = "";
     public int MaxQueueLength { get; set; }
+    public int MaxAttempts { get ; set; }
     public string OAuthAudience { get; set; } = "";
     public int Port { get; set; }
     public int PollInterval { get; set; }
@@ -55,10 +63,12 @@ public class BackendOptions
     // Storage configuration
     public bool StorageDbEnabled { get; set; } = false;
     public string StorageDbContainerName { get; set; } = "Requests";
-    public List<string> StripHeaders { get; set; } = [];
+    public List<string> StripResponseHeaders { get; set; } = [];
+    public List<string> StripRequestHeaders { get; set; } = [];
     public int Timeout { get; set; }
     public string TimeoutHeader { get; set; } = "";
     public int TerminationGracePeriodSeconds { get; set; }
+    public bool TrackWorkers { get; set; } = false;
     public string TTLHeader { get; set; } = "";
     public List<string> UniqueUserHeaders { get; set; } = [];
     public bool UseOAuth { get; set; }
@@ -74,4 +84,24 @@ public class BackendOptions
     public string ValidateAuthAppFieldName { get; set; } = "";
     public string ValidateAuthAppIDHeader { get; set; } = "";
     public int Workers { get; set; }
+    
+    // Shared Iterator Settings
+    /// <summary>
+    /// When true, requests to the same path share the same host iterator,
+    /// ensuring fair round-robin distribution across concurrent requests.
+    /// Default: false (each request gets its own iterator)
+    /// </summary>
+    public bool UseSharedIterators { get; set; } = false;
+    
+    /// <summary>
+    /// How long (in seconds) an unused shared iterator lives before cleanup.
+    /// Default: 60 seconds
+    /// </summary>
+    public int SharedIteratorTTLSeconds { get; set; } = 60;
+    
+    /// <summary>
+    /// How often (in seconds) to run cleanup of stale shared iterators.
+    /// Default: 30 seconds
+    /// </summary>
+    public int SharedIteratorCleanupIntervalSeconds { get; set; } = 30;
 }

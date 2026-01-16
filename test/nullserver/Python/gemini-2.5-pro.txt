@@ -1,0 +1,38 @@
+{
+    "candidates": [
+        {
+            "content": {
+                "role": "model",
+                "parts": [
+                    {
+                        "text": "What's the Earth's best quality?\n\nIt's so down to earth."
+                    }
+                ]
+            },
+            "finishReason": "STOP",
+            "avgLogprobs": -22.084262245579769
+        }
+    ],
+    "usageMetadata": {
+        "promptTokenCount": 6,
+        "candidatesTokenCount": 19,
+        "totalTokenCount": 1465,
+        "trafficType": "ON_DEMAND",
+        "promptTokensDetails": [
+            {
+                "modality": "TEXT",
+                "tokenCount": 6
+            }
+        ],
+        "candidatesTokensDetails": [
+            {
+                "modality": "TEXT",
+                "tokenCount": 19
+            }
+        ],
+        "thoughtsTokenCount": 1440
+    },
+    "modelVersion": "gemini-2.5-pro",
+    "createTime": "2025-11-24T15:58:18.408084Z",
+    "responseId": "moAkaZT0GNqL3tMPktPWwQI"
+}
