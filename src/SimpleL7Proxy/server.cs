@@ -190,12 +190,16 @@ public class Server : BackgroundService
                 if (completedTask == getContextTask)
                 {
                     var lc = await getContextTask.ConfigureAwait(false);
+                    if (lc == null || lc.Request == null)
+                    {
+                        continue;
+                    }
 
                     // if it's a probe, then bypass all the below checks and enqueue the request 
-                    if (Constants.probes.Contains(lc?.Request?.Url?.PathAndQuery))
+                    if (Constants.probes.Contains(lc.Request.Url?.PathAndQuery))
                     {
                         // Get ProbeData from pool using modulo rotation
-                        var probePath = lc!.Request.Url!.PathAndQuery;
+                        var probePath = lc.Request.Url!.PathAndQuery;
                         var fallthrough = false;
 
                         // Fast-path for probes to avoid queue and worker latency

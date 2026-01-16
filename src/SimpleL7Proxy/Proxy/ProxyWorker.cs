@@ -582,9 +582,14 @@ public class ProxyWorker
 
     private async Task WriteResponseAsync(RequestData request, ProxyData pr)
     {
+        ArgumentNullException.ThrowIfNull(pr);
+        ArgumentNullException.ThrowIfNull(request, "Request context is null.");
+        ArgumentNullException.ThrowIfNull(request.Context, "Request context is null.");
+
         var context = request.Context;
+
         // Set the response status code
-        context.Response.StatusCode = (int)pr.StatusCode!;
+        context.Response.StatusCode = (int)pr.StatusCode;
 
         // Copy headers to the response
         //ProxyHelperUtils.CopyHeaders(request.Headers, proxyRequest, true, _options.StripRequestHeaders);
@@ -1582,7 +1587,7 @@ public class ProxyWorker
                     processor.GetStats(request.EventData, proxyResponse.Headers);
                 }
                 
-                await _lifecycleManager.HandleBackgroundRequestLifecycle(request, processor).ConfigureAwait(false);
+                await _lifecycleManager.HandleBackgroundRequestLifecycle(request, processor!).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -1615,9 +1620,9 @@ public class ProxyWorker
 
         var pr = new ProxyData();
         ProxyHelperUtils.CopyResponseHeaders(proxyResponse, pr);
-        if (pr.Headers != null)
+        if (pr.Headers != null && request.asyncWorker != null)
         {
-            await request.asyncWorker.WriteHeaders(proxyResponse.StatusCode, pr.Headers);
+            await request.asyncWorker.WriteHeaders(proxyResponse.StatusCode!, pr.Headers);
         }
 
         if (request.asyncWorker != null)

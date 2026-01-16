@@ -52,7 +52,7 @@ By leveraging a self-hosted architecture on Azure Container Apps, organizations 
 ## Capabilities:
 
 ### Security
-- ** Virtual Network Injection:** Secure mission-critical workloads with native **VNET Integration** and identity-based access through [Microsoft Entra ID (Managed Identity)](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview) across public and sovereign regions.
+- **Virtual Network Injection:** Secure mission-critical workloads with native **VNET Integration** and identity-based access through [Microsoft Entra ID (Managed Identity)](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview) across public and sovereign regions.
 - **Identity-Driven Edge Security:** Enforce **Zero Trust** principles with integrated **OAuth2 authentication** and customizable **Header Policy Enforcement** to validate or restrict inbound request structures.
 - **Dynamic Access Governance:** Centrally manage user and group permissions via **External Configuration Providers**, enabling real-time suspension or restriction of access without code changes.
 
