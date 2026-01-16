@@ -21,7 +21,7 @@ namespace Company.Function
         [Function("streamdelay")]
         public async Task Run([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")] HttpRequest req)
         {
-            _logger.LogInformation("C# HTTP trigger function processed a request.");
+            // _logger.LogInformation("C# HTTP trigger function processed a request.");
 
             // Generate a delay using a normal distribution with mean 1000 ms and standard deviation 200 ms
             double u1 = 1.0 - rng.NextDouble(); // uniform(0,1] random doubles
@@ -37,7 +37,13 @@ namespace Company.Function
             req.HttpContext.Response.ContentType = "text/event-stream";
             req.HttpContext.Response.Headers.Add("Cache-Control", "no-cache");
             req.HttpContext.Response.Headers.Add("Connection", "keep-alive");
-            req.HttpContext.Response.Headers.Add("TOKENPROCESSOR", "OpenAI");
+            
+            string tokenProcessor = Environment.GetEnvironmentVariable("TOKENPROCESSOR");
+            if (string.IsNullOrEmpty(tokenProcessor))
+            {
+                tokenProcessor = "OPENAI";
+            }
+            req.HttpContext.Response.Headers.Add("TOKENPROCESSOR", tokenProcessor);
 
             int count = 0;
             foreach (var line in lines)

@@ -20,8 +20,6 @@ namespace Company.Function
         [Function("delay")]
         public async Task<IActionResult> Run([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")] HttpRequest req)
         {
-            _logger.LogInformation("C# HTTP trigger function processed a request.");
-
             // Generate a delay using a normal distribution with mean 1000 ms and standard deviation 200 ms
             double u1 = 1.0 - rng.NextDouble(); // uniform(0,1] random doubles
             double u2 = 1.0 - rng.NextDouble();
@@ -32,6 +30,15 @@ namespace Company.Function
             await Task.Delay((int)delay);
 
             var story = Novel.content;
+
+            string tokenProcessor = Environment.GetEnvironmentVariable("TOKENPROCESSOR");
+            if (string.IsNullOrEmpty(tokenProcessor))
+            {
+                tokenProcessor = "OPENAI";
+            }
+            req.HttpContext.Response.Headers.Add("TOKENPROCESSOR", tokenProcessor);
+
+            _logger.LogInformation("Completed api/Delay response.");
 
             return new OkObjectResult(story);
         }
