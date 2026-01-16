@@ -25,6 +25,8 @@ Proxy:
 * Bug fix for null eventhub client
 * Streamline memory used by event objects
 * Add streamlined probe server with ability to run as side car
+* Reworked ProxyWroker to match the response flow from the 2.1.x release
+* Track HTTP response in proxy data and dispose after delivery to client 
 
 Policy:
 * Update backend logs for better readability
