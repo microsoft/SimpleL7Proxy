@@ -50,7 +50,7 @@ public class HostHealthCollection : IHostHealthCollection
       }
     }
 
-    logger.LogInformation("Host categorization complete: {SpecificCount} specific hosts, {CatchAllCount} catch-all hosts",
+    logger.LogCritical("[CONFIG] Host categorization complete: {SpecificCount} specific hosts, {CatchAllCount} catch-all hosts",
         SpecificPathHosts.Count, CatchAllHosts.Count);
   }
 }

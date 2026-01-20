@@ -2,6 +2,12 @@ env.sh
 deployment.yaml
 deployment.json
 appsettings.json
+tasks.json
+launch.json
+
+*.log
+*log.json
+
 # Prerequisites
 *.d
 
@@ -10,6 +16,7 @@ appsettings.json
 *.ko
 *.obj
 *.elf
+*.zip
 
 # Linker output
 *.ilk
