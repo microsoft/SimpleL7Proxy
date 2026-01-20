@@ -3,54 +3,111 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Net;
 using System.Threading.Tasks;
-using Microsoft.Azure.Amqp;
-using SimpleL7Proxy.ServiceBus;
-using SimpleL7Proxy.Proxy;
-using SimpleL7Proxy.Backend;
-using SimpleL7Proxy.Events;
-// This class represents the request received from the upstream client.
 
-public class RequestData : IDisposable, IAsyncDisposable
+using Shared.RequestAPI.Models;
+using SimpleL7Proxy.BackupAPI;
+using SimpleL7Proxy.Config;
+using SimpleL7Proxy.DTO;
+using SimpleL7Proxy.Events;
+using SimpleL7Proxy.Feeder;
+using SimpleL7Proxy.Proxy;
+using SimpleL7Proxy.ServiceBus;
+using SimpleL7Proxy.User;
+
+
+// Review DISPOSAL_ARCHITECTURE.MD in the root for details on disposal flow
+// This class represents the request received from the upstream client.
+public class RequestData : IDisposable, IAsyncDisposable  
 {
     // Static variable to hold the IServiceBusRequestService instance
     public static IServiceBusRequestService? SBRequestService { get; private set; }
+    public static IBackupAPIService? BackupAPIService { get; private set; }
+    public static IUserPriorityService? UserPriorityService { get; private set; }
+    public static BackendOptions? BackendOptionsStatic { get; private set; }
 
+    // -- ASYNC RELATED PARAMS --
 
     private ServiceBusMessageStatusEnum _sbStatus = ServiceBusMessageStatusEnum.None;
+    public int AsyncBlobAccessTimeoutSecs { get; set; } = 3600; // 1 hour
     public AsyncWorker? asyncWorker { get; set; } = null;
     public bool AsyncTriggered { get; set; } = false;
-    public bool Debug { get; set; }
-    public bool runAsync { get; set; } = false;
-    public bool SkipDispose { get; set; } = false;
-    public byte[]? BodyBytes { get; set; } = null;
-    public DateTime DequeueTime { get; set; }
-    public DateTime EnqueueTime { get; set; }
-    public DateTime ExpiresAt { get; set; }
-    public DateTime Timestamp { get; private set; }
-    public Guid Guid { get; set; }
-    public HttpListenerContext? Context { get; private set; }
-    public int AsyncBlobAccessTimeoutSecs { get; set; } = 3600; // 1 hour
-    public int Attempts { get; set; } = 0;
-    public int defaultTimeout { get; set; } = 0; // header timeout or default timeout in milliseconds
-    public int Priority { get; set; }
-    public int Priority2 { get; set; }
-    public int Timeout { get; set; }  // calculated timeout in milliseconds
-    public List<Dictionary<string, string>> incompleteRequests = new();
-    public ProxyEvent EventData = new();
-    public Stream OutputStream {get; set;}
-    public Stream? Body { get; private set; }
+    public bool AsyncHydrated { get; set; } = false;
     public string BlobContainerName { get; set; } = "";
-    public string ExpireReason { get; set; } = "";
-    public string ExpiresAtString { get; set; } = "";
-    public string FullURL { get; set; }
-    public string Method { get; private set; }
-    public string MID { get; set; } = "";
-    public string ParentId { get; set; } = "";
-    public string Path { get; private set; }
-    public bool Requeued { get; set; } = false;
+    public bool runAsync { get; set; } = false;
     public string SBTopicName { get; set; } = "";
-    public string UserID { get; set; } = "";
-    public WebHeaderCollection Headers { get; private set; }
+    public AsyncClientInfo? AsyncClientConfig { get; set; } = null;
+
+    private string _backgroundRequestId = "";
+    public string BackgroundRequestId
+    {
+        get => _backgroundRequestId;
+        set {
+            _backgroundRequestId = value;
+            _requestAPIDocument ??= RequestDataConverter.ToRequestAPIDocument(this);
+            _requestAPIDocument.backgroundRequestId = value;
+
+        }
+    }
+
+    private bool _isBackground = false;
+    public bool IsBackground
+    {
+        get => _isBackground;
+        set
+        {
+            _isBackground = value;
+            _requestAPIDocument ??= RequestDataConverter.ToRequestAPIDocument(this);
+            _requestAPIDocument.isBackground = value;
+        }
+    }
+    public bool IsBackgroundCheck { get; set; } = false;
+    public bool BackgroundRequestCompleted { get; set; } = false;
+    
+    /// <summary>
+    /// Computed request type based on async flags and background state.
+    /// Determines processing mode: Sync, Async, AsyncBackground, or AsyncBackgroundCheck.
+    /// </summary>
+    public RequestType Type
+    {
+        get
+        {
+            if (!runAsync)
+            {
+                return RequestType.Sync;
+            }
+
+            if (IsBackgroundCheck)
+            {
+                return RequestType.AsyncBackgroundCheck;
+            }
+
+            if (IsBackground)
+            {
+                return RequestType.AsyncBackground;
+            }
+
+            return RequestType.Async;
+        }
+    }
+    
+    public RequestAPIDocument? _requestAPIDocument; // For tracking async and background status updates
+    public RequestAPIStatusEnum RequestAPIStatus
+    {
+        get => _requestAPIDocument?.status ?? RequestAPIStatusEnum.New;
+        set
+        {
+            _requestAPIDocument ??= RequestDataConverter.ToRequestAPIDocument(this);
+
+            if (_requestAPIDocument != null)
+            {
+                _requestAPIDocument.status = value;
+                if (runAsync)
+                {
+                    BackupAPIService!.UpdateStatus(_requestAPIDocument);
+                }
+            }
+        }
+    }
 
     public ServiceBusMessageStatusEnum SBStatus
     {
@@ -64,13 +121,135 @@ public class RequestData : IDisposable, IAsyncDisposable
             }
         }
     }
+
+    public IRequestProcessor? RecoveryProcessor { get; set; } = null;
+
+    // -- END ASYNC RELATED PARAMS --
+
+
+    // Number of times Proxy calls the backend
+    public int BackendAttempts { get; set; } = 0;
+    
+    // Total attempts including retries by downstream services
+    public int TotalDownstreamAttempts { get; set; } = 0; 
+
+    public bool Debug { get; set; }
+    public bool SkipDispose { get; set; } = false;
+    public byte[]? BodyBytes { get; set; } = null;
+    public DateTime DequeueTime { get; set; }
+    public DateTime EnqueueTime { get; set; }
+    public DateTime ExpiresAt { get; set; }
+    public DateTime Timestamp { get; private set; }
+    public Guid Guid { get; set; }
+    public HttpListenerContext? Context { get; private set; }
+    public int defaultTimeout { get; set; } = 0; // header timeout or default timeout in milliseconds
+    public int Priority { get; set; }
+    public int Priority2 { get; set; }
+    public int Timeout { get; set; }  // calculated timeout in milliseconds
+    public List<Dictionary<string, string>> incompleteRequests = new();
+    public ProxyEvent EventData = new();
+    public Stream? OutputStream { get; set; }
+    public Stream? Body { get; private set; }
+    public string ExpireReason { get; set; } = "";
+    public string ExpiresAtString { get; set; } = "";
+    public string FullURL { get; set; }
+    public string Method { get; set; }
+    public string MID { get; set; } = "";
+    public string ParentId { get; set; } = "";
+    public string Path { get; set; }
+    public bool Requeued { get; set; } = false;
+    public string UserID { get; set; } = "";
+    public string profileUserId { get; set; } = "";
+    public WebHeaderCollection Headers { get; private set; }
+
     // Method to initialize the static variable from DI
-    public static void InitializeServiceBusRequestService(IServiceBusRequestService serviceBusRequestService )
+    public static void InitializeServiceBusRequestService(IServiceBusRequestService serviceBusRequestService,
+                                                          IBackupAPIService backupAPIService,
+                                                          IUserPriorityService userPriorityService,
+                                                          BackendOptions backendOptions)
     {
-        if (SBRequestService == null)
+        SBRequestService ??= serviceBusRequestService;
+        BackupAPIService ??= backupAPIService;
+        UserPriorityService ??= userPriorityService;
+        BackendOptionsStatic ??= backendOptions;
+    }
+
+    /// <summary>
+    /// Parameterless constructor for pre-allocation (used by ProbeData)
+    /// </summary>
+    public RequestData()
+    {
+        Path = string.Empty;
+        Method = string.Empty;
+        Headers = new WebHeaderCollection();
+        Body = null;
+        Context = null;
+        Timestamp = DateTime.UtcNow;
+        ExpiresAt = DateTime.MinValue;
+        FullURL = string.Empty;
+        Debug = false;
+        MID = string.Empty;
+        OutputStream = null;
+    }
+
+    // Used by AsyncFeeder
+    public RequestData(string id, Guid guid, string mid, string path, string method, DateTime enqueueTime, Dictionary<string, string> headers)
+    {
+        if (string.IsNullOrEmpty(path))
         {
-            SBRequestService = serviceBusRequestService;
+            throw new ArgumentNullException("RequestData");
         }
+
+        Path = path;
+        Timestamp = enqueueTime;
+        EnqueueTime = enqueueTime;
+        Method = method;
+        Headers = new WebHeaderCollection();
+        Body = null;
+        Context = null;
+        ExpiresAt = DateTime.MinValue;  // Set it after reading the headers
+        FullURL = "";
+        Debug = false;
+        MID = mid;
+        Guid = guid;
+
+        // restore the headers
+        foreach (var kvp in headers)
+        {
+            Headers[kvp.Key] = kvp.Value;
+        }
+
+        // ASYNC
+        OutputStream = null; // Will be set when processing the request
+    }
+
+    public void Populate(string id, Guid guid, string mid, string path, string method, DateTime enqueueTime, Dictionary<string, string> headers)
+    {
+        Path = path;
+        Timestamp = enqueueTime;
+        EnqueueTime = enqueueTime;
+        Method = method;
+        Headers = new WebHeaderCollection();
+        Context = null;
+        FullURL = "";
+        Debug = false;
+        MID = mid;
+        Guid = guid;
+
+        // restore the headers
+        foreach (var kvp in headers)
+        {
+            Headers[kvp.Key] = kvp.Value;
+        }
+
+        // ASYNC
+        OutputStream = null; // Will be set when processing the request
+    }
+
+    public void setBody(byte[] bytes)
+    {
+        BodyBytes = bytes;
+        Body = new MemoryStream(bytes);
     }
 
 
@@ -129,7 +308,7 @@ public class RequestData : IDisposable, IAsyncDisposable
         return BodyBytes;
     }
 
-    public void CalculateExpiration(int defaultTTLSecs, string TtlHeaderName )
+    public void CalculateExpiration(int defaultTTLSecs, string TtlHeaderName)
     {
         //Console.WriteLine($"Calculating TTL for {request.Headers["S7PTTL"]} {request.TTLSeconds}");
 
@@ -145,10 +324,10 @@ public class RequestData : IDisposable, IAsyncDisposable
                 // Absolute TTL in seconds
                 ExpiresAt = DateTimeOffset.FromUnixTimeSeconds(absoluteSeconds).UtcDateTime;
             }
-            else if (float.TryParse(ttlString, out float relativeSeconds ))
+            else if (float.TryParse(ttlString, out float relativeSeconds))
             {
                 // Relative TTL in seconds ( e.g.  2.5s => 2500 ms)
-                ExpiresAt = EnqueueTime.AddMilliseconds(relativeSeconds * 1000 );
+                ExpiresAt = EnqueueTime.AddMilliseconds(relativeSeconds * 1000);
             }
             else if (DateTimeOffset.TryParse(ttlString, out var ttlOffset))
             {
@@ -163,7 +342,7 @@ public class RequestData : IDisposable, IAsyncDisposable
                     ExpiresAt = ttlOffset.ToUniversalTime().UtcDateTime;
                 }
             }
-            else 
+            else
             {
                 throw new ProxyErrorException(ProxyErrorException.ErrorType.InvalidTTL,
                                               HttpStatusCode.BadRequest,
@@ -176,8 +355,18 @@ public class RequestData : IDisposable, IAsyncDisposable
             ExpireReason = (defaultTTLSecs > 0) ? $"Default TTL: {defaultTTLSecs} secs" : $"Default Timeout: {defaultTimeout} ms";
             ExpiresAt = EnqueueTime.AddMilliseconds(ttlMsToUse);
         }
-        
-        ExpiresAtString = ExpiresAt.ToString("yyyy-MM-ddTHH:mm:ssZ");
+
+        ExpiresAtString = ExpiresAt.ToString("o");
+    }
+
+    public void Cleanup()
+    {
+        EventData.SendEvent();
+
+        if (BackendOptionsStatic?.UseProfiles == true)
+        {
+            UserPriorityService?.removeRequest(UserID, Guid.NewGuid());
+        }
     }
 
     // Implement IDisposable
@@ -192,34 +381,40 @@ public class RequestData : IDisposable, IAsyncDisposable
 
         Dispose(true);
         GC.SuppressFinalize(this);
-    
+
     }
 
     protected virtual void Dispose(bool disposing)
     {
         if (SkipDispose)
         {
-            //Console.WriteLine("RequestData: Dispose called but SkipDispose is true. =================");
             return;
         }
-
-        // Don't dispose asyncWorker here - let DisposeAsyncCore handle it
-        // Just set it to null to avoid double disposal
-        asyncWorker = null;
 
         if (disposing)
         {
             // Dispose managed resources
             FullURL = Path = Method = "";
-            Body?.Dispose();
-            Body = null;
+
+            try
+            {
+                Body?.Dispose();
+            }
+            catch (Exception)
+            {
+                Console.WriteLine("Failed to dispose of request body stream.");
+            }
+            finally
+            {
+                Body = null;
+            }
+
             try
             {
                 Context?.Request?.InputStream?.Dispose();
             }
             catch (Exception)
             {
-                // Ignore exceptions during dispose
                 Console.WriteLine("Failed to dispose of request input stream.");
             }
 
@@ -230,7 +425,6 @@ public class RequestData : IDisposable, IAsyncDisposable
             catch (Exception)
             {
                 // Ignore exceptions during dispose
-                //Console.WriteLine("Failed to dispose of response output stream.");
             }
 
             try
@@ -239,29 +433,30 @@ public class RequestData : IDisposable, IAsyncDisposable
             }
             catch (Exception)
             {
-                // Ignore exceptions during dispose
                 Console.WriteLine("Failed to close response context.");
             }
 
             try
             {
-                OutputStream?.Flush();
+                if (OutputStream != null && OutputStream != Context?.Response?.OutputStream)
+                {
+                    OutputStream.Flush();
+                    OutputStream.Dispose();
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+                // Ignore if the stream was already disposed
             }
             catch (Exception)
             {
-                // Ignore exceptions during dispose
-                Console.WriteLine("Failed to flush output stream.");
+                Console.WriteLine("Failed to dispose output stream.");
+            }
+            finally
+            {
+                OutputStream = null;
             }
 
-            try
-            {
-                OutputStream?.Close();
-            }
-            catch (Exception)
-            {
-                // Ignore exceptions during dispose
-                Console.WriteLine("Failed to close output stream.");
-            }
             Context = null;
         }
     }
@@ -276,60 +471,109 @@ public class RequestData : IDisposable, IAsyncDisposable
 
         await DisposeAsyncCore();
 
-        // Dispose of unmanaged resources
-        Dispose(false);
         GC.SuppressFinalize(this);
     }
 
     protected virtual async ValueTask DisposeAsyncCore()
     {
-
-
         if (SkipDispose)
         {
             return;
         }
 
-        if (Body != null)
-        {
-            await Body.DisposeAsync();
-            Body = null;
-        }
-        
+        // Always dispose AsyncWorker if it was created
         if (asyncWorker != null)
         {
             try
             {
                 await asyncWorker.DisposeAsync().ConfigureAwait(false);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // Ignore exceptions during dispose
+                Console.WriteLine($"Failed to dispose AsyncWorker: {ex.Message}");
             }
-            asyncWorker = null;
+            finally
+            {
+                asyncWorker = null;
+            }
         }
 
+        // Dispose Body stream
+        if (Body != null)
+        {
+            try
+            {
+                await Body.DisposeAsync();
+            }
+            catch (Exception)
+            {
+                Console.WriteLine("Failed to dispose of request body stream.");
+            }
+            finally
+            {
+                Body = null;
+            }
+        }
+
+        // Dispose Context streams
         if (Context != null)
         {
-            if (Context.Request?.InputStream != null)
+            try
             {
-                await Context.Request.InputStream.DisposeAsync();
+                if (Context.Request?.InputStream != null)
+                {
+                    await Context.Request.InputStream.DisposeAsync();
+                }
+            }
+            catch (Exception)
+            {
+                Console.WriteLine("Failed to dispose of request input stream.");
             }
 
             try
             {
-                if (Context?.Response?.OutputStream != null)
+                if (Context.Response?.OutputStream != null)
                 {
                     await Context.Response.OutputStream.DisposeAsync();
                 }
             }
             catch (Exception)
             {
-                // Ignore exceptions
+                // Ignore exceptions during dispose
             }
 
-            Context?.Response?.Close();
+            try
+            {
+                Context.Response?.Close();
+            }
+            catch (Exception)
+            {
+                Console.WriteLine("Failed to close response context.");
+            }
+
             Context = null;
+        }
+
+        // Dispose OutputStream if different from Context.Response.OutputStream
+        if (OutputStream != null && OutputStream != Context?.Response?.OutputStream)
+        {
+            try
+            {
+                await OutputStream.FlushAsync();
+                await OutputStream.DisposeAsync();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Ignore if the stream was already disposed
+            }
+            catch (Exception)
+            {
+                Console.WriteLine("Failed to dispose output stream.");
+            }
+            finally
+            {
+                OutputStream = null;
+            }
         }
     }
 

@@ -60,3 +60,7 @@ dkms.conf
 **/.vs/
 **/*.user
 **/*settings.json
+
+events.log
+call*.sh
+env*.sh

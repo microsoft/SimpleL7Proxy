@@ -8,11 +8,5 @@
             },
             "enableLiveMetricsFilters": true
         }
-    },
-    "extensions": {
-        "cosmosDB": {
-            "connectionMode": "Gateway",
-            "userAgentSuffix": "MyDesiredUserAgentStamp"
-        }
     }
 }

@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.User;
 
@@ -15,18 +15,21 @@ public class UserProfile : BackgroundService, IUserProfileService
     private readonly string _UserIDFieldName;
 
     private readonly BackendOptions _options;
-    private readonly ILogger<Server> _logger;
+    private readonly ILogger<UserProfile> _logger;
     private Dictionary<string, AsyncClientInfo> _userInformation = new();
 
     private Dictionary<string, Dictionary<string, string>> userProfiles = new Dictionary<string, Dictionary<string, string>>();
     private List<string> suspendedUserProfiles = new List<string>();
     private List<string> authAppIDs = new List<string>();
 
-    public UserProfile(IOptions<BackendOptions> options, ILogger<Server> logger)
+    public UserProfile(IOptions<BackendOptions> options, ILogger<UserProfile> logger)
     {
         _options = options.Value;
         _logger = logger;
         _UserIDFieldName = _options.UserIDFieldName;
+        _userInformation[Constants.Server] = new AsyncClientInfo(Constants.Server, Constants.Server, Constants.Server, 3600);
+
+        _logger.LogDebug("[INIT] UserProfile service starting");
     }
     public enum ParsingMode
     {
@@ -47,7 +50,7 @@ public class UserProfile : BackgroundService, IUserProfileService
         _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         stoppingToken.Register(() =>
         {
-            _logger.LogInformation("User Profile Reader stopping.");
+            _logger.LogInformation("[SHUTDOWN] ⏹ User Profile Reader stopping");
         });
 
         // Initialize User Profiles
@@ -253,7 +256,7 @@ public class UserProfile : BackgroundService, IUserProfileService
                 entityValue = userProfiles.Count;
             }
 
-            _logger.LogInformation($"Successfully parsed {entityName}.  Found {entityValue} user entities.");
+            _logger.LogInformation($"[DATA] ✓ {entityName} loaded - {entityValue} entities found");
         }
         catch (Exception ex)
         {
@@ -285,20 +288,6 @@ public class UserProfile : BackgroundService, IUserProfileService
         return authAppIDs.Contains(authAppId);
     }
 
-    // public bool AsyncAllowed(string UserId)
-    // {
-    //     if (userProfiles.ContainsKey(UserId))
-    //     {
-    //         var data = userProfiles[UserId];
-    //         if (data.TryGetValue(_options.AsyncClientAllowedFieldName, out string? asyncAllowed))
-    //         {
-    //             return asyncAllowed.Equals("true", StringComparison.OrdinalIgnoreCase);
-    //         }
-    //     }
-
-    //     return false;
-    // }
-
     public AsyncClientInfo? GetAsyncParams(string userId)
     {
         if (_userInformation.TryGetValue(userId, out var cachedInfo))
@@ -308,42 +297,88 @@ public class UserProfile : BackgroundService, IUserProfileService
 
         if (!userProfiles.TryGetValue(userId, out var data))
         {
-            _logger.LogWarning($"User profile error: profile for user {userId} not found.");
+            _logger.LogWarning($"User profile: profile for user {userId} not found.");
             return null;
         }
 
-        if (!data.TryGetValue(_options.AsyncClientAllowedFieldName, out var asyncAllowed) ||
-            !string.Equals(asyncAllowed, "true", StringComparison.OrdinalIgnoreCase))
+        // Check if async processing is enabled
+        // async-config=enabled=true, containername=user123456, topic=status-123456, timeout=3600
+
+        if (!data.TryGetValue(_options.AsyncClientConfigFieldName, out var asyncConfig))
         {
-            _logger.LogWarning($"User profile error: async mode not allowed for user {userId}.");
+            _logger.LogWarning($"User profile: async config not found for user {userId}.");
             return null;
         }
 
-        if (!data.TryGetValue(_options.AsyncClientBlobFieldname, out var containerName) ||
-            string.IsNullOrWhiteSpace(containerName) ||
-            !IsValidBlobContainerName(containerName))
+        // Parse async config string into key-value pairs
+        var asyncConfigParts = asyncConfig
+            .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(part => part.Trim())
+            .Select(part =>
+            {
+                var split = part.Split('=', 2);
+                return split.Length == 2
+                    ? new KeyValuePair<string, string>(split[0].Trim(), split[1].Trim())
+                    : new KeyValuePair<string, string>(string.Empty, string.Empty);
+            })
+            .Where(kv => !string.IsNullOrEmpty(kv.Key))
+            .ToDictionary(kv => kv.Key.ToLowerInvariant(), kv => kv.Value);
+
+
+        bool asyncEnabled = false;
+        string containerName = string.Empty;
+        string topicName = string.Empty;
+        int timeoutSecs = 0;
+        bool generateSasTokens = false; // Default to false - SAS tokens not generated unless explicitly requested
+
+        foreach (var keyValuePair in asyncConfigParts)
         {
-            _logger.LogWarning($"User profile error: invalid or missing blob container name for user {userId}: {containerName}.");
-            return null;
+            var field = keyValuePair.Key;
+            var value = keyValuePair.Value;
+
+            if (field == "enabled")
+            {
+                if (!bool.TryParse(value, out asyncEnabled) || !asyncEnabled)
+                {
+                    _logger.LogWarning($"User profile: async mode not allowed for user {userId}.");
+                    return null;
+                }
+            }
+            else if (field == "containername")
+            {
+                if (!IsValidBlobContainerName(value, out containerName))
+                {
+                    _logger.LogWarning($"User profile: invalid blob container name for user {userId}: {value}.");
+                    return null;
+                }
+            }
+            else if (field == "topic")
+            {
+                if (!IsValidServiceBusTopicName(value, out topicName))
+                {
+                    _logger.LogWarning($"User profile: invalid Service Bus topic name for user {userId}: {value}.");
+                    return null;
+                }
+            }
+            else if (field == "timeout")
+            {
+                if (!int.TryParse(value, out timeoutSecs) || timeoutSecs <= 0)
+                {
+                    timeoutSecs = 3600;
+                    _logger.LogWarning($"User profile: defaulting async blob access timeout for user {userId} with {timeoutSecs}.");
+                }
+            }
+            else if (field == "generatesas")
+            {
+                if (!bool.TryParse(value, out generateSasTokens))
+                {
+                    generateSasTokens = false;
+                    _logger.LogWarning($"User profile: invalid generateSAS value for user {userId}, defaulting to false.");
+                }
+            }
         }
 
-        if (!data.TryGetValue(_options.AsyncSBTopicFieldName, out var topicName) ||
-            string.IsNullOrWhiteSpace(topicName) ||
-            !IsValidServiceBusTopicName(topicName))
-        {
-            _logger.LogWarning($"User profile error: invalid or missing Service Bus topic name for user {userId}: {topicName}.");
-            return null;
-        }
-
-
-        if (!data.TryGetValue(_options.AsyncClientBlobTimeoutFieldName, out var timeoutStr) ||
-            !int.TryParse(timeoutStr, out var timeoutSecs) || timeoutSecs <= 0)
-        {
-            _logger.LogWarning($"User profile error: invalid or missing async blob access timeout for user {userId}. Using default value of 3600.");
-            timeoutSecs = 3600; // Default to 1 hour if not specified
-        }
-
-        cachedInfo = new AsyncClientInfo(userId, containerName, topicName, timeoutSecs);
+        cachedInfo = new AsyncClientInfo(userId, containerName, topicName, timeoutSecs, generateSasTokens);
         _userInformation[userId] = cachedInfo;
         return cachedInfo;
     }
@@ -351,22 +386,27 @@ public class UserProfile : BackgroundService, IUserProfileService
     /// <summary>
     /// Validates Azure blob container name rules.
     /// </summary>
-    private bool IsValidBlobContainerName(string name)
+    private bool IsValidBlobContainerName(string name, out string validatedName)
     {
+        validatedName = String.Empty;
+
         // Azure container names must be lowercase, 3-63 chars, and only letters, numbers, and dashes
         if (string.IsNullOrWhiteSpace(name)) return false;
         if (name.Length < 3 || name.Length > 63) return false;
         if (!System.Text.RegularExpressions.Regex.IsMatch(name, "^[a-z0-9-]+$")) return false;
         if (name.StartsWith("-") || name.EndsWith("-")) return false;
         if (name.Contains("--")) return false;
+        validatedName = name;
         return true;
     }
 
     /// <summary>
     /// Validates Azure Service Bus topic name rules.
     /// </summary>
-    private bool IsValidServiceBusTopicName(string name)
+    private bool IsValidServiceBusTopicName(string name, out string validatedName)
     {
+        validatedName = String.Empty;
+
         // Azure Service Bus topic names: 1-260 chars, letters, numbers, periods, hyphens, underscores, forward slashes
         // Cannot start or end with period, hyphen, or forward slash
         if (string.IsNullOrWhiteSpace(name)) return false;
@@ -374,6 +414,7 @@ public class UserProfile : BackgroundService, IUserProfileService
         if (!System.Text.RegularExpressions.Regex.IsMatch(name, "^[a-zA-Z0-9._/-]+$")) return false;
         if (name.StartsWith(".") || name.StartsWith("-") || name.StartsWith("/")) return false;
         if (name.EndsWith(".") || name.EndsWith("-") || name.EndsWith("/")) return false;
+        validatedName = name;
         return true;
     }
 

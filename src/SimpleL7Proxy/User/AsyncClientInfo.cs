@@ -8,14 +8,16 @@ namespace SimpleL7Proxy.User
         public string UserId { get; set; }
         public string ContainerName { get; set; }
         public string SBTopicName { get; set; }
-        public int AsyncBlobAccessTimeoutSecs { get; set; } 
+        public int AsyncBlobAccessTimeoutSecs { get; set; }
+        public bool GenerateSasTokens { get; set; }
 
-        public AsyncClientInfo(string userId, string containerName, string sbTopicName, int asyncBlobAccessTimeoutSecs = 3600)
+        public AsyncClientInfo(string userId, string containerName, string sbTopicName, int asyncBlobAccessTimeoutSecs = 3600, bool generateSasTokens = false)
         {
             UserId = userId;
             ContainerName = containerName;
             SBTopicName = sbTopicName;
             AsyncBlobAccessTimeoutSecs = asyncBlobAccessTimeoutSecs;
+            GenerateSasTokens = generateSasTokens;
         }
     }
 }

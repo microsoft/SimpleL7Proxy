@@ -2,28 +2,7 @@
 
 ## Environment Variables Reference
 
-| Variable Name | Default Value | Description |
-|---------------|---------------|-------------|
-| `AsyncModeEnabled` | `false` | Enables async processing mode for the proxy |
-| `AsyncClientAllowedFieldName` | `async-allowed` | Header name that clients send to enable async processing |
-| `AsyncTimeout` | `1800000` (30 min) | Maximum time (ms) an async request is allowed to run |
-| `AsyncTriggerTimeout` | `10000` (10 sec) | Time (ms) after which a request becomes async |
-| `AsyncClientBlobFieldname` | `async-blobname` | Profile field name containing the client's blob container name |
-| `AsyncClientBlobTimeoutFieldName` | `async-blobaccess-timeout` | Profile field name containing blob timeout in seconds |
-| `AsyncSBStatusWorkers` | `5` | Number of worker tasks that feed data to Service Bus |
-| `AsyncSBTopicFieldName` | `async-topic` | Profile field name containing the Service Bus topic name |
-| `AsyncSBConnectionString` | `example-sb-connection-string` | Service Bus connection string (Option A authentication) |
-| `AsyncSBUseMI` | `false` | Use managed identity for Service Bus authentication |
-| `AsyncSBNamespace` | `""` (empty) | Fully-qualified Service Bus namespace (for managed identity) |
-| `AsyncBlobStorageConnectionString` | `""` (empty) | Blob storage connection string (Option A authentication) |
-| `AsyncBlobStorageUseMI` | `false` | Use managed identity for blob storage authentication |
-| `AsyncBlobStorageAccountUri` | `https://example.blob.core.windows.net/` | Storage account URI (for managed identity) |
-
-**Notes:**
-- Empty string defaults indicate no default value is provided
-- Profile field names are user-configurable and defined per deployment
-- Authentication options (A or B) are mutually exclusive - choose one method per service
-
+For the complete list of Async-related environment variables and their default values, please refer to the **Async Processing Variables** section in [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md#async-processing-variables).
 
 This document describes how to configure the proxy for asynchronous operation mode. When enabled, the proxy can handle requests asynchronously, providing status updates via Azure Service Bus and storing request/response data in Azure Blob Storage.
 
@@ -41,28 +20,23 @@ All configuration is done via environment variables.
 
 ## 1. Enable Async Mode
 
-Set the following environment variables to enable async processing:
+Async needs to be enabled in three places:  the proxy, the profile and the request.  The proxy setting enables systemwide async handling.  The user profile setting allows specific clients and the request setting enables it at a specific request.   In the proxy, set the following environment variables to enable async processing:
 
 ```bash
-AsyncClientAllowedFieldName=async-allowed
+AsyncClientRequestHeader=AsyncMode
 AsyncModeEnabled=true
 AsyncTimeout=<milliseconds for request timeout>
 AsyncTriggerTimeout=<milliseconds before async is enabled for the request>
-AsyncClientBlobFieldname=<profile field name that contains the client's container name>
-AsyncClientBlobTimeoutFieldName=<profile field name that contains the blob timeout in seconds>
-AsyncSBStatusWorkers=5
-AsyncSBTopicFieldName=<profile field name that contains the Service Bus topic name>
+AsyncClientConfigFieldname=<profile field name that contains the client's configuration>
 ```
 
 **Configuration Details:**
 
-- **AsyncClientAllowedFieldName**: The header name that clients send to enable async processing for a request. If the header is missing or set to false, async mode will not be triggered.
+- **AsyncClientRequestHeader**: The header name that clients send to enable async processing for a request. If the header is missing or set to false, async mode will not be triggered.
 
 - **AsyncTimeout**: Maximum time (in milliseconds) an async request is allowed to run. Similar to the standard `Timeout` parameter, this controls when the proxy server will abandon a request that has been upgraded to async.
 
 - **AsyncTriggerTimeout**: Time (in milliseconds) after which a request becomes async. Fast-running requests will complete normally. After this timeout, the request is converted to async mode and an immediate response is sent to the caller with details on how to access the data when processing completes.
-
-- **AsyncSBStatusWorkers**: Number of worker tasks that feed data to Service Bus. Under high load, consider increasing this number to help drain in-memory events during shutdown or resize operations.
 
 
 
@@ -103,7 +77,7 @@ The managed identity (system-assigned or user-assigned) must be granted these ro
 
 ### Clients
 
-Clients will need RBAC permission and a subscription to their topic to be able to read messages from the proxy.  This topic name is specified in the user profile under the **AsyncSBTopicFieldName** parameter so that the proxy knows where to send messages. 
+Clients will need RBAC permission and a subscription to their topic to be able to read messages from the proxy.  This topic name is specified in the user profile under the **AsyncClientConfigFieldName** parameter so that the proxy knows where to send messages. 
 
 #### Event Types
 
@@ -193,9 +167,12 @@ The managed identity (system-assigned or user-assigned) must be granted these ro
 The following parameters need to be defined for each user in the user profile:
 
 ```bash
-<AsyncClientBlobFieldname>=<container-name>  # The container name that the client has access to. Async processed results are stored here.
-<AsyncClientBlobTimeoutFieldName>=<seconds>  # The number of seconds that blobs will be available before automatic deletion.
-<AsyncSBTopicFieldName>=<topic-name>         # The topic name that status updates for this user will be sent to. The client will need a subscription to this topic to read.
+<AsyncClientConfigFieldname>=enabled=<true|false, containername=<container-name>, topic=<topic-name>, timeout
+# this field containes four sub-fields:
+# enabled:  determines if the client is allowed to process asynchronously.
+# container name: The blob container name that the client has access to. Async processed results are stored here.
+# timeout: The number of seconds that blobs will be available via a sas token.
+# topic: The topic name that status updates for this user will be sent to. The client will need a subscription to this topic to read.
 ```
 
 Each user's client service principal will need to be granted access to the Blob container and the Service Bus topic. 
@@ -208,12 +185,12 @@ Each user's client service principal will need to be granted access to the Blob 
 Each incoming request must include a header to enable async processing:
 
 ```bash
-<AsyncClientAllowedFieldName>: true
+<AsyncClientRequestHeader>: true
 ```
 
 **Usage:** Clients must send requests with the header set to `"true"`:
 ```http
-curl https://proxy.domain.com/do_something -H "async-allowed: true" 
+curl https://proxy.domain.com/do_something -H "AsyncMode: true" 
 ```
 
 ## Complete Configuration Example
@@ -230,11 +207,10 @@ AsyncSBConnectionString=Endpoint=sb://myservicebus.servicebus.windows.net/;Share
 AsyncBlobStorageConnectionString=DefaultEndpointsProtocol=https;AccountName=mystorage;AccountKey=...
 
 # User Profile
-AsyncSBTopicFieldName=user_servicebus_topic_name
-AsyncClientBlobFieldname=user_container_name
+AsyncClientConfigFieldname=async-config
 
 # Client Header
-AsyncClientAllowedFieldName=async-allowed
+AsyncClientRequestHeader=AsyncMode
 ```
 
 ### Production Environment (Managed Identity)
@@ -251,11 +227,10 @@ AsyncBlobStorageUseMI=true
 AsyncBlobStorageAccountUri=https://mystorage.blob.core.windows.net
 
 # User Profile
-AsyncSBTopicFieldName=user_servicebus_topic_name
-AsyncClientBlobFieldname=user_container_name
+AsyncClientConfigFieldname=async-config
 
 # Client Header
-AsyncClientAllowedFieldName=async-allowed
+AsyncClientRequestHeader=AsyncMode
 ```
 
 ## Security Considerations

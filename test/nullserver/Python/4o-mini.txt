@@ -1,0 +1,88 @@
+{
+    "choices": [
+        {
+            "content_filter_results": {
+                "hate": {
+                    "filtered": false,
+                    "severity": "safe"
+                },
+                "protected_material_code": {
+                    "filtered": false,
+                    "detected": false
+                },
+                "protected_material_text": {
+                    "filtered": false,
+                    "detected": false
+                },
+                "self_harm": {
+                    "filtered": false,
+                    "severity": "safe"
+                },
+                "sexual": {
+                    "filtered": false,
+                    "severity": "safe"
+                },
+                "violence": {
+                    "filtered": false,
+                    "severity": "safe"
+                }
+            },
+            "finish_reason": "length",
+            "index": 0,
+            "logprobs": null,
+            "message": {
+                "annotations": [],
+                "content": "A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A\nA A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A\nA A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A\nA A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A\nA A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A\nA A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A\nA A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A\nA A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A\nA A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A\nA A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A\nA A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A\nA A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A\nA A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A\nA A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A\nA A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A\nA A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A\nA A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A\nA A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A\nA A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A\nA A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A",
+                "refusal": null,
+                "role": "assistant"
+            }
+        }
+    ],
+    "created": 1755797047,
+    "id": "chatcmpl-C73J9WMHXuMEcnFBn0uozQVCx9ids",
+    "model": "gpt-4o-mini-2024-07-18",
+    "object": "chat.completion",
+    "prompt_filter_results": [
+        {
+            "prompt_index": 0,
+            "content_filter_results": {
+                "hate": {
+                    "filtered": false,
+                    "severity": "safe"
+                },
+                "jailbreak": {
+                    "filtered": false,
+                    "detected": false
+                },
+                "self_harm": {
+                    "filtered": false,
+                    "severity": "safe"
+                },
+                "sexual": {
+                    "filtered": false,
+                    "severity": "safe"
+                },
+                "violence": {
+                    "filtered": false,
+                    "severity": "safe"
+                }
+            }
+        }
+    ],
+    "system_fingerprint": "fp_efad92c60b",
+    "usage": {
+        "completion_tokens": 1000,
+        "completion_tokens_details": {
+            "accepted_prediction_tokens": 0,
+            "audio_tokens": 0,
+            "reasoning_tokens": 0,
+            "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens": 58,
+        "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0
+        },
+        "total_tokens": 1058
+    }
+}

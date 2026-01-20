@@ -1,0 +1,46 @@
+{
+    "version": "2.0",
+    "logging": {
+        "applicationInsights": {
+            "samplingSettings": {
+                "isEnabled": true,
+                "excludedTypes": "Request"
+            },
+            "enableLiveMetricsFilters": true
+        },
+        "logLevel": {
+            "default": "Information",
+            "Host.Results": "Information",
+            "Function": "Information",
+            "Host.Aggregator": "Information",
+            "Azure.Messaging.ServiceBus": "Information",
+            "Microsoft.Azure.Functions.Worker.ServiceBus": "Information",
+            "RequestAPI.DocumentProcessor": "Debug"
+        }
+    },
+    "extensions": {
+        "http": {
+            "routePrefix": "api",
+            "maxOutstandingRequests": 200,
+            "maxConcurrentRequests": 100,
+            "dynamicThrottlesEnabled": true
+        },
+        "serviceBus": {
+            "prefetchCount": 100,
+            "messageHandlerOptions": {
+                "autoComplete": true,
+                "maxConcurrentCalls": 32,
+                "maxAutoRenewDuration": "00:05:00"
+            },
+            "sessionHandlerOptions": {
+                "autoComplete": true,
+                "maxConcurrentSessions": 8,
+                "maxAutoRenewDuration": "00:05:00"
+            }
+        }
+    },
+    "extensionBundle": {
+        "id": "Microsoft.Azure.Functions.ExtensionBundle",
+        "version": "[4.*, 5.0.0)"
+    }
+}

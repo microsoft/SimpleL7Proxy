@@ -12,8 +12,7 @@ namespace SimpleL7Proxy.Events;
 public class EventHubClient : IEventClient, IHostedService
 {
 
-    private readonly string? _connectionString;
-    private readonly string? _eventHubName;
+    private readonly EventHubConfig? _config;
     private EventHubProducerClient? _producerClient;
     private EventDataBatch? _batchData;
     private readonly ILogger<EventHubClient> _logger;
@@ -29,43 +28,66 @@ public class EventHubClient : IEventClient, IHostedService
     private static int entryCount = 0;
     //public EventHubClient(string connectionString, string eventHubName, ILogger<EventHubClient>? logger = null)
 
-    public EventHubClient(EventHubConfig config, ILogger<EventHubClient> logger)
+    public EventHubClient(EventHubConfig? config, ILogger<EventHubClient> logger)
     {
-        _connectionString = config.ConnectionString;
-        _eventHubName = config.EventHubName;
+        _config = config;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        
-        if (string.IsNullOrEmpty(config.ConnectionString) || string.IsNullOrEmpty(config.EventHubName))
-        {
-            isRunning = false;
-            _producerClient = null;
-            _batchData = null;
-            return;
-        }
+        // All initialization happens in StartAsync
     }
 
     public int Count => _logBuffer.Count;
 
     public async Task StartAsync(CancellationToken cancellationToken) {
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        // Handle null or invalid configuration gracefully - just don't start the service
+        if (_config == null)
+        {
+            _logger.LogInformation("EventHubClient configuration is null. EventHub will not be started.");
+            isRunning = false;
+            return;
+        }
+
+        // Validate configuration has minimum required information
+        bool hasConnectionString = !string.IsNullOrEmpty(_config.ConnectionString) && !string.IsNullOrEmpty(_config.EventHubName);
+        bool hasNamespace = !string.IsNullOrEmpty(_config.EventHubNamespace) && !string.IsNullOrEmpty(_config.EventHubName);
+        
+        if (!hasConnectionString && !hasNamespace)
+        {
+            _logger.LogInformation("EventHubClient configuration is incomplete. EventHub will not be started.");
+            isRunning = false;
+            return;
+        }
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(_config.StartupSeconds));
         try {
-            _producerClient = new EventHubProducerClient(_connectionString, _eventHubName);
-            _batchData = await _producerClient.CreateBatchAsync(cts.Token).ConfigureAwait(false);
+            if (!string.IsNullOrEmpty(_config.ConnectionString))
+            {
+                _producerClient = new EventHubProducerClient(_config.ConnectionString, _config.EventHubName);
+            }
+            else if (!string.IsNullOrEmpty(_config.EventHubNamespace))
+            {
+                var fullyQualifiedNamespace = _config.EventHubNamespace;
+                if (!fullyQualifiedNamespace.EndsWith(".servicebus.windows.net"))
+                    fullyQualifiedNamespace = $"{_config.EventHubNamespace}.servicebus.windows.net";
+            
+                _producerClient = new EventHubProducerClient(fullyQualifiedNamespace, _config.EventHubName, new Azure.Identity.DefaultAzureCredential());
+            }
+            
+            _batchData = await _producerClient!.CreateBatchAsync(cts.Token).ConfigureAwait(false);
             workerCancelToken = cancellationTokenSource.Token;
             isRunning = true;
+            
+            _logger.LogCritical("[SERVICE] ✓ EventHub Client started successfully");
+            writerTask = Task.Run(() => EventWriter(workerCancelToken), workerCancelToken);
         }
         catch (OperationCanceledException) {
             _logger.LogError("EventHubClient setup timed out");
+            isRunning = false;
             throw new TimeoutException("EventHubClient setup timed out.");
         }
         catch (Exception ex) {
             _logger.LogError(ex, "Failed to setup EventHubClient");
+            isRunning = false;
             throw new Exception("Failed to setup EventHubClient.", ex);
-        }
-
-        _logger.LogCritical("EventHub Client starting");
-        if (isRunning && _producerClient is not null && _batchData is not null) {
-            writerTask = Task.Run(() => EventWriter(workerCancelToken), workerCancelToken);
         }
     }
 
@@ -103,6 +125,7 @@ public class EventHubClient : IEventClient, IHostedService
                 if (GetNextBatch(99) > 0)
                 {
                     await _producerClient.SendAsync(_batchData).ConfigureAwait(false);
+                    _batchData.Dispose();
                     _batchData = await _producerClient.CreateBatchAsync().ConfigureAwait(false);
                 }
 
@@ -111,7 +134,7 @@ public class EventHubClient : IEventClient, IHostedService
                     await Task.Delay(500, token).ConfigureAwait(false); // Wait for 1/2 second
                 }
             }
-            _logger.LogCritical("EventHubClient: EventWriter exiting");
+            _logger.LogInformation("[SHUTDOWN] ✓ EventHubClient exiting");
 
         }
         catch (TaskCanceledException)
@@ -126,6 +149,8 @@ public class EventHubClient : IEventClient, IHostedService
                 if (GetNextBatch(99) > 0)
                 {
                     await _producerClient.SendAsync(_batchData).ConfigureAwait(false);
+                    _batchData.Dispose();
+                    _batchData = await _producerClient.CreateBatchAsync().ConfigureAwait(false);
                 }
                 else
                 {
@@ -154,7 +179,8 @@ public class EventHubClient : IEventClient, IHostedService
                 break;
             }
 
-            if (_batchData.TryAdd(new EventData(Encoding.UTF8.GetBytes(log))))
+            var eventData = new EventData(Encoding.UTF8.GetBytes(log));
+            if (_batchData.TryAdd(eventData))
             {
                 Interlocked.Decrement(ref entryCount);
             }

@@ -1,0 +1,277 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.39.26.7824",
+      "templateHash": "15864676810431364169"
+    }
+  },
+  "parameters": {
+    "containerAppName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the existing Container App"
+      }
+    },
+    "managedEnvId": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID of the existing Container Apps environment (Microsoft.App/managedEnvironments)"
+      }
+    },
+    "location": {
+      "type": "string",
+      "metadata": {
+        "description": "Location (must match the existing Container App location)"
+      }
+    },
+    "webImage": {
+      "type": "string",
+      "metadata": {
+        "description": "Container image for the web container"
+      }
+    },
+    "healthImage": {
+      "type": "string",
+      "metadata": {
+        "description": "Container image for the health sidecar"
+      }
+    },
+    "registryServer": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional registry server (e.g., myregistry.azurecr.io). Leave empty if using public images."
+      }
+    },
+    "registryUsername": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional registry username"
+      }
+    },
+    "registryPassword": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional registry password (secure)"
+      }
+    },
+    "webCpu": {
+      "type": "string",
+      "defaultValue": "0.5",
+      "metadata": {
+        "description": "Web container CPU cores - e.g., 0.25, 0.5, 1.0, 2.0"
+      }
+    },
+    "webMemory": {
+      "type": "string",
+      "defaultValue": "1.0Gi",
+      "metadata": {
+        "description": "Web container memory in Gi - e.g., 0.5Gi, 1.0Gi, 2.0Gi"
+      }
+    },
+    "healthCpu": {
+      "type": "string",
+      "defaultValue": "0.25",
+      "metadata": {
+        "description": "Health container CPU cores - e.g., 0.25, 0.5, 1.0"
+      }
+    },
+    "healthMemory": {
+      "type": "string",
+      "defaultValue": "0.5Gi",
+      "metadata": {
+        "description": "Health container memory in Gi - e.g., 0.5Gi, 1.0Gi"
+      }
+    },
+    "webPort": {
+      "type": "int",
+      "defaultValue": 8000,
+      "metadata": {
+        "description": "Target port exposed by the web container (ingress)"
+      }
+    },
+    "healthPort": {
+      "type": "int",
+      "defaultValue": 9000,
+      "metadata": {
+        "description": "Internal port exposed by the health container for probes"
+      }
+    },
+    "ingressType": {
+      "type": "string",
+      "defaultValue": "external",
+      "allowedValues": [
+        "external",
+        "internal"
+      ],
+      "metadata": {
+        "description": "Whether ingress should be external or internal"
+      }
+    },
+    "enableHttps": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Enable or disable HTTPS on ingress"
+      }
+    },
+    "revisionMode": {
+      "type": "string",
+      "defaultValue": "single",
+      "allowedValues": [
+        "single",
+        "multiple"
+      ],
+      "metadata": {
+        "description": "Revision mode; single is recommended for sidecars"
+      }
+    },
+    "timestamp": {
+      "type": "string",
+      "defaultValue": "[utcNow()]",
+      "metadata": {
+        "description": "Timestamp for generating unique revision suffix"
+      }
+    }
+  },
+  "variables": {
+    "registries": "[if(empty(parameters('registryServer')), createArray(), createArray(createObject('server', parameters('registryServer'), 'username', parameters('registryUsername'), 'passwordSecretRef', 'registry-pwd')))]",
+    "secrets": "[if(empty(parameters('registryPassword')), createArray(), createArray(createObject('name', 'registry-pwd', 'value', parameters('registryPassword'))))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2024-02-02-preview",
+      "name": "[parameters('containerAppName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "managedEnvironmentId": "[parameters('managedEnvId')]",
+        "configuration": {
+          "activeRevisionsMode": "[parameters('revisionMode')]",
+          "secrets": "[variables('secrets')]",
+          "registries": "[variables('registries')]",
+          "ingress": {
+            "external": "[equals(parameters('ingressType'), 'external')]",
+            "targetPort": "[parameters('webPort')]",
+            "transport": "auto",
+            "allowInsecure": "[not(parameters('enableHttps'))]",
+            "traffic": [
+              {
+                "latestRevision": true,
+                "weight": 100
+              }
+            ]
+          }
+        },
+        "template": {
+          "revisionSuffix": "[uniqueString(resourceGroup().id, parameters('timestamp'), parameters('webImage'), parameters('healthImage'))]",
+          "containers": [
+            {
+              "name": "web",
+              "image": "[parameters('webImage')]",
+              "env": [
+                {
+                  "name": "DEPLOY_TIMESTAMP",
+                  "value": "[parameters('timestamp')]"
+                }
+              ],
+              "resources": {
+                "cpu": "[json(parameters('webCpu'))]",
+                "memory": "[parameters('webMemory')]"
+              },
+              "probes": [
+                {
+                  "type": "Readiness",
+                  "httpGet": {
+                    "path": "/",
+                    "port": "[parameters('webPort')]",
+                    "httpHeaders": []
+                  },
+                  "initialDelaySeconds": 5,
+                  "periodSeconds": 10,
+                  "timeoutSeconds": 5,
+                  "successThreshold": 1,
+                  "failureThreshold": 3
+                }
+              ]
+            },
+            {
+              "name": "health",
+              "image": "[parameters('healthImage')]",
+              "env": [
+                {
+                  "name": "HEALTHPROBE_PORT",
+                  "value": "[string(parameters('healthPort'))]"
+                },
+                {
+                  "name": "DEPLOY_TIMESTAMP",
+                  "value": "[parameters('timestamp')]"
+                }
+              ],
+              "resources": {
+                "cpu": "[json(parameters('healthCpu'))]",
+                "memory": "[parameters('healthMemory')]"
+              },
+              "probes": [
+                {
+                  "type": "Liveness",
+                  "tcpSocket": {
+                    "port": "[parameters('healthPort')]"
+                  },
+                  "initialDelaySeconds": 5,
+                  "periodSeconds": 10,
+                  "timeoutSeconds": 5,
+                  "successThreshold": 1,
+                  "failureThreshold": 3
+                },
+                {
+                  "type": "Readiness",
+                  "tcpSocket": {
+                    "port": "[parameters('healthPort')]"
+                  },
+                  "initialDelaySeconds": 3,
+                  "periodSeconds": 10,
+                  "timeoutSeconds": 5,
+                  "successThreshold": 1,
+                  "failureThreshold": 3
+                }
+              ]
+            }
+          ],
+          "scale": {
+            "minReplicas": 1,
+            "maxReplicas": 10
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "fqdn": {
+      "type": "string",
+      "metadata": {
+        "description": "The FQDN of the Container App"
+      },
+      "value": "[reference(resourceId('Microsoft.App/containerApps', parameters('containerAppName')), '2024-02-02-preview').configuration.ingress.fqdn]"
+    },
+    "resourceId": {
+      "type": "string",
+      "metadata": {
+        "description": "The resource ID of the Container App"
+      },
+      "value": "[resourceId('Microsoft.App/containerApps', parameters('containerAppName'))]"
+    },
+    "latestRevisionName": {
+      "type": "string",
+      "metadata": {
+        "description": "The latest revision name"
+      },
+      "value": "[reference(resourceId('Microsoft.App/containerApps', parameters('containerAppName')), '2024-02-02-preview').latestRevisionName]"
+    }
+  }
+}

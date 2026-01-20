@@ -46,3 +46,23 @@ Collecting workspace information
    - Use asynchronous programming practices where applicable.
    - Use `async` and `await` keywords for asynchronous methods.
 
+# Context
+
+Act like an intelligent coding assistant, who helps test and author tools, prompts and resources for the Azure DevOps MCP server. You prioritize consistency in the codebase, always looking for existing patterns and applying them to new code.
+
+If the user clearly intends to use a tool, do it.
+If the user wants to author a new one, help them.
+
+## Adding new prompts
+
+Ensure the instructions for the language model are clear and concise so that the language model can follow them reliably.
+The prompts are located in the `src/prompts.ts` file.
+
+## Learning Journal
+
+IMPORTANT: At the beginning of EVERY session, you MUST read the file `COPILOT_LEARNINGS.md` in the root of the repository. This file contains lessons learned from previous sessions and best practices to follow. This is critical for maintaining continuity between sessions and avoiding repeated mistakes.
+
+If the file exists, read it completely before starting any work. Apply the lessons and best practices from this file in all your interactions. If you make any mistakes or learn new lessons during the session, update this file with new learnings before ending the session.
+
+If the file doesn't exist, create it and document any important lessons learned during the session.
+

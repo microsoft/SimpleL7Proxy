@@ -44,6 +44,17 @@ namespace test.generator.config
                    !string.IsNullOrEmpty(EntraTenantID) && EntraTenantID != "Undefined";
         }
 
+        public void Reload()
+        {
+            // Force the configuration to reload by accessing the root
+            // Since reloadOnChange is set to true in the configuration builder,
+            // this will trigger a reload if the file has changed
+            if (_configuration is IConfigurationRoot configRoot)
+            {
+                configRoot.Reload();
+            }
+        }
+
         
         // format:   nnn[ms|s|m|h]
         // examples: 100ms, 1s, 1m, 1h

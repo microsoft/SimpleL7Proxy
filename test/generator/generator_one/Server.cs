@@ -36,8 +36,7 @@ namespace test.generator.generator_one
             _httpClient = CreateHttpClient();
             _httpClient.Timeout = Timeout.InfiniteTimeSpan;
 
-            // Allow the client to use self signed certs
-            ServicePointManager.ServerCertificateValidationCallback += (sender, cert, chain, sslPolicyErrors) => true;
+            // Certificate validation is handled in HttpClientHandler
 
             // Read the config
             InitializeServer();
@@ -112,15 +111,24 @@ namespace test.generator.generator_one
             return token?.Token;
         }
 
-        static int[] stats = new int[6];
+
+
+        static int[] stats = new int[8];
         static int[] responseStats = new int[600];
         static int receiveTimeout;
         static int sendTimeout;
         static int _testNumber = 0;
-        public async Task StartAsync(CancellationToken cancellationToken2)
+        static int unreadyTasks = 0;
+        public async Task<bool> StartAsync(CancellationToken cancellationToken2)
         {
             // Start the server
             Console.WriteLine("Server started");
+
+            // Initialize ThreadState with the stats array
+            ThreadState.Initialize(stats);
+
+            // Initialize ThreadState with the stats array
+            ThreadState.Initialize(stats);
 
             var test_endpoint = _configBuilder.TestEndpoint;
             var concurrency = _configBuilder.Concurrency;
@@ -137,13 +145,22 @@ namespace test.generator.generator_one
 
                 var endTime = DateTime.Now.AddMilliseconds(duration);
                 Console.WriteLine($"{DateTime.Now} Endpoint: {test_endpoint}  Concurrency: {concurrency}  EndTime: {endTime}  Delay: {delay}ms");
+                Console.WriteLine("Press SPACEBAR to interrupt the current run");
 
                 var cancellationTokenSource = new CancellationTokenSource();
                 var cancellationToken = cancellationTokenSource.Token;
                 List<Task> tasks = new List<Task>();
 
-                // reset the test number
+                // Start a background task to monitor for spacebar press
+                var keyMonitorTask = Task.Run(() => MonitorKeyPress(cancellationTokenSource));
+
+                // reset the test number and stats
                 _testNumber = receiveTimeout = sendTimeout = 0;
+                unreadyTasks = concurrency;
+                for (int i = 0; i < stats.Length; i++)
+                {
+                    stats[i] = 0;
+                }
                 // reset the response stats
                 for (int i = 0; i < 600; i++)
                 {
@@ -164,7 +181,7 @@ namespace test.generator.generator_one
                 await WaitForStartup();
 
                 // Do this while there are active threads.  Each thread exits after the duration has expired
-                while (stats[0] > 0)
+                while (stats[0] > 0 && !cancellationToken.IsCancellationRequested)
                 {
                     // Make a snapshot of the response stats    
                     Array.Copy(responseStats, responseStatsCopy, 600);
@@ -189,11 +206,16 @@ namespace test.generator.generator_one
                     reqsPerSec = completes - prevCompletes;
                     prevCompletes = completes;
 
-                    Console.WriteLine($"{DateTime.Now:HH:mm:ss} #{_testNumber}- {reqsPerSec} Reqs/Sec  Status: {statusCodes}  Timeouts: R-{receiveTimeout}, W-{sendTimeout}  Conns: {stats[0]} [ Snd-{stats[2]} Rx-{stats[3]} ]");    
-                    //Console.WriteLine($"{DateTime.Now} Stats: Test #: {_testNumber}  Reqs/Sec: {reqsPerSec} Active Threads: {stats[0]}  Begin:{stats[1]} Send:{stats[2]} Read: {stats[3]} Dispose:{stats[4]} Sleep:{stats[5]} Rd Tx: {receiveTimeout} Wr Tx: {sendTimeout}  Codes: {s}");
+                    Console.WriteLine($"{DateTime.Now:HH:mm:ss} #{_testNumber}- {reqsPerSec} Reqs/Sec  Status: {statusCodes}  Timeouts: R-{receiveTimeout}, W-{sendTimeout}  Conns: {stats[0]} [{ThreadState.GetStateString()}]");    
 
                     Array.Copy(responseStatsCopy, oldResponseStats, 600);
                     await Task.Delay(1000);
+                }
+
+                // Cancel the operation if spacebar was pressed
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    Console.WriteLine("\nRun interrupted by user (SPACEBAR pressed)");
                 }
 
                 await Task.WhenAll(tasks);
@@ -222,13 +244,39 @@ namespace test.generator.generator_one
                 Console.WriteLine($"{DateTime.Now:HH:mm:ss} Total Requests: {totalRequests}  Success % {successP}  {reqsPerSec} Reqs/Sec   Avg Latency: {latencyFlt} ms Total Time: {durationStr}");
 
                 // Wait for a key press to cancel
-                Console.WriteLine("\n\nPress q to exit, any other key to repeat: ");
+                Console.WriteLine("\n\nPress 'r' to repeat, 'c' to reload config, 'q' to quit: ");
                 var k = Console.ReadKey();
 
-                if (k.KeyChar == 'q')
+                if (k.KeyChar == 'q' || k.KeyChar == 'Q')
                 {
-                    break;
+                    return false;
                 }
+                else if (k.KeyChar == 'c' || k.KeyChar == 'C')
+                {
+                    Console.WriteLine("\nReloading configuration...\n");
+                    return true;
+                }
+                else if (k.KeyChar == 'r' || k.KeyChar == 'R')
+                {
+                    Console.WriteLine("\nRepeating test...\n");
+                }
+            }
+        }
+
+        private void MonitorKeyPress(CancellationTokenSource cancellationTokenSource)
+        {
+            while (!cancellationTokenSource.Token.IsCancellationRequested)
+            {
+                if (Console.KeyAvailable)
+                {
+                    var key = Console.ReadKey(true);
+                    if (key.Key == ConsoleKey.Spacebar)
+                    {
+                        cancellationTokenSource.Cancel();
+                        break;
+                    }
+                }
+                Thread.Sleep(100); // Check every 100ms to avoid high CPU usage
             }
         }
 
@@ -250,20 +298,27 @@ namespace test.generator.generator_one
 
         private async Task RunTest(CancellationToken cancellationToken, string test_endpoint, int delay, DateTime endTime)
         {
-
-            // Count that the thread is running
+            ThreadState threadState = new ThreadState();
+            
+            // Increment active count
             Interlocked.Increment(ref stats[0]);
 
-            // The last task to start will signal the start of testing.
-            if (stats[0] == _configBuilder.Concurrency)
+            // Decrement unready tasks and signal if this is the last one
+            int remaining = Interlocked.Decrement(ref unreadyTasks);
+            if (remaining == 0)
             {
                 latencies.Clear();
                 SignalStart();
             }
 
-            while ( stats[0] < _configBuilder.Concurrency) {
-                await Task.Delay(100);
+            // Wait until all threads are ready (unreadyTasks reaches 0)
+            while (unreadyTasks > 0)
+            {
+                await Task.Delay(10);
             }
+
+            // Now transition to Begin state to start processing
+            threadState.ChangeState(TestThreadState.Begin);
 
             Stopwatch sw = new Stopwatch();
 
@@ -276,7 +331,7 @@ namespace test.generator.generator_one
                 {
                     if (!string.IsNullOrEmpty(test_endpoint))
                     {
-                        Interlocked.Increment(ref stats[1]);
+                        threadState.ChangeState(TestThreadState.Begin);
                         //Console.WriteLine("Sending request ...");
                         foreach (var test in allTests)
                         {
@@ -297,7 +352,7 @@ namespace test.generator.generator_one
                             {
                                 // Request has been created
 
-                                Interlocked.Increment(ref stats[2]);
+                                threadState.ChangeState(TestThreadState.Sending);
                                 sw.Restart();
                                 // Send the request
                                 using (var response = await SendRequestAsync(m, cancellationToken, test.timeout).ConfigureAwait(false))
@@ -305,7 +360,11 @@ namespace test.generator.generator_one
                                     // Waiting to read response
 
                                     // Read the response
-                                    Interlocked.Increment(ref stats[3]);
+                                    threadState.ChangeState(TestThreadState.Reading);
+
+                                    // Check if response is a text/event-stream
+                                    var contentType = response?.Content?.Headers?.ContentType?.MediaType;
+                                    bool isEventStream = contentType?.Equals("text/event-stream", StringComparison.OrdinalIgnoreCase) == true;
 
                                     // timeout after test.timeout
                                     if (test.timeout.HasValue)
@@ -314,7 +373,23 @@ namespace test.generator.generator_one
                                         {
                                             try
                                             {
-                                                var content = await Task.Run(() => response?.Content?.ReadAsStringAsync(cts.Token), cts.Token).ConfigureAwait(false) ?? "N/A";
+                                                if (isEventStream && response?.Content != null)
+                                                {
+                                                    // Read stream line by line for SSE
+                                                    using (var stream = await response.Content.ReadAsStreamAsync(cts.Token).ConfigureAwait(false))
+                                                    using (var reader = new System.IO.StreamReader(stream))
+                                                    {
+                                                        while (!reader.EndOfStream)
+                                                        {
+                                                            var streamLine = await reader.ReadLineAsync().ConfigureAwait(false);
+                                                            // Process SSE line (could log or count events here)
+                                                        }
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    var content = await Task.Run(() => response?.Content?.ReadAsStringAsync(cts.Token), cts.Token).ConfigureAwait(false) ?? "N/A";
+                                                }
                                             }
                                             catch (TaskCanceledException)
                                             {
@@ -326,7 +401,23 @@ namespace test.generator.generator_one
                                     {
                                         try
                                         {
-                                            var content = await Task.Run(() => response?.Content?.ReadAsStringAsync(), cancellationToken).ConfigureAwait(false) ?? "N/A";
+                                            if (isEventStream && response?.Content != null)
+                                            {
+                                                // Read stream line by line for SSE
+                                                using (var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
+                                                using (var reader = new System.IO.StreamReader(stream))
+                                                {
+                                                    while (!reader.EndOfStream)
+                                                    {
+                                                        var streamLine = await reader.ReadLineAsync().ConfigureAwait(false);
+                                                        // Process SSE line (could log or count events here)
+                                                    }
+                                                }
+                                            }
+                                            else
+                                            {
+                                                var content = await Task.Run(() => response?.Content?.ReadAsStringAsync(), cancellationToken).ConfigureAwait(false) ?? "N/A";
+                                            }
                                         }
                                         catch (TaskCanceledException)
                                         {
@@ -334,7 +425,7 @@ namespace test.generator.generator_one
                                         }
                                     }
 
-                                    Interlocked.Decrement(ref stats[3]);
+                                    threadState.ChangeState(TestThreadState.Calculate);
 
                                     int code = (int)response.StatusCode;
                                     code = code < 600 ? code : 599;
@@ -347,15 +438,13 @@ namespace test.generator.generator_one
                                     // Add the test result
 
                                     // Disposing
-                                    Interlocked.Increment(ref stats[4]);
+                                    threadState.ChangeState(TestThreadState.Disposing);
                                     response?.Dispose();
-                                    Interlocked.Decrement(ref stats[4]);
 
                                 }
                                 sw.Stop();
                                 latencies.Add(sw.ElapsedMilliseconds);
 
-                                Interlocked.Decrement(ref stats[2]);
                             }
                             catch (TaskCanceledException)
                             {
@@ -379,15 +468,12 @@ namespace test.generator.generator_one
                             }
 
                             // Sleeping
-                            Interlocked.Increment(ref stats[5]);
+                            threadState.ChangeState(TestThreadState.Sleeping);
                             // sleep delay ms
                             await Task.Delay(delay).ConfigureAwait(false);
-                            Interlocked.Decrement(ref stats[5]);
 
                         }
-                        Interlocked.Decrement(ref stats[1]);
                     }
-
                 }
                 catch (Exception ex)
                 {
@@ -396,8 +482,9 @@ namespace test.generator.generator_one
                 }
             }
 
-            // Thread existing
+            // Thread exiting - decrement active count and reset state
             Interlocked.Decrement(ref stats[0]);
+            threadState.Reset();
         }
 
         private void prepareTests(string test_endpoint)

@@ -4,6 +4,22 @@ This document provides guidance for setting up SimpleL7Proxy for development and
 
 ## Local Development Setup
 
+### Automated Setup (Recommended)
+
+SimpleL7Proxy includes a setup script that configures the proxy to run on your local machine using an interactive wizard.
+
+```bash
+# Navigate to the .azure directory and run the setup script
+cd .azure
+./local-setup.sh
+```
+
+The script will guide you through connecting to backends (Mock or Real) and generating a local environment file.
+
+### Manual Setup
+
+If you prefer to configure the environment manually:
+
 ### Prerequisites
 - .NET SDK 9.0 or later
 - Git (for cloning the repository)
@@ -135,7 +151,7 @@ export AsyncBlobStorageConnectionString="your-blob-connection-string"
 export AsyncSBConnectionString="your-servicebus-connection-string"
 
 # Test async request
-curl -H "AsyncEnabled: true" -H "X-UserID: test-user" http://localhost:8080/async-test
+curl -H "AsyncMode: true" -H "X-UserID: test-user" http://localhost:8080/async-test
 ```
 
 ## Debugging
@@ -257,7 +273,7 @@ Create `.vscode/launch.json`:
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "build",
-      "program": "${workspaceFolder}/bin/Debug/net9.0/SimpleL7Proxy.dll",
+      "program": "${workspaceFolder}/bin/Debug/net10.0/SimpleL7Proxy.dll",
       "args": [],
       "cwd": "${workspaceFolder}",
       "stopAtEntry": false,

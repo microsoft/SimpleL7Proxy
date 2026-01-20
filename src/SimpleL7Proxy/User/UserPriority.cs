@@ -4,7 +4,8 @@ using System.Threading;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using SimpleL7Proxy.Backend;
+
+using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.User;
 public class UserPriority : IUserPriorityService
@@ -49,6 +50,18 @@ public class UserPriority : IUserPriorityService
         Interlocked.Increment(ref total);
 
         return requestId;
+    }
+
+    public void addRequest(Guid requestId, string userId)
+    {
+        // Get or create the inner ConcurrentDictionary for the user
+        var requests = userRequests.GetOrAdd(userId, _ => new ConcurrentDictionary<Guid, byte>());
+
+        // Add the new request
+        requests.TryAdd(requestId, 0);
+
+        // Atomically increment the total count
+        Interlocked.Increment(ref total);
     }
 
     /// <summary>

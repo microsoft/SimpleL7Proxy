@@ -2,6 +2,7 @@ using Azure.Storage;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Specialized;
 using Azure.Storage.Sas;
+using Azure;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -9,14 +10,14 @@ using System.IO;
 using System.Threading.Tasks;
 using System.Collections.Concurrent;
 
-using SimpleL7Proxy.Backend;
+// Review DISPOSAL_ARCHITECTURE.MD in the root for details on disposal flow
 
 namespace SimpleL7Proxy.BlobStorage
 {
     /// <summary>
     /// Provides methods for writing to Azure Blob Storage.
     /// </summary>
-    public class BlobWriter : IBlobWriter
+    public class BlobWriter : IBlobWriter, IDisposable
     {
         private static readonly ConcurrentDictionary<string, BlobContainerClient> _containerClients = new();
         //private readonly BlobContainerClient _containerClient = null!;
@@ -27,6 +28,8 @@ namespace SimpleL7Proxy.BlobStorage
         public bool UsesMI { get; set; }
 
         public bool IsInitialized => _blobServiceClient != null;
+        private bool _disposed = false;
+
 
         /// <summary>
         /// Initializes a new instance of the <see cref="BlobWriter"/> class.
@@ -37,12 +40,12 @@ namespace SimpleL7Proxy.BlobStorage
         {
             _blobServiceClient = blobServiceClient ?? throw new ArgumentNullException(nameof(blobServiceClient));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _logger.LogDebug("Starting BlobWriter service");
         }
 
 
         public async Task<bool> InitClientAsync(string userId, string containerName)
         {
-            _logger.LogInformation($"Initializing BlobContainerClient for userId: {userId}, containerName: {containerName}");
 
             if (string.IsNullOrEmpty(userId))
             {
@@ -60,8 +63,10 @@ namespace SimpleL7Proxy.BlobStorage
             if (_containerClients.ContainsKey(userId))
             {
                 // Client already exists, no need to create a new one
+                _logger.LogDebug("BlobWriter: Client already initialized for UserId: {UserId}, BlobContainerName: {BlobContainerName}", userId, containerName);
                 return true;
             }
+            _logger.LogDebug("BlobWriter: Initializing for UserId: {UserId}, BlobContainerName: {BlobContainerName}", userId, containerName);
 
             try
             {
@@ -77,8 +82,15 @@ namespace SimpleL7Proxy.BlobStorage
             }
             catch (Exception ex)
             {
+
+                throw new BlobWriterException($"Failed to initialize BlobContainerClient for userId: {userId}, containerName: {containerName}", ex)
+                {
+                    Operation = "InitClientAsync: CreateIfNotExistsAsync",
+                    ContainerName = containerName,
+                    UserId = userId
+                };
                 // Log the exception or handle it as needed
-                Console.WriteLine($"Error initializing BlobContainerClient for userId {userId}: {ex.Message}");
+                //Console.WriteLine($"Error initializing BlobContainerClient for userId {userId}: {ex.Message}");
 
             }
 
@@ -92,21 +104,119 @@ namespace SimpleL7Proxy.BlobStorage
         /// <returns>A writable stream to the blob.</returns>
         public async Task<Stream> CreateBlobAndGetOutputStreamAsync(string userId, string blobName)
         {
+            _logger.LogTrace($"[BLOB-TRACE] CreateBlobAndGetOutputStreamAsync | Container: {userId} | Blob: {blobName} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
 
             // Get the client for the userId
             if (!_containerClients.TryGetValue(userId, out var _containerClient))
             {
-                throw new InvalidOperationException($"BlobContainerClient not initialized for userId: {userId}. Call InitializeClientAsync first.");
+                throw new BlobWriterException($"BlobContainerClient not initialized for userId: {userId}. Call InitializeClientAsync first.")
+                {
+                    Operation = "CreateBlobAndGetOutputStreamAsync",
+                    BlobName = blobName,
+                    UserId = userId
+                };
             }
 
-            // Only create the container if it does not exist. This is thread-safe and efficient for concurrent calls.
-            //await _containerClient.CreateIfNotExistsAsync().ConfigureAwait(false);
-
+            await _containerClient.CreateIfNotExistsAsync().ConfigureAwait(false);
             var blobClient = _containerClient.GetBlobClient(blobName);
 
-            // OpenWriteAsync will create the blob if it does not exist and return a writable stream.
+            _logger.LogDebug("BlobWriter: Creating blob {ContainerName}/{BlobName} for user {UserId}", _containerClient.Name, blobName, userId);
+            
+            // Retry logic for 409 conflicts (concurrent writes)
+            const int maxRetries = 3;
+            const int baseDelayMs = 100;
+            
+            for (int attempt = 0; attempt < maxRetries; attempt++)
+            {
+                try
+                {
+                    _logger.LogTrace($"[BLOB-TRACE] WRITE-START | Container: {userId} | Blob: {blobName} | Attempt: {attempt + 1}/{maxRetries} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                    
+                    // OpenWriteAsync will create the blob if it does not exist and return a writable stream.
+                    var stream = await blobClient.OpenWriteAsync(overwrite: true).ConfigureAwait(false);
+                    
+                    _logger.LogTrace($"[BLOB-TRACE] WRITE-SUCCESS | Container: {userId} | Blob: {blobName} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                    return stream;
+                }
+                catch (Azure.RequestFailedException ex) when (ex.Status == 409 && attempt < maxRetries - 1)
+                {
+                    // 409 = Conflict - blob is likely being written by another process
+                    var delay = baseDelayMs * (int)Math.Pow(2, attempt); // Exponential backoff
+                    
+                    _logger.LogWarning($"[BLOB-TRACE] 409-CONFLICT | Container: {userId} | Blob: {blobName} | Attempt: {attempt + 1}/{maxRetries} | ErrorCode: {ex.ErrorCode} | Message: {ex.Message} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                    _logger.LogWarning($"[BLOB-TRACE] 409-STACK | {ex.StackTrace}");
+                    
+                    _logger.LogWarning("BlobWriter: Blob conflict (409) for {BlobName}, attempt {Attempt}/{MaxRetries} - retrying in {Delay}ms",
+                        blobName, attempt + 1, maxRetries, delay);
+                    
+                    _logger.LogWarning($"[BLOB-TRACE] 409-RETRY | Container: {userId} | Blob: {blobName} | DelayMs: {delay} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                    await Task.Delay(delay).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError($"[BLOB-TRACE] ERROR | Container: {userId} | Blob: {blobName} | Error: {ex.GetType().Name} | Message: {ex.Message} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                    throw;
+                }
+            }
+            
+            // If we get here, all retries failed - try one last time and let any exception propagate
+            _logger.LogWarning($"[BLOB-TRACE] 409-FAILED | Container: {userId} | Blob: {blobName} | AllRetriesExhausted | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
             return await blobClient.OpenWriteAsync(overwrite: true).ConfigureAwait(false);
         }
+
+        public async Task<bool> BlobExistsAsync(string userId, string blobName)
+        {
+            // Get the client for the userId
+            if (!_containerClients.TryGetValue(userId, out var _containerClient))
+            {
+                throw new BlobWriterException($"BlobContainerClient not initialized for userId: {userId}. Call InitializeClientAsync first.")
+                {
+                    Operation = "CreateBlobAndGetOutputStreamAsync",
+                    BlobName = blobName,
+                    UserId = userId
+                };
+            }
+            var blobClient = _containerClient.GetBlobClient(blobName);
+            return await blobClient.ExistsAsync().ConfigureAwait(false);
+        }
+
+
+        public async Task<Stream> ReadBlobAsStreamAsync(string userId, string blobName)
+        {
+            _logger.LogTrace($"[BLOB-TRACE] READ-START | Container: {userId} | Blob: {blobName} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+            
+            // Get the client for the userId
+            if (!_containerClients.TryGetValue(userId, out var _containerClient))
+            {
+                throw new BlobWriterException($"BlobContainerClient not initialized for userId: {userId}. Call InitializeClientAsync first.")
+                {
+                    Operation = "ReadBlobAsStreamAsync",
+                    BlobName = blobName,
+                    UserId = userId
+                };
+            }
+
+            try
+            {
+                var blobClient = _containerClient.GetBlobClient(blobName);
+                var stream = await blobClient.OpenReadAsync().ConfigureAwait(false);
+                
+                _logger.LogTrace($"[BLOB-TRACE] READ-SUCCESS | Container: {userId} | Blob: {blobName} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                return stream;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"[BLOB-TRACE] READ-ERROR | Container: {userId} | Blob: {blobName} | Error: {ex.GetType().Name} | Message: {ex.Message} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                
+                throw new BlobWriterException($"Failed to read blob as stream for userId: {userId}, blobName: {blobName}", ex)
+                {
+                    Operation = "ReadBlobAsStreamAsync",
+                    BlobName = blobName,
+                    UserId = userId
+                };
+            }
+        }
+
 
         public async Task<bool> DeleteBlobAsync(string userId, string blobName)
         {
@@ -149,7 +259,12 @@ namespace SimpleL7Proxy.BlobStorage
             // Get the client for the userId
             if (!_containerClients.TryGetValue(userId, out var _containerClient))
             {
-                throw new InvalidOperationException($"BlobContainerClient not initialized for userId: {userId}. Call InitializeClientAsync first.");
+                throw new BlobWriterException($"BlobContainerClient not initialized for userId: {userId}. Call InitializeClientAsync first.")
+                {
+                    Operation = "GenerateSasTokenAsync",
+                    BlobName = blobName,
+                    UserId = userId
+                };
             }
 
             try
@@ -178,13 +293,13 @@ namespace SimpleL7Proxy.BlobStorage
 
                     // Generate the SAS token using the user delegation key
                     var sasQueryParameters = sasBuilder.ToSasQueryParameters(userDelegationKey.Value, _blobServiceClient.AccountName);
-                    
+
                     // Construct the full SAS URI
                     var blobUriBuilder = new BlobUriBuilder(blobClient.Uri)
                     {
                         Sas = sasQueryParameters
                     };
-                    
+
                     var sasUri = blobUriBuilder.ToUri();
                     _logger.LogDebug("Successfully generated user delegation SAS token for blob {BlobName}", blobName);
                     return sasUri.ToString();
@@ -208,8 +323,82 @@ namespace SimpleL7Proxy.BlobStorage
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to generate SAS token for blob {BlobName} in container {ContainerName}", blobName, _containerClient.Name);
-                throw;
+                throw new BlobWriterException($"Failed to generate SAS token for blob {blobName} in container {_containerClient.Name}", ex)
+                {
+                    Operation = "GenerateSasTokenAsync",
+                    BlobName = blobName,
+                    ContainerName = _containerClient.Name,
+                    UserId = userId
+                };
             }
         }
+
+        /// <summary>
+        /// Gets the base URI for a blob without SAS token.
+        /// </summary>
+        /// <param name="userId">The user ID.</param>
+        /// <param name="blobName">The name of the blob.</param>
+        /// <returns>The base URI of the blob.</returns>
+        public string GetBlobUri(string userId, string blobName)
+        {
+            if (string.IsNullOrEmpty(blobName))
+            {
+                throw new ArgumentException("BlobName cannot be null or empty", nameof(blobName));
+            }
+
+            // Get the client for the userId
+            if (!_containerClients.TryGetValue(userId, out var _containerClient))
+            {
+                throw new BlobWriterException($"BlobContainerClient not initialized for userId: {userId}. Call InitializeClientAsync first.")
+                {
+                    Operation = "GetBlobUri",
+                    BlobName = blobName,
+                    UserId = userId
+                };
+            }
+
+            var blobClient = _containerClient.GetBlobClient(blobName);
+            return blobClient.Uri.ToString();
+        }
+
+        /// <summary>
+        /// Gets connection information for health check and diagnostics.
+        /// </summary>
+        /// <returns>A string describing the blob storage connection configuration.</returns>
+        public string GetConnectionInfo()
+        {
+            if (_blobServiceClient == null)
+            {
+                return "Not Initialized";
+            }
+
+            if (UsesMI)
+            {
+                return $"MI: {_blobServiceClient.Uri.Host}";
+            }
+            else
+            {
+                return $"ConnectionString: {_blobServiceClient.Uri.Host}";
+            }
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!_disposed)
+            {
+                if (disposing)
+                {
+                }
+                _disposed = true;
+            }
+        }
+        
+
     }
 }

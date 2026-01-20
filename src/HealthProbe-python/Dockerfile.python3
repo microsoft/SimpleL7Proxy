@@ -1,0 +1,29 @@
+# Single-stage Dockerfile to run the Python probe server on port 9000
+
+FROM python:3.11-slim AS runtime
+
+WORKDIR /app
+
+# Copy only the probe server
+COPY HealthProbe/probe_server.py ./
+
+# Minimal runtime env tweaks
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HEALTHPROBE_PORT=9000
+
+# Expose port for health probe endpoints
+EXPOSE 9000
+
+# Health check - verify the service is responding (inline Python one-liner)
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD python -c "import urllib.request,sys;\n" \
+                     "\n" \
+                     "try:\n" \
+                     "    with urllib.request.urlopen('http://localhost:9000/health', timeout=2) as resp:\n" \
+                     "        sys.exit(0 if resp.status == 200 else 1)\n" \
+                     "except Exception:\n" \
+                     "    sys.exit(1)" || exit 1
+
+# Run the probe server
+CMD ["python", "probe_server.py"]

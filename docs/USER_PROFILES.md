@@ -14,47 +14,51 @@ User profiles are stored in a JSON file that the proxy reads periodically (every
 
 ## Configuration
 
-Configure user profiles using these environment variables:
+Configure user profiles using these environment variables. For detailed variable definitions, see [Environment Variables](ENVIRONMENT_VARIABLES.md).
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | **UseProfiles** | Enable user profile functionality | false |
 | **UserConfigUrl** | URL or file path to fetch user configuration | file:config.json |
+| **SuspendedUserConfigUrl** | URL or file path to fetch list of explicitly suspended users | file:config.json |
 | **UserIDFieldName** | Header name used to look up user information | userId |
-| **UserProfileHeader** | Header containing user profile information | X-UserProfile |
-| **UserPriorityThreshold** | Threshold for user priority calculations (prevents greedy users) | 0.1 |
+| **UserProfileHeader** | Header containing serialized user profile information for downstream services | X-UserProfile |
+| **UserPriorityThreshold** | Threshold (0.0-1.0) for user priority calculations. If a user's active requests exceed this ratio of the total queue, their requests are deprioritized. | 0.1 |
+
+## User Suspension
+
+There are two ways to suspend or block a user:
+
+1.  **SuspendedUserConfigUrl**: Configure a separate file listing suspended User IDs. If a user is found in this list, they are rejected immediately (HTTP 403).
+2.  **Profile Status**: (Implementation specific) If logic is strictly checking the profile content, simply removing the profile or setting `S7PPriorityKey` to a low-priority value can limit access. *Note: Strict suspension usually relies on the `SuspendedUserConfigUrl`.*
 
 ## User Profile Structure
 
-Each user profile is a JSON object with the following structure:
+The user profile configuration source (URL or file) must return a **JSON Array** of user objects.
 
 ```json
-{
+[
+  {
     "userId": "unique-user-identifier",
     "S7PPriorityKey": "priority-key-value",
     "Header1": "Custom header value",
-    "Header2": "Another custom value",
-    "async-blobname": "user-specific-blob-container",
-    "async-topic": "user-specific-servicebus-topic",
-    "async-allowed": true
-}
+    "async-config": "enabled=true, containername=my-container, topic=my-topic, timeout=3600"
+  }
+]
 ```
 
-### Required Fields
+### Fields Description
 
-- **userId**: Unique identifier for the user (must match the incoming request header)
-
-### Optional Fields
-
-- **S7PPriorityKey**: Maps to priority levels defined in `PriorityKeys` and `PriorityValues`
-- **Custom Headers**: Any additional key-value pairs become headers applied to requests
-- **async-blobname**: Azure Blob Storage container name for async processing
-- **async-topic**: Azure Service Bus topic for async notifications
-- **async-allowed**: Boolean flag enabling async processing for this user
+| Field | Requirement | Description |
+|---|---|---|
+| **userId** | **Required** | Unique identifier for the user. Must match the value extracted from the header configured in `UserIDFieldName`. |
+| **S7PPriorityKey** | Optional | A key corresponding to a priority level defined in `PriorityKeys`. If present, assigns this priority to the user's requests. |
+| **async-config** | Optional | A comma-separated string `key=value` enabling async processing. Requires: `enabled`, `containername`, and `topic`. Optional: `timeout` (seconds for SAS token). |
+| **[CustomHeader]** | Optional | Any other key-value pair will be injected as a specific HTTP header into the proxied request. |
 
 ## Example Configuration File
 
-Here's a complete example of a user profiles configuration file:
+Here is a syntactically correct example of a configuration file:
 
 ```json
 [
@@ -63,31 +67,19 @@ Here's a complete example of a user profiles configuration file:
         "S7PPriorityKey": "12345",
         "Department": "Engineering",
         "Region": "US-East",
-        "async-blobname": "premium-data",
-        "async-topic": "premium-status",
-        "async-allowed": true,
-        "async-blobaccess-timeout": 3600
+        "async-config": "enabled=true, containername=premium-data, topic=premium-status, timeout=3600"
     },
     {
         "userId": "standard-user-456",
         "S7PPriorityKey": "234",
         "Department": "Marketing",
-        "Region": "EU-West", 
-        "async-blobname": "standard-data",
-        "async-topic": "standard-status",
-        "async-allowed": true,
-        "async-blobaccess-timeout": 1800
+        "Region": "EU-West"
     },
     {
         "userId": "basic-user-789",
         "Department": "Support",
         "Region": "US-West",
-        "async-allowed": false
-    },
-    {
-        "userId": "suspended-user-999",
-        "Status": "Suspended",
-        "async-allowed": false
+        "async-config": "enabled=false"
     }
 ]
 ```
@@ -132,20 +124,25 @@ curl http://localhost:8000/api/data
 
 ## Async Processing Configuration
 
-For users with async capabilities, additional fields control the behavior:
+To enable async processing for a user, their profile must contain the `async-config` field. This tells the proxy where to store the request state for that specific user.
 
-| Field | Description | Example |
-|-------|-------------|---------|
-| **async-allowed** | Enable async processing | true/false |
-| **async-blobname** | Blob container for results | "user-data-container" |
-| **async-topic** | Service Bus topic for notifications | "user-notifications" |
-| **async-blobaccess-timeout** | Blob access timeout in seconds | 3600 |
+### Example Profile Entry
+```json
+"async-config": "enabled=true, containername=my-data, topic=my-notifications"
+```
+
+### Components
+*   **enabled**: `true` to allow async for this user.
+*   **containername**: The Azure Blob Storage container name where request payloads will be stored.
+*   **topic**: The Azure Service Bus topic name where completion notifications will be sent.
 
 ### Async Request Example
 
+A client requests an async operation by adding the `AsyncMode` header (or configured equivalent):
+
 ```bash
 curl -H "userId: premium-user-123" \
-     -H "AsyncEnabled: true" \
+     -H "AsyncMode: true" \
      -H "Content-Type: application/json" \
      -d '{"query": "process this async"}' \
      http://localhost:8000/api/long-running-task
@@ -193,7 +190,7 @@ Response:
 - Confirm profiles file has been reloaded (check timestamp)
 
 **Async not working:**
-- Verify `async-allowed: true` in user profile
+- Verify `async-config: true` in present with all three values: enabled, containername and topic.  Verify access.
 - Check Azure Storage and Service Bus connections
 - Confirm `AsyncModeEnabled=true` at service level
 
