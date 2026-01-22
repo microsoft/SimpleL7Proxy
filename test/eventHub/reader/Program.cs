@@ -15,10 +15,34 @@ using Azure.Messaging.EventHubs.Consumer;
 string connectionString = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING");
 string eventHubName = Environment.GetEnvironmentVariable("EVENTHUB_NAME");
 string consumerGroup = Environment.GetEnvironmentVariable("EVENTHUB_CONSUMER_GROUP");
+var eventHubNamespace = Environment.GetEnvironmentVariable("EVENTHUB_NAMESPACE");
 
-if (string.IsNullOrEmpty(connectionString) || string.IsNullOrEmpty(eventHubName))
+// Default consumer group if not specified
+if (string.IsNullOrEmpty(consumerGroup))
 {
-    Console.WriteLine("Please set the environment variables EVENTHUB_CONNECTIONSTRING, EVENTHUB_NAME and EVENTHUB_CONSUMER_GROUP.");
+    consumerGroup = EventHubConsumerClient.DefaultConsumerGroupName;
+    Console.WriteLine($"Using default consumer group: {consumerGroup}");
+}
+
+// Ensure namespace is fully qualified domain name
+if (!string.IsNullOrEmpty(eventHubNamespace) && !eventHubNamespace.Contains("."))
+{
+    eventHubNamespace = $"{eventHubNamespace}.servicebus.windows.net";
+    Console.WriteLine($"Using fully qualified namespace: {eventHubNamespace}");
+}
+
+// either provide connection string and event hub name  or   the Event Hub namespace and event hub name
+if ( string.IsNullOrEmpty(connectionString) &&
+    ( string.IsNullOrEmpty(eventHubNamespace) || string.IsNullOrEmpty(eventHubName) ) )
+{
+    Console.WriteLine("EVENTHUB_CONNECTIONSTRING is not set and either EVENTHUB_NAMESPACE or EVENTHUB_NAME is not set.");
+    return;
+}
+
+if (!string.IsNullOrEmpty(connectionString) &&
+    ( string.IsNullOrEmpty(eventHubName) || string.IsNullOrEmpty(consumerGroup) ) )
+{
+    Console.WriteLine(" EVENTHUB_CONNECTIONSTRING is set, but either EVENTHUB_NAME or EVENTHUB_CONSUMER_GROUP is not set.");
     return;
 }
 
@@ -26,8 +50,36 @@ if (string.IsNullOrEmpty(connectionString) || string.IsNullOrEmpty(eventHubName)
 
 // Read events from the event hub.
 Console.WriteLine("Reading events...");
+EventHubConsumerClient consumerClient = null;
 
-var consumerClient = new EventHubConsumerClient(consumerGroup, connectionString, eventHubName);
+// Configure client options with appropriate timeouts
+var clientOptions = new EventHubConsumerClientOptions
+{
+    ConnectionOptions = new EventHubConnectionOptions
+    {
+        TransportType = EventHubsTransportType.AmqpTcp
+    },
+    RetryOptions = new EventHubsRetryOptions
+    {
+        MaximumRetries = 3,
+        TryTimeout = TimeSpan.FromSeconds(60),
+        Delay = TimeSpan.FromMilliseconds(800),
+        MaximumDelay = TimeSpan.FromSeconds(10),
+        Mode = EventHubsRetryMode.Exponential
+    }
+};
+
+try {
+    if (!string.IsNullOrEmpty(connectionString))
+        consumerClient = new EventHubConsumerClient(consumerGroup, connectionString, eventHubName, clientOptions);
+    else
+        consumerClient = new EventHubConsumerClient(consumerGroup, eventHubNamespace, eventHubName, new Azure.Identity.DefaultAzureCredential(), clientOptions);
+} 
+catch (Exception ex) {
+    Console.WriteLine($"Error creating EventHubConsumerClient: {ex.Message}");
+    return;
+}
+
 
 var partitionIds = await consumerClient.GetPartitionIdsAsync();
 
