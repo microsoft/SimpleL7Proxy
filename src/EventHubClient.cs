@@ -1,5 +1,6 @@
 using Azure.Messaging.EventHubs;
 using Azure.Messaging.EventHubs.Producer;
+using Azure.Core;
 using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
@@ -20,6 +21,34 @@ public class EventHubClient : IEventHubClient
     public bool IsRunning { get => isRunning; set => isRunning = value; }
     public int GetEntryCount() => entryCount;
     private static int entryCount = 0;
+
+    public EventHubClient(string fullyQualifiedNamespace, string eventHubName, TokenCredential credential)
+    {
+        if (string.IsNullOrEmpty(fullyQualifiedNamespace) || string.IsNullOrEmpty(eventHubName))
+        {
+            isRunning = false;
+            _producerClient = null;
+            _batchData = null;
+            return;
+        }
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        try
+        {
+            _producerClient = new EventHubProducerClient(fullyQualifiedNamespace, eventHubName, credential);
+            _batchData = _producerClient.CreateBatchAsync(cts.Token).Result;
+            workerCancelToken = cancellationTokenSource.Token;
+            isRunning = true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw new TimeoutException("EventHubClient setup timed out.");
+        }
+        catch (Exception ex)
+        {
+            throw new Exception("Failed to setup EventHubClient.", ex);
+        }
+    }
 
     public EventHubClient(string connectionString, string eventHubName)
     {

@@ -176,7 +176,22 @@ public class Program
                     {
                         var eventHubConnectionString = OS.Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING") ?? "";
                         var eventHubName = OS.Environment.GetEnvironmentVariable("EVENTHUB_NAME") ?? "";
-                        eventHubClient = new EventHubClient(eventHubConnectionString, eventHubName);
+                        var eventHubNamespace = Environment.GetEnvironmentVariable("EVENTHUB_NAMESPACE") ?? "";
+                        if (!string.IsNullOrEmpty(eventHubConnectionString))
+                        {
+                            eventHubClient = new EventHubClient(eventHubConnectionString, eventHubName);
+                        } 
+                        else if (!string.IsNullOrEmpty(eventHubNamespace))
+                        {
+                            if (!eventHubNamespace.Contains("."))
+                            {
+                                eventHubNamespace = $"{eventHubNamespace}.servicebus.windows.net";
+                                Console.WriteLine($"Using fully qualified namespace: {eventHubNamespace}");
+                            }
+
+                            eventHubClient = new EventHubClient(eventHubNamespace, eventHubName,  new DefaultAzureCredential());
+                        }
+                             
                     }
                     catch (Exception ex)
                     {
