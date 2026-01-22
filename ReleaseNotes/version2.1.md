@@ -1,5 +1,13 @@
 # Release Notes #
 
+## V2.1.33.p5-3
+
+Proxy:
+* Add Ver, Revision, and ContainerApp in eventhub telemetry
+* Make UserSoftDeleteTTLMinutes a configurable option defaulting to 6 hours
+* Allow the proxy to connect to Eventhub via managed identity
+
+
 ## V2.1.33.p5-2
 
 Proxy:
