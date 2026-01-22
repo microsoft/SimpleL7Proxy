@@ -208,6 +208,10 @@ public class EventHubClient : IEventHubClient
     {
         if (!isRunning || isShuttingDown) return;
 
+        eventData["Ver"] = Constants.VERSION;
+        eventData["Revision"] = Constants.REVISION;
+        eventData["ContainerApp"] = Constants.CONTAINERAPP;
+
         string jsonData = JsonSerializer.Serialize(eventData);
         SendData(jsonData);
     }

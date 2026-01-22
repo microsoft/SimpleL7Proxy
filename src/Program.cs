@@ -15,6 +15,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Linq;
+using Microsoft.VisualBasic;
 
 // This code serves as the entry point for the .NET application.
 // It sets up the necessary configurations, including logging and telemetry.
@@ -51,8 +52,10 @@ public class Program
     {
         var cancellationToken = cancellationTokenSource.Token;
         var backendOptions = LoadBackendOptions();
+        Constants.REVISION = backendOptions.Revision;
+        Constants.CONTAINERAPP = backendOptions.ContainerApp;
+        
         Task? eventHubTask = null; ;
-
 
         RegisterShutdownHandlers();
 

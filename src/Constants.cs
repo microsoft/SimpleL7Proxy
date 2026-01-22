@@ -11,6 +11,8 @@ public static class Constants
     public const string RoundRobin = "roundrobin";
     public const string Random = "random";
     public const string VERSION = "2.1.33.P5-2";
+    public static string REVISION = "rev-2024-06-10";
+    public static string CONTAINERAPP = "SimpleL7Proxy";
 
     public const int AnyPriority = -1;
 

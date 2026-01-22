@@ -51,12 +51,14 @@ public class ProxyEvent : ConcurrentDictionary<string, string>
   
   public ProxyEvent() : base(1, 20, StringComparer.OrdinalIgnoreCase)
   {
+    // Added directly at transmission time to avoid unnecessary allocations
     // base["Ver"] = Constants.VERSION;
     // base["Revision"] = _options.Value.Revision;
     // base["ContainerApp"] = _options.Value.ContainerApp;
   }
 
-  public ProxyEvent(int capacity) : base(1, capacity, StringComparer.OrdinalIgnoreCase)
+  // add 3 for "Ver", "Revision" and "ContainerApp" 
+  public ProxyEvent(int capacity) : base(1, capacity+3, StringComparer.OrdinalIgnoreCase)
   {
     // base["Ver"] = Constants.VERSION;
     // base["Revision"] = _options.Value.Revision;
