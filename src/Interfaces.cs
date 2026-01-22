@@ -79,6 +79,7 @@ public interface IBackendOptions
     string UserProfileHeader { get; set; }
     string UserConfigUrl { get; set; }
     float UserPriorityThreshold { get; set; }
+    int UserSoftDeleteTTLMinutes { get; set; }
     Dictionary<string, string> ValidateHeaders { get; set; }
     bool ValidateAuthAppID { get; set; }
     string ValidateAuthAppFieldName { get; set; }

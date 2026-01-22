@@ -22,12 +22,13 @@ public class UserProfile : IUserProfile
     private volatile List<string> authAppIDs = new List<string>();
     private volatile Dictionary<string, DeletedProfile> deletedProfiles = new Dictionary<string, DeletedProfile>();
     private static bool _isInitialized = false;
-    private static readonly TimeSpan SoftDeleteExpirationPeriod = TimeSpan.FromHours(6);
+    private static TimeSpan SoftDeleteExpirationPeriod ;
 
     public UserProfile(IBackendOptions options)
     {
         this.options = options;
         lookupHeaderName = options.LookupHeaderName;
+        SoftDeleteExpirationPeriod = TimeSpan.FromMinutes(options.UserSoftDeleteTTLMinutes);
     }
 
     public enum ParsingMode

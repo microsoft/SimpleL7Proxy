@@ -45,10 +45,11 @@ public class BackendOptions : IBackendOptions
     public bool UseOAuthGov { get; set; } = false;
     public bool UseUserConfig { get; set; } = false;
     public bool UserConfigRequired { get; set; } = false;
+    public string UserConfigUrl { get; set; } = "";
     public bool UseProfiles { get; set; } = false;
     public string UserProfileHeader { get; set; } = "";
-    public string UserConfigUrl { get; set; } = "";
     public float UserPriorityThreshold { get; set; }
+    public int UserSoftDeleteTTLMinutes { get; set; }
     public Dictionary<string, string> ValidateHeaders { get; set; } = [];
     public bool ValidateAuthAppID { get; set; } = false;
     public string ValidateAuthAppIDUrl { get; set; } = "";

@@ -15,7 +15,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Linq;
-using Microsoft.VisualBasic;
 
 // This code serves as the entry point for the .NET application.
 // It sets up the necessary configurations, including logging and telemetry.
@@ -54,7 +53,7 @@ public class Program
         var backendOptions = LoadBackendOptions();
         Constants.REVISION = backendOptions.Revision;
         Constants.CONTAINERAPP = backendOptions.ContainerApp;
-        
+
         Task? eventHubTask = null; ;
 
         RegisterShutdownHandlers();
@@ -122,6 +121,7 @@ public class Program
                     options.UserConfigUrl = backendOptions.UserConfigUrl;
                     options.UserPriorityThreshold = backendOptions.UserPriorityThreshold;
                     options.UserProfileHeader = backendOptions.UserProfileHeader;
+                    options.UserSoftDeleteTTLMinutes = backendOptions.UserSoftDeleteTTLMinutes;
                     options.ValidateAuthAppFieldName = backendOptions.ValidateAuthAppFieldName;
                     options.ValidateAuthAppID = backendOptions.ValidateAuthAppID;
                     options.ValidateAuthAppIDHeader = backendOptions.ValidateAuthAppIDHeader;
@@ -776,6 +776,7 @@ public class Program
             UserConfigRequired = ReadEnvironmentVariableOrDefault("UserConfigRequired", false),
             UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
             UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", "X-UserProfile"),
+            UserSoftDeleteTTLMinutes= ReadEnvironmentVariableOrDefault("UserSoftDeleteTTLMinutes", 6*60),  // 6 hours
             ValidateAuthAppFieldName = ReadEnvironmentVariableOrDefault("ValidateAuthAppFieldName", "authAppID"),
             ValidateAuthAppID = ReadEnvironmentVariableOrDefault("ValidateAuthAppID", false),
             ValidateAuthAppIDHeader = ReadEnvironmentVariableOrDefault("ValidateAuthAppIDHeader", "X-MS-CLIENT-PRINCIPAL-ID"),
