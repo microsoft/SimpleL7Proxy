@@ -74,6 +74,7 @@ public interface IBackendOptions
     bool UseOAuth { get; set; }
     bool UseOAuthGov { get; set; }
     bool UseUserConfig { get; set; }
+    int UserConfigRefreshIntervalSecs { get; set; }
     bool UserConfigRequired { get; set; }
     bool UseProfiles { get; set; }
     string UserProfileHeader { get; set; }

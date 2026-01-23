@@ -74,7 +74,7 @@ public class UserProfile : IUserProfile
         while (!cancellationToken.IsCancellationRequested)
         {
             DateTime startTime = DateTime.UtcNow;
-            const int NormalDelayMs = 10000;  // 3600000; // 1 hour
+            int NormalDelayMs = options.UserConfigRefreshIntervalSecs * 1000; // Configurable interval
             const int ErrorDelayMs = 3000; // 3 seconds
 
             var localIsInitialized = false;

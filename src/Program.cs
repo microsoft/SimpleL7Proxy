@@ -126,6 +126,7 @@ public class Program
                     options.UseProfiles = backendOptions.UseProfiles;
                     options.UserConfigRequired = backendOptions.UserConfigRequired;
                     options.UserConfigUrl = backendOptions.UserConfigUrl;
+                    options.UserConfigRefreshIntervalSecs = backendOptions.UserConfigRefreshIntervalSecs;
                     options.UserPriorityThreshold = backendOptions.UserPriorityThreshold;
                     options.UserProfileHeader = backendOptions.UserProfileHeader;
                     options.UserSoftDeleteTTLMinutes = backendOptions.UserSoftDeleteTTLMinutes;
@@ -780,6 +781,7 @@ public class Program
             UseOAuthGov = ReadEnvironmentVariableOrDefault("UseOAuthGov", false),
             UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", false),
             UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", "file:config.json"),
+            UserConfigRefreshIntervalSecs = ReadEnvironmentVariableOrDefault("UserConfigRefreshIntervalSecs", 3600), // 1 hour
             UserConfigRequired = ReadEnvironmentVariableOrDefault("UserConfigRequired", false),
             UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
             UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", "X-UserProfile"),
