@@ -12,7 +12,7 @@ public static class Constants
     public const string Random = "random";
     public static string REVISION = "rev-2024-06-10";
     public static string CONTAINERAPP = "SimpleL7Proxy";
-    public const string VERSION = "2.1.33.P5-3";
+    public const string VERSION = "2.1.33.P5-4";
 
     public const int AnyPriority = -1;
 

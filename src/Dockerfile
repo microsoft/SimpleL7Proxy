@@ -28,6 +28,7 @@ COPY --from=build-env /app/out .
 
 # Copy configuration files specifically
 COPY --from=build-env /app/config.json .
+COPY --from=build-env /app/suspended_config.json .
 COPY --from=build-env /app/auth.json .
 
 # Expose port 443 for the application.

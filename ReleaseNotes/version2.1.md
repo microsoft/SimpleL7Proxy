@@ -1,5 +1,10 @@
 # Release Notes #
 
+## V2.1.33.p5-4
+
+Proxy:
+* Bug fix for soft-deleted user profiles
+
 ## V2.1.33.p5-3
 
 Proxy:
