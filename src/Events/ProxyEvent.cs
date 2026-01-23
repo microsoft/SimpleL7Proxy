@@ -107,6 +107,7 @@ public class ProxyEvent : ConcurrentDictionary<string, string>
           break;
         case EventType.ServerError:
         case EventType.CircuitBreakerError:
+        case EventType.ProfileError:
           logEvent = true;
           logToEventHub = true;
           break;

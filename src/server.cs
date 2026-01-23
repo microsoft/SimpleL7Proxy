@@ -236,7 +236,7 @@ public class Server : IServer
                                 var requestUser = rd.Headers[_options.UserProfileHeader];
                                 if (!string.IsNullOrEmpty(requestUser))
                                 {
-                                    (var headers, var isSoftDeleted) = _userProfile.GetUserProfile(requestUser);
+                                    (var headers, var isSoftDeleted, var isStale) = _userProfile.GetUserProfile(requestUser);
 
                                     if (headers != null && headers.Count > 0)
                                     {
@@ -259,17 +259,6 @@ public class Server : IServer
                                             HttpStatusCode.Forbidden,
                                             "User profile not found: " + requestUser + "\n"
                                         );
-                                    }
-                                    
-                                    if (isSoftDeleted)
-                                    {
-                                        var type=ed.Type;
-                                        var message=ed["Message"];
-                                        ed.Type = EventType.ProfileError;
-                                        ed["Message"] = "Soft deleted profile access attempt";
-                                        ed.SendEvent();
-                                        ed.Type = type;
-                                        ed["Message"] = message;
                                     }
                                 }
                             }

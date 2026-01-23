@@ -7,6 +7,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Console;
+using SimpleL7Proxy.Logging;
 using OS = System;
 using System.Linq.Expressions;
 using System.Net;
@@ -61,7 +63,12 @@ public class Program
         // Set up logging
         using var loggerFactory = LoggerFactory.Create(builder =>
         {
-            builder.AddConsole();
+            builder.ClearProviders();
+            builder.AddConsole(options =>
+            {
+                options.FormatterName = SimpleTimestampConsoleFormatter.FormatterName;
+            });
+            builder.AddConsoleFormatter<SimpleTimestampConsoleFormatter, ConsoleFormatterOptions>();
             builder.AddFilter("Azure.Identity", LogLevel.Debug);
         });
 
@@ -212,7 +219,7 @@ public class Program
                 userPriority.threshold = backendOptions.UserPriorityThreshold;
                 services.AddSingleton<IUserPriority>(userPriority);
 
-                var userProfile = new UserProfile(backendOptions);
+                var userProfile = new UserProfile(backendOptions, loggerFactory.CreateLogger<UserProfile>());
                 services.AddSingleton<IUserProfile>(userProfile);
                 // Initialize User Profiles
                 if (backendOptions.UseProfiles && !string.IsNullOrEmpty(backendOptions.UserConfigUrl))
@@ -762,7 +769,7 @@ public class Program
             RequiredHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("RequiredHeaders", "")),
             Revision = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REVISION", "revisionID"),
             SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
-            SuspendedUserConfigUrl = ReadEnvironmentVariableOrDefault("SuspendedUserConfigUrl", "file:config.json"),
+            SuspendedUserConfigUrl = ReadEnvironmentVariableOrDefault("SuspendedUserConfigUrl", "file:suspended_config.json"),
             StripHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("StripHeaders", "")),
             TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
             Timeout = ReadEnvironmentVariableOrDefault("Timeout", 1200000), // 20 minutes
