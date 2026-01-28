@@ -12,11 +12,11 @@ using Azure.Messaging.EventHubs.Consumer;
 // https://docs.microsoft.com/en-us/azure/event-hubs/event-hubs-dotnet-standard-getstarted-receive-eph
 
 //Read the environment variables
-string connectionString = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING");
-string eventHubName = Environment.GetEnvironmentVariable("EVENTHUB_NAME");
-string consumerGroup = Environment.GetEnvironmentVariable("EVENTHUB_CONSUMER_GROUP");
+string? connectionString = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING");
+string? eventHubName = Environment.GetEnvironmentVariable("EVENTHUB_NAME");
+string? consumerGroup = Environment.GetEnvironmentVariable("EVENTHUB_CONSUMER_GROUP");
 
-if (string.IsNullOrEmpty(connectionString) || string.IsNullOrEmpty(eventHubName))
+if (string.IsNullOrEmpty(connectionString) || string.IsNullOrEmpty(eventHubName) || string.IsNullOrEmpty(consumerGroup))
 {
     Console.WriteLine("Please set the environment variables EVENTHUB_CONNECTIONSTRING, EVENTHUB_NAME and EVENTHUB_CONSUMER_GROUP.");
     return;

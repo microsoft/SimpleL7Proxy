@@ -4,7 +4,7 @@ public static class Constants
     public const string Readiness = "/readiness";
     public const string Startup = "/startup";
     public const string Liveness = "/liveness";
-    public const string Shutdown = "/shutdown"; // Signal to unwedge workers and shut down gracefully
+    // public const string Shutdown = "/shutdown"; // Signal to unwedge workers and shut down gracefully
     public const string ForceGC = "/forcegc"; // Signal to force garbage collection
 
     public const string Latency = "latency";
@@ -12,7 +12,7 @@ public static class Constants
     public const string Random = "random";
     public static string REVISION = "rev-2024-06-10";
     public static string CONTAINERAPP = "SimpleL7Proxy";
-    public const string VERSION = "2.1.33.P5-4";
+    public const string VERSION = "2.1.33.P6";
 
     public const int AnyPriority = -1;
 

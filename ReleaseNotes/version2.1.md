@@ -1,5 +1,10 @@
 # Release Notes #
 
+## V2.1.33.p6
+
+Proxy:
+* Implement soft-delete for AuthIDs as well 
+
 ## V2.1.33.p5-4
 
 Proxy:
