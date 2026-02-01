@@ -302,7 +302,7 @@ public class Server : BackgroundService
                                 if (!string.IsNullOrEmpty(requestUser))
                                 {
                                     rd.profileUserId = requestUser;
-                                    var headers = _userProfile.GetUserProfile(requestUser);
+                                    (var headers, var isSoftDeleted, var isStale) = _userProfile.GetUserProfile(requestUser);
 
                                     if (headers != null && headers.Count > 0)
                                     {

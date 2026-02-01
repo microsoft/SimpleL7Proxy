@@ -63,41 +63,49 @@ public class ProbeServer : BackgroundService
     /// </summary>
     protected override Task ExecuteAsync(CancellationToken cancellationToken)
     {
-        if ( !_backendOptions.HealthProbeSidecarEnabled )
+        HttpClient? selfCheckClient = null;
+        
+        if (_backendOptions.HealthProbeSidecarEnabled)
         {
-            return Task.CompletedTask;
+            _logger.LogInformation("[INIT] ✓ Health probe sidecar enabled at {Url}", _backendOptions.HealthProbeSidecarUrl);
+            selfCheckClient = CreateSelfCheckClient();
         }
-        _logger.LogInformation("[INIT] ✓ Health probe sidecar enabled at {Url}", _backendOptions.HealthProbeSidecarUrl);
-        HttpClient selfCheckClient = CreateSelfCheckClient();
-  
-        // Lightweight timer only for status updates (no async work)
+        else
+        {
+            _logger.LogInformation("[INIT] Health probe running in standalone mode (no sidecar)");
+        }
+
+        // Single timer for status updates and optional sidecar push
         _probeTimer = new Timer(_ =>
         {
-            _readinessStatus = _healthService.GetReadinessStatus();
-            _startupStatus = _healthService.GetStartupStatus();
+            _startupStatus = _readinessStatus = _healthService.GetStatus();
 
-            // call the probeserver and submit status at http://localhost:9000/internal/update-status
-            try
+            // Push to sidecar if enabled
+            if (selfCheckClient != null)
             {
-                var url = $"{_backendOptions.HealthProbeSidecarUrl}/internal/update-status?readiness={_readinessStatus}&startup={_startupStatus}";
-                var response = selfCheckClient.GetAsync(url).Result;
-                if (!response.IsSuccessStatusCode)
-                {   
-                    FailedAttempts++;
-                    _logger.LogWarning("[FAIL] Probe server updated failed. {attempts} attempts. HTTP {StatusCode}", FailedAttempts, response.StatusCode);
-                } else {
-                    if (FailedAttempts > 0)
+                try
+                {
+                    var url = $"{_backendOptions.HealthProbeSidecarUrl}/internal/update-status?readiness={_readinessStatus}&startup={_startupStatus}";
+                    var response = selfCheckClient.GetAsync(url).Result;
+                    if (!response.IsSuccessStatusCode)
+                    {   
+                        FailedAttempts++;
+                        _logger.LogWarning("[FAIL] Probe server updated failed. {attempts} attempts. HTTP {StatusCode}", FailedAttempts, response.StatusCode);
+                    }
+                    else
                     {
-                        _logger.LogInformation("[RECOVER] Probe server update succeeded after {attempts} failed attempts", FailedAttempts);
-                        FailedAttempts = 0;
+                        if (FailedAttempts > 0)
+                        {
+                            _logger.LogInformation("[RECOVER] Probe server update succeeded after {attempts} failed attempts", FailedAttempts);
+                            FailedAttempts = 0;
+                        }
                     }
                 }
-            }
-            catch (Exception ex)
-            {
-                FailedAttempts++;
-                _logger.LogWarning("[FAIL] Probe server updated failed. {attempts} attempts. Exception: {Message}", FailedAttempts, ex.Message);
-
+                catch (Exception ex)
+                {
+                    FailedAttempts++;
+                    _logger.LogWarning("[FAIL] Probe server updated failed. {attempts} attempts. Exception: {Message}", FailedAttempts, ex.Message);
+                }
             }
 
         }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));

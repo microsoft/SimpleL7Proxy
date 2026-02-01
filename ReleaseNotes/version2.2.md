@@ -1,5 +1,10 @@
 # Release Notes #
 
+Proxy:
+
+* Bugfix for non-sidecar mode startup
+* Soft-delete user profile 
+
 ## 2.2.9
 
 Proxy:

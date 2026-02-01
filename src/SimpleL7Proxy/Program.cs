@@ -144,10 +144,10 @@ public class Program
         }
         catch (Exception e)
         {
-            Console.WriteLine(e.StackTrace);
-            // Handle other exceptions that might occur
-
-            startupLogger.LogError($"[ERROR] ✗ Unexpected startup error: {e.Message}");
+            // Log full exception details including inner exceptions
+            Console.WriteLine(e.ToString());
+            
+            startupLogger.LogError(e, "[ERROR] ✗ Unexpected startup error: {Message}", e.Message);
             var pe = new ProxyEvent();
             pe.Type = EventType.Exception;
             pe.SendEvent();
