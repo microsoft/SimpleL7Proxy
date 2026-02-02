@@ -210,7 +210,7 @@ public class ProxyWorker
                             eventData["Average-Backend-Probe-Latency"] =
                                 pr.CalculatedHostLatency != 0 ? pr.CalculatedHostLatency.ToString("F3") + " ms" : "N/A";
                             if (pr.Headers != null)
-                                pr.Headers["x-Attempts"] = incomingRequest.Attempts.ToString();
+                                pr.Headers["x-Attempts"] = eventData["Attempts"];
                         }
                         Interlocked.Decrement(ref states[2]);
                     }
@@ -446,7 +446,7 @@ public class ProxyWorker
 
                             // _telemetryClient?.TrackRequest($"{incomingRequest.Method} {incomingRequest.Path}",
                             //     DateTimeOffset.UtcNow,
-                            //     DateTime.UtcNow - incomingRequest.EnqueueTime,
+                            //     DateTime.UtcNow - incomingRequest.EnqueueTime,cd 
                             //      $"{lcontext.Response.StatusCode}",
                             //      lcontext.Response.StatusCode == (int)HttpStatusCode.OK);
 
@@ -620,9 +620,9 @@ public class ProxyWorker
                 }
                 break;
 
-            case Constants.Shutdown:
+            //case Constants.Shutdown:
                 // Shutdown is a signal to unwedge workers and shut down gracefully
-                break;
+            //    break;
         }
     }
 
@@ -920,6 +920,8 @@ public class ProxyWorker
 
                         if ((int)proxyResponse.StatusCode == 429 && proxyResponse.Headers.TryGetValues("S7PREQUEUE", out var values))
                         {
+                            // TODO:  cleanup pr content ?
+
                             // Requeue the request if the response is a 429 and the S7PREQUEUE header is set
                             // It's possible that the next host processes this request successfully, in which case these will get ignored
                             var s7PrequeueValue = values.FirstOrDefault();

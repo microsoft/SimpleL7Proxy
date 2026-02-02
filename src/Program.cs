@@ -202,7 +202,11 @@ public class Program
 
                             eventHubClient = new EventHubClient(eventHubNamespace, eventHubName,  new DefaultAzureCredential());
                         }
-                             
+                        else
+                        {
+                            eventHubClient = new NullEventHubClient();
+                            Console.WriteLine("Event Hub disabled - using null event client");
+                        }
                     }
                     catch (Exception ex)
                     {
