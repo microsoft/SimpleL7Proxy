@@ -40,6 +40,7 @@ public class LogFileEventClient : IEventClient, IHostedService
     }
 
     public int Count => _logBuffer.Count;
+    public string ClientType => "LogFile";
 
 
     public Task StartAsync(CancellationToken cancellationToken)

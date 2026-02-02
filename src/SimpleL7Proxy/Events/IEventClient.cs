@@ -5,6 +5,7 @@ namespace SimpleL7Proxy.Events;
 public interface IEventClient
 {
   int Count { get; }
+  string ClientType { get; }
   //public Task StartTimer();
   public void StopTimer();
 

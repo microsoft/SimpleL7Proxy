@@ -36,6 +36,7 @@ public class EventHubClient : IEventClient, IHostedService
     }
 
     public int Count => _logBuffer.Count;
+    public string ClientType => isRunning ? "EventHub" : "EventHub (Disabled)";
 
     public async Task StartAsync(CancellationToken cancellationToken) {
         // Handle null or invalid configuration gracefully - just don't start the service
