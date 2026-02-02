@@ -1,5 +1,13 @@
 # Release Notes #
 
+## V2.1.33.p7
+
+Proxy:
+* Remove build errors
+* Add NullEventhubClient to prevent warnings
+
+Proxy:
+* Implement soft-delete for AuthIDs as well 
 ## V2.1.33.p6
 
 Proxy:
