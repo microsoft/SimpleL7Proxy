@@ -210,7 +210,7 @@ public class Program
                         System.Environment.Exit(1);
                     }
                 }
-                services.AddSingleton<IEventHubClient>(provider => eventHubClient);
+                services.AddSingleton<IEventHubClient>(provider => eventHubClient!);
 
                 //services.AddHttpLogging(o => { });
                 services.AddSingleton<IBackendOptions>(backendOptions);
