@@ -90,3 +90,52 @@ IP1="10.0.1.5"
 ## Mixing Methods
 
 You can mix methods across different hosts (e.g., `Host1` uses a connection string, `Host2` uses the legacy format), but you should not mix definitions for the *same* host number. If `Host1` is a connection string, `Probe_path1` and `IP1` will be ignored.
+
+---
+
+## Path-Based Routing
+
+The `path` parameter in the connection string controls which requests are routed to each host.
+
+### How Path Matching Works
+
+1. **Specific paths take precedence**: Hosts with explicit paths (e.g., `/api/v1`) are matched before catch-all hosts.
+2. **Path prefix is stripped**: When forwarding to a matched host, the matching prefix is removed from the request path.
+3. **Catch-all fallback**: Hosts with `path=/` or no path specified handle requests that don't match any specific path.
+
+### Path Matching Examples
+
+**Configuration:**
+```bash
+Host1="host=https://chat-service.internal;path=/chat"
+Host2="host=https://embed-service.internal;path=/embeddings"
+Host3="host=https://default-service.internal;path=/"
+```
+
+**Request Routing:**
+
+| Incoming Request | Matched Host | Forwarded Path |
+|-----------------|--------------|----------------|
+| `GET /chat/completions` | Host1 | `GET /completions` |
+| `POST /embeddings/create` | Host2 | `POST /create` |
+| `GET /models` | Host3 | `GET /models` |
+| `GET /chat` | Host1 | `GET /` |
+
+### Path Configuration Options
+
+| Path Value | Behavior |
+|------------|----------|
+| `/api/v1` | Matches requests starting with `/api/v1`, strips prefix |
+| `/api/v1/*` | Same as above (wildcard is implicit) |
+| `/` | Catch-all, matches any path, no stripping |
+| `/*` | Same as `/` |
+| (empty) | Same as `/` |
+
+### Best Practices
+
+1. **Use specific paths for service isolation**: Route different AI models or API versions to dedicated backends.
+2. **Always have a catch-all**: Include at least one host with `path=/` to handle unexpected routes.
+3. **Avoid overlapping paths**: If you have `/api` and `/api/v1`, the more specific path (`/api/v1`) should be tried first.
+
+See [LOAD_BALANCING.md](LOAD_BALANCING.md) for details on how hosts are selected after path filtering.
+
