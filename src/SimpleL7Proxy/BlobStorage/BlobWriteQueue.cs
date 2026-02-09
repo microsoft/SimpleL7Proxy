@@ -30,6 +30,9 @@ namespace SimpleL7Proxy.BlobStorage
         /// <summary>Enable batching optimization for writes to same container.</summary>
         public bool EnableBatching { get; set; } = true;
 
+        /// <summary>Enable deduplication of writes to the same blob (keeps only the last write). Set to false to write all operations.</summary>
+        public bool EnableDeduplication { get; set; } = true;
+
         /// <summary>Metrics logging interval in seconds.</summary>
         public int MetricsIntervalSeconds { get; set; } = 30;
     }
@@ -416,38 +419,48 @@ namespace SimpleL7Proxy.BlobStorage
 
             try
             {
-                // Deduplicate by container+blob name - keep only the LAST (most recent) write for each unique blob
-                // Group by both container and blob name to handle same blob name in different containers
-                var deduplicatedOps = batch
-                    .GroupBy(op => $"{op.ContainerName}/{op.BlobName}")
-                    .Select(group => group.OrderBy(op => op.EnqueuedAt).Last()) // Keep chronologically last operation
-                    .ToList();
-
-                var duplicateCount = batch.Count - deduplicatedOps.Count;
-                if (duplicateCount > 0)
+                List<BlobWriteOperation> deduplicatedOps;
+                
+                if (_options.EnableDeduplication)
                 {
-                    _logger.LogDebug("[Worker-{WorkerId}] Deduplicated {DuplicateCount} operations - Processing {UniqueCount} unique blobs",
-                        workerId, duplicateCount, deduplicatedOps.Count);
-                    
-                    // Mark duplicate (superseded) operations as successful
-                    var duplicateOps = batch
+                    // Deduplicate by container+blob name - keep only the LAST (most recent) write for each unique blob
+                    // Group by both container and blob name to handle same blob name in different containers
+                    deduplicatedOps = batch
                         .GroupBy(op => $"{op.ContainerName}/{op.BlobName}")
-                        .SelectMany(group => group.OrderBy(op => op.EnqueuedAt).SkipLast(1)); // All except the last
-                    
-                    foreach (var dupOp in duplicateOps)
+                        .Select(group => group.OrderBy(op => op.EnqueuedAt).Last()) // Keep chronologically last operation
+                        .ToList();
+
+                    var duplicateCount = batch.Count - deduplicatedOps.Count;
+                    if (duplicateCount > 0)
                     {
-                        _logger.LogTrace("[Worker-{WorkerId}] Operation {OperationId} superseded by later write to {Container}/{Blob} (enqueued at {EnqueuedAt})",
-                            workerId, dupOp.OperationId, dupOp.ContainerName, dupOp.BlobName, dupOp.EnqueuedAt.ToString("HH:mm:ss.fff"));
+                        _logger.LogDebug("[Worker-{WorkerId}] Deduplicated {DuplicateCount} operations - Processing {UniqueCount} unique blobs",
+                            workerId, duplicateCount, deduplicatedOps.Count);
                         
-                        dupOp.SetResult(new BlobWriteResult
+                        // Mark duplicate (superseded) operations as successful
+                        var duplicateOps = batch
+                            .GroupBy(op => $"{op.ContainerName}/{op.BlobName}")
+                            .SelectMany(group => group.OrderBy(op => op.EnqueuedAt).SkipLast(1)); // All except the last
+                        
+                        foreach (var dupOp in duplicateOps)
                         {
-                            Success = true,
-                            Duration = TimeSpan.Zero,
-                            QueueTime = DateTime.UtcNow - dupOp.EnqueuedAt
-                        });
-                        
-                        Interlocked.Increment(ref _operationsCompleted);
+                            _logger.LogTrace("[Worker-{WorkerId}] Operation {OperationId} superseded by later write to {Container}/{Blob} (enqueued at {EnqueuedAt})",
+                                workerId, dupOp.OperationId, dupOp.ContainerName, dupOp.BlobName, dupOp.EnqueuedAt.ToString("HH:mm:ss.fff"));
+                            
+                            dupOp.SetResult(new BlobWriteResult
+                            {
+                                Success = true,
+                                Duration = TimeSpan.Zero,
+                                QueueTime = DateTime.UtcNow - dupOp.EnqueuedAt
+                            });
+                            
+                            Interlocked.Increment(ref _operationsCompleted);
+                        }
                     }
+                }
+                else
+                {
+                    // No deduplication - write all operations
+                    deduplicatedOps = batch;
                 }
 
                 // Execute all UNIQUE (most recent) writes in parallel
