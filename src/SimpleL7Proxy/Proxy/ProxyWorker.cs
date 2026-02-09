@@ -616,7 +616,7 @@ public class ProxyWorker
                             }
                             else
                             {
-                                Console.WriteLine($"Invalid Content-Length: {length}");
+                                _logger.LogWarning("Invalid Content-Length: {Length}", length);
                             }
                             break;
 
@@ -1564,24 +1564,35 @@ public class ProxyWorker
             {
                 _logger.LogDebug("Streaming to {Destination} for request {Guid}", destinationType, request.Guid);
                 await processor.CopyToAsync(proxyResponse.Content, destination).ConfigureAwait(false);
+                
+                // Explicit flush for async blob streams - QueuedBlobStream requires FlushAsync to enqueue the data
+                if (destinationType == "async blob")
+                {
+                    //_logger.LogInformation("[BLOB-TRACE] StreamResponseAsync | Action: FlushAfterCopy | Guid: {Guid}", request.Guid);
+                    await destination.FlushAsync().ConfigureAwait(false);
+                    //_logger.LogInformation("[BLOB-TRACE] StreamResponseAsync | Action: FlushComplete | Guid: {Guid}", request.Guid);
+                }
+            }
+            else
+            {
+                //_logger.LogInformation("[BLOB-TRACE] StreamResponseAsync | Action: NoData | Guid: {Guid} | Destination: {HasDestination} | Content: {HasContent}", 
+                    // request.Guid, destination != null, proxyResponse.Content != null);
             }
         }
         catch (HttpListenerException ex)
         {
-            _logger.LogDebug(ex, "Client disconnected during streaming for request {Guid}", request.Guid);
+            _logger.LogDebug(ex, "[BLOB-TRACE] StreamResponseAsync | Action: Error-HttpListener | Guid: {Guid} | Error: {ErrorMessage}", 
+                request.Guid, ex.Message);
         }
         catch (Exception ex) when (ex is IOException || ex.InnerException is IOException)
         {
-            _logger.LogDebug(ex, "IO error or client disconnected for request {Guid}", request.Guid);
+            _logger.LogDebug(ex, "[BLOB-TRACE] StreamResponseAsync | Action: Error-IO | Guid: {Guid} | Error: {ErrorMessage}", 
+                request.Guid, ex.Message);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error streaming response for request {Guid}. Type: {ExType}, Message: {ExMessage}, StackTrace: {StackTrace}, InnerException: {InnerEx}",
-                request.Guid, 
-                ex.GetType().FullName, 
-                ex.Message, 
-                ex.StackTrace,
-                ex.InnerException?.ToString() ?? "none");
+            _logger.LogError(ex, "[BLOB-TRACE] StreamResponseAsync | Action: Error-General | Guid: {Guid} | Error: {ErrorMessage} | Type: {ExType}",
+                request.Guid, ex.Message, ex.GetType().FullName);
             // throw new ProxyErrorException(
             //     ProxyErrorException.ErrorType.ClientDisconnected,
             //     HttpStatusCode.InternalServerError,

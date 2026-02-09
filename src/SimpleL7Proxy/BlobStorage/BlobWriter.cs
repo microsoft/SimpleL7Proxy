@@ -104,7 +104,7 @@ namespace SimpleL7Proxy.BlobStorage
         /// <returns>A writable stream to the blob.</returns>
         public async Task<Stream> CreateBlobAndGetOutputStreamAsync(string userId, string blobName)
         {
-            _logger.LogTrace($"[BLOB-TRACE] CreateBlobAndGetOutputStreamAsync | Container: {userId} | Blob: {blobName} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+            //_logger.LogTrace($"[BLOB-TRACE] CreateBlobAndGetOutputStreamAsync | Container: {userId} | Blob: {blobName} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
 
             // Get the client for the userId
             if (!_containerClients.TryGetValue(userId, out var _containerClient))
@@ -130,12 +130,12 @@ namespace SimpleL7Proxy.BlobStorage
             {
                 try
                 {
-                    _logger.LogTrace($"[BLOB-TRACE] WRITE-START | Container: {userId} | Blob: {blobName} | Attempt: {attempt + 1}/{maxRetries} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                    //_logger.LogTrace($"[BLOB-TRACE] WRITE-START | Container: {userId} | Blob: {blobName} | Attempt: {attempt + 1}/{maxRetries} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
                     
                     // OpenWriteAsync will create the blob if it does not exist and return a writable stream.
                     var stream = await blobClient.OpenWriteAsync(overwrite: true).ConfigureAwait(false);
                     
-                    _logger.LogTrace($"[BLOB-TRACE] WRITE-SUCCESS | Container: {userId} | Blob: {blobName} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                    //_logger.LogTrace($"[BLOB-TRACE] WRITE-SUCCESS | Container: {userId} | Blob: {blobName} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
                     return stream;
                 }
                 catch (Azure.RequestFailedException ex) when (ex.Status == 409 && attempt < maxRetries - 1)
@@ -183,7 +183,7 @@ namespace SimpleL7Proxy.BlobStorage
 
         public async Task<Stream> ReadBlobAsStreamAsync(string userId, string blobName)
         {
-            _logger.LogTrace($"[BLOB-TRACE] READ-START | Container: {userId} | Blob: {blobName} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+            //_logger.LogTrace($"[BLOB-TRACE] READ-START | Container: {userId} | Blob: {blobName} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
             
             // Get the client for the userId
             if (!_containerClients.TryGetValue(userId, out var _containerClient))
@@ -201,7 +201,7 @@ namespace SimpleL7Proxy.BlobStorage
                 var blobClient = _containerClient.GetBlobClient(blobName);
                 var stream = await blobClient.OpenReadAsync().ConfigureAwait(false);
                 
-                _logger.LogTrace($"[BLOB-TRACE] READ-SUCCESS | Container: {userId} | Blob: {blobName} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                //_logger.LogTrace($"[BLOB-TRACE] READ-SUCCESS | Container: {userId} | Blob: {blobName} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
                 return stream;
             }
             catch (Exception ex)
