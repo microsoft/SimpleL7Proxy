@@ -428,6 +428,14 @@ namespace SimpleL7Proxy.Proxy
                         await _requestData.Context.Response.OutputStream.WriteAsync(message).ConfigureAwait(false);
                         await _requestData.Context.Response.OutputStream.FlushAsync().ConfigureAwait(false);
                         _requestData.Context.Response.Close();
+                        
+                        // CRITICAL: Clear the OutputStream after sending 202 response
+                        // The client connection is now closed, so the original OutputStream is invalid.
+                        // GetOrCreateDataStreamAsync() checks if OutputStream is null to decide whether
+                        // to create a new blob stream. Without this, it would return the closed client
+                        // stream instead of creating a blob stream, causing data to be lost.
+                        _requestData.OutputStream = null;
+                        
                         _logger.LogDebug("[AsyncWorker:{Guid}] 202 response written and connection closed", _requestData.Guid);
                     }
                     catch (Exception writeEx)
@@ -436,6 +444,9 @@ namespace SimpleL7Proxy.Proxy
                             _requestData.Guid);
                         //proxyEventData["x-Status"] = "Network Error";
                         // Client disconnected?
+                        
+                        // Even on error, clear the OutputStream - the client is disconnected anyway
+                        _requestData.OutputStream = null;
                     }
 
                     _logger.LogInformation("[AsyncWorker:{Guid}] Async worker started successfully - DataBlob: {DataBlobUri}, HeaderBlob: {HeaderBlobUri}", 
@@ -585,6 +596,7 @@ namespace SimpleL7Proxy.Proxy
         /// </summary>
         private async Task ResetStreamAsync()
         {
+            // Reset header output stream
             if (_hos != null)
             {
                 Console.WriteLine($"[BLOB-TRACE] AsyncWorker.ResetStream | Action: Reset | Guid: {_requestData.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
@@ -602,12 +614,39 @@ namespace SimpleL7Proxy.Proxy
                 catch (Exception ex)
                 {
                     Console.WriteLine($"[BLOB-TRACE] AsyncWorker.ResetStream | Action: Error | Guid: {_requestData.Guid} | Error: {ex.Message} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
-                    _logger.LogError(ex, "[AsyncWorker:{Guid}] Error while resetting stream - Type: {ExceptionType}", 
+                    _logger.LogError(ex, "[AsyncWorker:{Guid}] Error while resetting header stream - Type: {ExceptionType}", 
                         _requestData.Guid, ex.GetType().FullName);
                 }
                 finally
                 {
                     _hos = null;
+                }
+            }
+            
+            // Reset data output stream - CRITICAL: must flush and close to commit blob data
+            if (_requestData?.OutputStream != null)
+            {
+                Console.WriteLine($"[BLOB-TRACE] AsyncWorker.ResetDataStream | Action: Reset | Guid: {_requestData.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                try
+                {
+                    await _requestData.OutputStream.FlushAsync().ConfigureAwait(false);
+                    await _requestData.OutputStream.DisposeAsync().ConfigureAwait(false);
+                    Console.WriteLine($"[BLOB-TRACE] AsyncWorker.ResetDataStream | Action: Disposed | Guid: {_requestData.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                }
+                catch (ObjectDisposedException)
+                {
+                    Console.WriteLine($"[BLOB-TRACE] AsyncWorker.ResetDataStream | Action: AlreadyDisposed | Guid: {_requestData.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                    // Stream was already disposed, ignore
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[BLOB-TRACE] AsyncWorker.ResetDataStream | Action: Error | Guid: {_requestData.Guid} | Error: {ex.Message} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                    _logger.LogError(ex, "[AsyncWorker:{Guid}] Error while resetting data stream - Type: {ExceptionType}", 
+                        _requestData.Guid, ex.GetType().FullName);
+                }
+                finally
+                {
+                    _requestData.OutputStream = null;
                 }
             }
         }
