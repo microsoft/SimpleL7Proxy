@@ -248,6 +248,7 @@ public class Program
                     BatchWaitTimeMs = 100,
                     MaxBatchSize = 25,
                     EnableBatching = true,
+                    EnableDeduplication = true,  // Disable deduplication - write all operations
                     MetricsIntervalSeconds = 30
                 };
             });
