@@ -164,6 +164,7 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
 
         if parsed_path.path.startswith('/file/'):
             filename = parsed_path.path[len('/file/'):]
+            print("Opening file for streaming response: " + parsed_path.path + " -> " + filename    ) 
             # Make sure the file exists
             if not os.path.exists(filename):
                 self.send_response(404)
