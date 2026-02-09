@@ -116,11 +116,20 @@ public class CoordinatedShutdownService : IHostedService
             ["WorkerStates"] = string.Join(", ", HealthCheckService.GetWorkerState())
         };
         data.SendEvent();
-        _backendTokenProvider?.StopAsync(cancellationToken).ConfigureAwait(false);
-        _backupAPIService?.StopAsync(cancellationToken).ConfigureAwait(false);
-        _serviceBusRequestService?.StopAsync(cancellationToken).ConfigureAwait(false);
+        
+        if (_backendTokenProvider != null)
+            await _backendTokenProvider.StopAsync(cancellationToken).ConfigureAwait(false);
+        
+        // BackupAPIService is NOT registered as IHostedService - we control its shutdown explicitly here
+        // to ensure it stops AFTER all proxy workers have completed and flushed their status updates
+        if (_backupAPIService != null)
+            await _backupAPIService.StopAsync(cancellationToken).ConfigureAwait(false);
+        
+        // ServiceBusRequestService is stopped explicitly here for ordering control
+        if (_serviceBusRequestService != null)
+            await _serviceBusRequestService.StopAsync(cancellationToken).ConfigureAwait(false);
+        
         _eventClient?.StopTimer();
-        //await Task.CompletedTask;
     }
 
 }

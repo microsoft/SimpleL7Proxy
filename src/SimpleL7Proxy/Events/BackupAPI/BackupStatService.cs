@@ -70,6 +70,13 @@ namespace SimpleL7Proxy.BackupAPI
 
         public async Task StopAsync(CancellationToken cancellationToken)
         {
+            // Guard against double-stop
+            if (isShuttingDown)
+            {
+                _logger.LogDebug("[SHUTDOWN] BackupAPIService.StopAsync called but already stopping");
+                return;
+            }
+            
             _logger.LogInformation("[SHUTDOWN] BackupAPIService stopping...");
 
             isShuttingDown = true;
@@ -95,7 +102,8 @@ namespace SimpleL7Proxy.BackupAPI
                 }
             }
         
-            // Don't dispose the cancellation token source here - let the task complete
+            // Now that the task has completed (or timed out), dispose the CTS
+            _cancellationTokenSource?.Dispose();
         }
 
         public bool UpdateStatus(RequestAPIDocument message)
@@ -236,10 +244,10 @@ namespace SimpleL7Proxy.BackupAPI
                     }
                 }
                 
-                _cancellationTokenSource?.Dispose();
+                // Note: Don't dispose CTS here - StopAsync owns the lifecycle
             }
 
-            _logger.LogInformation("Backup API service is stopping.");
+            _logger.LogInformation("Backup API service stopped.");
         }
 
         DateTime _lastDrainTime = DateTime.UtcNow;
