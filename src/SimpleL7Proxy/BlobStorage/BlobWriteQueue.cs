@@ -178,6 +178,23 @@ namespace SimpleL7Proxy.BlobStorage
             try
             {
                 var workerId = GetWorkerForBlob(operation.ContainerName, operation.BlobName);
+                
+                // Back-pressure: graduated delays based on queue depth to slow down producers
+                var queueDepth = _workerChannels[workerId].Reader.Count;
+                int delayMs = queueDepth switch
+                {
+                    >= 150 => 300,
+                    >= 100 => 200,
+                    >= 50 => 100,
+                    _ => 0
+                };
+                
+                if (delayMs > 0)
+                {
+                    _logger.LogDebug("[BlobWriteQueue] Back-pressure: queue depth {Depth} - delaying {Delay}ms", queueDepth, delayMs);
+                    await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
+                }
+                
                 await _workerChannels[workerId].Writer.WriteAsync(operation, cancellationToken).ConfigureAwait(false);
                 Interlocked.Increment(ref _operationsQueued);
 
@@ -213,17 +230,53 @@ namespace SimpleL7Proxy.BlobStorage
         public async Task StopAsync(CancellationToken cancellationToken)
         {
             _logger.LogInformation("[BlobWriteQueue] Stopping...");
+            
+            // Signal no more writes will come - workers will exit after draining
             foreach (var channel in _workerChannels)
             {
                 channel.Writer.Complete();
             }
-            _shutdownCts.Cancel();
-
+            
+            // Wait for workers to finish processing remaining items
+            // DON'T cancel the shutdown token - let in-flight operations complete
+            var shutdownTimeout = TimeSpan.FromSeconds(60); // Allow time for blob operations to complete
+            
+            _logger.LogInformation("[BlobWriteQueue] Waiting for workers to complete (timeout: {Timeout}s)...", shutdownTimeout.TotalSeconds);
+            
             try
             {
-                await Task.WhenAll(_workers).ConfigureAwait(false);
+                var workerTask = Task.WhenAll(_workers);
+                var completedTask = await Task.WhenAny(workerTask, Task.Delay(shutdownTimeout, cancellationToken))
+                    .ConfigureAwait(false);
+                
+                if (completedTask != workerTask)
+                {
+                    _logger.LogWarning("[BlobWriteQueue] Shutdown timeout - cancelling remaining operations");
+                    // Only cancel as a last resort after timeout
+                    _shutdownCts.Cancel();
+                    
+                    // Give cancelled operations a moment to clean up
+                    try
+                    {
+                        await Task.WhenAny(workerTask, Task.Delay(5000)).ConfigureAwait(false);
+                    }
+                    catch { }
+                }
+                else
+                {
+                    // Workers completed normally
+                    await workerTask.ConfigureAwait(false);
+                    _logger.LogDebug("[BlobWriteQueue] All workers completed gracefully");
+                }
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException) 
+            {
+                _logger.LogDebug("[BlobWriteQueue] Shutdown cancelled");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[BlobWriteQueue] Error during shutdown");
+            }
 
             var avgQueueTime = _operationsCompleted > 0 ? _totalQueueTimeMs / _operationsCompleted : 0;
             var avgProcessTime = _operationsCompleted > 0 ? _totalProcessTimeMs / _operationsCompleted : 0;
