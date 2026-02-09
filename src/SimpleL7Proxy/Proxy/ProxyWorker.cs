@@ -468,7 +468,7 @@ public class ProxyWorker
                         eventData.Exception = ex;
                         eventData["WorkerState"] = workerState;
 
-                        if (ex.Message == "Cannot access a disposed object." || ex.Message.StartsWith("Unable to write data") || ex.Message.Contains("Broken Pipe")) // The client likely closed the connection
+                        if (ex.Message.StartsWith("Cannot access a disposed object") || ex.Message.StartsWith("Unable to write data") || ex.Message.Contains("Broken Pipe")) // The client likely closed the connection
                         {
                             _logger.LogInformation("Client closed connection: {FullURL}", incomingRequest?.FullURL ?? "Unknown");
                             eventData["InnerErrorDetail"] = "Client Disconnected";
@@ -588,45 +588,51 @@ public class ProxyWorker
 
         var context = request.Context;
 
-        // Set the response status code
-        context.Response.StatusCode = (int)pr.StatusCode;
-
-        // Copy headers to the response
-        //ProxyHelperUtils.CopyHeaders(request.Headers, proxyRequest, true, _options.StripRequestHeaders);
-
-        //CopyHeadersToResponse(pr.Headers, context.Response.Headers);            // Already done?
-
-        // Set content-specific headers
-        if (pr.ContentHeaders != null)
+        // For async requests that triggered, the 202 Accepted response was already sent and 
+        // the connection was closed by AsyncWorker. Skip writing to the HttpListenerResponse.
+        // The actual backend response will be streamed to blob storage in StreamResponseAsync.
+        if (!request.AsyncTriggered)
         {
-            foreach (var key in pr.ContentHeaders.AllKeys)
+            // Set the response status code
+            context.Response.StatusCode = (int)pr.StatusCode;
+
+            // Copy headers to the response
+            //ProxyHelperUtils.CopyHeaders(request.Headers, proxyRequest, true, _options.StripRequestHeaders);
+
+            //CopyHeadersToResponse(pr.Headers, context.Response.Headers);            // Already done?
+
+            // Set content-specific headers
+            if (pr.ContentHeaders != null)
             {
-                switch (key.ToLower())
+                foreach (var key in pr.ContentHeaders.AllKeys)
                 {
-                    case "content-length":
-                        var length = pr.ContentHeaders[key];
-                        if (long.TryParse(length, out var contentLength))
-                        {
-                            context.Response.ContentLength64 = contentLength;
-                        }
-                        else
-                        {
-                            Console.WriteLine($"Invalid Content-Length: {length}");
-                        }
-                        break;
+                    switch (key.ToLower())
+                    {
+                        case "content-length":
+                            var length = pr.ContentHeaders[key];
+                            if (long.TryParse(length, out var contentLength))
+                            {
+                                context.Response.ContentLength64 = contentLength;
+                            }
+                            else
+                            {
+                                Console.WriteLine($"Invalid Content-Length: {length}");
+                            }
+                            break;
 
-                    case "content-type":
-                        context.Response.ContentType = pr.ContentHeaders[key];
-                        break;
+                        case "content-type":
+                            context.Response.ContentType = pr.ContentHeaders[key];
+                            break;
 
-                    default:
-                        context.Response.Headers[key] = pr.ContentHeaders[key];
-                        break;
+                        default:
+                            context.Response.Headers[key] = pr.ContentHeaders[key];
+                            break;
+                    }
                 }
             }
-        }
 
-        context.Response.KeepAlive = false;
+            context.Response.KeepAlive = false;
+        }
 
         // we need 3 things:
         // 1. The processor to use                      => pr.StreamingProcessor
@@ -672,7 +678,15 @@ public class ProxyWorker
             // Called during shutdown to evict any in-progress async requests ... then worker will exit
             _isEvictingAsyncRequest = true;
             _logger.LogDebug("Expelling async request in progress, cancelling the token.");
-            _asyncExpelSource.Cancel();
+            try
+            {
+                _asyncExpelSource.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // CTS was already disposed - worker has finished or encountered an error
+                _logger.LogDebug("AsyncExpelSource already disposed - worker has completed");
+            }
         }
 
     }
@@ -1641,8 +1655,10 @@ public class ProxyWorker
         double timeout = request.Timeout;
         CancellationTokenSource cts;
 
-        // ✅ Dispose old CTS before creating new one
+        // ✅ Dispose old CTS before creating new one and clear the reference
         _asyncExpelSource?.Dispose();
+        _asyncExpelSource = null;
+        
         if (request.runAsync)
         {
             timeout = _options.AsyncTimeout;
