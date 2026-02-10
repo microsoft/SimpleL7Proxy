@@ -116,6 +116,9 @@ public class Program
                 var backupAPIService = serviceProvider.GetRequiredService<IBackupAPIService>();
                 var userPriority = serviceProvider.GetRequiredService<IUserPriorityService>();
                 RequestData.InitializeServiceBusRequestService(serviceBusRequestService, backupAPIService, userPriority, options.Value);
+                
+                // Manually start BackupAPIService (not registered as IHostedService for controlled shutdown)
+                await backupAPIService.StartAsync(CancellationToken.None);
 
                 //_ = serviceBusService.StartAsync(CancellationToken.None);
 
@@ -245,6 +248,7 @@ public class Program
                     BatchWaitTimeMs = 100,
                     MaxBatchSize = 25,
                     EnableBatching = true,
+                    EnableDeduplication = true,  // Disable deduplication - write all operations
                     MetricsIntervalSeconds = 30
                 };
             });
@@ -319,8 +323,9 @@ public class Program
         services.AddSingleton<IServiceBusRequestService>(sp => sp.GetRequiredService<ServiceBusRequestService>());
         services.AddHostedService(sp => sp.GetRequiredService<ServiceBusRequestService>());
 
+        // Note: BackupAPIService is NOT registered as IHostedService - its lifecycle is controlled
+        // explicitly by CoordinatedShutdownService to ensure proper shutdown ordering
         services.AddSingleton<IBackupAPIService, BackupAPIService>();
-        services.AddHostedService(sp => (BackupAPIService)sp.GetRequiredService<IBackupAPIService>());
 
         services.AddSingleton<IAsyncFeeder, AsyncFeeder>();
         services.AddSingleton<NormalRequest>();

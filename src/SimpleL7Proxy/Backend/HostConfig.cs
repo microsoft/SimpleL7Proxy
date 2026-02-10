@@ -210,7 +210,7 @@ namespace SimpleL7Proxy.Backend
       // try an parse the hostname if for non direct mode hosts.
       if (!result.DirectMode)
       {
-        result.Hostname = hostname;
+        result.Hostname = result.Host;
       } else 
       {
         Console.WriteLine($"Direct mode host detected: {result.Host}");

@@ -34,7 +34,7 @@ public abstract class BaseHostHealth
 
   public override string ToString()
   {
-    return $"{Protocol}://{Host}:{Port}";
+    return $"{Protocol}://{Hostname}:{Port}";
   }
 
   #region Runtime Performance Tracking

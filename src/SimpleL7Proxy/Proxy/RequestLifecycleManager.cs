@@ -95,13 +95,13 @@ public class RequestLifecycleManager
 
             case RequestType.Async:
                 SetStatus(request, ServiceBusMessageStatusEnum.AsyncProcessed, RequestAPIStatusEnum.Completed);
-                _logger.LogInformation("[Lifecycle:{Guid}] Async request completed successfully - Status: {StatusCode}", 
+                _logger.LogDebug("[Lifecycle:{Guid}] Async request completed successfully - Status: {StatusCode}", 
                     request.Guid, statusCode);
                 break;
 
             case RequestType.AsyncBackground:
                 SetStatus(request, ServiceBusMessageStatusEnum.BackgroundRequestSubmitted, RequestAPIStatusEnum.BackgroundProcessing);
-                _logger.LogInformation("[Lifecycle:{Guid}] Background request submitted - BackgroundRequestId: {BackgroundRequestId}, Status: {StatusCode}", 
+                _logger.LogDebug("[Lifecycle:{Guid}] Background request submitted - BackgroundRequestId: {BackgroundRequestId}, Status: {StatusCode}", 
                     request.Guid, request.BackgroundRequestId, statusCode);
                 break;
 
@@ -109,13 +109,13 @@ public class RequestLifecycleManager
                 if (request.BackgroundRequestCompleted)
                 {
                     SetStatus(request, ServiceBusMessageStatusEnum.AsyncProcessed, RequestAPIStatusEnum.Completed);
-                    _logger.LogInformation("[Lifecycle:{Guid}] Background check completed successfully - Status: {StatusCode}", 
+                    _logger.LogDebug("[Lifecycle:{Guid}] Background check completed successfully - Status: {StatusCode}", 
                         request.Guid, statusCode);
                 }
                 else
                 {
                     SetStatus(request, ServiceBusMessageStatusEnum.CheckingBackgroundRequestStatus, RequestAPIStatusEnum.BackgroundProcessing);
-                    _logger.LogInformation("[Lifecycle:{Guid}] Background check still processing - Status: {StatusCode}", 
+                    _logger.LogDebug("[Lifecycle:{Guid}] Background check still processing - Status: {StatusCode}", 
                         request.Guid, statusCode);
                 }
                 break;

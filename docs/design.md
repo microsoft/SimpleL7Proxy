@@ -1,12 +1,47 @@
 This document serves as the high level description of the source code.
 
-Overview:
+## Overview
 
-The service receives incoming requests and retransmits it to the lowest latency backend.  If the backend fails, the service will retry the request against the next lowest latency backend.  When deployed in Azure Container Apps, it can be setup with auto-scale to allow it handle larger volumes. The service utilizes the DNS record for each backend host, however in the case that DNS is not available, it can be configured with the hostname and IP address combination as well.  Details for each request can be logged to application insights or an EventHub endpoint.  When configured with Oauth2, the service will obtain a token for the backend requests. 
+SimpleL7Proxy is a high-performance Layer 7 reverse proxy with intelligent backend selection. It receives incoming requests, queues them by priority, and routes them to healthy backends using configurable load balancing strategies.
 
+### Key Capabilities
 
+- **Multi-mode Load Balancing**: Supports round-robin, latency-based, and random backend selection
+- **Path-Based Routing**: Routes requests to specific backends based on URL path matching
+- **Circuit Breaker**: Automatically stops traffic to failing backends and self-heals
+- **Priority Queuing**: Higher priority requests are processed before lower priority ones
+- **Retry Logic**: Automatically retries failed requests against alternate backends
+- **Async Mode**: Supports long-running requests via Azure Service Bus notifications
 
-Libraries used:
+### Request Flow
+
+```
+┌─────────────┐    ┌──────────────┐    ┌────────────────┐    ┌─────────────┐
+│   Client    │───►│   Server.cs  │───►│ Priority Queue │───►│ ProxyWorker │
+│             │    │  (Listener)  │    │                │    │             │
+└─────────────┘    └──────────────┘    └────────────────┘    └──────┬──────┘
+                                                                    │
+                   ┌────────────────────────────────────────────────┘
+                   │
+                   ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Backend Selection (IteratorFactory)                                        │
+│  1. Filter hosts by request path (specific vs catch-all)                    │
+│  2. Create iterator based on LoadBalanceMode (roundrobin/latency/random)    │
+│  3. For each host: check circuit breaker → send request → handle response   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                   │
+                   ▼
+          ┌───────────────┐
+          │ Backend Hosts │
+          └───────────────┘
+```
+
+When deployed in Azure Container Apps, it can be set up with auto-scale to handle larger volumes. The service utilizes DNS records for each backend host; however, if DNS is not available, it can be configured with hostname and IP address combinations. Details for each request can be logged to Application Insights or an EventHub endpoint. When configured with OAuth2, the service will obtain a token for backend requests.
+
+---
+
+## Libraries Used
 
 Purpose:  Authenticate to Azure and acquire Oauth2 tokens. 
 * Azure.Core: Provides essential classes and utilities for working with Azure services, including HTTP pipeline configuration, retry policies, and diagnostics.
@@ -32,22 +67,50 @@ Purpose: Provide .NET service and dependency injection.
 * Microsoft.Extensions.Options: Supports the configuration and management of options and settings in your application, including support for validating and reloading options.
 
 
-Main Code flow:
+## Main Code Flow
 
-Program.cs : Startup , read configuration, setup the .NET framework service
-Server.cs : listens for incoming requests and inserts into the priority queue
-backends.cs : measures the latencies to the backends and orders the hosts based on success rate.
-proxyWorker.cs: pulls a message from the priority queue and proxies the request to the best backend
+| File | Purpose |
+|------|---------|
+| `Program.cs` | Startup, read configuration, setup .NET DI container |
+| `Server.cs` | Listens for incoming requests and inserts into the priority queue |
+| `Backends.cs` | Measures latencies to backends, manages host health and circuit breakers |
+| `ProxyWorker.cs` | Pulls messages from the priority queue and proxies to backends |
 
-Helpers:
-AppInsightsTextWriter.cs : sends 1 copy of the data to the console and another copy to app insights
-EventHubClient.cs : sends a message into the eventhub
-PriorityQueue: implements a priority queue, highest priority exits first
+### Backend Selection Components
 
-Runtime Objects:
-Backend.cs : represents a single backend
-RequestData.cs : data received for an incoming request
-ProxyData.cs : represents a response received from a backend
+| File | Purpose |
+|------|---------|
+| `IteratorFactory.cs` | Creates load-balanced iterators based on configuration |
+| `RoundRobinHostIterator.cs` | Distributes requests evenly using a global counter |
+| `LatencyHostIterator.cs` | Orders hosts by average response latency |
+| `RandomHostIterator.cs` | Shuffles hosts randomly for each request |
+| `SharedIteratorRegistry.cs` | Manages shared iterators for concurrent requests |
+| `CircuitBreaker.cs` | Tracks failures and trips circuits for unhealthy hosts |
+
+## Helpers
+
+| File | Purpose |
+|------|---------|
+| `AppInsightsTextWriter.cs` | Sends data to console and Application Insights |
+| `EventHubClient.cs` | Sends messages to EventHub |
+| `PriorityQueue.cs` | Implements priority queue (highest priority exits first) |
+
+## Runtime Objects
+
+| File | Purpose |
+|------|---------|
+| `BaseHostHealth.cs` | Represents a single backend with health metrics |
+| `RequestData.cs` | Data received for an incoming request |
+| `ProxyData.cs` | Represents a response received from a backend |
+
+---
+
+## Related Documentation
+
+- [LOAD_BALANCING.md](LOAD_BALANCING.md) - Detailed backend selection algorithm
+- [CIRCUIT_BREAKER.md](CIRCUIT_BREAKER.md) - Circuit breaker configuration
+- [BACKEND_HOSTS.md](BACKEND_HOSTS.md) - Host configuration options
+
 
 
 

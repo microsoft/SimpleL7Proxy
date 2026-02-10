@@ -55,6 +55,12 @@ namespace SimpleL7Proxy.BlobStorage
 
             // Queue the buffered data for writing
             var data = _buffer.ToArray();
+            
+            // Clear the buffer BEFORE enqueueing to prevent duplicate writes
+            // if FlushAsync is called multiple times
+            _buffer.SetLength(0);
+            _buffer.Position = 0;
+            
             var operation = new BlobWriteOperation
             {
                 ContainerName = _containerName,

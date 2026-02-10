@@ -6,6 +6,7 @@ namespace SimpleL7Proxy.BackupAPI
 
     public interface IBackupAPIService
     {
+        Task StartAsync(CancellationToken cancellationToken);
         Task StopAsync(CancellationToken cancellationToken);
         bool UpdateStatus(RequestAPIDocument message);
         

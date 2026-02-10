@@ -84,6 +84,10 @@ public class UserProfile : BackgroundService, IUserProfileService
                     {
                         await ConfigReader(stoppingToken).ConfigureAwait(false);
                     }
+                    catch (TaskCanceledException) when (stoppingToken.IsCancellationRequested)
+                    {
+                        break;
+                    }
                     catch (Exception ex)
                     {
                         lock (_profileErrorEventLock)

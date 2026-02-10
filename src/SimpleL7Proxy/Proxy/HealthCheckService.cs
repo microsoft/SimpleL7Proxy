@@ -383,10 +383,11 @@ public class HealthCheckService
                                 .Append('\n');
 
                             // Add event hub status
-                            _stringBuilder.Append("Event Hub: ");
+                            _stringBuilder.Append("Event Client: ");
                             if (_eventClient != null)
                             {
-                                _stringBuilder.Append("Enabled  -  ")
+                                _stringBuilder.Append(_eventClient.ClientType)
+                                    .Append("  -  ")
                                     .Append(_eventClient.Count)
                                     .Append(" Items");
                             }
@@ -523,7 +524,7 @@ public class HealthCheckService
         bool hasFailed = _backends.CheckFailedStatus();
         
         // Debug logging - remove after fixing
-        Console.WriteLine($"[STARTUP-DEBUG] IsReadyToWork={isReady}, hostCount={hostCount}, hasFailed={hasFailed}, activeWorkers={ActiveWorkers}");
+        // Console.WriteLine($"[STARTUP-DEBUG] IsReadyToWork={isReady}, hostCount={hostCount}, hasFailed={hasFailed}, activeWorkers={ActiveWorkers}");
 
         if (!isReady)
         {

@@ -15,6 +15,7 @@ public class AppInsightsEventClient(TelemetryClient telemetryClient)
   }
   public void StopTimer() { }
   public int Count => 0;
+  public string ClientType => "AppInsights";
   public void SendData(string? value) => telemetryClient.TrackEvent(value);
 
   public void SendData(ProxyEvent proxyEvent)

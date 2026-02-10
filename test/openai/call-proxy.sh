@@ -7,7 +7,7 @@
 
 # Default API key (fallback if not specified in HOSTMAP)
 # source env.sh
-
+ 
 # Map host aliases to hostname|folder|apikey (use empty after | for no folder, use empty for default APIKEY)
 declare -A HOSTMAP
 HOSTMAP["tr2"]="nvmtr2apim.azure-api.net|bf2|"
@@ -19,7 +19,8 @@ HOSTMAP["local-resp"]="localhost:8000|resp|"
 HOSTMAP["local-direct"]="localhost:8000|api2/openai|"
 HOSTMAP["local"]="localhost:8000||"
 HOSTMAP["openai3"]="nvmopenai3.openai.azure.com|openai|"
-HOSTMAP["nvm2"]="nvm2.openai.azure.com|openai|"
+HOSTMAP["nvm2"]="nvm2.openai.azure.com|openai|<key>"
+HOSTMAP["lopenai"]="localhost:8000|openai|"
 HOSTMAP["foundry"]="localhost:8000|aif2/openai|"
 HOSTMAP["null"]="localhost:3000||"
 HOSTMAP["aca"]="simplel7dev.agreeableisland-74a4ba5f.eastus.azurecontainerapps.io|"
@@ -30,6 +31,7 @@ HOSTMAP["aca-resp"]="simplel7dev.agreeableisland-74a4ba5f.eastus.azurecontainera
 
 # Map request types to HTTP method and partial URLs (format: "METHOD /url")
 declare -A URLS
+URLS["4.0chat"]="POST /deployments/gpt-4o/chat/completions?api-version=2025-01-01-preview"
 URLS["4.1chat"]="POST /deployments/gpt-4.1/chat/completions?api-version=2025-01-01-preview"
 URLS["4.1request"]="POST /v1/responses"
 URLS["4.1response"]="GET /v1/responses"
@@ -251,4 +253,4 @@ else
   else
     "${curl_cmd[@]}"
   fi
-fi
+fi<

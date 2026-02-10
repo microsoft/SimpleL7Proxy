@@ -236,10 +236,8 @@ namespace SimpleL7Proxy.Proxy
             }
             headerBlobName = dataBlobName + "-Headers";
 
-            Console.WriteLine($"[BLOB-TRACE] AsyncWorker.CreateUserBlobs | Action: CreateBlobs | Guid: {_requestData.Guid} | UserId: {_userId} | DataBlob: {dataBlobName} | HeaderBlob: {headerBlobName} | IsBackground: {isBackground} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
-            
-            _logger.LogTrace("[AsyncWorker:{Guid}] Creating user blobs - Data: {DataBlob}, Header: {HeaderBlob}", 
-                _requestData.Guid, dataBlobName, headerBlobName);
+            //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.CreateUserBlobs | Action: CreateBlobs | Guid: {Guid} | UserId: {UserId} | DataBlob: {DataBlob} | HeaderBlob: {HeaderBlob} | IsBackground: {IsBackground}", 
+                // _requestData.Guid, _userId, dataBlobName, headerBlobName, isBackground);
 
             // Create both blobs in parallel
             var dataStreamTask = _blobWriter.CreateBlobAndGetOutputStreamAsync(_userId, dataBlobName);
@@ -250,7 +248,7 @@ namespace SimpleL7Proxy.Proxy
             var dataStream = await dataStreamTask;
             var headerStream = await headerStreamTask;
 
-            Console.WriteLine($"[BLOB-TRACE] AsyncWorker.CreateUserBlobs | Action: CreateBlobs-Complete | Guid: {_requestData.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+            //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.CreateUserBlobs | Action: CreateBlobs-Complete | Guid: {Guid}", _requestData.Guid);
 
             return (dataStream, headerStream);
         }
@@ -306,14 +304,14 @@ namespace SimpleL7Proxy.Proxy
         {
             if (_requestData.OutputStream == null)
             {
-                Console.WriteLine($"[BLOB-TRACE] AsyncWorker.GetOrCreateDataStream | Action: LazyCreate | Guid: {_requestData.Guid} | DataBlob: {dataBlobName} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.GetOrCreateDataStream | Action: LazyCreate | Guid: {Guid} | DataBlob: {DataBlob}", _requestData.Guid, dataBlobName);
                 
                 try
                 {
                     var dataStream = await _blobWriter.CreateBlobAndGetOutputStreamAsync(_userId, dataBlobName);
                     _requestData.OutputStream = new BufferedStream(dataStream);
                     
-                    Console.WriteLine($"[BLOB-TRACE] AsyncWorker.GetOrCreateDataStream | Action: Created | Guid: {_requestData.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                    //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.GetOrCreateDataStream | Action: Created | Guid: {Guid}", _requestData.Guid);
                 }
                 catch (Exception ex)
                 {
@@ -428,6 +426,14 @@ namespace SimpleL7Proxy.Proxy
                         await _requestData.Context.Response.OutputStream.WriteAsync(message).ConfigureAwait(false);
                         await _requestData.Context.Response.OutputStream.FlushAsync().ConfigureAwait(false);
                         _requestData.Context.Response.Close();
+                        
+                        // CRITICAL: Clear the OutputStream after sending 202 response
+                        // The client connection is now closed, so the original OutputStream is invalid.
+                        // GetOrCreateDataStreamAsync() checks if OutputStream is null to decide whether
+                        // to create a new blob stream. Without this, it would return the closed client
+                        // stream instead of creating a blob stream, causing data to be lost.
+                        _requestData.OutputStream = null;
+                        
                         _logger.LogDebug("[AsyncWorker:{Guid}] 202 response written and connection closed", _requestData.Guid);
                     }
                     catch (Exception writeEx)
@@ -436,10 +442,13 @@ namespace SimpleL7Proxy.Proxy
                             _requestData.Guid);
                         //proxyEventData["x-Status"] = "Network Error";
                         // Client disconnected?
+                        
+                        // Even on error, clear the OutputStream - the client is disconnected anyway
+                        _requestData.OutputStream = null;
                     }
 
-                    _logger.LogInformation("[AsyncWorker:{Guid}] Async worker started successfully - DataBlob: {DataBlobUri}, HeaderBlob: {HeaderBlobUri}", 
-                        _requestData.Guid, _dataBlobUri, _headerBlobUri);
+                    // _logger.LogInformation("[AsyncWorker:{Guid}] Async worker started successfully - DataBlob: {DataBlobUri}, HeaderBlob: {HeaderBlobUri}", 
+                    //     _requestData.Guid, _dataBlobUri, _headerBlobUri);
                     _taskCompletionSource.TrySetResult(true); // Set the task completion source to indicate that the worker has started
                 }
                 else
@@ -490,7 +499,8 @@ namespace SimpleL7Proxy.Proxy
                     // Create or recreate the stream if needed
                     if (_hos == null)
                     {
-                        Console.WriteLine($"[BLOB-TRACE] AsyncWorker.WriteHeaders | Action: RecreateStream | Guid: {_requestData.Guid} | UserId: {_userId} | HeaderBlob: {headerBlobName} | Attempt: {attempt + 1}/{MaxRetryAttempts} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                        //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.WriteHeaders | Action: RecreateStream | Guid: {Guid} | UserId: {UserId} | HeaderBlob: {HeaderBlob} | Attempt: {Attempt}/{MaxAttempts}", 
+                        //    _requestData.Guid, _userId, headerBlobName, attempt + 1, MaxRetryAttempts);
                         
                         var stream = await _blobWriter.CreateBlobAndGetOutputStreamAsync(_userId, headerBlobName)
                             .ConfigureAwait(false);
@@ -503,7 +513,7 @@ namespace SimpleL7Proxy.Proxy
                         }
 
                         _hos = stream;
-                        Console.WriteLine($"[BLOB-TRACE] AsyncWorker.WriteHeaders | Action: RecreateStream-Complete | Guid: {_requestData.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                        //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.WriteHeaders | Action: RecreateStream-Complete | Guid: {Guid}", _requestData.Guid);
                     }
 
                     // Convert WebHeaderCollection to Dictionary<string, string> for proper JSON serialization
@@ -585,29 +595,55 @@ namespace SimpleL7Proxy.Proxy
         /// </summary>
         private async Task ResetStreamAsync()
         {
+            // Reset header output stream
             if (_hos != null)
             {
-                Console.WriteLine($"[BLOB-TRACE] AsyncWorker.ResetStream | Action: Reset | Guid: {_requestData.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.ResetStream | Action: Reset | Guid: {Guid}", _requestData.Guid);
                 try
                 {
                     await _hos.FlushAsync().ConfigureAwait(false);
                     _hos.Dispose();
-                    Console.WriteLine($"[BLOB-TRACE] AsyncWorker.ResetStream | Action: Disposed | Guid: {_requestData.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                    //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.ResetStream | Action: Disposed | Guid: {Guid}", _requestData.Guid);
                 }
                 catch (ObjectDisposedException)
                 {
-                    Console.WriteLine($"[BLOB-TRACE] AsyncWorker.ResetStream | Action: AlreadyDisposed | Guid: {_requestData.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                    //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.ResetStream | Action: AlreadyDisposed | Guid: {Guid}", _requestData.Guid);
                     // Stream was already disposed, ignore
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[BLOB-TRACE] AsyncWorker.ResetStream | Action: Error | Guid: {_requestData.Guid} | Error: {ex.Message} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
-                    _logger.LogError(ex, "[AsyncWorker:{Guid}] Error while resetting stream - Type: {ExceptionType}", 
-                        _requestData.Guid, ex.GetType().FullName);
+                    _logger.LogError(ex, "[BLOB-TRACE] AsyncWorker.ResetStream | Action: Error | Guid: {Guid} | Error: {ErrorMessage}", 
+                        _requestData.Guid, ex.Message);
                 }
                 finally
                 {
                     _hos = null;
+                }
+            }
+            
+            // Reset data output stream - CRITICAL: must flush and close to commit blob data
+            if (_requestData?.OutputStream != null)
+            {
+                //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.ResetDataStream | Action: Reset | Guid: {Guid}", _requestData.Guid);
+                try
+                {
+                    await _requestData.OutputStream.FlushAsync().ConfigureAwait(false);
+                    await _requestData.OutputStream.DisposeAsync().ConfigureAwait(false);
+                    //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.ResetDataStream | Action: Disposed | Guid: {Guid}", _requestData.Guid);
+                }
+                catch (ObjectDisposedException)
+                {
+                    //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.ResetDataStream | Action: AlreadyDisposed | Guid: {Guid}", _requestData.Guid);
+                    // Stream was already disposed, ignore
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[BLOB-TRACE] AsyncWorker.ResetDataStream | Action: Error | Guid: {Guid} | Error: {ErrorMessage}", 
+                        _requestData.Guid, ex.Message);
+                }
+                finally
+                {
+                    _requestData.OutputStream = null;
                 }
             }
         }

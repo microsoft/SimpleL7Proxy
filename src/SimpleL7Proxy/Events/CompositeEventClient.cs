@@ -37,6 +37,7 @@ public class CompositeEventClient(IEnumerable<IEventClient> eventClients)
       return count;
     }
   }
+  public string ClientType => string.Join(", ", eventClients.Select(c => c.ClientType));
   public void SendData(string? value)
   {
     foreach (var client in eventClients)
