@@ -1,4 +1,4 @@
-# HealthProbe Container App Deployment
+# Proxy Deployment with Healthprobe Sidecar
 
 This directory contains the infrastructure as code for deploying a multi-container Azure Container App with a health probe sidecar pattern.
 
@@ -11,22 +11,40 @@ This directory contains the infrastructure as code for deploying a multi-contain
 
 ## Prerequisites
 
-1. Azure CLI installed and logged in
+1. Clone the repository (if you haven't already)
+   ```bash
+   git clone https://github.com/microsoft/SimpleL7Proxy.git
+   cd SimpleL7Proxy
+   ```
+
+   You are now in the repository root directory (`SimpleL7Proxy/`).
+
+   > **Note**: This deployment may be on a feature branch. Switch to the appropriate branch if needed:
+   > ```bash
+   > git checkout Streaming-Release-TR
+   > ```
+
+2. Navigate to the deployment directory:
+   ```bash
+   cd deployment/proxy-with-sidecar
+   ```
+
+3. Azure CLI installed and logged in
    ```bash
    az login
    ```
 
-2. Set your Azure subscription
+3. Set your Azure subscription
    ```bash
    az account set --subscription "your-subscription-id"
    ```
 
-3. Create a resource group (if it doesn't exist)
+4. Create a resource group (if it doesn't exist)
    ```bash
    az group create --name your-resource-group --location eastus
    ```
 
-4. Container images built and pushed to a registry (see [Building Container Images](#building-container-images))
+5. Container images built and pushed to a registry (see [Building Container Images](#building-container-images))
 
 ## Building Container Images
 
