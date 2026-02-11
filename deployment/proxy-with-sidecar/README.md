@@ -126,6 +126,17 @@ Adjust CPU and memory based on your needs:
 - **ENABLE_HTTPS**: `true` or `false`
 - **REVISION_MODE**: `single` (recommended for sidecars) or `multiple`
 
+### Backend Host Configuration
+
+- **HOST1**: Backend host configuration string (required)
+  
+  Format: `host=<url>;mode=<mode>;path=<path>;probe=<probe_path>`
+  
+  Example:
+  ```bash
+  export HOST1="host=https://your-api.azure-api.net;mode=apim;path=/;probe=/status-0123456789abcdef"
+  ```
+
 ## Private Registry (Azure Container Registry)
 
 The deployment uses **system-assigned managed identity** to pull images from ACR. No username/password required!

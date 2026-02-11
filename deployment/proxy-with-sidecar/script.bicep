@@ -54,6 +54,9 @@ param revisionMode string = 'single'
 @description('Timestamp for generating unique revision suffix')
 param timestamp string = utcNow()
 
+@description('Backend host configuration string (e.g., host=https://myapi.azure-api.net;mode=apim;path=/;probe=/status-0123456789abcdef)')
+param host1 string
+
 var registries = empty(registryServer) ? [] : [
   {
     server: registryServer
@@ -110,7 +113,7 @@ resource updateApp 'Microsoft.App/containerApps@2024-02-02-preview' = {
             }
             {
               name: 'Host1'
-              value: 'host=https://nvmtr2apim.azure-api.net;mode=apim;path=/;probe=/status-0123456789abcdef'
+              value: host1
             }
             {
               name: 'HealthProbeSidecar'
@@ -182,6 +185,16 @@ resource updateApp 'Microsoft.App/containerApps@2024-02-02-preview' = {
       scale: {
         minReplicas: 1
         maxReplicas: 10
+        rules: [
+          {
+            name: 'http-scaling'
+            http: {
+              metadata: {
+                concurrentRequests: '1000'
+              }
+            }
+          }
+        ]
       }
     }
   }

@@ -19,6 +19,10 @@ export HEALTH_IMAGE="myregistry.azurecr.io/healthprobe:v1.0.0"
 # Private Registry Configuration (if using Azure Container Registry)
 export REGISTRY_SERVER="myregistry.azurecr.io"
 
+# Backend Host Configuration
+# Format: host=<url>;mode=<mode>;path=<path>;probe=<probe_path>
+export HOST1="host=https://your-api.azure-api.net;mode=apim;path=/;probe=/status-0123456789abcdef"
+
 # Resource Allocation
 export WEB_CPU=0.5
 export WEB_MEMORY=1.0
