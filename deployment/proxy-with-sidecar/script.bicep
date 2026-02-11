@@ -54,6 +54,9 @@ param revisionMode string = 'single'
 @description('Timestamp for generating unique revision suffix')
 param timestamp string = utcNow()
 
+@description('Backend host configuration string (e.g., host=https://myapi.azure-api.net;mode=apim;path=/;probe=/status-0123456789abcdef)')
+param host1 string
+
 var registries = empty(registryServer) ? [] : [
   {
     server: registryServer
@@ -101,49 +104,26 @@ resource updateApp 'Microsoft.App/containerApps@2024-02-02-preview' = {
               value: '100'
             }
             {
-              name: 'EVENTHUB_NAME'
-              value: 'nvmtreh'
-            }
-            {
-              name: 'EVENTHUB_NAMESPACE'
-              value: 'nvmtrehns'
+              name: 'Port'
+              value: '8000'
             }
             {
               name: 'AsyncModeEnabled'
               value: 'false'
             }
             {
-              name: 'APPINSIGHTS_CONNECTIONSTRING'
-              value: 'InstrumentationKey=f618df7b-0b79-4685-9976-4adc5ff9e808;IngestionEndpoint=https://eastus-8.in.applicationinsights.azure.com/;LiveEndpoint=https://eastus.livediagnostics.monitor.azure.com/;ApplicationId=4fc39f85-e1d1-497e-918b-ad865352fbb8'
-            }
-            {
               name: 'Host1'
-              value: 'https://nvmtr2apim.azure-api.net'
+              value: host1
             }
             {
-              name: 'Probe_path1'
-              value: '/status-0123456789abcdef'
+              name: 'HealthProbeSidecar'
+              value: 'enabled=true;url=http://localhost:9000'
             }
           ]
           resources: {
             cpu: json(webCpu)
             memory: webMemory
           }
-          probes: [
-            {
-              type: 'Readiness'
-              httpGet: {
-                path: '/'
-                port: webPort
-                httpHeaders: []
-              }
-              initialDelaySeconds: 5
-              periodSeconds: 10
-              timeoutSeconds: 5
-              successThreshold: 1
-              failureThreshold: 3
-            }
-          ]
         }
         {
           name: 'health'
@@ -165,7 +145,8 @@ resource updateApp 'Microsoft.App/containerApps@2024-02-02-preview' = {
           probes: [
             {
               type: 'Liveness'
-              tcpSocket: {
+              httpGet: {
+                path: '/liveness'
                 port: healthPort
               }
               initialDelaySeconds: 5
@@ -176,7 +157,8 @@ resource updateApp 'Microsoft.App/containerApps@2024-02-02-preview' = {
             }
             {
               type: 'Readiness'
-              tcpSocket: {
+              httpGet: {
+                path: '/readiness'
                 port: healthPort
               }
               initialDelaySeconds: 3
@@ -187,7 +169,8 @@ resource updateApp 'Microsoft.App/containerApps@2024-02-02-preview' = {
             }
             {
               type: 'Startup'
-              tcpSocket: {
+              httpGet: {
+                path: '/startup'
                 port: healthPort
               }
               initialDelaySeconds: 3
@@ -202,6 +185,16 @@ resource updateApp 'Microsoft.App/containerApps@2024-02-02-preview' = {
       scale: {
         minReplicas: 1
         maxReplicas: 10
+        rules: [
+          {
+            name: 'http-scaling'
+            http: {
+              metadata: {
+                concurrentRequests: '1000'
+              }
+            }
+          }
+        ]
       }
     }
   }
