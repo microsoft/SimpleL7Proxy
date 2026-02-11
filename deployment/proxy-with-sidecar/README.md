@@ -1,254 +1,115 @@
 # Proxy Deployment with Healthprobe Sidecar
 
-This directory contains the infrastructure as code for deploying a multi-container Azure Container App with a health probe sidecar pattern.
-
-## Files
-
-- **script.bicep** - Main Bicep template defining the Container App with web and health sidecar containers
-- **setup.sh** - One-time setup script to create the Container App and configure ACR permissions
-- **deploy.sh** - Bash script to deploy/update the Container App using Azure CLI
-- **deploy.parameters.example.sh** - Example configuration file with deployment parameters
+Deploy a multi-container Azure Container App with a health probe sidecar pattern.
 
 ## Prerequisites
 
-1. Clone the repository (if you haven't already)
-   ```bash
-   git clone https://github.com/microsoft/SimpleL7Proxy.git
-   cd SimpleL7Proxy
-   ```
-
-   You are now in the repository root directory (`SimpleL7Proxy/`).
-
-   > **Note**: This deployment may be on a feature branch. Switch to the appropriate branch if needed:
-   > ```bash
-   > git checkout Streaming-Release-TR
-   > ```
-
-2. Navigate to the deployment directory:
-   ```bash
-   cd deployment/proxy-with-sidecar
-   ```
-
-3. Azure CLI installed and logged in
-   ```bash
-   az login
-   ```
-
-3. Set your Azure subscription
-   ```bash
-   az account set --subscription "your-subscription-id"
-   ```
-
-4. Create a resource group (if it doesn't exist)
-   ```bash
-   az group create --name your-resource-group --location eastus
-   ```
-
-5. Container images built and pushed to a registry (see [Building Container Images](#building-container-images))
-
-## Building Container Images
-
-Both container images have build scripts that extract the version from `Constants.cs` and push to Azure Container Registry.
-
-### Set Your ACR
-
-```bash
-export ACR="myregistry"
-az acr login --name $ACR
-```
-
-### Build Both proxy and healthprobe Images
-
-```bash
-# From the repository root
-cd  ../../src/SimpleL7Proxy && ./build.sh && cd ../HealthProbe && ./build.sh
-```
-
-This builds and pushes:
-- `myregistry.azurecr.io/myproxy:<version>` - the proxy
-- `myregistry.azurecr.io/healthprobe:<version>` - the health sidecar
-
-### Update Parameters for Deployment
-
-After building, update your `deploy.parameters.sh` to use the built images:
-
-```bash
-export WEB_IMAGE="$ACR.azurecr.io/myproxy:<version>"
-export HEALTH_IMAGE="$ACR.azurecr.io/healthprobe:<version>"
-export REGISTRY_SERVER="$ACR.azurecr.io"
-```
-
-> **Tip**: The version is extracted from `Constants.cs` in each project. Check the build output for the exact version tag.
+- [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli) installed
+- Access to an Azure Container Registry (ACR)
+- Docker installed (for building images)
 
 ## Quick Start
 
-### First-Time Setup
+### 1. Clone and Configure
 
-For new deployments, run the setup script first to create the Container App and configure ACR permissions:
-
-1. Copy the example parameters file:
-   ```bash
-   cp deploy.parameters.example.sh deploy.parameters.sh
-   ```
-
-2. Edit `deploy.parameters.sh` with your actual values (especially `WEB_IMAGE`, `HEALTH_IMAGE`, and `REGISTRY_SERVER`)
-
-3. Add to .gitignore (to avoid committing secrets):
-   ```bash
-   echo "deploy.parameters.sh" >> .gitignore
-   ```
-
-4. Run the setup script (one-time only):
-   ```bash
-   chmod +x setup.sh deploy.sh
-   ./setup.sh
-   ```
-
-   This creates the Container App with managed identity and grants ACR pull permissions.
-
-5. Deploy your actual images:
-   ```bash
-   ./deploy.sh
-   ```
-
-### Subsequent Deployments
-
-After the initial setup, just run:
 ```bash
-./deploy.sh
+git clone https://github.com/microsoft/SimpleL7Proxy.git
+cd SimpleL7Proxy
 ```
 
-> **Note**: `deploy.sh` automatically sources `deploy.parameters.sh` if it exists in the same directory.
+> **Note**: This deployment may be on a feature branch. Switch to the appropriate branch if needed:
+> ```bash
+> git checkout Streaming-Release-TR
+> ```
+
+```bash
+cd deployment/proxy-with-sidecar
+
+# Copy and edit the parameters file
+cp deploy.parameters.example.sh deploy.parameters.sh
+```
+
+Edit `deploy.parameters.sh` with your values:
+
+```bash
+export ACR="myregistry"                    # Your ACR name
+export RESOURCE_GROUP="my-resource-group"  # Azure resource group
+export CONTAINER_APP_NAME="my-app"         # Container App name
+export ENVIRONMENT_NAME="my-environment"   # Container Apps Environment
+export HOST1="host=https://your-api.azure-api.net;mode=apim;path=/;probe=/health"
+```
+
+### 2. Build Images
+
+```bash
+cd ../../src/SimpleL7Proxy && ./build.sh
+cd ../HealthProbe && ./build.sh
+```
+
+### 3. Deploy
+
+```bash
+cd ../../deployment/proxy-with-sidecar
+chmod +x setup.sh deploy.sh
+./setup.sh   # First time only - creates Container App and configures ACR access
+./deploy.sh  # Deploy (run this for all subsequent deployments)
+```
 
 ## Configuration
 
-### Container Images
+| Parameter | Description |
+|-----------|-------------|
+| `ACR` | Azure Container Registry name |
+| `RESOURCE_GROUP` | Azure resource group |
+| `CONTAINER_APP_NAME` | Name of the Container App |
+| `ENVIRONMENT_NAME` | Container Apps Environment name |
+| `HOST1` | Backend host config: `host=<url>;mode=<mode>;path=<path>;probe=<probe_path>` |
+| `WEB_CPU` / `WEB_MEMORY` | Proxy resources (default: 0.5 cores, 1.0 Gi) |
+| `HEALTH_CPU` / `HEALTH_MEMORY` | Healthprobe resources (default: 0.25 cores, 0.5 Gi) |
+| `INGRESS_TYPE` | `external` or `internal` (default: external) |
 
-Update the image references to point to your container registry:
-- **WEB_IMAGE**: Your main application container
-- **HEALTH_IMAGE**: Your health probe sidecar container
-
-### Resource Allocation
-
-Adjust CPU and memory based on your needs:
-- **WEB_CPU**: 0.25 - 4.0 cores (default: 0.5)
-- **WEB_MEMORY**: 0.5 - 8.0 Gi (default: 1.0)
-- **HEALTH_CPU**: 0.25 - 2.0 cores (default: 0.25)
-- **HEALTH_MEMORY**: 0.5 - 4.0 Gi (default: 0.5)
-
-### Network Configuration
-
-- **WEB_PORT**: Port where web container listens (default: 8000)
-- **HEALTH_PORT**: Port where health sidecar listens (default: 9000)
-- **INGRESS_TYPE**: `external` (public internet) or `internal` (VNET only)
-- **ENABLE_HTTPS**: `true` or `false`
-- **REVISION_MODE**: `single` (recommended for sidecars) or `multiple`
-
-### Backend Host Configuration
-
-- **HOST1**: Backend host configuration string (required)
-  
-  Format: `host=<url>;mode=<mode>;path=<path>;probe=<probe_path>`
-  
-  Example:
-  ```bash
-  export HOST1="host=https://your-api.azure-api.net;mode=apim;path=/;probe=/status-0123456789abcdef"
-  ```
-
-## Private Registry (Azure Container Registry)
-
-The deployment uses **system-assigned managed identity** to pull images from ACR. No username/password required!
-
-1. Set the registry server in `deploy.parameters.sh`:
-   ```bash
-   export REGISTRY_SERVER="myregistry.azurecr.io"
-   ```
-
-2. The deploy script automatically:
-   - Creates the Container App with a system-assigned managed identity
-   - Grants the `AcrPull` role to the managed identity on your ACR
-
-> **Note**: For first-time deployments, the role assignment happens after the Container App is created.
-> If the initial deployment fails due to image pull errors, simply run the script again.
-
-### Manual Role Assignment (if needed)
-
-If you need to manually assign the ACR role:
-```bash
-# Get the Container App's managed identity principal ID
-PRINCIPAL_ID=$(az containerapp show --name your-app --resource-group your-rg --query "identity.principalId" -o tsv)
-
-# Get the ACR resource ID
-ACR_ID=$(az acr show --name myregistry --query id -o tsv)
-
-# Assign AcrPull role
-az role assignment create --assignee $PRINCIPAL_ID --role AcrPull --scope $ACR_ID
-```
-
-## Deployment Outputs
-
-After successful deployment, the script outputs:
-- **FQDN**: The fully qualified domain name to access your app
-- **Resource ID**: Azure resource ID of the Container App
-- **Latest Revision**: Name of the deployed revision
-
-## Monitoring
-
-View logs for your containers:
-```bash
-# Web container logs
-az containerapp logs show \
-  --name healthprobe-app \
-  --resource-group your-resource-group \
-  --container web \
-  --follow
-
-# Health sidecar logs
-az containerapp logs show \
-  --name healthprobe-app \
-  --resource-group your-resource-group \
-  --container health \
-  --follow
-```
+> **Note**: Image versions are automatically extracted from `Constants.cs` files.
 
 ## Troubleshooting
 
 ### View revision status
 ```bash
 az containerapp revision list \
-  --name healthprobe-app \
-  --resource-group your-resource-group \
+  --name $CONTAINER_APP_NAME \
+  --resource-group $RESOURCE_GROUP \
   -o table
+```
+
+### View container logs
+```bash
+# Proxy container logs
+az containerapp logs show \
+  --name $CONTAINER_APP_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --container proxy \
+  --follow
+
+# Health sidecar logs
+az containerapp logs show \
+  --name $CONTAINER_APP_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --container health \
+  --follow
 ```
 
 ### Check health probes
 ```bash
 az containerapp show \
-  --name healthprobe-app \
-  --resource-group your-resource-group \
+  --name $CONTAINER_APP_NAME \
+  --resource-group $RESOURCE_GROUP \
   --query "properties.template.containers[].probes"
 ```
 
 ### View replica status
 ```bash
 az containerapp replica list \
-  --name healthprobe-app \
-  --resource-group your-resource-group \
+  --name $CONTAINER_APP_NAME \
+  --resource-group $RESOURCE_GROUP \
   --revision <revision-name> \
   -o table
-```
-
-## Clean Up
-
-To delete the Container App:
-```bash
-az containerapp delete \
-  --name healthprobe-app \
-  --resource-group your-resource-group \
-  --yes
-```
-
-To delete the entire resource group:
-```bash
-az group delete --name your-resource-group --yes
 ```
