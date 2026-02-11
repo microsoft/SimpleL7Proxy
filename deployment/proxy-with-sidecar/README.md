@@ -5,7 +5,8 @@ This directory contains the infrastructure as code for deploying a multi-contain
 ## Files
 
 - **script.bicep** - Main Bicep template defining the Container App with web and health sidecar containers
-- **deploy.sh** - Bash script to deploy the Container App using Azure CLI
+- **setup.sh** - One-time setup script to create the Container App and configure ACR permissions
+- **deploy.sh** - Bash script to deploy/update the Container App using Azure CLI
 - **deploy.parameters.example.sh** - Example configuration file with deployment parameters
 
 ## Prerequisites
@@ -25,46 +26,81 @@ This directory contains the infrastructure as code for deploying a multi-contain
    az group create --name your-resource-group --location eastus
    ```
 
-4. Container images built and pushed to a registry
+4. Container images built and pushed to a registry (see [Building Container Images](#building-container-images))
+
+## Building Container Images
+
+Both container images have build scripts that extract the version from `Constants.cs` and push to Azure Container Registry.
+
+### Set Your ACR
+
+```bash
+export ACR="myregistry"
+az acr login --name $ACR
+```
+
+### Build Both proxy and healthprobe Images
+
+```bash
+# From the repository root
+cd  ../../src/SimpleL7Proxy && ./build.sh && cd ../HealthProbe && ./build.sh
+```
+
+This builds and pushes:
+- `myregistry.azurecr.io/myproxy:<version>` - the proxy
+- `myregistry.azurecr.io/healthprobe:<version>` - the health sidecar
+
+### Update Parameters for Deployment
+
+After building, update your `deploy.parameters.sh` to use the built images:
+
+```bash
+export WEB_IMAGE="$ACR.azurecr.io/myproxy:<version>"
+export HEALTH_IMAGE="$ACR.azurecr.io/healthprobe:<version>"
+export REGISTRY_SERVER="$ACR.azurecr.io"
+```
+
+> **Tip**: The version is extracted from `Constants.cs` in each project. Check the build output for the exact version tag.
 
 ## Quick Start
 
-### Option 1: Edit deploy.sh directly
+### First-Time Setup
 
-1. Open `deploy.sh` and update the configuration variables at the top:
-   - `RESOURCE_GROUP`
-   - `CONTAINER_APP_NAME`
-   - `WEB_IMAGE` and `HEALTH_IMAGE`
-   - Registry credentials (if using private registry)
-
-2. Make the script executable:
-   ```bash
-   chmod +x deploy.sh
-   ```
-
-3. Run the deployment:
-   ```bash
-   ./deploy.sh
-   ```
-
-### Option 2: Use parameters file
+For new deployments, run the setup script first to create the Container App and configure ACR permissions:
 
 1. Copy the example parameters file:
    ```bash
    cp deploy.parameters.example.sh deploy.parameters.sh
    ```
 
-2. Edit `deploy.parameters.sh` with your actual values
+2. Edit `deploy.parameters.sh` with your actual values (especially `WEB_IMAGE`, `HEALTH_IMAGE`, and `REGISTRY_SERVER`)
 
 3. Add to .gitignore (to avoid committing secrets):
    ```bash
    echo "deploy.parameters.sh" >> .gitignore
    ```
 
-4. Source the parameters and deploy:
+4. Run the setup script (one-time only):
    ```bash
-   source deploy.parameters.sh && ./deploy.sh
+   chmod +x setup.sh deploy.sh
+   ./setup.sh
    ```
+
+   This creates the Container App with managed identity and grants ACR pull permissions.
+
+5. Deploy your actual images:
+   ```bash
+   ./deploy.sh
+   ```
+
+### Subsequent Deployments
+
+After the initial setup, just run:
+```bash
+./deploy.sh
+```
+
+> **Note**: `deploy.sh` automatically sources `deploy.parameters.sh` if it exists in the same directory.
 
 ## Configuration
 
@@ -90,21 +126,35 @@ Adjust CPU and memory based on your needs:
 - **ENABLE_HTTPS**: `true` or `false`
 - **REVISION_MODE**: `single` (recommended for sidecars) or `multiple`
 
-## Private Registry
+## Private Registry (Azure Container Registry)
 
-If using Azure Container Registry or another private registry:
+The deployment uses **system-assigned managed identity** to pull images from ACR. No username/password required!
 
-1. Set registry credentials:
+1. Set the registry server in `deploy.parameters.sh`:
    ```bash
-   REGISTRY_SERVER="myregistry.azurecr.io"
-   REGISTRY_USERNAME="myregistry"
-   REGISTRY_PASSWORD="your-password"
+   export REGISTRY_SERVER="myregistry.azurecr.io"
    ```
 
-2. Or use Azure CLI to get ACR credentials:
-   ```bash
-   az acr credential show --name myregistry --query "passwords[0].value" -o tsv
-   ```
+2. The deploy script automatically:
+   - Creates the Container App with a system-assigned managed identity
+   - Grants the `AcrPull` role to the managed identity on your ACR
+
+> **Note**: For first-time deployments, the role assignment happens after the Container App is created.
+> If the initial deployment fails due to image pull errors, simply run the script again.
+
+### Manual Role Assignment (if needed)
+
+If you need to manually assign the ACR role:
+```bash
+# Get the Container App's managed identity principal ID
+PRINCIPAL_ID=$(az containerapp show --name your-app --resource-group your-rg --query "identity.principalId" -o tsv)
+
+# Get the ACR resource ID
+ACR_ID=$(az acr show --name myregistry --query id -o tsv)
+
+# Assign AcrPull role
+az role assignment create --assignee $PRINCIPAL_ID --role AcrPull --scope $ACR_ID
+```
 
 ## Deployment Outputs
 

@@ -11,14 +11,13 @@ export CONTAINER_APP_NAME="healthprobe-app"
 export ENVIRONMENT_NAME="cae-healthprobe-prod"
 
 # Container Images
-# Replace with your actual container registry and image names
-export WEB_IMAGE="myregistry.azurecr.io/healthprobe-web:v1.0.0"
-export HEALTH_IMAGE="myregistry.azurecr.io/healthprobe-health:v1.0.0"
+# These names match the output of the build scripts in src/SimpleL7Proxy and src/HealthProbe
+# Run: cd src/SimpleL7Proxy && ./build.sh && cd ../HealthProbe && ./build.sh
+export WEB_IMAGE="myregistry.azurecr.io/myproxy:v1.0.0"
+export HEALTH_IMAGE="myregistry.azurecr.io/healthprobe:v1.0.0"
 
 # Private Registry Configuration (if using Azure Container Registry)
 export REGISTRY_SERVER="myregistry.azurecr.io"
-export REGISTRY_USERNAME="myregistry"
-export REGISTRY_PASSWORD="your-password-here"  # Consider using Azure Key Vault
 
 # Resource Allocation
 export WEB_CPU=0.5
