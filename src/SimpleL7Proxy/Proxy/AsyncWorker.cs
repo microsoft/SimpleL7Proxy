@@ -48,6 +48,11 @@ namespace SimpleL7Proxy.Proxy
         string headerBlobName = "";
         private int AsyncTimeout;
         private readonly bool _generateSasTokens;
+
+        // Track raw QueuedBlobStream references so we can await their completion
+        // before sending "Completed" status to the client
+        private QueuedBlobStream? _dataQueuedStream;
+        private QueuedBlobStream? _headerQueuedStream;
         private static readonly JsonSerializerOptions SerializeOptions = new()
         {
             WriteIndented = true,
@@ -309,6 +314,8 @@ namespace SimpleL7Proxy.Proxy
                 try
                 {
                     var dataStream = await _blobWriter.CreateBlobAndGetOutputStreamAsync(_userId, dataBlobName);
+                    if (dataStream is QueuedBlobStream qbs)
+                        _dataQueuedStream = qbs;
                     _requestData.OutputStream = new BufferedStream(dataStream);
                     
                     //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.GetOrCreateDataStream | Action: Created | Guid: {Guid}", _requestData.Guid);
@@ -482,6 +489,26 @@ namespace SimpleL7Proxy.Proxy
         }
 
         /// <summary>
+        /// Waits for all queued blob write operations (data + headers) to be physically
+        /// written to Azure Storage. Call this BEFORE sending a "Completed" status so the
+        /// client does not try to read the blob before it exists.
+        /// </summary>
+        public async Task WaitForBlobWritesAsync(CancellationToken cancellationToken = default)
+        {
+            // Data stream
+            if (_dataQueuedStream != null)
+            {
+                await _dataQueuedStream.WaitForPendingWritesAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            // Header stream
+            if (_headerQueuedStream != null)
+            {
+                await _headerQueuedStream.WaitForPendingWritesAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
         /// Writes HTTP headers to the blob storage asynchronously with retry logic.
         /// </summary>
         /// <param name="status">The HTTP status code to write.</param>
@@ -513,6 +540,8 @@ namespace SimpleL7Proxy.Proxy
                         }
 
                         _hos = stream;
+                        if (stream is QueuedBlobStream qbs)
+                            _headerQueuedStream = qbs;
                         //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.WriteHeaders | Action: RecreateStream-Complete | Guid: {Guid}", _requestData.Guid);
                     }
 
@@ -618,6 +647,7 @@ namespace SimpleL7Proxy.Proxy
                 finally
                 {
                     _hos = null;
+                    _headerQueuedStream = null;
                 }
             }
             

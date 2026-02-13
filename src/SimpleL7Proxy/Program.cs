@@ -253,9 +253,8 @@ public class Program
                 };
             });
 
-            // Register BlobWriteQueue as both singleton and hosted service
+            // Register BlobWriteQueue as singleton (started/stopped explicitly by CoordinatedShutdownService)
             services.AddSingleton<BlobWriteQueue>();
-            services.AddHostedService(sp => sp.GetRequiredService<BlobWriteQueue>());
 
             // Register QueuedBlobWriter as the IBlobWriter implementation (wraps BlobWriter)
             services.AddSingleton<IBlobWriter>(provider =>
@@ -310,9 +309,9 @@ public class Program
 
         services.AddHostedService<Server>(provider => provider.GetRequiredService<Server>());
 
-        // Ensure ProbeServer updater runs as a background hosted service
+        // ProbeServer is managed explicitly by CoordinatedShutdownService to ensure
+        // it keeps running until the very end of shutdown (container orchestrator needs healthy probes)
         services.AddSingleton<ProbeServer>();
-        services.AddHostedService(sp => sp.GetRequiredService<ProbeServer>());
 
         // ASYNC RELATED
         // Add storage service registration
@@ -321,7 +320,6 @@ public class Program
         services.AddSingleton<ServiceBusFactory>();
         services.AddSingleton<ServiceBusRequestService>();
         services.AddSingleton<IServiceBusRequestService>(sp => sp.GetRequiredService<ServiceBusRequestService>());
-        services.AddHostedService(sp => sp.GetRequiredService<ServiceBusRequestService>());
 
         // Note: BackupAPIService is NOT registered as IHostedService - its lifecycle is controlled
         // explicitly by CoordinatedShutdownService to ensure proper shutdown ordering

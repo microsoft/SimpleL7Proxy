@@ -114,7 +114,7 @@ namespace SimpleL7Proxy.Feeder
             if (!isShuttingDown)
             {
                 isShuttingDown = true;
-                _cancellationTokenSource.Cancel();
+                _cancellationTokenSource?.Cancel();
                 _logger.LogInformation("[SHUTDOWN] ⏹ AsyncFeeder shutting down");
                 return readerTask ?? Task.CompletedTask;
             }

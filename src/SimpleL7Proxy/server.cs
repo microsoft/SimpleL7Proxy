@@ -36,6 +36,7 @@ public class Server : BackgroundService
     private readonly IUserPriorityService _userPriority;
     private readonly IUserProfileService _userProfile;
     private CancellationTokenSource? _cancellationTokenSource;
+    private CancellationTokenSource? _probesCts; // Controls when probe serving finally stops
     private readonly IConcurrentPriQueue<RequestData> _requestsQueue;// = new ConcurrentPriQueue<RequestData>();
     //private readonly IServiceBusRequestService _serviceBusRequestService;
     private readonly ILogger<Server> _logger;
@@ -109,11 +110,29 @@ public class Server : BackgroundService
         _isShuttingDown = true;
     }
 
-    public Task StopListening(CancellationToken cancellationToken)
+    public async Task StopListening(CancellationToken cancellationToken)
     {
+        _isShuttingDown = true;
         _cancellationTokenSource?.Cancel();
-        _logger.LogInformation("[SHUTDOWN] ⏹ Server stopping");
-        return Task.CompletedTask;
+        _logger.LogInformation("[SHUTDOWN] ⏹ Server stopped accepting new requests (probes still active)");
+    }
+
+    /// <summary>
+    /// Stops the HttpListener entirely, ending probe serving.
+    /// Call this as the very last step in shutdown so the container orchestrator
+    /// continues to see healthy probes while other services drain.
+    /// </summary>
+    public async Task StopProbes(CancellationToken cancellationToken)
+    {
+        _probesCts?.Cancel();
+        _logger.LogInformation("[SHUTDOWN] ⏹ Health probe serving stopped");
+
+        // Wait for the Run() loop to actually exit
+        if (ExecuteTask != null)
+        {
+            try { await ExecuteTask.ConfigureAwait(false); }
+            catch (OperationCanceledException) { /* expected */ }
+        }
     }
 
     // public ConcurrentPriQueue<RequestData> Queue() {
@@ -127,6 +146,7 @@ public class Server : BackgroundService
         try
         {
             _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _probesCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
             _backends.Start();
             backendStartTask = _backends.WaitForStartup(20);
@@ -151,7 +171,11 @@ public class Server : BackgroundService
             throw new Exception("An error occurred while starting the server.", ex);
         }
 
-        return backendStartTask.ContinueWith((x) => Run(cancellationToken), cancellationToken);
+        // Use _probesCts.Token so the Run loop continues serving probes even after
+        // StopListening cancels _cancellationTokenSource (which sets _isShuttingDown=true).
+        // Only StopProbes() cancels _probesCts, killing the loop entirely.
+        var token = _probesCts.Token;
+        return backendStartTask.ContinueWith((x) => Run(token), token);
 
     }  
 
@@ -572,7 +596,7 @@ public class Server : BackgroundService
                                     
                                 ed["ErrorWritingResponse"] = msg;
                             }
-                            _staticEvent.WriteOutput($"Pri: {priority} Stat: 429 Path: {rd.Path}");
+                            _staticEvent.WriteOutput($"Pri: {priority} Stat: {notEnquedCode} Path: {rd.Path}");
                         }
 
                         ed.SendEvent();
