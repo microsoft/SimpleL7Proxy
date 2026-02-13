@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -29,7 +30,7 @@ public class CoordinatedShutdownService : IHostedService
     private readonly IBackendService _backends;
     private readonly IAsyncFeeder _asyncFeeder;
     private readonly IRequeueWorker _requeueWorker;
-    private readonly BlobWriteQueue _blobWriteQueue;
+    private readonly BlobWriteQueue? _blobWriteQueue;
     private readonly ProbeServer _probeServer;
 
 
@@ -43,7 +44,7 @@ public class CoordinatedShutdownService : IHostedService
         IAsyncFeeder asyncFeeder,
         IBackupAPIService backupAPIService,
         IRequeueWorker requeueWorker,
-        BlobWriteQueue blobWriteQueue,
+        IServiceProvider serviceProvider,
         ProbeServer probeServer,
         ILogger<CoordinatedShutdownService> logger,
         Server server)
@@ -59,7 +60,7 @@ public class CoordinatedShutdownService : IHostedService
         _asyncFeeder = asyncFeeder;
         _backendTokenProvider = backendTokenProvider;
         _requeueWorker = requeueWorker;
-        _blobWriteQueue = blobWriteQueue;
+        _blobWriteQueue = serviceProvider.GetService<BlobWriteQueue>();
         _probeServer = probeServer;
         _options = backendOptions.Value;
     }
@@ -68,7 +69,8 @@ public class CoordinatedShutdownService : IHostedService
     {
         // Start services explicitly since they're no longer registered as IHostedService
         // (we control their shutdown ordering in StopAsync)
-        await _blobWriteQueue.StartAsync(cancellationToken).ConfigureAwait(false);
+        if (_blobWriteQueue != null)
+            await _blobWriteQueue.StartAsync(cancellationToken).ConfigureAwait(false);
         await _probeServer.StartAsync(cancellationToken).ConfigureAwait(false);
         
         if (_serviceBusRequestService is IHostedService sbHosted)
@@ -147,8 +149,11 @@ public class CoordinatedShutdownService : IHostedService
         
         // BlobWriteQueue is stopped LAST before probes - all producers (proxy workers, async workers, backup service)
         // are guaranteed to be done at this point, so no more enqueues will happen
-        _logger.LogInformation("[SHUTDOWN] ⏹ Stopping BlobWriteQueue (final flush)");
-        await _blobWriteQueue.StopAsync(CancellationToken.None).ConfigureAwait(false);
+        if (_blobWriteQueue != null)
+        {
+            _logger.LogInformation("[SHUTDOWN] ⏹ Stopping BlobWriteQueue (final flush)");
+            await _blobWriteQueue.StopAsync(CancellationToken.None).ConfigureAwait(false);
+        }
         
         _eventClient?.StopTimer();
 
