@@ -4,7 +4,7 @@
 
 The `Streaming-Release-TR` branch (now merged) represents a feature-rich L7 proxy with async processing, streaming, circuit breaking, and extensive telemetry. The codebase is **~19,500 LOC across 115 C# files, 80 classes, and 22 interfaces**. While the architecture is functional, several areas exhibit overengineering that increases maintenance burden, cognitive load, and defect surface area without proportional benefit.
 
-This document identifies **10 overengineering areas** ranked by severity, and proposes concrete simplifications that could reduce the codebase by an estimated **25-30%** while preserving all functionality.
+This document identifies **10 overengineering areas** ranked by severity, and proposes concrete simplifications that could reduce the codebase by an estimated **~2,300 LOC (~12%)**, with an overall **~25-30% complexity reduction** (from refactoring god classes and simplifying subsystems) while preserving all functionality.
 
 ---
 
@@ -160,7 +160,7 @@ IteratorFactory (343 LOC — creates iterators, filters by path, manages caches)
 - `EmptyBackendHostIterator` is a 65-LOC class that could be `null` or `Optional<T>`
 - `HostIterator` base class has ~90 LOC of `HandlePassCompletion` logic that overcomplicates simple iteration
 - Path normalization & filtering duplicated across `IteratorFactory` methods
-- `GetCategorizedHosts()` appears unused — suggests incomplete refactoring
+- `GetCategorizedHosts()` is unused — confirmed via codebase search: defined at `IteratorFactory.cs:58` with zero call sites anywhere in the project
 
 ### Proposal
 
@@ -191,7 +191,7 @@ IteratorFactory (343 LOC — creates iterators, filters by path, manages caches)
 - Deduplication logic (keeps only latest write per blob in a batch)
 - Comprehensive metrics tracking with delta calculations
 
-**Deduplication concern:** The deduplication logic silently drops earlier writes to the same blob, marking them as "successful" with zero duration. This assumes the *last* write wins, but this semantic is undocumented and could mask data loss.
+**Deduplication concern:** The deduplication logic (lines 497-531) silently drops earlier writes to the same blob, marking them as "successful" with `Duration = TimeSpan.Zero` via `SetResult()` (lines 517-530). This means the *last* write wins. While this may be intentional for idempotent overwrites, the semantic is undocumented and could mask data loss if writes are not truly idempotent.
 
 **Combined with `QueuedBlobWriter.cs` (272 LOC)**, the blob writing subsystem is ~975 LOC for what is essentially "write data to Azure Blob Storage."
 
@@ -449,9 +449,11 @@ Both implement identical functionality (readiness, startup, liveness endpoints).
 - Commented-out validation in BackendHostConfigurationExtensions.cs (lines 693-704)
 
 ### Excessive Defensive Coding
-- Multiple `ArgumentNullException.ThrowIfNull()` calls on already-validated objects in ProxyWorker.cs
-- Redundant null guards after previous null assignments
-- Try-catch blocks that silently swallow errors (ProxyWorker.cs line 688-690)
+- Multiple `ArgumentNullException.ThrowIfNull()` calls on already-validated objects in ProxyWorker.cs:
+  - Lines 604-606: `WriteResponseAsync` validates `pr`, `request`, and `request.Context` sequentially
+  - Lines 793-796: `ProxyToBackEndAsync` validates `request` and 3 of its members after the object was already validated upstream
+- Redundant null guards after earlier validation (e.g., line 624 checks `pr.ContentHeaders != null` after `pr` was validated at line 604; line 676 checks `request.OutputStream != null` after `request` validated at line 605)
+- Try-catch block at ProxyWorker.cs lines 687-690 silently swallows output stream flush errors using `LogDebug` (not captured in production) without re-throwing
 
 ### Hardcoded Values
 - OpenAI payload template hardcoded in AsyncFeeder.cs (lines 47-66) — should be configurable
