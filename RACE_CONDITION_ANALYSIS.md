@@ -75,7 +75,7 @@ Additionally, `PriorityQueue.refItem` (line 31) is a **static mutable field** us
 ```csharp
 static PriorityQueueItem<T> refItem = new PriorityQueueItem<T>(default!, 0, 1, DateTime.MinValue);
 ```
-`refItem.UpdateForLookup(priority)` is called inside the lock in `SignalWorker`, so it's protected there. But this static instance is shared across ALL `PriorityQueue<T>` instances (if there were multiple) — a design smell even if currently safe.
+Note: The `default!` (null-forgiving) is used in the actual source for the generic `T Item` property, which works because the item is only used for `BinarySearch` comparison and is never dereferenced. `refItem.UpdateForLookup(priority)` is called inside the lock in `SignalWorker`, so it's protected there. But this static instance is shared across ALL `PriorityQueue<T>` instances of the same generic type — a design smell even if currently safe with only one instance.
 
 **Impact:** The queue may exceed `MaxQueueLength` by the number of concurrent enqueue operations (up to `Workers` count). Under load this is `~1000` extra items beyond the limit.
 
@@ -220,9 +220,9 @@ else
 }
 ```
 
-**The Race:** `AddOrUpdate` returns the **new value** (not the old one). The variable name `oldState` is misleading. After `AddOrUpdate`, `oldState` always equals `newState`. The condition `oldState.Equals(newState)` is always true. This means `EnterStateInternal(newState)` is always called, which is correct by accident, but the code comments suggest the intent was to distinguish between first-time and subsequent state changes.
+**The Race:** Per .NET documentation, `ConcurrentDictionary.AddOrUpdate` returns the **new value** for the key (either the `addValue` or the return value of the `updateValueFactory`). The variable `oldState` is misleadingly named — it always equals `newState`. The `if/else` condition on line 116 always evaluates to `true`, making both branches identical. This is correct by accident but the code structure is confusing.
 
-The real concurrency concern: `AddOrUpdate`'s update function calls `ExitStateInternal(currentState.Value)` which decrements a counter via `Interlocked.Decrement`. But `AddOrUpdate` may call the update function **multiple times** under contention (it's documented behavior of `ConcurrentDictionary`). This would decrement the old state counter multiple times, making it go negative.
+The real concurrency concern: `AddOrUpdate`'s update factory calls `ExitStateInternal(currentState.Value)` which decrements a counter via `Interlocked.Decrement`. Per .NET documentation, `ConcurrentDictionary` may call the update factory **multiple times** under thread contention (the factory is not guaranteed to run exactly once). This would decrement the old state counter multiple times, making it go negative.
 
 **Impact:** Worker state counters could become negative under contention, producing misleading health diagnostics.
 
