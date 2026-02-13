@@ -1,3 +1,6 @@
+// Uncomment to test blob shutdown behavior with 100 copies per write
+//#define TEST_BLOB_SHUTDOWN
+
 using System;
 using System.IO;
 using System.Threading;
@@ -18,6 +21,7 @@ namespace SimpleL7Proxy.BlobStorage
         private readonly string _blobName;
         private readonly ILogger _logger;
         private bool _disposed;
+        private readonly List<Task<BlobWriteResult>> _pendingWrites = new();
 
         public QueuedBlobStream(
             BlobWriteQueue queue,
@@ -61,6 +65,26 @@ namespace SimpleL7Proxy.BlobStorage
             _buffer.SetLength(0);
             _buffer.Position = 0;
             
+#if TEST_BLOB_SHUTDOWN
+            // TEST: Enqueue 100 copies to test shutdown flushing behavior
+            for (int i = 0; i < 100; i++)
+            {
+                var operation = new BlobWriteOperation
+                {
+                    ContainerName = _containerName,
+                    BlobName = $"{_blobName}-{i}",
+                    Data = new ReadOnlyMemory<byte>(data),
+                    Priority = 0
+                };
+
+                await _queue.EnqueueAsync(operation, cancellationToken).ConfigureAwait(false);
+                _pendingWrites.Add(operation.GetResultAsync());
+            }
+            
+            _logger.LogTrace(
+                "[QueuedBlobStream] Enqueued 100 copies ({Size}B each) for {Container}/{Blob}",
+                data.Length, _containerName, _blobName);
+#else
             var operation = new BlobWriteOperation
             {
                 ContainerName = _containerName,
@@ -70,10 +94,12 @@ namespace SimpleL7Proxy.BlobStorage
             };
 
             await _queue.EnqueueAsync(operation, cancellationToken).ConfigureAwait(false);
+            _pendingWrites.Add(operation.GetResultAsync());
             
             _logger.LogTrace(
                 "[QueuedBlobStream] Enqueued {Size}B for {Container}/{Blob}",
                 data.Length, _containerName, _blobName);
+#endif
         }
 
         public override void Write(byte[] buffer, int offset, int count)
@@ -98,6 +124,24 @@ namespace SimpleL7Proxy.BlobStorage
                 throw new ObjectDisposedException(nameof(QueuedBlobStream));
 
             await _buffer.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Waits for all enqueued blob write operations to complete.
+        /// Call this before sending a "Completed" status so the client
+        /// does not try to read the blob before it exists.
+        /// </summary>
+        public async Task WaitForPendingWritesAsync(CancellationToken cancellationToken = default)
+        {
+            if (_pendingWrites.Count == 0)
+                return;
+
+            _logger.LogDebug(
+                "[QueuedBlobStream] Waiting for {Count} pending writes for {Container}/{Blob}",
+                _pendingWrites.Count, _containerName, _blobName);
+
+            await Task.WhenAll(_pendingWrites).WaitAsync(cancellationToken).ConfigureAwait(false);
+            _pendingWrites.Clear();
         }
 
         public override int Read(byte[] buffer, int offset, int count) =>
