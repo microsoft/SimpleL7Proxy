@@ -353,7 +353,26 @@ public class ProxyWorker
                                                     (int)pr.StatusCode == 206 || // Partial Content
                                                     (int)pr.StatusCode == 201 || // Created
                                                     (int)pr.StatusCode == 202);  // Accepted
+
+                        // For async requests, wait for blob writes to complete BEFORE
+                        // sending "Completed" status — otherwise the client may try to
+                        // read the blob before it exists in storage.
+                        if (incomingRequest.runAsync && incomingRequest.asyncWorker != null)
+                        {
+                            await incomingRequest.asyncWorker.WaitForBlobWritesAsync().ConfigureAwait(false);
+                        }
+
                         _lifecycleManager.FinalizeStatus(incomingRequest, isSuccessfulResponse);
+                        incomingRequest.asyncWorker?.UpdateBackup();
+                    }
+                    // Background check requests skip ShouldFinalize but still need
+                    // Completed status after blob writes confirm
+                    else if (incomingRequest.Type == RequestType.AsyncBackgroundCheck &&
+                             incomingRequest.BackgroundRequestCompleted &&
+                             incomingRequest.asyncWorker != null)
+                    {
+                        await incomingRequest.asyncWorker.WaitForBlobWritesAsync().ConfigureAwait(false);
+                        _lifecycleManager.FinalizeBackgroundCheckStatus(incomingRequest);
                         incomingRequest.asyncWorker?.UpdateBackup();
                     }
 
@@ -1010,6 +1029,10 @@ public class ProxyWorker
                             if ((intCode > 300 && intCode < 400) || intCode == 404 || intCode == 412 || intCode >= 500)
                             {
                                 requestState = $"Backend proxy status code: {intCode}";
+
+                                // 404 is not considered an error for circuit breaker purposes
+                                if (intCode == 404)
+                                    TriggerHostCB = false;
 
                                 foreach (var header in proxyResponse.Headers)
                                 {
