@@ -29,4 +29,46 @@ Control the sensitivity of the circuit breaker using these environment variables
 *   **Tolerant**: Set `CBErrorThreshold=100`. Useful for "flaky" non-critical backends where you strictly prefer retries over disabling the host.
 
 ## Global Safety Net
-The proxy monitors the state of **all** circuit breakers. If **all** configured backends are tripped (meaning the entire backend tier is down), the proxy may enter a fail-safe mode or return a `503 Service Unavailable` to the client immediately, protecting the proxy itself from resource exhaustion.
+
+The proxy monitors the state of **all** circuit breakers. If **all** configured backends are tripped (meaning the entire backend tier is down), the proxy returns a `503 Service Unavailable` to the client immediately, protecting the proxy itself from resource exhaustion.
+
+---
+
+## Integration with Load Balancing
+
+The circuit breaker is checked **per-host** during the backend selection loop. This means:
+
+1. **A single tripped host doesn't block the request** - the proxy simply skips to the next host in the iterator.
+2. **Healthy hosts continue receiving traffic** - only the failing host is isolated.
+3. **Automatic recovery** - as the circuit closes, traffic resumes without manual intervention.
+
+### Request Flow with Circuit Breaker
+
+```
+FOR EACH HOST in load balancer:
+    │
+    ├─ CheckFailedStatus() ──[OPEN]──► SKIP (log and continue to next host)
+    │                        
+    └─[CLOSED]──► Send request to host
+                      │
+                      ├─[Success]──► Return response ✓
+                      │
+                      └─[Failure]──► Record failure, try next host
+                                     (may trip circuit if threshold exceeded)
+```
+
+### Example Scenario
+
+```
+Hosts: [A, B, C]
+Circuit Breaker Status: A=OPEN, B=CLOSED, C=CLOSED
+
+Request arrives:
+  1. Iterator selects Host A → Circuit OPEN → SKIP
+  2. Iterator selects Host B → Circuit CLOSED → Send request → 200 OK ✓
+  
+Result: Request succeeds despite Host A being unhealthy
+```
+
+See [LOAD_BALANCING.md](LOAD_BALANCING.md) for details on how hosts are selected and iterated.
+

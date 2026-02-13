@@ -36,6 +36,7 @@ public class EventHubClient : IEventClient, IHostedService
     }
 
     public int Count => _logBuffer.Count;
+    public string ClientType => isRunning ? "EventHub" : "EventHub (Disabled)";
 
     public async Task StartAsync(CancellationToken cancellationToken) {
         // Handle null or invalid configuration gracefully - just don't start the service
@@ -80,14 +81,15 @@ public class EventHubClient : IEventClient, IHostedService
             writerTask = Task.Run(() => EventWriter(workerCancelToken), workerCancelToken);
         }
         catch (OperationCanceledException) {
-            _logger.LogError("EventHubClient setup timed out");
+            _logger.LogError("EventHubClient setup timed out after {Seconds} seconds", _config.StartupSeconds);
             isRunning = false;
-            throw new TimeoutException("EventHubClient setup timed out.");
+            throw new TimeoutException($"EventHubClient setup timed out after {_config.StartupSeconds} seconds. Check network connectivity to EventHub.");
         }
         catch (Exception ex) {
             _logger.LogError(ex, "Failed to setup EventHubClient");
             isRunning = false;
-            throw new Exception("Failed to setup EventHubClient.", ex);
+            // Include the inner exception message to make it visible in the main program catch block
+            throw new Exception($"Failed to setup EventHubClient: {ex.Message}", ex);
         }
     }
 

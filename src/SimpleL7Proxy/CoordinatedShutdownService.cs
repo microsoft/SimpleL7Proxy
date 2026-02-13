@@ -1,8 +1,10 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.BlobStorage;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Proxy;
@@ -28,6 +30,8 @@ public class CoordinatedShutdownService : IHostedService
     private readonly IBackendService _backends;
     private readonly IAsyncFeeder _asyncFeeder;
     private readonly IRequeueWorker _requeueWorker;
+    private readonly BlobWriteQueue? _blobWriteQueue;
+    private readonly ProbeServer _probeServer;
 
 
     public CoordinatedShutdownService(IHostApplicationLifetime appLifetime,
@@ -40,6 +44,8 @@ public class CoordinatedShutdownService : IHostedService
         IAsyncFeeder asyncFeeder,
         IBackupAPIService backupAPIService,
         IRequeueWorker requeueWorker,
+        IServiceProvider serviceProvider,
+        ProbeServer probeServer,
         ILogger<CoordinatedShutdownService> logger,
         Server server)
     {
@@ -54,10 +60,22 @@ public class CoordinatedShutdownService : IHostedService
         _asyncFeeder = asyncFeeder;
         _backendTokenProvider = backendTokenProvider;
         _requeueWorker = requeueWorker;
+        _blobWriteQueue = serviceProvider.GetService<BlobWriteQueue>();
+        _probeServer = probeServer;
         _options = backendOptions.Value;
     }
 
-    public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        // Start services explicitly since they're no longer registered as IHostedService
+        // (we control their shutdown ordering in StopAsync)
+        if (_blobWriteQueue != null)
+            await _blobWriteQueue.StartAsync(cancellationToken).ConfigureAwait(false);
+        await _probeServer.StartAsync(cancellationToken).ConfigureAwait(false);
+        
+        if (_serviceBusRequestService is IHostedService sbHosted)
+            await sbHosted.StartAsync(cancellationToken).ConfigureAwait(false);
+    }
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
@@ -116,11 +134,35 @@ public class CoordinatedShutdownService : IHostedService
             ["WorkerStates"] = string.Join(", ", HealthCheckService.GetWorkerState())
         };
         data.SendEvent();
-        _backendTokenProvider?.StopAsync(cancellationToken).ConfigureAwait(false);
-        _backupAPIService?.StopAsync(cancellationToken).ConfigureAwait(false);
-        _serviceBusRequestService?.StopAsync(cancellationToken).ConfigureAwait(false);
+        
+        if (_backendTokenProvider != null)
+            await _backendTokenProvider.StopAsync(cancellationToken).ConfigureAwait(false);
+        
+        // BackupAPIService is NOT registered as IHostedService - we control its shutdown explicitly here
+        // to ensure it stops AFTER all proxy workers have completed and flushed their status updates
+        if (_backupAPIService != null)
+            await _backupAPIService.StopAsync(cancellationToken).ConfigureAwait(false);
+        
+        // ServiceBusRequestService is stopped explicitly here for ordering control
+        if (_serviceBusRequestService != null)
+            await _serviceBusRequestService.StopAsync(cancellationToken).ConfigureAwait(false);
+        
+        // BlobWriteQueue is stopped LAST before probes - all producers (proxy workers, async workers, backup service)
+        // are guaranteed to be done at this point, so no more enqueues will happen
+        if (_blobWriteQueue != null)
+        {
+            _logger.LogInformation("[SHUTDOWN] ⏹ Stopping BlobWriteQueue (final flush)");
+            await _blobWriteQueue.StopAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        
         _eventClient?.StopTimer();
-        //await Task.CompletedTask;
+
+        // Health probes are stopped at the VERY END so the container orchestrator
+        // (e.g. Kubernetes, Container Apps) continues to see healthy probes while
+        // other services drain. If probes fail early, the orchestrator may kill the pod.
+        _logger.LogInformation("[SHUTDOWN] ⏹ Stopping health probes");
+        await _probeServer.StopAsync().ConfigureAwait(false);
+        await _server.StopProbes(CancellationToken.None).ConfigureAwait(false);
     }
 
 }

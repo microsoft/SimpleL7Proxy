@@ -384,7 +384,7 @@ public class Backends : IBackendService
   private void FilterActiveHosts()
   {
     var newActiveHosts = _backendHosts
-            .Where(h => h.SuccessRate() > _successRate)
+            .Where(h => h.SuccessRate() >= _successRate)
             .Select(h =>
             {
               h.CalculatedAverageLatency = h.AverageLatency();
@@ -447,7 +447,7 @@ public class Backends : IBackendService
     if (_backendHosts != null)
       foreach (var host in _backendHosts.OrderBy(h => h.AverageLatency()))
       {
-        statusIndicator = host.SuccessRate() > _successRate ? "Good  " : "Errors";
+        statusIndicator = host.SuccessRate() >= _successRate ? "Good  " : "Errors";
         var roundedLatency = Math.Round(host.AverageLatency(), 3);
         var successRatePercentage = Math.Round(host.SuccessRate() * 100, 2);
         var hoststatus = host.GetStatus(out int calls, out int errors, out double average);

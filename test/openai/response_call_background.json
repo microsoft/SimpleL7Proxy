@@ -5,7 +5,7 @@
             "content": "I am going to Paris, what should I see?"
         }
     ],
-    "background": false,
+    "background": true,
     "model": "gpt-4o",
     "metadata": {}
 }

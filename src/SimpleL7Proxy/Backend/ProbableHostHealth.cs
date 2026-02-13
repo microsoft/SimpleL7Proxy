@@ -12,6 +12,7 @@ public class ProbeableHostHealth : BaseHostHealth
     private readonly bool[] _callResults = new bool[MaxData];
     private int _currentIndex = 0;
     private int _count = 0;
+    private bool _hasHadFirstSuccess = false;
 
     public string ProbePath => Config.ProbePath;
     public string ProbeUrl => Config.ProbeUrl;
@@ -26,6 +27,20 @@ public class ProbeableHostHealth : BaseHostHealth
 
     public override void AddCallSuccess(bool success)
     {
+        // Ignore failures until we've had at least one success (cold start warmup)
+        if (!_hasHadFirstSuccess)
+        {
+            if (success)
+            {
+                _hasHadFirstSuccess = true;
+            }
+            else
+            {
+                // Skip recording failures before first success
+                return;
+            }
+        }
+
         // Add the new call result to the circular buffer
         _callResults[_currentIndex] = success;
         _currentIndex = (_currentIndex + 1) % MaxData;
@@ -37,9 +52,9 @@ public class ProbeableHostHealth : BaseHostHealth
 
     public override double SuccessRate()
     {
-        // If there are no call results, return 0.0
-        if (_count == 0)
-            return 0.0;
+        // If we haven't had any successful probes yet, return 1.0 to give benefit of doubt during warmup
+        if (!_hasHadFirstSuccess || _count == 0)
+            return 1.0;
 
         // Count successful calls in the active portion of the buffer
         int successCount = 0;

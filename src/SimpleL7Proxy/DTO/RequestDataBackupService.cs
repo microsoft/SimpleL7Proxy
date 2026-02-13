@@ -48,15 +48,22 @@ namespace SimpleL7Proxy.DTO
                 var bodyBlobName = blobname + ".body";
                 if (await _blobWriter.BlobExistsAsync(Constants.Server, bodyBlobName))
                 {
-                    _logger.LogTrace($"[BLOB-TRACE] BackupService.RestoreIntoAsync | Action: ReadBody | Guid: {rdata.Guid} | Container: {Constants.Server} | Blob: {bodyBlobName} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                    //_logger.LogTrace($"[BLOB-TRACE] BackupService.RestoreIntoAsync | Action: ReadBody | Guid: {rdata.Guid} | Container: {Constants.Server} | Blob: {bodyBlobName} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
                     using Stream bodyStream = await _blobWriter.ReadBlobAsStreamAsync(Constants.Server, bodyBlobName);
                     var bodyStreamReader = new StreamReader(bodyStream);
                     var datastr = await bodyStreamReader.ReadToEndAsync();
                     rdata.setBody(Encoding.UTF8.GetBytes(datastr));
-                    _logger.LogTrace($"[BLOB-TRACE] BackupService.RestoreIntoAsync | Action: ReadBody-Complete | Guid: {rdata.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                    //_logger.LogTrace($"[BLOB-TRACE] BackupService.RestoreIntoAsync | Action: ReadBody-Complete | Guid: {rdata.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                }
+                else if (rdata.Body == null)
+                {
+                    // No body blob exists — client never sent a request body.
+                    // Set an empty body so ProxyToBackEndAsync doesn't throw ArgumentNullException.
+                    rdata.setBody(Array.Empty<byte>());
+                    _logger.LogInformation("No body blob found for {Guid} - client did not send a request body", rdata.Guid);
                 }
 
-                _logger.LogTrace($"[BLOB-TRACE] BackupService.RestoreIntoAsync | Action: Complete | Guid: {rdata.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+                //_logger.LogTrace($"[BLOB-TRACE] BackupService.RestoreIntoAsync | Action: Complete | Guid: {rdata.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
                 return;
             }
             catch (BlobWriterException e)
@@ -81,7 +88,7 @@ namespace SimpleL7Proxy.DTO
         {
             var operation = "Creating blob";
 
-            _logger.LogTrace($"[BLOB-TRACE] BackupService.BackupAsync | Action: Start | Guid: {requestData.Guid} | Container: {Constants.Server} | Blob: {requestData.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+            //_logger.LogTrace($"[BLOB-TRACE] BackupService.BackupAsync | Action: Start | Guid: {requestData.Guid} | Container: {Constants.Server} | Blob: {requestData.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
 
             try
             {

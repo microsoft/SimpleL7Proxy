@@ -5,31 +5,46 @@
 
 set -e
 
-# Configuration Variables
-RESOURCE_GROUP="TR-apim"
-LOCATION="eastus"
-CONTAINER_APP_NAME="simplel7dev"
-ENVIRONMENT_NAME="simplelL7Proxy"
+# Source parameters file if it exists
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/deploy.parameters.sh" ]; then
+    echo "Sourcing deploy.parameters.sh..."
+    source "$SCRIPT_DIR/deploy.parameters.sh"
+fi
 
-# Container Images
-WEB_IMAGE="nvmacr.azurecr.io/myproxy:v2.2.8.d15"
-HEALTH_IMAGE="nvmacr.azurecr.io/healthprobe:v2.2.8.d15"
+# Configuration Variables (use environment variables if set, otherwise use defaults)
+RESOURCE_GROUP="${RESOURCE_GROUP:-TR-apim}"
+LOCATION="${LOCATION:-eastus}"
+CONTAINER_APP_NAME="${CONTAINER_APP_NAME:-simplel7dev}"
+ENVIRONMENT_NAME="${ENVIRONMENT_NAME:-simplelL7Proxy}"
+
+# Container Images (must be set via environment or deploy.parameters.sh)
+WEB_IMAGE="${WEB_IMAGE:-}"
+HEALTH_IMAGE="${HEALTH_IMAGE:-}"
+
+# Validate required images
+if [ -z "$WEB_IMAGE" ] || [ -z "$HEALTH_IMAGE" ]; then
+    echo -e "${RED}Error: WEB_IMAGE and HEALTH_IMAGE must be set.${NC}"
+    echo "Either set them as environment variables or create deploy.parameters.sh"
+    echo "See deploy.parameters.example.sh for reference."
+    exit 1
+fi
 
 # Azure Container Registry (used with system-assigned managed identity)
-REGISTRY_SERVER="nvmacr.azurecr.io"  # Set to your ACR login server
+REGISTRY_SERVER="${REGISTRY_SERVER:-}"  # Set to your ACR login server
 
 # Resource Configuration
-WEB_CPU=0.5
-WEB_MEMORY=1.0
-HEALTH_CPU=0.25
-HEALTH_MEMORY=0.5
+WEB_CPU="${WEB_CPU:-0.5}"
+WEB_MEMORY="${WEB_MEMORY:-1.0}"
+HEALTH_CPU="${HEALTH_CPU:-0.25}"
+HEALTH_MEMORY="${HEALTH_MEMORY:-0.5}"
 
 # Network Configuration
-WEB_PORT=8000
-HEALTH_PORT=9000
-INGRESS_TYPE="external"  # or "internal"
-ENABLE_HTTPS=true
-REVISION_MODE="single"  # or "multiple"
+WEB_PORT="${WEB_PORT:-8000}"
+HEALTH_PORT="${HEALTH_PORT:-9000}"
+INGRESS_TYPE="${INGRESS_TYPE:-external}"  # or "internal"
+ENABLE_HTTPS="${ENABLE_HTTPS:-true}"
+REVISION_MODE="${REVISION_MODE:-single}"  # or "multiple"
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -101,11 +116,47 @@ if [ -n "$REGISTRY_SERVER" ]; then
     BICEP_PARAMS="$BICEP_PARAMS registryServer=$REGISTRY_SERVER"
 fi
 
+# Add Host1 configuration
+if [ -n "$HOST1" ]; then
+    BICEP_PARAMS="$BICEP_PARAMS host1=$HOST1"
+else
+    echo -e "${RED}Error: HOST1 must be set${NC}"
+    exit 1
+fi
+
+# Check if Container App exists and grant ACR pull permission to its managed identity
+echo -e "${YELLOW}Checking if Container App exists for ACR role assignment...${NC}"
+EXISTING_APP_PRINCIPAL_ID=$(az containerapp show \
+    --name "$CONTAINER_APP_NAME" \
+    --resource-group "$RESOURCE_GROUP" \
+    --query "identity.principalId" -o tsv 2>/dev/null || echo "")
+
+if [ -n "$EXISTING_APP_PRINCIPAL_ID" ] && [ -n "$REGISTRY_SERVER" ]; then
+    echo -e "${YELLOW}Granting AcrPull role to Container App managed identity...${NC}"
+    # Extract ACR name from registry server (e.g., nvmacr.azurecr.io -> nvmacr)
+    ACR_NAME=$(echo "$REGISTRY_SERVER" | cut -d'.' -f1)
+    ACR_RESOURCE_ID=$(az acr show --name "$ACR_NAME" --query id -o tsv 2>/dev/null || echo "")
+    
+    if [ -n "$ACR_RESOURCE_ID" ]; then
+        az role assignment create \
+            --assignee "$EXISTING_APP_PRINCIPAL_ID" \
+            --role "AcrPull" \
+            --scope "$ACR_RESOURCE_ID" \
+            2>/dev/null || echo -e "${YELLOW}Role assignment already exists or failed (continuing...)${NC}"
+        echo -e "${GREEN}ACR role assignment configured${NC}"
+    else
+        echo -e "${YELLOW}Warning: Could not find ACR '$ACR_NAME'. Role assignment skipped.${NC}"
+    fi
+else
+    echo -e "${YELLOW}Container App doesn't exist yet. ACR role will be assigned after first deployment.${NC}"
+fi
+
 # Deploy using Bicep
 echo -e "${YELLOW}Deploying Container App with Bicep...${NC}"
 DEPLOYMENT_NAME="healthprobe-deployment-$(date +%s)"
 
-az deployment group create --debug \
+#az deployment group create --debug \
+az deployment group create  \
     --name "$DEPLOYMENT_NAME" \
     --resource-group "$RESOURCE_GROUP" \
     --template-file "$(dirname "$0")/script.bicep" \
@@ -128,6 +179,30 @@ REVISION_NAME=$(az deployment group show \
     --name "$DEPLOYMENT_NAME" \
     --resource-group "$RESOURCE_GROUP" \
     --query "properties.outputs.latestRevisionName.value" -o tsv)
+
+# If this was first deployment, assign ACR role now that managed identity exists
+if [ -z "$EXISTING_APP_PRINCIPAL_ID" ] && [ -n "$REGISTRY_SERVER" ]; then
+    echo -e "${YELLOW}Assigning AcrPull role to newly created Container App managed identity...${NC}"
+    NEW_PRINCIPAL_ID=$(az containerapp show \
+        --name "$CONTAINER_APP_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --query "identity.principalId" -o tsv)
+    
+    if [ -n "$NEW_PRINCIPAL_ID" ]; then
+        ACR_NAME=$(echo "$REGISTRY_SERVER" | cut -d'.' -f1)
+        ACR_RESOURCE_ID=$(az acr show --name "$ACR_NAME" --query id -o tsv 2>/dev/null || echo "")
+        
+        if [ -n "$ACR_RESOURCE_ID" ]; then
+            az role assignment create \
+                --assignee "$NEW_PRINCIPAL_ID" \
+                --role "AcrPull" \
+                --scope "$ACR_RESOURCE_ID" \
+                2>/dev/null || echo -e "${YELLOW}Role assignment already exists or failed${NC}"
+            echo -e "${GREEN}ACR role assignment configured for new Container App${NC}"
+            echo -e "${YELLOW}Note: You may need to re-deploy for the role assignment to take effect.${NC}"
+        fi
+    fi
+fi
 
 echo -e "${GREEN}======================================${NC}"
 echo -e "${GREEN}Deployment Complete!${NC}"

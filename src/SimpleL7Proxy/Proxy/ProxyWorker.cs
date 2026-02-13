@@ -353,7 +353,26 @@ public class ProxyWorker
                                                     (int)pr.StatusCode == 206 || // Partial Content
                                                     (int)pr.StatusCode == 201 || // Created
                                                     (int)pr.StatusCode == 202);  // Accepted
+
+                        // For async requests, wait for blob writes to complete BEFORE
+                        // sending "Completed" status — otherwise the client may try to
+                        // read the blob before it exists in storage.
+                        if (incomingRequest.runAsync && incomingRequest.asyncWorker != null)
+                        {
+                            await incomingRequest.asyncWorker.WaitForBlobWritesAsync().ConfigureAwait(false);
+                        }
+
                         _lifecycleManager.FinalizeStatus(incomingRequest, isSuccessfulResponse);
+                        incomingRequest.asyncWorker?.UpdateBackup();
+                    }
+                    // Background check requests skip ShouldFinalize but still need
+                    // Completed status after blob writes confirm
+                    else if (incomingRequest.Type == RequestType.AsyncBackgroundCheck &&
+                             incomingRequest.BackgroundRequestCompleted &&
+                             incomingRequest.asyncWorker != null)
+                    {
+                        await incomingRequest.asyncWorker.WaitForBlobWritesAsync().ConfigureAwait(false);
+                        _lifecycleManager.FinalizeBackgroundCheckStatus(incomingRequest);
                         incomingRequest.asyncWorker?.UpdateBackup();
                     }
 
@@ -468,7 +487,7 @@ public class ProxyWorker
                         eventData.Exception = ex;
                         eventData["WorkerState"] = workerState;
 
-                        if (ex.Message == "Cannot access a disposed object." || ex.Message.StartsWith("Unable to write data") || ex.Message.Contains("Broken Pipe")) // The client likely closed the connection
+                        if (ex.Message.StartsWith("Cannot access a disposed object") || ex.Message.StartsWith("Unable to write data") || ex.Message.Contains("Broken Pipe")) // The client likely closed the connection
                         {
                             _logger.LogInformation("Client closed connection: {FullURL}", incomingRequest?.FullURL ?? "Unknown");
                             eventData["InnerErrorDetail"] = "Client Disconnected";
@@ -588,45 +607,51 @@ public class ProxyWorker
 
         var context = request.Context;
 
-        // Set the response status code
-        context.Response.StatusCode = (int)pr.StatusCode;
-
-        // Copy headers to the response
-        //ProxyHelperUtils.CopyHeaders(request.Headers, proxyRequest, true, _options.StripRequestHeaders);
-
-        //CopyHeadersToResponse(pr.Headers, context.Response.Headers);            // Already done?
-
-        // Set content-specific headers
-        if (pr.ContentHeaders != null)
+        // For async requests that triggered, the 202 Accepted response was already sent and 
+        // the connection was closed by AsyncWorker. Skip writing to the HttpListenerResponse.
+        // The actual backend response will be streamed to blob storage in StreamResponseAsync.
+        if (!request.AsyncTriggered)
         {
-            foreach (var key in pr.ContentHeaders.AllKeys)
+            // Set the response status code
+            context.Response.StatusCode = (int)pr.StatusCode;
+
+            // Copy headers to the response
+            //ProxyHelperUtils.CopyHeaders(request.Headers, proxyRequest, true, _options.StripRequestHeaders);
+
+            //CopyHeadersToResponse(pr.Headers, context.Response.Headers);            // Already done?
+
+            // Set content-specific headers
+            if (pr.ContentHeaders != null)
             {
-                switch (key.ToLower())
+                foreach (var key in pr.ContentHeaders.AllKeys)
                 {
-                    case "content-length":
-                        var length = pr.ContentHeaders[key];
-                        if (long.TryParse(length, out var contentLength))
-                        {
-                            context.Response.ContentLength64 = contentLength;
-                        }
-                        else
-                        {
-                            Console.WriteLine($"Invalid Content-Length: {length}");
-                        }
-                        break;
+                    switch (key.ToLower())
+                    {
+                        case "content-length":
+                            var length = pr.ContentHeaders[key];
+                            if (long.TryParse(length, out var contentLength))
+                            {
+                                context.Response.ContentLength64 = contentLength;
+                            }
+                            else
+                            {
+                                _logger.LogWarning("Invalid Content-Length: {Length}", length);
+                            }
+                            break;
 
-                    case "content-type":
-                        context.Response.ContentType = pr.ContentHeaders[key];
-                        break;
+                        case "content-type":
+                            context.Response.ContentType = pr.ContentHeaders[key];
+                            break;
 
-                    default:
-                        context.Response.Headers[key] = pr.ContentHeaders[key];
-                        break;
+                        default:
+                            context.Response.Headers[key] = pr.ContentHeaders[key];
+                            break;
+                    }
                 }
             }
-        }
 
-        context.Response.KeepAlive = false;
+            context.Response.KeepAlive = false;
+        }
 
         // we need 3 things:
         // 1. The processor to use                      => pr.StreamingProcessor
@@ -672,7 +697,15 @@ public class ProxyWorker
             // Called during shutdown to evict any in-progress async requests ... then worker will exit
             _isEvictingAsyncRequest = true;
             _logger.LogDebug("Expelling async request in progress, cancelling the token.");
-            _asyncExpelSource.Cancel();
+            try
+            {
+                _asyncExpelSource.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // CTS was already disposed - worker has finished or encountered an error
+                _logger.LogDebug("AsyncExpelSource already disposed - worker has completed");
+            }
         }
 
     }
@@ -996,6 +1029,10 @@ public class ProxyWorker
                             if ((intCode > 300 && intCode < 400) || intCode == 404 || intCode == 412 || intCode >= 500)
                             {
                                 requestState = $"Backend proxy status code: {intCode}";
+
+                                // 404 is not considered an error for circuit breaker purposes
+                                if (intCode == 404)
+                                    TriggerHostCB = false;
 
                                 foreach (var header in proxyResponse.Headers)
                                 {
@@ -1550,24 +1587,35 @@ public class ProxyWorker
             {
                 _logger.LogDebug("Streaming to {Destination} for request {Guid}", destinationType, request.Guid);
                 await processor.CopyToAsync(proxyResponse.Content, destination).ConfigureAwait(false);
+                
+                // Explicit flush for async blob streams - QueuedBlobStream requires FlushAsync to enqueue the data
+                if (destinationType == "async blob")
+                {
+                    //_logger.LogInformation("[BLOB-TRACE] StreamResponseAsync | Action: FlushAfterCopy | Guid: {Guid}", request.Guid);
+                    await destination.FlushAsync().ConfigureAwait(false);
+                    //_logger.LogInformation("[BLOB-TRACE] StreamResponseAsync | Action: FlushComplete | Guid: {Guid}", request.Guid);
+                }
+            }
+            else
+            {
+                //_logger.LogInformation("[BLOB-TRACE] StreamResponseAsync | Action: NoData | Guid: {Guid} | Destination: {HasDestination} | Content: {HasContent}", 
+                    // request.Guid, destination != null, proxyResponse.Content != null);
             }
         }
         catch (HttpListenerException ex)
         {
-            _logger.LogDebug(ex, "Client disconnected during streaming for request {Guid}", request.Guid);
+            _logger.LogDebug(ex, "[BLOB-TRACE] StreamResponseAsync | Action: Error-HttpListener | Guid: {Guid} | Error: {ErrorMessage}", 
+                request.Guid, ex.Message);
         }
         catch (Exception ex) when (ex is IOException || ex.InnerException is IOException)
         {
-            _logger.LogDebug(ex, "IO error or client disconnected for request {Guid}", request.Guid);
+            _logger.LogDebug(ex, "[BLOB-TRACE] StreamResponseAsync | Action: Error-IO | Guid: {Guid} | Error: {ErrorMessage}", 
+                request.Guid, ex.Message);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error streaming response for request {Guid}. Type: {ExType}, Message: {ExMessage}, StackTrace: {StackTrace}, InnerException: {InnerEx}",
-                request.Guid, 
-                ex.GetType().FullName, 
-                ex.Message, 
-                ex.StackTrace,
-                ex.InnerException?.ToString() ?? "none");
+            _logger.LogError(ex, "[BLOB-TRACE] StreamResponseAsync | Action: Error-General | Guid: {Guid} | Error: {ErrorMessage} | Type: {ExType}",
+                request.Guid, ex.Message, ex.GetType().FullName);
             // throw new ProxyErrorException(
             //     ProxyErrorException.ErrorType.ClientDisconnected,
             //     HttpStatusCode.InternalServerError,
@@ -1641,8 +1689,10 @@ public class ProxyWorker
         double timeout = request.Timeout;
         CancellationTokenSource cts;
 
-        // ✅ Dispose old CTS before creating new one
+        // ✅ Dispose old CTS before creating new one and clear the reference
         _asyncExpelSource?.Dispose();
+        _asyncExpelSource = null;
+        
         if (request.runAsync)
         {
             timeout = _options.AsyncTimeout;

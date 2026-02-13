@@ -80,6 +80,9 @@ public class RequestLifecycleManager
     /// <summary>
     /// Transition request to success state based on request type.
     /// Called when backend returns HTTP 200 OK.
+    /// NOTE: For Async and AsyncBackgroundCheck, we do NOT set Completed here.
+    /// FinalizeStatus sets Completed AFTER blob writes are confirmed,
+    /// preventing clients from trying to read blobs before they exist.
     /// </summary>
     public void TransitionToSuccess(RequestData request, HttpStatusCode statusCode)
     {
@@ -94,28 +97,30 @@ public class RequestLifecycleManager
                 break;
 
             case RequestType.Async:
-                SetStatus(request, ServiceBusMessageStatusEnum.AsyncProcessed, RequestAPIStatusEnum.Completed);
-                _logger.LogInformation("[Lifecycle:{Guid}] Async request completed successfully - Status: {StatusCode}", 
+                // Don't set Completed yet — FinalizeStatus will set it after blob writes complete
+                SetStatus(request, ServiceBusMessageStatusEnum.AsyncProcessed, null);
+                _logger.LogDebug("[Lifecycle:{Guid}] Async request backend call succeeded (awaiting blob writes before Completed) - Status: {StatusCode}", 
                     request.Guid, statusCode);
                 break;
 
             case RequestType.AsyncBackground:
                 SetStatus(request, ServiceBusMessageStatusEnum.BackgroundRequestSubmitted, RequestAPIStatusEnum.BackgroundProcessing);
-                _logger.LogInformation("[Lifecycle:{Guid}] Background request submitted - BackgroundRequestId: {BackgroundRequestId}, Status: {StatusCode}", 
+                _logger.LogDebug("[Lifecycle:{Guid}] Background request submitted - BackgroundRequestId: {BackgroundRequestId}, Status: {StatusCode}", 
                     request.Guid, request.BackgroundRequestId, statusCode);
                 break;
 
             case RequestType.AsyncBackgroundCheck:
                 if (request.BackgroundRequestCompleted)
                 {
-                    SetStatus(request, ServiceBusMessageStatusEnum.AsyncProcessed, RequestAPIStatusEnum.Completed);
-                    _logger.LogInformation("[Lifecycle:{Guid}] Background check completed successfully - Status: {StatusCode}", 
+                    // Don't set Completed yet — FinalizeStatus will set it after blob writes complete
+                    SetStatus(request, ServiceBusMessageStatusEnum.AsyncProcessed, null);
+                    _logger.LogDebug("[Lifecycle:{Guid}] Background check succeeded (awaiting blob writes before Completed) - Status: {StatusCode}", 
                         request.Guid, statusCode);
                 }
                 else
                 {
                     SetStatus(request, ServiceBusMessageStatusEnum.CheckingBackgroundRequestStatus, RequestAPIStatusEnum.BackgroundProcessing);
-                    _logger.LogInformation("[Lifecycle:{Guid}] Background check still processing - Status: {StatusCode}", 
+                    _logger.LogDebug("[Lifecycle:{Guid}] Background check still processing - Status: {StatusCode}", 
                         request.Guid, statusCode);
                 }
                 break;
@@ -306,6 +311,20 @@ public class RequestLifecycleManager
             
             _logger.LogDebug("Finalized request {Guid} status to {Status}", 
                 request.Guid, request.RequestAPIStatus);
+        }
+    }
+
+    /// <summary>
+    /// Finalizes the status for a completed background check request.
+    /// Called after blob writes are confirmed so the client can safely read the blob.
+    /// </summary>
+    public void FinalizeBackgroundCheckStatus(RequestData request)
+    {
+        if (request.runAsync)
+        {
+            request.RequestAPIStatus = RequestAPIStatusEnum.Completed;
+            
+            _logger.LogDebug("Finalized background check {Guid} status to Completed", request.Guid);
         }
     }
 

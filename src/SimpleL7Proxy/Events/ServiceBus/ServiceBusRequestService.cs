@@ -50,7 +50,7 @@ namespace SimpleL7Proxy.ServiceBus
                 _cancellationTokenSource = new CancellationTokenSource();
                 _cancellationTokenSource.Token.Register(() =>
                 {
-                    _logger.LogInformation("[SHUTDOWN] ⏹ ServiceBusRequestService shutdown initiated");
+                    _logger.LogDebug("[SHUTDOWN] ServiceBusRequestService cancellation token triggered");
                 });
 
                 isRunning = true;
@@ -308,7 +308,7 @@ namespace SimpleL7Proxy.ServiceBus
             isShuttingDown = true;
             if (isRunning)
             {
-
+                _logger.LogInformation("[SHUTDOWN] ⏹ ServiceBusRequestService stopping");
                 _logger.LogInformation("[SHUTDOWN] ⏳ ServiceBusRequestService flushing {events} events before stopping", _statusQueue.Count);
                 while (isRunning && _statusQueue.Count > 0)
                 {

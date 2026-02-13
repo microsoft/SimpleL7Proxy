@@ -1,5 +1,30 @@
 # Release Notes #
 
+## 2.2.9-D2
+
+Deployment:
+* updated proxy-with-sidecar deployment scripts
+
+Proxy:
+* Add back-pressure delay when blob writer queue starts to fill up
+* Bug fix: race conditions during shutdown in async mode 
+* Bug fix: string matching not working for disposed objects
+* Bug fix: fix error handling of cancelled jobs
+* Bug fix: dont log task cancelled during user profile shutdown
+* Buf Fix: reset the dos after sending 202 for async request 
+* Bug fix: cleanup shutdown sequence, make sure health probe stops last
+* Bug fix: dont sent status updates before writing the blob
+
+## 2.2.9-D1
+
+Proxy:
+
+* Bugfix for non-sidecar mode startup
+* Soft-delete user profile
+* Bug fix: apim backend host not recognised
+* Bug fix: Poller failures during startup incorrectly measured
+* Bug fix: Health status incorrectly reporting eventhub client status
+
 ## 2.2.9
 
 Proxy:

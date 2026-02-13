@@ -113,8 +113,9 @@ namespace SimpleL7Proxy.Feeder
             // Only set the flag if we're not already shutting down
             if (!isShuttingDown)
             {
-                _logger.LogInformation("[SHUTDOWN] ⏹ AsyncFeeder shutting down");
                 isShuttingDown = true;
+                _cancellationTokenSource?.Cancel();
+                _logger.LogInformation("[SHUTDOWN] ⏹ AsyncFeeder shutting down");
                 return readerTask ?? Task.CompletedTask;
             }
 
@@ -147,7 +148,7 @@ namespace SimpleL7Proxy.Feeder
 
                 try
                 {
-                    await processor.StartProcessingAsync().ConfigureAwait(false);
+                    await processor.StartProcessingAsync(token).ConfigureAwait(false);
                     _logger.LogInformation("[SERVICE] ✓ AsyncFeeder successfully started processing messages from 'feeder' queue");
                 }
                 catch (UnauthorizedAccessException ex)
@@ -183,7 +184,14 @@ namespace SimpleL7Proxy.Feeder
             catch (TaskCanceledException)
             {
                 // Task was canceled, exit gracefully
-                _logger.LogInformation("[SHUTDOWN] AsyncFeeder service task was canceled.");
+                if (!isShuttingDown)
+                {
+                    _logger.LogWarning("[SHUTDOWN] AsyncFeeder service task was canceled unexpectedly.");
+                }
+                else
+                {
+                    _logger.LogInformation($"[SHUTDOWN] AsyncFeeder service shutdown initiated.");
+                }
             }
             catch (OperationCanceledException)
             {

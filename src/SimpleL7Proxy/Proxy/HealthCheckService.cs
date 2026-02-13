@@ -383,10 +383,11 @@ public class HealthCheckService
                                 .Append('\n');
 
                             // Add event hub status
-                            _stringBuilder.Append("Event Hub: ");
+                            _stringBuilder.Append("Event Client: ");
                             if (_eventClient != null)
                             {
-                                _stringBuilder.Append("Enabled  -  ")
+                                _stringBuilder.Append(_eventClient.ClientType)
+                                    .Append("  -  ")
                                     .Append(_eventClient.Count)
                                     .Append(" Items");
                             }
@@ -516,43 +517,26 @@ public class HealthCheckService
         }
     }
 
-    public HealthStatusEnum GetReadinessStatus()
+    public HealthStatusEnum GetStatus()
     {
-        if (!IsReadyToWork)
-        {
-            return HealthStatusEnum.ReadinessZeroHosts;
-        }
-
+        var isReady = IsReadyToWork;
         int hostCount = _backends.ActiveHostCount();
-        if (hostCount == 0)
-        {
-            return HealthStatusEnum.ReadinessZeroHosts;
-        }
+        bool hasFailed = _backends.CheckFailedStatus();
+        
+        // Debug logging - remove after fixing
+        // Console.WriteLine($"[STARTUP-DEBUG] IsReadyToWork={isReady}, hostCount={hostCount}, hasFailed={hasFailed}, activeWorkers={ActiveWorkers}");
 
-        if (_backends.CheckFailedStatus())
-        {
-            return HealthStatusEnum.ReadinessFailedHosts;
-        }
-
-        return HealthStatusEnum.ReadinessReady;
-
-    }
-
-    public HealthStatusEnum GetStartupStatus()
-    {
-
-        if (!IsReadyToWork)
+        if (!isReady)
         {
             return HealthStatusEnum.StartupZeroHosts;
         }
 
-        int hostCount = _backends.ActiveHostCount();
         if (hostCount == 0)
         {
             return HealthStatusEnum.StartupZeroHosts;
         }
 
-        if (_backends.CheckFailedStatus())
+        if (hasFailed)
         {
             return HealthStatusEnum.StartupFailedHosts;
         }

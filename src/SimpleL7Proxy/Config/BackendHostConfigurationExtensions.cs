@@ -628,10 +628,13 @@ public static class BackendHostConfigurationExtensions
       UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", false),
       UseOAuthGov = ReadEnvironmentVariableOrDefault("UseOAuthGov", false),
       UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", false),
+      UserConfigRequired = ReadEnvironmentVariableOrDefault("UserConfigRequired", false),
       UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", "file:config.json"),
+      UserConfigRefreshIntervalSecs = ReadEnvironmentVariableOrDefault("UserConfigRefreshIntervalSecs", 3600), // 1 hour
       UserIDFieldName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "UserIDFieldName", "userId"), // migrate from LookupHeaderName
       UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
       UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", "X-UserProfile"),
+      UserSoftDeleteTTLMinutes= ReadEnvironmentVariableOrDefault("UserSoftDeleteTTLMinutes", 6*60),  // 6 hours
       ValidateAuthAppFieldName = ReadEnvironmentVariableOrDefault("ValidateAuthAppFieldName", "authAppID"),
       ValidateAuthAppID = ReadEnvironmentVariableOrDefault("ValidateAuthAppID", false),
       ValidateAuthAppIDHeader = ReadEnvironmentVariableOrDefault("ValidateAuthAppIDHeader", "X-MS-CLIENT-PRINCIPAL-ID"),

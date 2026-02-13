@@ -116,6 +116,9 @@ public class Program
                 var backupAPIService = serviceProvider.GetRequiredService<IBackupAPIService>();
                 var userPriority = serviceProvider.GetRequiredService<IUserPriorityService>();
                 RequestData.InitializeServiceBusRequestService(serviceBusRequestService, backupAPIService, userPriority, options.Value);
+                
+                // Manually start BackupAPIService (not registered as IHostedService for controlled shutdown)
+                await backupAPIService.StartAsync(CancellationToken.None);
 
                 //_ = serviceBusService.StartAsync(CancellationToken.None);
 
@@ -144,10 +147,10 @@ public class Program
         }
         catch (Exception e)
         {
-            Console.WriteLine(e.StackTrace);
-            // Handle other exceptions that might occur
-
-            startupLogger.LogError($"[ERROR] ✗ Unexpected startup error: {e.Message}");
+            // Log full exception details including inner exceptions
+            Console.WriteLine(e.ToString());
+            
+            startupLogger.LogError(e, "[ERROR] ✗ Unexpected startup error: {Message}", e.Message);
             var pe = new ProxyEvent();
             pe.Type = EventType.Exception;
             pe.SendEvent();
@@ -245,13 +248,13 @@ public class Program
                     BatchWaitTimeMs = 100,
                     MaxBatchSize = 25,
                     EnableBatching = true,
+                    EnableDeduplication = true,  // Disable deduplication - write all operations
                     MetricsIntervalSeconds = 30
                 };
             });
 
-            // Register BlobWriteQueue as both singleton and hosted service
+            // Register BlobWriteQueue as singleton (started/stopped explicitly by CoordinatedShutdownService)
             services.AddSingleton<BlobWriteQueue>();
-            services.AddHostedService(sp => sp.GetRequiredService<BlobWriteQueue>());
 
             // Register QueuedBlobWriter as the IBlobWriter implementation (wraps BlobWriter)
             services.AddSingleton<IBlobWriter>(provider =>
@@ -306,9 +309,9 @@ public class Program
 
         services.AddHostedService<Server>(provider => provider.GetRequiredService<Server>());
 
-        // Ensure ProbeServer updater runs as a background hosted service
+        // ProbeServer is managed explicitly by CoordinatedShutdownService to ensure
+        // it keeps running until the very end of shutdown (container orchestrator needs healthy probes)
         services.AddSingleton<ProbeServer>();
-        services.AddHostedService(sp => sp.GetRequiredService<ProbeServer>());
 
         // ASYNC RELATED
         // Add storage service registration
@@ -317,10 +320,10 @@ public class Program
         services.AddSingleton<ServiceBusFactory>();
         services.AddSingleton<ServiceBusRequestService>();
         services.AddSingleton<IServiceBusRequestService>(sp => sp.GetRequiredService<ServiceBusRequestService>());
-        services.AddHostedService(sp => sp.GetRequiredService<ServiceBusRequestService>());
 
+        // Note: BackupAPIService is NOT registered as IHostedService - its lifecycle is controlled
+        // explicitly by CoordinatedShutdownService to ensure proper shutdown ordering
         services.AddSingleton<IBackupAPIService, BackupAPIService>();
-        services.AddHostedService(sp => (BackupAPIService)sp.GetRequiredService<IBackupAPIService>());
 
         services.AddSingleton<IAsyncFeeder, AsyncFeeder>();
         services.AddSingleton<NormalRequest>();
