@@ -593,7 +593,8 @@ namespace SimpleL7Proxy.BlobStorage
                 sw.Stop();
                 Interlocked.Increment(ref _batchesExecuted);
 
-                var successCount = deduplicatedOps.Count(op => op.GetResultAsync().Result.Success);
+                var results = await Task.WhenAll(deduplicatedOps.Select(op => op.GetResultAsync())).ConfigureAwait(false);
+                var successCount = results.Count(r => r.Success);
 
                 _logger.LogDebug("[Worker-{WorkerId}] Batch completed - {Success}/{Total} unique blobs in {Duration}ms (original batch: {OriginalCount})",
                     workerId, successCount, deduplicatedOps.Count, sw.ElapsedMilliseconds, batch.Count);

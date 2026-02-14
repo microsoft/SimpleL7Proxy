@@ -1005,7 +1005,7 @@ public class ProxyWorker
                         // Create ASYNC Worker if needed, and setup the timeout
                         // SEND THE REQUEST TO THE BACKEND USING THE APROPRIATE TIMEOUT.
                         // TO DO:   reuse the cts instead of creating a new one each time.
-                        var (requestCts, rTimeout) = SetupAsyncWorkerAndTimeout(request);
+                        var (requestCts, rTimeout) = await SetupAsyncWorkerAndTimeout(request).ConfigureAwait(false);
                         DateTime responseDate;
                         using (requestCts)
                         {
@@ -1684,7 +1684,7 @@ public class ProxyWorker
 
 
     // cts is returned to the caller who disposes of it
-    private (CancellationTokenSource, double) SetupAsyncWorkerAndTimeout(RequestData request)
+    private async Task<(CancellationTokenSource, double)> SetupAsyncWorkerAndTimeout(RequestData request)
     {
         double timeout = request.Timeout;
         CancellationTokenSource cts;
@@ -1700,7 +1700,7 @@ public class ProxyWorker
             {
                 var timeLeft = _options.AsyncTriggerTimeout - (int)(DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds;
                 timeLeft = Math.Max(1, timeLeft);
-                request.asyncWorker = _asyncWorkerFactory.CreateAsync(request, timeLeft);
+                request.asyncWorker = await _asyncWorkerFactory.CreateAsync(request, timeLeft).ConfigureAwait(false);
                 _ = request.asyncWorker.StartAsync();
             }
 

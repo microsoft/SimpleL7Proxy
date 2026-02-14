@@ -80,38 +80,43 @@ public class ProbeServer : BackgroundService
         {
             _startupStatus = _readinessStatus = _healthService.GetStatus();
 
-            // Push to sidecar if enabled
+            // Push to sidecar if enabled (fire-and-forget async to avoid blocking threadpool)
             if (selfCheckClient != null)
             {
-                try
-                {
-                    var url = $"{_backendOptions.HealthProbeSidecarUrl}/internal/update-status?readiness={_readinessStatus}&startup={_startupStatus}";
-                    var response = selfCheckClient.GetAsync(url).Result;
-                    if (!response.IsSuccessStatusCode)
-                    {   
-                        FailedAttempts++;
-                        _logger.LogWarning("[FAIL] Probe server updated failed. {attempts} attempts. HTTP {StatusCode}", FailedAttempts, response.StatusCode);
-                    }
-                    else
-                    {
-                        if (FailedAttempts > 0)
-                        {
-                            _logger.LogInformation("[RECOVER] Probe server update succeeded after {attempts} failed attempts", FailedAttempts);
-                            FailedAttempts = 0;
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    FailedAttempts++;
-                    _logger.LogWarning("[FAIL] Probe server updated failed. {attempts} attempts. Exception: {Message}", FailedAttempts, ex.Message);
-                }
+                _ = PushStatusToSidecarAsync(selfCheckClient);
             }
 
         }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
         
         
         return Task.CompletedTask;
+    }
+
+    private async Task PushStatusToSidecarAsync(HttpClient selfCheckClient)
+    {
+        try
+        {
+            var url = $"{_backendOptions.HealthProbeSidecarUrl}/internal/update-status?readiness={_readinessStatus}&startup={_startupStatus}";
+            var response = await selfCheckClient.GetAsync(url).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                FailedAttempts++;
+                _logger.LogWarning("[FAIL] Probe server updated failed. {attempts} attempts. HTTP {StatusCode}", FailedAttempts, response.StatusCode);
+            }
+            else
+            {
+                if (FailedAttempts > 0)
+                {
+                    _logger.LogInformation("[RECOVER] Probe server update succeeded after {attempts} failed attempts", FailedAttempts);
+                    FailedAttempts = 0;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            FailedAttempts++;
+            _logger.LogWarning("[FAIL] Probe server updated failed. {attempts} attempts. Exception: {Message}", FailedAttempts, ex.Message);
+        }
     }
 
     public async Task LivenessResponseAsync(HttpListenerContext lc)

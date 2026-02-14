@@ -41,6 +41,7 @@ namespace SimpleL7Proxy.Feeder
         private Task? readerTask;
         CancellationTokenSource? _cancellationTokenSource;
         private readonly ServiceBusFactory _senderFactory;
+        private readonly ConcurrentDictionary<Guid, Task> _activeHandlers = new();
         private static long counter = 0;
 
         // REMOVE HARDCODED OPENAI CALL
@@ -158,27 +159,18 @@ namespace SimpleL7Proxy.Feeder
                         "Check that the managed identity has 'Azure Service Bus Data Receiver' role assigned to the queue. " +
                         "Service will continue but will not process messages.");
                     
-                    // Clean up processor and wait for shutdown signal instead of throwing
+                    // Clean up processor and exit — nothing is running, no need to wait
                     await processor.DisposeAsync().ConfigureAwait(false);
                     processor = null;
-                    
-                    // Wait for shutdown signal
-                    while (!isShuttingDown)
-                    {
-                        await Task.Delay(500, token).ConfigureAwait(false);
-                    }
-                    
                     _logger.LogInformation("[SHUTDOWN] ✓ AsyncFeeder stopped (no processor was running)");
                     return;
                 }
 
-                while (!isShuttingDown)
-                {
-                    await Task.Delay(500, token).ConfigureAwait(false);
-                }
+                // Wait for shutdown signal (event-driven via cancellation token)
+                try { await Task.Delay(Timeout.Infinite, token).ConfigureAwait(false); }
+                catch (OperationCanceledException) { }
 
-                await processor.StopProcessingAsync().ConfigureAwait(false);
-                _logger.LogInformation("[SHUTDOWN] ✓ AsyncFeeder stopped processing messages");
+                // Processor cleanup (StopProcessingAsync + Dispose) handled in finally block
 
             }
             catch (TaskCanceledException)
@@ -190,13 +182,13 @@ namespace SimpleL7Proxy.Feeder
                 }
                 else
                 {
-                    _logger.LogInformation($"[SHUTDOWN] AsyncFeeder service shutdown initiated.");
+                    _logger.LogInformation("[SHUTDOWN] AsyncFeeder service shutdown initiated.");
                 }
             }
             catch (OperationCanceledException)
             {
                 // Operation was canceled, exit gracefully
-                _logger.LogInformation($"[SHUTDOWN] AsyncFeeder service shutdown initiated.");
+                _logger.LogInformation("[SHUTDOWN] AsyncFeeder service shutdown initiated.");
             }
             catch (InvalidOperationException ex)
             {
@@ -208,16 +200,34 @@ namespace SimpleL7Proxy.Feeder
             }
             finally
             {
-                // Ensure processor is disposed
                 if (processor != null)
                 {
+                    // StopProcessingAsync sets _isRunning=false synchronously before its first await,
+                    // which prevents new messages from being received. We don't need to await the
+                    // AMQP link close — DisposeAsync handles that.
+                    _ = processor.StopProcessingAsync();
+
+                    // Wait for any in-flight handlers to complete (event-driven, no arbitrary timeout)
+                    var pending = _activeHandlers.Values.ToArray();
+                    if (pending.Length > 0)
+                    {
+                        _logger.LogInformation("[SHUTDOWN] ⏳ Waiting for {Count} in-flight handler(s) to complete", pending.Length);
+                        await Task.WhenAll(pending).ConfigureAwait(false);
+                    }
+
                     try
                     {
-                        await processor.DisposeAsync().ConfigureAwait(false);
+                        // DisposeAsync waits for the AMQP link close handshake which can take several seconds.
+                        // Use a short timeout so shutdown isn't blocked by the network round-trip.
+                        var disposeTask = processor.DisposeAsync().AsTask();
+                        if (await Task.WhenAny(disposeTask, Task.Delay(TimeSpan.FromSeconds(1))) != disposeTask)
+                        {
+                            _logger.LogDebug("[SHUTDOWN] Processor dispose timed out after 1s — AMQP link will close in background");
+                        }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "[SHUTDOWN] Error disposing processor");
+                        _logger.LogDebug(ex, "[SHUTDOWN] Processor dispose error");
                     }
                 }
             }
@@ -228,13 +238,29 @@ namespace SimpleL7Proxy.Feeder
 
         private async Task MessageHandler(ProcessMessageEventArgs args)
         {
+            var handlerId = Guid.NewGuid();
+            _activeHandlers.TryAdd(handlerId, Task.CompletedTask); // placeholder
+
+            try
+            {
+                var task = ProcessMessageCoreAsync(args);
+                _activeHandlers[handlerId] = task;
+                await task.ConfigureAwait(false);
+            }
+            finally
+            {
+                _activeHandlers.TryRemove(handlerId, out _);
+            }
+        }
+
+        private async Task ProcessMessageCoreAsync(ProcessMessageEventArgs args)
+        {
             var message = args.Message;
             var messageFromSB = message.Body.ToString();
             var requestData = RequestDataParser.ParseRequestData(messageFromSB);
 
             try
             {
-
                 // RequestAPIDocument comes from the status queue, only minimal fields populated
                 if (requestData is RequestAPIDocument requestMsg)
                 {
@@ -246,7 +272,6 @@ namespace SimpleL7Proxy.Feeder
                     {
                         rd.RecoveryProcessor = isBackground ? _openAIRequest : _normalRequest;
                     }
-
                 }
                 else if (requestData is RequestMessage msg)
                 {
@@ -258,21 +283,16 @@ namespace SimpleL7Proxy.Feeder
 
                     // Handle simple message
                     _logger.LogInformation("AsyncFeeder: UserID: {UserID}, ID: {Id}", msg.UserID, msg.Id);
-                    //_logger.LogInformation("AsyncFeeder: Message content: {MessageContent}", messageFromSB);
                 }
-
                 else
                 {
                     _logger.LogWarning("AsyncFeeder: Unknown message type received from Service Bus.");
                     _logger.LogInformation("AsyncFeeder: Message content: {MessageContent}", messageFromSB);
                 }
 
-
                 // mark the request as completed
                 await args.CompleteMessageAsync(message);
             }
-
-            // message will be retried automatically on error
             catch (Exception ex)
             {
                 _logger.LogError(ex, "AsyncFeeder: Error processing message from Service Bus: " + ex.Message);

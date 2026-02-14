@@ -2,9 +2,9 @@ namespace SimpleL7Proxy.Proxy;
 
 public class NullAsyncWorkerFactory: IAsyncWorkerFactory
 {
-    public AsyncWorker CreateAsync(RequestData requestData, int AsyncTriggerTimeout)
+    public Task<AsyncWorker> CreateAsync(RequestData requestData, int AsyncTriggerTimeout)
     {
         //NOP
-        return null!;
+        return Task.FromResult<AsyncWorker>(null!);
     }
 }
