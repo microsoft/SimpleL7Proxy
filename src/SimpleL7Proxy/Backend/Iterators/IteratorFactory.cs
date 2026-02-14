@@ -13,8 +13,6 @@ public static class IteratorFactory
     private static readonly object _lock = new object();
     private static volatile int _roundRobinCounter = 0;
     private static volatile List<BaseHostHealth>? _cachedActiveHosts;
-    private static volatile List<BaseHostHealth>? _cachedSpecificPathHosts;
-    private static volatile List<BaseHostHealth>? _cachedCatchAllHosts;
     private static volatile int _cacheVersion = 0; // Incremented when cache is invalidated
     
     // Thread-safe random number generator
@@ -146,57 +144,7 @@ public static class IteratorFactory
         return (catchAllHosts, requestPath);
     }
 
-    /// <summary>
-    /// Gets cached categorized hosts (specific vs catch-all) with thread-safe lazy initialization.
-    /// </summary>
-    private static (List<BaseHostHealth> specificHosts, List<BaseHostHealth> catchAllHosts) GetCategorizedHosts(IBackendService backendService)
-    {
-        // Fast path: read cached values without locking
-        var cachedSpecific = _cachedSpecificPathHosts;
-        var cachedCatchAll = _cachedCatchAllHosts;
-        
-        if (cachedSpecific != null && cachedCatchAll != null)
-        {
-            return (cachedSpecific, cachedCatchAll);
-        }
 
-        // Slow path: need to categorize hosts
-        lock (_lock)
-        {
-            // Double-check: another thread may have populated the cache
-            if (_cachedSpecificPathHosts != null && _cachedCatchAllHosts != null)
-            {
-                return (_cachedSpecificPathHosts, _cachedCatchAllHosts);
-            }
-
-            var activeHosts = backendService.GetActiveHosts();
-            var specificHosts = new List<BaseHostHealth>();
-            var catchAllHosts = new List<BaseHostHealth>();
-            
-            // Categorize hosts once at startup
-            foreach (var host in activeHosts)
-            {
-                var hostPartialPath = host.Config.PartialPath?.Trim();
-                
-                if (string.IsNullOrEmpty(hostPartialPath) || 
-                    hostPartialPath == "/" || 
-                    hostPartialPath == "/*")
-                {
-                    catchAllHosts.Add(host);
-                }
-                else
-                {
-                    specificHosts.Add(host);
-                }
-            }
-
-            _cachedSpecificPathHosts = specificHosts;
-            _cachedCatchAllHosts = catchAllHosts;
-            _cachedActiveHosts = activeHosts; // Also update the active hosts cache
-            
-            return (specificHosts, catchAllHosts);
-        }
-    }
 
     /// <summary>
     /// Gets cached active hosts. Cache is invalidated only when explicitly requested
@@ -252,8 +200,6 @@ public static class IteratorFactory
         lock (_lock)
         {
             _cachedActiveHosts = null;
-            _cachedSpecificPathHosts = null;
-            _cachedCatchAllHosts = null;
             Interlocked.Increment(ref _cacheVersion); // Track cache version for diagnostics
         }
     }

@@ -298,7 +298,7 @@ public class Program
         services.AddSingleton<ConcurrentSignal<RequestData>>();
         services.AddSingleton<IConcurrentPriQueue<RequestData>, ConcurrentPriQueue<RequestData>>();
         //services.AddSingleton<ProxyStreamWriter>();
-        services.AddSingleton<IHostHealthCollection, HostHealthCollection>();
+        services.AddSingleton<IHostHealthCollection, HostCollectionManager>();
         services.AddSingleton<HealthCheckService>();
         services.AddSingleton<RequestLifecycleManager>();
         services.AddSingleton<EventDataBuilder>();

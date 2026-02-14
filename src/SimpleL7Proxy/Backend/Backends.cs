@@ -22,9 +22,14 @@ namespace SimpleL7Proxy.Backend;
 // * Fetch the OAuth2 token and refresh it 100ms minutes before it expires
 public class Backends : IBackendService
 {
-  public List<BaseHostHealth> _backendHosts { get; set; }
   private List<BaseHostHealth> _activeHosts;
   private readonly IHostHealthCollection _backendHostCollection;
+
+  /// <summary>
+  /// All registered hosts from the current snapshot.
+  /// Always reads the latest snapshot — safe for concurrent access.
+  /// </summary>
+  private List<BaseHostHealth> _backendHosts => _backendHostCollection.Current.Hosts;
 
   private readonly BackendOptions _options;
   private static readonly bool _debug = false;
@@ -80,7 +85,6 @@ public class Backends : IBackendService
     _circuitBreaker = circuitBreaker;
     _sharedIteratorRegistry = sharedIteratorRegistry;
     _backendHostCollection = backendHostCollection;
-    _backendHosts = backendHostCollection.Hosts;
     _options = options.Value;
     _logger = logger;
 
@@ -93,10 +97,10 @@ public class Backends : IBackendService
     _options = bo;
     _activeHosts = [];
     _successRate = bo.SuccessRate / 100.0;
-    //_hosts = bo.Hosts;
-    // FailureThreshold = bo.CircuitBreakerErrorThreshold;
-    // FailureTimeFrame = bo.CircuitBreakerTimeslice;
-    // allowableCodes = bo.AcceptableStatusCodes;
+
+    // Stage hosts from config into a pending snapshot, then activate
+    _backendHostCollection.LoadFromConfig(bo.Hosts);
+    _backendHostCollection.Activate();
 
     _logger.LogDebug("[INIT] Backends service starting");
 
@@ -133,12 +137,12 @@ public class Backends : IBackendService
 
   public List<BaseHostHealth> GetSpecificPathHosts()
   {
-    return _backendHostCollection.SpecificPathHosts;
+    return _backendHostCollection.Current.SpecificPathHosts;
   }
 
   public List<BaseHostHealth> GetCatchAllHosts()
   {
-    return _backendHostCollection.CatchAllHosts;
+    return _backendHostCollection.Current.CatchAllHosts;
   }
   public async Task WaitForStartup(int timeout)
   {
