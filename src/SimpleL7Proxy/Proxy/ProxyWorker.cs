@@ -240,6 +240,7 @@ public class ProxyWorker
                 }
 
                 var eventData = incomingRequest.EventData;
+                ProxyData pr = null!;
                 try
                 {
                     if (Constants.probes.Contains(incomingRequest.Path))
@@ -262,8 +263,6 @@ public class ProxyWorker
                     workerState = "Read Proxy";
 
                     //  Do THE WORK:  FIND A BACKEND AND SEND THE REQUEST
-                    ProxyData pr = null!;
-
                     try
                     {
                         pr = await ProxyToBackEndAsync(incomingRequest).ConfigureAwait(false);
@@ -394,27 +393,15 @@ public class ProxyWorker
                     eventData.Type = EventType.Exception;
                     eventData.Exception = e;
 
-                    var errorMessage = Encoding.UTF8.GetBytes(e.Message);
-
                     if (lcontext == null)
                     {
                         _logger.LogError("Context is null in ProxyErrorException");
                         continue;
                     }
 
-                    try
+                    if (await WriteErrorToClientAsync(lcontext, e.StatusCode, e.Message, eventData, incomingRequest?.Guid))
                     {
-                        lcontext.Response.StatusCode = (int)e.StatusCode;
-                        await lcontext.Response.OutputStream.WriteAsync(errorMessage).ConfigureAwait(false);
                         _logger.LogWarning("Proxy error: {Message}", e.Message);
-                    }
-                    catch (Exception writeEx)
-                    {
-                        _logger.LogError(writeEx, "Failed to write error message for request {Guid}", incomingRequest?.Guid);
-
-                        eventData["ErrorDetail"] = "Network Error sending error response";
-                        eventData.Type = EventType.Exception;
-                        eventData.Exception = writeEx;
                     }
                 }
 
@@ -439,18 +426,10 @@ public class ProxyWorker
                             _logger.LogError("Context is null in IOException");
                             continue;
                         }
-                        try
+
+                        if (await WriteErrorToClientAsync(lcontext, HttpStatusCode.RequestTimeout, errorMessage, eventData, incomingRequest?.Guid))
                         {
-                            lcontext.Response.StatusCode = (int)eventData.Status;
-                            var errorBytes = Encoding.UTF8.GetBytes(errorMessage);
-                            await lcontext.Response.OutputStream.WriteAsync(errorBytes).ConfigureAwait(false);
                             _logger.LogError(ioEx, "An IO exception occurred for request {Guid}", incomingRequest?.Guid);
-                        }
-                        catch (Exception writeEx)
-                        {
-                            _logger.LogError(writeEx, "Failed to write error message for request {Guid}", incomingRequest?.Guid);
-                            eventData["InnerErrorDetail"] = "Network Error";
-                            eventData["InnerErrorStack"] = writeEx.StackTrace?.ToString() ?? "No Stack Trace";
                         }
                     }
                 }
@@ -502,17 +481,7 @@ public class ProxyWorker
                                 continue;
                             }
 
-                            try
-                            {
-                                lcontext.Response.StatusCode = 500;
-                                var errorBytes = Encoding.UTF8.GetBytes(errorMessage);
-                                await lcontext.Response.OutputStream.WriteAsync(errorBytes).ConfigureAwait(false);
-                            }
-                            catch (Exception writeEx)
-                            {
-                                eventData["InnerErrorDetail"] = "Network Error";
-                                eventData["InnerErrorStack"] = writeEx.StackTrace?.ToString() ?? "No Stack Trace";
-                            }
+                            await WriteErrorToClientAsync(lcontext, HttpStatusCode.InternalServerError, errorMessage, eventData, incomingRequest?.Guid);
                         }
                     }
                 }
@@ -864,7 +833,8 @@ public class ProxyWorker
         }
         request.Path = modifiedPath;
 
-        var matchingHostCount = _backends.GetActiveHosts()
+        var activeHosts = _backends.GetActiveHosts();
+        var matchingHostCount = activeHosts
             .Count(h => h.Config.PartialPath == request.Path || h.Config.PartialPath == "/");
         _logger.LogDebug("[ProxyToBackEnd:{Guid}] Found {HostCount} backend hosts for path {Path}",
             request.Guid, matchingHostCount, request.Path);
@@ -875,9 +845,8 @@ public class ProxyWorker
                 request.Guid, request.Path);
             
             // Log all available hosts and their paths for debugging
-            var allHosts = _backends.GetActiveHosts();
             _logger.LogCritical("[ProxyToBackEnd:{Guid}] Available hosts and their paths:", request.Guid);
-            foreach (var h in allHosts)
+            foreach (var h in activeHosts)
             {
                 var cbStatus = h.Config.GetCircuitBreakerStatusString();
                 _logger.LogCritical("[ProxyToBackEnd:{Guid}]   - Host: {Host}, Path: {PartialPath}, CB-Status: {CBStatus}",
@@ -1499,6 +1468,36 @@ public class ProxyWorker
         requestAttempt["Error"] = error;
         if (message != null)
             requestAttempt["Message"] = message;
+    }
+
+    /// <summary>
+    /// Writes an error response (status code + message body) to the client's HTTP connection.
+    /// Consolidates the duplicated try/catch pattern used across catch blocks in TaskRunnerAsync.
+    /// </summary>
+    /// <returns>True if the response was written successfully, false if the write failed.</returns>
+    private async Task<bool> WriteErrorToClientAsync(
+        HttpListenerContext lcontext,
+        HttpStatusCode statusCode,
+        string errorMessage,
+        ProxyEvent eventData,
+        Guid? requestGuid)
+    {
+        try
+        {
+            lcontext.Response.StatusCode = (int)statusCode;
+            var errorBytes = Encoding.UTF8.GetBytes(errorMessage);
+            await lcontext.Response.OutputStream.WriteAsync(errorBytes).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception writeEx)
+        {
+            _logger.LogError(writeEx, "Failed to write error response for request {Guid}", requestGuid);
+            eventData["InnerErrorDetail"] = "Network Error sending error response";
+            eventData["InnerErrorStack"] = writeEx.StackTrace?.ToString() ?? "No Stack Trace";
+            eventData.Type = EventType.Exception;
+            eventData.Exception = writeEx;
+            return false;
+        }
     }
 
     private void PopulateTimeoutError(
