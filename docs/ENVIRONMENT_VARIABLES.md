@@ -78,7 +78,7 @@ For production deployments, consider also configuring:
 | **TTLHeader**                  | string | Name of the header used to specify time-to-live for requests.                                                                                         | S7PTTL                                   |
 | **UniqueUserHeaders**         | string | A list of header names that uniquely identify the caller or user.                                                                                                                               | X-UserID                                 |
 | **UserProfileHeader**         | string | Name of the header that contains user profile information when UseProfiles is enabled.                                                                 | X-UserProfile                            |
-| **ValidateHeaders**           | string | Comma-separated list of key:value pairs for header validation. See [Advanced Configuration](ADVANCED_CONFIGURATION.md#header-validation) for examples.                                                     | (empty)                                  |
+| **ValidateHeaders**           | string | Comma-separated `SourceHeader:AllowedValuesHeader` pairs. Validates that the source header value appears in the allow-list header. Supports trailing `*` for prefix matching. See [Advanced Configuration](ADVANCED_CONFIGURATION.md#header-validation). | (empty)                                  |
 
 ## Logging & Monitoring Variables
 
