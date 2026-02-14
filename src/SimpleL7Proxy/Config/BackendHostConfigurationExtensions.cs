@@ -206,20 +206,20 @@ public static class BackendHostConfigurationExtensions
   }
 
   // Converts a List<string> to a dictionary of strings.
-  private static Dictionary<string, string> KVStringPairs(List<string> list)
+  private static Dictionary<string, string> KVStringPairs(List<string> list, char delimiter = '=')
   {
     Dictionary<string, string> keyValuePairs = [];
 
     foreach (var item in list)
     {
-      var kvp = item.Split('=');
+      var kvp = item.Split(delimiter);
       if (kvp.Length == 2)
       {
         keyValuePairs.Add(kvp[0].Trim(), kvp[1].Trim());
       }
       else
       {
-        Console.WriteLine($"Could not parse {item} as a key-value pair, ignoring");
+        Console.WriteLine($"Could not parse {item} as a key-value pair (delimiter='{delimiter}'), ignoring");
       }
     }
 
@@ -639,7 +639,7 @@ public static class BackendHostConfigurationExtensions
       ValidateAuthAppID = ReadEnvironmentVariableOrDefault("ValidateAuthAppID", false),
       ValidateAuthAppIDHeader = ReadEnvironmentVariableOrDefault("ValidateAuthAppIDHeader", "X-MS-CLIENT-PRINCIPAL-ID"),
       ValidateAuthAppIDUrl = ReadEnvironmentVariableOrDefault("ValidateAuthAppIDUrl", "file:auth.json"),
-      ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault("ValidateHeaders", ""))),
+      ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault("ValidateHeaders", "")), ':'),
       Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
     };
 
