@@ -54,10 +54,9 @@ public class LogFileEventClient : IEventClient, IHostedService
         return Task.CompletedTask;
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    public async Task StopAsync(CancellationToken cancellationToken)
     {
-        StopTimer();
-        return Task.CompletedTask;
+        await StopTimerAsync().ConfigureAwait(false);
     }
 
 
@@ -120,21 +119,21 @@ public class LogFileEventClient : IEventClient, IHostedService
         writer.Flush();
     }
 
-    public void StopTimer()
+    public async Task StopTimerAsync()
     {
         if (writerTask == null)
         {
-            Console.WriteLine("LogFileEventClient: StopTimer called but writerTask is null");
+            Console.WriteLine("LogFileEventClient: StopTimerAsync called but writerTask is null");
             return;
         }
         isShuttingDown = true;
         while (isRunning && _logBuffer.Count > 0)
         {
-            Task.Delay(100).Wait();
+            await Task.Delay(100).ConfigureAwait(false);
         }
         cancellationTokenSource.Cancel();
 
-        writerTask?.Wait();
+        await writerTask.ConfigureAwait(false);
 
         isRunning = false;
     }

@@ -5,12 +5,12 @@ namespace SimpleL7Proxy.Events;
 public class CompositeEventClient(IEnumerable<IEventClient> eventClients)
   : IEventClient
 {
-  public void StopTimer()
+  public async Task StopTimerAsync()
   {
     foreach (var client in eventClients)
     {
       Console.WriteLine($"Stopping timer for {client}");
-      client.StopTimer();
+      await client.StopTimerAsync().ConfigureAwait(false);
     }
   }
   public int Count

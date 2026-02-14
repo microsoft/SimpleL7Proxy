@@ -93,25 +93,25 @@ public class EventHubClient : IEventClient, IHostedService
         }
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    public async Task StopAsync(CancellationToken cancellationToken)
     {
-        StopTimer();
-        return Task.CompletedTask;
+        await StopTimerAsync().ConfigureAwait(false);
     }
 
     TaskCompletionSource<bool> ShutdownTCS = new();
 
-    public void StopTimer()
+    public async Task StopTimerAsync()
     {
         isShuttingDown = true;
         while (isRunning && _logBuffer.Count > 0)
         {
-            Task.Delay(100).Wait();
+            await Task.Delay(100).ConfigureAwait(false);
         }
 
         cancellationTokenSource.Cancel();
         isRunning = false;
-        writerTask?.Wait();
+        if (writerTask != null)
+            await writerTask.ConfigureAwait(false);
     }
 
     public async Task EventWriter(CancellationToken token)
