@@ -780,57 +780,8 @@ public class ProxyWorker
         //byte[] bodyBytes = await request.CachBodyAsync().ConfigureAwait(false);
         List<S7PRequeueException> retryAfter = new();
 
-        string modifiedPath = "";
-        
-        // Get an iterator for the active hosts based on configuration:
-        // - UseSharedIterators=true: Share iterator by path for fair distribution across concurrent requests
-        // - UseSharedIterators=false: Each request gets its own iterator (default)
-        IHostIterator? hostIterator = null;
-        ISharedHostIterator? sharedIterator = null;
-        
-        if (_options.UseSharedIterators && _sharedIteratorRegistry != null)
-        {
-            // Use shared iterator - multiple requests to same path share the same iterator
-            sharedIterator = _sharedIteratorRegistry.GetOrCreate(
-                request.Path,
-                () => IteratorFactory.CreateSinglePassIterator(
-                    _backends,
-                    _options.LoadBalanceMode,
-                    request.Path,
-                    out modifiedPath));
-            
-            // Get modified path from factory for shared iterator case
-            _ = IteratorFactory.GetFilteredHosts(_backends, _options.LoadBalanceMode, request.Path, out modifiedPath);
-            
-            _logger.LogDebug(
-                "[ProxyToBackEnd:{Guid}] Using SHARED iterator for path '{Path}' with {HostCount} hosts",
-                request.Guid, request.Path, sharedIterator.HostCount);
-        }
-        else
-        {
-            // Use per-request iterator (original behavior)
-            hostIterator = _options.IterationMode switch
-            {
-                IterationModeEnum.SinglePass => IteratorFactory.CreateSinglePassIterator(
-                    _backends,
-                    _options.LoadBalanceMode,
-                    request.Path,
-                    out modifiedPath),
+        var (hostIterator, sharedIterator, modifiedPath) = CreateHostIterator(request);
 
-                IterationModeEnum.MultiPass => IteratorFactory.CreateMultiPassIterator(
-                    _backends,
-                    _options.LoadBalanceMode,
-                    _options.MaxAttempts,
-                    request.Path,
-                    out modifiedPath),
-
-                _ => IteratorFactory.CreateSinglePassIterator(
-                    _backends,
-                    _options.LoadBalanceMode,
-                    request.Path,
-                    out modifiedPath)
-            };
-        }
         request.Path = modifiedPath;
 
         var activeHosts = _backends.GetActiveHosts();
@@ -1075,36 +1026,15 @@ public class ProxyWorker
                             }
 
 
-                            if (intCode == 429 && proxyResponse.Headers.TryGetValues("S7PREQUEUE", out var values))
+                            var (shouldRequeue, retryMs) = CheckRequeueResponse(proxyResponse, intCode, requestAttempt, ref requestState);
+                            if (shouldRequeue)
                             {
-                                requestState = "Process 429";
-
-                                foreach (var header in proxyResponse.Headers.ToList())
-                                {
-                                    if (s_excludedHeaders.Contains(header.Key)) continue;
-                                    requestAttempt[header.Key] = string.Join(", ", header.Value);
-                                    // Console.WriteLine($"  {header.Key}: {requestAttempt[header.Key]}");
-                                }
-
-                                // Requeue the request if the response is a 429 and the S7PREQUEUE header is set
-                                // It's possible that the next host processes this request successfully, in which case these will get ignored
-                                if (!string.Equals(values.FirstOrDefault(), "true", StringComparison.OrdinalIgnoreCase))
-                                    continue;
-
-                                // Try retry-after-ms (milliseconds), then retry-after (seconds), default to 1000ms
-                                int retryMs = 1000;
-                                if (proxyResponse.Headers.TryGetValues("retry-after-ms", out var retryAfterValuesMS) &&
-                                    int.TryParse(retryAfterValuesMS.FirstOrDefault(), out var retryAfterValueMS))
-                                {
-                                    retryMs = retryAfterValueMS;
-                                }
-                                else if (proxyResponse.Headers.TryGetValues("retry-after", out var retryAfterValues) &&
-                                         int.TryParse(retryAfterValues.FirstOrDefault(), out var retryAfterValue))
-                                {
-                                    retryMs = retryAfterValue * 1000;
-                                }
-
                                 throw new S7PRequeueException("Requeue request", pr, retryMs);
+                            }
+                            else if (intCode == 429)
+                            {
+                                // S7PREQUEUE was not "true" — try next host
+                                continue;
                             }
                             else
                             {
@@ -1198,45 +1128,7 @@ public class ProxyWorker
             }
             catch (HttpRequestException e)
             {
-                HttpStatusCode statusCode = e.StatusCode ?? HttpStatusCode.BadGateway; // Default to 502 if no status code
-                
-                // If no status code from the exception, try to infer from inner exception or message
-                if (e.StatusCode == null)
-                {
-                    if (e.InnerException is SocketException socketEx)
-                    {
-                        switch (socketEx.SocketErrorCode)
-                        {
-                            case SocketError.HostNotFound:
-                            case SocketError.TryAgain:
-                            case SocketError.NoData:
-                                statusCode = HttpStatusCode.ServiceUnavailable; // 503
-                                break;
-                            case SocketError.TimedOut:
-                                statusCode = HttpStatusCode.RequestTimeout; // 408
-                                break;
-                            case SocketError.ConnectionRefused:
-                                statusCode = HttpStatusCode.BadGateway; // 502
-                                break;
-                        }
-                    }
-                    
-                    // Fallback to message parsing if still default
-                    if (statusCode == HttpStatusCode.BadGateway)
-                    {
-                        if (e.Message.Contains("name or service not known", StringComparison.OrdinalIgnoreCase) ||
-                            e.Message.Contains("No such host is known", StringComparison.OrdinalIgnoreCase) ||
-                            e.Message.Contains("Temporary failure in name resolution", StringComparison.OrdinalIgnoreCase) ||
-                            e.Message.Contains("Name resolution failed", StringComparison.OrdinalIgnoreCase))
-                        {
-                            statusCode = HttpStatusCode.ServiceUnavailable; // 503
-                        }
-                        else if (e.Message.Contains("timed out", StringComparison.OrdinalIgnoreCase))
-                        {
-                            statusCode = HttpStatusCode.RequestTimeout; // 408
-                        }
-                    }
-                }
+                HttpStatusCode statusCode = ResolveHttpRequestErrorStatus(e);
                 intCode = (int)statusCode;
 
                 PopulateRequestAttemptError(requestAttempt, statusCode,
@@ -1341,70 +1233,8 @@ public class ProxyWorker
             }
         }
 
-        // STREAM SERVER ERROR RESPONSE.  Must respond because the request was not successful
-        try
-        {
-            // For async requests that triggered, write error to blob via AsyncWorker
-            if (request.AsyncTriggered && request.asyncWorker != null)
-            {
-                _logger.LogInformation("Writing error response to AsyncWorker blob for request {Guid} - Status: {StatusCode}",
-                    request.Guid, lastStatusCode);
-                
-                // Write error headers to blob
-                var errorHeaders = new WebHeaderCollection
-                {
-                    ["x-Request-Queue-Duration"] = (request.DequeueTime - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms",
-                    ["x-Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms",
-                    ["x-ProxyHost"] = _options.HostName,
-                    ["x-MID"] = request.MID,
-                    ["Attempts"] = request.BackendAttempts.ToString()
-                };
-
-                await request.asyncWorker.WriteHeaders(lastStatusCode, errorHeaders);
-
-                // Write error body to blob - use lazy stream creation for background checks
-                if (request.IsBackgroundCheck)
-                {
-                    var outputStream = await request.asyncWorker.GetOrCreateDataStreamAsync();
-                    await outputStream.WriteAsync(Encoding.UTF8.GetBytes(sb.ToString())).ConfigureAwait(false);
-                    await outputStream.FlushAsync().ConfigureAwait(false);
-                }
-                else if (request.OutputStream != null)
-                {
-                    await request.OutputStream.WriteAsync(Encoding.UTF8.GetBytes(sb.ToString())).ConfigureAwait(false);
-                    await request.OutputStream.FlushAsync().ConfigureAwait(false);
-                }
-            }
-            // For synchronous requests or async that hasn't triggered, write to HTTP context
-            else if (!request.AsyncTriggered && request.Context != null)
-            {
-                _logger.LogInformation("Response Status Code: {StatusCode} for request {Guid}",
-                    lastStatusCode, request.Guid);
-                request.Context.Response.StatusCode = (int)lastStatusCode;
-                request.Context.Response.KeepAlive = false;
-                
-                request.Context.Response.Headers["x-Request-Queue-Duration"] = (request.DequeueTime - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms";
-                request.Context.Response.Headers["x-Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms";
-                request.Context.Response.Headers["x-ProxyHost"] = _options.HostName;
-                request.Context.Response.Headers["x-MID"] = request.MID;
-                request.Context.Response.Headers["Attempts"] = request.BackendAttempts.ToString();
-
-                await request.Context.Response.OutputStream.WriteAsync(Encoding.UTF8.GetBytes(sb.ToString())).ConfigureAwait(false);
-                await request.Context.Response.OutputStream.FlushAsync().ConfigureAwait(false);
-            }
-            else
-            {
-                _logger.LogWarning("Cannot write error response for request {Guid} - Context: {HasContext}, AsyncTriggered: {AsyncTriggered}, AsyncWorker: {HasAsyncWorker}",
-                    request.Guid, request.Context != null, request.AsyncTriggered, request.asyncWorker != null);
-            }
-
-        }
-        catch (Exception e)
-        {
-            // If we can't write the response, we can only log it
-            _logger.LogError(e, "Error writing error response for request {Guid} - AsyncTriggered: {AsyncTriggered}",
-                request.Guid, request.AsyncTriggered);
-        }
+        // Write error response to client (sync HTTP) or blob (async)
+        await WriteExhaustedHostsErrorAsync(request, lastStatusCode, sb.ToString()).ConfigureAwait(false);
 
 
         return new ProxyData
@@ -1468,6 +1298,218 @@ public class ProxyWorker
         requestAttempt["Error"] = error;
         if (message != null)
             requestAttempt["Message"] = message;
+    }
+
+    /// <summary>
+    /// Creates a host iterator for routing requests to backend hosts.
+    /// Uses shared iterators (fair distribution across concurrent requests) or per-request iterators
+    /// based on configuration.
+    /// </summary>
+    /// <returns>A tuple of (per-request iterator, shared iterator, modified path). Exactly one iterator will be non-null.</returns>
+    private (IHostIterator? hostIterator, ISharedHostIterator? sharedIterator, string modifiedPath) CreateHostIterator(RequestData request)
+    {
+        string modifiedPath = "";
+        IHostIterator? hostIterator = null;
+        ISharedHostIterator? sharedIterator = null;
+
+        if (_options.UseSharedIterators && _sharedIteratorRegistry != null)
+        {
+            // Use shared iterator - multiple requests to same path share the same iterator
+            sharedIterator = _sharedIteratorRegistry.GetOrCreate(
+                request.Path,
+                () => IteratorFactory.CreateSinglePassIterator(
+                    _backends,
+                    _options.LoadBalanceMode,
+                    request.Path,
+                    out modifiedPath));
+
+            // Get modified path from factory for shared iterator case
+            _ = IteratorFactory.GetFilteredHosts(_backends, _options.LoadBalanceMode, request.Path, out modifiedPath);
+
+            _logger.LogDebug(
+                "[ProxyToBackEnd:{Guid}] Using SHARED iterator for path '{Path}' with {HostCount} hosts",
+                request.Guid, request.Path, sharedIterator.HostCount);
+        }
+        else
+        {
+            // Use per-request iterator (original behavior)
+            hostIterator = _options.IterationMode switch
+            {
+                IterationModeEnum.SinglePass => IteratorFactory.CreateSinglePassIterator(
+                    _backends,
+                    _options.LoadBalanceMode,
+                    request.Path,
+                    out modifiedPath),
+
+                IterationModeEnum.MultiPass => IteratorFactory.CreateMultiPassIterator(
+                    _backends,
+                    _options.LoadBalanceMode,
+                    _options.MaxAttempts,
+                    request.Path,
+                    out modifiedPath),
+
+                _ => IteratorFactory.CreateSinglePassIterator(
+                    _backends,
+                    _options.LoadBalanceMode,
+                    request.Path,
+                    out modifiedPath)
+            };
+        }
+
+        return (hostIterator, sharedIterator, modifiedPath);
+    }
+
+    /// <summary>
+    /// Maps an HttpRequestException to the most appropriate HTTP status code by inspecting
+    /// the exception's StatusCode, inner SocketException error codes, and error message text.
+    /// </summary>
+    private static HttpStatusCode ResolveHttpRequestErrorStatus(HttpRequestException e)
+    {
+        HttpStatusCode statusCode = e.StatusCode ?? HttpStatusCode.BadGateway;
+
+        if (e.StatusCode != null)
+            return statusCode;
+
+        // Infer from inner SocketException
+        if (e.InnerException is SocketException socketEx)
+        {
+            switch (socketEx.SocketErrorCode)
+            {
+                case SocketError.HostNotFound:
+                case SocketError.TryAgain:
+                case SocketError.NoData:
+                    return HttpStatusCode.ServiceUnavailable; // 503
+                case SocketError.TimedOut:
+                    return HttpStatusCode.RequestTimeout; // 408
+                case SocketError.ConnectionRefused:
+                    return HttpStatusCode.BadGateway; // 502
+            }
+        }
+
+        // Fallback to message parsing
+        if (statusCode == HttpStatusCode.BadGateway)
+        {
+            if (e.Message.Contains("name or service not known", StringComparison.OrdinalIgnoreCase) ||
+                e.Message.Contains("No such host is known", StringComparison.OrdinalIgnoreCase) ||
+                e.Message.Contains("Temporary failure in name resolution", StringComparison.OrdinalIgnoreCase) ||
+                e.Message.Contains("Name resolution failed", StringComparison.OrdinalIgnoreCase))
+            {
+                return HttpStatusCode.ServiceUnavailable; // 503
+            }
+            else if (e.Message.Contains("timed out", StringComparison.OrdinalIgnoreCase))
+            {
+                return HttpStatusCode.RequestTimeout; // 408
+            }
+        }
+
+        return statusCode;
+    }
+
+    /// <summary>
+    /// Checks whether a 429 response with the S7PREQUEUE header should trigger a requeue.
+    /// Copies response headers into the request attempt event and parses retry-after timing.
+    /// </summary>
+    /// <returns>(shouldRequeue: true if S7PREQUEUE="true", retryMs: delay before requeue)</returns>
+    private (bool shouldRequeue, int retryMs) CheckRequeueResponse(
+        HttpResponseMessage proxyResponse,
+        int intCode,
+        ProxyEvent requestAttempt,
+        ref string requestState)
+    {
+        if (intCode != 429 || !proxyResponse.Headers.TryGetValues("S7PREQUEUE", out var values))
+            return (false, 0);
+
+        requestState = "Process 429";
+
+        foreach (var header in proxyResponse.Headers.ToList())
+        {
+            if (s_excludedHeaders.Contains(header.Key)) continue;
+            requestAttempt[header.Key] = string.Join(", ", header.Value);
+        }
+
+        if (!string.Equals(values.FirstOrDefault(), "true", StringComparison.OrdinalIgnoreCase))
+            return (false, 0);
+
+        // Try retry-after-ms (milliseconds), then retry-after (seconds), default to 1000ms
+        int retryMs = 1000;
+        if (proxyResponse.Headers.TryGetValues("retry-after-ms", out var retryAfterValuesMS) &&
+            int.TryParse(retryAfterValuesMS.FirstOrDefault(), out var retryAfterValueMS))
+        {
+            retryMs = retryAfterValueMS;
+        }
+        else if (proxyResponse.Headers.TryGetValues("retry-after", out var retryAfterValues) &&
+                 int.TryParse(retryAfterValues.FirstOrDefault(), out var retryAfterValue))
+        {
+            retryMs = retryAfterValue * 1000;
+        }
+
+        return (true, retryMs);
+    }
+
+    /// <summary>
+    /// Writes the error response when all backend hosts have been exhausted.
+    /// Routes to blob storage (for async requests) or HTTP context (for sync requests).
+    /// </summary>
+    private async Task WriteExhaustedHostsErrorAsync(RequestData request, HttpStatusCode statusCode, string errorBody)
+    {
+        try
+        {
+            if (request.AsyncTriggered && request.asyncWorker != null)
+            {
+                _logger.LogInformation("Writing error response to AsyncWorker blob for request {Guid} - Status: {StatusCode}",
+                    request.Guid, statusCode);
+
+                var errorHeaders = new WebHeaderCollection
+                {
+                    ["x-Request-Queue-Duration"] = (request.DequeueTime - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms",
+                    ["x-Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms",
+                    ["x-ProxyHost"] = _options.HostName,
+                    ["x-MID"] = request.MID,
+                    ["Attempts"] = request.BackendAttempts.ToString()
+                };
+
+                await request.asyncWorker.WriteHeaders(statusCode, errorHeaders);
+
+                var errorBytes = Encoding.UTF8.GetBytes(errorBody);
+                if (request.IsBackgroundCheck)
+                {
+                    var outputStream = await request.asyncWorker.GetOrCreateDataStreamAsync();
+                    await outputStream.WriteAsync(errorBytes).ConfigureAwait(false);
+                    await outputStream.FlushAsync().ConfigureAwait(false);
+                }
+                else if (request.OutputStream != null)
+                {
+                    await request.OutputStream.WriteAsync(errorBytes).ConfigureAwait(false);
+                    await request.OutputStream.FlushAsync().ConfigureAwait(false);
+                }
+            }
+            else if (!request.AsyncTriggered && request.Context != null)
+            {
+                _logger.LogInformation("Response Status Code: {StatusCode} for request {Guid}",
+                    statusCode, request.Guid);
+                request.Context.Response.StatusCode = (int)statusCode;
+                request.Context.Response.KeepAlive = false;
+
+                request.Context.Response.Headers["x-Request-Queue-Duration"] = (request.DequeueTime - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms";
+                request.Context.Response.Headers["x-Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms";
+                request.Context.Response.Headers["x-ProxyHost"] = _options.HostName;
+                request.Context.Response.Headers["x-MID"] = request.MID;
+                request.Context.Response.Headers["Attempts"] = request.BackendAttempts.ToString();
+
+                await request.Context.Response.OutputStream.WriteAsync(Encoding.UTF8.GetBytes(errorBody)).ConfigureAwait(false);
+                await request.Context.Response.OutputStream.FlushAsync().ConfigureAwait(false);
+            }
+            else
+            {
+                _logger.LogWarning("Cannot write error response for request {Guid} - Context: {HasContext}, AsyncTriggered: {AsyncTriggered}, AsyncWorker: {HasAsyncWorker}",
+                    request.Guid, request.Context != null, request.AsyncTriggered, request.asyncWorker != null);
+            }
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, "Error writing error response for request {Guid} - AsyncTriggered: {AsyncTriggered}",
+                request.Guid, request.AsyncTriggered);
+        }
     }
 
     /// <summary>
