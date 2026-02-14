@@ -65,7 +65,7 @@ public class BackendRequestExecutor
 
 ### 1B. Extract `ResponseWriter` (from `WriteResponseAsync` + `StreamResponseAsync`)
 
-**What to move** (lines 602–1683, ~1080 LOC but much overlaps with 1A):
+**What to move** (~230 LOC, non-overlapping with 1A):
 - `WriteResponseAsync()` (lines 602–691, ~90 LOC)
 - `StreamResponseAsync()` (lines 1541–1650, ~110 LOC)
 - `HandleBackgroundCheckResultAsync()` (lines 1652–1683, ~32 LOC)
@@ -638,22 +638,22 @@ public void SetExpiration(RequestData request, int defaultTTLSecs, string ttlHea
 
 ### Recommended order (each step is independently shippable):
 
-| Step | What | Risk | Dependencies |
-|------|------|------|-------------|
-| **Step 1** | Extract `RequestValidator` from `server.cs` | Low | None — purely moves inline code to a class |
-| **Step 2** | Extract `RequestPriorityCalculator` from `server.cs` | Low | None |
-| **Step 3** | Extract `EnqueueDecisionMaker` from `server.cs` | Low | None |
-| **Step 4** | Remove `RequestData` property side effects (4A) | Medium | Requires updating all callers of `SBStatus =` and `RequestAPIStatus =` |
-| **Step 5** | Eliminate `RequestData` static services (4B) | Medium | Requires moving `Cleanup()` to `RequestLifecycleManager` |
-| **Step 6** | Extract `SoftDeleteManager` from `UserProfile` | Low | None — self-contained logic |
-| **Step 7** | Extract `UserConfigParser` from `UserProfile` | Low | Depends on Step 6 (uses `ApplySoftDeletes`) |
-| **Step 8** | Extract `AsyncClientConfigValidator` from `UserProfile` | Low | None |
-| **Step 9** | Extract `UserConfigLoader` from `UserProfile` | Medium | Depends on Steps 6, 7 |
-| **Step 10** | Extract `BackendRequestExecutor` from `ProxyWorker` | High | Largest extraction; needs careful testing |
-| **Step 11** | Extract `ResponseWriter` from `ProxyWorker` | Medium | Can be done with Step 10 |
-| **Step 12** | Extract `ErrorResponseWriter` from `ProxyWorker` | Low | Smaller, self-contained |
-| **Step 13** | Simplify `RequestData` disposal (4C) | Medium | Do after Steps 4-5 |
-| **Step 14** | Move `CalculateExpiration` (4D) | Low | Do after Step 5 |
+| # | Extraction | Risk | Dependencies |
+|---|-----------|------|-------------|
+| 1 | Extract `RequestValidator` from `server.cs` | Low | None — purely moves inline code to a class |
+| 2 | Extract `RequestPriorityCalculator` from `server.cs` | Low | None |
+| 3 | Extract `EnqueueDecisionMaker` from `server.cs` | Low | None |
+| 4 | Remove `RequestData` property side effects (4A) | Medium | Requires updating all callers of `SBStatus =` and `RequestAPIStatus =` |
+| 5 | Eliminate `RequestData` static services (4B) | Medium | Requires moving `Cleanup()` to `RequestLifecycleManager` |
+| 6 | Extract `SoftDeleteManager` from `UserProfile` | Low | None — self-contained logic |
+| 7 | Extract `UserConfigParser` from `UserProfile` | Low | Depends on step 6 (uses `ApplySoftDeletes`) |
+| 8 | Extract `AsyncClientConfigValidator` from `UserProfile` | Low | None |
+| 9 | Extract `UserConfigLoader` from `UserProfile` | Medium | Depends on steps 6, 7 |
+| 10 | Extract `BackendRequestExecutor` from `ProxyWorker` | High | Largest extraction; needs careful testing |
+| 11 | Extract `ResponseWriter` from `ProxyWorker` | Medium | Can be done with step 10 |
+| 12 | Extract `ErrorResponseWriter` from `ProxyWorker` | Low | Smaller, self-contained |
+| 13 | Simplify `RequestData` disposal (4C) | Medium | Do after steps 4-5 |
+| 14 | Move `CalculateExpiration` (4D) | Low | Do after step 5 |
 
 ### Key principle: each step produces a working system
 Every extraction should pass all existing tests and maintain the same external behavior. No step should require the next step to be functional.
