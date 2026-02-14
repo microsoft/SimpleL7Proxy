@@ -376,8 +376,6 @@ public class ProxyWorker
                         incomingRequest.asyncWorker?.UpdateBackup();
                     }
 
-                    // Dispose ProxyData to release memory immediately (headers, body byte arrays)
-                    pr?.Dispose();
                 }
                 catch (S7PRequeueException e)
                 {
@@ -522,6 +520,10 @@ public class ProxyWorker
                 {
                     try
                     {
+                        // Dispose ProxyData to release HttpResponseMessage and body byte arrays.
+                        // Must be in finally — exception paths were previously leaking this.
+                        pr?.Dispose();
+
                         if (abortTask)
                         {
                             if (incomingRequest.asyncWorker != null)
