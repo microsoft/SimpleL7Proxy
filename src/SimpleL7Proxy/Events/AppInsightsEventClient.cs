@@ -7,12 +7,6 @@ namespace SimpleL7Proxy.Events;
 public class AppInsightsEventClient(TelemetryClient telemetryClient)
   : IEventClient, IHostedService
 {
-
-  public Task StartTimer()
-  {
-    // No timer needed for App Insights
-    return Task.CompletedTask;
-  }
   public void StopTimer() { }
   public int Count => 0;
   public string ClientType => "AppInsights";

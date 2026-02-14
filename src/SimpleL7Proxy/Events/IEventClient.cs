@@ -6,7 +6,6 @@ public interface IEventClient
 {
   int Count { get; }
   string ClientType { get; }
-  //public Task StartTimer();
   public void StopTimer();
 
   void SendData(string? value);
