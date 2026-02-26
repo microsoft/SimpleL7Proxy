@@ -22,7 +22,8 @@ public sealed class StreamProcessorFactory
             ["OpenAI"] = static () => new OpenAIProcessor(),
             ["AllUsage"] = static () => new AllUsageProcessor(),
             ["DefaultStream"] = static () => DefaultStreamProcessorInstance, // Reuse singleton
-            ["MultiLineAllUsage"] = static () => new MultiLineAllUsageProcessor()
+            ["MultiLineAllUsage"] = static () => new MultiLineAllUsageProcessor(),
+            ["CompleteAllUsageProcessor"] = static () => new CompleteAllUsageProcessor()
         };
 
     // Constants for processor selection logic

@@ -1,5 +1,11 @@
 # Release Notes #
 
+Proxy:
+* Implement partial matches for validated parameters
+* Remove blocking operations during shutdown
+* Convert HostHealthCollection to to HostCollectionSnapshot
+* Added CompleteAllUsageProcessor for parsing the entire file
+
 ## 2.2.9-D2
 
 Deployment:

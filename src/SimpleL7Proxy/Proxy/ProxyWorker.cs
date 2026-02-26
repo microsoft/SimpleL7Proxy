@@ -1025,8 +1025,8 @@ public class ProxyWorker
                                 }
                             }
 
-
                             var (shouldRequeue, retryMs) = CheckRequeueResponse(proxyResponse, intCode, requestAttempt, ref requestState);
+
                             if (shouldRequeue)
                             {
                                 throw new S7PRequeueException("Requeue request", pr, retryMs);

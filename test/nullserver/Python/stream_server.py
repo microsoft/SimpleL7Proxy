@@ -172,9 +172,10 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
                 self.wfile.write(b"File not found")
                 return
 
+            processor = self.headers.get('X-TokenProcessor', 'MultiLineAllUsage')
             sleep_time = random.uniform(.4, .7)  # Random sleep time
             time.sleep(sleep_time)
-            self.send_streaming_response(filename, "MultiLineAllUsage")
+            self.send_streaming_response(filename, processor)
             return
 
         # Default response
