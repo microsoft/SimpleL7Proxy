@@ -11,6 +11,64 @@ Data is emitted to the following configured sinks:
 
 Event Hubs and Local Log File are **sibling backends** managed by the `CompositeEventClient` — they can run simultaneously. Set `EVENT_LOGGERS=file,eventhub` to enable both. Each backend self-registers on successful startup; if one fails (e.g., EventHub timeout), the others continue unaffected.
 
+## Custom Event Loggers
+
+Besides the built-in `file` and `eventhub` backends, you can create your own logger by implementing `IEventClient` and `IHostedService` in the `SimpleL7Proxy` assembly.
+
+### Steps
+
+1. Create a class that implements both interfaces.
+2. Accept `CompositeEventClient` and `ILogger<T>` in the constructor (DI resolves them automatically).
+3. In `StartAsync`, perform any setup, then call `_composite.Add(this)` to register.
+4. Reference it by fully-qualified name in `EVENT_LOGGERS`.
+
+### Example
+
+```csharp
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+
+namespace SimpleL7Proxy.Events;
+
+public class ConsoleEventLogger : IEventClient, IHostedService
+{
+    private readonly CompositeEventClient _composite;
+    private readonly ILogger<ConsoleEventLogger> _logger;
+
+    public ConsoleEventLogger(CompositeEventClient composite, ILogger<ConsoleEventLogger> logger)
+    {
+        _composite = composite;
+        _logger = logger;
+    }
+
+    public int Count => 0;
+    public string ClientType => "Console";
+    public Task StopTimerAsync() => Task.CompletedTask;
+
+    public void SendData(string? value)
+    {
+        if (!string.IsNullOrEmpty(value))
+            _logger.LogInformation("[EVENT] {Value}", value);
+    }
+
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        _composite.Add(this);
+        _logger.LogInformation("[SERVICE] ✓ ConsoleEventLogger started");
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) => StopTimerAsync();
+}
+```
+
+**Usage:**
+```
+EVENT_LOGGERS=file,SimpleL7Proxy.Events.ConsoleEventLogger
+```
+
+> **Note:** Only types within the `SimpleL7Proxy` assembly are resolved. External assemblies cannot be loaded via `EVENT_LOGGERS` for security.
+
 ## AI Token Metrics (Streaming)
 Standard gateways cannot count tokens in streaming responses (Server-Sent Events/SSE) because the "usage" field is often only sent in the final chunk, or requires aggregating chunks.
 
