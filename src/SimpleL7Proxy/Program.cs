@@ -84,7 +84,7 @@ public class Program
         // Perform static initialization after building the host to ensure correct singleton usage
         var serviceProvider = frameworkHost.Services;
         var options = serviceProvider.GetRequiredService<IOptions<BackendOptions>>();
-        var eventHubClient = serviceProvider.GetService<IEventClient>();
+        var eventClient = serviceProvider.GetService<IEventClient>();
         var telemetryClient = serviceProvider.GetService<TelemetryClient>();
         var backendTokenProvider = serviceProvider.GetRequiredService<BackendTokenProvider>();
 
@@ -96,7 +96,7 @@ public class Program
 
         // Initialize ProxyEvent with BackendOptions
 
-        ProxyEvent.Initialize(options, eventHubClient, telemetryClient);
+        ProxyEvent.Initialize(options, eventClient, telemetryClient);
 
         // Initialize HostConfig with all required dependencies including service provider for circuit breaker DI
         HostConfig.Initialize(backendTokenProvider, startupLogger, serviceProvider);

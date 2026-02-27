@@ -38,7 +38,7 @@ namespace SimpleL7Proxy.Events
   public class ProxyEvent : ConcurrentDictionary<string, string>
   {
     private static IOptions<BackendOptions> _options = null!;
-    private static IEventClient? _eventHubClient;
+    private static IEventClient? _eventClient;
     private static TelemetryClient? _telemetryClient;
     private static readonly Uri LOCALHOSTURI = new Uri("http://localhost"); 
 
@@ -54,11 +54,11 @@ namespace SimpleL7Proxy.Events
 
     public static void Initialize(
       IOptions<BackendOptions> backendOptions,
-      IEventClient? eventHubClient = null,
+      IEventClient? eventClient = null,
       TelemetryClient? telemetryClient = null)
     {
       _options = backendOptions ?? throw new ArgumentNullException(nameof(backendOptions));
-      _eventHubClient = eventHubClient ?? throw new ArgumentNullException(nameof(eventHubClient));
+      _eventClient = eventClient ?? throw new ArgumentNullException(nameof(eventClient));
       _telemetryClient = telemetryClient; // null when APPINSIGHTS_CONNECTIONSTRING is not set
 
       // Set default parameters that should be included with every event (frozen = immutable + optimized reads)
@@ -117,7 +117,7 @@ namespace SimpleL7Proxy.Events
         bool logDependency = false;
         bool logRequest = false;
         bool logException = false;
-        bool logToEventHub = false;
+        bool logToEventClient = false;
 
         // Console.WriteLine($"Sending event: {Type} with Status: {Status} and Duration: {Duration.TotalMilliseconds} ms");
 
@@ -130,51 +130,51 @@ namespace SimpleL7Proxy.Events
             if (_options?.Value.LogProbes == true)
             {
               logEvent = true;
-              logToEventHub = true;
+              logToEventClient = true;
             }
             break;
           case EventType.ServerError:
           case EventType.CircuitBreakerError:
             logEvent = true;
-            logToEventHub = true;
+            logToEventClient = true;
             break;
           case EventType.Console:
             if (_options?.Value.LogConsole == true)
             {
               logEvent = true;
-              logToEventHub = true;
+              logToEventClient = true;
             }
             break;
           case EventType.Poller:
             if (_options?.Value.LogPoller == true)
             {
               logEvent = true;
-              logToEventHub = true;
+              logToEventClient = true;
             }
             break;
           case EventType.BackendRequest:
             logDependency = true;
-            logToEventHub = true;
+            logToEventClient = true;
             break;
           case EventType.ProxyRequestEnqueued:
           case EventType.ProxyRequestRequeued:
             logEvent = true;
-            logToEventHub = true;
+            logToEventClient = true;
             break;
           case EventType.ProxyRequestExpired:
           case EventType.ProxyError:
           case EventType.ProxyRequest:
             logRequest = true;
-            logToEventHub = true;
+            logToEventClient = true;
             break;
           case EventType.Exception:
             logException = true;
-            logToEventHub = true;
+            logToEventClient = true;
             break;
           default:
             // For any other event type, we can log it as a custom event
             logEvent = true;
-            logToEventHub = true;
+            logToEventClient = true;
             break;
         }
         
@@ -188,14 +188,14 @@ namespace SimpleL7Proxy.Events
           else if (logException) TrackException();
         }
 
-        if (logToEventHub && _eventHubClient is not null)
+        if (logToEventClient && _eventClient is not null)
         {
           Dictionary<string, string> eventParams = new Dictionary<string, string>(DefaultParams, StringComparer.OrdinalIgnoreCase);
           eventParams["Type"] = "S7P-" + Type.ToString();
           eventParams["MID"] = MID ?? "N/A";
           AddDefaultProperties(eventParams);
-          // Send the event to Event Hub
-          _eventHubClient.SendData(ConvertToJson(this, eventParams));
+          // Send the event to all registered event clients (EventHub, LogFile, etc.)
+          _eventClient.SendData(ConvertToJson(this, eventParams));
         }
       }
       catch (Exception ex)
@@ -395,7 +395,7 @@ namespace SimpleL7Proxy.Events
 
         if (_options.Value.LogConsoleEvent)
         {
-          _eventHubClient?.SendData(ConvertToJson(this));
+          _eventClient?.SendData(ConvertToJson(this));
         }
       }
       catch (Exception ex)
@@ -422,7 +422,7 @@ namespace SimpleL7Proxy.Events
           this["Type"] = "S7P-Console-Error";
         }
 
-        _eventHubClient?.SendData(ConvertToJson(this));
+        _eventClient?.SendData(ConvertToJson(this));
       }
       catch (Exception ex)
       {
