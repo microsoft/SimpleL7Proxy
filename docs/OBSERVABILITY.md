@@ -4,9 +4,12 @@ SimpleL7Proxy is designed to provide deep visibility into AI workloads, solving 
 
 ## Telemetry Channels
 Data is emitted to the following configured sinks:
-1.  **Azure Application Insights**: (Recommended for Production) Set `APPINSIGHTS_CONNECTIONSTRING`.
-2.  **Azure Event Hubs**: High-volume streaming ingestion. Set `EVENTHUB_CONNECTIONSTRING`.
-3.  **Console/Stdout**: For container logging and local debugging.
+1.  **Azure Application Insights**: (Recommended for Production) Set `APPINSIGHTS_CONNECTIONSTRING`. Handles structured telemetry (requests, dependencies, exceptions) directly via `TelemetryClient`.
+2.  **Azure Event Hubs**: High-volume streaming ingestion. Include `eventhub` in `EVENT_LOGGERS` and set `EVENTHUB_CONNECTIONSTRING` (or `EVENTHUB_NAMESPACE` for managed identity).
+3.  **Local Log File**: JSON event log for debugging/testing. Include `file` in `EVENT_LOGGERS` and optionally set `LOGFILE_NAME`.
+4.  **Console/Stdout**: For container logging and local debugging.
+
+Event Hubs and Local Log File are **sibling backends** managed by the `CompositeEventClient` — they can run simultaneously. Set `EVENT_LOGGERS=file,eventhub` to enable both. Each backend self-registers on successful startup; if one fails (e.g., EventHub timeout), the others continue unaffected.
 
 ## AI Token Metrics (Streaming)
 Standard gateways cannot count tokens in streaming responses (Server-Sent Events/SSE) because the "usage" field is often only sent in the final chunk, or requires aggregating chunks.
