@@ -219,26 +219,51 @@ public class Program
             Console.WriteLine($"[CONFIG] EVENT_LOGGERS not set, falling back to legacy: {string.Join(", ", enabledLoggers)}");
         }
 
-        if (enabledLoggers.Contains("file"))
+        // Ensure CompositeEventClient is registered before any individual clients
+        TryAddCompositeEventClient(services);
+
+        foreach ( var loggername in enabledLoggers)
         {
-            var logFileName = Environment.GetEnvironmentVariable("LOGFILE_NAME") ?? "eventslog.json";
-            services.AddProxyEventLogFileClient(logFileName);
-        }
+            if (loggername == "file")
+            {
+                var logFileName = Environment.GetEnvironmentVariable("LOGFILE_NAME") ?? "eventslog.json";
+                services.AddSingleton<LogFileEventClient>(svc =>
+                    new LogFileEventClient(logFileName, svc.GetRequiredService<CompositeEventClient>()));
+                services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService<LogFileEventClient>());
+            }
+            else if ( loggername == "eventhub")
+            {
+                // EventHubClient reads its own config from env vars (EVENTHUB_CONNECTIONSTRING, EVENTHUB_NAME, etc.)
+                services.AddSingleton<EventHubClient>();
+                services.AddSingleton<IHostedService>(svc => svc.GetRequiredService<EventHubClient>());
+            }
+            else {
+                // Reflection fallback: resolve type name within this assembly only (prevents cross-assembly loading)
+                var loggerType = typeof(Program).Assembly.GetType(loggername, throwOnError: false);
+                if (loggerType == null)
+                {
+                    startupLogger.LogWarning("[CONFIG] Event logger type '{LoggerType}' not found. Skipping.", loggername);
+                    continue;
+                }
+                
+                if (!typeof(IEventClient).IsAssignableFrom(loggerType))
+                {
+                    startupLogger.LogWarning("[CONFIG] Event logger type '{LoggerType}' does not implement IEventClient. Skipping.", loggername);
+                    continue;
+                }
 
-        if (enabledLoggers.Contains("eventhub"))
-        {
-            var eventHubConnectionString = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING");
-            var eventHubName = Environment.GetEnvironmentVariable("EVENTHUB_NAME");
-            var eventHubNamespace = Environment.GetEnvironmentVariable("EVENTHUB_NAMESPACE");
-            var eventHubStartupSecondsStr = Environment.GetEnvironmentVariable("EVENTHUB_STARTUP_SECONDS");
+                // Register as concrete singleton so DI can resolve constructor dependencies
+                services.AddSingleton(loggerType);
 
-            // default to 10 if it's not set or invalid
-            if (!int.TryParse(eventHubStartupSecondsStr, out _))
-                eventHubStartupSecondsStr = "10";
-            _ = int.TryParse(eventHubStartupSecondsStr, out var eventHubStartupSeconds);
+                // If it implements IHostedService, register it so the host calls StartAsync
+                if (typeof(IHostedService).IsAssignableFrom(loggerType))
+                {
+                    services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService(loggerType));
+                }
 
-            services.AddSingleton(new EventHubConfig(eventHubConnectionString!, eventHubName!, eventHubNamespace!, eventHubStartupSeconds));
-            services.AddProxyEventClient();
+                startupLogger.LogInformation("[CONFIG] Registered event logger: {LoggerType}", loggername);
+            }
+
         }
 
         var backendOptions = BackendHostConfigurationExtensions.CreateBackendOptions(startupLogger);
@@ -376,5 +401,17 @@ public class Program
         services.AddTransient(source => new CancellationTokenSource());
         services.AddHostedService<CoordinatedShutdownService>();
         services.AddHostedService<UserProfile>(provider => provider.GetRequiredService<UserProfile>());
+    }
+
+    /// <summary>
+    /// Ensures CompositeEventClient is registered exactly once.
+    /// </summary>
+    private static void TryAddCompositeEventClient(IServiceCollection services)
+    {
+        if (services.Any(sd => sd.ServiceType == typeof(CompositeEventClient)))
+            return;
+
+        services.AddSingleton<CompositeEventClient>();
+        services.AddSingleton<IEventClient>(svc => svc.GetRequiredService<CompositeEventClient>());
     }
 }
