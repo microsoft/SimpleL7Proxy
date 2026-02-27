@@ -194,15 +194,38 @@ public class Program
 
     private static void ConfigureDependencyInjection(IServiceCollection services, ILogger startupLogger)
     {
-        bool.TryParse(Environment.GetEnvironmentVariable("LOGTOFILE"), out var log_to_file);
+        // EVENT_LOGGERS is a comma-separated list of event logger backends to enable.
+        // Supported values: "file", "eventhub"
+        // Example: EVENT_LOGGERS="file,eventhub" enables both simultaneously.
+        // Falls back to legacy LOGTOFILE behaviour when EVENT_LOGGERS is not set.
+        var eventLoggersRaw = Environment.GetEnvironmentVariable("EVENT_LOGGERS");
+        HashSet<string> enabledLoggers;
 
-        if (log_to_file)
+        if (!string.IsNullOrWhiteSpace(eventLoggersRaw))
+        {
+            enabledLoggers = new HashSet<string>(
+                eventLoggersRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                StringComparer.OrdinalIgnoreCase);
+            Console.WriteLine($"[CONFIG] EVENT_LOGGERS: {string.Join(", ", enabledLoggers)}");
+        }
+        else
+        {
+            // Legacy fallback: LOGTOFILE=true → file, otherwise → eventhub
+            bool.TryParse(Environment.GetEnvironmentVariable("LOGTOFILE"), out var log_to_file);
+            enabledLoggers = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                log_to_file ? "file" : "eventhub"
+            };
+            Console.WriteLine($"[CONFIG] EVENT_LOGGERS not set, falling back to legacy: {string.Join(", ", enabledLoggers)}");
+        }
+
+        if (enabledLoggers.Contains("file"))
         {
             var logFileName = Environment.GetEnvironmentVariable("LOGFILE_NAME") ?? "eventslog.json";
             services.AddProxyEventLogFileClient(logFileName);
-
         }
-        else
+
+        if (enabledLoggers.Contains("eventhub"))
         {
             var eventHubConnectionString = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING");
             var eventHubName = Environment.GetEnvironmentVariable("EVENTHUB_NAME");
