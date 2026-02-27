@@ -331,6 +331,11 @@ public class Server : BackgroundService
                             }
 
                             rd.UserID = "";
+                            // Normalize path once: ensure non-empty and starts with '/'
+                            if (string.IsNullOrEmpty(rd.Path))
+                                rd.Path = "/";
+                            else if (!rd.Path.StartsWith('/'))
+                                rd.Path = "/" + rd.Path;
                             rd.Headers["S7Path"] = rd.Path; // Copy path
                             // Lookup the user profile and add the headers to the request
                             if (doUserProfile)

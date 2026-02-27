@@ -784,9 +784,9 @@ public class ProxyWorker
 
         request.Path = modifiedPath;
 
-        var activeHosts = _backends.GetActiveHosts();
-        var matchingHostCount = activeHosts
-            .Count(h => h.Config.PartialPath == request.Path || h.Config.PartialPath == "/");
+        // Use the host count from the already-created iterator (avoids redundant GetActiveHosts call
+        // and fixes a bug where the old code compared stripped path against configured PartialPath)
+        var matchingHostCount = sharedIterator?.HostCount ?? hostIterator?.HostCount ?? 0;
         _logger.LogDebug("[ProxyToBackEnd:{Guid}] Found {HostCount} backend hosts for path {Path}",
             request.Guid, matchingHostCount, request.Path);
 
@@ -796,6 +796,7 @@ public class ProxyWorker
                 request.Guid, request.Path);
             
             // Log all available hosts and their paths for debugging
+            var activeHosts = _backends.GetActiveHosts();
             _logger.LogCritical("[ProxyToBackEnd:{Guid}] Available hosts and their paths:", request.Guid);
             foreach (var h in activeHosts)
             {
@@ -1315,16 +1316,21 @@ public class ProxyWorker
         if (_options.UseSharedIterators && _sharedIteratorRegistry != null)
         {
             // Use shared iterator - multiple requests to same path share the same iterator
+            // The modifiedPath is stored on the iterator itself, so we don't need a second filtering call
             sharedIterator = _sharedIteratorRegistry.GetOrCreate(
                 request.Path,
-                () => IteratorFactory.CreateSinglePassIterator(
-                    _backends,
-                    _options.LoadBalanceMode,
-                    request.Path,
-                    out modifiedPath));
+                () =>
+                {
+                    var iterator = IteratorFactory.CreateSinglePassIterator(
+                        _backends,
+                        _options.LoadBalanceMode,
+                        request.Path,
+                        out var mp);
+                    return (iterator, mp);
+                });
 
-            // Get modified path from factory for shared iterator case
-            _ = IteratorFactory.GetFilteredHosts(_backends, _options.LoadBalanceMode, request.Path, out modifiedPath);
+            // Read modifiedPath from the shared iterator (computed once, cached)
+            modifiedPath = sharedIterator.ModifiedPath;
 
             _logger.LogDebug(
                 "[ProxyToBackEnd:{Guid}] Using SHARED iterator for path '{Path}' with {HostCount} hosts",

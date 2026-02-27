@@ -35,6 +35,11 @@ public class EmptyBackendHostIterator : IHostIterator
     public IterationModeEnum Mode => IterationModeEnum.SinglePass;
 
     /// <summary>
+    /// Gets the total number of hosts. Always returns 0 since there are no hosts.
+    /// </summary>
+    public int HostCount => 0;
+
+    /// <summary>
     /// Attempts to move to the next host. Always returns false since there are no hosts.
     /// </summary>
     public bool MoveNext() => false;
