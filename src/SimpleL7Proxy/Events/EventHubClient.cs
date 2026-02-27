@@ -29,9 +29,16 @@ public class EventHubClient : IEventClient, IHostedService
     private static int entryCount = 0;
     //public EventHubClient(string connectionString, string eventHubName, ILogger<EventHubClient>? logger = null)
 
-    public EventHubClient(EventHubConfig? config, CompositeEventClient composite, ILogger<EventHubClient> logger)
+    public EventHubClient(CompositeEventClient composite, ILogger<EventHubClient> logger)
     {
-        _config = config;
+        try {
+            _config = new EventHubConfig();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to initialize EventHubConfig. EventHubClient will be disabled.");
+            _config = null;
+        }
         _composite = composite ?? throw new ArgumentNullException(nameof(composite));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         // All initialization happens in StartAsync
@@ -84,15 +91,14 @@ public class EventHubClient : IEventClient, IHostedService
             writerTask = Task.Run(() => EventWriter(workerCancelToken), workerCancelToken);
         }
         catch (OperationCanceledException) {
-            _logger.LogError("EventHubClient setup timed out after {Seconds} seconds", _config.StartupSeconds);
+            _logger.LogError("EventHubClient setup timed out after {Seconds} seconds. EventHub logging will be disabled.", _config.StartupSeconds);
             isRunning = false;
-            throw new TimeoutException($"EventHubClient setup timed out after {_config.StartupSeconds} seconds. Check network connectivity to EventHub.");
+            // Don't throw — other event clients (e.g. LogFileEventClient) should continue running
         }
         catch (Exception ex) {
-            _logger.LogError(ex, "Failed to setup EventHubClient");
+            _logger.LogError(ex, "Failed to setup EventHubClient. EventHub logging will be disabled.");
             isRunning = false;
-            // Include the inner exception message to make it visible in the main program catch block
-            throw new Exception($"Failed to setup EventHubClient: {ex.Message}", ex);
+            // Don't throw — other event clients (e.g. LogFileEventClient) should continue running
         }
     }
 

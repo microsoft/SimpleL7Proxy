@@ -6,6 +6,7 @@ Proxy:
 * Convert HostHealthCollection to to HostCollectionSnapshot
 * Added CompleteAllUsageProcessor for parsing the entire file
 * Add StripPrefix to host config to optionally remove the match part of the path
+* EVENT_LOGGERS can now be used to specify spcific loggers, including custom handlers
 
 ## 2.2.9-D2
 
