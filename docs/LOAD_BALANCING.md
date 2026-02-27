@@ -49,7 +49,7 @@ Before load balancing, hosts are filtered based on the request path. The proxy m
 ### Matching Rules
 
 1. **Specific paths take precedence**: If any host's path matches the request, only those hosts are used.
-2. **Path prefix is stripped**: When forwarding to a matched host, the matching prefix is removed from the request path.
+2. **Path prefix is stripped by default**: When forwarding to a matched host, the matching prefix is removed from the request path. This can be disabled per-host with `stripprefix=false` (see [BACKEND_HOSTS.md](BACKEND_HOSTS.md#controlling-path-prefix-stripping)).
 3. **Catch-all fallback**: If no specific path matches, catch-all hosts are used with the original path.
 
 ### Example
@@ -62,10 +62,15 @@ Configured Hosts:
 
 Request: GET /api/v1/users/123
 
-Result:
+Result (stripprefix=true, default):
   - Matches Host1 (specific path /api/v1)
   - Forwarded as: GET /users/123 to https://api-v1.internal
   - Host2 and Host3 are NOT considered
+
+Result (if Host1 had stripprefix=false):
+  - Matches Host1 (specific path /api/v1)
+  - Forwarded as: GET /api/v1/users/123 to https://api-v1.internal
+  - Original path is preserved
 ```
 
 ---

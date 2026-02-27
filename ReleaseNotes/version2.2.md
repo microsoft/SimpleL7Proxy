@@ -5,6 +5,7 @@ Proxy:
 * Remove blocking operations during shutdown
 * Convert HostHealthCollection to to HostCollectionSnapshot
 * Added CompleteAllUsageProcessor for parsing the entire file
+* Add StripPrefix to host config to optionally remove the match part of the path
 
 ## 2.2.9-D2
 
