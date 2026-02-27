@@ -21,10 +21,12 @@ public class LogFileEventClient : IEventClient, IHostedService
     public int GetEntryCount() => entryCount;
     private static int entryCount = 0;
 
+    private readonly CompositeEventClient _composite;
     private static Stream log = null!;
     private static StreamWriter writer = null!;
-    public LogFileEventClient(string filename)
+    public LogFileEventClient(string filename, CompositeEventClient composite)
     {
+        _composite = composite ?? throw new ArgumentNullException(nameof(composite));
         // create file stream to a log file
         log = new FileStream(filename, FileMode.OpenOrCreate, FileAccess.Write);
         writer = new StreamWriter(log)
@@ -49,15 +51,15 @@ public class LogFileEventClient : IEventClient, IHostedService
         workerCancelToken = cancellationTokenSource.Token;
         if (isRunning)
         {
+            _composite.Add(this);
             writerTask = Task.Run(() => EventWriter(workerCancelToken));
         }
         return Task.CompletedTask;
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    public async Task StopAsync(CancellationToken cancellationToken)
     {
-        StopTimer();
-        return Task.CompletedTask;
+        await StopTimerAsync().ConfigureAwait(false);
     }
 
 
@@ -120,21 +122,21 @@ public class LogFileEventClient : IEventClient, IHostedService
         writer.Flush();
     }
 
-    public void StopTimer()
+    public async Task StopTimerAsync()
     {
         if (writerTask == null)
         {
-            Console.WriteLine("LogFileEventClient: StopTimer called but writerTask is null");
+            Console.WriteLine("LogFileEventClient: StopTimerAsync called but writerTask is null");
             return;
         }
         isShuttingDown = true;
         while (isRunning && _logBuffer.Count > 0)
         {
-            Task.Delay(100).Wait();
+            await Task.Delay(100).ConfigureAwait(false);
         }
         cancellationTokenSource.Cancel();
 
-        writerTask?.Wait();
+        await writerTask.ConfigureAwait(false);
 
         isRunning = false;
     }
@@ -166,12 +168,4 @@ public class LogFileEventClient : IEventClient, IHostedService
 
     //     SendData(JsonSerializer.Serialize(eventData));
     // }
-    public void SendData(ProxyEvent proxyEvent)
-    {
-        if (!isRunning || isShuttingDown) return;
-
-        string jsonData = JsonSerializer.Serialize(proxyEvent);
-        SendData(jsonData);
-    }
-
 }

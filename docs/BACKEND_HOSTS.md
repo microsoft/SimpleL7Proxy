@@ -23,6 +23,7 @@ This method allows you to define all properties for a single host within the `Ho
 | **processor** | Specifies a custom request processor if available. | (Empty) |
 | **useoauth** / **usemi** | If `true`, enables Managed Identity/OAuth authentication for this host. | `false` |
 | **audience** | The expected audience claim for OAuth tokens. | (Empty) |
+| **stripprefix** / **strippathprefix** | If `true`, the matched path prefix is stripped when forwarding to the backend. If `false`, the original request path is preserved. | `true` |
 | **retryafter** | If `true`, respects the `Retry-After` header from the backend. | `true` |
 
 **Examples:**
@@ -100,7 +101,7 @@ The `path` parameter in the connection string controls which requests are routed
 ### How Path Matching Works
 
 1. **Specific paths take precedence**: Hosts with explicit paths (e.g., `/api/v1`) are matched before catch-all hosts.
-2. **Path prefix is stripped**: When forwarding to a matched host, the matching prefix is removed from the request path.
+2. **Path prefix is stripped by default**: When forwarding to a matched host, the matching prefix is removed from the request path. This behavior can be disabled per-host by setting `stripprefix=false` in the connection string.
 3. **Catch-all fallback**: Hosts with `path=/` or no path specified handle requests that don't match any specific path.
 
 ### Path Matching Examples
@@ -131,11 +132,37 @@ Host3="host=https://default-service.internal;path=/"
 | `/*` | Same as `/` |
 | (empty) | Same as `/` |
 
+### Controlling Path Prefix Stripping
+
+By default, when a request matches a host's path prefix, that prefix is removed before forwarding (`stripprefix=true`). You can disable this per-host so the original request path is preserved.
+
+**Configuration:**
+```bash
+# Default: prefix is stripped
+Host1="host=https://chat-service.internal;path=/chat"
+
+# Prefix preserved: backend receives the full original path
+Host2="host=https://passthrough-service.internal;path=/api/v1;stripprefix=false"
+```
+
+**Routing comparison:**
+
+| Incoming Request | Host Config | `stripprefix` | Forwarded Path |
+|-----------------|-------------|---------------|----------------|
+| `GET /chat/completions` | `path=/chat` | `true` (default) | `GET /completions` |
+| `GET /api/v1/users` | `path=/api/v1` | `true` (default) | `GET /users` |
+| `GET /api/v1/users` | `path=/api/v1;stripprefix=false` | `false` | `GET /api/v1/users` |
+| `GET /chat` | `path=/chat` | `true` (default) | `GET /` |
+| `GET /chat` | `path=/chat;stripprefix=false` | `false` | `GET /chat` |
+
+This is useful when the backend expects the full path including the routing prefix — for example, when the backend application handles its own path-based routing.
+
 ### Best Practices
 
 1. **Use specific paths for service isolation**: Route different AI models or API versions to dedicated backends.
 2. **Always have a catch-all**: Include at least one host with `path=/` to handle unexpected routes.
 3. **Avoid overlapping paths**: If you have `/api` and `/api/v1`, the more specific path (`/api/v1`) should be tried first.
+4. **Use `stripprefix=false` when backends own their routing**: If the backend expects the full original path (e.g., it has its own `/api/v1` routes), disable prefix stripping.
 
 See [LOAD_BALANCING.md](LOAD_BALANCING.md) for details on how hosts are selected after path filtering.
 

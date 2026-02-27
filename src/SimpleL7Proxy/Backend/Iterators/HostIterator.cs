@@ -54,6 +54,11 @@ public abstract class HostIterator : IHostIterator
     public IterationModeEnum Mode => _mode;
 
     /// <summary>
+    /// Gets the total number of hosts in this iterator.
+    /// </summary>
+    public int HostCount => _hosts.Count;
+
+    /// <summary>
     /// Moves to the next host. Handles common pass completion logic.
     /// </summary>
     public bool MoveNext()

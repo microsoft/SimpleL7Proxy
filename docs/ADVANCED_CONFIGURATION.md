@@ -70,23 +70,49 @@ DefaultPriority=3
 
 ## Header Validation
 
-You can enforce strict header presence and content validation using `ValidateHeaders`.
+You can enforce that a request header's value appears in a comma-separated allow-list stored in another header using `ValidateHeaders`. This is typically combined with **User Profiles**, where the allow-list header is injected from the profile.
 
 ### Format
-A comma-separated list of `HeaderName:RegexPattern` or `HeaderName:ExactValue` pairs.
 
-*   **HeaderName**: The case-insensitive name of the header.
-*   **Value**: The string or pattern that must match.
+A comma-separated list of `SourceHeader:AllowedValuesHeader` pairs.
 
-### Example
+*   **SourceHeader**: The header whose value is being validated (the "lookup").
+*   **AllowedValuesHeader**: The header containing a comma-separated list of allowed values.
 
-Require that `X-Tenant-ID` is `12345` and `X-Region` is `WestUS`.
+The proxy checks that the value of `SourceHeader` matches at least one entry in `AllowedValuesHeader`. Both headers must be present on the request (they are automatically added to `RequiredHeaders` at startup).
 
+### Matching Rules
+
+*   **Exact match** (case-insensitive): The lookup value must equal one of the allowed values.
+*   **Wildcard prefix match**: If an allowed value ends with `*`, the lookup value only needs to *start with* the prefix. For example, `/echo*` matches `/echo`, `/echo/resource`, `/echo/resource?param1=sample1`, etc.
+
+### Example: Path-Based Access Control
+
+The proxy automatically copies the request path into the `S7Path` header before validation. Combined with an `AllowedPaths` header from the user profile, you can restrict which URL paths a user is permitted to call.
+
+**Environment variable:**
 ```bash
-ValidateHeaders="X-Tenant-ID:12345,X-Region:WestUS"
+ValidateHeaders="S7Path:AllowedPaths"
 ```
 
-If a request arrives without these headers, or with different values, it is rejected (usually with a 403 or 400).
+**User profile** (e.g., in Cosmos DB):
+```json
+{
+  "userId": "client-123",
+  "headers": {
+    "AllowedPaths": "/api/delay,/api/values,/echo*"
+  }
+}
+```
+
+**Behavior:**
+| Request Path | AllowedPaths | Result |
+|---|---|---|
+| `/api/delay` | `/api/delay,/api/values,/echo*` | ✅ Exact match |
+| `/echo/resource?param1=x` | `/api/delay,/api/values,/echo*` | ✅ Prefix match on `/echo*` |
+| `/api/other` | `/api/delay,/api/values,/echo*` | ❌ Rejected (417 Expectation Failed) |
+
+If validation fails, the request is rejected with HTTP **417 Expectation Failed** and the message `Validation check failed for header: <SourceHeader>`.
 
 ---
 

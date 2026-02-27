@@ -50,6 +50,10 @@ public class Server : BackgroundService
 
     private readonly ProbeServer _probeServer;
 
+    // Precomputed validation rules to avoid dictionary iteration and string ops per request
+    private readonly record struct ValidateHeaderRule(string SourceHeader, string AllowedValuesHeader, string DisplayName);
+    private readonly ValidateHeaderRule[] _validateHeaderRules;
+
     // Constructor to initialize the server with backend options and telemetry client.
     public Server(
         IConcurrentPriQueue<RequestData> requestsQueue,
@@ -88,6 +92,14 @@ public class Server : BackgroundService
         _requestsQueue = requestsQueue;
         _priorityHeaderName = _options.PriorityKeyHeader;
         _probeServer = probeServer;
+
+        // Precompute validation header rules once at startup
+        _validateHeaderRules = _options.ValidateHeaders
+            .Select(kvp => new ValidateHeaderRule(
+                kvp.Key,
+                kvp.Value,
+                kvp.Key.StartsWith("S7", StringComparison.Ordinal) ? kvp.Key[2..] : kvp.Key))
+            .ToArray();
 
         var _listeningUrl = $"http://+:{_options.Port}/";
 
@@ -319,6 +331,12 @@ public class Server : BackgroundService
                             }
 
                             rd.UserID = "";
+                            // Normalize path once: ensure non-empty and starts with '/'
+                            if (string.IsNullOrEmpty(rd.Path))
+                                rd.Path = "/";
+                            else if (!rd.Path.StartsWith('/'))
+                                rd.Path = "/" + rd.Path;
+                            rd.Headers["S7Path"] = rd.Path; // Copy path
                             // Lookup the user profile and add the headers to the request
                             if (doUserProfile)
                             {
@@ -371,22 +389,41 @@ public class Server : BackgroundService
                                 }
                             }
 
-                            // Check for any validate headers  ( both fields have been checked for existance )
-                            if (_options.ValidateHeaders.Count > 0)
+                            // Validate headers using precomputed rules and zero-alloc span tokenization
+                            if (_validateHeaderRules.Length > 0)
                             {
-                                foreach (var header in _options.ValidateHeaders)
+                                foreach (ref readonly var rule in _validateHeaderRules.AsSpan())
                                 {
-                                    // Check that the header exists in the destination header
-                                    var lookup = rd.Headers[header.Key]!.Trim();
-                                    List<string> values = [.. rd.Headers[header.Value]!.Split(',')];
-                                    if (!values.Contains(lookup))
+                                    var lookup = rd.Headers[rule.SourceHeader]!.AsSpan().Trim();
+                                    var allowedSpan = rd.Headers[rule.AllowedValuesHeader]!.AsSpan();
+                                    bool matched = false;
+
+                                    foreach (var range in allowedSpan.Split(','))
+                                    {
+                                        var pattern = allowedSpan[range].Trim();
+                                        if (pattern.Length > 0 && pattern[^1] == '*')
+                                        {
+                                            if (lookup.StartsWith(pattern[..^1], StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                matched = true;
+                                                break;
+                                            }
+                                        }
+                                        else if (lookup.Equals(pattern, StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            matched = true;
+                                            break;
+                                        }
+                                    }
+
+                                    if (!matched)
                                     {
                                         if (rd.Debug)
-                                            Console.WriteLine($"Validation check failed for header: {header.Key} = {lookup}");
+                                            Console.WriteLine($"Validation check failed for {rule.DisplayName}: {lookup}");
                                         throw new ProxyErrorException(
                                             ProxyErrorException.ErrorType.InvalidHeader,
                                             HttpStatusCode.ExpectationFailed,
-                                            "Validation check failed for header: " + header.Key + "\n"
+                                            $"Validation check failed for {rule.DisplayName}: {lookup}\n"
                                         );
                                     }
                                 }

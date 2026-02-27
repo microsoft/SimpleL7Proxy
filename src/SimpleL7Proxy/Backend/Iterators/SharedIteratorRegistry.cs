@@ -77,7 +77,7 @@ public sealed class SharedIteratorRegistry : ISharedIteratorRegistry, IDisposabl
     }
 
     /// <inheritdoc/>
-    public ISharedHostIterator GetOrCreate(string path, Func<IHostIterator> factory)
+    public ISharedHostIterator GetOrCreate(string path, Func<(IHostIterator iterator, string modifiedPath)> factory)
     {
         if (_disposed)
             throw new ObjectDisposedException(nameof(SharedIteratorRegistry));
@@ -89,19 +89,19 @@ public sealed class SharedIteratorRegistry : ISharedIteratorRegistry, IDisposabl
 
         lock (_lock)
         {
-            // Fast path: iterator already exists
+            // Fast path: iterator already exists (modifiedPath is stored on the iterator)
             if (_iterators.TryGetValue(normalizedPath, out var existing))
                 return existing;
 
             // Slow path: create new iterator (factory called exactly once)
-            var baseIterator = factory();
+            var (baseIterator, modifiedPath) = factory();
             var hosts = ExtractHostsFromIterator(baseIterator);
             
             _logger.LogDebug(
-                "[SharedIteratorRegistry] Created new iterator for path '{Path}' with {HostCount} hosts",
-                normalizedPath, hosts.Count);
+                "[SharedIteratorRegistry] Created new iterator for path '{Path}' with {HostCount} hosts, modifiedPath='{ModifiedPath}'",
+                normalizedPath, hosts.Count, modifiedPath);
 
-            var iterator = new SharedHostIterator(hosts, normalizedPath, baseIterator.Mode);
+            var iterator = new SharedHostIterator(hosts, normalizedPath, modifiedPath, baseIterator.Mode);
             _iterators[normalizedPath] = iterator;
             return iterator;
         }

@@ -84,8 +84,8 @@ public class Program
         // Perform static initialization after building the host to ensure correct singleton usage
         var serviceProvider = frameworkHost.Services;
         var options = serviceProvider.GetRequiredService<IOptions<BackendOptions>>();
-        var eventHubClient = serviceProvider.GetService<IEventClient>();
-        var telemetryClient = serviceProvider.GetRequiredService<TelemetryClient>();
+        var eventClient = serviceProvider.GetService<IEventClient>();
+        var telemetryClient = serviceProvider.GetService<TelemetryClient>();
         var backendTokenProvider = serviceProvider.GetRequiredService<BackendTokenProvider>();
 
         // Initialize static logger for all stream processors
@@ -96,7 +96,7 @@ public class Program
 
         // Initialize ProxyEvent with BackendOptions
 
-        ProxyEvent.Initialize(options, eventHubClient, telemetryClient);
+        ProxyEvent.Initialize(options, eventClient, telemetryClient);
 
         // Initialize HostConfig with all required dependencies including service provider for circuit breaker DI
         HostConfig.Initialize(backendTokenProvider, startupLogger, serviceProvider);
@@ -194,32 +194,76 @@ public class Program
 
     private static void ConfigureDependencyInjection(IServiceCollection services, ILogger startupLogger)
     {
+        // EVENT_LOGGERS is a comma-separated list of event logger backends to enable.
+        // Supported values: "file", "eventhub"
+        // Example: EVENT_LOGGERS="file,eventhub" enables both simultaneously.
+        // Falls back to legacy LOGTOFILE behaviour when EVENT_LOGGERS is not set.
+        var eventLoggersRaw = Environment.GetEnvironmentVariable("EVENT_LOGGERS");
+        HashSet<string> enabledLoggers;
 
-
-        // Register TelemetryClient
-        services.AddSingleton<TelemetryClient>();
-        bool.TryParse(Environment.GetEnvironmentVariable("LOGTOFILE"), out var log_to_file);
-
-        if (log_to_file)
+        if (!string.IsNullOrWhiteSpace(eventLoggersRaw))
         {
-            var logFileName = Environment.GetEnvironmentVariable("LOGFILE_NAME") ?? "eventslog.json";
-            services.AddProxyEventLogFileClient(logFileName, Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING"));
-
+            enabledLoggers = new HashSet<string>(
+                eventLoggersRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                StringComparer.OrdinalIgnoreCase);
+            Console.WriteLine($"[CONFIG] EVENT_LOGGERS: {string.Join(", ", enabledLoggers)}");
         }
         else
         {
-            var eventHubConnectionString = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING");
-            var eventHubName = Environment.GetEnvironmentVariable("EVENTHUB_NAME");
-            var eventHubNamespace = Environment.GetEnvironmentVariable("EVENTHUB_NAMESPACE");
-            var eventHubStartupSecondsStr = Environment.GetEnvironmentVariable("EVENTHUB_STARTUP_SECONDS");
+            // Legacy fallback: LOGTOFILE=true → file, otherwise → eventhub
+            bool.TryParse(Environment.GetEnvironmentVariable("LOGTOFILE"), out var log_to_file);
+            enabledLoggers = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                log_to_file ? "file" : "eventhub"
+            };
+            Console.WriteLine($"[CONFIG] EVENT_LOGGERS not set, falling back to legacy: {string.Join(", ", enabledLoggers)}");
+        }
 
-            // default to 10 if it's not set or invalid
-            if (!int.TryParse(eventHubStartupSecondsStr, out _))
-                eventHubStartupSecondsStr = "10";
-            _ = int.TryParse(eventHubStartupSecondsStr, out var eventHubStartupSeconds);
+        // Ensure CompositeEventClient is registered before any individual clients
+        TryAddCompositeEventClient(services);
 
-            services.AddSingleton(new EventHubConfig(eventHubConnectionString!, eventHubName!, eventHubNamespace!, eventHubStartupSeconds));
-            services.AddProxyEventClient(Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING"));
+        foreach ( var loggername in enabledLoggers)
+        {
+            if (loggername == "file")
+            {
+                var logFileName = Environment.GetEnvironmentVariable("LOGFILE_NAME") ?? "eventslog.json";
+                services.AddSingleton<LogFileEventClient>(svc =>
+                    new LogFileEventClient(logFileName, svc.GetRequiredService<CompositeEventClient>()));
+                services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService<LogFileEventClient>());
+            }
+            else if ( loggername == "eventhub")
+            {
+                // EventHubClient reads its own config from env vars (EVENTHUB_CONNECTIONSTRING, EVENTHUB_NAME, etc.)
+                services.AddSingleton<EventHubClient>();
+                services.AddSingleton<IHostedService>(svc => svc.GetRequiredService<EventHubClient>());
+            }
+            else {
+                // Reflection fallback: resolve type name within this assembly only (prevents cross-assembly loading)
+                var loggerType = typeof(Program).Assembly.GetType(loggername, throwOnError: false);
+                if (loggerType == null)
+                {
+                    startupLogger.LogWarning("[CONFIG] Event logger type '{LoggerType}' not found. Skipping.", loggername);
+                    continue;
+                }
+                
+                if (!typeof(IEventClient).IsAssignableFrom(loggerType))
+                {
+                    startupLogger.LogWarning("[CONFIG] Event logger type '{LoggerType}' does not implement IEventClient. Skipping.", loggername);
+                    continue;
+                }
+
+                // Register as concrete singleton so DI can resolve constructor dependencies
+                services.AddSingleton(loggerType);
+
+                // If it implements IHostedService, register it so the host calls StartAsync
+                if (typeof(IHostedService).IsAssignableFrom(loggerType))
+                {
+                    services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService(loggerType));
+                }
+
+                startupLogger.LogInformation("[CONFIG] Registered event logger: {LoggerType}", loggername);
+            }
+
         }
 
         var backendOptions = BackendHostConfigurationExtensions.CreateBackendOptions(startupLogger);
@@ -298,7 +342,7 @@ public class Program
         services.AddSingleton<ConcurrentSignal<RequestData>>();
         services.AddSingleton<IConcurrentPriQueue<RequestData>, ConcurrentPriQueue<RequestData>>();
         //services.AddSingleton<ProxyStreamWriter>();
-        services.AddSingleton<IHostHealthCollection, HostHealthCollection>();
+        services.AddSingleton<IHostHealthCollection, HostCollectionManager>();
         services.AddSingleton<HealthCheckService>();
         services.AddSingleton<RequestLifecycleManager>();
         services.AddSingleton<EventDataBuilder>();
@@ -357,5 +401,17 @@ public class Program
         services.AddTransient(source => new CancellationTokenSource());
         services.AddHostedService<CoordinatedShutdownService>();
         services.AddHostedService<UserProfile>(provider => provider.GetRequiredService<UserProfile>());
+    }
+
+    /// <summary>
+    /// Ensures CompositeEventClient is registered exactly once.
+    /// </summary>
+    private static void TryAddCompositeEventClient(IServiceCollection services)
+    {
+        if (services.Any(sd => sd.ServiceType == typeof(CompositeEventClient)))
+            return;
+
+        services.AddSingleton<CompositeEventClient>();
+        services.AddSingleton<IEventClient>(svc => svc.GetRequiredService<CompositeEventClient>());
     }
 }

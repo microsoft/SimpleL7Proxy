@@ -16,9 +16,10 @@
         "async-config": "enabled=true, containername=user123455, topic=status-12355"
     },
     {
-        "userId": "123457",
+        "userId": "123456",
         "Header1": "Value1",
         "Header2": "Value2",
-        "async-config": "enabled=false"
+        "async-config": "enabled=false",
+        "AllowedPaths": "/echo*, /file/*"
     }
 ]

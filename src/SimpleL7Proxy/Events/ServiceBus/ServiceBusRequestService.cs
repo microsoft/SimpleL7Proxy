@@ -303,7 +303,7 @@ namespace SimpleL7Proxy.ServiceBus
             );
         }
 
-        public Task StopAsync(CancellationToken cancellationToken)
+        public async Task StopAsync(CancellationToken cancellationToken)
         {
             isShuttingDown = true;
             if (isRunning)
@@ -312,15 +312,14 @@ namespace SimpleL7Proxy.ServiceBus
                 _logger.LogInformation("[SHUTDOWN] ⏳ ServiceBusRequestService flushing {events} events before stopping", _statusQueue.Count);
                 while (isRunning && _statusQueue.Count > 0)
                 {
-                    Task.Delay(100).Wait();
+                    await Task.Delay(100).ConfigureAwait(false);
                 }
 
                 _cancellationTokenSource?.Cancel();
                 isRunning = false;
-                writerTask?.Wait(cancellationToken);
+                if (writerTask != null)
+                    await writerTask.ConfigureAwait(false);
             }
-
-            return Task.CompletedTask;
         }
     }
 }

@@ -336,7 +336,7 @@ namespace test.generator.generator_one
                         foreach (var test in allTests)
                         {
                             var m = new HttpRequestMessage(test.Method, test_endpoint + test.Path);
-                            CloneHttpRequestMessage(m, test.request);
+                            await CloneHttpRequestMessageAsync(m, test.request);
 
                             lock (_lock)
                             {
@@ -600,12 +600,12 @@ namespace test.generator.generator_one
 
         }
 
-        private void CloneHttpRequestMessage(HttpRequestMessage clone, HttpRequestMessage request)
+        private async Task CloneHttpRequestMessageAsync(HttpRequestMessage clone, HttpRequestMessage request)
         {
             // Copy the content
             if (request.Content != null)
             {
-                clone.Content = new ByteArrayContent(request.Content.ReadAsByteArrayAsync().Result);
+                clone.Content = new ByteArrayContent(await request.Content.ReadAsByteArrayAsync().ConfigureAwait(false));
                 foreach (var header in request.Content.Headers)
                 {
                     clone.Content.Headers.TryAddWithoutValidation(header.Key, header.Value);

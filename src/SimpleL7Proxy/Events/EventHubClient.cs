@@ -16,6 +16,7 @@ public class EventHubClient : IEventClient, IHostedService
     private EventHubProducerClient? _producerClient;
     private EventDataBatch? _batchData;
     private readonly ILogger<EventHubClient> _logger;
+    private readonly CompositeEventClient _composite;
     private readonly CancellationTokenSource cancellationTokenSource = new();
     private CancellationToken workerCancelToken;
     private bool isRunning = false;
@@ -28,9 +29,17 @@ public class EventHubClient : IEventClient, IHostedService
     private static int entryCount = 0;
     //public EventHubClient(string connectionString, string eventHubName, ILogger<EventHubClient>? logger = null)
 
-    public EventHubClient(EventHubConfig? config, ILogger<EventHubClient> logger)
+    public EventHubClient(CompositeEventClient composite, ILogger<EventHubClient> logger)
     {
-        _config = config;
+        try {
+            _config = new EventHubConfig();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to initialize EventHubConfig. EventHubClient will be disabled.");
+            _config = null;
+        }
+        _composite = composite ?? throw new ArgumentNullException(nameof(composite));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         // All initialization happens in StartAsync
     }
@@ -77,41 +86,41 @@ public class EventHubClient : IEventClient, IHostedService
             workerCancelToken = cancellationTokenSource.Token;
             isRunning = true;
             
+            _composite.Add(this);
             _logger.LogCritical("[SERVICE] ✓ EventHub Client started successfully");
             writerTask = Task.Run(() => EventWriter(workerCancelToken), workerCancelToken);
         }
         catch (OperationCanceledException) {
-            _logger.LogError("EventHubClient setup timed out after {Seconds} seconds", _config.StartupSeconds);
+            _logger.LogError("EventHubClient setup timed out after {Seconds} seconds. EventHub logging will be disabled.", _config.StartupSeconds);
             isRunning = false;
-            throw new TimeoutException($"EventHubClient setup timed out after {_config.StartupSeconds} seconds. Check network connectivity to EventHub.");
+            // Don't throw — other event clients (e.g. LogFileEventClient) should continue running
         }
         catch (Exception ex) {
-            _logger.LogError(ex, "Failed to setup EventHubClient");
+            _logger.LogError(ex, "Failed to setup EventHubClient. EventHub logging will be disabled.");
             isRunning = false;
-            // Include the inner exception message to make it visible in the main program catch block
-            throw new Exception($"Failed to setup EventHubClient: {ex.Message}", ex);
+            // Don't throw — other event clients (e.g. LogFileEventClient) should continue running
         }
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    public async Task StopAsync(CancellationToken cancellationToken)
     {
-        StopTimer();
-        return Task.CompletedTask;
+        await StopTimerAsync().ConfigureAwait(false);
     }
 
     TaskCompletionSource<bool> ShutdownTCS = new();
 
-    public void StopTimer()
+    public async Task StopTimerAsync()
     {
         isShuttingDown = true;
         while (isRunning && _logBuffer.Count > 0)
         {
-            Task.Delay(100).Wait();
+            await Task.Delay(100).ConfigureAwait(false);
         }
 
         cancellationTokenSource.Cancel();
         isRunning = false;
-        writerTask?.Wait();
+        if (writerTask != null)
+            await writerTask.ConfigureAwait(false);
     }
 
     public async Task EventWriter(CancellationToken token)
@@ -217,14 +226,6 @@ public class EventHubClient : IEventClient, IHostedService
     //     string jsonData = JsonSerializer.Serialize(data);
     //     SendData(jsonData);
     // }
-
-    public void SendData(ProxyEvent proxyEvent)
-    {
-        if (!isRunning || isShuttingDown) return;
-
-        string jsonData = JsonSerializer.Serialize(proxyEvent);
-        SendData(jsonData);
-    }
 
     // public void SendData(ConcurrentDictionary<string, string> eventData, string? name = null)
     // {

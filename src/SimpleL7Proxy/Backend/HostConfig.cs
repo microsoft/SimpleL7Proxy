@@ -33,6 +33,7 @@ namespace SimpleL7Proxy.Backend
     public string PartialPath => ParsedConfig.PartialPath;
     public string ProbePath => ParsedConfig.ProbePath;
     public string Processor => ParsedConfig.Processor;
+    public bool StripPrefix => ParsedConfig.StripPrefix;
     public bool UseOAuth => ParsedConfig.UseOAuth;
     public bool UsesRetryAfter => ParsedConfig.UsesRetryAfter;
     public string Protocol { get; private set; }
@@ -143,6 +144,7 @@ namespace SimpleL7Proxy.Backend
         DirectMode = false,
         IpAddr = ip ?? "",
         PartialPath = "/",
+        StripPrefix = true,
         UseOAuth = false,
         Audience = audience ?? "",
         UsesRetryAfter = true
@@ -187,6 +189,10 @@ namespace SimpleL7Proxy.Backend
               break;
             case "processor":
               result.Processor = kvp.Value;
+              break;
+            case "stripprefix":
+            case "strippathprefix":
+              result.StripPrefix = kvp.Value.Equals("true", StringComparison.OrdinalIgnoreCase);
               break;
             case "useoauth":
             case "usemi":
@@ -306,6 +312,11 @@ namespace SimpleL7Proxy.Backend
             if (string.IsNullOrEmpty(_wildcardPrefix) || 
                 normalizedPath.StartsWith(_wildcardPrefix.AsSpan(), StringComparison.OrdinalIgnoreCase))
             {
+                // When StripPrefix is false, match but keep the original path
+                if (!StripPrefix)
+                {
+                    return PathMatchResult.Match(requestPath);
+                }
                 // Strip the wildcard prefix
                 if (!string.IsNullOrEmpty(_wildcardPrefix))
                 {
@@ -320,6 +331,10 @@ namespace SimpleL7Proxy.Backend
         // Exact path match
         if (normalizedPath.Equals(_normalizedPartialPath.AsSpan(), StringComparison.OrdinalIgnoreCase))
         {
+            if (!StripPrefix)
+            {
+                return PathMatchResult.Match(requestPath);
+            }
             return PathMatchResult.Match(query.IsEmpty ? "/" : string.Concat("/", query));
         }
 
@@ -333,6 +348,10 @@ namespace SimpleL7Proxy.Backend
                 if (normalizedPath.Length == prefixSpan.Length || 
                     normalizedPath[prefixSpan.Length] == '/')
                 {
+                    if (!StripPrefix)
+                    {
+                        return PathMatchResult.Match(requestPath);
+                    }
                     var remaining = normalizedPath.Slice(prefixSpan.Length).TrimStart('/');
                     return PathMatchResult.Match(string.Concat("/", remaining, query));
                 }

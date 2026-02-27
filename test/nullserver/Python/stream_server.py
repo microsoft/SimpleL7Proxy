@@ -48,6 +48,14 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         for header, value in self.headers.items():
             if header == "Authorization":
                 self.gotAuth = (len(value) > 1) and "yes" or "no"
+
+        # Example: /status-0123456789abcdef endpoint
+        if parsed_path.path == '/status-0123456789abcdef':
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"OK")
+            return
         
         # Example: /health endpoint
         if parsed_path.path == '/health':
@@ -172,9 +180,10 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
                 self.wfile.write(b"File not found")
                 return
 
+            processor = self.headers.get('X-TokenProcessor', 'MultiLineAllUsage')
             sleep_time = random.uniform(.4, .7)  # Random sleep time
             time.sleep(sleep_time)
-            self.send_streaming_response(filename, "MultiLineAllUsage")
+            self.send_streaming_response(filename, processor)
             return
 
         # Default response
@@ -194,11 +203,14 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
 
         time.sleep(1)
         # Stream file contents line by line with a 1-second delay
-        self.stream_file_contents("stream_data.txt")
+        try:
+            self.stream_file_contents("stream_data.txt")
 
-        # Send the zero-length chunk to indicate the end of the response
-        self.wfile.write(b"0\r\n\r\n")
-        self.wfile.flush()
+            # Send the zero-length chunk to indicate the end of the response
+            self.wfile.write(b"0\r\n\r\n")
+            self.wfile.flush()
+        except BrokenPipeError:
+            print(f"Client disconnected during streaming for {parsed_path.path}")
 
     def extract_request_headers(self):
         request_sequence = self.headers.get('x-Request-Sequence', 'N/A')
