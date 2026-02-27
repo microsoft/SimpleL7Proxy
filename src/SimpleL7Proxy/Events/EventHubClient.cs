@@ -16,6 +16,7 @@ public class EventHubClient : IEventClient, IHostedService
     private EventHubProducerClient? _producerClient;
     private EventDataBatch? _batchData;
     private readonly ILogger<EventHubClient> _logger;
+    private readonly CompositeEventClient _composite;
     private readonly CancellationTokenSource cancellationTokenSource = new();
     private CancellationToken workerCancelToken;
     private bool isRunning = false;
@@ -28,9 +29,10 @@ public class EventHubClient : IEventClient, IHostedService
     private static int entryCount = 0;
     //public EventHubClient(string connectionString, string eventHubName, ILogger<EventHubClient>? logger = null)
 
-    public EventHubClient(EventHubConfig? config, ILogger<EventHubClient> logger)
+    public EventHubClient(EventHubConfig? config, CompositeEventClient composite, ILogger<EventHubClient> logger)
     {
         _config = config;
+        _composite = composite ?? throw new ArgumentNullException(nameof(composite));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         // All initialization happens in StartAsync
     }
@@ -77,6 +79,7 @@ public class EventHubClient : IEventClient, IHostedService
             workerCancelToken = cancellationTokenSource.Token;
             isRunning = true;
             
+            _composite.Add(this);
             _logger.LogCritical("[SERVICE] ✓ EventHub Client started successfully");
             writerTask = Task.Run(() => EventWriter(workerCancelToken), workerCancelToken);
         }

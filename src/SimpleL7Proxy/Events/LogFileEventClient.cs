@@ -21,10 +21,12 @@ public class LogFileEventClient : IEventClient, IHostedService
     public int GetEntryCount() => entryCount;
     private static int entryCount = 0;
 
+    private readonly CompositeEventClient _composite;
     private static Stream log = null!;
     private static StreamWriter writer = null!;
-    public LogFileEventClient(string filename)
+    public LogFileEventClient(string filename, CompositeEventClient composite)
     {
+        _composite = composite ?? throw new ArgumentNullException(nameof(composite));
         // create file stream to a log file
         log = new FileStream(filename, FileMode.OpenOrCreate, FileAccess.Write);
         writer = new StreamWriter(log)
@@ -49,6 +51,7 @@ public class LogFileEventClient : IEventClient, IHostedService
         workerCancelToken = cancellationTokenSource.Token;
         if (isRunning)
         {
+            _composite.Add(this);
             writerTask = Task.Run(() => EventWriter(workerCancelToken));
         }
         return Task.CompletedTask;

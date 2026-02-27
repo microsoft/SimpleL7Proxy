@@ -5,6 +5,7 @@ namespace SimpleL7Proxy.Events;
 
 /// <summary>
 /// Extension methods for registering proxy event clients.
+/// Each IEventClient adds itself to CompositeEventClient during its own StartAsync.
 /// </summary>
 public static class ProxyEventServiceCollectionExtensions
 {
@@ -15,27 +16,22 @@ public static class ProxyEventServiceCollectionExtensions
         this IServiceCollection services,
         string? aiConnectionString)
     {
+        // CompositeEventClient is the single fan-out point; clients self-register via Add(this)
+        services.TryAddCompositeEventClient();
+
         AddAppInsightsClient(services, aiConnectionString);
 
-        // EventHubClient checks EventHubConfig in constructor and decides whether to run
+        // EventHubClient checks EventHubConfig in StartAsync and decides whether to run
         try
         {
             Console.WriteLine("Registering EventHubClient");
             services.AddSingleton<EventHubClient>();
-            services.AddSingleton<IEventClient>(svc => svc.GetRequiredService<EventHubClient>());
-            services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService<EventHubClient>());
+            services.AddSingleton<IHostedService>(svc => svc.GetRequiredService<EventHubClient>());
         }
         catch (Exception ex)
         {
             Console.WriteLine("Failed to create EventHubClient: " + ex.Message);
         }
-
-        // Register the composite if you want to inject it, but do not overwrite IEventClient
-        services.AddSingleton<CompositeEventClient>(svc =>
-        {
-            var clients = svc.GetServices<IEventClient>().ToList();
-            return new CompositeEventClient(clients);
-        });
 
         return services;
     }
@@ -48,14 +44,17 @@ public static class ProxyEventServiceCollectionExtensions
         string? filename,
         string? aiConnectionString)
     {
+        // CompositeEventClient is the single fan-out point; clients self-register via Add(this)
+        services.TryAddCompositeEventClient();
+
         AddAppInsightsClient(services, aiConnectionString);
 
         if (!string.IsNullOrEmpty(filename))
         {
             try
             {
-                services.AddSingleton<LogFileEventClient>(svc => new LogFileEventClient(filename));
-                services.AddSingleton<IEventClient>(svc => svc.GetRequiredService<LogFileEventClient>());
+                services.AddSingleton<LogFileEventClient>(svc =>
+                    new LogFileEventClient(filename, svc.GetRequiredService<CompositeEventClient>()));
                 services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService<LogFileEventClient>());
             }
             catch (Exception ex)
@@ -64,18 +63,11 @@ public static class ProxyEventServiceCollectionExtensions
             }
         }
 
-        // Register the composite if you want to inject it, but do not overwrite IEventClient
-        services.AddSingleton<CompositeEventClient>(svc =>
-        {
-            var clients = svc.GetServices<IEventClient>().ToList();
-            return new CompositeEventClient(clients);
-        });
-
         return services;
     }
 
     /// <summary>
-    /// Helper method to register AppInsights event client
+    /// Helper method to register AppInsights event client.
     /// </summary>
     private static void AddAppInsightsClient(IServiceCollection services, string? aiConnectionString)
     {
@@ -85,12 +77,25 @@ public static class ProxyEventServiceCollectionExtensions
         try
         {
             services.AddSingleton<AppInsightsEventClient>();
-            services.AddSingleton<IEventClient, AppInsightsEventClient>();
             services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService<AppInsightsEventClient>());
         }
         catch (Exception ex)
         {
             Console.WriteLine("Failed to create AppInsightsEventClient: " + ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Ensures CompositeEventClient is registered exactly once regardless of which Add* method is called.
+    /// </summary>
+    private static void TryAddCompositeEventClient(this IServiceCollection services)
+    {
+        // Avoid duplicate registrations when multiple Add* methods are chained
+        if (services.Any(sd => sd.ServiceType == typeof(CompositeEventClient)))
+            return;
+
+        services.AddSingleton<CompositeEventClient>();
+        // Expose the composite as the IEventClient so ProxyEvent.Initialize can resolve it
+        services.AddSingleton<IEventClient>(svc => svc.GetRequiredService<CompositeEventClient>());
     }
 }
