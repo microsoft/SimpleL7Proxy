@@ -85,7 +85,7 @@ public class Program
         var serviceProvider = frameworkHost.Services;
         var options = serviceProvider.GetRequiredService<IOptions<BackendOptions>>();
         var eventHubClient = serviceProvider.GetService<IEventClient>();
-        var telemetryClient = serviceProvider.GetRequiredService<TelemetryClient>();
+        var telemetryClient = serviceProvider.GetService<TelemetryClient>();
         var backendTokenProvider = serviceProvider.GetRequiredService<BackendTokenProvider>();
 
         // Initialize static logger for all stream processors
@@ -194,16 +194,12 @@ public class Program
 
     private static void ConfigureDependencyInjection(IServiceCollection services, ILogger startupLogger)
     {
-
-
-        // Register TelemetryClient
-        services.AddSingleton<TelemetryClient>();
         bool.TryParse(Environment.GetEnvironmentVariable("LOGTOFILE"), out var log_to_file);
 
         if (log_to_file)
         {
             var logFileName = Environment.GetEnvironmentVariable("LOGFILE_NAME") ?? "eventslog.json";
-            services.AddProxyEventLogFileClient(logFileName, Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING"));
+            services.AddProxyEventLogFileClient(logFileName);
 
         }
         else
@@ -219,7 +215,7 @@ public class Program
             _ = int.TryParse(eventHubStartupSecondsStr, out var eventHubStartupSeconds);
 
             services.AddSingleton(new EventHubConfig(eventHubConnectionString!, eventHubName!, eventHubNamespace!, eventHubStartupSeconds));
-            services.AddProxyEventClient(Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING"));
+            services.AddProxyEventClient();
         }
 
         var backendOptions = BackendHostConfigurationExtensions.CreateBackendOptions(startupLogger);

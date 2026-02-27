@@ -59,7 +59,7 @@ namespace SimpleL7Proxy.Events
     {
       _options = backendOptions ?? throw new ArgumentNullException(nameof(backendOptions));
       _eventHubClient = eventHubClient ?? throw new ArgumentNullException(nameof(eventHubClient));
-      _telemetryClient = telemetryClient ?? throw new ArgumentNullException(nameof(telemetryClient));
+      _telemetryClient = telemetryClient; // null when APPINSIGHTS_CONNECTIONSTRING is not set
 
       // Set default parameters that should be included with every event (frozen = immutable + optimized reads)
       DefaultParams = new Dictionary<string, string>(3)

@@ -10,16 +10,14 @@ namespace SimpleL7Proxy.Events;
 public static class ProxyEventServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers EventHub and AppInsights event clients and their hosted services.
+    /// Registers EventHub event client and its hosted service.
+    /// App Insights is handled directly by ProxyEvent via TelemetryClient — not through the composite.
     /// </summary>
     public static IServiceCollection AddProxyEventClient(
-        this IServiceCollection services,
-        string? aiConnectionString)
+        this IServiceCollection services)
     {
         // CompositeEventClient is the single fan-out point; clients self-register via Add(this)
         services.TryAddCompositeEventClient();
-
-        AddAppInsightsClient(services, aiConnectionString);
 
         // EventHubClient checks EventHubConfig in StartAsync and decides whether to run
         try
@@ -38,16 +36,14 @@ public static class ProxyEventServiceCollectionExtensions
 
     /// <summary>
     /// Registers LogFile event client and its hosted service.
+    /// App Insights is handled directly by ProxyEvent via TelemetryClient — not through the composite.
     /// </summary>
     public static IServiceCollection AddProxyEventLogFileClient(
         this IServiceCollection services,
-        string? filename,
-        string? aiConnectionString)
+        string? filename)
     {
         // CompositeEventClient is the single fan-out point; clients self-register via Add(this)
         services.TryAddCompositeEventClient();
-
-        AddAppInsightsClient(services, aiConnectionString);
 
         if (!string.IsNullOrEmpty(filename))
         {
@@ -64,25 +60,6 @@ public static class ProxyEventServiceCollectionExtensions
         }
 
         return services;
-    }
-
-    /// <summary>
-    /// Helper method to register AppInsights event client.
-    /// </summary>
-    private static void AddAppInsightsClient(IServiceCollection services, string? aiConnectionString)
-    {
-        if (string.IsNullOrEmpty(aiConnectionString))
-            return;
-
-        try
-        {
-            services.AddSingleton<AppInsightsEventClient>();
-            services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService<AppInsightsEventClient>());
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine("Failed to create AppInsightsEventClient: " + ex.Message);
-        }
     }
 
     /// <summary>
