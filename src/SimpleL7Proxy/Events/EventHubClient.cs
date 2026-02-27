@@ -218,14 +218,6 @@ public class EventHubClient : IEventClient, IHostedService
     //     SendData(jsonData);
     // }
 
-    public void SendData(ProxyEvent proxyEvent)
-    {
-        if (!isRunning || isShuttingDown) return;
-
-        string jsonData = JsonSerializer.Serialize(proxyEvent);
-        SendData(jsonData);
-    }
-
     // public void SendData(ConcurrentDictionary<string, string> eventData, string? name = null)
     // {
     //     if (!isRunning || isShuttingDown) return;

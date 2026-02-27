@@ -20,7 +20,7 @@ public class CircuitBreaker : ICircuitBreaker
     // Global counters using Interlocked operations
     private static int _totalCircuitBreakersCount = 0;
     private static int _blockedCircuitBreakersCount = 0;
-    private readonly ProxyEvent _circuitBreakerEvent = new ProxyEvent(6);
+    private readonly ProxyEvent _circuitBreakerEvent = new ProxyEvent(4);  // Code, Time, Success, Count
     
     // Instance state tracking
     private bool _isCurrentlyBlocked = false;

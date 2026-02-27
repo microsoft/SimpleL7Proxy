@@ -1,4 +1,8 @@
-﻿using System.Collections.Concurrent;
+﻿using System.Buffers;
+using System.Collections.Concurrent;
+using System.Collections.Frozen;
+using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Options;
 using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.DataContracts;
@@ -46,6 +50,7 @@ namespace SimpleL7Proxy.Events
     public string? Method { get; set; } = "GET";
     public TimeSpan Duration { get; set; } = TimeSpan.Zero;
     public Exception? Exception { get; set; } = null;
+    public static FrozenDictionary<string, string> DefaultParams { get; private set; } = FrozenDictionary<string, string>.Empty;
 
     public static void Initialize(
       IOptions<BackendOptions> backendOptions,
@@ -56,16 +61,36 @@ namespace SimpleL7Proxy.Events
       _eventHubClient = eventHubClient ?? throw new ArgumentNullException(nameof(eventHubClient));
       _telemetryClient = telemetryClient ?? throw new ArgumentNullException(nameof(telemetryClient));
 
+      // Set default parameters that should be included with every event (frozen = immutable + optimized reads)
+      DefaultParams = new Dictionary<string, string>(3)
+      {
+        ["Ver"] = Constants.VERSION,
+        ["Revision"] = _options.Value.Revision,
+        ["ContainerApp"] = _options.Value.ContainerApp
+      }.ToFrozenDictionary();
+
     }
 
-    public ProxyEvent() : base(1, 20, StringComparer.OrdinalIgnoreCase)
+    /// <summary>
+    /// Stamps Ver, Revision, ContainerApp, Status, Method into any properties dictionary.
+    /// </summary>
+    private void AddDefaultProperties(IDictionary<string, string> properties)
     {
-      // Ver, Revision, ContainerApp added at send time, not stored
+      foreach (var kvp in DefaultParams)
+      {
+        properties[kvp.Key] = kvp.Value;
+      }
+
+      properties["Status"] = ((int)Status).ToString();
+      properties["Method"] = Method ?? "GET";
+    }
+
+    public ProxyEvent() : base(1, 13, StringComparer.OrdinalIgnoreCase)
+    {
     }
 
     public ProxyEvent(int capacity) : base(1, capacity, StringComparer.OrdinalIgnoreCase)
     {
-      // Ver, Revision, ContainerApp added at send time, not stored
     }
 
     public ProxyEvent(ProxyEvent other) : base(other)
@@ -152,9 +177,6 @@ namespace SimpleL7Proxy.Events
             logToEventHub = true;
             break;
         }
-
-        this["Status"] = ((int)Status).ToString();
-        this["Method"] = Method ?? "GET"; // Default to GET if Method is null
         
         // Add replica-lifetime values at send time
         
@@ -168,13 +190,12 @@ namespace SimpleL7Proxy.Events
 
         if (logToEventHub && _eventHubClient is not null)
         {
-          this["Type"] = "S7P-" + Type.ToString();
-          this["MID"] = MID ?? "N/A";
-          this["Ver"] = Constants.VERSION;
-          this["Revision"] = _options!.Value.Revision;
-          this["ContainerApp"] = _options.Value.ContainerApp;
+          Dictionary<string, string> eventParams = new Dictionary<string, string>(DefaultParams, StringComparer.OrdinalIgnoreCase);
+          eventParams["Type"] = "S7P-" + Type.ToString();
+          eventParams["MID"] = MID ?? "N/A";
+          AddDefaultProperties(eventParams);
           // Send the event to Event Hub
-          _eventHubClient.SendData(this);
+          _eventHubClient.SendData(ConvertToJson(this, eventParams));
         }
       }
       catch (Exception ex)
@@ -183,6 +204,35 @@ namespace SimpleL7Proxy.Events
         Console.Error.WriteLine($"Error sending telemetry: {ex.Message}");
       }
     }
+
+    public static string ConvertToJson(ProxyEvent proxyEvent, IDictionary<string, string>? extraProperties = null)
+    {
+        // Use Utf8JsonWriter to merge proxyEvent + extraProperties into one JSON object
+        // without allocating an intermediate merged dictionary
+        var buffer = new ArrayBufferWriter<byte>(512);
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+
+            foreach (var kvp in proxyEvent)
+            {
+                writer.WriteString(kvp.Key, kvp.Value);
+            }
+
+            if (extraProperties is not null)
+            {
+                foreach (var kvp in extraProperties)
+                {
+                    writer.WriteString(kvp.Key, kvp.Value);
+                }
+            }
+
+            writer.WriteEndObject();
+        }
+
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
+    }
+  
 
     private void TrackEvent()
     {
@@ -212,6 +262,9 @@ namespace SimpleL7Proxy.Events
         }
       }
 
+      // Stamp defaults directly into telemetry (not into this ProxyEvent)
+      AddDefaultProperties(eventTelemetry.Properties);
+
       _telemetryClient?.TrackEvent(eventTelemetry);
     }
 
@@ -232,9 +285,7 @@ namespace SimpleL7Proxy.Events
       // Set the timestamp
       dependencyTelemetry.Timestamp = DateTimeOffset.UtcNow.Subtract(Duration);
       dependencyTelemetry.Id = MID;
-      dependencyTelemetry.Properties["Ver"] = Constants.VERSION;
-      dependencyTelemetry.Properties["Revision"] = _options.Value.Revision;
-      dependencyTelemetry.Properties["ContainerApp"] = _options.Value.ContainerApp;
+      AddDefaultProperties(dependencyTelemetry.Properties);
 
       // Add custom properties
       foreach (var kvp in this)
@@ -276,9 +327,7 @@ namespace SimpleL7Proxy.Events
 
       // Add a special flag to mark this as our custom telemetry
       requestTelemetry.Properties["CustomTracked"] = "true";
-      requestTelemetry.Properties["Ver"] = Constants.VERSION;
-      requestTelemetry.Properties["Revision"] = _options.Value.Revision;
-      requestTelemetry.Properties["ContainerApp"] = _options.Value.ContainerApp;
+      AddDefaultProperties(requestTelemetry.Properties);
 
       foreach (var kvp in this)
       {
@@ -292,9 +341,7 @@ namespace SimpleL7Proxy.Events
     {
       this["ExceptionType"] = Exception?.GetType().ToString() ?? "Unknown";
       this["Message"] = Exception?.Message ?? "No exception message";
-      this["Ver"] = Constants.VERSION;
-      this["Revision"] = _options.Value.Revision;
-      this["ContainerApp"] = _options.Value.ContainerApp;
+      AddDefaultProperties(this);
 
       _telemetryClient?.TrackException(Exception, this.ToDictionary());
     }
@@ -348,7 +395,7 @@ namespace SimpleL7Proxy.Events
 
         if (_options.Value.LogConsoleEvent)
         {
-          _eventHubClient?.SendData(this);
+          _eventHubClient?.SendData(ConvertToJson(this));
         }
       }
       catch (Exception ex)
@@ -375,7 +422,7 @@ namespace SimpleL7Proxy.Events
           this["Type"] = "S7P-Console-Error";
         }
 
-        _eventHubClient?.SendData(this);
+        _eventHubClient?.SendData(ConvertToJson(this));
       }
       catch (Exception ex)
       {

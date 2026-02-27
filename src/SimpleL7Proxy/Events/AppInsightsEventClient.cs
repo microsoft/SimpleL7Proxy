@@ -12,14 +12,6 @@ public class AppInsightsEventClient(TelemetryClient telemetryClient)
   public string ClientType => "AppInsights";
   public void SendData(string? value) => telemetryClient.TrackEvent(value);
 
-  public void SendData(ProxyEvent proxyEvent)
-  {
-    string Name = proxyEvent.TryGetValue("Type", out var type)
-        ? type : "ProxyEvent";
-
-    telemetryClient.TrackEvent(Name, proxyEvent);
-  }
-
   public Task StartAsync(CancellationToken cancellationToken)
   {
     // App Insights doesn't need initialization
@@ -32,15 +24,4 @@ public class AppInsightsEventClient(TelemetryClient telemetryClient)
     telemetryClient.Flush();
     return Task.CompletedTask;
   }
-
-  // public void SendData(Dictionary<string, string> data)
-  // {
-  //   telemetryClient.TrackEvent("ProxyEvent", data);
-  // }
-
-
-  //   public void SendData(ConcurrentDictionary<string, string> eventData, string? name = "ProxyEvent")
-  // {
-  //   telemetryClient.TrackEvent(name, eventData);
-  // }
 }

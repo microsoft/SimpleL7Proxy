@@ -165,12 +165,4 @@ public class LogFileEventClient : IEventClient, IHostedService
 
     //     SendData(JsonSerializer.Serialize(eventData));
     // }
-    public void SendData(ProxyEvent proxyEvent)
-    {
-        if (!isRunning || isShuttingDown) return;
-
-        string jsonData = JsonSerializer.Serialize(proxyEvent);
-        SendData(jsonData);
-    }
-
 }

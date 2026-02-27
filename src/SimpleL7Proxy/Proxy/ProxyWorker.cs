@@ -58,8 +58,8 @@ public class ProxyWorker
     private readonly ISharedIteratorRegistry? _sharedIteratorRegistry;
 
     // Static pre-allocated ProxyEvent objects for error scenarios to avoid expensive copy constructor
-    private static readonly ProxyEvent s_finallyBlockErrorEvent = new ProxyEvent(30);  // Base eventData (~20) + error fields (6) + buffer
-    private static readonly ProxyEvent s_backendRequestAttemptEvent = new ProxyEvent(25);  // Base eventData (~20) + attempt fields (7)
+    // private static readonly ProxyEvent s_backendRequestAttemptEvent = new ProxyEvent(25);  // Base eventData (~20) + attempt fields (7)
+    private static readonly ProxyEvent s_finallyBlockErrorEvent = new ProxyEvent(18);
 
     public ProxyWorker(
         int id,

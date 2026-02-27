@@ -48,8 +48,8 @@ public class Backends : IBackendService
   private readonly ISharedIteratorRegistry? _sharedIteratorRegistry;
 
   // Reusable ProxyEvent instances for backend poller to reduce allocations
-  private readonly ProxyEvent _statusEvent = new ProxyEvent(8);
-  private readonly ProxyEvent _probeEvent = new ProxyEvent(8); 
+  private readonly ProxyEvent _statusEvent = new ProxyEvent(25);  // 4 fixed (Timestamp, LoadBalanceMode, ActiveHostsCount, SuccessRate) + 7*N per host (assumes ~3 hosts)
+  private readonly ProxyEvent _probeEvent = new ProxyEvent(6);  // ProxyHost, Backend-Host, Port, Path, Code, Latency/Timeout
 
 
   CancellationTokenSource workerCancelTokenSource = new CancellationTokenSource();
