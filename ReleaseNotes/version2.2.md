@@ -1,6 +1,19 @@
 # Release Notes #
 
 Proxy:
+
+* Implement app configuration
+* Added AppConfiguration reader
+* Moved default values out of BackendHostConfigurationExtension and into BackendOptions
+* Read WarmOptions every 30 seconds ( AZURE_APPCONFIG_REFRESH_SECONDS )
+* Markup BackendOptions as either: warm, cold or hidden 
+
+Deployment:
+* Add AppConfiguration/appdeploy.sh to setup appconfiguration configure ACA to use it  
+
+2.2.10-D1
+
+Proxy:
 * Implement partial matches for validated parameters
 * Remove blocking operations during shutdown
 * Convert HostHealthCollection to to HostCollectionSnapshot

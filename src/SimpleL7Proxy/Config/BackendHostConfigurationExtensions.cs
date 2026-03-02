@@ -208,18 +208,30 @@ public static class BackendHostConfigurationExtensions
   // Converts a List<string> to a dictionary of strings.
   private static Dictionary<string, string> KVStringPairs(List<string> list, char delimiter = '=')
   {
+    // Alternate delimiter to try when the primary doesn't produce a valid split
+    char fallback = delimiter == '=' ? ':' : '=';
     Dictionary<string, string> keyValuePairs = [];
 
     foreach (var item in list)
     {
-      var kvp = item.Split(delimiter);
+      // Split into max 2 parts so values containing the delimiter are preserved
+      var kvp = item.Split(delimiter, 2);
       if (kvp.Length == 2)
       {
         keyValuePairs.Add(kvp[0].Trim(), kvp[1].Trim());
       }
       else
       {
-        Console.WriteLine($"Could not parse {item} as a key-value pair (delimiter='{delimiter}'), ignoring");
+        // Try the fallback delimiter (supports both '=' and ':' formats)
+        kvp = item.Split(fallback, 2);
+        if (kvp.Length == 2)
+        {
+          keyValuePairs.Add(kvp[0].Trim(), kvp[1].Trim());
+        }
+        else
+        {
+          Console.WriteLine($"Could not parse {item} as a key-value pair (delimiter='{delimiter}' or '{fallback}'), ignoring");
+        }
       }
     }
 
@@ -313,7 +325,7 @@ public static class BackendHostConfigurationExtensions
   // Legacy format also supported: "connectionString,namespace,queue,useMI" (positional, must be in order)
   private static (string connectionString, string namespace_, string queue, bool useMI) ParseServiceBusConfig(string config)
   {
-    // Define default values
+    // Fallback defaults — should match BackendOptions property initializers
     string connectionString = "example-sb-connection-string";
     string namespace_ = "";
     string queue = "requeststatus";
@@ -366,9 +378,9 @@ public static class BackendHostConfigurationExtensions
   // Legacy format also supported: "connectionString,accountUri,useMI" (positional, must be in order)
   private static (string connectionString, string accountUri, bool useMI) ParseBlobStorageConfig(string config)
   {
-    // Define default values
+    // Fallback defaults — should match BackendOptions property initializers
     string connectionString = "";
-    string accountUri = "https://example.blob.core.windows.net/";
+    string accountUri = "https://mystorageaccount.blob.core.windows.net/";
     bool useMI = false;
 
     if (string.IsNullOrEmpty(config))
@@ -553,94 +565,100 @@ public static class BackendHostConfigurationExtensions
     }
 #endif
 
-    // Parse Service Bus configuration - supports both single combined variable and individual variables
-    // ServiceBusConfig format: "connectionString,namespace,queue,useMI"
-    var sbConfigStr = ReadEnvironmentVariableOrDefault("AsyncSBConfig", "");
+    var defOpts = new BackendOptions(); // Create a default options object to get default values for individual settings
+
+    // Parse composite config strings — defaults come from BackendOptions property initializers.
+    // When no env var is set, the default composite string is parsed, keeping all defaults in one place.
+    var sbConfigStr = ReadEnvironmentVariableOrDefault("AsyncSBConfig", defOpts.AsyncSBConfig);
     var (sbConnStr, sbNamespace, sbQueue, sbUseMI) = ParseServiceBusConfig(sbConfigStr);
-    var (blobConnStr, blobAccountUri, blobUseMI) = ParseBlobStorageConfig(ReadEnvironmentVariableOrDefault("AsyncBlobStorageConfig", ""));
+    var blobConfigStr = ReadEnvironmentVariableOrDefault("AsyncBlobStorageConfig", defOpts.AsyncBlobStorageConfig);
+    var (blobConnStr, blobAccountUri, blobUseMI) = ParseBlobStorageConfig(blobConfigStr);
 
     // Create and return a BackendOptions object populated with values from environment variables or default values.
+    // defOpts provides the single-source-of-truth defaults from BackendOptions property initializers.
     var backendOptions = new BackendOptions
     {
-      AcceptableStatusCodes = ReadEnvironmentVariableOrDefault("AcceptableStatusCodes", new int[] { 200, 202, 401, 403, 404, 408, 410, 412, 417, 400 }),
-      // Individual env vars override AsyncBlobStorageConfig if specified
+      AcceptableStatusCodes = ReadEnvironmentVariableOrDefault("AcceptableStatusCodes", defOpts.AcceptableStatusCodes),
+      // Composite config strings — published to App Configuration; individual env vars override below
+      AsyncBlobStorageConfig = blobConfigStr,
       AsyncBlobStorageAccountUri = ReadEnvironmentVariableOrDefault("AsyncBlobStorageAccountUri", blobAccountUri),
       AsyncBlobStorageConnectionString = ReadEnvironmentVariableOrDefault("AsyncBlobStorageConnectionString", blobConnStr),
       AsyncBlobStorageUseMI = ReadEnvironmentVariableOrDefault("AsyncBlobStorageUseMI", blobUseMI),
-      AsyncBlobWorkerCount = ReadEnvironmentVariableOrDefault("AsyncBlobWorkerCount", 2),
-      AsyncClientRequestHeader = ReadEnvironmentVariableOrDefault("AsyncClientRequestHeader", "AsyncMode"),
-      AsyncClientConfigFieldName = ReadEnvironmentVariableOrDefault("AsyncClientConfigFieldName", "async-config"),
-      AsyncModeEnabled = ReadEnvironmentVariableOrDefault("AsyncModeEnabled", false),
-      // Individual env vars override ServiceBusConfig if specified
+      AsyncBlobWorkerCount = ReadEnvironmentVariableOrDefault("AsyncBlobWorkerCount", defOpts.AsyncBlobWorkerCount),
+      AsyncClientRequestHeader = ReadEnvironmentVariableOrDefault("AsyncClientRequestHeader", defOpts.AsyncClientRequestHeader),
+      AsyncClientConfigFieldName = ReadEnvironmentVariableOrDefault("AsyncClientConfigFieldName", defOpts.AsyncClientConfigFieldName),
+      AsyncModeEnabled = ReadEnvironmentVariableOrDefault("AsyncModeEnabled", defOpts.AsyncModeEnabled),
+      // Composite config string — published to App Configuration; individual env vars override below
+      AsyncSBConfig = sbConfigStr,
       AsyncSBConnectionString = ReadEnvironmentVariableOrDefault("AsyncSBConnectionString", sbConnStr),
       AsyncSBNamespace = ReadEnvironmentVariableOrDefault("AsyncSBNamespace", sbNamespace),
       AsyncSBQueue = ReadEnvironmentVariableOrDefault("AsyncSBQueue", sbQueue),
       AsyncSBUseMI = ReadEnvironmentVariableOrDefault("AsyncSBUseMI", sbUseMI), // Use managed identity for Service Bus
-      AsyncTimeout = ReadEnvironmentVariableOrDefault("AsyncTimeout", 30 * 60000),
-      AsyncTTLSecs = ReadEnvironmentVariableOrDefault("AsyncTTLSecs", 24 * 60 * 60), // 24 hours
-      AsyncTriggerTimeout = ReadEnvironmentVariableOrDefault("AsyncTriggerTimeout", 10000),
-      CircuitBreakerErrorThreshold = ReadEnvironmentVariableOrDefault("CBErrorThreshold", 50),
-      CircuitBreakerTimeslice = ReadEnvironmentVariableOrDefault("CBTimeslice", 60),
+      AsyncTimeout = ReadEnvironmentVariableOrDefault("AsyncTimeout", (int)defOpts.AsyncTimeout), // cast: BackendOptions stores as double
+      AsyncTTLSecs = ReadEnvironmentVariableOrDefault("AsyncTTLSecs", defOpts.AsyncTTLSecs), // 24 hours
+      AsyncTriggerTimeout = ReadEnvironmentVariableOrDefault("AsyncTriggerTimeout", defOpts.AsyncTriggerTimeout),
+      CircuitBreakerErrorThreshold = ReadEnvironmentVariableOrDefault("CBErrorThreshold", defOpts.CircuitBreakerErrorThreshold),
+      CircuitBreakerTimeslice = ReadEnvironmentVariableOrDefault("CBTimeslice", defOpts.CircuitBreakerTimeslice),
       Client = _client,
-      ContainerApp = ReadEnvironmentVariableOrDefault("CONTAINER_APP_NAME", "ContainerAppName"),
-      DefaultPriority = ReadEnvironmentVariableOrDefault("DefaultPriority", 2),
-      DefaultTTLSecs = ReadEnvironmentVariableOrDefault("DefaultTTLSecs", 300),
-      DependancyHeaders = ToArrayOfString(ReadEnvironmentVariableOrDefault("DependancyHeaders", "Backend-Host, Host-URL, Status, Duration, Error, Message, Request-Date, backendLog")),
-      DisallowedHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("DisallowedHeaders", "")),
-      HealthProbeSidecar = ReadEnvironmentVariableOrDefault("HealthProbeSidecar", "Enabled=false;url=http://localhost:9000"),
+      ContainerApp = ReadEnvironmentVariableOrDefault("CONTAINER_APP_NAME", defOpts.ContainerApp),
+      DefaultPriority = ReadEnvironmentVariableOrDefault("DefaultPriority", defOpts.DefaultPriority),
+      DefaultTTLSecs = ReadEnvironmentVariableOrDefault("DefaultTTLSecs", defOpts.DefaultTTLSecs),
+      DependancyHeaders = ToArrayOfString(ReadEnvironmentVariableOrDefault("DependancyHeaders", string.Join(", ", defOpts.DependancyHeaders))),
+      DisallowedHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("DisallowedHeaders", string.Join(",", defOpts.DisallowedHeaders))),
+      HealthProbeSidecar = ReadEnvironmentVariableOrDefault("HealthProbeSidecar", defOpts.HealthProbeSidecar),
       HostName = ReadEnvironmentVariableOrDefault("Hostname", replicaID),
       Hosts = new List<HostConfig>(),
       IDStr = $"{ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P")}-{replicaID}-",
-      IterationMode = ReadEnvironmentVariableOrDefault("IterationMode", IterationModeEnum.SinglePass),
-      LoadBalanceMode = ReadEnvironmentVariableOrDefault("LoadBalanceMode", "latency"), // "latency", "roundrobin", "random"
-      LogAllRequestHeaders = ReadEnvironmentVariableOrDefault("LogAllRequestHeaders", false),
-      LogAllRequestHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllRequestHeadersExcept", "Authorization")),
-      LogAllResponseHeaders = ReadEnvironmentVariableOrDefault("LogAllResponseHeaders", false),
-      LogAllResponseHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllResponseHeadersExcept", "Api-Key")),
-      LogConsole = ReadEnvironmentVariableOrDefault("LogConsole", true),
-      LogConsoleEvent = ReadEnvironmentVariableOrDefault("LogConsoleEvent", false),
-      LogHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", "")),
-      LogPoller = ReadEnvironmentVariableOrDefault("LogPoller", true),
-      LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", true),
-      MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", 1000),
-      MaxAttempts = ReadEnvironmentVariableOrDefault("MaxAttempts", 10),
-      OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", ""),
-      PollInterval = ReadEnvironmentVariableOrDefault("PollInterval", 15000),
-      PollTimeout = ReadEnvironmentVariableOrDefault("PollTimeout", 3000),
-      Port = ReadEnvironmentVariableOrDefault("Port", 80),
-      PriorityKeyHeader = ReadEnvironmentVariableOrDefault("PriorityKeyHeader", "S7PPriorityKey"),
-      PriorityKeys = ToListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", "12345,234")),
-      PriorityValues = ToListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", "1,3")),
-      PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault("PriorityWorkers", "2:1,3:1"))),
-      RequiredHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("RequiredHeaders", "")),
-      Revision = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REVISION", "revisionID"),
-      SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", 80),
-      SuspendedUserConfigUrl = ReadEnvironmentVariableOrDefault("SuspendedUserConfigUrl", "file:config.json"),
-      StripResponseHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("StripResponseHeaders", "")),
-      StripRequestHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("StripRequestHeaders", "")),
-      StorageDbEnabled = ReadEnvironmentVariableOrDefault("StorageDbEnabled", false),
-      StorageDbContainerName = ReadEnvironmentVariableOrDefault("StorageDbContainerName", "Requests"),
-      TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", 30),
-      Timeout = ReadEnvironmentVariableOrDefault("Timeout", 1200000), // 20 minutes
-      TimeoutHeader = ReadEnvironmentVariableOrDefault("TimeoutHeader", "S7PTimeout"),
-      TTLHeader = ReadEnvironmentVariableOrDefault("TTLHeader", "S7PTTL"),
-      UniqueUserHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("UniqueUserHeaders", "X-UserID")),
-      UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", false),
-      UseOAuthGov = ReadEnvironmentVariableOrDefault("UseOAuthGov", false),
-      UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", false),
-      UserConfigRequired = ReadEnvironmentVariableOrDefault("UserConfigRequired", false),
-      UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", "file:config.json"),
-      UserConfigRefreshIntervalSecs = ReadEnvironmentVariableOrDefault("UserConfigRefreshIntervalSecs", 3600), // 1 hour
-      UserIDFieldName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "UserIDFieldName", "userId"), // migrate from LookupHeaderName
-      UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", 0.1f),
-      UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", "X-UserProfile"),
-      UserSoftDeleteTTLMinutes= ReadEnvironmentVariableOrDefault("UserSoftDeleteTTLMinutes", 6*60),  // 6 hours
-      ValidateAuthAppFieldName = ReadEnvironmentVariableOrDefault("ValidateAuthAppFieldName", "authAppID"),
-      ValidateAuthAppID = ReadEnvironmentVariableOrDefault("ValidateAuthAppID", false),
-      ValidateAuthAppIDHeader = ReadEnvironmentVariableOrDefault("ValidateAuthAppIDHeader", "X-MS-CLIENT-PRINCIPAL-ID"),
-      ValidateAuthAppIDUrl = ReadEnvironmentVariableOrDefault("ValidateAuthAppIDUrl", "file:auth.json"),
-      ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault("ValidateHeaders", "")), ':'),
-      Workers = ReadEnvironmentVariableOrDefault("Workers", 10),
+      IterationMode = ReadEnvironmentVariableOrDefault("IterationMode", defOpts.IterationMode),
+      LoadBalanceMode = ReadEnvironmentVariableOrDefault("LoadBalanceMode", defOpts.LoadBalanceMode), // "latency", "roundrobin", "random"
+      LogAllRequestHeaders = ReadEnvironmentVariableOrDefault("LogAllRequestHeaders", defOpts.LogAllRequestHeaders),
+      LogAllRequestHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllRequestHeadersExcept", string.Join(",", defOpts.LogAllRequestHeadersExcept))),
+      LogAllResponseHeaders = ReadEnvironmentVariableOrDefault("LogAllResponseHeaders", defOpts.LogAllResponseHeaders),
+      LogAllResponseHeadersExcept = ToListOfString(ReadEnvironmentVariableOrDefault("LogAllResponseHeadersExcept", string.Join(",", defOpts.LogAllResponseHeadersExcept))),
+      LogConsole = ReadEnvironmentVariableOrDefault("LogConsole", defOpts.LogConsole),
+      LogConsoleEvent = ReadEnvironmentVariableOrDefault("LogConsoleEvent", defOpts.LogConsoleEvent),
+      LogHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("LogHeaders", string.Join(",", defOpts.LogHeaders))),
+      LogPoller = ReadEnvironmentVariableOrDefault("LogPoller", defOpts.LogPoller),
+      LogProbes = ReadEnvironmentVariableOrDefault("LogProbes", defOpts.LogProbes),
+      MaxQueueLength = ReadEnvironmentVariableOrDefault("MaxQueueLength", defOpts.MaxQueueLength),
+      MaxAttempts = ReadEnvironmentVariableOrDefault("MaxAttempts", defOpts.MaxAttempts),
+      OAuthAudience = ReadEnvironmentVariableOrDefault("OAuthAudience", defOpts.OAuthAudience),
+      PollInterval = ReadEnvironmentVariableOrDefault("PollInterval", defOpts.PollInterval),
+      PollTimeout = ReadEnvironmentVariableOrDefault("PollTimeout", defOpts.PollTimeout),
+      Port = ReadEnvironmentVariableOrDefault("Port", defOpts.Port),
+      PriorityKeyHeader = ReadEnvironmentVariableOrDefault("PriorityKeyHeader", defOpts.PriorityKeyHeader),
+      PriorityKeys = ToListOfString(ReadEnvironmentVariableOrDefault("PriorityKeys", string.Join(",", defOpts.PriorityKeys))),
+      PriorityValues = ToListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", string.Join(",", defOpts.PriorityValues))),
+      PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault("PriorityWorkers", string.Join(",", defOpts.PriorityWorkers.Select(kv => $"{kv.Key}:{kv.Value}"))))),
+      RequiredHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("RequiredHeaders", string.Join(",", defOpts.RequiredHeaders))),
+      Revision = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REVISION", defOpts.Revision),
+      SuccessRate = ReadEnvironmentVariableOrDefault("SuccessRate", defOpts.SuccessRate),
+      SuspendedUserConfigUrl = ReadEnvironmentVariableOrDefault("SuspendedUserConfigUrl", defOpts.SuspendedUserConfigUrl),
+      StripResponseHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("StripResponseHeaders", string.Join(",", defOpts.StripResponseHeaders))),
+      StripRequestHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("StripRequestHeaders", string.Join(",", defOpts.StripRequestHeaders))),
+      StorageDbEnabled = ReadEnvironmentVariableOrDefault("StorageDbEnabled", defOpts.StorageDbEnabled),
+      StorageDbContainerName = ReadEnvironmentVariableOrDefault("StorageDbContainerName", defOpts.StorageDbContainerName),
+      TerminationGracePeriodSeconds = ReadEnvironmentVariableOrDefault("TERMINATION_GRACE_PERIOD_SECONDS", defOpts.TerminationGracePeriodSeconds),
+      Timeout = ReadEnvironmentVariableOrDefault("Timeout", defOpts.Timeout), // 20 minutes
+      TimeoutHeader = ReadEnvironmentVariableOrDefault("TimeoutHeader", defOpts.TimeoutHeader),
+      TTLHeader = ReadEnvironmentVariableOrDefault("TTLHeader", defOpts.TTLHeader),
+      UniqueUserHeaders = ToListOfString(ReadEnvironmentVariableOrDefault("UniqueUserHeaders", string.Join(",", defOpts.UniqueUserHeaders))),
+      UseOAuth = ReadEnvironmentVariableOrDefault("UseOAuth", defOpts.UseOAuth),
+      UseOAuthGov = ReadEnvironmentVariableOrDefault("UseOAuthGov", defOpts.UseOAuthGov),
+      UseProfiles = ReadEnvironmentVariableOrDefault("UseProfiles", defOpts.UseProfiles),
+      UserConfigRequired = ReadEnvironmentVariableOrDefault("UserConfigRequired", defOpts.UserConfigRequired),
+      UserConfigUrl = ReadEnvironmentVariableOrDefault("UserConfigUrl", defOpts.UserConfigUrl),
+      UserConfigRefreshIntervalSecs = ReadEnvironmentVariableOrDefault("UserConfigRefreshIntervalSecs", defOpts.UserConfigRefreshIntervalSecs), // 1 hour
+      UserIDFieldName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "UserIDFieldName", defOpts.UserIDFieldName), // migrate from LookupHeaderName
+      UserPriorityThreshold = ReadEnvironmentVariableOrDefault("UserPriorityThreshold", defOpts.UserPriorityThreshold),
+      UserProfileHeader = ReadEnvironmentVariableOrDefault("UserProfileHeader", defOpts.UserProfileHeader),
+      UserSoftDeleteTTLMinutes = ReadEnvironmentVariableOrDefault("UserSoftDeleteTTLMinutes", defOpts.UserSoftDeleteTTLMinutes),  // 6 hours
+      ValidateAuthAppFieldName = ReadEnvironmentVariableOrDefault("ValidateAuthAppFieldName", defOpts.ValidateAuthAppFieldName),
+      ValidateAuthAppID = ReadEnvironmentVariableOrDefault("ValidateAuthAppID", defOpts.ValidateAuthAppID),
+      ValidateAuthAppIDHeader = ReadEnvironmentVariableOrDefault("ValidateAuthAppIDHeader", defOpts.ValidateAuthAppIDHeader),
+      ValidateAuthAppIDUrl = ReadEnvironmentVariableOrDefault("ValidateAuthAppIDUrl", defOpts.ValidateAuthAppIDUrl),
+      ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault("ValidateHeaders", string.Join(",", defOpts.ValidateHeaders.Select(kv => $"{kv.Key}={kv.Value}"))))),
+      Workers = ReadEnvironmentVariableOrDefault("Workers", defOpts.Workers),
     };
 
     // RegisterBackends will be called after DI container is built to avoid service provider dependency issues
