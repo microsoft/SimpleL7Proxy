@@ -1,13 +1,29 @@
 #!/bin/bash
 
 # Deploy/Update Azure App Configuration for BackendOptions
+#
+# Goals:
+#   1. Migration  – seed App Configuration from a live Container App's
+#                   env vars (with fallback to local shell variables).
+#   2. Catalog    – every publishable setting is always written so that
+#                   operators can see the full list in the portal.
+#                   When no env value exists, the C# default from
+#                   BackendOptions.cs is used. If even that is empty,
+#                   a "-" placeholder is written, meaning "use the
+#                   built-in code default".
+#
 # Discovers publishable keys dynamically from [ConfigOption("...")]
 # decorations in BackendOptions.cs.
 #
 # Three modes (ConfigMode enum):
-#   Warm   – published & hot-reloaded (no restart required)
-#   Cold   – published but requires a Container App restart
+#   Warm   – published under "Warm:" prefix, hot-reloaded (~30 s)
+#   Cold   – published under "Cold:" prefix, requires Container App restart
 #   Hidden – not published (skipped by this script)
+#
+# Key prefix convention:
+#   Warm settings → Warm:<Section>:<Key>  (e.g. Warm:Logging:LogConsole)
+#   Cold settings → Cold:<Section>:<Key>  (e.g. Cold:Server:Workers)
+#   The prefix itself tells you the reload mode at a glance in the portal.
 #
 # Sources env var values from the live Container App deployment, falling
 # back to local shell variables when not defined on the Container App.
@@ -163,6 +179,7 @@ mapfile -t CONFIG_ENTRIES < <(
             configName = "";
             mode = "Warm";
             prop = "";
+            defVal = "";
 
             # Extract KeyPath (first positional arg)
             if (match($0, /\[ConfigOption\("([^"]+)"/, m)) {
@@ -187,6 +204,17 @@ mapfile -t CONFIG_ENTRIES < <(
                 if ($0 ~ /^[[:space:]]*public[[:space:]]+/) {
                     if (match($0, /^[[:space:]]*public[[:space:]]+[^ ]+[[:space:]]+([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*\{/, p)) {
                         prop = p[1];
+                        # Extract default value from "} = VALUE;" pattern
+                        defVal = "";
+                        if (match($0, /\}[[:space:]]*=[[:space:]]*(.+);/, dv)) {
+                            defVal = dv[1];
+                            sub(/[[:space:]]*\/\/.*$/, "", defVal);
+                            sub(/^[[:space:]]+/, "", defVal);
+                            sub(/[[:space:]]+$/, "", defVal);
+                            if (match(defVal, /^"(.*)"$/, q)) {
+                                defVal = q[1];
+                            }
+                        }
                         break;
                     }
                 }
@@ -195,7 +223,7 @@ mapfile -t CONFIG_ENTRIES < <(
             if (key != "" && prop != "") {
                 # Default ConfigName to the property name
                 if (configName == "") configName = prop;
-                print prop "|" key "|" configName "|" mode;
+                print prop "|" key "|" configName "|" mode "|" defVal;
             }
         }
     ' "${BACKEND_OPTIONS_FILE}"
@@ -206,18 +234,31 @@ if [ "${#CONFIG_ENTRIES[@]}" -eq 0 ]; then
     exit 1
 fi
 
+# Placeholder written when no env value AND no C# default exist.
+# The proxy treats "-" as "use the built-in code default".
+DEFAULT_PLACEHOLDER="-"
+
 echo -e "${YELLOW}Publishing config keys to App Configuration...${NC}"
 SET_COUNT=0
-SKIP_COUNT=0
+DEFAULT_COUNT=0
 WARM_COUNT=0
 COLD_COUNT=0
 
+# Build a single JSON file for batch import (all keys, single label).
+IMPORT_JSON_FILE="$(mktemp)"
+trap 'rm -f "${IMPORT_JSON_FILE}"' EXIT
+
+echo "{" > "${IMPORT_JSON_FILE}"
+JSON_FIRST=true
+
 for entry in "${CONFIG_ENTRIES[@]}"; do
     PROP_NAME="$(echo "${entry}" | cut -d'|' -f1)"
-    WARM_KEY_PATH="$(echo "${entry}" | cut -d'|' -f2)"
+    KEY_PATH="$(echo "${entry}" | cut -d'|' -f2)"
     CONFIG_NAME="$(echo "${entry}" | cut -d'|' -f3)"
     MODE="$(echo "${entry}" | cut -d'|' -f4)"
-    APP_CONFIG_KEY="Warm:${WARM_KEY_PATH}"
+    CS_DEFAULT="$(echo "${entry}" | cut -d'|' -f5)"
+    # Prefix matches the mode: Warm:Section:Key or Cold:Section:Key
+    APP_CONFIG_KEY="${MODE}:${KEY_PATH}"
 
     ENV_NAME="${CONFIG_NAME:-${PROP_NAME}}"
     VALUE=""
@@ -235,48 +276,62 @@ for entry in "${CONFIG_ENTRIES[@]}"; do
         [ -n "${VALUE}" ] && SOURCE="local-env"
     fi
 
-    if [ -z "${VALUE}" ]; then
-        echo -e "${YELLOW}Skipping ${APP_CONFIG_KEY} (no env value for ${ENV_NAME})${NC}"
-        SKIP_COUNT=$((SKIP_COUNT + 1))
-        continue
+    # 3) Fallback to C# default from BackendOptions.cs
+    if [ -z "${VALUE}" ] && [ -n "${CS_DEFAULT}" ]; then
+        VALUE="${CS_DEFAULT}"
+        SOURCE="cs-default"
+        # Handle enum defaults like "TypeName.Value" → "Value"
+        if [[ "${VALUE}" == *.* ]]; then
+            VALUE="${VALUE##*.}"
+        fi
     fi
 
-    az appconfig kv set \
-        --name "${APPCONFIG_NAME}" \
-        --key "${APP_CONFIG_KEY}" \
-        --value "${VALUE}" \
-        --label "${APPCONFIG_LABEL}" \
-        --yes \
-        --auth-mode login \
-        >/dev/null
+    # 4) No value at all → write placeholder so the key is still visible
+    if [ -z "${VALUE}" ]; then
+        VALUE="${DEFAULT_PLACEHOLDER}"
+        SOURCE="placeholder"
+    fi
 
-    echo -e "${GREEN}Set ${APP_CONFIG_KEY} from ${ENV_NAME} (${SOURCE}) [${MODE}]${NC}"
-    SET_COUNT=$((SET_COUNT + 1))
-    if [ "${MODE}" = "Warm" ]; then
-        WARM_COUNT=$((WARM_COUNT + 1))
-    else
+    # Escape for JSON (handle backslashes, quotes, newlines)
+    JSON_VALUE="$(printf '%s' "${VALUE}" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+
+    # Append to the JSON file
+    if [ "${JSON_FIRST}" = true ]; then JSON_FIRST=false; else echo "," >> "${IMPORT_JSON_FILE}"; fi
+    printf '  "%s": "%s"' "${APP_CONFIG_KEY}" "${JSON_VALUE}" >> "${IMPORT_JSON_FILE}"
+
+    if [ "${MODE}" = "Cold" ]; then
         COLD_COUNT=$((COLD_COUNT + 1))
+    else
+        WARM_COUNT=$((WARM_COUNT + 1))
+    fi
+
+    echo -e "${GREEN}  ${APP_CONFIG_KEY} = ${VALUE} (${SOURCE}) [${MODE}]${NC}"
+    SET_COUNT=$((SET_COUNT + 1))
+    if [ "${SOURCE}" = "cs-default" ] || [ "${SOURCE}" = "placeholder" ]; then
+        DEFAULT_COUNT=$((DEFAULT_COUNT + 1))
     fi
 done
 
-# Ensure refresh controls exist
-az appconfig kv set \
-    --name "${APPCONFIG_NAME}" \
-    --key "Warm:Sentinel" \
-    --value "$(date -u +%s)" \
-    --label "${APPCONFIG_LABEL}" \
-    --yes \
-    --auth-mode login \
-    >/dev/null
+# Add Sentinel and RefreshSeconds to the import batch (always Warm)
+echo "," >> "${IMPORT_JSON_FILE}"
+printf '  "Warm:Sentinel": "%s",\n' "$(date -u +%s)" >> "${IMPORT_JSON_FILE}"
+printf '  "Warm:RefreshSeconds": "%s"' "${AZURE_APPCONFIG_REFRESH_SECONDS}" >> "${IMPORT_JSON_FILE}"
 
-az appconfig kv set \
+echo "" >> "${IMPORT_JSON_FILE}"
+echo "}" >> "${IMPORT_JSON_FILE}"
+
+# Import all settings in a single batch call
+echo -e "${YELLOW}Importing ${SET_COUNT} settings (Warm: ${WARM_COUNT}, Cold: ${COLD_COUNT}) + Sentinel, RefreshSeconds...${NC}"
+az appconfig kv import \
     --name "${APPCONFIG_NAME}" \
-    --key "Warm:RefreshSeconds" \
-    --value "${AZURE_APPCONFIG_REFRESH_SECONDS}" \
+    --source file \
+    --path "${IMPORT_JSON_FILE}" \
+    --format json \
     --label "${APPCONFIG_LABEL}" \
     --yes \
     --auth-mode login \
     >/dev/null
+echo -e "${GREEN}✓ Import complete${NC}"
 
 # Optionally wire container app env vars
 if [ "${UPDATE_CONTAINER_APP_ENV}" = "true" ]; then
@@ -297,7 +352,7 @@ echo -e "${GREEN}App Configuration deployment complete${NC}"
 echo -e "${GREEN}======================================${NC}"
 echo -e "${GREEN}Store: ${APPCONFIG_NAME}${NC}"
 echo -e "${GREEN}Endpoint: ${APPCONFIG_ENDPOINT}${NC}"
-echo -e "${GREEN}Label: ${APPCONFIG_LABEL}${NC}"
+echo -e "${GREEN}Label: ${APPCONFIG_LABEL:-(none)}${NC}"
 echo -e "${GREEN}Config keys published: ${SET_COUNT} (Warm: ${WARM_COUNT}, Cold: ${COLD_COUNT})${NC}"
-echo -e "${YELLOW}Config keys skipped (no source env): ${SKIP_COUNT}${NC}"
+echo -e "${GREEN}  of which ${DEFAULT_COUNT} used C# default or '${DEFAULT_PLACEHOLDER}' placeholder${NC}"
 echo -e "${GREEN}======================================${NC}"
