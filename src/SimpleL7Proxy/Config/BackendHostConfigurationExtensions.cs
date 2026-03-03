@@ -85,6 +85,9 @@ public static class BackendHostConfigurationExtensions
     string? envValue = Environment.GetEnvironmentVariable(variableName)?.Trim() ??
                        Environment.GetEnvironmentVariable(altVariableName)?.Trim();
 
+    // Treat placeholder as unset
+    if (envValue == ConfigOptions.DefaultPlaceholder) envValue = null;
+
     // Use default if neither variable is defined
     string result = !string.IsNullOrEmpty(envValue) ? envValue : defaultValue;
 
@@ -96,7 +99,8 @@ public static class BackendHostConfigurationExtensions
   private static IterationModeEnum ReadEnvironmentVariableOrDefault(string variableName, IterationModeEnum defaultValue)
   {
     string? envValue = Environment.GetEnvironmentVariable(variableName)?.Trim();
-    if (string.IsNullOrEmpty(envValue) || !Enum.TryParse(envValue, out IterationModeEnum value))
+    if (string.IsNullOrEmpty(envValue) || envValue == ConfigOptions.DefaultPlaceholder
+        || !Enum.TryParse(envValue, out IterationModeEnum value))
     {
       EnvVars[variableName] = defaultValue.ToString();
       return defaultValue;
@@ -117,6 +121,7 @@ public static class BackendHostConfigurationExtensions
   private static int _ReadEnvironmentVariableOrDefault(string variableName, int defaultValue)
   {
     var envValue = Environment.GetEnvironmentVariable(variableName);
+    if (envValue?.Trim() == ConfigOptions.DefaultPlaceholder) envValue = null;
     if (!int.TryParse(envValue, out var value))
     {
       //_logger?.LogWarning($"Using default: {variableName}: {defaultValue}");
@@ -130,7 +135,7 @@ public static class BackendHostConfigurationExtensions
   private static int[] _ReadEnvironmentVariableOrDefault(string variableName, int[] defaultValues)
   {
     var envValue = Environment.GetEnvironmentVariable(variableName);
-    if (string.IsNullOrEmpty(envValue))
+    if (string.IsNullOrEmpty(envValue) || envValue.Trim() == ConfigOptions.DefaultPlaceholder)
     {
       //_logger?.LogWarning($"Using default: {variableName}: {string.Join(",", defaultValues)}");
       return defaultValues;
@@ -151,6 +156,7 @@ public static class BackendHostConfigurationExtensions
   private static float _ReadEnvironmentVariableOrDefault(string variableName, float defaultValue)
   {
     var envValue = Environment.GetEnvironmentVariable(variableName);
+    if (envValue?.Trim() == ConfigOptions.DefaultPlaceholder) envValue = null;
     if (!float.TryParse(envValue, out var value))
     {
       //_logger?.LogWarning($"Using default: {variableName}: {defaultValue}");
@@ -163,7 +169,7 @@ public static class BackendHostConfigurationExtensions
   private static string _ReadEnvironmentVariableOrDefault(string variableName, string defaultValue)
   {
     var envValue = Environment.GetEnvironmentVariable(variableName);
-    if (string.IsNullOrEmpty(envValue))
+    if (string.IsNullOrEmpty(envValue) || envValue.Trim() == ConfigOptions.DefaultPlaceholder)
     {
       //_logger?.LogWarning($"Using default: {variableName}: {defaultValue}");
       return defaultValue;
@@ -176,7 +182,7 @@ public static class BackendHostConfigurationExtensions
   private static bool _ReadEnvironmentVariableOrDefault(string variableName, bool defaultValue)
   {
     var envValue = Environment.GetEnvironmentVariable(variableName);
-    if (string.IsNullOrEmpty(envValue))
+    if (string.IsNullOrEmpty(envValue) || envValue.Trim() == ConfigOptions.DefaultPlaceholder)
     {
       _logger?.LogWarning($"Using default: {variableName}: {defaultValue}");
       return defaultValue;

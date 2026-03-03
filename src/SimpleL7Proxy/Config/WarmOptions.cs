@@ -37,8 +37,10 @@ public enum ConfigMode
 /// <b>Hidden</b>: not published — for runtime or composite values.
 /// </para>
 /// <para>
-/// <c>keyPath</c> defines the section path under the <c>Warm:</c> prefix
-/// (e.g. <c>"Logging:LogConsole"</c> → <c>Warm:Logging:LogConsole</c>).
+/// <c>keyPath</c> defines the section path under a prefix that matches
+/// the <see cref="ConfigMode"/>: <c>Warm:</c> or <c>Cold:</c>
+/// (e.g. <c>"Logging:LogConsole"</c> → <c>Warm:Logging:LogConsole</c>,
+///       <c>"Server:Workers"</c> → <c>Cold:Server:Workers</c>).
 /// </para>
 /// <para>
 /// Use <c>ConfigName</c> when the source env var differs from the property name:
@@ -53,7 +55,7 @@ public sealed class ConfigOptionAttribute : Attribute
         KeyPath = keyPath;
     }
 
-    /// <summary>Key path under the Warm section (e.g. "Logging:LogConsole").</summary>
+    /// <summary>Key path under the mode section, e.g. "Logging:LogConsole" → Warm:Logging:LogConsole or Cold:Server:Workers.</summary>
     public string KeyPath { get; }
 
     /// <summary>
@@ -128,13 +130,22 @@ public static class ConfigOptions
         Descriptors.Where(d => d.IsPublished).ToList();
 
     /// <summary>
+    /// Placeholder value written by deploy.sh when no env value or C# default
+    /// exists. Treated as "use the built-in code default" — the property is
+    /// left unchanged.
+    /// </summary>
+    public const string DefaultPlaceholder = "-";
+
+    /// <summary>
     /// Applies warm-mode config values from the given configuration section
     /// to the target <see cref="BackendOptions"/> instance.
     /// Only properties with <see cref="ConfigMode.Warm"/> are applied.
+    /// Values equal to <see cref="DefaultPlaceholder"/> are ignored,
+    /// leaving the built-in code default in place.
     /// </summary>
     public static int ApplyWarmTo(BackendOptions target, IConfiguration warmSection, ILogger? logger = null)
     {
-        var applied = 0;
+        var changed = 0;
 
         foreach (var descriptor in Descriptors)
         {
@@ -145,16 +156,27 @@ public static class ConfigOptions
             if (!section.Exists())
                 continue;
 
-            var converted = section.Get(descriptor.Property.PropertyType);
-            if (converted == null)
+            // "-" means "use built-in default" — skip this key
+            if (section.Value == DefaultPlaceholder)
                 continue;
 
-            descriptor.Property.SetValue(target, converted);
-            applied++;
+            var newValue = section.Get(descriptor.Property.PropertyType);
+            if (newValue == null)
+                continue;
+
+            var currentValue = descriptor.Property.GetValue(target);
+
+            // Skip if the value hasn't actually changed
+            if (Equals(currentValue, newValue))
+                continue;
+
+            descriptor.Property.SetValue(target, newValue);
+            logger?.LogInformation("[CONFIG] Updated {Property}: {Old} → {New}",
+                descriptor.Property.Name, currentValue, newValue);
+            changed++;
         }
 
-        logger?.LogDebug("[CONFIG] Applied {Count} warm config options", applied);
-        return applied;
+        return changed;
     }
 
     private static IReadOnlyList<ConfigOptionDescriptor> DiscoverDescriptors()

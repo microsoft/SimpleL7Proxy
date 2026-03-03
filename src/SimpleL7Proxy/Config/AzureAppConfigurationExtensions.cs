@@ -65,6 +65,7 @@ public class AzureAppConfigurationRefreshService : BackgroundService
     private readonly SemaphoreSlim _initialRefreshGate = new(1, 1);
     private volatile bool _initialRefreshCompleted;
     private readonly IReadOnlyList<ConfigOptionDescriptor> _warmDescriptors;
+    private string? _lastSentinel;
 
     public AzureAppConfigurationRefreshService(
         IConfigurationRefresher refresher,
@@ -102,29 +103,66 @@ public class AzureAppConfigurationRefreshService : BackgroundService
         return _appConfigurationSnapshot.GetSnapshot();
     }
 
-    private void CaptureWarmSettingsDictionary()
+    private void CaptureWarmSettingsDictionary(bool alwaysLog = false)
     {
-        var dictionary = _configuration
+        // Capture both Warm: and Cold: sections into the snapshot
+        var warmKvps = _configuration
             .GetSection("Warm")
             .AsEnumerable(makePathsRelative: false)
-            .Where(kvp => !string.IsNullOrWhiteSpace(kvp.Key) && kvp.Value != null)
+            .Where(kvp => !string.IsNullOrWhiteSpace(kvp.Key) && kvp.Value != null);
+
+        var coldKvps = _configuration
+            .GetSection("Cold")
+            .AsEnumerable(makePathsRelative: false)
+            .Where(kvp => !string.IsNullOrWhiteSpace(kvp.Key) && kvp.Value != null);
+
+        var dictionary = warmKvps.Concat(coldKvps)
             .ToDictionary(kvp => kvp.Key, kvp => kvp.Value!, StringComparer.OrdinalIgnoreCase);
 
         _appConfigurationSnapshot.Replace(dictionary);
-        _logger.LogInformation("[CONFIG] Warm configuration snapshot updated ({Count} keys)", dictionary.Count);
+
+        if (alwaysLog)
+        {
+            _logger.LogInformation("[CONFIG] Configuration snapshot loaded ({Count} keys: Warm + Cold)", dictionary.Count);
+        }
     }
 
-    private void ApplyDecoratedWarmOptions()
+    private int ApplyDecoratedWarmOptions(bool alwaysLog = false)
     {
         try
         {
-            var appliedCount = ConfigOptions.ApplyWarmTo(_backendOptions.Value, _configuration.GetSection("Warm"), _logger);
-            _logger.LogInformation("[CONFIG] ✓ Applied {Count} warm options to BackendOptions", appliedCount);
+            var changedCount = ConfigOptions.ApplyWarmTo(_backendOptions.Value, _configuration.GetSection("Warm"), _logger);
+
+            if (alwaysLog || changedCount > 0)
+            {
+                _logger.LogInformation("[CONFIG] ✓ Applied {Count} warm option change(s) to BackendOptions", changedCount);
+            }
+
+            return changedCount;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[CONFIG] ✗ Failed to apply warm settings to BackendOptions");
+            return 0;
         }
+    }
+
+    /// <summary>Reads the current Warm:Sentinel value from the configuration.</summary>
+    private string? ReadSentinel() => _configuration["Warm:Sentinel"];
+
+    /// <summary>
+    /// Returns true if the sentinel value has changed since the last check.
+    /// Updates the stored sentinel on change.
+    /// </summary>
+    private bool HasSentinelChanged()
+    {
+        var current = ReadSentinel();
+        if (string.Equals(_lastSentinel, current, StringComparison.Ordinal))
+            return false;
+
+        _logger.LogInformation("[CONFIG] Sentinel changed: {Old} → {New}", _lastSentinel ?? "(none)", current ?? "(none)");
+        _lastSentinel = current;
+        return true;
     }
 
     private async Task EnsureInitialRefreshAsync(CancellationToken cancellationToken)
@@ -154,8 +192,11 @@ public class AzureAppConfigurationRefreshService : BackgroundService
                 _logger.LogInformation("[CONFIG] Initial configuration is already up-to-date");
             }
 
-            CaptureWarmSettingsDictionary();
-            ApplyDecoratedWarmOptions();
+            _lastSentinel = ReadSentinel();
+            _logger.LogInformation("[CONFIG] Initial sentinel: {Sentinel}", _lastSentinel ?? "(none)");
+
+            CaptureWarmSettingsDictionary(alwaysLog: true);
+            ApplyDecoratedWarmOptions(alwaysLog: true);
 
             _initialRefreshCompleted = true;
         }
@@ -185,11 +226,15 @@ public class AzureAppConfigurationRefreshService : BackgroundService
             {
                 var refreshed = await _refresher.TryRefreshAsync(stoppingToken);
 
-                if (refreshed)
+                if (refreshed && HasSentinelChanged())
                 {
-                    ApplyDecoratedWarmOptions();
+                    var changedCount = ApplyDecoratedWarmOptions();
                     CaptureWarmSettingsDictionary();
-                    _logger.LogDebug("[CONFIG] Configuration refresh check completed - changes detected");
+
+                    if (changedCount > 0)
+                    {
+                        _logger.LogInformation("[CONFIG] Configuration refresh: {Count} value(s) changed", changedCount);
+                    }
                 }
             }
             catch (Exception ex)
@@ -295,15 +340,31 @@ public static class AzureAppConfigurationExtensions
                 logger?.LogInformation("[CONFIG] Connecting to Azure App Configuration via connection string");
             }
 
+            // Disable replica discovery to prevent noisy DNS SRV lookup failures
+            // (_origin._tcp.*.azconfig.io) in environments where SRV records are
+            // unreachable (WSL, restricted networks, single-region deployments).
+            // Set AZURE_APPCONFIG_REPLICA_DISCOVERY=true to re-enable for geo-replicated stores.
+            var replicaDiscovery = string.Equals(
+                Environment.GetEnvironmentVariable("AZURE_APPCONFIG_REPLICA_DISCOVERY"),
+                "true", StringComparison.OrdinalIgnoreCase);
+            options.ReplicaDiscoveryEnabled = replicaDiscovery;
+            if (!replicaDiscovery)
+                logger?.LogInformation("[CONFIG] Replica discovery disabled (set AZURE_APPCONFIG_REPLICA_DISCOVERY=true to enable)");
+
+            // Load Warm settings (hot-reloadable, prefix = Warm:)
             options.Select("Warm:*", labelFilter);
+            // Load Cold settings (require restart, prefix = Cold:)
+            options.Select("Cold:*", labelFilter);
 
             options.ConfigureRefresh(refresh =>
             {
+                // Sentinel is only on the Warm label — Cold settings aren't
+                // hot-reloaded so they don't need refresh triggers.
                 refresh.Register("Warm:Sentinel", labelFilter, refreshAll: true)
                        .SetRefreshInterval(TimeSpan.FromSeconds(refreshIntervalSeconds));
             });
 
-            logger?.LogInformation("[CONFIG] ✓ Azure App Configuration configured with {RefreshInterval}s refresh interval",
+            logger?.LogInformation("[CONFIG] ✓ Azure App Configuration configured with {RefreshInterval}s refresh interval (prefixes: Warm:*, Cold:*)",
                 refreshIntervalSeconds);
         });
 
