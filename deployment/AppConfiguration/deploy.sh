@@ -281,7 +281,9 @@ for entry in "${CONFIG_ENTRIES[@]}"; do
         VALUE="${CS_DEFAULT}"
         SOURCE="cs-default"
         # Handle enum defaults like "TypeName.Value" → "Value"
-        if [[ "${VALUE}" == *.* ]]; then
+        # Only match Identifier.Identifier (e.g. IterationModeEnum.SinglePass)
+        # Avoid mangling URLs, file paths, or floats that also contain dots
+        if [[ "${VALUE}" =~ ^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$ ]]; then
             VALUE="${VALUE##*.}"
         fi
     fi
