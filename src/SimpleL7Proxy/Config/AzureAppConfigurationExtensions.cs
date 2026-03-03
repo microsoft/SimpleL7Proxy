@@ -2,9 +2,10 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Configuration.AzureAppConfiguration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Azure.Data.AppConfiguration;
+using Azure.Identity;
 
 #if AZURE_APPCONFIG_FULL
-using Azure.Identity;
 using Microsoft.Extensions.DependencyInjection;
 #endif
 
@@ -28,6 +29,131 @@ public class AppConfigurationSnapshot
         lock (_lock)
         {
             return _snapshot;
+        }
+    }
+}
+
+/// <summary>
+/// Bootstraps the Azure App Configuration download early in startup so that
+/// values are available as environment variables before LoadBackendOptions runs.
+/// Uses <see cref="ConfigurationClient"/> to do a one-shot fetch, then maps
+/// each App Config key path to its environment variable name via
+/// <see cref="ConfigOptions.Descriptors"/>.
+/// Call <see cref="Start"/> at the beginning of Main (before building the host),
+/// then <see cref="WaitForDownload"/> at the top of LoadBackendOptions.
+/// </summary>
+public static class AppConfigBootstrap
+{
+    private static Task<Dictionary<string, string>?>? _downloadTask;
+    private static ILogger? _logger;
+
+    /// <summary>
+    /// Kicks off an async download of Warm: and Cold: keys from App Configuration.
+    /// Returns immediately; the download runs on a thread-pool thread.
+    /// No-op when AZURE_APPCONFIG_ENDPOINT / AZURE_APPCONFIG_CONNECTION_STRING are not set.
+    /// </summary>
+    public static void Start(ILogger logger)
+    {
+        _logger = logger;
+
+        var endpoint = Environment.GetEnvironmentVariable("AZURE_APPCONFIG_ENDPOINT");
+        var connectionString = Environment.GetEnvironmentVariable("AZURE_APPCONFIG_CONNECTION_STRING");
+
+        if (string.IsNullOrEmpty(endpoint) && string.IsNullOrEmpty(connectionString))
+        {
+            logger.LogInformation("[BOOTSTRAP] App Configuration not configured, skipping bootstrap download");
+            _downloadTask = Task.FromResult<Dictionary<string, string>?>(null);
+            return;
+        }
+
+        logger.LogInformation("[BOOTSTRAP] Starting App Configuration bootstrap download...");
+        _downloadTask = Task.Run(() => DownloadConfig(endpoint, connectionString, logger));
+    }
+
+    /// <summary>
+    /// Blocks until the bootstrap download completes and returns the dictionary
+    /// keyed by environment variable name (ConfigName) with the App Configuration value.
+    /// Returns null if not configured or download failed.
+    /// Safe to call when Start was never called (no-op).
+    /// </summary>
+    public static Dictionary<string, string>? WaitForDownload()
+    {
+        if (_downloadTask == null) return null;
+
+        Dictionary<string, string>? settings;
+        try
+        {
+            settings = _downloadTask.GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "[BOOTSTRAP] Failed awaiting App Configuration download");
+            return null;
+        }
+
+        if (settings == null || settings.Count == 0)
+        {
+            _logger?.LogInformation("[BOOTSTRAP] No App Configuration settings downloaded");
+            return null;
+        }
+
+        _logger?.LogInformation("[BOOTSTRAP] Retrieved {Count} App Configuration value(s)", settings.Count);
+        return settings;
+    }
+
+    private static Dictionary<string, string>? DownloadConfig(string? endpoint, string? connectionString, ILogger logger)
+    {
+        try
+        {
+            var labelFilter = Environment.GetEnvironmentVariable("AZURE_APPCONFIG_LABEL");
+            if (string.IsNullOrEmpty(labelFilter) || labelFilter == "\\0" || labelFilter == "\0")
+                labelFilter = null; // null = no label filter
+
+            ConfigurationClient client = !string.IsNullOrEmpty(endpoint)
+                ? new ConfigurationClient(new Uri(endpoint), new DefaultAzureCredential())
+                : new ConfigurationClient(connectionString);
+
+            // Build a lookup from App Config key path → env var name using the descriptors.
+            // e.g. "Logging:LogConsole" → "LogConsole", "Async:Timeout" → "AsyncTimeout"
+            var keyPathToEnvVar = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var descriptor in ConfigOptions.Descriptors)
+            {
+                keyPathToEnvVar[descriptor.Attribute.KeyPath] = descriptor.ConfigName;
+            }
+
+            var settings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var prefix in new[] { "Warm:", "Cold:" })
+            {
+                var selector = new SettingSelector { KeyFilter = $"{prefix}*", LabelFilter = labelFilter };
+                foreach (var setting in client.GetConfigurationSettings(selector))
+                {
+                    // Strip prefix: "Warm:Logging:LogConsole" → "Logging:LogConsole"
+                    var keyPath = setting.Key.Substring(prefix.Length);
+                    if (string.IsNullOrEmpty(keyPath)
+                        || keyPath.Equals("Sentinel", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    // Map the key path to the env var name via the descriptors
+                    if (keyPathToEnvVar.TryGetValue(keyPath, out var envVarName))
+                    {
+                        settings[envVarName] = setting.Value ?? "";
+                        logger.LogDebug("[BOOTSTRAP] {Key} → {EnvVar}", setting.Key, envVarName);
+                    }
+                    else
+                    {
+                        logger.LogDebug("[BOOTSTRAP] No descriptor for key {Key}, skipping", setting.Key);
+                    }
+                }
+            }
+
+            logger.LogInformation("[BOOTSTRAP] ✓ Downloaded {Count} setting(s) from App Configuration", settings.Count);
+            return settings;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "[BOOTSTRAP] ✗ App Configuration download failed — continuing with env vars only");
+            return null;
         }
     }
 }

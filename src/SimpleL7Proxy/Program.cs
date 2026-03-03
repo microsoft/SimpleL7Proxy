@@ -61,6 +61,10 @@ public class Program
 
         var startupLogger = startupLoggerFactory.CreateLogger<Program>();
 
+        // Kick off App Configuration download early so values are ready
+        // by the time LoadBackendOptions reads environment variables.
+        AppConfigBootstrap.Start(startupLogger);
+
         var hostBuilder = Host.CreateDefaultBuilder(args)
             .ConfigureAppConfiguration((hostContext, config) =>
             {

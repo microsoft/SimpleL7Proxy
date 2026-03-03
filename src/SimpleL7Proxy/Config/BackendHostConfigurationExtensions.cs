@@ -142,7 +142,12 @@ public static class BackendHostConfigurationExtensions
     }
     try
     {
-      return envValue.Split(',').Select(int.Parse).ToArray();
+      // Strip JSON-style square brackets (e.g. "[200, 202, 401]" → "200, 202, 401")
+      var trimmed = envValue.Trim();
+      if (trimmed.StartsWith('[') && trimmed.EndsWith(']'))
+        trimmed = trimmed[1..^1];
+
+      return trimmed.Split(',').Select(s => int.Parse(s.Trim())).ToArray();
     }
     catch (Exception)
     {
@@ -250,7 +255,12 @@ public static class BackendHostConfigurationExtensions
     if (String.IsNullOrEmpty(s))
       return [];
 
-    return [.. s.Split(',').Select(p => p.Trim())];
+    // Strip JSON-style square brackets (e.g. "[a, b, c]" → "a, b, c")
+    var trimmed = s.Trim();
+    if (trimmed.StartsWith('[') && trimmed.EndsWith(']'))
+      trimmed = trimmed[1..^1];
+
+    return [.. trimmed.Split(',').Select(p => p.Trim())];
   }
 
   // Converts a comma-separated string to a list of strings.
@@ -259,7 +269,12 @@ public static class BackendHostConfigurationExtensions
     if (String.IsNullOrEmpty(s))
       return Array.Empty<string>();
 
-    return s.Split(',').Select(p => p.Trim()).ToArray();
+    // Strip JSON-style square brackets (e.g. "[a, b, c]" → "a, b, c")
+    var trimmed = s.Trim();
+    if (trimmed.StartsWith('[') && trimmed.EndsWith(']'))
+      trimmed = trimmed[1..^1];
+
+    return trimmed.Split(',').Select(p => p.Trim()).ToArray();
   }
 
   // Converts a comma-separated string to a list of integers.
@@ -268,7 +283,12 @@ public static class BackendHostConfigurationExtensions
     if (String.IsNullOrEmpty(s))
       return new List<int>();
 
-    return s.Split(',').Select(p => int.Parse(p.Trim())).ToList();
+    // Strip JSON-style square brackets (e.g. "[1, 2, 3]" → "1, 2, 3")
+    var trimmed = s.Trim();
+    if (trimmed.StartsWith('[') && trimmed.EndsWith(']'))
+      trimmed = trimmed[1..^1];
+
+    return trimmed.Split(',').Select(p => int.Parse(p.Trim())).ToList();
   }
 
   // Generic configuration parser that supports both key=value pairs (order-independent) and legacy positional format
@@ -510,6 +530,23 @@ public static class BackendHostConfigurationExtensions
   // If the AppendHostsFile environment variable is set to true, it appends the IP addresses and hostnames to the /etc/hosts file.
   private static BackendOptions LoadBackendOptions()
   {
+    // Wait for the bootstrap App Configuration download (started in Main) and
+    // push values into environment variables so every
+    // ReadEnvironmentVariableOrDefault call below picks them up.
+    var appConfigSettings = AppConfigBootstrap.WaitForDownload();
+    if (appConfigSettings != null)
+    {
+      foreach (var kvp in appConfigSettings)
+      {
+        // strip  ["  and  "] from keys and values if present to support both raw and JSON-style formats
+        string key = kvp.Key.Trim().TrimStart('[').TrimEnd(']').TrimStart('"').TrimEnd('"');
+        string value = kvp.Value.Trim().TrimStart('[').TrimEnd(']').TrimStart('"').TrimEnd('"');
+        Environment.SetEnvironmentVariable(key, value);
+        Console.WriteLine($"[BOOTSTRAP] Set environment variable from App Configuration: {key}={value}");
+      }
+      _logger?.LogInformation("[BOOTSTRAP] Applied {Count} App Configuration value(s) as environment variables", appConfigSettings.Count);
+    }
+
     // Read and set the DNS refresh timeout from environment variables or use the default value
     var DNSTimeout = ReadEnvironmentVariableOrDefault("DnsRefreshTimeout", 240000);
     var KeepAliveInitialDelaySecs = ReadEnvironmentVariableOrDefault("KeepAliveInitialDelaySecs", 60); // 60 seconds
