@@ -54,7 +54,7 @@ public class ProxyWorker
     private bool _isEvictingAsyncRequest;
     private readonly HealthCheckService _healthCheckService;
 
-    private static string[] s_backendKeys = Array.Empty<string>();
+    private static List<string> s_backendKeys = [];
     private readonly ISharedIteratorRegistry? _sharedIteratorRegistry;
 
     // Static pre-allocated ProxyEvent objects for error scenarios to avoid expensive copy constructor

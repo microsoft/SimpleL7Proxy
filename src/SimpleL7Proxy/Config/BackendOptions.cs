@@ -69,7 +69,7 @@ public class BackendOptions
 
     // ── Request ──
     [ConfigOption("Request:DependancyHeaders")]
-    public string[] DependancyHeaders { get; set; } = ["Backend-Host", "Host-URL", "Status", "Duration", "Error", "Message", "Request-Date", "backendLog"];
+    public List<string> DependancyHeaders { get; set; } = ["Backend-Host", "Host-URL", "Status", "Duration", "Error", "Message", "Request-Date", "backendLog"];
     [ConfigOption("Request:DisallowedHeaders")]
     public List<string> DisallowedHeaders { get; set; } = [];
     [ConfigOption("Request:MaxAttempts")]
