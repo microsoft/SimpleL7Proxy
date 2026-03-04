@@ -187,6 +187,7 @@ public class AzureAppConfigurationRefreshService : BackgroundService
     private readonly AppConfigurationSnapshot _appConfigurationSnapshot;
     private readonly IOptions<BackendOptions> _backendOptions;
     private readonly ILogger<AzureAppConfigurationRefreshService> _logger;
+    private readonly ConfigChangeNotifier _notifier;
     private readonly TimeSpan _refreshInterval;
     private readonly SemaphoreSlim _initialRefreshGate = new(1, 1);
     private volatile bool _initialRefreshCompleted;
@@ -198,13 +199,15 @@ public class AzureAppConfigurationRefreshService : BackgroundService
         IConfiguration configuration,
         AppConfigurationSnapshot appConfigurationSnapshot,
         IOptions<BackendOptions> backendOptions,
-        ILogger<AzureAppConfigurationRefreshService> logger)
+        ILogger<AzureAppConfigurationRefreshService> logger,
+        ConfigChangeNotifier notifier)
     {
         _refresher = refresher;
         _configuration = configuration;
         _appConfigurationSnapshot = appConfigurationSnapshot;
         _backendOptions = backendOptions;
         _logger = logger;
+        _notifier = notifier;
         _warmDescriptors = ConfigOptions.GetWarmDescriptors();
 
         var intervalSeconds = int.TryParse(
@@ -253,24 +256,30 @@ public class AzureAppConfigurationRefreshService : BackgroundService
         }
     }
 
-    private int ApplyDecoratedWarmOptions(bool alwaysLog = false)
+    // private List<ConfigChange> ApplyDecoratedWarmOptions(bool alwaysLog = false)
+    // {
+    //     try
+    //     {
+    //         var changes = ConfigOptions.ApplyWarmTo(_backendOptions.Value, _configuration.GetSection("Warm"), _logger);
+
+    //         if (alwaysLog || changes.Count > 0)
+    //         {
+    //             _logger.LogInformation("[CONFIG] ✓ Applied {Count} warm option change(s) to BackendOptions", changes.Count);
+    //         }
+
+    //         return changes;
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         Console.WriteLine(ex.StackTrace);
+    //         _logger.LogError(ex, "[CONFIG] ✗ Failed to apply warm settings to BackendOptions");
+    //         return [];
+    //     }
+    // }
+
+    private async Task NotifySubscribersAsync(List<ConfigChange> changes, CancellationToken cancellationToken)
     {
-        try
-        {
-            var changedCount = ConfigOptions.ApplyWarmTo(_backendOptions.Value, _configuration.GetSection("Warm"), _logger);
-
-            if (alwaysLog || changedCount > 0)
-            {
-                _logger.LogInformation("[CONFIG] ✓ Applied {Count} warm option change(s) to BackendOptions", changedCount);
-            }
-
-            return changedCount;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "[CONFIG] ✗ Failed to apply warm settings to BackendOptions");
-            return 0;
-        }
+        await _notifier.NotifyAsync(changes, _backendOptions.Value, cancellationToken);
     }
 
     /// <summary>Reads the current Warm:Sentinel value from the configuration.</summary>
@@ -321,8 +330,12 @@ public class AzureAppConfigurationRefreshService : BackgroundService
             _lastSentinel = ReadSentinel();
             _logger.LogInformation("[CONFIG] Initial sentinel: {Sentinel}", _lastSentinel ?? "(none)");
 
+            // Only capture the snapshot for future change detection.
+            // Do NOT re-apply warm options here — the bootstrap path already
+            // loaded and parsed all values (including math expressions) via
+            // LoadBackendOptions. Re-applying would redundantly parse the same
+            // raw strings and fail on expressions like "30 * 60000".
             CaptureWarmSettingsDictionary(alwaysLog: true);
-            ApplyDecoratedWarmOptions(alwaysLog: true);
 
             _initialRefreshCompleted = true;
         }
@@ -348,25 +361,26 @@ public class AzureAppConfigurationRefreshService : BackgroundService
         {
             await Task.Delay(_refreshInterval, stoppingToken);
 
-            try
-            {
-                var refreshed = await _refresher.TryRefreshAsync(stoppingToken);
+            // try
+            // {
+            //     var refreshed = await _refresher.TryRefreshAsync(stoppingToken);
 
-                if (refreshed && HasSentinelChanged())
-                {
-                    var changedCount = ApplyDecoratedWarmOptions();
-                    CaptureWarmSettingsDictionary();
+            //     if (refreshed && HasSentinelChanged())
+            //     {
+            //         var changes = ApplyDecoratedWarmOptions();
+            //         CaptureWarmSettingsDictionary();
 
-                    if (changedCount > 0)
-                    {
-                        _logger.LogInformation("[CONFIG] Configuration refresh: {Count} value(s) changed", changedCount);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[CONFIG] Configuration refresh failed - will retry");
-            }
+            //         if (changes.Count > 0)
+            //         {
+            //             _logger.LogInformation("[CONFIG] Configuration refresh: {Count} value(s) changed", changes.Count);
+            //             await NotifySubscribersAsync(changes, stoppingToken);
+            //         }
+            //     }
+            // }
+            // catch (Exception ex)
+            // {
+            //     _logger.LogWarning(ex, "[CONFIG] Configuration refresh failed - will retry");
+            // }
         }
 
         _logger.LogInformation("[CONFIG] Azure App Configuration refresh service stopped");
@@ -415,6 +429,7 @@ public static class AzureAppConfigurationExtensions
         });
 
         services.AddSingleton<AppConfigurationSnapshot>();
+        services.AddSingleton<ConfigChangeNotifier>();
         services.AddSingleton<AzureAppConfigurationRefreshService>();
         services.AddHostedService(sp => sp.GetRequiredService<AzureAppConfigurationRefreshService>());
 

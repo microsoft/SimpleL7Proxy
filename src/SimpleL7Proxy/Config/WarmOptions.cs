@@ -143,9 +143,9 @@ public static class ConfigOptions
     /// Values equal to <see cref="DefaultPlaceholder"/> are ignored,
     /// leaving the built-in code default in place.
     /// </summary>
-    public static int ApplyWarmTo(BackendOptions target, IConfiguration warmSection, ILogger? logger = null)
+    public static List<ConfigChange> ApplyWarmTo(BackendOptions target, IConfiguration warmSection, ILogger? logger = null)
     {
-        var changed = 0;
+        var changes = new List<ConfigChange>();
 
         foreach (var descriptor in Descriptors)
         {
@@ -156,27 +156,102 @@ public static class ConfigOptions
             if (!section.Exists())
                 continue;
 
+            var rawValue = section.Value;
+
             // "-" means "use built-in default" — skip this key
-            if (section.Value == DefaultPlaceholder)
+            if (rawValue == DefaultPlaceholder)
                 continue;
 
-            var newValue = section.Get(descriptor.Property.PropertyType);
-            if (newValue == null)
+            if (string.IsNullOrEmpty(rawValue))
                 continue;
+
+            var newValue = ParseValue(rawValue, descriptor.Property.PropertyType);
+            if (newValue == null)
+            {
+                logger?.LogWarning("[CONFIG] Could not parse {Property} value '{Raw}' as {Type}",
+                    descriptor.Property.Name, rawValue, descriptor.Property.PropertyType.Name);
+                continue;
+            }
 
             var currentValue = descriptor.Property.GetValue(target);
 
-            // Skip if the value hasn't actually changed
-            if (Equals(currentValue, newValue))
+            // Skip if the value hasn't actually changed (compare string representations for collections)
+            var oldStr = currentValue?.ToString();
+            var newStr = newValue.ToString();
+            if (oldStr == newStr)
                 continue;
 
             descriptor.Property.SetValue(target, newValue);
             logger?.LogInformation("[CONFIG] Updated {Property}: {Old} → {New}",
-                descriptor.Property.Name, currentValue, newValue);
-            changed++;
+                descriptor.ConfigName, oldStr, newStr);
+
+            changes.Add(new ConfigChange
+            {
+                PropertyName = descriptor.ConfigName,
+                KeyPath = descriptor.Attribute.KeyPath,
+                OldValue = oldStr,
+                NewValue = newStr
+            });
         }
 
-        return changed;
+        return changes;
+    }
+
+    /// <summary>
+    /// Parses a raw string value from App Configuration into the target CLR type.
+    /// Handles the same types used in BackendOptions: string, bool, int, float,
+    /// int[], string[], List&lt;string&gt;, List&lt;int&gt;, Dictionary&lt;string,string&gt;.
+    /// Strips JSON-style brackets from collection values.
+    /// </summary>
+    private static object? ParseValue(string raw, Type targetType)
+    {
+        if (targetType == typeof(string))
+            return raw;
+
+        if (targetType == typeof(bool))
+            return raw.Equals("true", StringComparison.OrdinalIgnoreCase) ? true
+                 : raw.Equals("false", StringComparison.OrdinalIgnoreCase) ? false
+                 : null;
+
+        if (targetType == typeof(int))
+            return int.TryParse(raw, out var i) ? i : null;
+
+        if (targetType == typeof(float))
+            return float.TryParse(raw, out var f) ? f : null;
+
+        if (targetType == typeof(double))
+            return double.TryParse(raw, out var d) ? d : null;
+
+        // Strip JSON brackets for collection types
+        var trimmed = raw.Trim();
+        if (trimmed.StartsWith('[') && trimmed.EndsWith(']'))
+            trimmed = trimmed[1..^1];
+
+        if (targetType == typeof(int[]))
+            return trimmed.Split(',').Select(s => int.Parse(s.Trim())).ToArray();
+
+        if (targetType == typeof(string[]))
+            return trimmed.Split(',').Select(s => s.Trim()).ToArray();
+
+        if (targetType == typeof(List<string>))
+            return trimmed.Split(',').Select(s => s.Trim()).ToList();
+
+        if (targetType == typeof(List<int>))
+            return trimmed.Split(',').Select(s => int.Parse(s.Trim())).ToList();
+
+        if (targetType == typeof(Dictionary<string, string>))
+        {
+            var dict = new Dictionary<string, string>();
+            foreach (var pair in trimmed.Split(','))
+            {
+                var kvp = pair.Split('=', 2);
+                if (kvp.Length == 2)
+                    dict[kvp[0].Trim()] = kvp[1].Trim();
+            }
+            return dict;
+        }
+
+        return null;
     }
 
     private static IReadOnlyList<ConfigOptionDescriptor> DiscoverDescriptors()
