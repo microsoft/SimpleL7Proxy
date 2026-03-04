@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OS = System;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -32,8 +33,34 @@ public static class BackendHostConfigurationExtensions
 
   public static BackendOptions CreateBackendOptions(ILogger logger)
   {
+    Dictionary<string, string> effectiveEnvironment = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     _logger = logger;
-    return LoadBackendOptions();
+
+    foreach (DictionaryEntry de in Environment.GetEnvironmentVariables())
+    {
+      var key = de.Key?.ToString();
+      if (string.IsNullOrEmpty(key))
+        continue;
+      effectiveEnvironment[key] = de.Value?.ToString() ?? string.Empty;
+    }
+
+    // Wait for the bootstrap App Configuration download (started in Main) and
+    // add values into the effective environment dictionary so every
+    // ReadEnvironmentVariableOrDefault call below picks them up.
+    var appConfigSettings = AppConfigBootstrap.WaitForDownload();
+    if (appConfigSettings != null)
+    {
+      foreach (var kvp in appConfigSettings)
+      {
+        // strip  ["  and  "] from keys and values if present to support both raw and JSON-style formats
+        string key = kvp.Key.Trim().TrimStart('[').TrimEnd(']').TrimStart('"').TrimEnd('"');
+        string value = kvp.Value.Trim().TrimStart('[').TrimEnd(']').TrimStart('"').TrimEnd('"');
+        effectiveEnvironment[key] = value;
+      }
+      _logger?.LogInformation("[BOOTSTRAP] Applied {Count} App Configuration value(s) to effective environment", appConfigSettings.Count);
+    }
+
+    return LoadBackendOptions(effectiveEnvironment);
   }
 
   public static IServiceCollection AddBackendHostConfiguration(this IServiceCollection services, ILogger logger, BackendOptions backendOptions)
@@ -54,36 +81,35 @@ public static class BackendHostConfigurationExtensions
     return services;
   }
 
-  private static int ReadEnvironmentVariableOrDefault(string variableName, int defaultValue)
+  private static int ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, int defaultValue)
   {
-    int value = _ReadEnvironmentVariableOrDefault(variableName, defaultValue);
+    int value = _ReadEnvironmentVariableOrDefault(env, variableName, defaultValue);
     EnvVars[variableName] = value.ToString();
     return value;
   }
 
-  private static int[] ReadEnvironmentVariableOrDefault(string variableName, int[] defaultValues)
+  private static int[] ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, int[] defaultValues)
   {
-    int[] value = _ReadEnvironmentVariableOrDefault(variableName, defaultValues);
+    int[] value = _ReadEnvironmentVariableOrDefault(env, variableName, defaultValues);
     EnvVars[variableName] = string.Join(",", value);
     return value;
   }
-  private static float ReadEnvironmentVariableOrDefault(string variableName, float defaultValue)
+  private static float ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, float defaultValue)
   {
-    float value = _ReadEnvironmentVariableOrDefault(variableName, defaultValue);
+    float value = _ReadEnvironmentVariableOrDefault(env, variableName, defaultValue);
     EnvVars[variableName] = value.ToString();
     return value;
   }
-  private static string ReadEnvironmentVariableOrDefault(string variableName, string defaultValue)
+  private static string ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, string defaultValue)
   {
-    string value = _ReadEnvironmentVariableOrDefault(variableName, defaultValue);
+    string value = _ReadEnvironmentVariableOrDefault(env, variableName, defaultValue);
     EnvVars[variableName] = value;
     return value;
   }
-  private static string ReadEnvironmentVariableOrDefault(string altVariableName, string variableName, string defaultValue)
+  private static string ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string altVariableName, string variableName, string defaultValue)
   {
     // Try both variable names and use the first non-empty one
-    string? envValue = Environment.GetEnvironmentVariable(variableName)?.Trim() ??
-                       Environment.GetEnvironmentVariable(altVariableName)?.Trim();
+    string? envValue = env.GetValueOrDefault(variableName)?.Trim() ?? env.GetValueOrDefault(altVariableName)?.Trim();
 
     // Treat placeholder as unset
     if (envValue == ConfigOptions.DefaultPlaceholder) envValue = null;
@@ -96,11 +122,11 @@ public static class BackendHostConfigurationExtensions
     return result;
   }
 
-  private static IterationModeEnum ReadEnvironmentVariableOrDefault(string variableName, IterationModeEnum defaultValue)
+  private static IterationModeEnum ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, IterationModeEnum defaultValue)
   {
-    string? envValue = Environment.GetEnvironmentVariable(variableName)?.Trim();
+    string? envValue = env.GetValueOrDefault(variableName)?.Trim();
     if (string.IsNullOrEmpty(envValue) || envValue == ConfigOptions.DefaultPlaceholder
-        || !Enum.TryParse(envValue, out IterationModeEnum value))
+        || !Enum.TryParse(envValue, ignoreCase: true, out IterationModeEnum value))
     {
       EnvVars[variableName] = defaultValue.ToString();
       return defaultValue;
@@ -109,9 +135,9 @@ public static class BackendHostConfigurationExtensions
     return value;
   }
 
-  private static bool ReadEnvironmentVariableOrDefault(string variableName, bool defaultValue)
+  private static bool ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, bool defaultValue)
   {
-    bool value = _ReadEnvironmentVariableOrDefault(variableName, defaultValue);
+    bool value = _ReadEnvironmentVariableOrDefault(env, variableName, defaultValue);
     EnvVars[variableName] = value.ToString();
     return value;
   }
@@ -137,9 +163,9 @@ public static class BackendHostConfigurationExtensions
   // Reads an environment variable and returns its value as an integer.
   // If the environment variable is not set, it returns the provided default value.
   // Supports simple arithmetic expressions (e.g. "60*10").
-  private static int _ReadEnvironmentVariableOrDefault(string variableName, int defaultValue)
+  private static int _ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, int defaultValue)
   {
-    var envValue = Environment.GetEnvironmentVariable(variableName);
+    var envValue = env.GetValueOrDefault(variableName);
     if (envValue?.Trim() == ConfigOptions.DefaultPlaceholder) envValue = null;
     if (!int.TryParse(envValue, out var value))
     {
@@ -154,9 +180,9 @@ public static class BackendHostConfigurationExtensions
 
   // Reads an environment variable and returns its value as an integer[].
   // If the environment variable is not set, it returns the provided default value.
-  private static int[] _ReadEnvironmentVariableOrDefault(string variableName, int[] defaultValues)
+  private static int[] _ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, int[] defaultValues)
   {
-    var envValue = Environment.GetEnvironmentVariable(variableName);
+    var envValue = env.GetValueOrDefault(variableName);
     if (string.IsNullOrEmpty(envValue) || envValue.Trim() == ConfigOptions.DefaultPlaceholder)
     {
       //_logger?.LogWarning($"Using default: {variableName}: {string.Join(",", defaultValues)}");
@@ -180,9 +206,9 @@ public static class BackendHostConfigurationExtensions
 
   // Reads an environment variable and returns its value as a float.
   // If the environment variable is not set, it returns the provided default value.
-  private static float _ReadEnvironmentVariableOrDefault(string variableName, float defaultValue)
+  private static float _ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, float defaultValue)
   {
-    var envValue = Environment.GetEnvironmentVariable(variableName);
+    var envValue = env.GetValueOrDefault(variableName);
     if (envValue?.Trim() == ConfigOptions.DefaultPlaceholder) envValue = null;
     if (!float.TryParse(envValue, out var value))
     {
@@ -196,9 +222,9 @@ public static class BackendHostConfigurationExtensions
   }
   // Reads an environment variable and returns its value as a string.
   // If the environment variable is not set, it returns the provided default value.
-  private static string _ReadEnvironmentVariableOrDefault(string variableName, string defaultValue)
+  private static string _ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, string defaultValue)
   {
-    var envValue = Environment.GetEnvironmentVariable(variableName);
+    var envValue = env.GetValueOrDefault(variableName);
     if (string.IsNullOrEmpty(envValue) || envValue.Trim() == ConfigOptions.DefaultPlaceholder)
     {
       //_logger?.LogWarning($"Using default: {variableName}: {defaultValue}");
@@ -209,9 +235,9 @@ public static class BackendHostConfigurationExtensions
 
   // Reads an environment variable and returns its value as a string.
   // If the environment variable is not set, it returns the provided default value.
-  private static bool _ReadEnvironmentVariableOrDefault(string variableName, bool defaultValue)
+  private static bool _ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, bool defaultValue)
   {
-    var envValue = Environment.GetEnvironmentVariable(variableName);
+    var envValue = env.GetValueOrDefault(variableName);
     if (string.IsNullOrEmpty(envValue) || envValue.Trim() == ConfigOptions.DefaultPlaceholder)
     {
       _logger?.LogWarning($"Using default: {variableName}: {defaultValue}");
@@ -369,6 +395,19 @@ public static class BackendHostConfigurationExtensions
     return result;
   }
 
+  private static bool IsNamedKeyValueFormat(string[] parts, Dictionary<string, string[]> keyAliases)
+  {
+    if (parts.Length == 0)
+      return false;
+
+    var kvp = parts[0].Split('=', 2);
+    if (kvp.Length != 2)
+      return false;
+
+    var firstKey = kvp[0].Trim();
+    return keyAliases.Values.SelectMany(v => v).Any(alias => alias.Equals(firstKey, StringComparison.OrdinalIgnoreCase));
+  }
+
   // Parses a comma-separated Service Bus configuration string into individual components
   // Format: "key1:value1,key2:value2,..." (order-independent)
   // Keys: connectionString (or cs), namespace (or ns), queue (or q), useMI (or mi)
@@ -386,12 +425,7 @@ public static class BackendHostConfigurationExtensions
       return (connectionString, namespace_, queue, useMI);
 
     var parts = config.Split(',').Select(p => p.Trim()).ToArray();
-
-    // Check if it's the new key=value format
-    if (parts.Length > 0 && parts[0].Contains('='))
-    {
-      // Use generic parser
-      var keyAliases = new Dictionary<string, string[]>
+    var keyAliases = new Dictionary<string, string[]>
       {
         { "connectionString", new[] { "connectionstring", "cs" } },
         { "namespace", new[] { "namespace", "ns" } },
@@ -399,6 +433,9 @@ public static class BackendHostConfigurationExtensions
         { "useMI", new[] { "usemi", "mi" } }
       };
 
+    // Check if it's the new key=value format
+    if (IsNamedKeyValueFormat(parts, keyAliases))
+    {
       var parsed = ParseConfigString(config, keyAliases, "AsyncSBConfig");
 
       if (parsed.TryGetValue("connectionString", out var cs)) connectionString = cs;
@@ -438,18 +475,16 @@ public static class BackendHostConfigurationExtensions
       return (connectionString, accountUri, useMI);
 
     var parts = config.Split(',').Select(p => p.Trim()).ToArray();
-
-    // Check if it's the new key=value format
-    if (parts.Length > 0 && parts[0].Contains('='))
-    {
-      // Use generic parser
-      var keyAliases = new Dictionary<string, string[]>
+    var keyAliases = new Dictionary<string, string[]>
       {
         { "connectionString", new[] { "connectionstring", "cs" } },
         { "accountUri", new[] { "accounturi", "uri" } },
         { "useMI", new[] { "usemi", "mi" } }
       };
 
+    // Check if it's the new key=value format
+    if (IsNamedKeyValueFormat(parts, keyAliases))
+    {
       var parsed = ParseConfigString(config, keyAliases, "AsyncBlobStorageConfig");
 
       if (parsed.TryGetValue("connectionString", out var cs)) connectionString = cs;
@@ -493,8 +528,8 @@ public static class BackendHostConfigurationExtensions
             // Windows-specific approach using IOControl
             byte[] keepAliveValues = new byte[12];
             BitConverter.GetBytes((uint)1).CopyTo(keepAliveValues, 0);           // Turn keep-alive on
-            BitConverter.GetBytes((uint)60000).CopyTo(keepAliveValues, initialDelaySecs);       // 60 seconds before first keep-alive
-            BitConverter.GetBytes((uint)30000).CopyTo(keepAliveValues, IntervalSecs);       // 30 second interval
+            BitConverter.GetBytes((uint)(initialDelaySecs * 1000)).CopyTo(keepAliveValues, 4);
+            BitConverter.GetBytes((uint)(IntervalSecs * 1000)).CopyTo(keepAliveValues, 8);
 
             s.IOControl(IOControlCode.KeepAliveValues, keepAliveValues, null);
             //Console.WriteLine("TCP keep-alive settings applied using Windows-specific method");
@@ -551,7 +586,7 @@ public static class BackendHostConfigurationExtensions
 
   // Sets a single BackendOptions property from an environment variable, dispatching
   // to the correct ReadEnvironmentVariableOrDefault overload based on the property type.
-  private static void ApplyFieldFromEnv(BackendOptions target, BackendOptions defaults, string envVar, string property)
+  private static void ApplyFieldFromEnv(Dictionary<string, string> env, BackendOptions target, BackendOptions defaults, string envVar, string property)
   {
     var pi = typeof(BackendOptions).GetProperty(property)!;
     var defVal = pi.GetValue(defaults);
@@ -559,20 +594,20 @@ public static class BackendHostConfigurationExtensions
 
     if (type == typeof(int) || type == typeof(double))
     {
-      var val = ReadEnvironmentVariableOrDefault(envVar, Convert.ToInt32(defVal));
+      var val = ReadEnvironmentVariableOrDefault(env, envVar, Convert.ToInt32(defVal));
       pi.SetValue(target, Convert.ChangeType(val, type));
     }
     else if (type == typeof(float))
     {
-      var val = ReadEnvironmentVariableOrDefault(envVar, Convert.ToSingle(defVal));
+      var val = ReadEnvironmentVariableOrDefault(env, envVar, Convert.ToSingle(defVal));
       pi.SetValue(target, Convert.ChangeType(val, type));
     }
     else if (type == typeof(string))
-      pi.SetValue(target, ReadEnvironmentVariableOrDefault(envVar, (string)defVal!));
+      pi.SetValue(target, ReadEnvironmentVariableOrDefault(env, envVar, (string)defVal!));
     else if (type == typeof(bool))
-      pi.SetValue(target, ReadEnvironmentVariableOrDefault(envVar, (bool)defVal!));
+      pi.SetValue(target, ReadEnvironmentVariableOrDefault(env, envVar, (bool)defVal!));
     else if (type == typeof(List<string>))
-      pi.SetValue(target, ToListOfString(ReadEnvironmentVariableOrDefault(envVar, string.Join(",", (List<string>)defVal!))));
+      pi.SetValue(target, ToListOfString(ReadEnvironmentVariableOrDefault(env, envVar, string.Join(",", (List<string>)defVal!))));
     else
       throw new NotSupportedException($"ApplyFieldFromEnv: unsupported property type {type.Name} for {property}");
   }
@@ -651,38 +686,23 @@ public static class BackendHostConfigurationExtensions
   // It also configures the DNS refresh timeout and sets up an HttpClient instance.
   // If the IgnoreSSLCert environment variable is set to true, it configures the HttpClient to ignore SSL certificate errors.
   // If the AppendHostsFile environment variable is set to true, it appends the IP addresses and hostnames to the /etc/hosts file.
-  private static BackendOptions LoadBackendOptions()
+  private static BackendOptions LoadBackendOptions(Dictionary<string, string> env)
   {
-    // Wait for the bootstrap App Configuration download (started in Main) and
-    // push values into environment variables so every
-    // ReadEnvironmentVariableOrDefault call below picks them up.
-    var appConfigSettings = AppConfigBootstrap.WaitForDownload();
-    if (appConfigSettings != null)
-    {
-      foreach (var kvp in appConfigSettings)
-      {
-        // strip  ["  and  "] from keys and values if present to support both raw and JSON-style formats
-        string key = kvp.Key.Trim().TrimStart('[').TrimEnd(']').TrimStart('"').TrimEnd('"');
-        string value = kvp.Value.Trim().TrimStart('[').TrimEnd(']').TrimStart('"').TrimEnd('"');
-        Environment.SetEnvironmentVariable(key, value);
-        Console.WriteLine($"[BOOTSTRAP] Set environment variable from App Configuration: {key}={value}");
-      }
-      _logger?.LogInformation("[BOOTSTRAP] Applied {Count} App Configuration value(s) as environment variables", appConfigSettings.Count);
-    }
+      // Read and set the DNS refresh timeout from environment variables or use the default value
+    // var DNSTimeout = ReadEnvironmentVariableOrDefault(env, "DnsRefreshTimeout", 240000);
+    var KeepAliveInitialDelaySecs = ReadEnvironmentVariableOrDefault(env, "KeepAliveInitialDelaySecs", 60); // 60 seconds
+    var KeepAlivePingIntervalSecs = ReadEnvironmentVariableOrDefault(env, "KeepAlivePingIntervalSecs", 60); // 60 seconds
+    var keepAliveDurationSecs = ReadEnvironmentVariableOrDefault(env, "KeepAliveIdleTimeoutSecs", 1200); // 20 minutes
+    var safeKeepAliveInitialDelaySecs = Math.Max(1, KeepAliveInitialDelaySecs);
+    var safeKeepAlivePingIntervalSecs = Math.Max(1, KeepAlivePingIntervalSecs);
 
-    // Read and set the DNS refresh timeout from environment variables or use the default value
-    var DNSTimeout = ReadEnvironmentVariableOrDefault("DnsRefreshTimeout", 240000);
-    var KeepAliveInitialDelaySecs = ReadEnvironmentVariableOrDefault("KeepAliveInitialDelaySecs", 60); // 60 seconds
-    var KeepAlivePingIntervalSecs = ReadEnvironmentVariableOrDefault("KeepAlivePingIntervalSecs", 60); // 60 seconds
-    var keepAliveDurationSecs = ReadEnvironmentVariableOrDefault("KeepAliveIdleTimeoutSecs", 1200); // 20 minutes
+    var EnableMultipleHttp2Connections = ReadEnvironmentVariableOrDefault(env, "EnableMultipleHttp2Connections", false);
+    var MultiConnLifetimeSecs = ReadEnvironmentVariableOrDefault(env, "MultiConnLifetimeSecs", 3600); // 1 hours
+    var MultiConnIdleTimeoutSecs = ReadEnvironmentVariableOrDefault(env, "MultiConnIdleTimeoutSecs", 300); // 5 minutes
+    var MultiConnMaxConns = ReadEnvironmentVariableOrDefault(env, "MultiConnMaxConns", 4000); // 4000 connections
 
-    var EnableMultipleHttp2Connections = ReadEnvironmentVariableOrDefault("EnableMultipleHttp2Connections", false);
-    var MultiConnLifetimeSecs = ReadEnvironmentVariableOrDefault("MultiConnLifetimeSecs", 3600); // 1 hours
-    var MultiConnIdleTimeoutSecs = ReadEnvironmentVariableOrDefault("MultiConnIdleTimeoutSecs", 300); // 5 minutes
-    var MultiConnMaxConns = ReadEnvironmentVariableOrDefault("MultiConnMaxConns", 4000); // 4000 connections
-
-    var retryCount = keepAliveDurationSecs / KeepAlivePingIntervalSecs; // Calculate retry count 
-    var handler = getHandler(KeepAliveInitialDelaySecs, KeepAlivePingIntervalSecs, retryCount);
+    var retryCount = Math.Max(1, keepAliveDurationSecs / safeKeepAlivePingIntervalSecs);
+    var handler = getHandler(safeKeepAliveInitialDelaySecs, safeKeepAlivePingIntervalSecs, retryCount);
 
     if (EnableMultipleHttp2Connections)
     {
@@ -702,7 +722,7 @@ public static class BackendHostConfigurationExtensions
 
 
     // Configure SSL handling
-    if (ReadEnvironmentVariableOrDefault("IgnoreSSLCert", false))
+    if (ReadEnvironmentVariableOrDefault(env, "IgnoreSSLCert", false))
     {
       handler.SslOptions = new System.Net.Security.SslClientAuthenticationOptions
       {
@@ -717,20 +737,7 @@ public static class BackendHostConfigurationExtensions
     _client.Timeout = Timeout.InfiniteTimeSpan;
 
 
-    string replicaID = ReadEnvironmentVariableOrDefault("CONTAINER_APP_REPLICA_NAME", "01");
-#if DEBUG
-    // Load appsettings.json only in Debug mode
-    var configuration = new ConfigurationBuilder()
-            .AddJsonFile("appsettings.json", optional: true)
-            .AddEnvironmentVariables()
-            .Build();
-
-    foreach (var setting in configuration.GetSection("Settings").GetChildren())
-    {
-      Environment.SetEnvironmentVariable(setting.Key, setting.Value);
-    }
-#endif
-
+    string replicaID = ReadEnvironmentVariableOrDefault(env, "CONTAINER_APP_REPLICA_NAME", "01");
     var defOpts = new BackendOptions(); // Create a default options object to get default values for individual settings
 
     // Create and return a BackendOptions object populated with values from environment variables or default values.
@@ -739,12 +746,12 @@ public static class BackendHostConfigurationExtensions
     {
       Client = _client,
       Hosts = new List<HostConfig>(),
-      AcceptableStatusCodes = ReadEnvironmentVariableOrDefault("AcceptableStatusCodes", defOpts.AcceptableStatusCodes),
-      IterationMode = ReadEnvironmentVariableOrDefault("IterationMode", defOpts.IterationMode),
-      PriorityValues = ToListOfInt(ReadEnvironmentVariableOrDefault("PriorityValues", string.Join(",", defOpts.PriorityValues))),
-      PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault("PriorityWorkers", string.Join(",", defOpts.PriorityWorkers.Select(kv => $"{kv.Key}:{kv.Value}"))))),
-      UserIDFieldName = ReadEnvironmentVariableOrDefault("LookupHeaderName", "UserIDFieldName", defOpts.UserIDFieldName), // migrate from LookupHeaderName
-      ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault("ValidateHeaders", string.Join(",", defOpts.ValidateHeaders.Select(kv => $"{kv.Key}={kv.Value}"))))),
+      AcceptableStatusCodes = ReadEnvironmentVariableOrDefault(env, "AcceptableStatusCodes", defOpts.AcceptableStatusCodes),
+      IterationMode = ReadEnvironmentVariableOrDefault(env, "IterationMode", defOpts.IterationMode),
+      PriorityValues = ToListOfInt(ReadEnvironmentVariableOrDefault(env, "PriorityValues", string.Join(",", defOpts.PriorityValues))),
+      PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault(env, "PriorityWorkers", string.Join(",", defOpts.PriorityWorkers.Select(kv => $"{kv.Key}:{kv.Value}"))))),
+      UserIDFieldName = ReadEnvironmentVariableOrDefault(env, "LookupHeaderName", "UserIDFieldName", defOpts.UserIDFieldName), // migrate from LookupHeaderName
+      ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault(env, "ValidateHeaders", string.Join(",", defOpts.ValidateHeaders.Select(kv => $"{kv.Key}={kv.Value}"))))),
     };
 
     // RegisterBackends will be called after DI container is built to avoid service provider dependency issues
@@ -752,18 +759,18 @@ public static class BackendHostConfigurationExtensions
     // Apply all simple typed fields from environment variables via reflection
     foreach (var (envVar, property) in SimpleFields)
     {
-      ApplyFieldFromEnv(backendOptions, defOpts, envVar, property);
+      ApplyFieldFromEnv(env, backendOptions, defOpts, envVar, property);
     }
 
     // Apply settings with unique patterns (composite config overrides, computed identity)
-    ApplyAsyncServiceBusOverrides(EnvVars, backendOptions, defOpts);
-    ApplyAsyncBlobStorageOverrides(EnvVars, backendOptions, defOpts);
-    ApplyReplicaIdentitySettings(EnvVars, backendOptions, replicaID);
+    ApplyAsyncServiceBusOverrides(env, backendOptions, defOpts);
+    ApplyAsyncBlobStorageOverrides(env, backendOptions, defOpts);
+    ApplyReplicaIdentitySettings(env, backendOptions, replicaID);
 
-    ValidatePrioritySettings(EnvVars, backendOptions, defOpts);
-    ParseHealthProbeSidecarSettings(EnvVars, backendOptions, defOpts);
-    ValidateHeaderSettings(EnvVars, backendOptions, defOpts);
-    ValidateLoadBalanceMode(EnvVars, backendOptions, defOpts);
+    ValidatePrioritySettings(backendOptions, defOpts);
+    ParseHealthProbeSidecarSettings(env, backendOptions, defOpts);
+    ValidateHeaderSettings(env, backendOptions, defOpts);
+    ValidateLoadBalanceMode(env, backendOptions, defOpts);
 
     OutputEnvVars();
 
@@ -813,36 +820,36 @@ public static class BackendHostConfigurationExtensions
     }
   }
 
-  private static void ApplyAsyncServiceBusOverrides(Dictionary<string, string> envVars, BackendOptions opts, BackendOptions defOpts)
+  private static void ApplyAsyncServiceBusOverrides(Dictionary<string, string> env, BackendOptions opts, BackendOptions defOpts)
   {
     // Parse composite config string, then allow individual env vars to override
-    var configStr = ReadEnvironmentVariableOrDefault("AsyncSBConfig", defOpts.AsyncSBConfig);
+    var configStr = ReadEnvironmentVariableOrDefault(env, "AsyncSBConfig", defOpts.AsyncSBConfig);
     var (connStr, namespace_, queue, useMI) = ParseServiceBusConfig(configStr);
     opts.AsyncSBConfig = configStr;
-    opts.AsyncSBConnectionString = ReadEnvironmentVariableOrDefault("AsyncSBConnectionString", connStr);
-    opts.AsyncSBNamespace = ReadEnvironmentVariableOrDefault("AsyncSBNamespace", namespace_);
-    opts.AsyncSBQueue = ReadEnvironmentVariableOrDefault("AsyncSBQueue", queue);
-    opts.AsyncSBUseMI = ReadEnvironmentVariableOrDefault("AsyncSBUseMI", useMI);
+    opts.AsyncSBConnectionString = ReadEnvironmentVariableOrDefault(env, "AsyncSBConnectionString", connStr);
+    opts.AsyncSBNamespace = ReadEnvironmentVariableOrDefault(env, "AsyncSBNamespace", namespace_);
+    opts.AsyncSBQueue = ReadEnvironmentVariableOrDefault(env, "AsyncSBQueue", queue);
+    opts.AsyncSBUseMI = ReadEnvironmentVariableOrDefault(env, "AsyncSBUseMI", useMI);
   }
 
-  private static void ApplyAsyncBlobStorageOverrides(Dictionary<string, string> envVars, BackendOptions opts, BackendOptions defOpts)
+  private static void ApplyAsyncBlobStorageOverrides(Dictionary<string, string> env, BackendOptions opts, BackendOptions defOpts)
   {
     // Parse composite config string, then allow individual env vars to override
-    var configStr = ReadEnvironmentVariableOrDefault("AsyncBlobStorageConfig", defOpts.AsyncBlobStorageConfig);
+    var configStr = ReadEnvironmentVariableOrDefault(env, "AsyncBlobStorageConfig", defOpts.AsyncBlobStorageConfig);
     var (connStr, accountUri, useMI) = ParseBlobStorageConfig(configStr);
     opts.AsyncBlobStorageConfig = configStr;
-    opts.AsyncBlobStorageAccountUri = ReadEnvironmentVariableOrDefault("AsyncBlobStorageAccountUri", accountUri);
-    opts.AsyncBlobStorageConnectionString = ReadEnvironmentVariableOrDefault("AsyncBlobStorageConnectionString", connStr);
-    opts.AsyncBlobStorageUseMI = ReadEnvironmentVariableOrDefault("AsyncBlobStorageUseMI", useMI);
+    opts.AsyncBlobStorageAccountUri = ReadEnvironmentVariableOrDefault(env, "AsyncBlobStorageAccountUri", accountUri);
+    opts.AsyncBlobStorageConnectionString = ReadEnvironmentVariableOrDefault(env, "AsyncBlobStorageConnectionString", connStr);
+    opts.AsyncBlobStorageUseMI = ReadEnvironmentVariableOrDefault(env, "AsyncBlobStorageUseMI", useMI);
   }
 
-  private static void ApplyReplicaIdentitySettings(Dictionary<string, string> envVars, BackendOptions opts, string replicaID)
+  private static void ApplyReplicaIdentitySettings(Dictionary<string, string> env, BackendOptions opts, string replicaID)
   {
-    opts.HostName = ReadEnvironmentVariableOrDefault("Hostname", replicaID);
-    opts.IDStr = $"{ReadEnvironmentVariableOrDefault("RequestIDPrefix", "S7P")}-{replicaID}-";
+    opts.HostName = ReadEnvironmentVariableOrDefault(env, "Hostname", replicaID);
+    opts.IDStr = $"{ReadEnvironmentVariableOrDefault(env, "RequestIDPrefix", "S7P")}-{replicaID}-";
   }
 
-  private static void ValidatePrioritySettings(Dictionary<string, string> envVars, BackendOptions backendOptions, BackendOptions defOpts)
+  private static void ValidatePrioritySettings( BackendOptions backendOptions, BackendOptions defOpts)
   {
     // confirm the number of priority keys and values match
     if (backendOptions.PriorityKeys.Count != backendOptions.PriorityValues.Count)
@@ -946,6 +953,28 @@ public static class BackendHostConfigurationExtensions
 
   private static void OutputEnvVars()
   {
+    static string MaskValue(string key, string value)
+    {
+      if (string.IsNullOrEmpty(value))
+        return value;
+
+      var lower = key.ToLowerInvariant();
+      var isSensitive = lower.Contains("connectionstring") ||
+                        lower.Contains("password") ||
+                        lower.Contains("secret") ||
+                        lower.Contains("token") ||
+                        lower.Contains("apikey") ||
+                        lower.Contains("sas");
+
+      if (!isSensitive)
+        return value;
+
+      if (value.Length <= 4)
+        return "****";
+
+      return $"{value.Substring(0, 2)}***{value.Substring(value.Length - 2)}";
+    }
+
     const int keyWidth = 27;
     const int valWidth = 30;
     const int gutterWidth = 4;
@@ -954,7 +983,7 @@ public static class BackendHostConfigurationExtensions
     foreach (var kvp in EnvVars)
     {
       string key = kvp.Key;
-      string value = kvp.Value;
+      string value = MaskValue(key, kvp.Value);
 
       // Prepare the entry for this pair
       string entry = $"{(key.Length > keyWidth ? key.Substring(0, keyWidth - 3) + "..." : key),-keyWidth}:" +
