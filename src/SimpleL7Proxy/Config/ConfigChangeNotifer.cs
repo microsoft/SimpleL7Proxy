@@ -134,11 +134,21 @@ public class ConfigChangeNotifier
             snapshot = [.. _subscriptions];
         }
 
-        foreach (var sub in snapshot)
+        // Multiple subscriptions can point to the same subscriber instance.
+        // Merge filters and notify each subscriber only once per refresh cycle.
+        var subscribers = snapshot
+            .GroupBy(s => s.Subscriber)
+            .Select(group => new
+            {
+                Subscriber = group.Key,
+                MergedFilter = MergeFilters(group.Select(s => s.Filter))
+            });
+
+        foreach (var sub in subscribers)
         {
             // Filter changes to only those the subscriber cares about
-            var relevant = sub.Filter != null
-                ? changes.Where(c => sub.Filter.Contains(c.PropertyName)).ToList()
+            var relevant = sub.MergedFilter != null
+                ? changes.Where(c => sub.MergedFilter.Contains(c.PropertyName)).ToList()
                 : (IReadOnlyList<ConfigChange>)changes;
 
             if (relevant.Count == 0) continue;
@@ -154,6 +164,24 @@ public class ConfigChangeNotifier
                 _logger.LogError(ex, "[CONFIG] Subscriber {Name} failed", sub.Subscriber.GetType().Name);
             }
         }
+    }
+
+    private static HashSet<string>? MergeFilters(IEnumerable<HashSet<string>?> filters)
+    {
+        var merged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var filter in filters)
+        {
+            // null means wildcard: subscriber wants all fields.
+            if (filter == null)
+            {
+                return null;
+            }
+
+            merged.UnionWith(filter);
+        }
+
+        return merged;
     }
 
     /// <summary>Tracks a subscriber and its optional field filter.</summary>

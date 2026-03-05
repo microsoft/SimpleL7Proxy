@@ -208,7 +208,7 @@ public static class ConfigOptions
             var newValue = descriptor.Property.GetValue(parsedTarget);
 
             var oldStr = currentValue?.ToString();
-            var newStr = newValue.ToString();
+            var newStr = newValue?.ToString();
             if (oldStr == newStr)
                 continue;
 
