@@ -95,7 +95,7 @@ namespace SimpleL7Proxy.StreamProcessor
             }
             catch (IOException e)
             {
-                _logger?.LogDebug("IOException during stream processing: {Message}", e.Message);
+                _logger?.LogError("IOException during stream processing: {Message}", e.Message);
                 if (!ShouldIgnoreException(e))
                 {
                     data["LastError"] = e.Message;
