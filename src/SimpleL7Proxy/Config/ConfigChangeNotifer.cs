@@ -84,8 +84,36 @@ public class ConfigChangeNotifier
         _logger.LogInformation("[CONFIG] Subscriber removed: {Name}", subscriber.GetType().Name);
     }
 
-    /// <summary>Number of active subscriptions.</summary>
-    public int Count { get { lock (_lock) { return _subscriptions.Count; } } }
+    /// <summary>
+    /// Returns a precomputed view of subscribed fields.
+    /// If <c>HasWildcardSubscriber</c> is true, all fields are considered subscribed.
+    /// </summary>
+    public (bool HasWildcardSubscriber, HashSet<string> SubscribedFields) GetSubscribedFieldSet()
+    {
+        Subscription[] snapshot;
+        lock (_lock)
+        {
+            if (_subscriptions.Count == 0)
+            {
+                return (false, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            }
+
+            snapshot = [.. _subscriptions];
+        }
+
+        var subscribedFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var sub in snapshot)
+        {
+            if (sub.Filter == null)
+            {
+                return (true, subscribedFields);
+            }
+
+            subscribedFields.UnionWith(sub.Filter);
+        }
+
+        return (false, subscribedFields);
+    }
 
     /// <summary>
     /// Called by the refresh service to fan out notifications.

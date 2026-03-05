@@ -114,6 +114,10 @@ public sealed class ConfigOptionDescriptor
 public static class ConfigOptions
 {
     private static readonly Lazy<IReadOnlyList<ConfigOptionDescriptor>> _descriptors = new(DiscoverDescriptors);
+    private static readonly Lazy<IReadOnlyList<ConfigOptionDescriptor>> _warmDescriptors =
+        new(() => Descriptors.Where(d => d.Mode == ConfigMode.Warm).ToList());
+    private static readonly Lazy<IReadOnlyDictionary<string, ConfigOptionDescriptor>> _warmDescriptorsByConfigName =
+        new(() => _warmDescriptors.Value.ToDictionary(d => d.ConfigName, d => d, StringComparer.OrdinalIgnoreCase));
 
     /// <summary>All discovered config option descriptors.</summary>
     public static IReadOnlyList<ConfigOptionDescriptor> Descriptors => _descriptors.Value;
@@ -123,7 +127,7 @@ public static class ConfigOptions
 
     /// <summary>Returns only warm (hot-reloadable) descriptors.</summary>
     public static IReadOnlyList<ConfigOptionDescriptor> GetWarmDescriptors() =>
-        Descriptors.Where(d => d.Mode == ConfigMode.Warm).ToList();
+        _warmDescriptors.Value;
 
     /// <summary>Returns only publishable (Warm + Cold) descriptors.</summary>
     public static IReadOnlyList<ConfigOptionDescriptor> GetPublishableDescriptors() =>
@@ -145,46 +149,70 @@ public static class ConfigOptions
     /// </summary>
     public static List<ConfigChange> ApplyWarmTo(BackendOptions target, IConfiguration warmSection, ILogger? logger = null)
     {
-        var changes = new List<ConfigChange>();
+        var (changes, parsedValues) = ParseWarmChanges(target, warmSection, logger);
 
-        foreach (var descriptor in Descriptors)
+        foreach (var change in changes)
         {
-            if (descriptor.Mode != ConfigMode.Warm)
+            if (!parsedValues.TryGetValue(change.PropertyName, out var newValue))
                 continue;
 
+            if (!_warmDescriptorsByConfigName.Value.TryGetValue(change.PropertyName, out var descriptor))
+                continue;
+
+            descriptor.Property.SetValue(target, newValue);
+            logger?.LogInformation("[CONFIG] Updated {Property}: {Old} → {New}",
+                descriptor.ConfigName, change.OldValue, change.NewValue);
+        }
+
+        return changes;
+    }
+
+    /// <summary>
+    /// Parses warm-mode values and returns only changed options plus parsed new values.
+    /// Does not mutate <paramref name="current"/>.
+    /// </summary>
+    public static (List<ConfigChange> Changes, Dictionary<string, object?> ParsedValues) ParseWarmChanges(
+        BackendOptions current,
+        IConfiguration warmSection,
+        ILogger? logger = null)
+    {
+        var changes = new List<ConfigChange>();
+        var parsedValues = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var descriptor in _warmDescriptors.Value)
+        {
             var section = warmSection.GetSection(descriptor.Attribute.KeyPath);
             if (!section.Exists())
                 continue;
 
             var rawValue = section.Value;
 
-            // "-" means "use built-in default" — skip this key
-            if (rawValue == DefaultPlaceholder)
+            if (string.IsNullOrEmpty(rawValue) || rawValue == DefaultPlaceholder)
                 continue;
 
-            if (string.IsNullOrEmpty(rawValue))
-                continue;
+            var currentValue = descriptor.Property.GetValue(current);
 
-            var newValue = ParseValue(rawValue, descriptor.Property.PropertyType);
-            if (newValue == null)
+            var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                logger?.LogWarning("[CONFIG] Could not parse {Property} value '{Raw}' as {Type}",
-                    descriptor.Property.Name, rawValue, descriptor.Property.PropertyType.Name);
-                continue;
-            }
+                [descriptor.ConfigName] = rawValue
+            };
 
-            var currentValue = descriptor.Property.GetValue(target);
+            var parsedTarget = new BackendOptions();
+            ConfigParser.ApplyFieldFromEnv(
+                env,
+                parsedTarget,
+                current,
+                descriptor.ConfigName,
+                descriptor.Property.Name);
 
-            // Skip if the value hasn't actually changed (compare string representations for collections)
+            var newValue = descriptor.Property.GetValue(parsedTarget);
+
             var oldStr = currentValue?.ToString();
             var newStr = newValue.ToString();
             if (oldStr == newStr)
                 continue;
 
-            descriptor.Property.SetValue(target, newValue);
-            logger?.LogInformation("[CONFIG] Updated {Property}: {Old} → {New}",
-                descriptor.ConfigName, oldStr, newStr);
-
+            parsedValues[descriptor.ConfigName] = newValue;
             changes.Add(new ConfigChange
             {
                 PropertyName = descriptor.ConfigName,
@@ -194,64 +222,7 @@ public static class ConfigOptions
             });
         }
 
-        return changes;
-    }
-
-    /// <summary>
-    /// Parses a raw string value from App Configuration into the target CLR type.
-    /// Handles the same types used in BackendOptions: string, bool, int, float,
-    /// int[], string[], List&lt;string&gt;, List&lt;int&gt;, Dictionary&lt;string,string&gt;.
-    /// Strips JSON-style brackets from collection values.
-    /// </summary>
-    private static object? ParseValue(string raw, Type targetType)
-    {
-        if (targetType == typeof(string))
-            return raw;
-
-        if (targetType == typeof(bool))
-            return raw.Equals("true", StringComparison.OrdinalIgnoreCase) ? true
-                 : raw.Equals("false", StringComparison.OrdinalIgnoreCase) ? false
-                 : null;
-
-        if (targetType == typeof(int))
-            return int.TryParse(raw, out var i) ? i : null;
-
-        if (targetType == typeof(float))
-            return float.TryParse(raw, out var f) ? f : null;
-
-        if (targetType == typeof(double))
-            return double.TryParse(raw, out var d) ? d : null;
-
-        // Strip JSON brackets for collection types
-        var trimmed = raw.Trim();
-        if (trimmed.StartsWith('[') && trimmed.EndsWith(']'))
-            trimmed = trimmed[1..^1];
-
-        if (targetType == typeof(int[]))
-            return trimmed.Split(',').Select(s => int.Parse(s.Trim())).ToArray();
-
-        if (targetType == typeof(string[]))
-            return trimmed.Split(',').Select(s => s.Trim()).ToArray();
-
-        if (targetType == typeof(List<string>))
-            return trimmed.Split(',').Select(s => s.Trim()).ToList();
-
-        if (targetType == typeof(List<int>))
-            return trimmed.Split(',').Select(s => int.Parse(s.Trim())).ToList();
-
-        if (targetType == typeof(Dictionary<string, string>))
-        {
-            var dict = new Dictionary<string, string>();
-            foreach (var pair in trimmed.Split(','))
-            {
-                var kvp = pair.Split('=', 2);
-                if (kvp.Length == 2)
-                    dict[kvp[0].Trim()] = kvp[1].Trim();
-            }
-            return dict;
-        }
-
-        return null;
+        return (changes, parsedValues);
     }
 
     private static IReadOnlyList<ConfigOptionDescriptor> DiscoverDescriptors()

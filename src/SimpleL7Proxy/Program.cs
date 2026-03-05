@@ -121,7 +121,7 @@ public class Program
         HostConfig.Initialize(backendTokenProvider, startupLogger, serviceProvider);
 
         // Register backends after DI container is built and HostConfig is initialized
-        BackendHostConfigurationExtensions.RegisterBackends(options.Value);
+        ConfigBootstrapper.RegisterBackends(options.Value);
 
         try
         {
@@ -285,7 +285,7 @@ public class Program
 
         }
 
-        var backendOptions = BackendHostConfigurationExtensions.CreateBackendOptions(startupLogger);
+        var backendOptions = ConfigBootstrapper.CreateBackendOptions(startupLogger);
         services.AddBackendHostConfiguration(startupLogger, backendOptions);
 
         // Wire up Azure App Configuration warm-refresh service (no-op if AZURE_APPCONFIG_ENDPOINT is not set)
