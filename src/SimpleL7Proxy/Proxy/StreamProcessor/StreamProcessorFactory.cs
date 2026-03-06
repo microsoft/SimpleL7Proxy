@@ -23,13 +23,13 @@ public sealed class StreamProcessorFactory
             ["AllUsage"] = static () => new AllUsageProcessor(),
             ["DefaultStream"] = static () => DefaultStreamProcessorInstance, // Reuse singleton
             ["MultiLineAllUsage"] = static () => new MultiLineAllUsageProcessor(),
-            ["CompleteAllUsageProcessor"] = static () => new CompleteAllUsageProcessor()
+            ["AllUsage-2"] = static () => new CompleteAllUsageProcessor()
         };
 
     // Constants for processor selection logic
     private const string DEFAULT_PROCESSOR = "Default";
     private const string STREAM_PROCESSOR = "DefaultStream";
-    private const string PROCESSOR_SUFFIX = "Processor";
+    private static readonly string[] PROCESSOR_SUFFIXES = ["Processor", "Parser"];
     private const string TOKEN_PROCESSOR_HEADER = "TOKENPROCESSOR";
     private const string EVENT_STREAM_MEDIA = "text/event-stream";
 
@@ -64,7 +64,7 @@ public sealed class StreamProcessorFactory
         var processor = proxyResponse.StatusCode == HttpStatusCode.OK &&
                     proxyResponse.Headers.TryGetValues(TOKEN_PROCESSOR_HEADER, out var values) &&
                     values.FirstOrDefault()?.Trim() is { Length: > 0 } headerValue
-            ? StripProcessorSuffix(headerValue, PROCESSOR_SUFFIX)
+            ? StripProcessorSuffix(headerValue)
             : DEFAULT_PROCESSOR;
 
         // Use pattern matching for cleaner logic
@@ -88,7 +88,7 @@ public sealed class StreamProcessorFactory
     {
         if (!ProcessorFactories.TryGetValue(processorName, out var factory))
         {
-            _logger.LogDebug("Unknown processor requested: {Requested}. Falling back to default.", processorName);
+            _logger.LogError("Unknown processor requested: {Requested}. Falling back to default.", processorName);
             factory = ProcessorFactories[STREAM_PROCESSOR];
             resolvedProcessorName = STREAM_PROCESSOR;
         }
@@ -111,11 +111,19 @@ public sealed class StreamProcessorFactory
     }
 
     /// <summary>
-    /// Strips the "Processor" suffix from a processor name if present.
-    /// Example: "OpenAIProcessor" -> "OpenAI"
+    /// Strips known suffixes from a processor name if present.
+    /// Examples: "OpenAIProcessor" -> "OpenAI", "OpenAIParser" -> "OpenAI"
     /// </summary>
-    private static string StripProcessorSuffix(string value, string suffix)
-        => value.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
-            ? value[..^suffix.Length]
-            : value;
+    private static string StripProcessorSuffix(string value)
+    {
+        foreach (var suffix in PROCESSOR_SUFFIXES)
+        {
+            if (value.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                return value[..^suffix.Length];
+            }
+        }
+
+        return value;
+        }
 }

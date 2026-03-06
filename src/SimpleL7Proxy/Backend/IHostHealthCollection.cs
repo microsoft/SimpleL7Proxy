@@ -13,6 +13,12 @@ public interface IHostHealthCollection
   HostCollectionSnapshot Current { get; }
 
   /// <summary>
+  /// Stages a single <see cref="HostConfig"/> into the pending list.
+  /// Does NOT activate it — call <see cref="Activate"/> after all hosts are staged.
+  /// </summary>
+  void StageHost(HostConfig config);
+
+  /// <summary>
   /// Builds a pending snapshot from a list of HostConfigs.
   /// Does NOT activate it — call Activate() to swap it in.
   /// </summary>

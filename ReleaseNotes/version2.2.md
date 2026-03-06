@@ -1,5 +1,25 @@
 # Release Notes #
 
+
+2.2.10
+
+Proxy:
+
+* Implement app configuration
+* Added AppConfiguration reader
+* Moved default values out of BackendHostConfigurationExtension and into BackendOptions
+* Read WarmOptions every 30 seconds ( AZURE_APPCONFIG_REFRESH_SECONDS )
+* Markup BackendOptions as either: warm, cold or hidden 
+* Bug fix for AllUsage-2 processor
+* Enable HealthProbe Sidecar as a Warm config parameter
+* Enable Host settings to be activated via appconfig 
+
+Deployment:
+* Add AppConfiguration/appdeploy.sh to setup appconfiguration configure ACA to use it  
+* bug fix: Create multple entries at once rather than one at a time
+
+2.2.10-D1
+
 Proxy:
 * Implement partial matches for validated parameters
 * Remove blocking operations during shutdown

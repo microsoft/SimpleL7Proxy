@@ -60,8 +60,17 @@ public class Program
         });
 
         var startupLogger = startupLoggerFactory.CreateLogger<Program>();
+        var appConfigBootstrap = new AppConfigBootstrap(startupLoggerFactory.CreateLogger<AppConfigBootstrap>());
+
+        // Kick off App Configuration download early so values are ready
+        // by the time LoadBackendOptions reads environment variables.
+        appConfigBootstrap.Start();
 
         var hostBuilder = Host.CreateDefaultBuilder(args)
+            .ConfigureAppConfiguration((hostContext, config) =>
+            {
+                config.AddAzureAppConfigurationWithWarmSupport(startupLogger);
+            })
             .ConfigureLogging(logging =>
             {
                 logging.ClearProviders();
@@ -74,7 +83,7 @@ public class Program
             .ConfigureServices((hostContext, services) =>
             {
                 ConfigureApplicationInsights(services);
-                ConfigureDependencyInjection(services, startupLogger);
+                ConfigureDependencyInjection(services, startupLogger, appConfigBootstrap);
             });
 
 
@@ -83,6 +92,17 @@ public class Program
         //        var serviceProvider = frameworkHost.Services;
         // Perform static initialization after building the host to ensure correct singleton usage
         var serviceProvider = frameworkHost.Services;
+
+        // If Azure App Configuration refresh service is available, force initial download before other startup work.
+        var appConfigRefreshService = serviceProvider.GetService<AzureAppConfigurationRefreshService>();
+        if (appConfigRefreshService != null)
+        {
+            await appConfigRefreshService.InitializeAsync(CancellationToken.None);
+            var appConfigDictionary = appConfigRefreshService.GetCurrentConfigurationDictionary();
+            startupLogger.LogInformation("[INIT] Azure App Configuration dictionary loaded with {Count} keys", appConfigDictionary.Count);
+            startupLogger.LogInformation("[INIT] ✓ Azure App Configuration initial fetch completed");
+        }
+
         var options = serviceProvider.GetRequiredService<IOptions<BackendOptions>>();
         var eventClient = serviceProvider.GetService<IEventClient>();
         var telemetryClient = serviceProvider.GetService<TelemetryClient>();
@@ -102,7 +122,9 @@ public class Program
         HostConfig.Initialize(backendTokenProvider, startupLogger, serviceProvider);
 
         // Register backends after DI container is built and HostConfig is initialized
-        BackendHostConfigurationExtensions.RegisterBackends(options.Value);
+        var configuration = serviceProvider.GetService<IConfiguration>();
+        var hostCollection = serviceProvider.GetRequiredService<IHostHealthCollection>();
+        ConfigBootstrapper.RegisterBackends(options.Value, configuration, null, hostCollection);
 
         try
         {
@@ -192,8 +214,10 @@ public class Program
         }
     }
 
-    private static void ConfigureDependencyInjection(IServiceCollection services, ILogger startupLogger)
+    private static void ConfigureDependencyInjection(IServiceCollection services, ILogger startupLogger, AppConfigBootstrap appConfigBootstrap)
     {
+        services.AddSingleton(appConfigBootstrap);
+
         // EVENT_LOGGERS is a comma-separated list of event logger backends to enable.
         // Supported values: "file", "eventhub"
         // Example: EVENT_LOGGERS="file,eventhub" enables both simultaneously.
@@ -266,8 +290,11 @@ public class Program
 
         }
 
-        var backendOptions = BackendHostConfigurationExtensions.CreateBackendOptions(startupLogger);
+        var backendOptions = ConfigBootstrapper.CreateBackendOptions(startupLogger, appConfigBootstrap);
         services.AddBackendHostConfiguration(startupLogger, backendOptions);
+
+        // Wire up Azure App Configuration warm-refresh service (no-op if AZURE_APPCONFIG_ENDPOINT is not set)
+        services.AddAzureAppConfigurationWithWarmRefresh(startupLogger);
 
         if (backendOptions.AsyncModeEnabled)
         {
@@ -337,6 +364,7 @@ public class Program
         services.AddSingleton<IRequeueWorker, RequeueDelayWorker>();
 
         services.AddTransient<ICircuitBreaker, CircuitBreaker>();
+        services.AddSingleton<ConfigChangeNotifier>();
         services.AddSingleton<IBackendService, Backends>();
         services.AddSingleton<Server>();
         services.AddSingleton<ConcurrentSignal<RequestData>>();

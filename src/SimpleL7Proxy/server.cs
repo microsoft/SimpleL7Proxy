@@ -25,7 +25,7 @@ namespace SimpleL7Proxy;
 // This class represents a server that listens for HTTP requests and processes them.
 // It uses a priority queue to manage incoming requests and supports telemetry for monitoring.
 // If the incoming request has the S7PPriorityKey header, it will be assigned a priority based the S7PPriority header.
-public class Server : BackgroundService
+public class Server :  BackgroundService, IConfigChangeSubscriber
 {
     //    private readonly IBackendOptions? _options;
     private readonly BackendOptions _options;
@@ -67,6 +67,7 @@ public class Server : BackgroundService
         IBlobWriter blobWriter,
         HealthCheckService healthService,
         ProbeServer probeServer,
+        ConfigChangeNotifier configChangeNotifier,
         ILogger<Server> logger)
     {
         ArgumentNullException.ThrowIfNull(backendOptions, nameof(backendOptions));
@@ -93,6 +94,32 @@ public class Server : BackgroundService
         _priorityHeaderName = _options.PriorityKeyHeader;
         _probeServer = probeServer;
 
+        configChangeNotifier.Subscribe(this,
+           [options => options.PriorityKeyHeader,
+            options => options.ValidateHeaders,
+            // options => options.Port,  COLD option, requires full restart to take effect
+            options => options.Timeout,
+            options => options.PriorityValues,
+            // options => options.UseProfiles,
+            options => options.AsyncModeEnabled,
+            options => options.DefaultPriority,
+            // options => options.IDStr,
+            options => options.ValidateAuthAppID,
+            options => options.ValidateAuthAppIDHeader,
+            options => options.DisallowedHeaders,
+            options => options.UserProfileHeader,
+            options => options.RequiredHeaders,
+            options => options.UniqueUserHeaders,
+            options => options.AsyncClientRequestHeader,
+            options => options.PriorityKeys,
+            options => options.TimeoutHeader,
+            options => options.DefaultTTLSecs,
+            options => options.TTLHeader,
+            // options => options.CircuitBreakerTimeslice,   display only
+            options => options.MaxQueueLength,
+            options => options.PollInterval
+            ]);
+
         // Precompute validation header rules once at startup
         _validateHeaderRules = _options.ValidateHeaders
             .Select(kvp => new ValidateHeaderRule(
@@ -115,6 +142,16 @@ public class Server : BackgroundService
 
         var timeoutTime = TimeSpan.FromMilliseconds(_options.Timeout).ToString(@"hh\:mm\:ss\.fff");
         _logger.LogInformation($"[CONFIG] Server configuration - Port: {_options.Port} | Timeout: {timeoutTime} | Workers: {_options.Workers}");
+    }
+
+    public Task OnConfigChangedAsync(
+        IReadOnlyList<ConfigChange> changes,
+        BackendOptions backendOptions,
+        CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("[CONFIG] Server changed — Settings live updated without restart");
+        // apply the changes
+        return Task.CompletedTask;
     }
 
     public void BeginShutdown()

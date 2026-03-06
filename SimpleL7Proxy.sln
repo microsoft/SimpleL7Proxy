@@ -15,9 +15,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "test", "test", "{7FB4896E-B
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Tests", "test\ProxyWorkerTests\Tests.csproj", "{F562EE95-23FC-48A2-B5CD-21438BFE8926}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "nullserver", "nullserver", "{8911A389-8D4E-4268-90B7-9AC12C59861E}"
-EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "nullserver", "test\nullserver\nullserver\nullserver.csproj", "{9F502DB0-81A5-4AAB-B915-AAABAA55B0A3}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "nullserver", "test\nullserver\dotnet\nullserver.csproj", "{9F502DB0-81A5-4AAB-B915-AAABAA55B0A3}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "generator", "generator", "{5315AE06-D9C2-456F-BE0C-4B6996540CC9}"
 EndProject
