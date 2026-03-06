@@ -9,8 +9,9 @@ using System.Threading.Tasks;
 
 namespace SimpleL7Proxy.Events;
 
-public class EventHubClient : IEventClient, IHostedService
+public class EventHubClient : IEventClient, IHostedService, IDisposable
 {
+    private bool _disposed = false;
 
     private readonly EventHubConfig? _config;
     private EventHubProducerClient? _producerClient;
@@ -48,21 +49,10 @@ public class EventHubClient : IEventClient, IHostedService
     public string ClientType => isRunning ? "EventHub" : "EventHub (Disabled)";
 
     public async Task StartAsync(CancellationToken cancellationToken) {
-        // Handle null or invalid configuration gracefully - just don't start the service
+        // If config failed to initialize (constructor threw), skip startup gracefully
         if (_config == null)
         {
             _logger.LogInformation("EventHubClient configuration is null. EventHub will not be started.");
-            isRunning = false;
-            return;
-        }
-
-        // Validate configuration has minimum required information
-        bool hasConnectionString = !string.IsNullOrEmpty(_config.ConnectionString) && !string.IsNullOrEmpty(_config.EventHubName);
-        bool hasNamespace = !string.IsNullOrEmpty(_config.EventHubNamespace) && !string.IsNullOrEmpty(_config.EventHubName);
-        
-        if (!hasConnectionString && !hasNamespace)
-        {
-            _logger.LogInformation("EventHubClient configuration is incomplete. EventHub will not be started.");
             isRunning = false;
             return;
         }
@@ -75,6 +65,8 @@ public class EventHubClient : IEventClient, IHostedService
             }
             else if (!string.IsNullOrEmpty(_config.EventHubNamespace))
             {
+
+                // NOTE:  this breaks in gov cloud because of the namespace suffix.. needs a better solution
                 var fullyQualifiedNamespace = _config.EventHubNamespace;
                 if (!fullyQualifiedNamespace.EndsWith(".servicebus.windows.net"))
                     fullyQualifiedNamespace = $"{_config.EventHubNamespace}.servicebus.windows.net";
@@ -234,4 +226,22 @@ public class EventHubClient : IEventClient, IHostedService
     //     string jsonData = JsonSerializer.Serialize(eventData);
     //     SendData(jsonData);
     // }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!_disposed)
+        {
+            if (disposing)
+            {
+                cancellationTokenSource.Dispose();
+            }
+            _disposed = true;
+        }
+    }
+
+    public void Dispose()
+    {
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
+    }
 }

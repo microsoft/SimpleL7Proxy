@@ -140,44 +140,47 @@ public static class ConfigOptions
     /// </summary>
     public const string DefaultPlaceholder = "-";
 
+    // /// <summary>
+    // /// Applies warm-mode config values from the given configuration section
+    // /// to the target <see cref="BackendOptions"/> instance.
+    // /// Only properties with <see cref="ConfigMode.Warm"/> are applied.
+    // /// Values equal to <see cref="DefaultPlaceholder"/> are ignored,
+    // /// leaving the built-in code default in place.
+    // /// </summary>
+    // public static List<ConfigChange> ApplyWarmTo(BackendOptions target, IConfiguration warmSection, ILogger? logger = null)
+    // {
+    //     var (changes, parsedValues) = DetectWarmChanges(target, warmSection, logger);
+
+    //     foreach (var change in changes)
+    //     {
+    //         if (!parsedValues.TryGetValue(change.PropertyName, out var newValue))
+    //             continue;
+
+    //         if (!_warmDescriptorsByConfigName.Value.TryGetValue(change.PropertyName, out var descriptor))
+    //             continue;
+
+    //         descriptor.Property.SetValue(target, newValue);
+    //         logger?.LogInformation("[CONFIG] Updated {Property}: {Old} → {New}",
+    //             descriptor.ConfigName, change.OldValue, change.NewValue);
+    //     }
+
+    //     return changes;
+    // }
+
     /// <summary>
-    /// Applies warm-mode config values from the given configuration section
-    /// to the target <see cref="BackendOptions"/> instance.
-    /// Only properties with <see cref="ConfigMode.Warm"/> are applied.
-    /// Values equal to <see cref="DefaultPlaceholder"/> are ignored,
-    /// leaving the built-in code default in place.
+    /// Detects warm-mode values that differ from the live options and returns
+    /// the changes plus their parsed new values.
+    /// Does not mutate <paramref name="liveOptions"/>.
     /// </summary>
-    public static List<ConfigChange> ApplyWarmTo(BackendOptions target, IConfiguration warmSection, ILogger? logger = null)
-    {
-        var (changes, parsedValues) = ParseWarmChanges(target, warmSection, logger);
-
-        foreach (var change in changes)
-        {
-            if (!parsedValues.TryGetValue(change.PropertyName, out var newValue))
-                continue;
-
-            if (!_warmDescriptorsByConfigName.Value.TryGetValue(change.PropertyName, out var descriptor))
-                continue;
-
-            descriptor.Property.SetValue(target, newValue);
-            logger?.LogInformation("[CONFIG] Updated {Property}: {Old} → {New}",
-                descriptor.ConfigName, change.OldValue, change.NewValue);
-        }
-
-        return changes;
-    }
-
-    /// <summary>
-    /// Parses warm-mode values and returns only changed options plus parsed new values.
-    /// Does not mutate <paramref name="current"/>.
-    /// </summary>
-    public static (List<ConfigChange> Changes, Dictionary<string, object?> ParsedValues) ParseWarmChanges(
-        BackendOptions current,
+    public static (List<ConfigChange> Changes, Dictionary<string, object?> ParsedValues) DetectWarmChanges(
+        BackendOptions liveOptions,
         IConfiguration warmSection,
         ILogger? logger = null)
     {
         var changes = new List<ConfigChange>();
         var parsedValues = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        var parsedTarget = new BackendOptions();
+        var env = new Dictionary<string, string>(1, StringComparer.OrdinalIgnoreCase);
 
         foreach (var descriptor in _warmDescriptors.Value)
         {
@@ -190,26 +193,21 @@ public static class ConfigOptions
             if (string.IsNullOrEmpty(rawValue) || rawValue == DefaultPlaceholder)
                 continue;
 
-            var currentValue = descriptor.Property.GetValue(current);
+            var currentValue = descriptor.Property.GetValue(liveOptions);
 
-            var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                [descriptor.ConfigName] = rawValue
-            };
+            env.Clear();
+            env[descriptor.ConfigName] = rawValue;
 
-            var parsedTarget = new BackendOptions();
             ConfigParser.ApplyFieldFromEnv(
                 env,
                 parsedTarget,
-                current,
+                liveOptions,
                 descriptor.ConfigName,
                 descriptor.Property.Name);
 
             var newValue = descriptor.Property.GetValue(parsedTarget);
 
-            var oldStr = currentValue?.ToString();
-            var newStr = newValue?.ToString();
-            if (oldStr == newStr)
+            if (Equals(currentValue, newValue))
                 continue;
 
             parsedValues[descriptor.ConfigName] = newValue;
@@ -217,8 +215,8 @@ public static class ConfigOptions
             {
                 PropertyName = descriptor.ConfigName,
                 KeyPath = descriptor.Attribute.KeyPath,
-                OldValue = oldStr,
-                NewValue = newStr
+                RawOldValue = currentValue,
+                RawNewValue = newValue
             });
         }
 
