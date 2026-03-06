@@ -42,32 +42,42 @@ public class AppConfigurationSnapshot
 /// Call <see cref="Start"/> at the beginning of Main (before building the host),
 /// then <see cref="WaitForDownload"/> at the top of LoadBackendOptions.
 /// </summary>
-public static class AppConfigBootstrap
+public class AppConfigBootstrap
 {
-    private static Task<Dictionary<string, string>?>? _downloadTask;
-    private static ILogger? _logger;
+    private Task<Dictionary<string, string>?>? _downloadTask;
+    private readonly ILogger<AppConfigBootstrap> _logger;
+    private readonly string? _endpoint;
+    private readonly string? _connectionString;
+    private readonly string? _labelFilter;
+
+    public AppConfigBootstrap(ILogger<AppConfigBootstrap> logger)
+    {
+        _logger = logger;
+        _endpoint = Environment.GetEnvironmentVariable("AZURE_APPCONFIG_ENDPOINT");
+        _connectionString = Environment.GetEnvironmentVariable("AZURE_APPCONFIG_CONNECTION_STRING");
+
+        var labelFilter = Environment.GetEnvironmentVariable("AZURE_APPCONFIG_LABEL");
+        _labelFilter = string.IsNullOrEmpty(labelFilter) || labelFilter == "\\0" || labelFilter == "\0"
+            ? null
+            : labelFilter;
+    }
 
     /// <summary>
     /// Kicks off an async download of Warm: and Cold: keys from App Configuration.
     /// Returns immediately; the download runs on a thread-pool thread.
     /// No-op when AZURE_APPCONFIG_ENDPOINT / AZURE_APPCONFIG_CONNECTION_STRING are not set.
     /// </summary>
-    public static void Start(ILogger logger)
+    public void Start()
     {
-        _logger = logger;
-
-        var endpoint = Environment.GetEnvironmentVariable("AZURE_APPCONFIG_ENDPOINT");
-        var connectionString = Environment.GetEnvironmentVariable("AZURE_APPCONFIG_CONNECTION_STRING");
-
-        if (string.IsNullOrEmpty(endpoint) && string.IsNullOrEmpty(connectionString))
+        if (string.IsNullOrEmpty(_endpoint) && string.IsNullOrEmpty(_connectionString))
         {
-            logger.LogInformation("[BOOTSTRAP] App Configuration not configured, skipping bootstrap download");
+            _logger.LogInformation("[BOOTSTRAP] App Configuration not configured, skipping bootstrap download");
             _downloadTask = Task.FromResult<Dictionary<string, string>?>(null);
             return;
         }
 
-        logger.LogInformation("[BOOTSTRAP] Starting App Configuration bootstrap download...");
-        _downloadTask = Task.Run(() => DownloadConfig(endpoint, connectionString, logger));
+        _logger.LogInformation("[BOOTSTRAP] Starting App Configuration bootstrap download...");
+        _downloadTask = Task.Run(DownloadConfig);
     }
 
     /// <summary>
@@ -76,7 +86,7 @@ public static class AppConfigBootstrap
     /// Returns null if not configured or download failed.
     /// Safe to call when Start was never called (no-op).
     /// </summary>
-    public static Dictionary<string, string>? WaitForDownload()
+    public Dictionary<string, string>? WaitForDownload()
     {
         if (_downloadTask == null) return null;
 
@@ -87,31 +97,27 @@ public static class AppConfigBootstrap
         }
         catch (Exception ex)
         {
-            _logger?.LogWarning(ex, "[BOOTSTRAP] Failed awaiting App Configuration download");
+            _logger.LogWarning(ex, "[BOOTSTRAP] Failed awaiting App Configuration download");
             return null;
         }
 
         if (settings == null || settings.Count == 0)
         {
-            _logger?.LogInformation("[BOOTSTRAP] No App Configuration settings downloaded");
+            _logger.LogInformation("[BOOTSTRAP] No App Configuration settings downloaded");
             return null;
         }
 
-        _logger?.LogInformation("[BOOTSTRAP] Retrieved {Count} App Configuration value(s)", settings.Count);
+        _logger.LogInformation("[BOOTSTRAP] Retrieved {Count} App Configuration value(s)", settings.Count);
         return settings;
     }
 
-    private static Dictionary<string, string>? DownloadConfig(string? endpoint, string? connectionString, ILogger logger)
+    private Dictionary<string, string>? DownloadConfig()
     {
         try
         {
-            var labelFilter = Environment.GetEnvironmentVariable("AZURE_APPCONFIG_LABEL");
-            if (string.IsNullOrEmpty(labelFilter) || labelFilter == "\\0" || labelFilter == "\0")
-                labelFilter = null; // null = no label filter
-
-            ConfigurationClient client = !string.IsNullOrEmpty(endpoint)
-                ? new ConfigurationClient(new Uri(endpoint), new DefaultAzureCredential())
-                : new ConfigurationClient(connectionString);
+            ConfigurationClient client = !string.IsNullOrEmpty(_endpoint)
+                ? new ConfigurationClient(new Uri(_endpoint), new DefaultAzureCredential())
+                : new ConfigurationClient(_connectionString!);
 
             // Build a lookup from App Config key path → env var name using the descriptors.
             // e.g. "Logging:LogConsole" → "LogConsole", "Async:Timeout" → "AsyncTimeout"
@@ -125,7 +131,7 @@ public static class AppConfigBootstrap
 
             foreach (var prefix in new[] { "Warm:", "Cold:" })
             {
-                var selector = new SettingSelector { KeyFilter = $"{prefix}*", LabelFilter = labelFilter };
+                var selector = new SettingSelector { KeyFilter = $"{prefix}*", LabelFilter = _labelFilter };
                 foreach (var setting in client.GetConfigurationSettings(selector))
                 {
                     // Strip prefix: "Warm:Logging:LogConsole" → "Logging:LogConsole"
@@ -138,24 +144,32 @@ public static class AppConfigBootstrap
                     if (keyPathToEnvVar.TryGetValue(keyPath, out var envVarName))
                     {
                         settings[envVarName] = setting.Value ?? "";
-                        logger.LogDebug("[BOOTSTRAP] {Key} → {EnvVar}", setting.Key, envVarName);
+                        _logger.LogDebug("[BOOTSTRAP] {Key} → {EnvVar}", setting.Key, envVarName);
+                    }
+                    else if (ConfigParser.IsBackendHostConfigName(keyPath))
+                    {
+                        // Host entries are not descriptor-backed (Host1..N, Probe_path1..N, IP1..N).
+                        // Keep their key names so RegisterBackends can resolve them.
+                        settings[keyPath] = setting.Value ?? "";
+                        _logger.LogDebug("[BOOTSTRAP] {Key} → {EnvVar}", setting.Key, keyPath);
                     }
                     else
                     {
-                        logger.LogDebug("[BOOTSTRAP] No descriptor for key {Key}, skipping", setting.Key);
+                        _logger.LogDebug("[BOOTSTRAP] No descriptor for key {Key}, skipping", setting.Key);
                     }
                 }
             }
 
-            logger.LogInformation("[BOOTSTRAP] ✓ Downloaded {Count} setting(s) from App Configuration", settings.Count);
+            _logger.LogInformation("[BOOTSTRAP] ✓ Downloaded {Count} setting(s) from App Configuration", settings.Count);
             return settings;
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "[BOOTSTRAP] ✗ App Configuration download failed — continuing with env vars only");
+            _logger.LogWarning(ex, "[BOOTSTRAP] ✗ App Configuration download failed — continuing with env vars only");
             return null;
         }
     }
+
 }
 
 /// <summary>
@@ -211,6 +225,7 @@ public class AzureAppConfigurationRefreshService : BackgroundService
         _backendOptions = backendOptions;
         _logger = logger;
         _notifier = notifier;
+
         // Warm vs Cold is defined by code attributes (ConfigOption.Mode).
         // A Cold option only becomes Warm after a code change and process restart.
         _warmDescriptors = ConfigOptions.GetWarmDescriptors();
@@ -247,15 +262,28 @@ public class AzureAppConfigurationRefreshService : BackgroundService
         return _appConfigurationSnapshot.GetSnapshot();
     }
 
-    private void CaptureWarmConfigurationSnapshot(bool alwaysLog = false)
+    /// <summary>
+    /// Reads the current Warm configuration section and stores a filtered snapshot
+    /// containing descriptor-backed warm keys and dynamic host-family keys
+    /// (Host*, Probe_path*, IP*). The snapshot is used later to detect changes
+    /// between refresh cycles.
+    /// </summary>
+    /// <param name="alwaysLog">
+    /// When <c>true</c>, logs the snapshot size at Information level (used during
+    /// initial startup). Otherwise the capture is silent.
+    /// </param>
+    private Dictionary<string, string> CaptureWarmConfigurationSnapshot(bool alwaysLog = false)
     {
-        // Capture Warm section into the snapshot.
+        // Capture Warm section into the snapshot — includes descriptor-backed
+        // warm keys plus dynamic host-family keys (Host*, Probe_path*, IP*).
+        // Keys arrive as "Warm:<KeyPath>" since makePathsRelative is false.
         var warmKvps = _configuration
             .GetSection("Warm")
             .AsEnumerable(makePathsRelative: false)
             .Where(kvp => !string.IsNullOrWhiteSpace(kvp.Key)
                 && kvp.Value != null
-                && _warmSnapshotKeys.Contains(kvp.Key));
+                && (_warmSnapshotKeys.Contains(kvp.Key)
+                    || ConfigParser.IsBackendHostConfigName(kvp.Key["Warm:".Length..])));
 
         var dictionary = warmKvps
             .ToDictionary(kvp => kvp.Key, kvp => kvp.Value!, StringComparer.OrdinalIgnoreCase);
@@ -266,32 +294,14 @@ public class AzureAppConfigurationRefreshService : BackgroundService
         {
             _logger.LogInformation("[CONFIG] Configuration snapshot loaded ({Count} keys: Warm)", dictionary.Count);
         }
-    }
 
-    private (Dictionary<string, object?> ParsedWarmValues, List<ConfigChange> DetectedWarmChanges) ParseWarmRefreshCandidates(bool alwaysLog = false)
-    {
-        try
-        {
-            var currentOptions = _backendOptions.Value;
-            var (changes, parsedValues) = ConfigOptions.ParseWarmChanges(currentOptions, _configuration.GetSection("Warm"), _logger);
-
-            if (alwaysLog || changes.Count > 0)
-            {
-                _logger.LogDebug("[CONFIG] ✓ Parsed {Count} warm option change candidate(s)", changes.Count);
-            }
-
-            return (parsedValues, changes);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "[CONFIG] ✗ Failed to parse warm settings");
-            return (new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase), []);
-        }
+        return dictionary;
     }
 
     private List<ConfigChange> ApplyParsedWarmChanges(Dictionary<string, object?> parsedWarmValues, IReadOnlyList<ConfigChange> changesToApply)
     {
         var applied = new List<ConfigChange>(changesToApply.Count);
+        var changedProperties = new List<System.Reflection.PropertyInfo>(changesToApply.Count);
         var target = _backendOptions.Value;
 
         foreach (var change in changesToApply)
@@ -309,8 +319,11 @@ public class AzureAppConfigurationRefreshService : BackgroundService
             }
 
             descriptor.Property.SetValue(target, value);
+            changedProperties.Add(descriptor.Property);
             applied.Add(change);
         }
+
+        ConfigParser.ApplyDerivedSettings(target, [.. changedProperties]);
 
         return applied;
     }
@@ -362,12 +375,14 @@ public class AzureAppConfigurationRefreshService : BackgroundService
         }
 
         return detectedWarmChanges
-            .Where(change => subscribedFields.Contains(change.PropertyName))
+            .Where(change => subscribedFields.Contains(change.PropertyName)
+                || ConfigParser.IsBackendHostConfigName(change.PropertyName))
             .ToList();
     }
 
     private async Task ProcessRefreshCycleAsync(CancellationToken stoppingToken)
     {
+        // updates _configuration
         var refreshed = await _refresher.TryRefreshAsync(stoppingToken);
 
         if (!refreshed || !HasSentinelChanged())
@@ -377,24 +392,34 @@ public class AzureAppConfigurationRefreshService : BackgroundService
 
         // Read refreshed Warm configuration into snapshot first, then parse
         // BackendOptions change candidates from the same refreshed view.
-        CaptureWarmConfigurationSnapshot();
-        var (parsedWarmValues, detectedWarmChanges) = ParseWarmRefreshCandidates();
+        var snapshot = CaptureWarmConfigurationSnapshot();
 
+        _logger.LogInformation("[CONFIG] Sentinel change detected, processing configuration changes...");
+
+        // detect configs that changed
+        var (detectedWarmChanges, parsedWarmValues, hostChanges) = ConfigOptions.DetectWarmChanges(_backendOptions.Value, snapshot, _logger);
         var appliedChanges = SetSubscribedConfigs(parsedWarmValues, detectedWarmChanges);
-        if (appliedChanges.Count == 0)
+
+        // Notify subscribers for descriptor-backed (non-host) changes.
+        if (appliedChanges.Count > 0)
         {
-            return;
+            var changedProperties = string.Join(", ", appliedChanges.Select(c => c.PropertyName));
+
+            _logger.LogInformation("[CONFIG] Warm config changes detected: {Count} changed config(s) ({Configs})",
+                appliedChanges.Count,
+                changedProperties);
+
+            _logger.LogDebug("[CONFIG] Updated BackendOptions fields: {Fields}",
+                changedProperties);
+
+            await NotifySubscribersAsync(appliedChanges, stoppingToken);
         }
 
-        var changedProperties = string.Join(", ", appliedChanges.Select(c => c.PropertyName));
-
-        _logger.LogInformation("[CONFIG] Warm config changes detected: {Count} changed config(s) ({Configs})",
-            appliedChanges.Count,
-            changedProperties);
-
-        _logger.LogDebug("[CONFIG] Updated BackendOptions fields: {Fields}",
-            changedProperties);
-        await NotifySubscribersAsync(appliedChanges, stoppingToken);
+        if (hostChanges.Count > 0)
+        {
+            // CALL HOST REPARSER
+            ConfigBootstrapper.RegisterBackends(_backendOptions.Value,  null, hostChanges);
+        }
     }
 
     /// <summary>Reads the current Warm:Sentinel value from the configuration.</summary>

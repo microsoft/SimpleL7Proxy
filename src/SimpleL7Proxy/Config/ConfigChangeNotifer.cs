@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using System.Linq.Expressions;
 
 namespace SimpleL7Proxy.Config;
 
@@ -72,6 +73,30 @@ public class ConfigChangeNotifier
         var wrapper = new DelegateSubscriber(callback);
         Subscribe(wrapper, fields);
         return wrapper;
+    }
+
+    /// <summary>
+    /// Register a subscriber for specific <see cref="BackendOptions"/> properties.
+    /// This avoids callers needing to know config/env field names.
+    /// </summary>
+    public void Subscribe(
+        IConfigChangeSubscriber subscriber,
+        params Expression<Func<BackendOptions, object?>>[] fields)
+    {
+        var configNames = ResolveConfigNames(fields);
+        Subscribe(subscriber, configNames);
+    }
+
+    /// <summary>
+    /// Register a callback for specific <see cref="BackendOptions"/> properties.
+    /// Returns a handle that can be passed to <see cref="Unsubscribe"/>.
+    /// </summary>
+    public IConfigChangeSubscriber Subscribe(
+        Func<IReadOnlyList<ConfigChange>, BackendOptions, CancellationToken, Task> callback,
+        params Expression<Func<BackendOptions, object?>>[] fields)
+    {
+        var configNames = ResolveConfigNames(fields);
+        return Subscribe(callback, configNames);
     }
 
     /// <summary>Remove a previously registered subscriber.</summary>
@@ -182,6 +207,50 @@ public class ConfigChangeNotifier
         }
 
         return merged;
+    }
+
+    private static string[] ResolveConfigNames(Expression<Func<BackendOptions, object?>>[] fields)
+    {
+        if (fields.Length == 0)
+        {
+            return [];
+        }
+
+        var descriptorByPropertyName = ConfigOptions.GetDescriptors()
+            .ToDictionary(d => d.Property.Name, d => d.ConfigName, StringComparer.OrdinalIgnoreCase);
+
+        var configNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var field in fields)
+        {
+            var propertyName = TryGetPropertyName(field.Body)
+                ?? throw new ArgumentException("Field selector must be a simple property access", nameof(fields));
+
+            if (!descriptorByPropertyName.TryGetValue(propertyName, out var configName))
+            {
+                throw new ArgumentException($"Unsupported BackendOptions property '{propertyName}' for config subscriptions", nameof(fields));
+            }
+
+            configNames.Add(configName);
+        }
+
+        return [.. configNames];
+    }
+
+    private static string? TryGetPropertyName(Expression body)
+    {
+        if (body is MemberExpression memberExpression)
+        {
+            return memberExpression.Member.Name;
+        }
+
+        if (body is UnaryExpression unaryExpression
+            && unaryExpression.NodeType == ExpressionType.Convert
+            && unaryExpression.Operand is MemberExpression operandMemberExpression)
+        {
+            return operandMemberExpression.Member.Name;
+        }
+
+        return null;
     }
 
     /// <summary>Tracks a subscriber and its optional field filter.</summary>

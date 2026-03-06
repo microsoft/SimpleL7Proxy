@@ -118,6 +118,10 @@ public static class ConfigOptions
         new(() => Descriptors.Where(d => d.Mode == ConfigMode.Warm).ToList());
     private static readonly Lazy<IReadOnlyDictionary<string, ConfigOptionDescriptor>> _warmDescriptorsByConfigName =
         new(() => _warmDescriptors.Value.ToDictionary(d => d.ConfigName, d => d, StringComparer.OrdinalIgnoreCase));
+    private static readonly Lazy<IReadOnlyDictionary<string, ConfigOptionDescriptor>> _warmDescriptorsByKeyPath =
+        new(() => _warmDescriptors.Value.ToDictionary(d => d.Attribute.KeyPath, d => d, StringComparer.OrdinalIgnoreCase));
+    private static readonly Lazy<IReadOnlyDictionary<string, PropertyInfo>> _fieldsByConfigName =
+        new(() => Descriptors.ToDictionary(d => d.ConfigName, d => d.Property, StringComparer.OrdinalIgnoreCase));
 
     /// <summary>All discovered config option descriptors.</summary>
     public static IReadOnlyList<ConfigOptionDescriptor> Descriptors => _descriptors.Value;
@@ -128,6 +132,19 @@ public static class ConfigOptions
     /// <summary>Returns only warm (hot-reloadable) descriptors.</summary>
     public static IReadOnlyList<ConfigOptionDescriptor> GetWarmDescriptors() =>
         _warmDescriptors.Value;
+
+    /// <summary>
+    /// Returns a reverse map from configuration name to <see cref="BackendOptions"/> field/property.
+    /// Computed once and cached for the process lifetime.
+    /// </summary>
+    public static IReadOnlyDictionary<string, PropertyInfo> GetFieldsByConfigName() =>
+        _fieldsByConfigName.Value;
+
+    /// <summary>
+    /// Tries to resolve a <see cref="BackendOptions"/> field/property by configuration name.
+    /// </summary>
+    public static bool TryGetFieldByConfigName(string configName, out PropertyInfo? field) =>
+        _fieldsByConfigName.Value.TryGetValue(configName, out field);
 
     /// <summary>Returns only publishable (Warm + Cold) descriptors.</summary>
     public static IReadOnlyList<ConfigOptionDescriptor> GetPublishableDescriptors() =>
@@ -168,59 +185,97 @@ public static class ConfigOptions
     // }
 
     /// <summary>
-    /// Detects warm-mode values that differ from the live options and returns
-    /// the changes plus their parsed new values.
-    /// Does not mutate <paramref name="liveOptions"/>.
+    /// Iterates over a <c>Warm:</c>-prefixed configuration snapshot and detects
+    /// values that differ from <paramref name="liveOptions"/>.
+    /// <para>
+    /// Each snapshot key is resolved to a <see cref="BackendOptions"/> property
+    /// via the key-path or config-name descriptor maps.  Host-family keys
+    /// (<c>Host*</c>, <c>Probe_path*</c>, <c>IP*</c>) are collected separately
+    /// in <c>HostChanges</c> since they are not backed by descriptors.
+    /// </para>
+    /// <para>Does not mutate <paramref name="liveOptions"/>.</para>
     /// </summary>
-    public static (List<ConfigChange> Changes, Dictionary<string, object?> ParsedValues) DetectWarmChanges(
+    /// <param name="liveOptions">The current in-memory <see cref="BackendOptions"/>.</param>
+    /// <param name="snapshot">
+    /// Flat dictionary captured from the <c>Warm:</c> configuration section.
+    /// Keys are prefixed (e.g. <c>Warm:Logging:LogConsole</c>, <c>Warm:Host1</c>).
+    /// </param>
+    /// <param name="logger">Optional logger for diagnostics.</param>
+    /// <returns>
+    /// A tuple of descriptor-backed changes with their parsed values, plus a
+    /// dictionary of host-family key changes keyed by bare name (e.g. <c>Host1</c>).
+    /// </returns>
+    public static (List<ConfigChange> Changes, Dictionary<string, object?> ParsedValues, Dictionary<string, string> HostChanges) DetectWarmChanges(
         BackendOptions liveOptions,
-        IConfiguration warmSection,
+        Dictionary<string, string> snapshot,
         ILogger? logger = null)
     {
         var changes = new List<ConfigChange>();
         var parsedValues = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
-        var parsedTarget = new BackendOptions();
+        var hostChanges = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var defaultTarget = new BackendOptions();
         var env = new Dictionary<string, string>(1, StringComparer.OrdinalIgnoreCase);
 
-        foreach (var descriptor in _warmDescriptors.Value)
+        foreach (var kvp in snapshot)
         {
-            var section = warmSection.GetSection(descriptor.Attribute.KeyPath);
-            if (!section.Exists())
+            var snapshotKey = kvp.Key["Warm:".Length..];
+            var rawValue = kvp.Value;
+
+            if (string.IsNullOrEmpty(rawValue))
                 continue;
 
-            var rawValue = section.Value;
+            if (snapshotKey.StartsWith("Host") || snapshotKey.StartsWith("Probe") || snapshotKey.StartsWith("IP"))
+            {
+                // skip Host/Probe/IP entries which are used for dynamic host discovery and not mapped to BackendOptions properties
+                hostChanges[snapshotKey] = rawValue;
+                continue;
+            }
 
-            if (string.IsNullOrEmpty(rawValue) || rawValue == DefaultPlaceholder)
+            if (!_warmDescriptorsByKeyPath.Value.TryGetValue(snapshotKey, out var descriptor)
+                && !_warmDescriptorsByConfigName.Value.TryGetValue(snapshotKey, out descriptor))
                 continue;
 
-            var currentValue = descriptor.Property.GetValue(liveOptions);
+            var configName = descriptor.ConfigName;
+            if (!TryGetFieldByConfigName(configName, out var field) || field == null)
+                continue;
 
-            env.Clear();
-            env[descriptor.ConfigName] = rawValue;
 
-            ConfigParser.ApplyFieldFromEnv(
-                env,
-                parsedTarget,
-                liveOptions,
-                descriptor.ConfigName,
-                descriptor.Property.Name);
+            var currentValue = field.GetValue(liveOptions);
 
-            var newValue = descriptor.Property.GetValue(parsedTarget);
+            object? newValue;
+            if (rawValue == DefaultPlaceholder)
+            {
+                newValue = field.GetValue(defaultTarget);
+            }
+            else
+            {
+                env.Clear();
+                env[configName] = rawValue;
+
+                ConfigParser.ApplyFieldFromEnv(
+                    env,
+                    defaultTarget,
+                    liveOptions,
+                    configName,
+                    field.Name);
+
+                newValue = field.GetValue(defaultTarget);
+            }
 
             if (Equals(currentValue, newValue))
                 continue;
 
-            parsedValues[descriptor.ConfigName] = newValue;
+            parsedValues[configName] = newValue;
             changes.Add(new ConfigChange
             {
-                PropertyName = descriptor.ConfigName,
+                PropertyName = configName,
                 KeyPath = descriptor.Attribute.KeyPath,
                 RawOldValue = currentValue,
                 RawNewValue = newValue
             });
         }
 
-        return (changes, parsedValues);
+        return (changes, parsedValues, hostChanges);
     }
 
     private static IReadOnlyList<ConfigOptionDescriptor> DiscoverDescriptors()

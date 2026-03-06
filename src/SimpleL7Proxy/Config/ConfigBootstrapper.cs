@@ -32,7 +32,7 @@ public static class ConfigBootstrapper
   private static readonly BackendOptions s_defaults = new();
 
 
-  public static BackendOptions CreateBackendOptions(ILogger logger)
+  public static BackendOptions CreateBackendOptions(ILogger logger, AppConfigBootstrap appConfigBootstrap)
   {
     Dictionary<string, string> effectiveEnvironment = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     _logger = logger;
@@ -48,7 +48,7 @@ public static class ConfigBootstrapper
     // Wait for the bootstrap App Configuration download (started in Main) and
     // add values into the effective environment dictionary so every
     // ReadEnvironmentVariableOrDefault call below picks them up.
-    var appConfigSettings = AppConfigBootstrap.WaitForDownload();
+    var appConfigSettings = appConfigBootstrap.WaitForDownload();
     if (appConfigSettings != null)
     {
       foreach (var kvp in appConfigSettings)
@@ -61,7 +61,7 @@ public static class ConfigBootstrapper
       _logger?.LogInformation("[BOOTSTRAP] Applied {Count} App Configuration value(s) to effective environment", appConfigSettings.Count);
     }
 
-    var backendOptions = ConfigParser.ParseOptions(effectiveEnvironment, logger);
+    var backendOptions = ConfigParser.ParseOptions(effectiveEnvironment);
     ConfigureHttpClientFromOptions(effectiveEnvironment, backendOptions);
 
     OutputEnvVars();
@@ -347,19 +347,75 @@ public static class ConfigBootstrapper
     backendOptions.Client = client;
   }
 
-  public static void RegisterBackends(BackendOptions backendOptions)
+  /// <summary>
+  /// Clears and re-populates <see cref="BackendOptions.Hosts"/> by iterating
+  /// over <c>Host1..N</c>, <c>Probe_path1..N</c>, and <c>IP1..N</c> keys.
+  /// <para>
+  /// Values are resolved in priority order:
+  /// <paramref name="cfg"/> dictionary → <c>Warm:</c>/<c>Cold:</c>/bare-key
+  /// from <paramref name="configuration"/> → environment variable.
+  /// </para>
+  /// <para>
+  /// If <c>APPENDHOSTSFILE</c> is <c>"true"</c>, the resolved host/IP pairs
+  /// are also appended to <c>/etc/hosts</c> (Linux container deployments).
+  /// </para>
+  /// </summary>
+  /// <param name="backendOptions">The target options whose <c>Hosts</c> list will be rebuilt.</param>
+  /// <param name="configuration">Optional <see cref="IConfiguration"/> for Warm/Cold/bare-key lookup.</param>
+  /// <param name="cfg">
+  /// Optional flat dictionary of host-family settings (e.g. from a warm snapshot).
+  /// Takes precedence over <paramref name="configuration"/> when supplied.
+  /// </param>
+  public static void RegisterBackends(BackendOptions backendOptions, IConfiguration? configuration = null, Dictionary<string, string>? cfg = null)
   {
     //backendOptions.Client.Timeout = TimeSpan.FromMilliseconds(backendOptions.Timeout);
+    var hostSettingsSnapshot = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    string? ReadWithFallback(string key)
+    {
+      var configured =
+          (cfg != null && cfg.TryGetValue(key, out var cfgVal) ? cfgVal : null)
+          ?? configuration?[$"Warm:{key}"]
+          ?? configuration?[$"Cold:{key}"]
+          ?? configuration?[key];
+
+      if (!string.IsNullOrWhiteSpace(configured))
+      {
+        return configured.Trim();
+      }
+
+      return Environment.GetEnvironmentVariable(key)?.Trim();
+    }
+
+    backendOptions.Hosts.Clear();
+
     int i = 1;
     StringBuilder sb = new();
     while (true)
     {
 
-      var hostname = Environment.GetEnvironmentVariable($"Host{i}")?.Trim();
+      var hostKey = $"Host{i}";
+      var probePathKey = $"Probe_path{i}";
+      var ipKey = $"IP{i}";
+
+
+      var hostname = ReadWithFallback(hostKey);
       if (string.IsNullOrEmpty(hostname)) break;
 
-      var probePath = Environment.GetEnvironmentVariable($"Probe_path{i}")?.Trim();
-      var ip = Environment.GetEnvironmentVariable($"IP{i}")?.Trim();
+      var probePath = ReadWithFallback(probePathKey);
+      var ip = ReadWithFallback(ipKey);
+
+      _logger.LogInformation($"Found a Host: {hostKey}, Probe Path: {probePathKey}, HostName: {hostname}");
+      hostSettingsSnapshot[hostKey] = hostname;
+      if (!string.IsNullOrEmpty(probePath))
+      {
+        hostSettingsSnapshot[probePathKey] = probePath;
+      }
+
+      if (!string.IsNullOrEmpty(ip))
+      {
+        hostSettingsSnapshot[ipKey] = ip;
+      }
 
       try
       {
@@ -381,13 +437,21 @@ public static class ConfigBootstrapper
       i++;
     }
 
-    if (Environment.GetEnvironmentVariable("APPENDHOSTSFILE")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true ||
-        Environment.GetEnvironmentVariable("AppendHostsFile")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) == true)
+    var appendHostsFile = ReadWithFallback("APPENDHOSTSFILE")
+      ?? ReadWithFallback("AppendHostsFile");
+
+    if (!string.IsNullOrEmpty(appendHostsFile))
+    {
+      hostSettingsSnapshot["APPENDHOSTSFILE"] = appendHostsFile;
+    }
+
+    if (appendHostsFile?.Equals("true", StringComparison.OrdinalIgnoreCase) == true)
     {
       _logger?.LogInformation($"Appending {sb} to /etc/hosts");
       using StreamWriter sw = File.AppendText("/etc/hosts");
       sw.WriteLine(sb.ToString());
     }
-  }
 
+    // Snapshot is updated only after all Host<n>/Probe_path<n>/IP<n> entries are parsed and applied.
+  }
 }

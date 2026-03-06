@@ -1,5 +1,6 @@
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
 using SimpleL7Proxy.Backend.Iterators;
+using System.Reflection;
 
 namespace SimpleL7Proxy.Config;
 
@@ -8,7 +9,6 @@ public static class ConfigParser
     private static readonly Dictionary<string, string> EnvVars = new(StringComparer.OrdinalIgnoreCase);
     private static readonly BackendOptions s_defaults = new();
     private static readonly System.Data.DataTable s_mathTable = new();
-    private static ILogger? _logger;
 
     private static readonly (string envVar, string property)[] SimpleFields =
     new (string envVar, string property)[]
@@ -79,9 +79,8 @@ public static class ConfigParser
         ("UniqueUserHeaders", "UniqueUserHeaders"),
     };
 
-    public static BackendOptions ParseOptions(Dictionary<string, string> env, ILogger? logger)
+    public static BackendOptions ParseOptions(Dictionary<string, string> env)
     {
-        _logger = logger;
         EnvVars.Clear();
 
         var opts = new BackendOptions();
@@ -110,10 +109,14 @@ public static class ConfigParser
             Environment.GetEnvironmentVariable("HOSTNAME") ?? Environment.MachineName);
         ApplyReplicaIdentitySettings(env, opts, replicaId);
 
-        ParseHealthProbeSidecarSettings(opts);
-        ValidatePrioritySettings(opts, defaults);
-        ValidateHeaderSettings(opts);
-        ValidateLoadBalanceMode(opts, defaults);
+        ApplyDerivedSettingsFromConfigNames(
+            opts,
+            configuration: null,
+            nameof(BackendOptions.HealthProbeSidecar),
+            nameof(BackendOptions.LoadBalanceMode),
+            nameof(BackendOptions.PriorityKeys),
+            nameof(BackendOptions.PriorityValues),
+            nameof(BackendOptions.ValidateHeaders));
 
         return opts;
     }
@@ -123,6 +126,19 @@ public static class ConfigParser
         return new Dictionary<string, string>(EnvVars, StringComparer.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Applies a single configuration field from the environment dictionary to the target <see cref="BackendOptions"/> instance.
+    /// Uses reflection to set the named property, falling back to the corresponding default value when the
+    /// environment variable is absent or set to the default placeholder. Supports int, double, float, string,
+    /// bool, List&lt;string&gt;, List&lt;int&gt;, int[], Dictionary&lt;string, string&gt;, and enum property types.
+    /// </summary>
+    /// <param name="env">Dictionary of environment/configuration key-value pairs to read from.</param>
+    /// <param name="target">The <see cref="BackendOptions"/> instance whose property will be set.</param>
+    /// <param name="defaults">A default <see cref="BackendOptions"/> instance providing fallback values.</param>
+    /// <param name="envVar">The environment variable (dictionary key) to look up.</param>
+    /// <param name="property">The name of the <see cref="BackendOptions"/> property to set.</param>
+    /// <exception cref="InvalidOperationException">Thrown when <paramref name="property"/> does not exist on <see cref="BackendOptions"/>.</exception>
+    /// <exception cref="NotSupportedException">Thrown when the property type is not handled.</exception>
     public static void ApplyFieldFromEnv(Dictionary<string, string> env, BackendOptions target, BackendOptions defaults, string envVar, string property)
     {
         var pi = typeof(BackendOptions).GetProperty(property) ?? throw new InvalidOperationException($"Unknown BackendOptions property: {property}");
@@ -183,6 +199,119 @@ public static class ConfigParser
         {
             throw new NotSupportedException($"ApplyFieldFromEnv: unsupported property type {type.Name} for {property}");
         }
+    }
+
+    public static void ApplyDerivedSettings(BackendOptions backendOptions, params PropertyInfo[] changedProperties)
+    {
+        if (changedProperties.Length == 0)
+        {
+            return;
+        }
+
+        var changedPropertyNames = new HashSet<string>(
+            changedProperties.Select(p => p.Name),
+            StringComparer.OrdinalIgnoreCase);
+
+        if (changedPropertyNames.Contains(nameof(BackendOptions.HealthProbeSidecar)))
+        {
+            ParseHealthProbeSidecarSettings(backendOptions);
+        }
+
+        if (changedPropertyNames.Contains(nameof(BackendOptions.LoadBalanceMode)))
+        {
+            ValidateLoadBalanceMode(backendOptions, s_defaults);
+        }
+
+        if (changedPropertyNames.Contains(nameof(BackendOptions.PriorityKeys))
+            || changedPropertyNames.Contains(nameof(BackendOptions.PriorityValues)))
+        {
+            ValidatePrioritySettings(backendOptions, s_defaults);
+        }
+
+        if (changedPropertyNames.Contains(nameof(BackendOptions.ValidateHeaders)))
+        {
+            ValidateHeaderSettings(backendOptions);
+        }
+    }
+
+    public static void ApplyDerivedSettingsFromConfigNames(
+        BackendOptions backendOptions,
+        IConfiguration? configuration,
+        params string[] changedConfigNames)
+    {
+        if (changedConfigNames.Length == 0)
+        {
+            return;
+        }
+
+        var descriptorByConfigName = ConfigOptions.GetDescriptors()
+            .ToDictionary(d => d.ConfigName, d => d.Property, StringComparer.OrdinalIgnoreCase);
+
+        var changedProperties = new List<PropertyInfo>(changedConfigNames.Length);
+        var shouldRefreshBackends = false;
+
+        foreach (var changedConfigName in changedConfigNames)
+        {
+            if (string.IsNullOrWhiteSpace(changedConfigName))
+            {
+                continue;
+            }
+
+            if (descriptorByConfigName.TryGetValue(changedConfigName, out var property))
+            {
+                changedProperties.Add(property);
+            }
+
+            if (IsBackendHostConfigName(changedConfigName))
+            {
+                shouldRefreshBackends = true;
+            }
+        }
+
+        if (changedProperties.Count > 0)
+        {
+            ApplyDerivedSettings(backendOptions, [.. changedProperties]);
+        }
+
+        if (shouldRefreshBackends)
+        {
+            ConfigBootstrapper.RegisterBackends(backendOptions, configuration, null);
+        }
+    }
+
+    public static bool IsBackendHostConfigName(string configName)
+    {
+        if (string.IsNullOrWhiteSpace(configName))
+        {
+            return false;
+        }
+
+        var normalized = configName;
+        if (normalized.StartsWith("Warm:", StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = normalized["Warm:".Length..];
+        }
+        else if (normalized.StartsWith("Cold:", StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = normalized["Cold:".Length..];
+        }
+
+        static bool IsIndexedKey(string value, string prefix)
+        {
+            if (!value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var suffix = value[prefix.Length..];
+            return int.TryParse(suffix, out _);
+        }
+
+        return IsIndexedKey(normalized, "Host")
+            || IsIndexedKey(normalized, "IP")
+            || IsIndexedKey(normalized, "Probe_path")
+            || normalized.Equals("APPENDHOSTSFILE", StringComparison.OrdinalIgnoreCase)
+            || normalized.Equals("AppendHostsFile", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void ApplyAsyncServiceBusOverrides(Dictionary<string, string> env, BackendOptions opts, BackendOptions defaults)
