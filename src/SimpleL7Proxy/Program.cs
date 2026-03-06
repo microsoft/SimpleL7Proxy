@@ -364,6 +364,7 @@ public class Program
         services.AddSingleton<IRequeueWorker, RequeueDelayWorker>();
 
         services.AddTransient<ICircuitBreaker, CircuitBreaker>();
+        services.AddSingleton<ConfigChangeNotifier>();
         services.AddSingleton<IBackendService, Backends>();
         services.AddSingleton<Server>();
         services.AddSingleton<ConcurrentSignal<RequestData>>();
