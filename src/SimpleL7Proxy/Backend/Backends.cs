@@ -98,9 +98,7 @@ public class Backends : IBackendService
     _activeHosts = [];
     _successRate = bo.SuccessRate / 100.0;
 
-    // Stage hosts from config into a pending snapshot, then activate
-    _backendHostCollection.LoadFromConfig(bo.Hosts);
-    _backendHostCollection.Activate();
+    // Hosts are staged and activated by ConfigBootstrapper.RegisterBackends
 
     _logger.LogDebug("[INIT] Backends service starting");
 

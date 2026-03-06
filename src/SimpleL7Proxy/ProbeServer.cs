@@ -58,7 +58,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
         _backendOptions = backendOptions?.Value ?? throw new ArgumentNullException(nameof(backendOptions));
 
         // Subscribe for HealthProbeSidecar changes (HealthProbeSidecarEnabled & Url are parsed from it)
-        configChangeNotifier.Subscribe(this, "HealthProbeSidecar");
+        configChangeNotifier.Subscribe(this, options => options.HealthProbeSidecar);
     }
 
     /// <summary>
@@ -268,6 +268,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
         CancellationToken cancellationToken)
     {
         _logger.LogInformation("[CONFIG] HealthProbeSidecar changed — restarting probe server");
+        // apply the changes
         StopProbeServer();
         StartProbeServer();
         return Task.CompletedTask;

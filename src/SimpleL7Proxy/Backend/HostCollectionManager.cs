@@ -14,8 +14,8 @@ namespace SimpleL7Proxy.Backend;
 ///
 /// Startup flow:
 ///   1. Constructor starts with Empty snapshot
-///   2. LoadFromConfig() builds hosts from BackendOptions into a pending snapshot
-///   3. Activate() swaps the pending snapshot in as Current
+///   2. StageHost() adds individual hosts to a pending list
+///   3. Activate() builds, freezes, and swaps the pending snapshot in as Current
 ///   After activation, CRUD operations modify Current directly.
 /// </summary>
 public sealed class HostCollectionManager : IHostHealthCollection
@@ -23,6 +23,7 @@ public sealed class HostCollectionManager : IHostHealthCollection
   private readonly object _writeLock = new();
   private volatile HostCollectionSnapshot _current;
   private HostCollectionSnapshot? _pending;
+  private List<HostConfig>? _stagedConfigs;
   private int _version;
   private readonly ILogger<HostCollectionManager> _logger;
 
@@ -36,9 +37,23 @@ public sealed class HostCollectionManager : IHostHealthCollection
     _logger = logger;
     _version = 0;
 
-    // Start empty — hosts are loaded via LoadFromConfig() then Activate()
+    // Start empty — hosts are staged via StageHost() then Activate()
     _current = HostCollectionSnapshot.Empty;
     _logger.LogDebug("[HOST-MANAGER] Initialized with empty snapshot");
+  }
+
+  /// <inheritdoc />
+  public void StageHost(HostConfig config)
+  {
+    ArgumentNullException.ThrowIfNull(config, nameof(config));
+
+    lock (_writeLock)
+    {
+      _stagedConfigs ??= [];
+      _stagedConfigs.Add(config);
+      _logger.LogDebug("[HOST-MANAGER] Staged host: {Host} ({Count} staged)",
+          config.Host, _stagedConfigs.Count);
+    }
   }
 
   /// <summary>
@@ -60,18 +75,29 @@ public sealed class HostCollectionManager : IHostHealthCollection
 
   /// <summary>
   /// Atomically swaps the pending snapshot in as Current.
-  /// After this, readers see the new hosts immediately.
-  /// Old snapshots remain valid for in-flight workers until GC reclaims them.
+  /// If hosts were staged via <see cref="StageHost"/>, builds the snapshot from them.
+  /// If <see cref="LoadFromConfig"/> was used, uses the pre-built pending snapshot.
+  /// Freezes the snapshot before activation.
   /// </summary>
   public void Activate()
   {
     lock (_writeLock)
     {
+      // Build from staged configs if present
+      if (_stagedConfigs != null && _stagedConfigs.Count > 0)
+      {
+        _version++;
+        _pending = HostCollectionSnapshot.Build(_stagedConfigs, _logger, _version);
+        _stagedConfigs = null;
+      }
+
       if (_pending == null)
       {
-        _logger.LogWarning("[HOST-MANAGER] Activate() called with no pending snapshot");
+        _logger.LogWarning("[HOST-MANAGER] Activate() called with no pending snapshot or staged hosts");
         return;
       }
+
+      _pending.Freeze();
 
       var oldVersion = _current.Version;
       _current = _pending;

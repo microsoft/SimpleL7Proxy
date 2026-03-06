@@ -351,6 +351,11 @@ public static class ConfigBootstrapper
   /// Clears and re-populates <see cref="BackendOptions.Hosts"/> by iterating
   /// over <c>Host1..N</c>, <c>Probe_path1..N</c>, and <c>IP1..N</c> keys.
   /// <para>
+  /// Each parsed <see cref="HostConfig"/> is staged into <paramref name="hostCollection"/>
+  /// (when provided). After all hosts are parsed, <see cref="IHostHealthCollection.Activate"/>
+  /// is called to build, freeze, and swap the snapshot.
+  /// </para>
+  /// <para>
   /// Values are resolved in priority order:
   /// <paramref name="cfg"/> dictionary → <c>Warm:</c>/<c>Cold:</c>/bare-key
   /// from <paramref name="configuration"/> → environment variable.
@@ -366,7 +371,11 @@ public static class ConfigBootstrapper
   /// Optional flat dictionary of host-family settings (e.g. from a warm snapshot).
   /// Takes precedence over <paramref name="configuration"/> when supplied.
   /// </param>
-  public static void RegisterBackends(BackendOptions backendOptions, IConfiguration? configuration = null, Dictionary<string, string>? cfg = null)
+  /// <param name="hostCollection">
+  /// Optional host collection manager. When provided, each parsed host is staged
+  /// and the collection is activated at the end.
+  /// </param>
+  public static void RegisterBackends(BackendOptions backendOptions, IConfiguration? configuration = null, Dictionary<string, string>? cfg = null, IHostHealthCollection? hostCollection = null)
   {
     //backendOptions.Client.Timeout = TimeSpan.FromMilliseconds(backendOptions.Timeout);
     var hostSettingsSnapshot = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -424,6 +433,7 @@ public static class ConfigBootstrapper
         // Resolve HostConfig from DI using the factory
         HostConfig bh = new HostConfig(hostname, probePath, ip, backendOptions.OAuthAudience);
         backendOptions.Hosts.Add(bh);
+        hostCollection?.StageHost(bh);
 
         sb.AppendLine($"{ip} {bh.Host}");
       }
@@ -453,5 +463,6 @@ public static class ConfigBootstrapper
     }
 
     // Snapshot is updated only after all Host<n>/Probe_path<n>/IP<n> entries are parsed and applied.
+    hostCollection?.Activate();
   }
 }

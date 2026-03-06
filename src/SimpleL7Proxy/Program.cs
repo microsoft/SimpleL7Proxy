@@ -60,10 +60,11 @@ public class Program
         });
 
         var startupLogger = startupLoggerFactory.CreateLogger<Program>();
+        var appConfigBootstrap = new AppConfigBootstrap(startupLoggerFactory.CreateLogger<AppConfigBootstrap>());
 
         // Kick off App Configuration download early so values are ready
         // by the time LoadBackendOptions reads environment variables.
-        AppConfigBootstrap.Start(startupLogger);
+        appConfigBootstrap.Start();
 
         var hostBuilder = Host.CreateDefaultBuilder(args)
             .ConfigureAppConfiguration((hostContext, config) =>
@@ -82,7 +83,7 @@ public class Program
             .ConfigureServices((hostContext, services) =>
             {
                 ConfigureApplicationInsights(services);
-                ConfigureDependencyInjection(services, startupLogger);
+                ConfigureDependencyInjection(services, startupLogger, appConfigBootstrap);
             });
 
 
@@ -121,7 +122,9 @@ public class Program
         HostConfig.Initialize(backendTokenProvider, startupLogger, serviceProvider);
 
         // Register backends after DI container is built and HostConfig is initialized
-        ConfigBootstrapper.RegisterBackends(options.Value);
+        var configuration = serviceProvider.GetService<IConfiguration>();
+        var hostCollection = serviceProvider.GetRequiredService<IHostHealthCollection>();
+        ConfigBootstrapper.RegisterBackends(options.Value, configuration, null, hostCollection);
 
         try
         {
@@ -211,8 +214,10 @@ public class Program
         }
     }
 
-    private static void ConfigureDependencyInjection(IServiceCollection services, ILogger startupLogger)
+    private static void ConfigureDependencyInjection(IServiceCollection services, ILogger startupLogger, AppConfigBootstrap appConfigBootstrap)
     {
+        services.AddSingleton(appConfigBootstrap);
+
         // EVENT_LOGGERS is a comma-separated list of event logger backends to enable.
         // Supported values: "file", "eventhub"
         // Example: EVENT_LOGGERS="file,eventhub" enables both simultaneously.
@@ -285,7 +290,7 @@ public class Program
 
         }
 
-        var backendOptions = ConfigBootstrapper.CreateBackendOptions(startupLogger);
+        var backendOptions = ConfigBootstrapper.CreateBackendOptions(startupLogger, appConfigBootstrap);
         services.AddBackendHostConfiguration(startupLogger, backendOptions);
 
         // Wire up Azure App Configuration warm-refresh service (no-op if AZURE_APPCONFIG_ENDPOINT is not set)

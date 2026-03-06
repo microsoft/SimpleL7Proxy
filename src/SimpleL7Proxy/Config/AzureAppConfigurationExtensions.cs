@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Azure.Data.AppConfiguration;
 using Azure.Identity;
+using SimpleL7Proxy.Backend;
 
 #if AZURE_APPCONFIG_FULL
 using Microsoft.Extensions.DependencyInjection;
@@ -200,6 +201,7 @@ public class AzureAppConfigurationRefreshService : BackgroundService
     private readonly IConfiguration _configuration;
     private readonly AppConfigurationSnapshot _appConfigurationSnapshot;
     private readonly IOptions<BackendOptions> _backendOptions;
+    private readonly IHostHealthCollection? _hostCollection;
     private readonly ILogger<AzureAppConfigurationRefreshService> _logger;
     private readonly ConfigChangeNotifier _notifier;
     private readonly TimeSpan _refreshInterval;
@@ -217,7 +219,8 @@ public class AzureAppConfigurationRefreshService : BackgroundService
         AppConfigurationSnapshot appConfigurationSnapshot,
         IOptions<BackendOptions> backendOptions,
         ILogger<AzureAppConfigurationRefreshService> logger,
-        ConfigChangeNotifier notifier)
+        ConfigChangeNotifier notifier,
+        IHostHealthCollection? hostCollection = null)
     {
         _refresher = refresher;
         _configuration = configuration;
@@ -225,6 +228,7 @@ public class AzureAppConfigurationRefreshService : BackgroundService
         _backendOptions = backendOptions;
         _logger = logger;
         _notifier = notifier;
+        _hostCollection = hostCollection;
 
         // Warm vs Cold is defined by code attributes (ConfigOption.Mode).
         // A Cold option only becomes Warm after a code change and process restart.
@@ -418,7 +422,7 @@ public class AzureAppConfigurationRefreshService : BackgroundService
         if (hostChanges.Count > 0)
         {
             // CALL HOST REPARSER
-            ConfigBootstrapper.RegisterBackends(_backendOptions.Value,  null, hostChanges);
+            ConfigBootstrapper.RegisterBackends(_backendOptions.Value, null, hostChanges, _hostCollection);
         }
     }
 
