@@ -1,5 +1,16 @@
 # Release Notes #
 
+2.2.10-d1
+
+Deployment:
+* Update script to assign the data reader role to the ACA serivce prinicpal for app configuration
+* Bug fix for truncated parameters
+
+Proxy:
+* bug fix for reading UserIDFieldName
+* bug fix when multiple host defined for the same hostname
+* Migrate eventhub config into AppConfiguration
+
 
 2.2.10
 

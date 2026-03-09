@@ -100,35 +100,43 @@ public static class ConfigParser
         ("IgnoreSSLCert", "IgnoreSSLCert"),
     };
 
-    public static BackendOptions ParseOptions(Dictionary<string, string> env)
+    public static BackendOptions ParseOptions(Dictionary<string, string> appCfgVars)
     {
         EnvVars.Clear();
 
+        // calculated values based on logic
         var opts = new BackendOptions();
+
+        // default backend options as defined in code
         var defaults = s_defaults;
 
-        foreach (var (envVar, property) in SimpleFields)
+        foreach (var (envVarName, propertyName) in SimpleFields)
         {
-            ApplyFieldFromEnv(env, opts, defaults, envVar, property);
+            // Apply in this order
+            // 1. Default value from .cs file
+            // 2. Value from environment variable (if set)
+            // 3. Value from environment variable alias (if set) 
+            // 4. Value from App Configuration (if set)
+            ApplyFieldFromEnv(appCfgVars, opts, defaults, envVarName, propertyName);
         }
 
-        opts.AcceptableStatusCodes = ReadEnvironmentVariableOrDefault(env, "AcceptableStatusCodes", defaults.AcceptableStatusCodes);
-        opts.IterationMode = ReadEnvironmentVariableOrDefault(env, "IterationMode", defaults.IterationMode);
+        opts.AcceptableStatusCodes = ReadEnvironmentVariableOrDefault(appCfgVars, "AcceptableStatusCodes", defaults.AcceptableStatusCodes);
+        opts.IterationMode = ReadEnvironmentVariableOrDefault(appCfgVars, "IterationMode", defaults.IterationMode);
 
         var defaultPriorityWorkers = string.Join(",", defaults.PriorityWorkers.Select(kvp => $"{kvp.Key}:{kvp.Value}"));
-        opts.PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault(env, "PriorityWorkers", defaultPriorityWorkers)));
+        opts.PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault(appCfgVars, "PriorityWorkers", defaultPriorityWorkers)));
 
         var defaultValidateHeaders = string.Join(",", defaults.ValidateHeaders.Select(kvp => $"{kvp.Key}={kvp.Value}"));
-        opts.ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault(env, "ValidateHeaders", defaultValidateHeaders)));
+        opts.ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault(appCfgVars, "ValidateHeaders", defaultValidateHeaders)));
 
-        ApplyAsyncServiceBusOverrides(env, opts, defaults);
-        ApplyAsyncBlobStorageOverrides(env, opts, defaults);
+        ApplyAsyncServiceBusOverrides(appCfgVars, opts, defaults);
+        ApplyAsyncBlobStorageOverrides(appCfgVars, opts, defaults);
 
         var replicaId = ReadEnvironmentVariableOrDefault(
-            env,
+            appCfgVars,
             "ReplicaID",
             Environment.GetEnvironmentVariable("HOSTNAME") ?? Environment.MachineName);
-        ApplyReplicaIdentitySettings(env, opts, replicaId);
+        ApplyReplicaIdentitySettings(appCfgVars, opts, replicaId);
 
         ApplyDerivedSettingsFromConfigNames(
             opts,

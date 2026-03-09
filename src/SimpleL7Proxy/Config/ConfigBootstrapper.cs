@@ -60,16 +60,15 @@ public static class ConfigBootstrapper
       }
       _logger?.LogInformation("[BOOTSTRAP] Applied {Count} App Configuration value(s) to effective environment", appConfigSettings.Count);
     }
-
     var backendOptions = ConfigParser.ParseOptions(effectiveEnvironment);
     ConfigureHttpClientFromOptions(effectiveEnvironment, backendOptions);
 
-    OutputEnvVars();
+    OutputEnvVars(backendOptions);
 
     return backendOptions;
   }
 
-  private static void OutputEnvVars()
+  private static void OutputEnvVars(BackendOptions backendOptions)
   {
     // Build Warm / Cold / Hidden buckets from [ConfigOption] attributes
     var warm = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -81,7 +80,8 @@ public static class ConfigBootstrapper
       var attr = prop.GetCustomAttribute<ConfigOptionAttribute>();
       if (attr == null) continue;
 
-      var value = prop.GetValue(s_defaults)?.ToString() ?? "";
+      var rawValue = prop.GetValue(backendOptions);
+      var value = FormatValue(rawValue);
       var display = MaskSensitive(attr.KeyPath, value);
 
       var bucket = attr.Mode switch
@@ -96,7 +96,8 @@ public static class ConfigBootstrapper
     // generate a JSON representation for logging
     var all = warm.Concat(cold).Concat(hidden).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
     string json = System.Text.Json.JsonSerializer.Serialize(all, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-    _logger?.LogInformation("Effective configuration:\n{ConfigJson}", json);
+    
+    // _logger?.LogInformation("Effective configuration:\n{ConfigJson}", json);
 
     static string MaskSensitive(string key, string value)
     {
@@ -110,6 +111,21 @@ public static class ConfigBootstrapper
         return value.Length <= 4 ? "****" : $"{value[..2]}***{value[^2..]}";
       }
       return value;
+    }
+
+    static string FormatValue(object? rawValue)
+    {
+      if (rawValue == null) return "";
+      return rawValue switch
+      {
+        string s => s,
+        int[] arr => string.Join(", ", arr),
+        IEnumerable<string> list => string.Join(", ", list),
+        IEnumerable<int> list => string.Join(", ", list),
+        IDictionary<string, string> dict => string.Join(", ", dict.Select(kvp => $"{kvp.Key}={kvp.Value}")),
+        IDictionary<int, int> dict => string.Join(", ", dict.Select(kvp => $"{kvp.Key}:{kvp.Value}")),
+        _ => rawValue.ToString() ?? ""
+      };
     }
   }
 
