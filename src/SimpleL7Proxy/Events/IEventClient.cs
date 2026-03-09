@@ -6,11 +6,10 @@ public interface IEventClient
 {
   int Count { get; }
   string ClientType { get; }
-  //public Task StartTimer();
-  public void StopTimer();
+  public Task StopTimerAsync();
 
   void SendData(string? value);
 //  void SendData(Dictionary<string, string> data);
   //void SendData( ConcurrentDictionary<string, string> eventData, string? name="");
-  void SendData(ProxyEvent eventData);
+  //void SendData(ProxyEvent eventData, IDictionary<string, string>? extraProperties = null);
 }

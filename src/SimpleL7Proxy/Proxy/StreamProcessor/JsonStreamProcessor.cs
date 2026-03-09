@@ -45,6 +45,7 @@ namespace SimpleL7Proxy.StreamProcessor
         protected Dictionary<string, string> data = new();
         protected virtual int MaxLines { get; } = 10; 
         protected virtual int MinLineLength { get; } = 20;
+        protected virtual bool CaptureAllLines { get; } = false; // If true, captures all lines instead of just the last <MaxLines> 
         
         /// <summary>
         /// Implements the common streaming pattern used by JSON-based processors.
@@ -52,8 +53,9 @@ namespace SimpleL7Proxy.StreamProcessor
         public override async Task CopyToAsync(System.Net.Http.HttpContent sourceContent, Stream outputStream)
         {
             _logger?.LogDebug("Starting JSON stream processing");
-            var lastLines = new string[MaxLines]; // Fixed array for last 6 lines
-            int currentIndex = 0; // Current write position
+            var allLines = CaptureAllLines ? new List<string>() : null; // Unbounded list for full capture
+            var lastLines = CaptureAllLines ? null : new string[MaxLines]; // Fixed circular buffer for bounded capture
+            int currentIndex = 0; // Current write position (circular buffer only)
             int lineCount = 0;    // Total lines written
 
             try
@@ -74,12 +76,17 @@ namespace SimpleL7Proxy.StreamProcessor
                     Task t = writer.WriteLineAsync(currentLine);
 
                     // Only process through lines that could have usage in them
-                    if (currentLine.Length > MinLineLength )
+                    if (CaptureAllLines)
                     {
-                        lastLines[currentIndex] = currentLine;
+                        allLines!.Add(currentLine);
+                        lineCount++;
+                    }
+                    else if (currentLine.Length > MinLineLength)
+                    {
+                        lastLines![currentIndex] = currentLine;
                         currentIndex = (currentIndex + 1) % MaxLines; // Wrap around
                         lineCount++;
-                    } 
+                    }
 
                     await t.ConfigureAwait(false);
                 }
@@ -88,7 +95,7 @@ namespace SimpleL7Proxy.StreamProcessor
             }
             catch (IOException e)
             {
-                _logger?.LogDebug("IOException during stream processing: {Message}", e.Message);
+                _logger?.LogError("IOException during stream processing: {Message}", e.Message);
                 if (!ShouldIgnoreException(e))
                 {
                     data["LastError"] = e.Message;
@@ -118,18 +125,23 @@ namespace SimpleL7Proxy.StreamProcessor
                     
                     try
                     {
-                        // Walk through lines to find the one with usage data
-                        // copy from currentIndex to the end into the buffer
-                        var validLines = new string[Math.Min(lineCount, MaxLines)];
+                        // Build validLines from either the unbounded list or the circular buffer
+                        string[] validLines;
 
-                        if (lineCount >= MaxLines)
+                        if (CaptureAllLines)
                         {
-                            Array.Copy(lastLines, currentIndex, validLines, 0, MaxLines - currentIndex);
-                            Array.Copy(lastLines, 0, validLines, MaxLines - currentIndex, currentIndex);
+                            validLines = allLines!.ToArray();
+                        }
+                        else if (lineCount >= MaxLines)
+                        {
+                            validLines = new string[MaxLines];
+                            Array.Copy(lastLines!, currentIndex, validLines, 0, MaxLines - currentIndex);
+                            Array.Copy(lastLines!, 0, validLines, MaxLines - currentIndex, currentIndex);
                         }
                         else
                         {
-                            Array.Copy(lastLines, 0, validLines, 0, lineCount);
+                            validLines = new string[lineCount];
+                            Array.Copy(lastLines!, 0, validLines, 0, lineCount);
                         }
 
                         string? usageLine = null;

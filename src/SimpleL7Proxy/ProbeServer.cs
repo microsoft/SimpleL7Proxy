@@ -24,7 +24,7 @@ namespace SimpleL7Proxy;
 /// Standalone probe server using Kestrel on port 9000.
 /// Provides health check endpoints for Kubernetes/container orchestration.
 /// </summary>
-public class ProbeServer : BackgroundService
+public class ProbeServer : BackgroundService, IConfigChangeSubscriber
 {
     private readonly IBackendService _backends;
     private readonly ILogger<ProbeServer> _logger;
@@ -38,6 +38,7 @@ public class ProbeServer : BackgroundService
 
     private Timer? _probeTimer;
     private readonly BackendOptions _backendOptions;
+    private HttpClient? _selfCheckClient;
 
     static readonly byte[] s_okBytes = Encoding.UTF8.GetBytes("OK\n");
     static readonly int s_okLength = s_okBytes.Length; 
@@ -49,13 +50,15 @@ public class ProbeServer : BackgroundService
     public static HealthStatusEnum StartupStatus = HealthStatusEnum.StartupZeroHosts;
 
     private static int FailedAttempts = 0;
-    public ProbeServer(IBackendService backends, HealthCheckService healthService, ILogger<ProbeServer> logger, IOptions<BackendOptions> backendOptions)
+    public ProbeServer(IBackendService backends, HealthCheckService healthService, ILogger<ProbeServer> logger, IOptions<BackendOptions> backendOptions, ConfigChangeNotifier configChangeNotifier)
     {
         _backends = backends ?? throw new ArgumentNullException(nameof(backends));
         _healthService = healthService ?? throw new ArgumentNullException(nameof(healthService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _backendOptions = backendOptions?.Value ?? throw new ArgumentNullException(nameof(backendOptions));
-        //_port = _backendOptions.ProbeServerPort; // Default probe server port
+
+        // Subscribe for HealthProbeSidecar changes (HealthProbeSidecarEnabled & Url are parsed from it)
+        configChangeNotifier.Subscribe(this, options => options.HealthProbeSidecar);
     }
 
     /// <summary>
@@ -63,12 +66,20 @@ public class ProbeServer : BackgroundService
     /// </summary>
     protected override Task ExecuteAsync(CancellationToken cancellationToken)
     {
-        HttpClient? selfCheckClient = null;
-        
+        StartProbeServer();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// (Re)initializes the sidecar client and probe timer.
+    /// Safe to call multiple times — tears down the previous instance first.
+    /// </summary>
+    private void StartProbeServer()
+    {
         if (_backendOptions.HealthProbeSidecarEnabled)
         {
             _logger.LogInformation("[INIT] ✓ Health probe sidecar enabled at {Url}", _backendOptions.HealthProbeSidecarUrl);
-            selfCheckClient = CreateSelfCheckClient();
+            _selfCheckClient = CreateSelfCheckClient();
         }
         else
         {
@@ -80,38 +91,56 @@ public class ProbeServer : BackgroundService
         {
             _startupStatus = _readinessStatus = _healthService.GetStatus();
 
-            // Push to sidecar if enabled
-            if (selfCheckClient != null)
+            // Push to sidecar if enabled (fire-and-forget async to avoid blocking threadpool)
+            var client = _selfCheckClient;
+            if (client != null)
             {
-                try
-                {
-                    var url = $"{_backendOptions.HealthProbeSidecarUrl}/internal/update-status?readiness={_readinessStatus}&startup={_startupStatus}";
-                    var response = selfCheckClient.GetAsync(url).Result;
-                    if (!response.IsSuccessStatusCode)
-                    {   
-                        FailedAttempts++;
-                        _logger.LogWarning("[FAIL] Probe server updated failed. {attempts} attempts. HTTP {StatusCode}", FailedAttempts, response.StatusCode);
-                    }
-                    else
-                    {
-                        if (FailedAttempts > 0)
-                        {
-                            _logger.LogInformation("[RECOVER] Probe server update succeeded after {attempts} failed attempts", FailedAttempts);
-                            FailedAttempts = 0;
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    FailedAttempts++;
-                    _logger.LogWarning("[FAIL] Probe server updated failed. {attempts} attempts. Exception: {Message}", FailedAttempts, ex.Message);
-                }
+                _ = PushStatusToSidecarAsync(client);
             }
 
         }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
-        
-        
-        return Task.CompletedTask;
+
+        FailedAttempts = 0;
+    }
+
+    /// <summary>
+    /// Stops the timer and disposes the sidecar client.
+    /// </summary>
+    private void StopProbeServer()
+    {
+        _probeTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        _probeTimer?.Dispose();
+        _probeTimer = null;
+
+        _selfCheckClient?.Dispose();
+        _selfCheckClient = null;
+    }
+
+    private async Task PushStatusToSidecarAsync(HttpClient selfCheckClient)
+    {
+        try
+        {
+            var url = $"{_backendOptions.HealthProbeSidecarUrl}/internal/update-status?readiness={_readinessStatus}&startup={_startupStatus}";
+            var response = await selfCheckClient.GetAsync(url).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                FailedAttempts++;
+                _logger.LogWarning("[FAIL] Probe server updated failed. {attempts} attempts. HTTP {StatusCode}", FailedAttempts, response.StatusCode);
+            }
+            else
+            {
+                if (FailedAttempts > 0)
+                {
+                    _logger.LogInformation("[RECOVER] Probe server update succeeded after {attempts} failed attempts", FailedAttempts);
+                    FailedAttempts = 0;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            FailedAttempts++;
+            _logger.LogWarning("[FAIL] Probe server updated failed. {attempts} attempts. Exception: {Message}", FailedAttempts, ex.Message);
+        }
     }
 
     public async Task LivenessResponseAsync(HttpListenerContext lc)
@@ -220,15 +249,30 @@ public class ProbeServer : BackgroundService
     }
 
     /// <summary>
-    /// Stops the probe server gracefully.
+    /// Called by the host on shutdown — stops the probe server gracefully.
     /// </summary>
-    public async Task StopAsync()
+    public override Task StopAsync(CancellationToken cancellationToken)
     {
-        // cancel the timer
-        _probeTimer?.Change(Timeout.Infinite, Timeout.Infinite);
-        _probeTimer?.Dispose();
+        StopProbeServer();
+        return base.StopAsync(cancellationToken);
     }
 
+
+    /// <summary>
+    /// Called when HealthProbeSidecar config changes at runtime.
+    /// Does a clean restart: stops timer, disposes client, re-initializes everything.
+    /// </summary>
+    public Task OnConfigChangedAsync(
+        IReadOnlyList<ConfigChange> changes,
+        BackendOptions backendOptions,
+        CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("[CONFIG] HealthProbeSidecar changed — restarting probe server");
+        // apply the changes
+        StopProbeServer();
+        StartProbeServer();
+        return Task.CompletedTask;
+    }
 
     private static HttpClient CreateSelfCheckClient()
     {

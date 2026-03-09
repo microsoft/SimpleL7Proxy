@@ -22,9 +22,14 @@ namespace SimpleL7Proxy.Backend;
 // * Fetch the OAuth2 token and refresh it 100ms minutes before it expires
 public class Backends : IBackendService
 {
-  public List<BaseHostHealth> _backendHosts { get; set; }
   private List<BaseHostHealth> _activeHosts;
   private readonly IHostHealthCollection _backendHostCollection;
+
+  /// <summary>
+  /// All registered hosts from the current snapshot.
+  /// Always reads the latest snapshot — safe for concurrent access.
+  /// </summary>
+  private List<BaseHostHealth> _backendHosts => _backendHostCollection.Current.Hosts;
 
   private readonly BackendOptions _options;
   private static readonly bool _debug = false;
@@ -43,8 +48,8 @@ public class Backends : IBackendService
   private readonly ISharedIteratorRegistry? _sharedIteratorRegistry;
 
   // Reusable ProxyEvent instances for backend poller to reduce allocations
-  private readonly ProxyEvent _statusEvent = new ProxyEvent(8);
-  private readonly ProxyEvent _probeEvent = new ProxyEvent(8); 
+  private readonly ProxyEvent _statusEvent = new ProxyEvent(25);  // 4 fixed (Timestamp, LoadBalanceMode, ActiveHostsCount, SuccessRate) + 7*N per host (assumes ~3 hosts)
+  private readonly ProxyEvent _probeEvent = new ProxyEvent(6);  // ProxyHost, Backend-Host, Port, Path, Code, Latency/Timeout
 
 
   CancellationTokenSource workerCancelTokenSource = new CancellationTokenSource();
@@ -80,7 +85,6 @@ public class Backends : IBackendService
     _circuitBreaker = circuitBreaker;
     _sharedIteratorRegistry = sharedIteratorRegistry;
     _backendHostCollection = backendHostCollection;
-    _backendHosts = backendHostCollection.Hosts;
     _options = options.Value;
     _logger = logger;
 
@@ -93,10 +97,8 @@ public class Backends : IBackendService
     _options = bo;
     _activeHosts = [];
     _successRate = bo.SuccessRate / 100.0;
-    //_hosts = bo.Hosts;
-    // FailureThreshold = bo.CircuitBreakerErrorThreshold;
-    // FailureTimeFrame = bo.CircuitBreakerTimeslice;
-    // allowableCodes = bo.AcceptableStatusCodes;
+
+    // Hosts are staged and activated by ConfigBootstrapper.RegisterBackends
 
     _logger.LogDebug("[INIT] Backends service starting");
 
@@ -133,12 +135,12 @@ public class Backends : IBackendService
 
   public List<BaseHostHealth> GetSpecificPathHosts()
   {
-    return _backendHostCollection.SpecificPathHosts;
+    return _backendHostCollection.Current.SpecificPathHosts;
   }
 
   public List<BaseHostHealth> GetCatchAllHosts()
   {
-    return _backendHostCollection.CatchAllHosts;
+    return _backendHostCollection.Current.CatchAllHosts;
   }
   public async Task WaitForStartup(int timeout)
   {

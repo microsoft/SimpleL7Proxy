@@ -16,6 +16,8 @@ namespace SimpleL7Proxy.Proxy
         private readonly IBackupAPIService _backupAPIService;
 
         private readonly BackendOptions _backendOptions;
+        private readonly SemaphoreSlim _initLock = new(1, 1);
+        private bool _initialized;
 
         public AsyncWorkerFactory(IBlobWriter blobWriter,
                                   ILogger<AsyncWorker> logger,
@@ -28,21 +30,35 @@ namespace SimpleL7Proxy.Proxy
             _requestBackupService = requestBackupService;
             _backendOptions = backendOptions.Value;
             _backupAPIService = backupAPIService;
+        }
 
+        private async Task EnsureInitializedAsync()
+        {
+            if (_initialized) return;
+
+            await _initLock.WaitAsync().ConfigureAwait(false);
             try
             {
-                _blobWriter.InitClientAsync(Constants.Server, Constants.Server).GetAwaiter().GetResult();
+                if (_initialized) return;
+                await _blobWriter.InitClientAsync(Constants.Server, Constants.Server).ConfigureAwait(false);
+                _initialized = true;
             }
             catch (BlobWriterException ex)
             {
                 _backendOptions.AsyncModeEnabled = false;
                 _logger.LogError(ex, "Failed to initialize BlobWriter in AsyncWorkerFactory, disabling Async mode");
-                return;
+            }
+            finally
+            {
+                _initLock.Release();
             }
         }
 
-        public AsyncWorker CreateAsync(RequestData requestData, int AsyncTriggerTimeout)
+        public async Task<AsyncWorker> CreateAsync(RequestData requestData, int AsyncTriggerTimeout)
         {
+            // Ensure blob client is initialized (lazy, thread-safe, one-time)
+            await EnsureInitializedAsync().ConfigureAwait(false);
+
             _logger.LogDebug("[AsyncWorkerFactory] Creating AsyncWorker for request {Guid} with timeout {Timeout}s", 
                 requestData.Guid, AsyncTriggerTimeout);
 

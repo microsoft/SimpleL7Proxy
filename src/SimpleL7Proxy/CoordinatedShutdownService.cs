@@ -155,13 +155,14 @@ public class CoordinatedShutdownService : IHostedService
             await _blobWriteQueue.StopAsync(CancellationToken.None).ConfigureAwait(false);
         }
         
-        _eventClient?.StopTimer();
+        if (_eventClient != null)
+            await _eventClient.StopTimerAsync().ConfigureAwait(false);
 
         // Health probes are stopped at the VERY END so the container orchestrator
         // (e.g. Kubernetes, Container Apps) continues to see healthy probes while
         // other services drain. If probes fail early, the orchestrator may kill the pod.
         _logger.LogInformation("[SHUTDOWN] ⏹ Stopping health probes");
-        await _probeServer.StopAsync().ConfigureAwait(false);
+        await _probeServer.StopAsync(CancellationToken.None).ConfigureAwait(false);
         await _server.StopProbes(CancellationToken.None).ConfigureAwait(false);
     }
 

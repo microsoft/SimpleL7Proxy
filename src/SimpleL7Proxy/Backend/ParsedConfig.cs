@@ -27,6 +27,7 @@ namespace SimpleL7Proxy.Backend
         public string PartialPath;
         public string ProbePath;
         public string Processor;
+        public bool StripPrefix;
         public bool UseOAuth;
         public bool UsesRetryAfter;
     }

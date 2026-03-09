@@ -23,15 +23,17 @@ HOSTMAP["nvm2"]="nvm2.openai.azure.com|openai|<key>"
 HOSTMAP["lopenai"]="localhost:8000|openai|"
 HOSTMAP["foundry"]="localhost:8000|aif2/openai|"
 HOSTMAP["null"]="localhost:3000||"
-HOSTMAP["aca"]="simplel7dev.agreeableisland-74a4ba5f.eastus.azurecontainerapps.io|"
-HOSTMAP["aca-resp"]="simplel7dev.agreeableisland-74a4ba5f.eastus.azurecontainerapps.io|resp"
+HOSTMAP["aca"]="nvm2-tc26.purpledesert-d46de6cb.eastus.azurecontainerapps.io|aif3/openai|"
+HOSTMAP["aca-resp"]="nvm2-tc26.purpledesert-d46de6cb.eastus.azurecontainerapps.io|resp"
+HOSTMAP["local-demo1"]="localhost:8000|aif3/openai|"
+HOSTMAP["local-demo2"]="localhost:8000|resp|"
 # Add more host aliases as needed:
 # HOSTMAP["nvmtr3"]="nvmtr3apim.azure-api.net|somefolder|custom-api-key"
 
 
 # Map request types to HTTP method and partial URLs (format: "METHOD /url")
 declare -A URLS
-URLS["4.0chat"]="POST /deployments/gpt-4o/chat/completions?api-version=2025-01-01-preview"
+URLS["4.0chat"]="POST /v1/chat/completions?api-version=2024-05-01-preview"
 URLS["4.1chat"]="POST /deployments/gpt-4.1/chat/completions?api-version=2025-01-01-preview"
 URLS["4.1request"]="POST /v1/responses"
 URLS["4.1response"]="GET /v1/responses"
@@ -76,7 +78,7 @@ debugmode="false"
 expiredelta="900"
 response_id=""
 custom_apikey=""
-show_timestamps="true"
+show_timestamps="false"
 args=()
 
 # Process arguments to extract flags and positional parameters
@@ -211,7 +213,7 @@ echo "----------------------------------------"
 
 # Execute curl with appropriate method
 curl_cmd=(
-  curl -X "$http_method" "$fullurl"
+  curl -i -X "$http_method" "$fullurl"
   -H "Content-Type: application/json; charset=UTF-8"
   -H "Ocp-Apim-Subscription-Key: $APIMKEY"
   -H "S7PTTL: $expiredelta"
@@ -253,4 +255,4 @@ else
   else
     "${curl_cmd[@]}"
   fi
-fi<
+fi

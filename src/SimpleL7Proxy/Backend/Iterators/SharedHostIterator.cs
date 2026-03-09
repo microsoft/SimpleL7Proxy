@@ -28,6 +28,7 @@ public sealed class SharedHostIterator : ISharedHostIterator, IDisposable
 {
     private readonly List<BaseHostHealth> _hosts;
     private readonly string _path;
+    private readonly string _modifiedPath;
     private readonly IterationModeEnum _mode;
     private readonly object _lock = new();  // Only used for Dispose and GetHostsSnapshot
     
@@ -40,11 +41,13 @@ public sealed class SharedHostIterator : ISharedHostIterator, IDisposable
     /// </summary>
     /// <param name="hosts">The list of hosts to iterate over (a snapshot is taken)</param>
     /// <param name="path">The path this iterator is associated with</param>
+    /// <param name="modifiedPath">The path with matched prefix stripped</param>
     /// <param name="mode">The iteration mode</param>
-    public SharedHostIterator(List<BaseHostHealth> hosts, string path, IterationModeEnum mode)
+    public SharedHostIterator(List<BaseHostHealth> hosts, string path, string modifiedPath, IterationModeEnum mode)
     {
         _hosts = new List<BaseHostHealth>(hosts ?? throw new ArgumentNullException(nameof(hosts)));
         _path = path ?? throw new ArgumentNullException(nameof(path));
+        _modifiedPath = modifiedPath ?? path;
         _mode = mode;
         _currentIndex = -1;
         _lastUsed = DateTime.UtcNow;
@@ -52,6 +55,9 @@ public sealed class SharedHostIterator : ISharedHostIterator, IDisposable
 
     /// <inheritdoc/>
     public string Path => _path;
+
+    /// <inheritdoc/>
+    public string ModifiedPath => _modifiedPath;
 
     /// <inheritdoc/>
     public DateTime LastUsed => _lastUsed;

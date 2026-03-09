@@ -67,7 +67,7 @@ namespace SimpleL7Proxy.Feeder
             request.IsBackgroundCheck = true;
             request.runAsync = true;
             request.AsyncTriggered = true;
-            request.asyncWorker = _asyncWorkerFactory.CreateAsync(request, 0);
+            request.asyncWorker = await _asyncWorkerFactory.CreateAsync(request, 0).ConfigureAwait(false);
 
             // Initialize for background check - blobs will be created lazily when first written to
             await request.asyncWorker.InitializeForBackgroundCheck();

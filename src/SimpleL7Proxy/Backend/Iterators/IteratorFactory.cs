@@ -13,8 +13,6 @@ public static class IteratorFactory
     private static readonly object _lock = new object();
     private static volatile int _roundRobinCounter = 0;
     private static volatile List<BaseHostHealth>? _cachedActiveHosts;
-    private static volatile List<BaseHostHealth>? _cachedSpecificPathHosts;
-    private static volatile List<BaseHostHealth>? _cachedCatchAllHosts;
     private static volatile int _cacheVersion = 0; // Incremented when cache is invalidated
     
     // Thread-safe random number generator
@@ -26,15 +24,15 @@ public static class IteratorFactory
     /// </summary>
     /// <param name="backendService">The backend service to get active hosts from</param>
     /// <param name="loadBalanceMode">Load balancing strategy: "roundrobin", "latency", or "random"</param>
-    /// <param name="fullURL">The full URL for the request (without host part) to filter hosts by path</param>
+    /// <param name="requestPath">The normalized request path (e.g., /openai/v1/chat) to filter hosts by</param>
     /// <returns>An iterator configured for single-pass iteration</returns>
     public static IHostIterator CreateSinglePassIterator(
         IBackendService backendService,
         string loadBalanceMode,
-        string fullURL,
+        string requestPath,
         out string modifiedPath)
     {
-        return CreateIteratorInternal(backendService, loadBalanceMode, IterationModeEnum.SinglePass, 1, fullURL, out modifiedPath);
+        return CreateIteratorInternal(backendService, loadBalanceMode, IterationModeEnum.SinglePass, 1, requestPath, out modifiedPath);
     }
 
     /// <summary>
@@ -45,29 +43,29 @@ public static class IteratorFactory
     /// <param name="backendService">The backend service to get active hosts from</param>
     /// <param name="loadBalanceMode">Load balancing strategy: "roundrobin", "latency", or "random"</param>
     /// <param name="maxAttempts">Maximum total number of host attempts across all passes (e.g., 30)</param>
-    /// <param name="fullURL">The full URL for the request (without host part) to filter hosts by path</param>
+    /// <param name="requestPath">The normalized request path (e.g., /openai/v1/chat) to filter hosts by</param>
     /// <returns>An iterator configured for multi-pass iteration with retry limit</returns>
     public static IHostIterator CreateMultiPassIterator(
         IBackendService backendService,
         string loadBalanceMode,
         int maxAttempts,
-        string fullURL,
+        string requestPath,
         out string modifiedPath)
     {
-        return CreateIteratorInternal(backendService, loadBalanceMode, IterationModeEnum.MultiPass, maxAttempts, fullURL, out modifiedPath);
+        return CreateIteratorInternal(backendService, loadBalanceMode, IterationModeEnum.MultiPass, maxAttempts, requestPath, out modifiedPath);
     }
 
     /// <summary>
     /// Internal method to create a thread-safe iterator for the specified load balance mode.
     /// This method is optimized for high concurrency with hundreds of proxy workers.
-    /// Filters hosts based on the request path extracted from the full URL.
+    /// Filters hosts based on the request path.
     /// </summary>
     private static IHostIterator CreateIteratorInternal(
         IBackendService backendService,
         string loadBalanceMode,
         IterationModeEnum mode,
         int maxAttempts,
-        string fullURL,
+        string requestPath,
         out string modifiedPath)
     {
         // Get pre-categorized hosts from backend service
@@ -76,12 +74,11 @@ public static class IteratorFactory
         
         if ((specificHosts?.Count ?? 0) == 0 && (catchAllHosts?.Count ?? 0) == 0)
         {
-            modifiedPath = fullURL; // No modification
+            modifiedPath = requestPath; // No modification
             return new EmptyBackendHostIterator();
         }
 
-        // Extract path from fullURL to filter hosts
-        var requestPath = ExtractPathFromURL(fullURL);
+        // requestPath is already normalized by server.cs
         var (filteredHosts, mp) = FilterHostsByPath(specificHosts!, catchAllHosts!, requestPath);
         modifiedPath = mp;
 
@@ -100,25 +97,6 @@ public static class IteratorFactory
             Constants.Random => new RandomHostIterator(filteredHosts, mode, maxAttempts),
             _ => new RandomHostIterator(filteredHosts, mode, maxAttempts)
         };
-    }
-
-    /// <summary>
-    /// Extracts the path portion from a full URL (without host part).
-    /// Handles both absolute paths (/api/users) and relative paths (api/users).
-    /// </summary>
-    private static string ExtractPathFromURL(string fullURL)
-    {
-        if (string.IsNullOrEmpty(fullURL))
-            return "/";
-
-        // Try to parse as absolute URI first
-        if (Uri.TryCreate(fullURL, UriKind.Absolute, out Uri? uri))
-        {
-            return uri.PathAndQuery;
-        }
-
-        // For relative paths, ensure they start with '/'
-        return fullURL.StartsWith('/') ? fullURL : "/" + fullURL;
     }
 
     /// <summary>
@@ -146,57 +124,7 @@ public static class IteratorFactory
         return (catchAllHosts, requestPath);
     }
 
-    /// <summary>
-    /// Gets cached categorized hosts (specific vs catch-all) with thread-safe lazy initialization.
-    /// </summary>
-    private static (List<BaseHostHealth> specificHosts, List<BaseHostHealth> catchAllHosts) GetCategorizedHosts(IBackendService backendService)
-    {
-        // Fast path: read cached values without locking
-        var cachedSpecific = _cachedSpecificPathHosts;
-        var cachedCatchAll = _cachedCatchAllHosts;
-        
-        if (cachedSpecific != null && cachedCatchAll != null)
-        {
-            return (cachedSpecific, cachedCatchAll);
-        }
 
-        // Slow path: need to categorize hosts
-        lock (_lock)
-        {
-            // Double-check: another thread may have populated the cache
-            if (_cachedSpecificPathHosts != null && _cachedCatchAllHosts != null)
-            {
-                return (_cachedSpecificPathHosts, _cachedCatchAllHosts);
-            }
-
-            var activeHosts = backendService.GetActiveHosts();
-            var specificHosts = new List<BaseHostHealth>();
-            var catchAllHosts = new List<BaseHostHealth>();
-            
-            // Categorize hosts once at startup
-            foreach (var host in activeHosts)
-            {
-                var hostPartialPath = host.Config.PartialPath?.Trim();
-                
-                if (string.IsNullOrEmpty(hostPartialPath) || 
-                    hostPartialPath == "/" || 
-                    hostPartialPath == "/*")
-                {
-                    catchAllHosts.Add(host);
-                }
-                else
-                {
-                    specificHosts.Add(host);
-                }
-            }
-
-            _cachedSpecificPathHosts = specificHosts;
-            _cachedCatchAllHosts = catchAllHosts;
-            _cachedActiveHosts = activeHosts; // Also update the active hosts cache
-            
-            return (specificHosts, catchAllHosts);
-        }
-    }
 
     /// <summary>
     /// Gets cached active hosts. Cache is invalidated only when explicitly requested
@@ -252,8 +180,6 @@ public static class IteratorFactory
         lock (_lock)
         {
             _cachedActiveHosts = null;
-            _cachedSpecificPathHosts = null;
-            _cachedCatchAllHosts = null;
             Interlocked.Increment(ref _cacheVersion); // Track cache version for diagnostics
         }
     }
@@ -269,13 +195,13 @@ public static class IteratorFactory
     /// </summary>
     /// <param name="backendService">The backend service to get active hosts from</param>
     /// <param name="loadBalanceMode">Load balancing strategy (used for initial ordering)</param>
-    /// <param name="fullURL">The full URL for the request to filter hosts by path</param>
+    /// <param name="requestPath">The normalized request path to filter hosts by</param>
     /// <param name="modifiedPath">Output: the path with matched prefix removed</param>
     /// <returns>A SharedHostIterator configured for circular iteration</returns>
     public static SharedHostIterator CreateSharedIterator(
         IBackendService backendService,
         string loadBalanceMode,
-        string fullURL,
+        string requestPath,
         out string modifiedPath)
     {
         // Get pre-categorized hosts from backend service
@@ -284,12 +210,11 @@ public static class IteratorFactory
         
         if ((specificHosts?.Count ?? 0) == 0 && (catchAllHosts?.Count ?? 0) == 0)
         {
-            modifiedPath = fullURL;
-            return new SharedHostIterator(new List<BaseHostHealth>(), fullURL, IterationModeEnum.SinglePass);
+            modifiedPath = requestPath;
+            return new SharedHostIterator(new List<BaseHostHealth>(), requestPath, requestPath, IterationModeEnum.SinglePass);
         }
 
-        // Extract path from fullURL to filter hosts
-        var requestPath = ExtractPathFromURL(fullURL);
+        // requestPath is already normalized by server.cs
         var (filteredHosts, mp) = FilterHostsByPath(specificHosts!, catchAllHosts!, requestPath);
         modifiedPath = mp;
 
@@ -301,7 +226,7 @@ public static class IteratorFactory
             _ => filteredHosts // Round-robin uses natural order
         };
 
-        return new SharedHostIterator(orderedHosts, requestPath, IterationModeEnum.SinglePass);
+        return new SharedHostIterator(orderedHosts, requestPath, modifiedPath, IterationModeEnum.SinglePass);
     }
 
     /// <summary>
@@ -310,13 +235,13 @@ public static class IteratorFactory
     /// </summary>
     /// <param name="backendService">The backend service to get active hosts from</param>
     /// <param name="loadBalanceMode">Load balancing strategy (used for initial ordering)</param>
-    /// <param name="fullURL">The full URL for the request to filter hosts by path</param>
+    /// <param name="requestPath">The normalized request path to filter hosts by</param>
     /// <param name="modifiedPath">Output: the path with matched prefix removed</param>
     /// <returns>List of filtered and ordered hosts</returns>
     public static List<BaseHostHealth> GetFilteredHosts(
         IBackendService backendService,
         string loadBalanceMode,
-        string fullURL,
+        string requestPath,
         out string modifiedPath)
     {
         var specificHosts = backendService.GetSpecificPathHosts();
@@ -324,11 +249,11 @@ public static class IteratorFactory
         
         if ((specificHosts?.Count ?? 0) == 0 && (catchAllHosts?.Count ?? 0) == 0)
         {
-            modifiedPath = fullURL;
+            modifiedPath = requestPath;
             return new List<BaseHostHealth>();
         }
 
-        var requestPath = ExtractPathFromURL(fullURL);
+        // requestPath is already normalized by server.cs
         var (filteredHosts, mp) = FilterHostsByPath(specificHosts!, catchAllHosts!, requestPath);
         modifiedPath = mp;
 

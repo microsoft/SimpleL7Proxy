@@ -67,7 +67,7 @@ namespace SimpleL7Proxy.Feeder
 
             _logger.LogDebug("Creating async worker for request {Guid} URL: {FullURL} UserId: {UserID} ",
                 request.Guid, request.FullURL, request.UserID);
-            request.asyncWorker = _asyncWorkerFactory.CreateAsync(request, 0);
+            request.asyncWorker = await _asyncWorkerFactory.CreateAsync(request, 0).ConfigureAwait(false);
 
             // let asyncworker restore the blob streams
             await request.asyncWorker.PrepareResponseStreamsAsync();

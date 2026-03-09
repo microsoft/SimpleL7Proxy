@@ -25,7 +25,7 @@ namespace SimpleL7Proxy;
 // This class represents a server that listens for HTTP requests and processes them.
 // It uses a priority queue to manage incoming requests and supports telemetry for monitoring.
 // If the incoming request has the S7PPriorityKey header, it will be assigned a priority based the S7PPriority header.
-public class Server : BackgroundService
+public class Server :  BackgroundService, IConfigChangeSubscriber
 {
     //    private readonly IBackendOptions? _options;
     private readonly BackendOptions _options;
@@ -50,6 +50,10 @@ public class Server : BackgroundService
 
     private readonly ProbeServer _probeServer;
 
+    // Precomputed validation rules to avoid dictionary iteration and string ops per request
+    private readonly record struct ValidateHeaderRule(string SourceHeader, string AllowedValuesHeader, string DisplayName);
+    private readonly ValidateHeaderRule[] _validateHeaderRules;
+
     // Constructor to initialize the server with backend options and telemetry client.
     public Server(
         IConcurrentPriQueue<RequestData> requestsQueue,
@@ -63,6 +67,7 @@ public class Server : BackgroundService
         IBlobWriter blobWriter,
         HealthCheckService healthService,
         ProbeServer probeServer,
+        ConfigChangeNotifier configChangeNotifier,
         ILogger<Server> logger)
     {
         ArgumentNullException.ThrowIfNull(backendOptions, nameof(backendOptions));
@@ -89,6 +94,40 @@ public class Server : BackgroundService
         _priorityHeaderName = _options.PriorityKeyHeader;
         _probeServer = probeServer;
 
+        configChangeNotifier.Subscribe(this,
+           [options => options.PriorityKeyHeader,
+            options => options.ValidateHeaders,
+            // options => options.Port,  COLD option, requires full restart to take effect
+            options => options.Timeout,
+            options => options.PriorityValues,
+            // options => options.UseProfiles,
+            options => options.AsyncModeEnabled,
+            options => options.DefaultPriority,
+            // options => options.IDStr,
+            options => options.ValidateAuthAppID,
+            options => options.ValidateAuthAppIDHeader,
+            options => options.DisallowedHeaders,
+            options => options.UserProfileHeader,
+            options => options.RequiredHeaders,
+            options => options.UniqueUserHeaders,
+            options => options.AsyncClientRequestHeader,
+            options => options.PriorityKeys,
+            options => options.TimeoutHeader,
+            options => options.DefaultTTLSecs,
+            options => options.TTLHeader,
+            // options => options.CircuitBreakerTimeslice,   display only
+            options => options.MaxQueueLength,
+            options => options.PollInterval
+            ]);
+
+        // Precompute validation header rules once at startup
+        _validateHeaderRules = _options.ValidateHeaders
+            .Select(kvp => new ValidateHeaderRule(
+                kvp.Key,
+                kvp.Value,
+                kvp.Key.StartsWith("S7", StringComparison.Ordinal) ? kvp.Key[2..] : kvp.Key))
+            .ToArray();
+
         var _listeningUrl = $"http://+:{_options.Port}/";
 
         _httpListener = new HttpListener();
@@ -103,6 +142,16 @@ public class Server : BackgroundService
 
         var timeoutTime = TimeSpan.FromMilliseconds(_options.Timeout).ToString(@"hh\:mm\:ss\.fff");
         _logger.LogInformation($"[CONFIG] Server configuration - Port: {_options.Port} | Timeout: {timeoutTime} | Workers: {_options.Workers}");
+    }
+
+    public Task OnConfigChangedAsync(
+        IReadOnlyList<ConfigChange> changes,
+        BackendOptions backendOptions,
+        CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("[CONFIG] Server changed — Settings live updated without restart");
+        // apply the changes
+        return Task.CompletedTask;
     }
 
     public void BeginShutdown()
@@ -319,6 +368,12 @@ public class Server : BackgroundService
                             }
 
                             rd.UserID = "";
+                            // Normalize path once: ensure non-empty and starts with '/'
+                            if (string.IsNullOrEmpty(rd.Path))
+                                rd.Path = "/";
+                            else if (!rd.Path.StartsWith('/'))
+                                rd.Path = "/" + rd.Path;
+                            rd.Headers["S7Path"] = rd.Path; // Copy path
                             // Lookup the user profile and add the headers to the request
                             if (doUserProfile)
                             {
@@ -371,22 +426,41 @@ public class Server : BackgroundService
                                 }
                             }
 
-                            // Check for any validate headers  ( both fields have been checked for existance )
-                            if (_options.ValidateHeaders.Count > 0)
+                            // Validate headers using precomputed rules and zero-alloc span tokenization
+                            if (_validateHeaderRules.Length > 0)
                             {
-                                foreach (var header in _options.ValidateHeaders)
+                                foreach (ref readonly var rule in _validateHeaderRules.AsSpan())
                                 {
-                                    // Check that the header exists in the destination header
-                                    var lookup = rd.Headers[header.Key]!.Trim();
-                                    List<string> values = [.. rd.Headers[header.Value]!.Split(',')];
-                                    if (!values.Contains(lookup))
+                                    var lookup = rd.Headers[rule.SourceHeader]!.AsSpan().Trim();
+                                    var allowedSpan = rd.Headers[rule.AllowedValuesHeader]!.AsSpan();
+                                    bool matched = false;
+
+                                    foreach (var range in allowedSpan.Split(','))
+                                    {
+                                        var pattern = allowedSpan[range].Trim();
+                                        if (pattern.Length > 0 && pattern[^1] == '*')
+                                        {
+                                            if (lookup.StartsWith(pattern[..^1], StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                matched = true;
+                                                break;
+                                            }
+                                        }
+                                        else if (lookup.Equals(pattern, StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            matched = true;
+                                            break;
+                                        }
+                                    }
+
+                                    if (!matched)
                                     {
                                         if (rd.Debug)
-                                            Console.WriteLine($"Validation check failed for header: {header.Key} = {lookup}");
+                                            Console.WriteLine($"Validation check failed for {rule.DisplayName}: {lookup}");
                                         throw new ProxyErrorException(
                                             ProxyErrorException.ErrorType.InvalidHeader,
                                             HttpStatusCode.ExpectationFailed,
-                                            "Validation check failed for header: " + header.Key + "\n"
+                                            $"Validation check failed for {rule.DisplayName}: {lookup}\n"
                                         );
                                     }
                                 }

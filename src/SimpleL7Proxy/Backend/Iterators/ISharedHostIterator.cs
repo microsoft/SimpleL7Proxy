@@ -29,6 +29,12 @@ public interface ISharedHostIterator
     string Path { get; }
 
     /// <summary>
+    /// Gets the modified path (with matched prefix stripped) for this iterator.
+    /// This allows callers to retrieve the stripped path without re-filtering.
+    /// </summary>
+    string ModifiedPath { get; }
+
+    /// <summary>
     /// Gets the timestamp when this iterator was last used.
     /// </summary>
     DateTime LastUsed { get; }

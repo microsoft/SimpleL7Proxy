@@ -28,7 +28,7 @@ public class UserProfile : BackgroundService, IUserProfileService
     private static readonly HttpClient httpClient = new HttpClient();
     
     // Reusable ProxyEvent for profile error logging to reduce allocations
-    private readonly ProxyEvent _profileErrorEvent = new ProxyEvent(8);
+    private readonly ProxyEvent _profileErrorEvent = new ProxyEvent(4);  // Message, EntityId/ConfigUrl, EntityType, Timestamp
     private readonly object _profileErrorEventLock = new object();
     
     // Special keys used to mark deleted profiles in-place
