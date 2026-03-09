@@ -82,6 +82,22 @@ public static class ConfigParser
         ("StripRequestHeaders", "StripRequestHeaders"),
         ("StripResponseHeaders", "StripResponseHeaders"),
         ("UniqueUserHeaders", "UniqueUserHeaders"),
+
+        // ── Logging / Telemetry ──
+        ("LOG_LEVEL", "LogLevel"),
+        ("APPINSIGHTS_CONNECTIONSTRING", "AppInsightsConnectionString"),
+        ("EVENT_LOGGERS", "EventLoggers"),
+        ("LOGTOFILE", "LogToFile"),
+        ("LOGFILE_NAME", "LogFileName"),
+
+        // ── EventHub ──
+        ("EVENTHUB_CONNECTIONSTRING", "EventHubConnectionString"),
+        ("EVENTHUB_NAME", "EventHubName"),
+        ("EVENTHUB_NAMESPACE", "EventHubNamespace"),
+        ("EVENTHUB_STARTUP_SECONDS", "EventHubStartupSeconds"),
+
+        // ── Security ──
+        ("IgnoreSSLCert", "IgnoreSSLCert"),
     };
 
     public static BackendOptions ParseOptions(Dictionary<string, string> env)

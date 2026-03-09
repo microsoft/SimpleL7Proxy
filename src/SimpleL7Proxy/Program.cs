@@ -217,12 +217,18 @@ public class Program
     private static void ConfigureDependencyInjection(IServiceCollection services, ILogger startupLogger, AppConfigBootstrap appConfigBootstrap)
     {
         services.AddSingleton(appConfigBootstrap);
+        TryAddCompositeEventClient(services);
+      
+        // register the backend options
+        var backendOptions = ConfigBootstrapper.CreateBackendOptions(startupLogger, appConfigBootstrap);
+        services.AddBackendHostConfiguration(startupLogger, backendOptions);
 
         // EVENT_LOGGERS is a comma-separated list of event logger backends to enable.
         // Supported values: "file", "eventhub"
         // Example: EVENT_LOGGERS="file,eventhub" enables both simultaneously.
         // Falls back to legacy LOGTOFILE behaviour when EVENT_LOGGERS is not set.
-        var eventLoggersRaw = Environment.GetEnvironmentVariable("EVENT_LOGGERS");
+
+        var eventLoggersRaw = backendOptions.EventLoggers;
         HashSet<string> enabledLoggers;
 
         if (!string.IsNullOrWhiteSpace(eventLoggersRaw))
@@ -235,24 +241,21 @@ public class Program
         else
         {
             // Legacy fallback: LOGTOFILE=true → file, otherwise → eventhub
-            bool.TryParse(Environment.GetEnvironmentVariable("LOGTOFILE"), out var log_to_file);
             enabledLoggers = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
-                log_to_file ? "file" : "eventhub"
+                backendOptions.LogToFile ? "file" : "eventhub"
             };
             Console.WriteLine($"[CONFIG] EVENT_LOGGERS not set, falling back to legacy: {string.Join(", ", enabledLoggers)}");
         }
 
         // Ensure CompositeEventClient is registered before any individual clients
-        TryAddCompositeEventClient(services);
 
         foreach ( var loggername in enabledLoggers)
         {
             if (loggername == "file")
             {
-                var logFileName = Environment.GetEnvironmentVariable("LOGFILE_NAME") ?? "eventslog.json";
                 services.AddSingleton<LogFileEventClient>(svc =>
-                    new LogFileEventClient(logFileName, svc.GetRequiredService<CompositeEventClient>()));
+                    new LogFileEventClient(backendOptions.LogFileName, svc.GetRequiredService<CompositeEventClient>()));
                 services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService<LogFileEventClient>());
             }
             else if ( loggername == "eventhub")
@@ -290,8 +293,6 @@ public class Program
 
         }
 
-        var backendOptions = ConfigBootstrapper.CreateBackendOptions(startupLogger, appConfigBootstrap);
-        services.AddBackendHostConfiguration(startupLogger, backendOptions);
 
         // Wire up Azure App Configuration warm-refresh service (no-op if AZURE_APPCONFIG_ENDPOINT is not set)
         services.AddAzureAppConfigurationWithWarmRefresh(startupLogger);
@@ -360,6 +361,7 @@ public class Program
         services.AddSingleton<IUserPriorityService, UserPriority>();
         services.AddSingleton<UserProfile>();
         services.AddSingleton<IUserProfileService>(provider => provider.GetRequiredService<UserProfile>());
+        services.AddHostedService<UserProfile>(provider => provider.GetRequiredService<UserProfile>());
 
         services.AddSingleton<IRequeueWorker, RequeueDelayWorker>();
 
@@ -428,7 +430,6 @@ public class Program
         services.AddHostedService<ProxyWorkerCollection>();
         services.AddTransient(source => new CancellationTokenSource());
         services.AddHostedService<CoordinatedShutdownService>();
-        services.AddHostedService<UserProfile>(provider => provider.GetRequiredService<UserProfile>());
     }
 
     /// <summary>

@@ -69,70 +69,50 @@ public static class ConfigBootstrapper
     return backendOptions;
   }
 
-    private static void OutputEnvVars()
+  private static void OutputEnvVars()
   {
-    static string MaskValue(string key, string value)
+    // Build Warm / Cold / Hidden buckets from [ConfigOption] attributes
+    var warm = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    var cold = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    var hidden = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    foreach (var prop in typeof(BackendOptions).GetProperties(BindingFlags.Public | BindingFlags.Instance))
     {
-      if (string.IsNullOrEmpty(value))
-        return value;
+      var attr = prop.GetCustomAttribute<ConfigOptionAttribute>();
+      if (attr == null) continue;
+
+      var value = prop.GetValue(s_defaults)?.ToString() ?? "";
+      var display = MaskSensitive(attr.KeyPath, value);
+
+      var bucket = attr.Mode switch
+      {
+        ConfigMode.Warm => warm,
+        ConfigMode.Cold => cold,
+        _ => hidden
+      };
+      bucket[$"{attr.Mode}:{attr.KeyPath}"] = display;
+    }
+
+    // generate a JSON representation for logging
+    var all = warm.Concat(cold).Concat(hidden).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+    string json = System.Text.Json.JsonSerializer.Serialize(all, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+    _logger?.LogInformation("Effective configuration:\n{ConfigJson}", json);
+
+    static string MaskSensitive(string key, string value)
+    {
+      if (string.IsNullOrEmpty(value)) return value;
 
       var lower = key.ToLowerInvariant();
-      var isSensitive = lower.Contains("connectionstring") ||
-                        lower.Contains("password") ||
-                        lower.Contains("secret") ||
-                        lower.Contains("token") ||
-                        lower.Contains("apikey") ||
-                        lower.Contains("sas");
-
-      if (!isSensitive)
-        return value;
-
-      if (value.Length <= 4)
-        return "****";
-
-      return $"{value.Substring(0, 2)}***{value.Substring(value.Length - 2)}";
-    }
-
-    const int keyWidth = 27;
-    const int valWidth = 30;
-    const int gutterWidth = 4;
-    int col = 0;
-    string? pendingEntry = null;
-    foreach (var kvp in ConfigParser.GetParsedEnvVars())
-    {
-      string key = kvp.Key;
-      string value = MaskValue(key, kvp.Value);
-
-      string entry = $"{(key.Length > keyWidth ? key.Substring(0, keyWidth - 3) + "..." : key),-keyWidth}:" +
-                  $"{(value.Length > valWidth ? value.Substring(0, valWidth - 3) + "..." : value),-valWidth}";
-
-      if (col == 0)
+      if (lower.Contains("connectionstring") || lower.Contains("password") ||
+          lower.Contains("secret") || lower.Contains("token") ||
+          lower.Contains("apikey") || lower.Contains("sas"))
       {
-        pendingEntry = entry;
-        col = 1;
+        return value.Length <= 4 ? "****" : $"{value[..2]}***{value[^2..]}";
       }
-      else
-      {
-        if (key.Length > keyWidth || value.Length > valWidth)
-        {
-          Console.WriteLine(pendingEntry);
-          Console.WriteLine($"{(key.Length > keyWidth ? key.Substring(0, keyWidth - 3) + "..." : key),-keyWidth}: {value}");
-          pendingEntry = null;
-          col = 0;
-        }
-        else
-        {
-          Console.WriteLine($"{pendingEntry}{new string(' ', gutterWidth)}{entry}");
-          pendingEntry = null;
-          col = 0;
-        }
-      }
-    }
-    if (col % 2 != 0)
-    {
-      Console.WriteLine();
+      return value;
     }
   }
+
 
   public static IServiceCollection AddBackendHostConfiguration(this IServiceCollection services, ILogger logger, BackendOptions backendOptions)
   {

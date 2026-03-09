@@ -5,7 +5,10 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using System.Threading.Tasks;
+
+using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.Events;
 
@@ -30,10 +33,12 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
     private static int entryCount = 0;
     //public EventHubClient(string connectionString, string eventHubName, ILogger<EventHubClient>? logger = null)
 
-    public EventHubClient(CompositeEventClient composite, ILogger<EventHubClient> logger)
+    public EventHubClient(CompositeEventClient composite, IOptions<BackendOptions> options, ILogger<EventHubClient> logger)
     {
+        var BackendOptions = options?.Value ?? throw new ArgumentNullException(nameof(options));
+
         try {
-            _config = new EventHubConfig();
+            _config = new EventHubConfig(BackendOptions);
         }
         catch (Exception ex)
         {
