@@ -31,6 +31,8 @@ public static class ConfigParser
         ("UserConfigRefreshIntervalSecs", "UserConfigRefreshIntervalSecs"),
         ("UserSoftDeleteTTLMinutes", "UserSoftDeleteTTLMinutes"),
         ("Workers", "Workers"),
+        ("SharedIteratorTTLSeconds", "SharedIteratorTTLSeconds"),
+        ("SharedIteratorCleanupIntervalSeconds", "SharedIteratorCleanupIntervalSeconds"),
 
         ("SuccessRate", "SuccessRate"),
         ("UserPriorityThreshold", "UserPriorityThreshold"),
@@ -48,6 +50,8 @@ public static class ConfigParser
         ("TimeoutHeader", "TimeoutHeader"),
         ("TTLHeader", "TTLHeader"),
         ("UserConfigUrl", "UserConfigUrl"),
+        ("LookupHeaderName", "UserIDFieldName"),  // older field name, kept for backward compatibility
+        ("UserIDFieldName", "UserIDFieldName"),   // newer field name
         ("UserProfileHeader", "UserProfileHeader"),
         ("ValidateAuthAppFieldName", "ValidateAuthAppFieldName"),
         ("ValidateAuthAppID", "ValidateAuthAppID"),
@@ -65,6 +69,7 @@ public static class ConfigParser
         ("UseOAuth", "UseOAuth"),
         ("UseOAuthGov", "UseOAuthGov"),
         ("UseProfiles", "UseProfiles"),
+        ("UseSharedIterators", "UseSharedIterators"),
         ("UserConfigRequired", "UserConfigRequired"),
 
         ("DependancyHeaders", "DependancyHeaders"),
@@ -144,6 +149,21 @@ public static class ConfigParser
         var pi = typeof(BackendOptions).GetProperty(property) ?? throw new InvalidOperationException($"Unknown BackendOptions property: {property}");
         var defVal = pi.GetValue(defaults);
         var type = pi.PropertyType;
+
+        // If the env var is not explicitly provided, check whether the property
+        // has already been set (by a prior alias). If so, skip — don't overwrite
+        // a previously resolved value with the default.
+        var envValue = env.GetValueOrDefault(envVar)?.Trim();
+        bool envVarPresent = !string.IsNullOrEmpty(envValue) && envValue != ConfigOptions.DefaultPlaceholder;
+        if (!envVarPresent)
+        {
+            var currentVal = pi.GetValue(target);
+            bool alreadyChanged = !Equals(currentVal, defVal);
+            if (alreadyChanged)
+            {
+                return;
+            }
+        }
 
         if (type == typeof(int) || type == typeof(double))
         {

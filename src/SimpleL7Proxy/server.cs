@@ -115,6 +115,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
             options => options.TimeoutHeader,
             options => options.DefaultTTLSecs,
             options => options.TTLHeader,
+            options => options.UserIDFieldName,
             // options => options.CircuitBreakerTimeslice,   display only
             options => options.MaxQueueLength,
             options => options.PollInterval
