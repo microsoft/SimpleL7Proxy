@@ -48,7 +48,8 @@ public class UserProfile : BackgroundService, IUserProfileService
         lookupHeaderName = options.UserIDFieldName;
         _userInformation[Constants.Server] = new AsyncClientInfo(Constants.Server, Constants.Server, Constants.Server, 3600);
         SoftDeleteExpirationPeriod = TimeSpan.FromMinutes(options.UserSoftDeleteTTLMinutes);
-        _logger.LogDebug("[INIT] UserProfile service starting");
+        _logger.LogInformation("[INIT] UserProfile service starting.  Lookup header: {Header}, Config URL: {ConfigUrl}, Refresh interval: {RefreshInterval}s, Soft-delete TTL: {SoftDeleteTTL} minutes, Required: {Required}",
+            lookupHeaderName, options.UserConfigUrl, options.UserConfigRefreshIntervalSecs, options.UserSoftDeleteTTLMinutes, options.UserConfigRequired);
     }
 
     public enum ParsingMode

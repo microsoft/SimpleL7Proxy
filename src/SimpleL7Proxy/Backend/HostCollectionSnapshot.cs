@@ -31,16 +31,20 @@ public sealed class HostCollectionSnapshot
   /// <summary>Whether <see cref="Freeze"/> has been called.</summary>
   public bool IsFrozen { get; private set; }
 
+  private readonly ILogger? _logger;
+
   private HostCollectionSnapshot(
       List<BaseHostHealth> hosts,
       List<BaseHostHealth> specificPathHosts,
       List<BaseHostHealth> catchAllHosts,
-      int version)
+      int version,
+      ILogger? logger = null)
   {
     Hosts = hosts;
     SpecificPathHosts = specificPathHosts;
     CatchAllHosts = catchAllHosts;
     Version = version;
+    _logger = logger;
   }
 
   /// <summary>Empty snapshot for startup / error states.</summary>
@@ -58,13 +62,38 @@ public sealed class HostCollectionSnapshot
   /// lookups for all <see cref="HostConfig"/> instances contained in this snapshot.
   /// After this call, <see cref="IsFrozen"/> is <c>true</c> and the dictionaries are available.
   /// Calling Freeze more than once is a no-op.
+  /// Duplicate keys are detected, logged, and only the first occurrence is kept.
   /// </summary>
   public void Freeze()
   {
     if (IsFrozen) return;
 
-    HostsByGuid = Hosts.ToFrozenDictionary(h => h.guid, h => h.Config);
-    HostsByUrl = Hosts.ToFrozenDictionary(h => h.Host, h => h.Config, StringComparer.OrdinalIgnoreCase);
+    // Deduplicate by Guid — log any duplicates
+    var guidGroups = Hosts.GroupBy(h => h.guid).ToList();
+    foreach (var group in guidGroups) {
+      if (group.Count() > 1) {
+        var duplicateHosts = string.Join(", ", group.Select(h => h.Host));
+        _logger?.LogWarning(
+            "[CONFIG] Duplicate host Guid {Guid} found across hosts: [{Hosts}]. Only the first occurrence will be used.",
+            group.Key, duplicateHosts);
+      }
+    }
+
+    // Deduplicate by Host URL — log any duplicates
+    var urlGroups = Hosts.GroupBy(h => h.Host, StringComparer.OrdinalIgnoreCase).ToList();
+    foreach (var group in urlGroups) {
+      if (group.Count() > 1) {
+        var duplicateGuids = string.Join(", ", group.Select(h => h.guid));
+        _logger?.LogWarning(
+            "[CONFIG] Duplicate host URL '{Url}' found {Count} times (Guids: [{Guids}]). Only the first occurrence will be used.",
+            group.Key, group.Count(), duplicateGuids);
+      }
+    }
+
+    HostsByGuid = guidGroups
+        .ToFrozenDictionary(g => g.Key, g => g.First().Config);
+    HostsByUrl = urlGroups
+        .ToFrozenDictionary(g => g.Key, g => g.First().Config, StringComparer.OrdinalIgnoreCase);
     IsFrozen = true;
   }
 
@@ -101,7 +130,7 @@ public sealed class HostCollectionSnapshot
     logger.LogCritical("[CONFIG] Host categorization complete: {SpecificCount} specific hosts, {CatchAllCount} catch-all hosts",
         specificPathHosts.Count, catchAllHosts.Count);
 
-    return new HostCollectionSnapshot(hosts, specificPathHosts, catchAllHosts, version);
+    return new HostCollectionSnapshot(hosts, specificPathHosts, catchAllHosts, version, logger);
   }
 
   /// <summary>
@@ -109,7 +138,8 @@ public sealed class HostCollectionSnapshot
   /// </summary>
   public static HostCollectionSnapshot BuildFromHosts(
       List<BaseHostHealth> hosts,
-      int version)
+      int version,
+      ILogger? logger = null)
   {
     var specificPathHosts = new List<BaseHostHealth>();
     var catchAllHosts = new List<BaseHostHealth>();
@@ -119,7 +149,7 @@ public sealed class HostCollectionSnapshot
       CategorizeHost(host, specificPathHosts, catchAllHosts);
     }
 
-    return new HostCollectionSnapshot(hosts, specificPathHosts, catchAllHosts, version);
+    return new HostCollectionSnapshot(hosts, specificPathHosts, catchAllHosts, version, logger);
   }
 
   private static void CategorizeHost(

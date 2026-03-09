@@ -185,6 +185,21 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             time.sleep(sleep_time)
             self.send_streaming_response(filename, processor)
             return
+        
+        
+        if parsed_path.path.startswith('/file-nodelay/'):
+            filename = parsed_path.path[len('/file-nodelay/'):]
+            print("Opening file for streaming response: " + parsed_path.path + " -> " + filename    ) 
+            # Make sure the file exists
+            if not os.path.exists(filename):
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(b"File not found")
+                return
+
+            processor = self.headers.get('X-TokenProcessor', 'MultiLineAllUsage')
+            self.send_streaming_response(filename, processor)
+            return
 
         # Default response
         # Extract specific headers

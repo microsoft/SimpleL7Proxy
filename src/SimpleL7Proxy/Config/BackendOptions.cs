@@ -216,6 +216,32 @@ public class BackendOptions
     [ConfigOption("Async:SBNamespace", Mode = ConfigMode.Hidden)]
     public string AsyncSBNamespace { get; set; } = "example-namespace";
 
+    // ── Logging / Telemetry ──
+    [ConfigOption("Logging:Level", ConfigName = "LOG_LEVEL", Mode = ConfigMode.Cold)]
+    public string LogLevel { get; set; } = "Information";
+    [ConfigOption("Logging:AppInsightsConnectionString", ConfigName = "APPINSIGHTS_CONNECTIONSTRING", Mode = ConfigMode.Cold)]
+    public string AppInsightsConnectionString { get; set; } = "";
+    [ConfigOption("Logging:EventLoggers", ConfigName = "EVENT_LOGGERS", Mode = ConfigMode.Cold)]
+    public string EventLoggers { get; set; } = "file";
+    [ConfigOption("Logging:LogToFile", ConfigName = "LOGTOFILE", Mode = ConfigMode.Hidden)]
+    public bool LogToFile { get; set; } = false;
+    [ConfigOption("Logging:LogFileName", ConfigName = "LOGFILE_NAME", Mode = ConfigMode.Cold)]
+    public string LogFileName { get; set; } = "eventslog.json";
+
+    // ── EventHub ──
+    [ConfigOption("EventHub:ConnectionString", ConfigName = "EVENTHUB_CONNECTIONSTRING", Mode = ConfigMode.Cold)]
+    public string EventHubConnectionString { get; set; } = "";
+    [ConfigOption("EventHub:Name", ConfigName = "EVENTHUB_NAME", Mode = ConfigMode.Cold)]
+    public string EventHubName { get; set; } = "";
+    [ConfigOption("EventHub:Namespace", ConfigName = "EVENTHUB_NAMESPACE", Mode = ConfigMode.Cold)]
+    public string EventHubNamespace { get; set; } = "";
+    [ConfigOption("EventHub:StartupSeconds", ConfigName = "EVENTHUB_STARTUP_SECONDS", Mode = ConfigMode.Cold)]
+    public int EventHubStartupSeconds { get; set; } = 0;
+
+    // ── Security ──
+    [ConfigOption("Security:IgnoreSSLCert", ConfigName = "IgnoreSSLCert", Mode = ConfigMode.Cold)]
+    public bool IgnoreSSLCert { get; set; } = false;
+
     // ── Metadata ──
     [ConfigOption("Metadata:ContainerApp", ConfigName = "CONTAINER_APP_NAME", Mode = ConfigMode.Hidden)]
     public string ContainerApp { get; set; } = "ContainerAppName";

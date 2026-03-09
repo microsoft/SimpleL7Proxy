@@ -178,7 +178,7 @@ public class AzureAppConfigurationRefreshService : BackgroundService
     {
         if (_notifier is null )
            return;
-           
+
         await _notifier.NotifyAsync(changes, _backendOptions.Value, cancellationToken);
     }
 
@@ -304,6 +304,7 @@ public class AzureAppConfigurationRefreshService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[CONFIG] ✗ Initial configuration download failed - will continue with defaults and retry");
+            Console.WriteLine(ex.StackTrace);
         }
         finally
         {
