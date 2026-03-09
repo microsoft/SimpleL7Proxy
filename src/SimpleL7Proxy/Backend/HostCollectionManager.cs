@@ -131,7 +131,7 @@ public sealed class HostCollectionManager : IHostHealthCollection
       // Build new list including the new host
       var newHosts = new List<BaseHostHealth>(_current.Hosts) { host };
       _version++;
-      _current = HostCollectionSnapshot.BuildFromHosts(newHosts, _version);
+      _current = HostCollectionSnapshot.BuildFromHosts(newHosts, _version, _logger);
 
       _logger.LogInformation("[CRUD] ✓ Host added: {Host} (v{Version}, total: {Count})",
           config.Host, _version, _current.Hosts.Count);
@@ -155,7 +155,7 @@ public sealed class HostCollectionManager : IHostHealthCollection
 
       var newHosts = _current.Hosts.Where(h => h.guid != hostId).ToList();
       _version++;
-      _current = HostCollectionSnapshot.BuildFromHosts(newHosts, _version);
+      _current = HostCollectionSnapshot.BuildFromHosts(newHosts, _version, _logger);
 
       _logger.LogInformation("[CRUD] ✓ Host removed: {Host} (v{Version}, total: {Count})",
           existing.Host, _version, _current.Hosts.Count);
@@ -185,7 +185,7 @@ public sealed class HostCollectionManager : IHostHealthCollection
       // Re-categorize (host may have moved between specific-path and catch-all)
       _version++;
       _current = HostCollectionSnapshot.BuildFromHosts(
-          new List<BaseHostHealth>(_current.Hosts), _version);
+          new List<BaseHostHealth>(_current.Hosts), _version, _logger);
 
       _logger.LogInformation("[CRUD] ✓ Host updated: {Host} (v{Version})",
           existing.Host, _version);
