@@ -387,81 +387,127 @@ public static class ConfigBootstrapper
           ?? configuration?[$"Cold:{key}"]
           ?? configuration?[key];
 
-      if (!string.IsNullOrWhiteSpace(configured))
-      {
-        return configured.Trim();
-      }
-
-      return Environment.GetEnvironmentVariable(key)?.Trim();
+      return !string.IsNullOrWhiteSpace(configured)
+          ? configured.Trim()
+          : Environment.GetEnvironmentVariable(key)?.Trim();
     }
 
     backendOptions.Hosts.Clear();
 
-    int i = 1;
-    StringBuilder sb = new();
-    while (true)
+    var hostsFileContent = new StringBuilder();
+
+    foreach (var entry in ReadHostEntries(ReadWithFallback))
     {
+        _logger?.LogInformation("Found a Host: {HostKey}, HostName: {Hostname}", entry.HostKey, entry.Hostname);
 
-      var hostKey = $"Host{i}";
-      var probePathKey = $"Probe_path{i}";
-      var ipKey = $"IP{i}";
-
-
-      var hostname = ReadWithFallback(hostKey);
-      if (string.IsNullOrEmpty(hostname)) break;
-
-      var probePath = ReadWithFallback(probePathKey);
-      var ip = ReadWithFallback(ipKey);
-
-      _logger.LogInformation($"Found a Host: {hostKey}, Probe Path: {probePathKey}, HostName: {hostname}");
-      hostSettingsSnapshot[hostKey] = hostname;
-      if (!string.IsNullOrEmpty(probePath))
-      {
-        hostSettingsSnapshot[probePathKey] = probePath;
-      }
-
-      if (!string.IsNullOrEmpty(ip))
-      {
-        hostSettingsSnapshot[ipKey] = ip;
-      }
-
-      try
-      {
-        _logger?.LogDebug($"Found host {hostname} with probe path {probePath} and IP {ip}");
-
-        // Resolve HostConfig from DI using the factory
-        HostConfig bh = new HostConfig(hostname, probePath, ip, backendOptions.OAuthAudience);
-        backendOptions.Hosts.Add(bh);
-        hostCollection?.StageHost(bh);
-
-        sb.AppendLine($"{ip} {bh.Host}");
-      }
-
-      catch (UriFormatException e)
-      {
-        _logger?.LogError($"Could not add Host{i} with {hostname} : {e.Message}");
-        Console.WriteLine(e.StackTrace);
-      }
-
-      i++;
+        try
+        {
+            var hostConfig = new HostConfig(entry.Hostname, entry.ProbePath, entry.Ip, backendOptions.OAuthAudience);
+            backendOptions.Hosts.Add(hostConfig);
+            hostCollection?.StageHost(hostConfig);
+            hostsFileContent.AppendLine($"{entry.Ip} {hostConfig.Host}");
+        }
+        catch (UriFormatException e)
+        {
+            _logger?.LogError(e, "Could not add {HostKey} with {Hostname}", entry.HostKey, entry.Hostname);
+        }
     }
 
-    var appendHostsFile = ReadWithFallback("APPENDHOSTSFILE")
-      ?? ReadWithFallback("AppendHostsFile");
+    AppendHostsFileIfEnabled(
+        ReadWithFallback("APPENDHOSTSFILE") ?? ReadWithFallback("AppendHostsFile"),
+        hostsFileContent);
 
-    if (!string.IsNullOrEmpty(appendHostsFile))
-    {
-      hostSettingsSnapshot["APPENDHOSTSFILE"] = appendHostsFile;
-    }
+    // int i = 1;
+    // StringBuilder sb = new();
+    // while (true)
+    // {
 
-    if (appendHostsFile?.Equals("true", StringComparison.OrdinalIgnoreCase) == true)
-    {
-      _logger?.LogInformation($"Appending {sb} to /etc/hosts");
-      using StreamWriter sw = File.AppendText("/etc/hosts");
-      sw.WriteLine(sb.ToString());
-    }
+    //   var hostKey = $"Host{i}";
+    //   var probePathKey = $"Probe_path{i}";
+    //   var ipKey = $"IP{i}";
+
+
+    //   var hostname = ReadWithFallback(hostKey);
+    //   if (string.IsNullOrEmpty(hostname)) break;
+
+    //   var probePath = ReadWithFallback(probePathKey);
+    //   var ip = ReadWithFallback(ipKey);
+
+    //   _logger.LogInformation($"Found a Host: {hostKey}, Probe Path: {probePathKey}, HostName: {hostname}");
+    //   hostSettingsSnapshot[hostKey] = hostname;
+    //   if (!string.IsNullOrEmpty(probePath))
+    //   {
+    //     hostSettingsSnapshot[probePathKey] = probePath;
+    //   }
+
+    //   if (!string.IsNullOrEmpty(ip))
+    //   {
+    //     hostSettingsSnapshot[ipKey] = ip;
+    //   }
+
+    //   try
+    //   {
+    //     _logger?.LogDebug($"Found host {hostname} with probe path {probePath} and IP {ip}");
+
+    //     // Resolve HostConfig from DI using the factory
+    //     HostConfig bh = new HostConfig(hostname, probePath, ip, backendOptions.OAuthAudience);
+    //     backendOptions.Hosts.Add(bh);
+    //     hostCollection?.StageHost(bh);
+
+    //     sb.AppendLine($"{ip} {bh.Host}");
+    //   }
+
+    //   catch (UriFormatException e)
+    //   {
+    //     _logger?.LogError($"Could not add Host{i} with {hostname} : {e.Message}");
+    //     Console.WriteLine(e.StackTrace);
+    //   }
+
+    //   i++;
+    // }
+
+    // var appendHostsFile = ReadWithFallback("APPENDHOSTSFILE")
+    //   ?? ReadWithFallback("AppendHostsFile");
+
+    // if (!string.IsNullOrEmpty(appendHostsFile))
+    // {
+    //   hostSettingsSnapshot["APPENDHOSTSFILE"] = appendHostsFile;
+    // }
+
+    // if (appendHostsFile?.Equals("true", StringComparison.OrdinalIgnoreCase) == true)
+    // {
+    //   _logger?.LogInformation($"Appending {sb} to /etc/hosts");
+    //   using StreamWriter sw = File.AppendText("/etc/hosts");
+    //   sw.WriteLine(sb.ToString());
+    // }
 
     // Snapshot is updated only after all Host<n>/Probe_path<n>/IP<n> entries are parsed and applied.
     hostCollection?.Activate();
+  }
+
+
+  private record ParsedHostEntry(string HostKey, string Hostname, string? ProbePath, string? Ip);
+  private static IEnumerable<ParsedHostEntry> ReadHostEntries(Func<string, string?> readWithFallback)
+  {
+    for (int i = 1; ; i++)
+    {
+      var hostname = readWithFallback($"Host{i}");
+      if (string.IsNullOrEmpty(hostname)) yield break;
+
+      yield return new ParsedHostEntry(
+          $"Host{i}",
+          hostname,
+          readWithFallback($"Probe_path{i}"),
+          readWithFallback($"IP{i}")
+      );
+    }
+  }
+  private static void AppendHostsFileIfEnabled(string? flag, StringBuilder hostsContent)
+  {
+    if (flag?.Equals("true", StringComparison.OrdinalIgnoreCase) != true) return;
+
+    _logger?.LogInformation("Appending {HostEntries} to /etc/hosts", hostsContent);
+    using StreamWriter sw = File.AppendText("/etc/hosts");
+    sw.WriteLine(hostsContent.ToString());
   }
 }
