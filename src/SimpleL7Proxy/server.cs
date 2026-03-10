@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using System.Collections.Frozen;
 using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.DataContracts;
 using Microsoft.Extensions.Options;
@@ -50,9 +51,14 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
 
     private readonly ProbeServer _probeServer;
 
+    // Precomputed frozen collections for O(1) hot-path lookups, recomputed on config change
+    private volatile FrozenSet<string> _disallowedHeaders;
+    private volatile FrozenSet<string> _priorityKeys;
+    private volatile FrozenDictionary<string, int> _priorityKeyToValue;
+
     // Precomputed validation rules to avoid dictionary iteration and string ops per request
     private readonly record struct ValidateHeaderRule(string SourceHeader, string AllowedValuesHeader, string DisplayName);
-    private readonly ValidateHeaderRule[] _validateHeaderRules;
+    private ValidateHeaderRule[] _validateHeaderRules;
 
     // Constructor to initialize the server with backend options and telemetry client.
     public Server(
@@ -121,7 +127,13 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
             options => options.PollInterval
             ]);
 
-        // Precompute validation header rules once at startup
+        // Precompute frozen sets and validation rules at startup
+        _disallowedHeaders = _options.DisallowedHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+        _priorityKeys = _options.PriorityKeys.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+        _priorityKeyToValue = _options.PriorityKeys
+            .Zip(_options.PriorityValues)
+            .ToFrozenDictionary(x => x.First, x => x.Second, StringComparer.OrdinalIgnoreCase);
+
         _validateHeaderRules = _options.ValidateHeaders
             .Select(kvp => new ValidateHeaderRule(
                 kvp.Key,
@@ -151,7 +163,21 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         CancellationToken cancellationToken)
     {
         _logger.LogInformation("[CONFIG] Server changed — Settings live updated without restart");
-        // apply the changes
+
+        // Recompute frozen sets from updated options
+        _disallowedHeaders = backendOptions.DisallowedHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+        _priorityKeys = backendOptions.PriorityKeys.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+        _priorityKeyToValue = _options.PriorityKeys
+            .Zip(_options.PriorityValues)
+            .ToFrozenDictionary(x => x.First, x => x.Second, StringComparer.OrdinalIgnoreCase);
+
+        _validateHeaderRules = backendOptions.ValidateHeaders
+            .Select(kvp => new ValidateHeaderRule(
+                kvp.Key,
+                kvp.Value,
+                kvp.Key.StartsWith("S7", StringComparison.Ordinal) ? kvp.Key[2..] : kvp.Key))
+            .ToArray();
+
         return Task.CompletedTask;
     }
 
@@ -270,32 +296,23 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                     }
 
                     // if it's a probe, then bypass all the below checks and enqueue the request 
-                    if (Constants.probes.Contains(lc.Request.Url?.PathAndQuery))
+                    var probePath = lc.Request.Url?.PathAndQuery;
+                    switch (probePath)
                     {
-                        // Get ProbeData from pool using modulo rotation
-                        var probePath = lc.Request.Url!.PathAndQuery;
-                        var fallthrough = false;
-
-                        // Fast-path for probes to avoid queue and worker latency
-                        switch (probePath)
-                        {
-                            case Constants.Liveness:
-                                await _probeServer.LivenessResponseAsync(lc);
-                                break;
-                            case Constants.Readiness:
-                                await _probeServer.ReadinessResponseAsync(lc);
-                                break;
-                            case Constants.Startup:
-                                await _probeServer.StartupResponseAsync(lc);
-                                break;
-                            default:
-                                fallthrough = true;
-                                break;
-
-                        }
-
-                        if (!fallthrough)
+                        case Constants.Liveness:
+                            await _probeServer.LivenessResponseAsync(lc);
                             continue;
+                        case Constants.Readiness:
+                            await _probeServer.ReadinessResponseAsync(lc);
+                            continue;
+                        case Constants.Startup:
+                            await _probeServer.StartupResponseAsync(lc);
+                            continue;
+                        case Constants.Health:
+                        case Constants.ForceGC:
+                            break; // fall through to queue path
+                        default:
+                            break; // not a probe, fall through
                     }
 
 
@@ -306,7 +323,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                     var retrymsg = "";
                     var logmsg = "";
 
-                    Interlocked.Increment(ref counter);
+                    counter++;
                     var requestId = _options.IDStr + counter.ToString();
 
                     //delayCts.Cancel();
@@ -360,10 +377,10 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                 }
                             }
 
-                            // Remove any disallowed headers
-                            foreach (var header in _options.DisallowedHeaders)
+                            // Remove any disallowed headers (FrozenSet for O(1) contains, but iterate to remove)
+                            foreach (var header in _disallowedHeaders)
                             {
-                                if (rd.Debug && !String.IsNullOrEmpty(rd.Headers.Get(header)))
+                                if (rd.Debug && !string.IsNullOrEmpty(rd.Headers.Get(header)))
                                     Console.WriteLine($"Disallowed header {header} removed from request.");
                                 rd.Headers.Remove(header);
                             }
@@ -520,13 +537,17 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                             ed["GUID"] = rd.Guid.ToString();
 
                             var priorityKey = rd.Headers[_priorityHeaderName];
-                            if (!string.IsNullOrEmpty(priorityKey) && _options.PriorityKeys.Contains(priorityKey)) //lookup the priority
+                            // if (!string.IsNullOrEmpty(priorityKey) && _priorityKeys.Contains(priorityKey)) //lookup the priority
+                            // {
+                            //     var index = _options.PriorityKeys.IndexOf(priorityKey);
+                            //     if (index >= 0)
+                            //     {
+                            //         priority = _options.PriorityValues[index];
+                            //     }
+                            // }
+                            if (!string.IsNullOrEmpty(priorityKey) && _priorityKeyToValue.TryGetValue(priorityKey, out var mappedPriority))
                             {
-                                var index = _options.PriorityKeys.IndexOf(priorityKey);
-                                if (index >= 0)
-                                {
-                                    priority = _options.PriorityValues[index];
-                                }
+                                priority = mappedPriority;
                             }
                             rd.Priority = priority;
                             rd.Priority2 = userPriorityBoost;
