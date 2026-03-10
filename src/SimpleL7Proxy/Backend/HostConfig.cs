@@ -223,7 +223,7 @@ namespace SimpleL7Proxy.Backend
         result.Hostname = new Uri(result.Host).Host;
         if (string.IsNullOrEmpty(result.Processor))
         {
-          result.Processor = "Default";
+          result.Processor = StreamProcessor.StreamProcessorFactory.DEFAULT_PROCESSOR;
         }
       } 
       

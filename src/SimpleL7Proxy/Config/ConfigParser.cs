@@ -656,7 +656,7 @@ public static class ConfigParser
             trimmed = trimmed[1..^1];
         }
 
-        return [.. trimmed.Split(',').Select(p => p.Trim().Trim('"'))];
+        return [.. trimmed.Split(',').Select(p => p.Trim().Trim('"')).Where(p => p.Length > 0)];
     }
 
     private static List<int> ToListOfInt(string s)

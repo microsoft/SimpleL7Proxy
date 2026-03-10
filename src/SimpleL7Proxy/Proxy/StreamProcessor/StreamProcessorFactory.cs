@@ -27,8 +27,8 @@ public sealed class StreamProcessorFactory
         };
 
     // Constants for processor selection logic
-    private const string DEFAULT_PROCESSOR = "Default";
-    private const string STREAM_PROCESSOR = "DefaultStream";
+    public const string DEFAULT_PROCESSOR = "DefaultStream";
+    public const string STREAM_PROCESSOR = "DefaultStream";
     private static readonly string[] PROCESSOR_SUFFIXES = ["Processor", "Parser"];
     private const string TOKEN_PROCESSOR_HEADER = "TOKENPROCESSOR";
     private const string EVENT_STREAM_MEDIA = "text/event-stream";
