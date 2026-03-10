@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Configuration;
 using SimpleL7Proxy.Backend.Iterators;
 using System.Reflection;
 
@@ -140,7 +139,6 @@ public static class ConfigParser
 
         ApplyDerivedSettingsFromConfigNames(
             opts,
-            configuration: null,
             nameof(BackendOptions.HealthProbeSidecar),
             nameof(BackendOptions.LoadBalanceMode),
             nameof(BackendOptions.PriorityKeys),
@@ -280,7 +278,6 @@ public static class ConfigParser
 
     public static void ApplyDerivedSettingsFromConfigNames(
         BackendOptions backendOptions,
-        IConfiguration? configuration,
         params string[] changedConfigNames)
     {
         if (changedConfigNames.Length == 0)
@@ -292,7 +289,6 @@ public static class ConfigParser
             .ToDictionary(d => d.ConfigName, d => d.Property, StringComparer.OrdinalIgnoreCase);
 
         var changedProperties = new List<PropertyInfo>(changedConfigNames.Length);
-        var shouldRefreshBackends = false;
 
         foreach (var changedConfigName in changedConfigNames)
         {
@@ -305,21 +301,11 @@ public static class ConfigParser
             {
                 changedProperties.Add(property);
             }
-
-            if (IsBackendHostConfigName(changedConfigName))
-            {
-                shouldRefreshBackends = true;
-            }
         }
 
         if (changedProperties.Count > 0)
         {
             ApplyDerivedSettings(backendOptions, [.. changedProperties]);
-        }
-
-        if (shouldRefreshBackends)
-        {
-            ConfigBootstrapper.RegisterBackends(backendOptions, configuration, null);
         }
     }
 

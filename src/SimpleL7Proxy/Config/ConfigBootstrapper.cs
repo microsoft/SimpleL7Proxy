@@ -347,7 +347,7 @@ public static class ConfigBootstrapper
   }
 
   /// <summary>
-  /// Clears and re-populates <see cref="BackendOptions.Hosts"/> by iterating
+  /// Clears and re-populates the backend host list by iterating
   /// over <c>Host1..N</c>, <c>Probe_path1..N</c>, and <c>IP1..N</c> keys.
   /// <para>
   /// Each parsed <see cref="HostConfig"/> is staged into <paramref name="hostCollection"/>
@@ -377,7 +377,6 @@ public static class ConfigBootstrapper
   public static void RegisterBackends(BackendOptions backendOptions, IConfiguration? configuration = null, Dictionary<string, string>? cfg = null, IHostHealthCollection? hostCollection = null)
   {
     //backendOptions.Client.Timeout = TimeSpan.FromMilliseconds(backendOptions.Timeout);
-    var hostSettingsSnapshot = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
     string? ReadWithFallback(string key)
     {
@@ -392,18 +391,13 @@ public static class ConfigBootstrapper
           : Environment.GetEnvironmentVariable(key)?.Trim();
     }
 
-    backendOptions.Hosts.Clear();
-
     var hostsFileContent = new StringBuilder();
 
     foreach (var entry in ReadHostEntries(ReadWithFallback))
     {
-        _logger?.LogInformation("Found a Host: {HostKey}, HostName: {Hostname}", entry.HostKey, entry.Hostname);
-
         try
         {
             var hostConfig = new HostConfig(entry.Hostname, entry.ProbePath, entry.Ip, backendOptions.OAuthAudience);
-            backendOptions.Hosts.Add(hostConfig);
             hostCollection?.StageHost(hostConfig);
             hostsFileContent.AppendLine($"{entry.Ip} {hostConfig.Host}");
         }
@@ -417,71 +411,6 @@ public static class ConfigBootstrapper
         ReadWithFallback("APPENDHOSTSFILE") ?? ReadWithFallback("AppendHostsFile"),
         hostsFileContent);
 
-    // int i = 1;
-    // StringBuilder sb = new();
-    // while (true)
-    // {
-
-    //   var hostKey = $"Host{i}";
-    //   var probePathKey = $"Probe_path{i}";
-    //   var ipKey = $"IP{i}";
-
-
-    //   var hostname = ReadWithFallback(hostKey);
-    //   if (string.IsNullOrEmpty(hostname)) break;
-
-    //   var probePath = ReadWithFallback(probePathKey);
-    //   var ip = ReadWithFallback(ipKey);
-
-    //   _logger.LogInformation($"Found a Host: {hostKey}, Probe Path: {probePathKey}, HostName: {hostname}");
-    //   hostSettingsSnapshot[hostKey] = hostname;
-    //   if (!string.IsNullOrEmpty(probePath))
-    //   {
-    //     hostSettingsSnapshot[probePathKey] = probePath;
-    //   }
-
-    //   if (!string.IsNullOrEmpty(ip))
-    //   {
-    //     hostSettingsSnapshot[ipKey] = ip;
-    //   }
-
-    //   try
-    //   {
-    //     _logger?.LogDebug($"Found host {hostname} with probe path {probePath} and IP {ip}");
-
-    //     // Resolve HostConfig from DI using the factory
-    //     HostConfig bh = new HostConfig(hostname, probePath, ip, backendOptions.OAuthAudience);
-    //     backendOptions.Hosts.Add(bh);
-    //     hostCollection?.StageHost(bh);
-
-    //     sb.AppendLine($"{ip} {bh.Host}");
-    //   }
-
-    //   catch (UriFormatException e)
-    //   {
-    //     _logger?.LogError($"Could not add Host{i} with {hostname} : {e.Message}");
-    //     Console.WriteLine(e.StackTrace);
-    //   }
-
-    //   i++;
-    // }
-
-    // var appendHostsFile = ReadWithFallback("APPENDHOSTSFILE")
-    //   ?? ReadWithFallback("AppendHostsFile");
-
-    // if (!string.IsNullOrEmpty(appendHostsFile))
-    // {
-    //   hostSettingsSnapshot["APPENDHOSTSFILE"] = appendHostsFile;
-    // }
-
-    // if (appendHostsFile?.Equals("true", StringComparison.OrdinalIgnoreCase) == true)
-    // {
-    //   _logger?.LogInformation($"Appending {sb} to /etc/hosts");
-    //   using StreamWriter sw = File.AppendText("/etc/hosts");
-    //   sw.WriteLine(sb.ToString());
-    // }
-
-    // Snapshot is updated only after all Host<n>/Probe_path<n>/IP<n> entries are parsed and applied.
     hostCollection?.Activate();
   }
 

@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.ApplicationInsights;
@@ -22,7 +23,7 @@ namespace SimpleL7Proxy.Backend
     public static BackendTokenProvider? _tokenProvider;
     private static ILogger? _logger = Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
     private static IServiceProvider? _serviceProvider;
-    private readonly ICircuitBreaker _circuitBreaker;
+    private ICircuitBreaker? _circuitBreaker;
     public Guid Guid { get; } = Guid.NewGuid();
     private ParsedConfig ParsedConfig { get; set; }
     public string Audience => ParsedConfig.Audience;
@@ -46,19 +47,112 @@ namespace SimpleL7Proxy.Backend
 
     public string Url => ParsedConfig.Host;
     public string ProbeUrl { get; set; }
-    
+    private string? _frozenHash;
+
+    /// <summary>
+    /// Computes a deterministic SHA256 hash over all configuration-relevant fields.
+    /// Two <see cref="HostConfig"/> instances with identical configuration will
+    /// produce the same hash regardless of runtime state (Guid, circuit breaker, etc.).
+    /// </summary>
+    public string Hash()
+    {
+        // Order must stay stable — append every ParsedConfig field.
+        var sb = new StringBuilder(512);
+        sb.Append(Audience).Append('|');
+        sb.Append(DirectMode).Append('|');
+        sb.Append(Host).Append('|');
+        sb.Append(Hostname).Append('|');
+        sb.Append(IpAddr ?? string.Empty).Append('|');
+        sb.Append(PartialPath).Append('|');
+        sb.Append(ProbePath).Append('|');
+        sb.Append(Processor ?? string.Empty).Append('|');
+        sb.Append(StripPrefix).Append('|');
+        sb.Append(UseOAuth).Append('|');
+        sb.Append(UsesRetryAfter);
+
+        Span<byte> hashBytes = stackalloc byte[SHA256.HashSizeInBytes];
+        SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()), hashBytes);
+        return Convert.ToHexStringLower(hashBytes);
+    }
+
+    /// <summary>
+    /// Snapshots the current <see cref="Hash"/> so it can be retrieved later
+    /// via <see cref="FrozenHash"/> without recomputing.
+    /// Call this once after construction when the configuration is final.
+    /// </summary>
+    public void FreezeHash() => _frozenHash = Hash();
+
+    /// <summary>
+    /// Returns the hash captured by <see cref="FreezeHash"/>, or <c>null</c>
+    /// if <see cref="FreezeHash"/> has not been called yet.
+    /// </summary>
+    public string? FrozenHash => _frozenHash;
+
+    /// <summary>
+    /// Whether <see cref="Activate"/> has been called (circuit breaker created).
+    /// </summary>
+    public bool IsActivated => _circuitBreaker is not null;
+
+    /// <summary>
+    /// Whether this host has been marked for spin-down.
+    /// A spinning-down host is no longer part of the active snapshot but may
+    /// still be referenced by in-flight workers holding an old snapshot.
+    /// Once all in-flight work drains, the host can be reclaimed by GC.
+    /// </summary>
+    public bool IsSpinningDown { get; private set; }
+
+    /// <summary>
+    /// UTC timestamp when <see cref="SpinDown"/> was called, or <c>null</c>
+    /// if the host is still active.
+    /// </summary>
+    public DateTime? SpinDownTime { get; private set; }
+
+    /// <summary>
+    /// Marks this host for graceful spin-down. The circuit breaker stops
+    /// accepting new status tracking, and the host will no longer be selected
+    /// for new requests.  In-flight requests on old snapshots continue
+    /// to completion.
+    /// </summary>
+    public void SpinDown()
+    {
+        if (IsSpinningDown) return;
+        IsSpinningDown = true;
+        SpinDownTime = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Creates the circuit breaker and other expensive runtime resources.
+    /// Call this after the dedup check — only for configs that will actually
+    /// be used.  Safe to call multiple times (no-op after first call).
+    /// </summary>
+    public void Activate()
+    {
+        if (_circuitBreaker is not null) return;
+
+        if (_serviceProvider == null)
+            throw new InvalidOperationException("HostConfig service provider not initialized. Call Initialize first.");
+
+        _circuitBreaker = _serviceProvider.GetService<ICircuitBreaker>()
+            ?? throw new InvalidOperationException("ICircuitBreaker service not registered in DI container.");
+
+        _circuitBreaker.ID = ParsedConfig.Host;
+    }
+
+    private ICircuitBreaker CircuitBreaker =>
+        _circuitBreaker ?? throw new InvalidOperationException(
+            $"HostConfig for '{Host}' has not been activated. Call Activate() before using circuit breaker.");
 
     /// <summary>
     /// Tracks status for circuit breaker
     /// </summary>
-    public void TrackStatus(int code, bool wasFailure, string state) => _circuitBreaker.TrackStatus(code, wasFailure, state);
+    public void TrackStatus(int code, bool wasFailure, string state) => CircuitBreaker.TrackStatus(code, wasFailure, state);
 
     /// <summary>
     /// Checks if this host's circuit breaker is in failed state
     /// </summary>
-    public bool CheckFailedStatus() => _circuitBreaker.CheckFailedStatus();
+    public bool CheckFailedStatus() => CircuitBreaker.CheckFailedStatus();
 
-    public string GetCircuitBreakerStatusString() => _circuitBreaker.GetCircuitBreakerStatusString();
+    public string GetCircuitBreakerStatusString() => CircuitBreaker.GetCircuitBreakerStatusString();
 
     /// <summary>
     /// Initializes the HostConfig with required dependencies
@@ -78,22 +172,11 @@ namespace SimpleL7Proxy.Backend
     /// </summary>
     public HostConfig(string hostname, string? probepath = "", string? ip = null, string? audience = "")
     {
-      // Get CircuitBreaker instance from DI container
-      if (_serviceProvider == null)
-        throw new InvalidOperationException("HostConfig service provider not initialized. Call SetServiceProvider first.");
-      
-      _circuitBreaker = _serviceProvider.GetService<ICircuitBreaker>()
-        ?? throw new InvalidOperationException("ICircuitBreaker service not registered in DI container.");
-      
       _logger?.LogDebug("[CONFIG] Configuring backend host: {hostname}", hostname);
       ParsedConfig = TryParseConfig(hostname, probepath, ip, audience);
 
-      // If host does not have a protocol, add one
-      string hostForUri = ParsedConfig.Host;
-      _circuitBreaker.ID = hostForUri;
-
       // parse the host, protocol and port
-      Uri uri = new Uri(hostForUri);
+      Uri uri = new Uri(ParsedConfig.Host);
       Protocol = uri.Scheme;
       Port = uri.Port;
 
