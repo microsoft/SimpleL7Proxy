@@ -29,7 +29,7 @@ public static class ConfigBootstrapper
 {
   private static ILogger? _logger;
   static Dictionary<string, string> EnvVars = new Dictionary<string, string>();
-  private static readonly BackendOptions s_defaults = new();
+  public static readonly BackendOptions s_defaults = new();
 
 
   public static BackendOptions CreateBackendOptions(ILogger logger, AppConfigBootstrap appConfigBootstrap)
@@ -53,9 +53,12 @@ public static class ConfigBootstrapper
     {
       foreach (var kvp in appConfigSettings)
       {
-        // strip  ["  and  "] from keys and values if present to support both raw and JSON-style formats
-        string key = kvp.Key.Trim().TrimStart('[').TrimEnd(']').TrimStart('"').TrimEnd('"');
-        string value = kvp.Value.Trim().TrimStart('[').TrimEnd(']').TrimStart('"').TrimEnd('"');
+        // Keys from AppConfigBootstrap are already plain config names (e.g. "DependancyHeaders").
+        // Values may be JSON-style arrays like ["a","b"] — leave them intact;
+        // downstream parsers (ToListOfString, ReadEnvironmentVariableOrDefault) 
+        // already handle bracket/quote stripping correctly.
+        string key = kvp.Key.Trim();
+        string value = kvp.Value.Trim();
         effectiveEnvironment[key] = value;
       }
       _logger?.LogInformation("[BOOTSTRAP] Applied {Count} App Configuration value(s) to effective environment", appConfigSettings.Count);
@@ -96,7 +99,7 @@ public static class ConfigBootstrapper
     // generate a JSON representation for logging
     var all = warm.Concat(cold).Concat(hidden).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
     string json = System.Text.Json.JsonSerializer.Serialize(all, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-    
+
     // _logger?.LogInformation("Effective configuration:\n{ConfigJson}", json);
 
     static string MaskSensitive(string key, string value)

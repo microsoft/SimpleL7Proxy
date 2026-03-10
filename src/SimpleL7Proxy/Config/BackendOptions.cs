@@ -236,7 +236,7 @@ public class BackendOptions
     [ConfigOption("EventHub:Namespace", ConfigName = "EVENTHUB_NAMESPACE", Mode = ConfigMode.Cold)]
     public string EventHubNamespace { get; set; } = "";
     [ConfigOption("EventHub:StartupSeconds", ConfigName = "EVENTHUB_STARTUP_SECONDS", Mode = ConfigMode.Cold)]
-    public int EventHubStartupSeconds { get; set; } = 0;
+    public int EventHubStartupSeconds { get; set; } = 10;
 
     // ── Security ──
     [ConfigOption("Security:IgnoreSSLCert", ConfigName = "IgnoreSSLCert", Mode = ConfigMode.Cold)]

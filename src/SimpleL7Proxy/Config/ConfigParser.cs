@@ -117,7 +117,7 @@ public static class ConfigParser
             // 2. Value from environment variable (if set)
             // 3. Value from environment variable alias (if set) 
             // 4. Value from App Configuration (if set)
-            ApplyFieldFromEnv(appCfgVars, opts, defaults, envVarName, propertyName);
+            opts.ApplyFieldFromEnv(appCfgVars, defaults, envVarName, propertyName);
         }
 
         opts.AcceptableStatusCodes = ReadEnvironmentVariableOrDefault(appCfgVars, "AcceptableStatusCodes", defaults.AcceptableStatusCodes);
@@ -656,7 +656,7 @@ public static class ConfigParser
             trimmed = trimmed[1..^1];
         }
 
-        return [.. trimmed.Split(',').Select(p => p.Trim())];
+        return [.. trimmed.Split(',').Select(p => p.Trim().Trim('"'))];
     }
 
     private static List<int> ToListOfInt(string s)
@@ -672,7 +672,7 @@ public static class ConfigParser
             trimmed = trimmed[1..^1];
         }
 
-        return trimmed.Split(',').Select(p => int.Parse(p.Trim())).ToList();
+        return trimmed.Split(',').Select(p => int.Parse(p.Trim().Trim('"'))).ToList();
     }
 
     private static Dictionary<string, string> ParseConfigString(string config, Dictionary<string, string[]> keyAliases)
