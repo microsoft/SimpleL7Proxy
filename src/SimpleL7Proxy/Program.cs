@@ -116,7 +116,8 @@ public class Program
 
         // Initialize ProxyEvent with BackendOptions
 
-        ProxyEvent.Initialize(options, eventClient, telemetryClient);
+        var commonEventData = serviceProvider.GetRequiredService<ICommonEventData>();
+        ProxyEvent.Initialize(options, eventClient, commonEventData, telemetryClient);
         ProxyEvent.SubscribeToConfigChanges(serviceProvider.GetRequiredService<ConfigChangeNotifier>());
 
         // Initialize HostConfig with all required dependencies including service provider for circuit breaker DI
@@ -262,14 +263,35 @@ public class Program
             Console.WriteLine($"[CONFIG] EVENT_LOGGERS not set, falling back to legacy: {string.Join(", ", enabledLoggers)}");
         }
 
-        // Ensure CompositeEventClient is registered before any individual clients
+        // Load common data class
+        var eventdataclass = backendOptions.EventData;
+        if (!string.IsNullOrEmpty(eventdataclass))
+        {
+            var dataType = typeof(Program).Assembly.GetType(eventdataclass, throwOnError: false);
+            if (dataType == null)
+            {
+                startupLogger.LogWarning("[CONFIG] Event data type '{EventDataType}' not found. aborting.", eventdataclass);
+                throw new Exception($"Event data type '{eventdataclass}' not found");
+            }
 
+            if (!typeof(ICommonEventData).IsAssignableFrom(dataType))
+            {
+                startupLogger.LogWarning("[CONFIG] Event data type '{EventDataType}' does not implement ICommonEventData. Aborting.", eventdataclass);
+                throw new Exception($"Event data type '{eventdataclass}' does not implement ICommonEventData");
+            }
+
+            // Register as concrete singleton so DI can resolve constructor dependencies
+            services.AddSingleton(dataType);
+            services.AddSingleton(typeof(ICommonEventData), svc => svc.GetRequiredService(dataType));
+        }
+
+        // Ensure CompositeEventClient is registered before any individual clients
         foreach ( var loggername in enabledLoggers)
         {
             if (loggername == "file")
             {
                 services.AddSingleton<LogFileEventClient>(svc =>
-                    new LogFileEventClient(backendOptions.LogFileName, svc.GetRequiredService<CompositeEventClient>()));
+                    new LogFileEventClient(backendOptions.LogFileName, svc.GetRequiredService<CompositeEventClient>(), svc.GetRequiredService<IOptions<BackendOptions>>()));
                 services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService<LogFileEventClient>());
             }
             else if ( loggername == "eventhub")

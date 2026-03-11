@@ -46,6 +46,7 @@ namespace SimpleL7Proxy.Events
     public static void Initialize(
       IOptions<BackendOptions> backendOptions,
       IEventClient? eventClient = null,
+      ICommonEventData? commonEventData = null,
       TelemetryClient? telemetryClient = null)
     {
       _options = backendOptions ?? throw new ArgumentNullException(nameof(backendOptions));
@@ -53,12 +54,7 @@ namespace SimpleL7Proxy.Events
       _telemetryClient = telemetryClient; // null when APPINSIGHTS_CONNECTIONSTRING is not set
 
       // Set default parameters that should be included with every event (frozen = immutable + optimized reads)
-      DefaultParams = new Dictionary<string, string>(3)
-      {
-        ["Ver"] = Constants.VERSION,
-        ["Revision"] = _options.Value.Revision,
-        ["ContainerApp"] = _options.Value.ContainerApp
-      }.ToFrozenDictionary();
+      DefaultParams = commonEventData?.DefaultEventData() ?? DefaultParams;
 
       UpdateLogTargets(backendOptions.Value);
     }

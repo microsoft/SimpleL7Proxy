@@ -9,7 +9,5 @@ public interface IEventClient
   public Task StopTimerAsync();
 
   void SendData(string? value);
-//  void SendData(Dictionary<string, string> data);
-  //void SendData( ConcurrentDictionary<string, string> eventData, string? name="");
-  //void SendData(ProxyEvent eventData, IDictionary<string, string>? extraProperties = null);
+
 }

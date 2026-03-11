@@ -223,6 +223,10 @@ public class BackendOptions
     public string AppInsightsConnectionString { get; set; } = "";
     [ConfigOption("Logging:EventLoggers", ConfigName = "EVENT_LOGGERS", Mode = ConfigMode.Cold)]
     public string EventLoggers { get; set; } = "file";
+
+    [ConfigOption("Logging:EventData", ConfigName = "EVENT_DATA", Mode = ConfigMode.Cold)]
+    public string EventData { get; set; } = "SimpleL7Proxy.Events.CommonEventData";
+
     [ConfigOption("Logging:LogToFile", ConfigName = "LOGTOFILE", Mode = ConfigMode.Hidden)]
     public bool LogToFile { get; set; } = false;
     [ConfigOption("Logging:LogFileName", ConfigName = "LOGFILE_NAME", Mode = ConfigMode.Cold)]
