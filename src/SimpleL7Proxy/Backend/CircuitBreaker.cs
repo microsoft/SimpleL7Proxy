@@ -24,6 +24,7 @@ public class CircuitBreaker : ICircuitBreaker
     
     // Instance state tracking
     private bool _isCurrentlyBlocked = false;
+    private bool _isDeregistered = false;
     
     public string ID { get; set; } = "";
 
@@ -123,6 +124,27 @@ public class CircuitBreaker : ICircuitBreaker
         }
         
         return isCurrentlyFailed;
+    }
+
+    /// <summary>
+    /// Removes this instance from the global circuit-breaker counters.
+    /// Safe to call multiple times — only the first call has any effect.
+    /// </summary>
+    public void Deregister()
+    {
+        if (_isDeregistered) return;
+        _isDeregistered = true;
+
+        Interlocked.Decrement(ref _totalCircuitBreakersCount);
+
+        if (_isCurrentlyBlocked)
+        {
+            _isCurrentlyBlocked = false;
+            Interlocked.Decrement(ref _blockedCircuitBreakersCount);
+        }
+
+        _logger.LogDebug("[CB] Circuit breaker {ID} deregistered. Total: {Total}, Blocked: {Blocked}",
+            ID, _totalCircuitBreakersCount, _blockedCircuitBreakersCount);
     }
 
     /// <summary>

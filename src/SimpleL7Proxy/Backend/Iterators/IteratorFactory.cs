@@ -108,8 +108,9 @@ public static class IteratorFactory
         List<BaseHostHealth> catchAllHosts, 
         string requestPath)
     {
-        // Evaluate all matches once
+        // Evaluate all matches once, excluding hosts marked for spin-down
         var matchedHosts = specificHosts
+            .Where(host => !host.Config.IsSpinningDown)
             .Select(host => (host, result: host.Config.SupportsPath(requestPath)))
             .Where(x => x.result.IsMatch)
             .ToList();
@@ -120,8 +121,9 @@ public static class IteratorFactory
             return (matchedHosts.Select(x => x.host).ToList(), matchedHosts[0].result.StrippedPath);
         }
         
-        // No specific match - return catch-all hosts with original path
-        return (catchAllHosts, requestPath);
+        // No specific match - return catch-all hosts, excluding spinning-down ones
+        var activeCatchAll = catchAllHosts.Where(h => !h.Config.IsSpinningDown).ToList();
+        return (activeCatchAll, requestPath);
     }
 
 

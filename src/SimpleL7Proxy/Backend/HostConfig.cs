@@ -118,6 +118,11 @@ namespace SimpleL7Proxy.Backend
         if (IsSpinningDown) return;
         IsSpinningDown = true;
         SpinDownTime = DateTime.UtcNow;
+
+        // Remove this host's circuit breaker from global counters.
+        // Deregister() is itself idempotent, but we only reach here once
+        // because of the IsSpinningDown guard above.
+        _circuitBreaker?.Deregister();
     }
 
     /// <summary>
