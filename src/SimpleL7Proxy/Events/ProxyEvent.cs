@@ -14,33 +14,24 @@ using SimpleL7Proxy.User;
 namespace SimpleL7Proxy.Events
 {
 
-  public enum EventType
-  {
-    AsyncProcessing,
-    Backend,
-    BackendRequest,
-    CircuitBreakerError,
-    Console,
-    CustomEvent,
-    Exception,
-    Poller,
-    Probe,
-    ProfileError,
-    ProxyError,
-    ProxyRequest,
-    ProxyRequestEnqueued,
-    ProxyRequestExpired,
-    ProxyRequestRequeued,
-    ServerError,
-    Authentication,
-  }
-
-  public class ProxyEvent : ConcurrentDictionary<string, string>
+  public class ProxyEvent : ConcurrentDictionary<string, string>, IConfigChangeSubscriber
   {
     private static IOptions<BackendOptions> _options = null!;
     private static IEventClient? _eventClient;
     private static TelemetryClient? _telemetryClient;
-    private static readonly Uri LOCALHOSTURI = new Uri("http://localhost"); 
+
+    /// <summary>
+    /// Singleton instance used for config-change subscription.
+    /// Created by <see cref="SubscribeToConfigChanges"/>.
+    /// </summary>
+    private static ProxyEvent? _subscriberInstance;
+    private static readonly Uri LOCALHOSTURI = new Uri("http://localhost");
+
+    // ── Per-event-type log routing ──
+    // Updated by UpdateLogTargets() from BackendOptions.LogToConsole / LogToEvents / LogToAI lists.
+    public static LogTargetAttr ConAttr   = new();
+    public static LogTargetAttr EventAttr = new();
+    public static LogTargetAttr AIAttr    = new();
 
     public EventType Type { get; set; } = EventType.Console;
     public HttpStatusCode Status { get; set; } = 0;
@@ -69,6 +60,43 @@ namespace SimpleL7Proxy.Events
         ["ContainerApp"] = _options.Value.ContainerApp
       }.ToFrozenDictionary();
 
+      UpdateLogTargets(backendOptions.Value);
+    }
+
+    /// <summary>
+    /// Subscribes to warm config changes for LogToConsole, LogToEvents, and LogToAI.
+    /// Call once after <see cref="Initialize"/> when the <see cref="ConfigChangeNotifier"/> is available.
+    /// </summary>
+    public static void SubscribeToConfigChanges(ConfigChangeNotifier notifier)
+    {
+      _subscriberInstance ??= new ProxyEvent();
+      notifier.Subscribe(_subscriberInstance,
+        o => o.LogToConsole,
+        o => o.LogToEvents,
+        o => o.LogToAI);
+    }
+
+    /// <inheritdoc />
+    public Task OnConfigChangedAsync(
+      IReadOnlyList<ConfigChange> changes,
+      BackendOptions backendOptions,
+      CancellationToken cancellationToken)
+    {
+      UpdateLogTargets(backendOptions);
+      return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Parses <see cref="BackendOptions.LogToConsole"/>, <see cref="BackendOptions.LogToEvents"/>,
+    /// and <see cref="BackendOptions.LogToAI"/> into <see cref="ConAttr"/>, <see cref="EventAttr"/>,
+    /// <see cref="AIAttr"/>. A list containing "*" enables all event types for that destination.
+    /// Safe to call on config hot-reload.
+    /// </summary>
+    public static void UpdateLogTargets(BackendOptions options)
+    {
+      ConAttr   = LogTargetAttr.From(options.LogToConsole);
+      EventAttr = LogTargetAttr.From(options.LogToEvents);
+      AIAttr    = LogTargetAttr.From(options.LogToAI);
     }
 
     /// <summary>
@@ -113,79 +141,36 @@ namespace SimpleL7Proxy.Events
     {
       try
       {
-        bool logEvent = false;
-        bool logDependency = false;
-        bool logRequest = false;
-        bool logException = false;
-        bool logToEventClient = false;
 
-        // Console.WriteLine($"Sending event: {Type} with Status: {Status} and Duration: {Duration.TotalMilliseconds} ms");
+        bool logToConsole     = ConAttr.IsEnabled(Type);
+        bool logToEventClient = EventAttr.IsEnabled(Type);
+        bool logToAI          = AIAttr.IsEnabled(Type);
 
-        // Determine the type of telemetry to send based on event type
-        switch (Type)
+        // Determine AI telemetry shape based on event type
+        if (logToAI && _telemetryClient is not null)
         {
-          case EventType.Backend:
-          case EventType.CustomEvent:
-          case EventType.Probe:
-            if (_options?.Value.LogProbes == true)
-            {
-              logEvent = true;
-              logToEventClient = true;
-            }
-            break;
-          case EventType.ServerError:
-          case EventType.CircuitBreakerError:
-            logEvent = true;
-            logToEventClient = true;
-            break;
-          case EventType.Console:
-            if (_options?.Value.LogConsole == true)
-            {
-              logEvent = true;
-              logToEventClient = true;
-            }
-            break;
-          case EventType.Poller:
-            if (_options?.Value.LogPoller == true)
-            {
-              logEvent = true;
-              logToEventClient = true;
-            }
-            break;
-          case EventType.BackendRequest:
-            logDependency = true;
-            logToEventClient = true;
-            break;
-          case EventType.ProxyRequestEnqueued:
-          case EventType.ProxyRequestRequeued:
-            logEvent = true;
-            logToEventClient = true;
-            break;
-          case EventType.ProxyRequestExpired:
-          case EventType.ProxyError:
-          case EventType.ProxyRequest:
-            logRequest = true;
-            logToEventClient = true;
-            break;
-          case EventType.Exception:
-            logException = true;
-            logToEventClient = true;
-            break;
-          default:
-            // For any other event type, we can log it as a custom event
-            logEvent = true;
-            logToEventClient = true;
-            break;
-        }
-        
-        // Add replica-lifetime values at send time
-        
-        if (_telemetryClient is not null)
-        {
-          if (logDependency) TrackDependancy();
-          else if (logRequest) TrackRequest();
-          else if (logEvent) TrackEvent();
-          else if (logException) TrackException();
+          switch (Type)
+          {
+            case EventType.BackendRequest:
+              TrackDependancy();
+              break;
+
+            case EventType.Exception:
+            case EventType.ServerError:
+              TrackException();
+              break;
+
+            case EventType.ProxyError:
+            case EventType.ProxyRequest:
+            case EventType.ProxyRequestExpired:
+            case EventType.ProxyRequestRequeued:
+              TrackRequest();
+              break;
+
+            default:
+              TrackEvent();
+              break;
+          }
         }
 
         if (logToEventClient && _eventClient is not null)
@@ -194,13 +179,11 @@ namespace SimpleL7Proxy.Events
           eventParams["Type"] = "S7P-" + Type.ToString();
           eventParams["MID"] = MID ?? "N/A";
           AddDefaultProperties(eventParams);
-          // Send the event to all registered event clients (EventHub, LogFile, etc.)
           _eventClient.SendData(ConvertToJson(this, eventParams));
         }
       }
       catch (Exception ex)
       {
-        // Prevent telemetry errors from affecting application operation
         Console.Error.WriteLine($"Error sending telemetry: {ex.Message}");
       }
     }
@@ -393,7 +376,8 @@ namespace SimpleL7Proxy.Events
 
         Type = EventType.Console;
 
-        if (_options.Value.LogConsoleEvent)
+        // Only send to event client if this event type is enabled for it
+        if ( EventAttr.Console ) 
         {
           _eventClient?.SendData(ConvertToJson(this));
         }

@@ -36,16 +36,16 @@ public class BackendOptions
     public string LoadBalanceMode { get; set; } = "latency"; // "latency", "roundrobin", "random"
 
     // ── Logging ──
-    [ConfigOption("Logging:LogConsole")]
-    public bool LogConsole { get; set; } = true;
-    [ConfigOption("Logging:LogConsoleEvent")]
-    public bool LogConsoleEvent { get; set; } = false;
-    [ConfigOption("Logging:LogPoller")]
-    public bool LogPoller { get; set; } = true;
+    [ConfigOption("Logging:LogToConsole")]
+    public List<string> LogToConsole { get; set; } = ["*"];   
+    [ConfigOption("Logging:LogToEvents")]
+    public List<string> LogToEvents { get; set; } = ["async","backend","circuitbreaker","custom","exception","profile","proxy","enqueued","auth"];
+    [ConfigOption("Logging:LogToAI")]
+    public List<string> LogToAI { get; set; } = ["*"];
+
+    public bool LogProbes { get; set; } = true;
     [ConfigOption("Logging:LogHeaders")]
     public List<string> LogHeaders { get; set; } = [];
-    [ConfigOption("Logging:LogProbes")]
-    public bool LogProbes { get; set; } = true;
     [ConfigOption("Logging:LogAllRequestHeaders")]
     public bool LogAllRequestHeaders { get; set; } = false;
     [ConfigOption("Logging:LogAllRequestHeadersExcept")]

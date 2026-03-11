@@ -117,6 +117,7 @@ public class Program
         // Initialize ProxyEvent with BackendOptions
 
         ProxyEvent.Initialize(options, eventClient, telemetryClient);
+        ProxyEvent.SubscribeToConfigChanges(serviceProvider.GetRequiredService<ConfigChangeNotifier>());
 
         // Initialize HostConfig with all required dependencies including service provider for circuit breaker DI
         HostConfig.Initialize(backendTokenProvider, startupLogger, serviceProvider);
@@ -125,6 +126,7 @@ public class Program
         var configuration = serviceProvider.GetService<IConfiguration>();
         var hostCollection = serviceProvider.GetRequiredService<IHostHealthCollection>();
         ConfigBootstrapper.RegisterBackends(options.Value, configuration, null, hostCollection);
+
 
         try
         {
@@ -158,6 +160,18 @@ public class Program
         {
             startupLogger.LogError(ex, "[ERROR] ✗ ServiceBus initialization failed");
         }
+
+        // Log confirmation once all IHostedService.StartAsync calls have completed.
+        // This fires after the framework has started every hosted service (including event loggers).
+        var appLifetime = serviceProvider.GetRequiredService<IHostApplicationLifetime>();
+        appLifetime.ApplicationStarted.Register(() =>
+        {
+            var composite = serviceProvider.GetRequiredService<CompositeEventClient>();
+            ConfigBootstrapper.OutputEnvVars(options.Value);
+
+            startupLogger.LogInformation("[INIT] ✓ All hosted services started — active event loggers: {Loggers}",
+                composite.ClientType);
+        });
 
         try
         {

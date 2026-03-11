@@ -66,13 +66,18 @@ public static class ConfigBootstrapper
     var backendOptions = ConfigParser.ParseOptions(effectiveEnvironment);
     ConfigureHttpClientFromOptions(effectiveEnvironment, backendOptions);
 
-    OutputEnvVars(backendOptions);
-
     return backendOptions;
   }
 
-  private static void OutputEnvVars(BackendOptions backendOptions)
+  public static void OutputEnvVars(BackendOptions backendOptions)
   {
+
+    ProxyEvent pe = new()
+    {
+      Type = EventType.CustomEvent,
+      ["Message"] = "Configuration loaded",
+    };
+
     // Build Warm / Cold / Hidden buckets from [ConfigOption] attributes
     var warm = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     var cold = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -94,7 +99,12 @@ public static class ConfigBootstrapper
         _ => hidden
       };
       bucket[$"{attr.Mode}:{attr.KeyPath}"] = display;
+      pe[attr.KeyPath]= display;  
     }
+
+    Console.WriteLine("Writing to disk");
+
+    pe.SendEvent();
 
     // generate a JSON representation for logging
     var all = warm.Concat(cold).Concat(hidden).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
