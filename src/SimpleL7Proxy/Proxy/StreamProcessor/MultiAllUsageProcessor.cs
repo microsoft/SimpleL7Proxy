@@ -13,6 +13,10 @@ namespace SimpleL7Proxy.StreamProcessor
     /// </summary>
     public class MultiLineAllUsageProcessor : JsonStreamProcessor
     {
+        // Pre-compiled regex for extracting usage/usageMetadata JSON blocks from streaming responses
+        private static readonly Regex s_usageJsonRegex = new(
+            @"""(?:[uU]sage|[uU]sage[mM]etadata)"":\s*(\{(?:[^{}]|(?<open>\{)|(?<-open>\}))*(?(open)(?!))\})",
+            RegexOptions.Singleline | RegexOptions.Compiled);
 
         protected override int MaxLines => 100;
         protected override int MinLineLength => 1;
@@ -36,9 +40,7 @@ namespace SimpleL7Proxy.StreamProcessor
             int startIndex = Array.IndexOf(lastLines, primaryLine);
             var input = string.Join(" ", lastLines[startIndex..]);
 
-            // Use a regex to extract the json for either usage or usageMetadata.
-            var jsonPattern = @"""(?:[uU]sage|[uU]sage[mM]etadata)"":\s*(\{(?:[^{}]|(?<open>\{)|(?<-open>\}))*\}(?(open)(?!)))";
-            var match = Regex.Match(input, jsonPattern, RegexOptions.Singleline);
+            var match = s_usageJsonRegex.Match(input);
             var jsonBlock = String.Empty;
 
             if (match.Success)
