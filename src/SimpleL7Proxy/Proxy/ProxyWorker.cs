@@ -1590,7 +1590,7 @@ public class ProxyWorker
     private async Task StreamResponseAsync(RequestData request, ProxyData pr)
     {
         ProxyEvent requestSummary = request.EventData;
-        string processWith = pr.StreamingProcessor ?? "DefaultStream";
+        string processWith = pr.StreamingProcessor ?? StreamProcessorFactory.DEFAULT_PROCESSOR;
         var proxyResponse = pr.BodyResponseMessage;
 
         if (proxyResponse == null)
@@ -1607,7 +1607,8 @@ public class ProxyWorker
             _logger.LogDebug("Resolved processor: {ProcessorName} for request {Guid}", resolvedProcessor, request.Guid);
 
             // Route response to appropriate destination based on execution mode
-            Stream? destination = null;
+            Stream? destination;
+            bool needsFlush = false;
             string destinationType;
 
             if (request.IsBackgroundCheck && request.asyncWorker != null)
@@ -1619,6 +1620,7 @@ public class ProxyWorker
             else if (request.runAsync && request.asyncWorker != null)
             {
                 destinationType = "async blob";
+                needsFlush = true;                      // QueuedBlobStream requires FlushAsync to enqueue data
                 destination = await request.asyncWorker.GetOrCreateDataStreamAsync().ConfigureAwait(false);
             }
             else if (request.OutputStream != null)
@@ -1629,26 +1631,18 @@ public class ProxyWorker
             else
             {
                 _logger.LogError("OutputStream is null for request {Guid}, cannot stream response", request.Guid);
-                destinationType = "none";
+                return;
             }
 
-            if (destination != null && proxyResponse.Content != null)
+            if (proxyResponse.Content != null)
             {
                 _logger.LogDebug("Streaming to {Destination} for request {Guid}", destinationType, request.Guid);
                 await processor.CopyToAsync(proxyResponse.Content, destination).ConfigureAwait(false);
-                
-                // Explicit flush for async blob streams - QueuedBlobStream requires FlushAsync to enqueue the data
-                if (destinationType == "async blob")
+
+                if (needsFlush)
                 {
-                    //_logger.LogInformation("[BLOB-TRACE] StreamResponseAsync | Action: FlushAfterCopy | Guid: {Guid}", request.Guid);
                     await destination.FlushAsync().ConfigureAwait(false);
-                    //_logger.LogInformation("[BLOB-TRACE] StreamResponseAsync | Action: FlushComplete | Guid: {Guid}", request.Guid);
                 }
-            }
-            else
-            {
-                //_logger.LogInformation("[BLOB-TRACE] StreamResponseAsync | Action: NoData | Guid: {Guid} | Destination: {HasDestination} | Content: {HasContent}", 
-                    // request.Guid, destination != null, proxyResponse.Content != null);
             }
         }
         catch (HttpListenerException ex)
