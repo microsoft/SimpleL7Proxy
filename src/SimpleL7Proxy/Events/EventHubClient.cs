@@ -17,6 +17,7 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
     private bool _disposed = false;
 
     private readonly EventHubConfig? _config;
+    private readonly DefaultCredential _defaultCredential;
     private EventHubProducerClient? _producerClient;
     private EventDataBatch? _batchData;
     private readonly ILogger<EventHubClient> _logger;
@@ -33,9 +34,13 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
     private static int entryCount = 0;
     //public EventHubClient(string connectionString, string eventHubName, ILogger<EventHubClient>? logger = null)
 
-    public EventHubClient(CompositeEventClient composite, IOptions<BackendOptions> options, ILogger<EventHubClient> logger)
+    public EventHubClient(CompositeEventClient composite, 
+        IOptions<BackendOptions> options, 
+        ILogger<EventHubClient> logger,
+        DefaultCredential defaultCredential)
     {
         var BackendOptions = options?.Value ?? throw new ArgumentNullException(nameof(options));
+        _defaultCredential = defaultCredential ?? throw new ArgumentNullException(nameof(defaultCredential));
 
         try {
             _config = new EventHubConfig(BackendOptions);
@@ -45,6 +50,8 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
             logger.LogError(ex, "Failed to initialize EventHubConfig. EventHubClient will be disabled.");
             _config = null;
         }
+
+
         _composite = composite ?? throw new ArgumentNullException(nameof(composite));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         // All initialization happens in StartAsync
@@ -70,13 +77,15 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
             }
             else if (!string.IsNullOrEmpty(_config.EventHubNamespace))
             {
+                
+                var credential = _defaultCredential.Credential;
 
                 // NOTE:  this breaks in gov cloud because of the namespace suffix.. needs a better solution
                 var fullyQualifiedNamespace = _config.EventHubNamespace;
                 if (!fullyQualifiedNamespace.EndsWith(".servicebus.windows.net"))
                     fullyQualifiedNamespace = $"{_config.EventHubNamespace}.servicebus.windows.net";
             
-                _producerClient = new EventHubProducerClient(fullyQualifiedNamespace, _config.EventHubName, new Azure.Identity.DefaultAzureCredential());
+                _producerClient = new EventHubProducerClient(fullyQualifiedNamespace, _config.EventHubName, credential);
             }
             
             _batchData = await _producerClient!.CreateBatchAsync(cts.Token).ConfigureAwait(false);

@@ -1,4 +1,3 @@
-using Azure.Identity;
 using Azure.Storage.Blobs;
 using Microsoft.Extensions.Logging;
 using System.Text;
@@ -11,13 +10,16 @@ namespace EventHubToStorage;
 public class BlobWriter
 {
     private readonly BlobServiceClient _blobServiceClient;
+    private readonly DefaultCredential _defaultCredential;
+
     private readonly ILogger? _logger;
 
     public bool UsesMI { get; set; }
 
-    private BlobWriter(BlobServiceClient blobServiceClient, ILogger? logger = null)
+    private BlobWriter(BlobServiceClient blobServiceClient, DefaultCredential defaultCredential, ILogger? logger = null)
     {
         _blobServiceClient = blobServiceClient;
+        _defaultCredential = defaultCredential;
         _logger = logger;
     }
 
@@ -29,7 +31,7 @@ public class BlobWriter
         try
         {
             var blobServiceUri = new Uri(storageAccountUri);
-            var credential = new DefaultAzureCredential();
+            var credential = _defaultCredential.Credential;
             var blobServiceClient = new BlobServiceClient(blobServiceUri, credential);
 
             var blobWriter = new BlobWriter(blobServiceClient, logger)

@@ -60,16 +60,21 @@ public class Program
         });
 
         var startupLogger = startupLoggerFactory.CreateLogger<Program>();
-        var appConfigBootstrap = new AppConfigBootstrap(startupLoggerFactory.CreateLogger<AppConfigBootstrap>());
-
-        // Kick off App Configuration download early so values are ready
-        // by the time LoadBackendOptions reads environment variables.
+        BackendOptions defaultBackendOptions = new BackendOptions
+        {
+            // Bootstrap the bootstrapper !!!!
+            // We can't even connect to App Config unless we know this
+            UseOAuthGov = string.Equals(
+                Environment.GetEnvironmentVariable("UseOAuthGov"), "true", StringComparison.OrdinalIgnoreCase)
+        };
+        DefaultCredential defaultCredential = new DefaultCredential(defaultBackendOptions);
+        var appConfigBootstrap = new AppConfigBootstrap(startupLoggerFactory.CreateLogger<AppConfigBootstrap>(), defaultBackendOptions, defaultCredential);
         appConfigBootstrap.Start();
 
         var hostBuilder = Host.CreateDefaultBuilder(args)
             .ConfigureAppConfiguration((hostContext, config) =>
             {
-                config.AddAzureAppConfigurationWithWarmSupport(startupLogger);
+                config.AddAzureAppConfigurationWithWarmSupport(defaultCredential, startupLogger);
             })
             .ConfigureLogging(logging =>
             {
@@ -83,7 +88,7 @@ public class Program
             .ConfigureServices((hostContext, services) =>
             {
                 ConfigureApplicationInsights(services);
-                ConfigureDependencyInjection(services, startupLogger, appConfigBootstrap);
+                ConfigureDependencyInjection(services, startupLogger, appConfigBootstrap, defaultCredential);
             });
 
 
@@ -229,9 +234,10 @@ public class Program
         }
     }
 
-    private static void ConfigureDependencyInjection(IServiceCollection services, ILogger startupLogger, AppConfigBootstrap appConfigBootstrap)
+    private static void ConfigureDependencyInjection(IServiceCollection services, ILogger startupLogger, AppConfigBootstrap appConfigBootstrap, DefaultCredential defaultCredential)
     {
         services.AddSingleton(appConfigBootstrap);
+        services.AddSingleton(defaultCredential);
         TryAddCompositeEventClient(services);
       
         // register the backend options

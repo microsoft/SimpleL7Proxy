@@ -2,9 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure.Core;
-using Azure.Identity;
-using Microsoft.ApplicationInsights;
-using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using SimpleL7Proxy.Config;
@@ -19,14 +16,14 @@ namespace SimpleL7Proxy.Backend
         private readonly HashSet<string> _audiences = new();
         private readonly Dictionary<string, Task> _refreshTasks = new();
         private static CancellationToken _cancellationToken = CancellationToken.None;
-        private readonly BackendOptions _options;
+        private readonly DefaultCredential _defaultCredential;
         private readonly ILogger<BackendTokenProvider> _logger;
 
         public BackendTokenProvider(
-            IOptions<BackendOptions> backendOptions,
+            DefaultCredential defaultCredential,
             ILogger<BackendTokenProvider> logger)
         {
-            _options = backendOptions.Value;
+            _defaultCredential = defaultCredential;
             _logger = logger;
         }
 
@@ -78,12 +75,7 @@ namespace SimpleL7Proxy.Backend
         private void StartAudienceRefreshTask(string audience)
         {
             if (_refreshTasks.ContainsKey(audience)) return;
-            var options = new DefaultAzureCredentialOptions();
-            if (_options.UseOAuthGov == true)
-            {
-                options.AuthorityHost = AzureAuthorityHosts.AzureGovernment;
-            }
-            var credential = new DefaultAzureCredential(options);
+            var credential = _defaultCredential.Credential;
             var refreshTask = Task.Run(async () =>
             {
                 try

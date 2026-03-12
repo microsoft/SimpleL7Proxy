@@ -1,6 +1,5 @@
 using System.Reflection.Metadata.Ecma335;
 using Azure.Storage.Blobs;
-using Azure.Identity;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -18,15 +17,18 @@ namespace SimpleL7Proxy.BlobStorage
 
     public class BlobWriterFactory : IBlobWriterFactory
     {
+        private readonly DefaultCredential _defaultCredential;
         private readonly IOptionsMonitor<BackendOptions> _optionsMonitor;
         private readonly ILogger<BlobWriter> _logger;
         private readonly ILogger<NullBlobWriter> _nullBlobWriterLogger;
 
         public BlobWriterFactory(
+            DefaultCredential defaultCredential,
             IOptionsMonitor<BackendOptions> optionsMonitor,
             ILogger<BlobWriter> logger,
             ILogger<NullBlobWriter> nullBlobWriterLogger)
         {
+            _defaultCredential = defaultCredential;
             _optionsMonitor = optionsMonitor;
             _logger = logger;
             _nullBlobWriterLogger = nullBlobWriterLogger;
@@ -86,7 +88,7 @@ namespace SimpleL7Proxy.BlobStorage
                 blobServiceUri = new Uri(storageAccountUri);
 
                 // Use DefaultAzureCredential for managed identity
-                var credential = new DefaultAzureCredential();
+                var credential = _defaultCredential.Credential;
                 var blobServiceClient = new BlobServiceClient(blobServiceUri, credential);
                 var blobWriter = new BlobWriter(blobServiceClient, _logger);
                 blobWriter.UsesMI = true; // Set on BlobWriter, not BlobServiceClient

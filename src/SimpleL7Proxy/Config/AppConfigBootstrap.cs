@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Logging;
 using Azure.Data.AppConfiguration;
-using Azure.Identity;
 
 namespace SimpleL7Proxy.Config;
 
@@ -20,10 +19,15 @@ public class AppConfigBootstrap
     private readonly string? _endpoint;
     private readonly string? _connectionString;
     private readonly string? _labelFilter;
+    private readonly BackendOptions _defaultOptions;
+    private readonly DefaultCredential _defaultCredential;
 
-    public AppConfigBootstrap(ILogger<AppConfigBootstrap> logger)
+    public AppConfigBootstrap(ILogger<AppConfigBootstrap> logger, BackendOptions backendOptions, DefaultCredential defaultCredential)
     {
+
         _logger = logger;
+        _defaultOptions = backendOptions;
+        _defaultCredential = defaultCredential;
         _endpoint = Environment.GetEnvironmentVariable("AZURE_APPCONFIG_ENDPOINT");
         _connectionString = Environment.GetEnvironmentVariable("AZURE_APPCONFIG_CONNECTION_STRING");
 
@@ -86,8 +90,10 @@ public class AppConfigBootstrap
     {
         try
         {
+            var credential = _defaultCredential.Credential;
+
             ConfigurationClient client = !string.IsNullOrEmpty(_endpoint)
-                ? new ConfigurationClient(new Uri(_endpoint), new DefaultAzureCredential())
+                ? new ConfigurationClient(new Uri(_endpoint), credential)
                 : new ConfigurationClient(_connectionString!);
 
             // Build a lookup from App Config key path → env var name using the descriptors.
