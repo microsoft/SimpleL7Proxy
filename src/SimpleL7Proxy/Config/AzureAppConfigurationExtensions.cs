@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Configuration.AzureAppConfiguration;
 using Microsoft.Extensions.Logging;
-using Azure.Identity;
 
 using Microsoft.Extensions.DependencyInjection;
 

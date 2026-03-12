@@ -331,6 +331,7 @@ public class AzureAppConfigurationRefreshService : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "[CONFIG] Configuration refresh failed - will retry");
+                Console.WriteLine(ex.StackTrace);
             }
         }
 

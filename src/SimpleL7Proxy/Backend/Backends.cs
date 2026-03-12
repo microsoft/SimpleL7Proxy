@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Options;
 using System.Text;
-using Azure.Identity;
 using Azure.Core;
 using System.Text.Json;
 using Microsoft.ApplicationInsights;
