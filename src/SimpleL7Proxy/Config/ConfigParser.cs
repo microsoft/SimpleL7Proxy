@@ -85,6 +85,7 @@ public static class ConfigParser
         ("LOG_LEVEL", "LogLevel"),
         ("APPINSIGHTS_CONNECTIONSTRING", "AppInsightsConnectionString"),
         ("EVENT_LOGGERS", "EventLoggers"),
+        ("EVENT_HEADERS", "EventHeaders"),
         ("LOGTOFILE", "LogToFile"),
         ("LOGFILE_NAME", "LogFileName"),
 

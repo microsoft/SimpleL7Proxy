@@ -238,96 +238,9 @@ public class Program
         var backendOptions = ConfigBootstrapper.CreateBackendOptions(startupLogger, appConfigBootstrap);
         services.AddBackendHostConfiguration(startupLogger, backendOptions);
 
-        // EVENT_LOGGERS is a comma-separated list of event logger backends to enable.
-        // Supported values: "file", "eventhub"
-        // Example: EVENT_LOGGERS="file,eventhub" enables both simultaneously.
-        // Falls back to legacy LOGTOFILE behaviour when EVENT_LOGGERS is not set.
-
-        var eventLoggersRaw = backendOptions.EventLoggers;
-        HashSet<string> enabledLoggers;
-
-        if (!string.IsNullOrWhiteSpace(eventLoggersRaw))
-        {
-            enabledLoggers = new HashSet<string>(
-                eventLoggersRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
-                StringComparer.OrdinalIgnoreCase);
-            Console.WriteLine($"[CONFIG] EVENT_LOGGERS: {string.Join(", ", enabledLoggers)}");
-        }
-        else
-        {
-            // Legacy fallback: LOGTOFILE=true → file, otherwise → eventhub
-            enabledLoggers = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
-                backendOptions.LogToFile ? "file" : "eventhub"
-            };
-            Console.WriteLine($"[CONFIG] EVENT_LOGGERS not set, falling back to legacy: {string.Join(", ", enabledLoggers)}");
-        }
-
-        // Load common data class
-        var eventdataclass = backendOptions.EventData;
-        if (!string.IsNullOrEmpty(eventdataclass))
-        {
-            var dataType = typeof(Program).Assembly.GetType(eventdataclass, throwOnError: false);
-            if (dataType == null)
-            {
-                startupLogger.LogWarning("[CONFIG] Event data type '{EventDataType}' not found. aborting.", eventdataclass);
-                throw new Exception($"Event data type '{eventdataclass}' not found");
-            }
-
-            if (!typeof(ICommonEventData).IsAssignableFrom(dataType))
-            {
-                startupLogger.LogWarning("[CONFIG] Event data type '{EventDataType}' does not implement ICommonEventData. Aborting.", eventdataclass);
-                throw new Exception($"Event data type '{eventdataclass}' does not implement ICommonEventData");
-            }
-
-            // Register as concrete singleton so DI can resolve constructor dependencies
-            services.AddSingleton(dataType);
-            services.AddSingleton(typeof(ICommonEventData), svc => svc.GetRequiredService(dataType));
-        }
-
-        // Ensure CompositeEventClient is registered before any individual clients
-        foreach ( var loggername in enabledLoggers)
-        {
-            if (loggername == "file")
-            {
-                services.AddSingleton<LogFileEventClient>(svc =>
-                    new LogFileEventClient(backendOptions.LogFileName, svc.GetRequiredService<CompositeEventClient>(), svc.GetRequiredService<IOptions<BackendOptions>>()));
-                services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService<LogFileEventClient>());
-            }
-            else if ( loggername == "eventhub")
-            {
-                // EventHubClient reads its own config from env vars (EVENTHUB_CONNECTIONSTRING, EVENTHUB_NAME, etc.)
-                services.AddSingleton<EventHubClient>();
-                services.AddSingleton<IHostedService>(svc => svc.GetRequiredService<EventHubClient>());
-            }
-            else {
-                // Reflection fallback: resolve type name within this assembly only (prevents cross-assembly loading)
-                var loggerType = typeof(Program).Assembly.GetType(loggername, throwOnError: false);
-                if (loggerType == null)
-                {
-                    startupLogger.LogWarning("[CONFIG] Event logger type '{LoggerType}' not found. Skipping.", loggername);
-                    continue;
-                }
-                
-                if (!typeof(IEventClient).IsAssignableFrom(loggerType))
-                {
-                    startupLogger.LogWarning("[CONFIG] Event logger type '{LoggerType}' does not implement IEventClient. Skipping.", loggername);
-                    continue;
-                }
-
-                // Register as concrete singleton so DI can resolve constructor dependencies
-                services.AddSingleton(loggerType);
-
-                // If it implements IHostedService, register it so the host calls StartAsync
-                if (typeof(IHostedService).IsAssignableFrom(loggerType))
-                {
-                    services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService(loggerType));
-                }
-
-                startupLogger.LogInformation("[CONFIG] Registered event logger: {LoggerType}", loggername);
-            }
-
-        }
+        // Register event headers and event loggers
+        RegisterEventHeaders(services, startupLogger, backendOptions);
+        RegisterEventLoggers(services, startupLogger, backendOptions, backendOptions.EventLoggers);
 
 
         // Wire up Azure App Configuration warm-refresh service (no-op if AZURE_APPCONFIG_ENDPOINT is not set)
@@ -466,6 +379,104 @@ public class Program
         services.AddHostedService<ProxyWorkerCollection>();
         services.AddTransient(source => new CancellationTokenSource());
         services.AddHostedService<CoordinatedShutdownService>();
+    }
+
+    private static void RegisterEventHeaders(IServiceCollection services, ILogger startupLogger, BackendOptions backendOptions)
+    {
+        var registered = false;
+        var eventdataclass = backendOptions.EventHeaders;
+        try
+        {
+            var dataType = string.IsNullOrEmpty(eventdataclass)
+                ? null
+                : typeof(Program).Assembly.GetType(eventdataclass, throwOnError: false);
+
+            if (dataType != null && typeof(ICommonEventData).IsAssignableFrom(dataType))
+            {
+                var instance = (ICommonEventData)Activator.CreateInstance(dataType, Options.Create(backendOptions))!;
+                services.AddSingleton(dataType, instance);
+                services.AddSingleton<ICommonEventData>(instance);
+                registered = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            startupLogger.LogWarning(ex, "[CONFIG] Failed to register EventHeaders '{EventDataType}'.", eventdataclass);
+        }
+        finally
+        {
+            if (!registered)
+            {
+                startupLogger.LogWarning("[CONFIG] EventHeaders '{EventDataType}' not found or invalid. Falling back to CommonEventHeaders.", eventdataclass);
+                services.AddSingleton<ICommonEventData, CommonEventHeaders>();
+            }
+        }
+    }
+
+    private static void RegisterEventLoggers(IServiceCollection services, ILogger startupLogger, BackendOptions backendOptions, string? eventLoggersRaw)
+    {
+        HashSet<string> enabledLoggers;
+        if (!string.IsNullOrWhiteSpace(eventLoggersRaw))
+        {
+            enabledLoggers = new HashSet<string>(
+                eventLoggersRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                StringComparer.OrdinalIgnoreCase);
+            Console.WriteLine($"[CONFIG] EVENT_LOGGERS: {string.Join(", ", enabledLoggers)}");
+        }
+        else
+        {
+            enabledLoggers = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                backendOptions.LogToFile ? "file" : "eventhub"
+            };
+            Console.WriteLine($"[CONFIG] EVENT_LOGGERS not set, falling back to legacy: {string.Join(", ", enabledLoggers)}");
+        }
+
+        foreach (var loggername in enabledLoggers)
+        {
+            if (loggername == "file")
+            {
+                services.AddSingleton<LogFileEventClient>(svc =>
+                    new LogFileEventClient(backendOptions.LogFileName, svc.GetRequiredService<CompositeEventClient>(), svc.GetRequiredService<IOptions<BackendOptions>>()));
+                services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService<LogFileEventClient>());
+            }
+            else if (loggername == "eventhub")
+            {
+                services.AddSingleton<EventHubClient>();
+                services.AddSingleton<IHostedService>(svc => svc.GetRequiredService<EventHubClient>());
+            }
+            else
+            {
+                try
+                {
+                    var loggerType = typeof(Program).Assembly.GetType(loggername, throwOnError: false);
+                    if (loggerType == null || !typeof(IEventClient).IsAssignableFrom(loggerType))
+                    {
+                        startupLogger.LogWarning("[CONFIG] Event logger type '{LoggerType}' not found or does not implement IEventClient. Skipping.", loggername);
+                        continue;
+                    }
+
+                    var capturedType = loggerType;
+                    services.AddSingleton(capturedType, svc =>
+                    {
+                        var instance = ActivatorUtilities.CreateInstance(svc, capturedType);
+                        startupLogger.LogInformation("[CONFIG] ✓ Instantiated event logger: {LoggerType}", capturedType.Name);
+                        return instance;
+                    });
+
+                    if (typeof(IHostedService).IsAssignableFrom(capturedType))
+                    {
+                        services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService(capturedType));
+                    }
+
+                    startupLogger.LogInformation("[CONFIG] Registered event logger: {LoggerType}", loggername);
+                }
+                catch (Exception ex)
+                {
+                    startupLogger.LogWarning(ex, "[CONFIG] Failed to register event logger '{LoggerType}'. Skipping.", loggername);
+                }
+            }
+        }
     }
 
     /// <summary>

@@ -224,8 +224,8 @@ public class BackendOptions
     [ConfigOption("Logging:EventLoggers", ConfigName = "EVENT_LOGGERS", Mode = ConfigMode.Cold)]
     public string EventLoggers { get; set; } = "file";
 
-    [ConfigOption("Logging:EventData", ConfigName = "EVENT_DATA", Mode = ConfigMode.Cold)]
-    public string EventData { get; set; } = "SimpleL7Proxy.Events.CommonEventData";
+    [ConfigOption("Logging:EventData", ConfigName = "EVENT_HEADERS", Mode = ConfigMode.Cold)]
+    public string EventHeaders { get; set; } = "SimpleL7Proxy.Events.CommonEventHeaders";
 
     [ConfigOption("Logging:LogToFile", ConfigName = "LOGTOFILE", Mode = ConfigMode.Hidden)]
     public bool LogToFile { get; set; } = false;
