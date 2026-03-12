@@ -4,6 +4,11 @@ using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+
+using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.Events;
 
@@ -24,7 +29,8 @@ public class LogFileEventClient : IEventClient, IHostedService
     private readonly CompositeEventClient _composite;
     private static Stream log = null!;
     private static StreamWriter writer = null!;
-    public LogFileEventClient(string filename, CompositeEventClient composite)
+    
+    public LogFileEventClient(string filename, CompositeEventClient composite, IOptions<BackendOptions> options )
     {
         _composite = composite ?? throw new ArgumentNullException(nameof(composite));
         // create file stream to a log file
