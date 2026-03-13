@@ -316,8 +316,9 @@ for entry in "${CONFIG_ENTRIES[@]}"; do
         SOURCE="cs-default"
         # Handle enum defaults like "TypeName.Value" → "Value"
         # Only match Identifier.Identifier (e.g. IterationModeEnum.SinglePass)
-        # Avoid mangling URLs, file paths, or floats that also contain dots
-        if [[ "${VALUE}" =~ ^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        # Require PascalCase first segment (uppercase start) so filenames
+        # like "eventslog.json" are not mistaken for enum qualifiers.
+        if [[ "${VALUE}" =~ ^[A-Z][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$ ]]; then
             VALUE="${VALUE##*.}"
         fi
     fi

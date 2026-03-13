@@ -63,7 +63,7 @@ public class AzureAppConfigurationRefreshService : BackgroundService
         _refreshInterval = TimeSpan.FromSeconds(intervalSeconds);
 
         _logger.LogInformation("[CONFIG] Discovered {Count} warm-decorated BackendOptions properties", _warmDescriptors.Count);
-        _logger.LogInformation("[CONFIG] Warm BackendOptions tracked for in-place update: {WarmConfigs}",
+        _logger.LogDebug("[CONFIG] Warm BackendOptions tracked for in-place update: {WarmConfigs}",
             string.Join(", ", _warmConfigNames.OrderBy(n => n, StringComparer.OrdinalIgnoreCase)));
     }
 
@@ -331,6 +331,7 @@ public class AzureAppConfigurationRefreshService : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "[CONFIG] Configuration refresh failed - will retry");
+                Console.WriteLine(ex.StackTrace);
             }
         }
 

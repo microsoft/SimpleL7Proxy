@@ -36,16 +36,16 @@ public class BackendOptions
     public string LoadBalanceMode { get; set; } = "latency"; // "latency", "roundrobin", "random"
 
     // ── Logging ──
-    [ConfigOption("Logging:LogConsole")]
-    public bool LogConsole { get; set; } = true;
-    [ConfigOption("Logging:LogConsoleEvent")]
-    public bool LogConsoleEvent { get; set; } = false;
-    [ConfigOption("Logging:LogPoller")]
-    public bool LogPoller { get; set; } = true;
+    [ConfigOption("Logging:LogToConsole")]
+    public List<string> LogToConsole { get; set; } = ["*"];   
+    [ConfigOption("Logging:LogToEvents")]
+    public List<string> LogToEvents { get; set; } = ["async","backend","circuitbreaker","custom","exception","profile","proxy","enqueued","auth"];
+    [ConfigOption("Logging:LogToAI")]
+    public List<string> LogToAI { get; set; } = ["*"];
+
+    public bool LogProbes { get; set; } = true;
     [ConfigOption("Logging:LogHeaders")]
     public List<string> LogHeaders { get; set; } = [];
-    [ConfigOption("Logging:LogProbes")]
-    public bool LogProbes { get; set; } = true;
     [ConfigOption("Logging:LogAllRequestHeaders")]
     public bool LogAllRequestHeaders { get; set; } = false;
     [ConfigOption("Logging:LogAllRequestHeadersExcept")]
@@ -134,7 +134,7 @@ public class BackendOptions
     public string OAuthAudience { get; set; } = "";
     [ConfigOption("Security:UseOAuth", Mode = ConfigMode.Cold)]
     public bool UseOAuth { get; set; } = false;
-    [ConfigOption("Security:UseOAuthGov", Mode = ConfigMode.Cold)]
+    [ConfigOption("Security:UseOAuthGov", Mode = ConfigMode.Hidden)]
     public bool UseOAuthGov { get; set; } = false;
 
     // ── Server ──
@@ -142,6 +142,8 @@ public class BackendOptions
     public IterationModeEnum IterationMode { get; set; } = IterationModeEnum.SinglePass;
     [ConfigOption("Server:MaxQueueLength", Mode = ConfigMode.Cold)]
     public int MaxQueueLength { get; set; } = 1000;
+    [ConfigOption("Server:MaxEvents", Mode = ConfigMode.Cold)]
+    public int MaxEvents { get; set; } = 100000;
     [ConfigOption("Server:PollInterval", Mode = ConfigMode.Cold)]
     public int PollInterval { get; set; } = 15000;
     [ConfigOption("Server:PollTimeout", Mode = ConfigMode.Cold)]
@@ -223,6 +225,10 @@ public class BackendOptions
     public string AppInsightsConnectionString { get; set; } = "";
     [ConfigOption("Logging:EventLoggers", ConfigName = "EVENT_LOGGERS", Mode = ConfigMode.Cold)]
     public string EventLoggers { get; set; } = "file";
+
+    [ConfigOption("Logging:EventData", ConfigName = "EVENT_HEADERS", Mode = ConfigMode.Cold)]
+    public string EventHeaders { get; set; } = "SimpleL7Proxy.Events.CommonEventHeaders";
+
     [ConfigOption("Logging:LogToFile", ConfigName = "LOGTOFILE", Mode = ConfigMode.Hidden)]
     public bool LogToFile { get; set; } = false;
     [ConfigOption("Logging:LogFileName", ConfigName = "LOGFILE_NAME", Mode = ConfigMode.Cold)]
@@ -236,7 +242,7 @@ public class BackendOptions
     [ConfigOption("EventHub:Namespace", ConfigName = "EVENTHUB_NAMESPACE", Mode = ConfigMode.Cold)]
     public string EventHubNamespace { get; set; } = "";
     [ConfigOption("EventHub:StartupSeconds", ConfigName = "EVENTHUB_STARTUP_SECONDS", Mode = ConfigMode.Cold)]
-    public int EventHubStartupSeconds { get; set; } = 0;
+    public int EventHubStartupSeconds { get; set; } = 10;
 
     // ── Security ──
     [ConfigOption("Security:IgnoreSSLCert", ConfigName = "IgnoreSSLCert", Mode = ConfigMode.Cold)]

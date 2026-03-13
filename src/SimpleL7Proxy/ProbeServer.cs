@@ -17,6 +17,7 @@ using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Config;
 using Shared.HealthProbe;
 using SimpleL7Proxy.Queue;
+using SimpleL7Proxy.Events;
 
 namespace SimpleL7Proxy;
 
@@ -32,6 +33,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
 
     private static HealthStatusEnum _readinessStatus = HealthStatusEnum.ReadinessZeroHosts;
     private static HealthStatusEnum _startupStatus = HealthStatusEnum.StartupZeroHosts;
+    private static int _activeUndrainedEvents = 0;
 
 
     // Active snapshots published to readers (use Volatile.Read/Write for memory ordering)
@@ -39,6 +41,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
     private Timer? _probeTimer;
     private readonly BackendOptions _backendOptions;
     private HttpClient? _selfCheckClient;
+    private IEventClient? _eventClient;
 
     static readonly byte[] s_okBytes = Encoding.UTF8.GetBytes("OK\n");
     static readonly int s_okLength = s_okBytes.Length; 
@@ -50,12 +53,19 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
     public static HealthStatusEnum StartupStatus = HealthStatusEnum.StartupZeroHosts;
 
     private static int FailedAttempts = 0;
-    public ProbeServer(IBackendService backends, HealthCheckService healthService, ILogger<ProbeServer> logger, IOptions<BackendOptions> backendOptions, ConfigChangeNotifier configChangeNotifier)
+    public ProbeServer(
+        IBackendService backends, 
+        HealthCheckService healthService, 
+        ILogger<ProbeServer> logger, 
+        IOptions<BackendOptions> backendOptions, 
+        ConfigChangeNotifier configChangeNotifier,
+        IEventClient eventClient)
     {
         _backends = backends ?? throw new ArgumentNullException(nameof(backends));
         _healthService = healthService ?? throw new ArgumentNullException(nameof(healthService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _backendOptions = backendOptions?.Value ?? throw new ArgumentNullException(nameof(backendOptions));
+        _eventClient = eventClient ?? throw new ArgumentNullException(nameof(eventClient));
 
         // Subscribe for HealthProbeSidecar changes (HealthProbeSidecarEnabled & Url are parsed from it)
         configChangeNotifier.Subscribe(this, options => options.HealthProbeSidecar);
@@ -90,6 +100,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
         _probeTimer = new Timer(_ =>
         {
             _startupStatus = _readinessStatus = _healthService.GetStatus();
+            _activeUndrainedEvents = _eventClient?.Count ?? 0;
 
             // Push to sidecar if enabled (fire-and-forget async to avoid blocking threadpool)
             var client = _selfCheckClient;
@@ -143,6 +154,9 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
         }
     }
 
+    public int EventCount => _activeUndrainedEvents;
+
+    // TODO: no need for stopwatch any longer
     public async Task LivenessResponseAsync(HttpListenerContext lc)
     {
         // Liveness probe check - use pre-allocated objects

@@ -210,20 +210,22 @@ public static class ConfigOptions
         Dictionary<string, string> snapshot,
         ILogger? logger = null)
     {
-        var changes = new List<ConfigChange>();
-        var parsedValues = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        var changeList = new List<ConfigChange>();
+        var updates = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
         var hostChanges = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var defaultTarget = new BackendOptions();
         var env = new Dictionary<string, string>(1, StringComparer.OrdinalIgnoreCase);
 
+        // iterate over the configuration snapshot values to detect changes compared to the live options
         foreach (var kvp in snapshot)
         {
-            var snapshotKey = kvp.Key["Warm:".Length..];
             var rawValue = kvp.Value;
 
             if (string.IsNullOrEmpty(rawValue))
                 continue;
 
+            // we only care about warm changes with a "Warm:" prefix
+            var snapshotKey = kvp.Key["Warm:".Length..];
             if (snapshotKey.StartsWith("Host") || snapshotKey.StartsWith("Probe") || snapshotKey.StartsWith("IP"))
             {
                 // skip Host/Probe/IP entries which are used for dynamic host discovery and not mapped to BackendOptions properties
@@ -231,6 +233,7 @@ public static class ConfigOptions
                 continue;
             }
 
+            // filter out the keys we dont care about
             if (!_warmDescriptorsByKeyPath.Value.TryGetValue(snapshotKey, out var descriptor)
                 && !_warmDescriptorsByConfigName.Value.TryGetValue(snapshotKey, out descriptor))
                 continue;
@@ -242,31 +245,30 @@ public static class ConfigOptions
 
             var currentValue = field.GetValue(liveOptions);
 
-            object? newValue;
-            if (rawValue == DefaultPlaceholder)
-            {
-                newValue = field.GetValue(defaultTarget);
-            }
-            else
-            {
-                env.Clear();
-                env[configName] = rawValue;
+            // ApplyFieldFromEnv handles DefaultPlaceholder ("-") internally —
+            // it treats it as absent and falls back to the default value.
+            // Use a single-entry dict because snapshot keys are "Warm:KeyPath"
+            // but ApplyFieldFromEnv looks up by configName (e.g. "DependancyHeaders").
+            env.Clear();
+            env[configName] = rawValue;
 
-                ConfigParser.ApplyFieldFromEnv(
-                    env,
-                    defaultTarget,
-                    liveOptions,
-                    configName,
-                    field.Name);
+            defaultTarget.ApplyFieldFromEnv(
+                env,
+                liveOptions,
+                configName,
+                field.Name);
 
-                newValue = field.GetValue(defaultTarget);
-            }
+            var newValue = field.GetValue(defaultTarget);
 
-            if (Equals(currentValue, newValue))
+            if (DeepEquals(currentValue, newValue))
                 continue;
 
-            parsedValues[configName] = newValue;
-            changes.Add(new ConfigChange
+            // // debug outout .. show all three:   new config, old value amd new parsed value
+            // logger?.LogInformation("[CONFIG] Detected change for {Property}: {Old} → {New} (raw: {Raw})",
+            //     descriptor.ConfigName, FormatValue(currentValue), FormatValue(newValue), rawValue);
+
+            updates[configName] = newValue;
+            changeList.Add(new ConfigChange
             {
                 PropertyName = configName,
                 KeyPath = descriptor.Attribute.KeyPath,
@@ -275,7 +277,48 @@ public static class ConfigOptions
             });
         }
 
-        return (changes, parsedValues, hostChanges);
+        return (changeList, updates, hostChanges);
+    }
+
+    /// <summary>
+    /// Formats a value for logging, expanding collections into readable strings.
+    /// </summary>
+    private static string FormatValue(object? rawValue)
+    {
+        if (rawValue == null) return "";
+        return rawValue switch
+        {
+            string s => s,
+            int[] arr => string.Join(", ", arr),
+            IEnumerable<string> list => string.Join(", ", list),
+            IEnumerable<int> list => string.Join(", ", list),
+            IDictionary<string, string> dict => string.Join(", ", dict.Select(kvp => $"{kvp.Key}={kvp.Value}")),
+            IDictionary<int, int> dict => string.Join(", ", dict.Select(kvp => $"{kvp.Key}:{kvp.Value}")),
+            _ => rawValue.ToString() ?? ""
+        };
+    }
+
+    /// <summary>
+    /// Deep-compares two values, handling collections (List, array, Dictionary)
+    /// that would otherwise fail reference-equality checks via <see cref="object.Equals(object?, object?)"/>.
+    /// </summary>
+    private static bool DeepEquals(object? a, object? b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+        if (a.GetType() != b.GetType()) return false;
+
+        return (a, b) switch
+        {
+            (int[] la, int[] lb) => la.SequenceEqual(lb),
+            (IList<string> la, IList<string> lb) => la.SequenceEqual(lb),
+            (IList<int> la, IList<int> lb) => la.SequenceEqual(lb),
+            (IDictionary<string, string> da, IDictionary<string, string> db) =>
+                da.Count == db.Count && da.All(kvp => db.TryGetValue(kvp.Key, out var v) && v == kvp.Value),
+            (IDictionary<int, int> da, IDictionary<int, int> db) =>
+                da.Count == db.Count && da.All(kvp => db.TryGetValue(kvp.Key, out var v) && v == kvp.Value),
+            _ => Equals(a, b)
+        };
     }
 
     private static IReadOnlyList<ConfigOptionDescriptor> DiscoverDescriptors()

@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Configuration.AzureAppConfiguration;
 using Microsoft.Extensions.Logging;
-using Azure.Identity;
 
 using Microsoft.Extensions.DependencyInjection;
 
@@ -63,6 +62,7 @@ public static class AzureAppConfigurationExtensions
     /// </summary>
     public static IConfigurationBuilder AddAzureAppConfigurationWithWarmSupport(
         this IConfigurationBuilder builder,
+        DefaultCredential defaultCredential,
         ILogger? logger = null)
     {
         var endpoint = Environment.GetEnvironmentVariable("AZURE_APPCONFIG_ENDPOINT");
@@ -89,7 +89,9 @@ public static class AzureAppConfigurationExtensions
         {
             if (!string.IsNullOrEmpty(endpoint))
             {
-                options.Connect(new Uri(endpoint), new DefaultAzureCredential());
+                var credential = defaultCredential.Credential;
+
+                options.Connect(new Uri(endpoint), credential);
                 logger?.LogInformation("[CONFIG] Connecting to Azure App Configuration via Managed Identity: {Endpoint}", endpoint);
             }
             else

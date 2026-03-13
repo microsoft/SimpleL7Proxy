@@ -27,8 +27,8 @@ public sealed class StreamProcessorFactory
         };
 
     // Constants for processor selection logic
-    private const string DEFAULT_PROCESSOR = "Default";
-    private const string STREAM_PROCESSOR = "DefaultStream";
+    public const string DEFAULT_PROCESSOR = "DefaultStream";
+    public const string STREAM_PROCESSOR = "DefaultStream";
     private static readonly string[] PROCESSOR_SUFFIXES = ["Processor", "Parser"];
     private const string TOKEN_PROCESSOR_HEADER = "TOKENPROCESSOR";
     private const string EVENT_STREAM_MEDIA = "text/event-stream";
@@ -79,11 +79,15 @@ public sealed class StreamProcessorFactory
 
     /// <summary>
     /// Gets a stream processor instance by name with fallback to default.
-    /// Optimized for performance - uses singleton for default processor to reduce allocations.
+    /// Returns a pre-allocated singleton for "DefaultStream" (stateless, no allocation).
+    /// Creates a new instance per call for all other processors (OpenAI, AllUsage,
+    /// MultiLineAllUsage, AllUsage-2) since they may hold per-request state.
+    /// Falls back to the default processor if the requested name is unknown or construction fails.
     /// </summary>
     /// <param name="processorName">The name of the processor to retrieve</param>
-    /// <param name="resolvedProcessorName">The actual processor name that was used (after fallback)</param>
-    /// <returns>An instance of the requested stream processor</returns>
+    /// <param name="resolvedProcessorName">The actual processor name that was used (may differ from
+    /// <paramref name="processorName"/> if fallback occurred)</param>
+    /// <returns>A singleton or new instance of the requested stream processor</returns>
     public IStreamProcessor GetStreamProcessor(string processorName, out string resolvedProcessorName)
     {
         if (!ProcessorFactories.TryGetValue(processorName, out var factory))

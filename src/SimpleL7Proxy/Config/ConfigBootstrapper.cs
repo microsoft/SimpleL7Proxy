@@ -1,4 +1,3 @@
-using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.Extensibility;
 using Microsoft.ApplicationInsights.WorkerService;
 using Microsoft.Extensions.Configuration;
@@ -29,7 +28,6 @@ public static class ConfigBootstrapper
 {
   private static ILogger? _logger;
   static Dictionary<string, string> EnvVars = new Dictionary<string, string>();
-  private static readonly BackendOptions s_defaults = new();
 
 
   public static BackendOptions CreateBackendOptions(ILogger logger, AppConfigBootstrap appConfigBootstrap)
@@ -53,9 +51,12 @@ public static class ConfigBootstrapper
     {
       foreach (var kvp in appConfigSettings)
       {
-        // strip  ["  and  "] from keys and values if present to support both raw and JSON-style formats
-        string key = kvp.Key.Trim().TrimStart('[').TrimEnd(']').TrimStart('"').TrimEnd('"');
-        string value = kvp.Value.Trim().TrimStart('[').TrimEnd(']').TrimStart('"').TrimEnd('"');
+        // Keys from AppConfigBootstrap are already plain config names (e.g. "DependancyHeaders").
+        // Values may be JSON-style arrays like ["a","b"] — leave them intact;
+        // downstream parsers (ToListOfString, ReadEnvironmentVariableOrDefault) 
+        // already handle bracket/quote stripping correctly.
+        string key = kvp.Key.Trim();
+        string value = kvp.Value.Trim();
         effectiveEnvironment[key] = value;
       }
       _logger?.LogInformation("[BOOTSTRAP] Applied {Count} App Configuration value(s) to effective environment", appConfigSettings.Count);
@@ -63,13 +64,18 @@ public static class ConfigBootstrapper
     var backendOptions = ConfigParser.ParseOptions(effectiveEnvironment);
     ConfigureHttpClientFromOptions(effectiveEnvironment, backendOptions);
 
-    OutputEnvVars(backendOptions);
-
     return backendOptions;
   }
 
-  private static void OutputEnvVars(BackendOptions backendOptions)
+  public static void OutputEnvVars(BackendOptions backendOptions)
   {
+
+    ProxyEvent pe = new()
+    {
+      Type = EventType.CustomEvent,
+      ["Message"] = "Configuration loaded",
+    };
+
     // Build Warm / Cold / Hidden buckets from [ConfigOption] attributes
     var warm = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     var cold = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -91,12 +97,17 @@ public static class ConfigBootstrapper
         _ => hidden
       };
       bucket[$"{attr.Mode}:{attr.KeyPath}"] = display;
+      pe[attr.KeyPath]= display;  
     }
+
+    Console.WriteLine("Writing to disk");
+
+    pe.SendEvent();
 
     // generate a JSON representation for logging
     var all = warm.Concat(cold).Concat(hidden).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
     string json = System.Text.Json.JsonSerializer.Serialize(all, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-    
+
     // _logger?.LogInformation("Effective configuration:\n{ConfigJson}", json);
 
     static string MaskSensitive(string key, string value)
@@ -344,7 +355,7 @@ public static class ConfigBootstrapper
   }
 
   /// <summary>
-  /// Clears and re-populates <see cref="BackendOptions.Hosts"/> by iterating
+  /// Clears and re-populates the backend host list by iterating
   /// over <c>Host1..N</c>, <c>Probe_path1..N</c>, and <c>IP1..N</c> keys.
   /// <para>
   /// Each parsed <see cref="HostConfig"/> is staged into <paramref name="hostCollection"/>
@@ -374,7 +385,6 @@ public static class ConfigBootstrapper
   public static void RegisterBackends(BackendOptions backendOptions, IConfiguration? configuration = null, Dictionary<string, string>? cfg = null, IHostHealthCollection? hostCollection = null)
   {
     //backendOptions.Client.Timeout = TimeSpan.FromMilliseconds(backendOptions.Timeout);
-    var hostSettingsSnapshot = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
     string? ReadWithFallback(string key)
     {
@@ -384,81 +394,57 @@ public static class ConfigBootstrapper
           ?? configuration?[$"Cold:{key}"]
           ?? configuration?[key];
 
-      if (!string.IsNullOrWhiteSpace(configured))
-      {
-        return configured.Trim();
-      }
-
-      return Environment.GetEnvironmentVariable(key)?.Trim();
+      return !string.IsNullOrWhiteSpace(configured)
+          ? configured.Trim()
+          : Environment.GetEnvironmentVariable(key)?.Trim();
     }
 
-    backendOptions.Hosts.Clear();
+    var hostsFileContent = new StringBuilder();
 
-    int i = 1;
-    StringBuilder sb = new();
-    while (true)
+    foreach (var entry in ReadHostEntries(ReadWithFallback))
     {
-
-      var hostKey = $"Host{i}";
-      var probePathKey = $"Probe_path{i}";
-      var ipKey = $"IP{i}";
-
-
-      var hostname = ReadWithFallback(hostKey);
-      if (string.IsNullOrEmpty(hostname)) break;
-
-      var probePath = ReadWithFallback(probePathKey);
-      var ip = ReadWithFallback(ipKey);
-
-      _logger.LogInformation($"Found a Host: {hostKey}, Probe Path: {probePathKey}, HostName: {hostname}");
-      hostSettingsSnapshot[hostKey] = hostname;
-      if (!string.IsNullOrEmpty(probePath))
-      {
-        hostSettingsSnapshot[probePathKey] = probePath;
-      }
-
-      if (!string.IsNullOrEmpty(ip))
-      {
-        hostSettingsSnapshot[ipKey] = ip;
-      }
-
-      try
-      {
-        _logger?.LogDebug($"Found host {hostname} with probe path {probePath} and IP {ip}");
-
-        // Resolve HostConfig from DI using the factory
-        HostConfig bh = new HostConfig(hostname, probePath, ip, backendOptions.OAuthAudience);
-        backendOptions.Hosts.Add(bh);
-        hostCollection?.StageHost(bh);
-
-        sb.AppendLine($"{ip} {bh.Host}");
-      }
-
-      catch (UriFormatException e)
-      {
-        _logger?.LogError($"Could not add Host{i} with {hostname} : {e.Message}");
-        Console.WriteLine(e.StackTrace);
-      }
-
-      i++;
+        try
+        {
+            var hostConfig = new HostConfig(entry.Hostname, entry.ProbePath, entry.Ip, backendOptions.OAuthAudience);
+            hostCollection?.StageHost(hostConfig);
+            hostsFileContent.AppendLine($"{entry.Ip} {hostConfig.Host}");
+        }
+        catch (UriFormatException e)
+        {
+            _logger?.LogError(e, "Could not add {HostKey} with {Hostname}", entry.HostKey, entry.Hostname);
+        }
     }
 
-    var appendHostsFile = ReadWithFallback("APPENDHOSTSFILE")
-      ?? ReadWithFallback("AppendHostsFile");
+    AppendHostsFileIfEnabled(
+        ReadWithFallback("APPENDHOSTSFILE") ?? ReadWithFallback("AppendHostsFile"),
+        hostsFileContent);
 
-    if (!string.IsNullOrEmpty(appendHostsFile))
-    {
-      hostSettingsSnapshot["APPENDHOSTSFILE"] = appendHostsFile;
-    }
-
-    if (appendHostsFile?.Equals("true", StringComparison.OrdinalIgnoreCase) == true)
-    {
-      _logger?.LogInformation($"Appending {sb} to /etc/hosts");
-      using StreamWriter sw = File.AppendText("/etc/hosts");
-      sw.WriteLine(sb.ToString());
-    }
-
-    // Snapshot is updated only after all Host<n>/Probe_path<n>/IP<n> entries are parsed and applied.
     hostCollection?.Activate();
+  }
+
+
+  private record ParsedHostEntry(string HostKey, string Hostname, string? ProbePath, string? Ip);
+  private static IEnumerable<ParsedHostEntry> ReadHostEntries(Func<string, string?> readWithFallback)
+  {
+    for (int i = 1; ; i++)
+    {
+      var hostname = readWithFallback($"Host{i}");
+      if (string.IsNullOrEmpty(hostname)) yield break;
+
+      yield return new ParsedHostEntry(
+          $"Host{i}",
+          hostname,
+          readWithFallback($"Probe_path{i}"),
+          readWithFallback($"IP{i}")
+      );
+    }
+  }
+  private static void AppendHostsFileIfEnabled(string? flag, StringBuilder hostsContent)
+  {
+    if (flag?.Equals("true", StringComparison.OrdinalIgnoreCase) != true) return;
+
+    _logger?.LogInformation("Appending {HostEntries} to /etc/hosts", hostsContent);
+    using StreamWriter sw = File.AppendText("/etc/hosts");
+    sw.WriteLine(hostsContent.ToString());
   }
 }

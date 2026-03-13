@@ -1,6 +1,18 @@
 # Release Notes #
 
-2.2.10-d1
+2.2.10.2
+
+Proxy:
+* Performance improvements in server for Probe path and header checks
+* Bug fix when checking for change config parameters
+* Spindown old hosts that are no longer in the config
+* De-register old hosts from the global circuit breaker when removed
+* Bug Fix for gov cloud default credential
+* Add MaxEvents to control how many undrained events can be in memory
+* Slow down the incoming requests as we start to use up the event buffer 
+
+
+2.2.10.1
 
 Deployment:
 * Update script to assign the data reader role to the ACA serivce prinicpal for app configuration

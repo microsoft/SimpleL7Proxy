@@ -4,6 +4,11 @@ using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+
+using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.Events;
 
@@ -22,9 +27,11 @@ public class LogFileEventClient : IEventClient, IHostedService
     private static int entryCount = 0;
 
     private readonly CompositeEventClient _composite;
+    private readonly StringBuilder _sb = new();
     private static Stream log = null!;
     private static StreamWriter writer = null!;
-    public LogFileEventClient(string filename, CompositeEventClient composite)
+    
+    public LogFileEventClient(string filename, CompositeEventClient composite, IOptions<BackendOptions> options )
     {
         _composite = composite ?? throw new ArgumentNullException(nameof(composite));
         // create file stream to a log file
@@ -88,8 +95,7 @@ public class LogFileEventClient : IEventClient, IHostedService
         {
             while (true)
             {
-                LogNextBatch(99);
-                if (_logBuffer.Count == 0)
+                if (LogNextBatch(99) == 0)
                     break;
             }
 
@@ -104,22 +110,24 @@ public class LogFileEventClient : IEventClient, IHostedService
     }
 
     // Add the log to the batch up to count number at a time
-    private void LogNextBatch(int count)
+    private int LogNextBatch(int count)
     {
-        int initialCount = count;
+        _sb.Clear();
+        int drained = 0;
 
-        for (int i = 0; i < initialCount; i++)
+        while (drained < count && _logBuffer.TryDequeue(out string? line))
         {
-            if (!_logBuffer.TryDequeue(out string? log))
-            {
-                break;
-            }
-
-            writer.WriteLine(log);
-            Interlocked.Decrement(ref entryCount);
+            _sb.AppendLine(line);
+            drained++;
         }
 
-        writer.Flush();
+        if (drained > 0)
+        {
+            writer.Write(_sb);
+            writer.Flush();
+            Interlocked.Add(ref entryCount, -drained);
+        }
+        return drained;
     }
 
     public async Task StopTimerAsync()

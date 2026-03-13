@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Configuration;
 using SimpleL7Proxy.Backend.Iterators;
 using System.Reflection;
 
@@ -22,6 +21,7 @@ public static class ConfigParser
         ("DefaultPriority", "DefaultPriority"),
         ("DefaultTTLSecs", "DefaultTTLSecs"),
         ("MaxQueueLength", "MaxQueueLength"),
+        ("MaxEvents", "MaxEvents"),
         ("MaxAttempts", "MaxAttempts"),
         ("PollInterval", "PollInterval"),
         ("PollTimeout", "PollTimeout"),
@@ -61,10 +61,6 @@ public static class ConfigParser
         ("AsyncModeEnabled", "AsyncModeEnabled"),
         ("LogAllRequestHeaders", "LogAllRequestHeaders"),
         ("LogAllResponseHeaders", "LogAllResponseHeaders"),
-        ("LogConsole", "LogConsole"),
-        ("LogConsoleEvent", "LogConsoleEvent"),
-        ("LogPoller", "LogPoller"),
-        ("LogProbes", "LogProbes"),
         ("StorageDbEnabled", "StorageDbEnabled"),
         ("UseOAuth", "UseOAuth"),
         ("UseOAuthGov", "UseOAuthGov"),
@@ -77,6 +73,9 @@ public static class ConfigParser
         ("LogAllRequestHeadersExcept", "LogAllRequestHeadersExcept"),
         ("LogAllResponseHeadersExcept", "LogAllResponseHeadersExcept"),
         ("LogHeaders", "LogHeaders"),
+        ("LogToConsole", "LogToConsole"),
+        ("LogToEvents", "LogToEvents"),
+        ("LogToAI", "LogToAI"),
         ("PriorityKeys", "PriorityKeys"),
         ("RequiredHeaders", "RequiredHeaders"),
         ("StripRequestHeaders", "StripRequestHeaders"),
@@ -87,6 +86,7 @@ public static class ConfigParser
         ("LOG_LEVEL", "LogLevel"),
         ("APPINSIGHTS_CONNECTIONSTRING", "AppInsightsConnectionString"),
         ("EVENT_LOGGERS", "EventLoggers"),
+        ("EVENT_HEADERS", "EventHeaders"),
         ("LOGTOFILE", "LogToFile"),
         ("LOGFILE_NAME", "LogFileName"),
 
@@ -117,7 +117,7 @@ public static class ConfigParser
             // 2. Value from environment variable (if set)
             // 3. Value from environment variable alias (if set) 
             // 4. Value from App Configuration (if set)
-            ApplyFieldFromEnv(appCfgVars, opts, defaults, envVarName, propertyName);
+            opts.ApplyFieldFromEnv(appCfgVars, defaults, envVarName, propertyName);
         }
 
         opts.AcceptableStatusCodes = ReadEnvironmentVariableOrDefault(appCfgVars, "AcceptableStatusCodes", defaults.AcceptableStatusCodes);
@@ -140,7 +140,6 @@ public static class ConfigParser
 
         ApplyDerivedSettingsFromConfigNames(
             opts,
-            configuration: null,
             nameof(BackendOptions.HealthProbeSidecar),
             nameof(BackendOptions.LoadBalanceMode),
             nameof(BackendOptions.PriorityKeys),
@@ -280,7 +279,6 @@ public static class ConfigParser
 
     public static void ApplyDerivedSettingsFromConfigNames(
         BackendOptions backendOptions,
-        IConfiguration? configuration,
         params string[] changedConfigNames)
     {
         if (changedConfigNames.Length == 0)
@@ -292,7 +290,6 @@ public static class ConfigParser
             .ToDictionary(d => d.ConfigName, d => d.Property, StringComparer.OrdinalIgnoreCase);
 
         var changedProperties = new List<PropertyInfo>(changedConfigNames.Length);
-        var shouldRefreshBackends = false;
 
         foreach (var changedConfigName in changedConfigNames)
         {
@@ -305,21 +302,11 @@ public static class ConfigParser
             {
                 changedProperties.Add(property);
             }
-
-            if (IsBackendHostConfigName(changedConfigName))
-            {
-                shouldRefreshBackends = true;
-            }
         }
 
         if (changedProperties.Count > 0)
         {
             ApplyDerivedSettings(backendOptions, [.. changedProperties]);
-        }
-
-        if (shouldRefreshBackends)
-        {
-            ConfigBootstrapper.RegisterBackends(backendOptions, configuration, null);
         }
     }
 
@@ -656,7 +643,7 @@ public static class ConfigParser
             trimmed = trimmed[1..^1];
         }
 
-        return [.. trimmed.Split(',').Select(p => p.Trim())];
+        return [.. trimmed.Split(',').Select(p => p.Trim().Trim('"')).Where(p => p.Length > 0)];
     }
 
     private static List<int> ToListOfInt(string s)
@@ -672,7 +659,7 @@ public static class ConfigParser
             trimmed = trimmed[1..^1];
         }
 
-        return trimmed.Split(',').Select(p => int.Parse(p.Trim())).ToList();
+        return trimmed.Split(',').Select(p => int.Parse(p.Trim().Trim('"'))).ToList();
     }
 
     private static Dictionary<string, string> ParseConfigString(string config, Dictionary<string, string[]> keyAliases)

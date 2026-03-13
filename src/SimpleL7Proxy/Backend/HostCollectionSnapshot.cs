@@ -127,7 +127,7 @@ public sealed class HostCollectionSnapshot
       CategorizeHost(host, specificPathHosts, catchAllHosts);
     }
 
-    logger.LogCritical("[CONFIG] Host categorization complete: {SpecificCount} specific hosts, {CatchAllCount} catch-all hosts",
+    logger.LogInformation("[HOST-MANAGER]   Categorized: {SpecificCount} specific-path, {CatchAllCount} catch-all",
         specificPathHosts.Count, catchAllHosts.Count);
 
     return new HostCollectionSnapshot(hosts, specificPathHosts, catchAllHosts, version, logger);
