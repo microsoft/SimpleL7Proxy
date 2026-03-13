@@ -27,9 +27,9 @@
 
 | Setting | Property Name |
 |---------|---------------|
-| Console | `LogConsole` |
-| ConsoleEvent | `LogConsoleEvent` |
-| Poller | `LogPoller` |
+| LogToConsole | `LogToConsole` |
+| LogToEvents | `LogToEvents` |
+| LogToAI | `LogToAI` |
 | Probes | `LogProbes` |
 | Headers | `LogHeaders` |
 | AllRequestHeaders | `LogAllRequestHeaders` |
@@ -140,11 +140,13 @@
 
 ## [COLD] Settings - Require restart but can use rolling update
 
-### Async.BlobStorage
+### Async
 
 | Setting | Property Name |
 |---------|---------------|
-| WorkerCount | `AsyncBlobWorkerCount` |
+| BlobStorageConfig | `AsyncBlobStorageConfig` |
+| SBConfig | `AsyncSBConfig` |
+| BlobWorkerCount | `AsyncBlobWorkerCount` |
 
 ### CircuitBreaker - Configured at startup
 
@@ -188,12 +190,37 @@
 |---------|---------------|
 | Timeout | `Timeout` (HttpClient timeout) |
 
+### Security
+
+| Setting | Property Name |
+|---------|---------------|
+| IgnoreSSLCert | `IgnoreSSLCert` |
+
 ### Server
 
 | Setting | Property Name |
 |---------|---------------|
+| MaxEvents | `MaxEvents` |
 | TerminationGracePeriodSeconds | `TerminationGracePeriodSeconds` |
 | TrackWorkers | `TrackWorkers` |
+
+### Logging - Configured at startup
+
+| Setting | Property Name |
+|---------|---------------|
+| Level | `LogLevel` |
+| EventLoggers | `EventLoggers` |
+| EventHeaders | `EventHeaders` |
+| LogFileName | `LogFileName` |
+
+### EventHub - Configured at startup
+
+| Setting | Property Name |
+|---------|---------------|
+| ConnectionString | `EventHubConnectionString` |
+| Name | `EventHubName` |
+| Namespace | `EventHubNamespace` |
+| StartupSeconds | `EventHubStartupSeconds` |
 
 ---
 
@@ -220,3 +247,6 @@
 | UniqueHeaders | `UniqueUserHeaders` | [WARM] |
 | SuspendedConfigUrl | `SuspendedUserConfigUrl` | [WARM] |
 | UseProfiles | `UseProfiles` | [COLD] |
+| UserConfigRequired | `UserConfigRequired` | [COLD] |
+| UserConfigRefreshIntervalSecs | `UserConfigRefreshIntervalSecs` | [COLD] |
+| UserSoftDeleteTTLMinutes | `UserSoftDeleteTTLMinutes` | [COLD] |

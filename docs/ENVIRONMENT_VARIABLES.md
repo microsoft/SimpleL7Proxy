@@ -33,7 +33,7 @@ For production deployments, consider also configuring:
 
 | Variable                       | Type | Description                                                                                                                                                                                        | Default                                  |
 | ----------------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| **MaxQueueLength**             | int | Sets the maximum number of requests allowed in the queue.                                                                                                                        | 10                                       |
+| **MaxQueueLength**             | int | Sets the maximum number of requests allowed in the queue.                                                                                                                        | 1000                                     |
 | **Port**                      | int | The port on which SimpleL7Proxy listens for incoming traffic.                                                                                                                                    | 80                                       |
 | **TERMINATION_GRACE_PERIOD_SECONDS** | int | The number of seconds SimpleL7Proxy waits before forcing itself to shut down.                                                                                                             | 30                                       |
 | **Workers**                   | int | The number of worker threads used to process incoming proxy requests.                                                                                                                            | 10                                       |
@@ -51,6 +51,9 @@ For production deployments, consider also configuring:
 | ----------------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | **SuspendedUserConfigUrl**      | string | URL or file path to fetch the list of suspended users.                                                                                                | file:config.json                         |
 | **UseProfiles**                | bool | If true, enables user profile functionality for custom handling based on user profiles.                                                               | false                                    |
+| **UserConfigRequired**         | bool | If true, a valid user profile must be found for the request to proceed. Requires restart.                                                            | false                                    |
+| **UserConfigRefreshIntervalSecs** | int | Interval in seconds between user configuration refreshes. Requires restart.                                                                       | 3600 (1 hour)                            |
+| **UserSoftDeleteTTLMinutes**   | int  | Time in minutes before a soft-deleted user profile is permanently removed. Requires restart.                                                         | 360 (6 hours)                            |
 | **UserConfigUrl**             | string | URL or file path to fetch user configuration data.                                                                                                     | file:config.json                         |
 | **UserPriorityThreshold**     | float | Floating point threshold (0.0-1.0) for user priority calculations. If a user owns more than this percentage of requests, their priority is lowered to prevent monopolization. For details, see [Advanced Configuration](ADVANCED_CONFIGURATION.md#user-governance). | 0.1                                      |
 | **ValidateAuthAppFieldName**    | string | Name of the field in the authentication payload to validate as the App ID.                                                                            | authAppID                                |
@@ -101,9 +104,11 @@ For production deployments, consider also configuring:
 | **LOGTOFILE**                   | bool   | **Legacy.** When **EVENT_LOGGERS** is not set: `true` enables file logging, `false` enables EventHub logging. Prefer **EVENT_LOGGERS** for new deployments. | false                                    |
 | **LogHeaders**                  | string | Comma-separated list of specific headers to log for debugging.                                                                                        | (empty)                                  |
 | **LogProbes**                  | bool | If true, logs details about health probe requests to backends.                                                                                        | false                                    |
-| **LogConsoleEvent**           | bool | If true, logs events to the console output.                                                                      | true                                     |
-| **LogConsole**                | bool | Enables general console logging.                                                                                 | true                                     |
-| **LogPoller**                 | bool | Enables logging for the backend poller.                                                                          | true                                     |
+| **LogToConsole**              | string list | Comma-separated list of log categories to write to the console. Use `*` for all categories. | * |
+| **LogToEvents**               | string list | Comma-separated list of log categories to send to event loggers (EventHub, file). | async,backend,circuitbreaker,custom,exception,profile,proxy,enqueued,auth |
+| **LogToAI**                   | string list | Comma-separated list of log categories to send to Application Insights. Use `*` for all categories. | * |
+| **LOG_LEVEL**                 | string | Minimum logging level (e.g., `Trace`, `Debug`, `Information`, `Warning`, `Error`, `Critical`). | Information |
+| **EVENT_HEADERS**             | string | Fully-qualified class name for event header enrichment. | SimpleL7Proxy.Events.CommonEventHeaders |
 | **StorageDbContainerName**    | string | Container name for request storage if enabled.                                                                   | Requests                                 |
 | **StorageDbEnabled**          | bool | Enables archiving requests to storage.                                                                           | false                                    |
 | **RequestIDPrefix**           | string | The prefix appended to every request ID.                                                                                                                                                         | S7P                                      |
@@ -111,21 +116,23 @@ For production deployments, consider also configuring:
 ## Async Processing Variables
 
 | Variable                       | Type | Description                                                                                                         | Default                                  |
-| -------BlobStorageAccountUri**| string | Uri for Blob Storage (overrides AsyncBlobStorageConfig).                                                 | (empty)                                  |
-| **AsyncBlobStorageUseMI**     | bool | Use Managed Identity for Blob Storage.                                                                   | false                                    |
+| ----------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| **AsyncBlobStorageConfig**    | string | Composite connection string for Azure Blob Storage. Format: `uri=<uri>,mi=<true/false>`. Parsed into `AsyncBlobStorageAccountUri` and `AsyncBlobStorageUseMI`. | uri=https://mystorageaccount.blob.core.windows.net,mi=true |
+| **AsyncBlobStorageAccountUri**| string | URI for Blob Storage (parsed from AsyncBlobStorageConfig).                                                 | (empty)                                  |
+| **AsyncBlobStorageConnectionString** | string | Connection string for Azure Blob Storage (parsed from AsyncBlobStorageConfig).                           | example-connection-string                |
+| **AsyncBlobStorageUseMI**     | bool | Use Managed Identity for Blob Storage (parsed from AsyncBlobStorageConfig).                              | false                                    |
 | **AsyncBlobWorkerCount**      | int | Number of workers for async blob processing.                                                                     | 2                                        |
-| **AsyncClientConfigFieldName**  | string | User profile field name that designates if the client configuration. It contains enabled, containername, topic, timeout.                         | async-config                            |
+| **AsyncClientConfigFieldName**  | string | User profile field name that designates the client configuration. It contains enabled, containername, topic, timeout.                         | async-config                            |
 | **AsyncClientRequestHeader**  | string | Header indicating async mode is requested.                                                               | AsyncMode                                |
-| **AsyncSBConnectionString**   | string | Azure Service Bus connection string for async operations.                                                          | example-sb-connection-string             |
-| **AsyncSBNamespace**          | string | Service Bus namespace (overrides AsyncSBConfig).                                                         | (empty)                                  |
-| **AsyncSBQueue**              | string | Service Bus queue name (overrides AsyncSBConfig).                                                        | (empty)                                  |
-| **AsyncSBUseMI**              | bool | Use Managed Identity for Service Bus.                                                                    | false                                    |
+| **AsyncModeEnabled**          | bool | Enables or disables async processing mode. Requires restart.                                             | false                                    |
+| **AsyncSBConfig**             | string | Composite connection string for Azure Service Bus. Format: `cs=<conn-string>,ns=<namespace>,q=<queue>,mi=<true/false>`. Parsed into individual SB settings. | cs=example-sb-connection-string,ns=example-namespace,q=requeststatus,mi=false |
+| **AsyncSBConnectionString**   | string | Azure Service Bus connection string (parsed from AsyncSBConfig).                                                   | example-sb-connection-string             |
+| **AsyncSBNamespace**          | string | Service Bus namespace (parsed from AsyncSBConfig).                                                       | (empty)                                  |
+| **AsyncSBQueue**              | string | Service Bus queue name (parsed from AsyncSBConfig).                                                      | (empty)                                  |
+| **AsyncSBUseMI**              | bool | Use Managed Identity for Service Bus (parsed from AsyncSBConfig).                                        | false                                    |
+| **AsyncTimeout**              | int | Timeout in milliseconds for async operations. The maximum amount of time an async request will run for.    | 1800000 (30 min)                        |
+| **AsyncTriggerTimeout**       | int | Timeout for async trigger operations in ms.                                                              | 10000                                    |
 | **AsyncTTLSecs**              | int | TTL for async requests in seconds.                                                                       | 86400 (24 hours)                         |
-| **AsyncTriggerTimeout**       | int | Timeout for async trigger operations in ms.                                                              | 10000                          | false                                    |
-| **AsyncTimeout**              | int | Timeout in milliseconds for async operations. The maximum amount of time async request will run for.       | 1800000 (30 min)                        |
-| **AsyncBlobStorageConnectionString** | string | Connection string for Azure Blob Storage used in async mode.                                             | example-connection-string                |
-| **AsyncClientConfigFieldName**  | string | User profile field name that designates if the client configuration. It contains enabled, containername, topic, timeout.                         | async-config                            |
-| **AsyncSBConnectionString**   | string | Azure Service Bus connection string for async operations.                                                          | example-sb-connection-string             |
 
 ## Connection Management Variables
 
@@ -146,7 +153,7 @@ For production deployments, consider also configuring:
 
 | Variable                       | Type | Description                                                                                                         | Default                                  |
 | ----------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| **AcceptableStatusCodes**     | int array | The list of HTTP status codes considered successful. If a host returns a code not in this list, it's deemed a failure. | 200, 401, 403, 404, 408, 410, 412, 417, 400 |
+| **AcceptableStatusCodes**     | int array | The list of HTTP status codes considered successful. If a host returns a code not in this list, it's deemed a failure. | 200, 202, 401, 403, 404, 408, 410, 412, 417, 400 |
 | **APPENDHOSTSFILE / AppendHostsFile** | bool | If true, appends host/IP pairs to /etc/hosts for DNS resolution. Both case variants are supported.      | false                                    |
 | **CBErrorThreshold**          | int | The error threshold percentage for the circuit breaker. If the error rate surpasses this value in **CBTimeslice** time period, the circuit breaks.     | 50                                       |
 | **CBTimeslice**               | int | The duration (in seconds) of the sampling window for the circuit breaker's error rate.                             | 60                                       |
@@ -165,6 +172,10 @@ For production deployments, consider also configuring:
 | **Timeout**                   | int | Connection timeout (in milliseconds) for each backend request. If exceeded, SimpleL7Proxy tries the next available host. | 1200000 (20 mins)                        |
 | **UseOAuth**                  | bool | Enables or disables OAuth token fetching for outgoing requests.                                                  | false                                    |
 | **UseOAuthGov**               | bool | If true, uses the government cloud OAuth endpoint for token acquisition.                                         | false                                    |
+| **UseSharedIterators**        | bool | When true, requests to the same path share the same host iterator for fair round-robin distribution.             | false                                    |
+| **SharedIteratorTTLSeconds**  | int  | How long (in seconds) an unused shared iterator lives before cleanup.                                            | 60                                       |
+| **SharedIteratorCleanupIntervalSeconds** | int | How often (in seconds) to run cleanup of stale shared iterators.                                        | 30                                       |
+| **MaxEvents**                 | int  | Maximum number of events the proxy can store in memory.                                                          | 100000                                   |
 
 ## User Profile Configuration
 
