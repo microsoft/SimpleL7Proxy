@@ -1,7 +1,6 @@
 using System.Net;
 using System.Text.Json;
 using System.Collections.Frozen;
-using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.DataContracts;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
@@ -270,6 +269,11 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         bool doUserProfile = _options.UseProfiles;
         // Only enable async mode if configured AND blob storage is available (not using NullBlobWriter)
         bool doAsync = _options.AsyncModeEnabled && !(_blobWriter is NullBlobWriter);
+        int maxEvents = _options.MaxEvents;
+        int maxEvents_90Percent = (int)(maxEvents * .9);
+        int maxEvents_80Percent = (int)(maxEvents * .8);
+        int maxEvents_60Percent = (int)(maxEvents * .6);
+        int maxEvents_50Percent = (int)(maxEvents * .5);
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -314,8 +318,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                         default:
                             break; // not a probe, fall through
                     }
-
-
+                    
                     int priority = _options.DefaultPriority;
                     int userPriorityBoost = 0;
                     var notEnqued = false;
@@ -351,278 +354,296 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
 
                     if (!_isShuttingDown)
                     {
-                        try
+                        int eventCount = _probeServer.EventCount;
+                        if ( eventCount > maxEvents_50Percent) {
+                            int cnt =     eventCount > maxEvents_90Percent ? 1000
+                                        : eventCount > maxEvents_80Percent ? 5000
+                                        : eventCount > maxEvents_60Percent ? 200
+                                        : 100;
+                            await Task.Delay(cnt);
+                        }
+
+                        if ( eventCount > maxEvents)
                         {
-                            rd.Debug = rd.Headers["S7PDEBUG"] != null && string.Equals(rd.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase);
+                            notEnqued = true;
+                            notEnquedCode = 429;
 
+                            retrymsg = ed["Message"] = "Max Events Exceeds Threshold";
+                            logmsg = "MAX EVENTS  => 429:";
+                        }
+                        else if (_backends.CheckFailedStatus())
+                        // Check circuit breaker status and enqueue the request
+                        {
+                            notEnqued = true;
+                            notEnquedCode = 429;
 
-                            if (_options.ValidateAuthAppID)
+                            ed["Message"] = "Circuit breaker on - 429";
+                            retrymsg = $"Too many failures in last {_options.CircuitBreakerTimeslice} seconds";
+                            logmsg = "Circuit breaker on  => 429:";
+                        }
+                        else if (_requestsQueue.thrdSafeCount >= _options.MaxQueueLength)
+                        {
+                            notEnqued = true;
+                            notEnquedCode = 429;
+
+                            retrymsg = ed["Message"] = "Queue is full";
+                            logmsg = "Queue is full  => 429:";
+                        }
+                        else if (_backends.ActiveHostCount() == 0)
+                        {
+                            notEnqued = true;
+                            notEnquedCode = 429;
+
+                            retrymsg = ed["Message"] = "No active hosts";
+                            logmsg = "No active hosts  => 429:";
+                        }
+                        else
+                        {
+
+                            try
                             {
-                                string? authAppID = rd.Headers[_options.ValidateAuthAppIDHeader];
-                                if (!string.IsNullOrEmpty(authAppID) && _userProfile.IsAuthAppIDValid(authAppID))
+                                rd.Debug = rd.Headers["S7PDEBUG"] != null && string.Equals(rd.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase);
+
+
+                                if (_options.ValidateAuthAppID)
                                 {
-                                    if (rd.Debug)
-                                        Console.WriteLine($"AuthAppID {rd.Headers[_options.ValidateAuthAppIDHeader]} is valid.");
-                                }
-                                else
-                                {
-                                    if (rd.Debug)
-                                        Console.WriteLine($"AuthAppID {rd.Headers[_options.ValidateAuthAppIDHeader]} is invalid.");
-
-                                    throw new ProxyErrorException(
-                                        ProxyErrorException.ErrorType.DisallowedAppID,
-                                        HttpStatusCode.Forbidden,
-                                        "Invalid AuthAppID: " + rd.Headers[_options.ValidateAuthAppIDHeader] + "\n"
-                                    );
-                                }
-                            }
-
-                            // Remove any disallowed headers (FrozenSet for O(1) contains, but iterate to remove)
-                            foreach (var header in _disallowedHeaders)
-                            {
-                                if (rd.Debug && !string.IsNullOrEmpty(rd.Headers.Get(header)))
-                                    Console.WriteLine($"Disallowed header {header} removed from request.");
-                                rd.Headers.Remove(header);
-                            }
-
-                            rd.UserID = "";
-                            // Normalize path once: ensure non-empty and starts with '/'
-                            if (string.IsNullOrEmpty(rd.Path))
-                                rd.Path = "/";
-                            else if (!rd.Path.StartsWith('/'))
-                                rd.Path = "/" + rd.Path;
-                            rd.Headers["S7Path"] = rd.Path; // Copy path
-                            // Lookup the user profile and add the headers to the request
-                            if (doUserProfile)
-                            {
-                                var requestUser = rd.Headers[_options.UserProfileHeader];
-                                if (!string.IsNullOrEmpty(requestUser))
-                                {
-                                    rd.profileUserId = requestUser;
-                                    (var headers, var isSoftDeleted, var isStale) = _userProfile.GetUserProfile(requestUser);
-
-                                    if (headers != null && headers.Count > 0)
+                                    string? authAppID = rd.Headers[_options.ValidateAuthAppIDHeader];
+                                    if (!string.IsNullOrEmpty(authAppID) && _userProfile.IsAuthAppIDValid(authAppID))
                                     {
-                                        foreach (var header in headers)
-                                        {
-                                            if (!header.Key.StartsWith("internal-"))
-                                            {
-                                                rd.Headers.Set(header.Key, header.Value);
-                                                if (rd.Debug)
-                                                    Console.WriteLine($"Add Header: {header.Key} = {header.Value}");
-                                            }
-                                        }
+                                        if (rd.Debug)
+                                            Console.WriteLine($"AuthAppID {rd.Headers[_options.ValidateAuthAppIDHeader]} is valid.");
                                     }
                                     else
                                     {
                                         if (rd.Debug)
-                                            Console.WriteLine($"User profile for {requestUser} not found.");
+                                            Console.WriteLine($"AuthAppID {rd.Headers[_options.ValidateAuthAppIDHeader]} is invalid.");
+
                                         throw new ProxyErrorException(
-                                            ProxyErrorException.ErrorType.UnknownProfile,
+                                            ProxyErrorException.ErrorType.DisallowedAppID,
                                             HttpStatusCode.Forbidden,
-                                            "User profile not found: " + requestUser + "\n"
+                                            "Invalid AuthAppID: " + rd.Headers[_options.ValidateAuthAppIDHeader] + "\n"
                                         );
                                     }
                                 }
-                            }
 
-                            // Check for any required headers
-                            if (_options.RequiredHeaders.Count > 0)
-                            {
-                                // Note: Returns the first missing required header only
-                                var missing = _options.RequiredHeaders.FirstOrDefault(x => string.IsNullOrEmpty(rd.Headers[x]));
-                                if (!string.IsNullOrEmpty(missing))
+                                // Remove any disallowed headers (FrozenSet for O(1) contains, but iterate to remove)
+                                foreach (var header in _disallowedHeaders)
                                 {
-                                    if (rd.Debug)
-                                        Console.WriteLine($"Required header {missing} is missing from request.");
-
-                                    throw new ProxyErrorException(
-                                        ProxyErrorException.ErrorType.IncompleteHeaders,
-                                        HttpStatusCode.ExpectationFailed,
-                                        "Required header is missing: " + missing
-                                    );
+                                    if (rd.Debug && !string.IsNullOrEmpty(rd.Headers.Get(header)))
+                                        Console.WriteLine($"Disallowed header {header} removed from request.");
+                                    rd.Headers.Remove(header);
                                 }
-                            }
 
-                            // Validate headers using precomputed rules and zero-alloc span tokenization
-                            if (_validateHeaderRules.Length > 0)
-                            {
-                                foreach (ref readonly var rule in _validateHeaderRules.AsSpan())
+                                rd.UserID = "";
+                                // Normalize path once: ensure non-empty and starts with '/'
+                                if (string.IsNullOrEmpty(rd.Path))
+                                    rd.Path = "/";
+                                else if (!rd.Path.StartsWith('/'))
+                                    rd.Path = "/" + rd.Path;
+                                rd.Headers["S7Path"] = rd.Path; // Copy path
+                                // Lookup the user profile and add the headers to the request
+                                if (doUserProfile)
                                 {
-                                    var lookup = rd.Headers[rule.SourceHeader]!.AsSpan().Trim();
-                                    var allowedSpan = rd.Headers[rule.AllowedValuesHeader]!.AsSpan();
-                                    bool matched = false;
-
-                                    foreach (var range in allowedSpan.Split(','))
+                                    var requestUser = rd.Headers[_options.UserProfileHeader];
+                                    if (!string.IsNullOrEmpty(requestUser))
                                     {
-                                        var pattern = allowedSpan[range].Trim();
-                                        if (pattern.Length > 0 && pattern[^1] == '*')
+                                        rd.profileUserId = requestUser;
+                                        (var headers, var isSoftDeleted, var isStale) = _userProfile.GetUserProfile(requestUser);
+
+                                        if (headers != null && headers.Count > 0)
                                         {
-                                            if (lookup.StartsWith(pattern[..^1], StringComparison.OrdinalIgnoreCase))
+                                            foreach (var header in headers)
+                                            {
+                                                if (!header.Key.StartsWith("internal-"))
+                                                {
+                                                    rd.Headers.Set(header.Key, header.Value);
+                                                    if (rd.Debug)
+                                                        Console.WriteLine($"Add Header: {header.Key} = {header.Value}");
+                                                }
+                                            }
+                                        }
+                                        else
+                                        {
+                                            if (rd.Debug)
+                                                Console.WriteLine($"User profile for {requestUser} not found.");
+                                            throw new ProxyErrorException(
+                                                ProxyErrorException.ErrorType.UnknownProfile,
+                                                HttpStatusCode.Forbidden,
+                                                "User profile not found: " + requestUser + "\n"
+                                            );
+                                        }
+                                    }
+                                }
+
+                                // Check for any required headers
+                                if (_options.RequiredHeaders.Count > 0)
+                                {
+                                    // Note: Returns the first missing required header only
+                                    var missing = _options.RequiredHeaders.FirstOrDefault(x => string.IsNullOrEmpty(rd.Headers[x]));
+                                    if (!string.IsNullOrEmpty(missing))
+                                    {
+                                        if (rd.Debug)
+                                            Console.WriteLine($"Required header {missing} is missing from request.");
+
+                                        throw new ProxyErrorException(
+                                            ProxyErrorException.ErrorType.IncompleteHeaders,
+                                            HttpStatusCode.ExpectationFailed,
+                                            "Required header is missing: " + missing
+                                        );
+                                    }
+                                }
+
+                                // Validate headers using precomputed rules and zero-alloc span tokenization
+                                if (_validateHeaderRules.Length > 0)
+                                {
+                                    foreach (ref readonly var rule in _validateHeaderRules.AsSpan())
+                                    {
+                                        var lookup = rd.Headers[rule.SourceHeader]!.AsSpan().Trim();
+                                        var allowedSpan = rd.Headers[rule.AllowedValuesHeader]!.AsSpan();
+                                        bool matched = false;
+
+                                        foreach (var range in allowedSpan.Split(','))
+                                        {
+                                            var pattern = allowedSpan[range].Trim();
+                                            if (pattern.Length > 0 && pattern[^1] == '*')
+                                            {
+                                                if (lookup.StartsWith(pattern[..^1], StringComparison.OrdinalIgnoreCase))
+                                                {
+                                                    matched = true;
+                                                    break;
+                                                }
+                                            }
+                                            else if (lookup.Equals(pattern, StringComparison.OrdinalIgnoreCase))
                                             {
                                                 matched = true;
                                                 break;
                                             }
                                         }
-                                        else if (lookup.Equals(pattern, StringComparison.OrdinalIgnoreCase))
+
+                                        if (!matched)
                                         {
-                                            matched = true;
-                                            break;
+                                            if (rd.Debug)
+                                                Console.WriteLine($"Validation check failed for {rule.DisplayName}: {lookup}");
+                                            throw new ProxyErrorException(
+                                                ProxyErrorException.ErrorType.InvalidHeader,
+                                                HttpStatusCode.ExpectationFailed,
+                                                $"Validation check failed for {rule.DisplayName}: {lookup}\n"
+                                            );
                                         }
                                     }
+                                    if (rd.Debug)
+                                        Console.WriteLine($"Validation check passed for all headers.");
+                                }
 
-                                    if (!matched)
+                                // Determine priority boost based on the UserID 
+                                if (_options.UniqueUserHeaders.Count > 0)
+                                {
+                                    foreach (var header in _options.UniqueUserHeaders)
                                     {
-                                        if (rd.Debug)
-                                            Console.WriteLine($"Validation check failed for {rule.DisplayName}: {lookup}");
-                                        throw new ProxyErrorException(
-                                            ProxyErrorException.ErrorType.InvalidHeader,
-                                            HttpStatusCode.ExpectationFailed,
-                                            $"Validation check failed for {rule.DisplayName}: {lookup}\n"
-                                        );
+                                        rd.UserID += rd.Headers[header] ?? "";
                                     }
                                 }
-                                if (rd.Debug)
-                                    Console.WriteLine($"Validation check passed for all headers.");
-                            }
 
-                            // Determine priority boost based on the UserID 
-                            if (_options.UniqueUserHeaders.Count > 0)
-                            {
-                                foreach (var header in _options.UniqueUserHeaders)
+                                if (String.IsNullOrEmpty(rd.UserID))
                                 {
-                                    rd.UserID += rd.Headers[header] ?? "";
+                                    rd.UserID = "defaultUser";
                                 }
-                            }
 
-                            if (String.IsNullOrEmpty(rd.UserID))
-                            {
-                                rd.UserID = "defaultUser";
-                            }
-
-                            ed["UserID"] = rd.UserID;
-                            ed["S7P-ID"] = rd.MID;
-
-                            if (rd.Debug)
-                                Console.WriteLine($"UserID: {rd.UserID}");
-
-                            // ASYNC: Determine if the request is allowed async operation
-                            if (doAsync && bool.TryParse(rd.Headers[_options.AsyncClientRequestHeader], out var asyncEnabled) && asyncEnabled)
-                            {
-                                var clientInfo = _userProfile.GetAsyncParams(rd.profileUserId);
-                                if (clientInfo != null)
-                                {
-                                    rd.runAsync = true;
-                                    rd.AsyncBlobAccessTimeoutSecs = clientInfo.AsyncBlobAccessTimeoutSecs;
-                                    rd.BlobContainerName = clientInfo.ContainerName;
-                                    rd.SBTopicName = clientInfo.SBTopicName;
-                                    rd.AsyncClientConfig = clientInfo; // Store the full config for AsyncWorker
-                                    ed["AsyncBlobContainer"] = clientInfo.ContainerName;
-                                    ed["AsyncSBTopic"] = clientInfo.SBTopicName;
-                                    ed["BlobAccessTimeout"] = clientInfo.AsyncBlobAccessTimeoutSecs.ToString();
-                                    ed["GenerateSAS"] = clientInfo.GenerateSasTokens.ToString();
-                                }
+                                ed["UserID"] = rd.UserID;
+                                ed["S7P-ID"] = rd.MID;
 
                                 if (rd.Debug)
+                                    Console.WriteLine($"UserID: {rd.UserID}");
+
+                                // ASYNC: Determine if the request is allowed async operation
+                                if (doAsync && bool.TryParse(rd.Headers[_options.AsyncClientRequestHeader], out var asyncEnabled) && asyncEnabled)
                                 {
-                                    Console.WriteLine($"AsyncEnabled: {rd.runAsync}");
+                                    var clientInfo = _userProfile.GetAsyncParams(rd.profileUserId);
+                                    if (clientInfo != null)
+                                    {
+                                        rd.runAsync = true;
+                                        rd.AsyncBlobAccessTimeoutSecs = clientInfo.AsyncBlobAccessTimeoutSecs;
+                                        rd.BlobContainerName = clientInfo.ContainerName;
+                                        rd.SBTopicName = clientInfo.SBTopicName;
+                                        rd.AsyncClientConfig = clientInfo; // Store the full config for AsyncWorker
+                                        ed["AsyncBlobContainer"] = clientInfo.ContainerName;
+                                        ed["AsyncSBTopic"] = clientInfo.SBTopicName;
+                                        ed["BlobAccessTimeout"] = clientInfo.AsyncBlobAccessTimeoutSecs.ToString();
+                                        ed["GenerateSAS"] = clientInfo.GenerateSasTokens.ToString();
+                                    }
+
+                                    if (rd.Debug)
+                                    {
+                                        Console.WriteLine($"AsyncEnabled: {rd.runAsync}");
+                                    }
                                 }
+
+                                // Determine priority boost based on the UserID
+                                rd.Guid = _userPriority.addRequest(rd.UserID);
+                                bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
+                                userPriorityBoost = shouldBoost ? 1 : 0;
+
+                                ed["GUID"] = rd.Guid.ToString();
+
+                                var priorityKey = rd.Headers[_priorityHeaderName];
+                                // if (!string.IsNullOrEmpty(priorityKey) && _priorityKeys.Contains(priorityKey)) //lookup the priority
+                                // {
+                                //     var index = _options.PriorityKeys.IndexOf(priorityKey);
+                                //     if (index >= 0)
+                                //     {
+                                //         priority = _options.PriorityValues[index];
+                                //     }
+                                // }
+                                if (!string.IsNullOrEmpty(priorityKey) && _priorityKeyToValue.TryGetValue(priorityKey, out var mappedPriority))
+                                {
+                                    priority = mappedPriority;
+                                }
+                                rd.Priority = priority;
+                                rd.Priority2 = userPriorityBoost;
+                                rd.EnqueueTime = DateTime.UtcNow;
+
+                                ed["S7P-Priority"] = priority.ToString();
+                                ed["S7P-Priority2"] = userPriorityBoost.ToString();
+
+                                // Save the timeout header value if it exists
+                                if (rd.Headers[_options.TimeoutHeader] != null && int.TryParse(rd.Headers[_options.TimeoutHeader], out var timeout))
+                                {
+                                    rd.defaultTimeout = timeout;
+                                }
+                                else
+                                {
+                                    rd.defaultTimeout = _options.Timeout;
+                                }
+
+                                // Calculate expiresAt time based on the timeout header or default TTL
+                                rd.CalculateExpiration(_options.DefaultTTLSecs, _options.TTLHeader);
+                                ed["DefaultTimeout"] = rd.defaultTimeout.ToString();
+
+                                // Enqueue the request
+                                if (!_requestsQueue.Enqueue(rd, priority, userPriorityBoost, rd.EnqueueTime))
+                                {
+                                    notEnqued = true;
+                                    notEnquedCode = 429;
+
+                                    retrymsg = ed["Message"] = "Failed to enqueue request";
+                                    logmsg = "Failed to enqueue request  => 429:";
+                                }
+
+                                // ASYNC: If the request is allowed to run async, set the status
+                                if (!notEnqued && doAsync)
+                                {
+                                    rd.SBStatus = ServiceBusMessageStatusEnum.Queued;
+                                }
+
                             }
-
-                            // Determine priority boost based on the UserID
-                            rd.Guid = _userPriority.addRequest(rd.UserID);
-                            bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
-                            userPriorityBoost = shouldBoost ? 1 : 0;
-
-                            ed["GUID"] = rd.Guid.ToString();
-
-                            var priorityKey = rd.Headers[_priorityHeaderName];
-                            // if (!string.IsNullOrEmpty(priorityKey) && _priorityKeys.Contains(priorityKey)) //lookup the priority
-                            // {
-                            //     var index = _options.PriorityKeys.IndexOf(priorityKey);
-                            //     if (index >= 0)
-                            //     {
-                            //         priority = _options.PriorityValues[index];
-                            //     }
-                            // }
-                            if (!string.IsNullOrEmpty(priorityKey) && _priorityKeyToValue.TryGetValue(priorityKey, out var mappedPriority))
-                            {
-                                priority = mappedPriority;
-                            }
-                            rd.Priority = priority;
-                            rd.Priority2 = userPriorityBoost;
-                            rd.EnqueueTime = DateTime.UtcNow;
-
-                            ed["S7P-Priority"] = priority.ToString();
-                            ed["S7P-Priority2"] = userPriorityBoost.ToString();
-
-                            // Save the timeout header value if it exists
-                            if (rd.Headers[_options.TimeoutHeader] != null && int.TryParse(rd.Headers[_options.TimeoutHeader], out var timeout))
-                            {
-                                rd.defaultTimeout = timeout;
-                            }
-                            else
-                            {
-                                rd.defaultTimeout = _options.Timeout;
-                            }
-
-                            // Calculate expiresAt time based on the timeout header or default TTL
-                            rd.CalculateExpiration(_options.DefaultTTLSecs, _options.TTLHeader);
-                            ed["DefaultTimeout"] = rd.defaultTimeout.ToString();
-
-                            // Check circuit breaker status and enqueue the request
-                            if (_backends.CheckFailedStatus())
-                            {
-                                notEnqued = true;
-                                notEnquedCode = 429;
-
-                                ed["Message"] = "Circuit breaker on - 429";
-                                retrymsg = $"Too many failures in last {_options.CircuitBreakerTimeslice} seconds";
-                                logmsg = "Circuit breaker on  => 429:";
-                            }
-                            else if (_requestsQueue.thrdSafeCount >= _options.MaxQueueLength)
-                            {
-                                notEnqued = true;
-                                notEnquedCode = 429;
-
-                                retrymsg = ed["Message"] = "Queue is full";
-                                logmsg = "Queue is full  => 429:";
-                            }
-                            else if (_backends.ActiveHostCount() == 0)
+                            catch (ProxyErrorException e)
                             {
                                 notEnqued = true;
-                                notEnquedCode = 429;
+                                notEnquedCode = (int)e.StatusCode;
 
-                                retrymsg = ed["Message"] = "No active hosts";
-                                logmsg = "No active hosts  => 429:";
+                                logmsg = retrymsg = ed["Message"] = e.Message;
                             }
-
-
-                            // Enqueue the request
-
-                            else if (!_requestsQueue.Enqueue(rd, priority, userPriorityBoost, rd.EnqueueTime))
-                            {
-                                notEnqued = true;
-                                notEnquedCode = 429;
-
-                                retrymsg = ed["Message"] = "Failed to enqueue request";
-                                logmsg = "Failed to enqueue request  => 429:";
-                            }
-
-                            // ASYNC: If the request is allowed to run async, set the status
-                            if (!notEnqued && doAsync)
-                            {
-                                rd.SBStatus = ServiceBusMessageStatusEnum.Queued;
-                            }
-
-                        }
-                        catch (ProxyErrorException e)
-                        {
-                            notEnqued = true;
-                            notEnquedCode = (int)e.StatusCode;
-
-                            logmsg = retrymsg = ed["Message"] = e.Message;
-                        }
+                        }   // end of allowed to proccess check
                     }
                     else
                     {

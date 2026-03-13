@@ -21,6 +21,7 @@ public static class ConfigParser
         ("DefaultPriority", "DefaultPriority"),
         ("DefaultTTLSecs", "DefaultTTLSecs"),
         ("MaxQueueLength", "MaxQueueLength"),
+        ("MaxEvents", "MaxEvents"),
         ("MaxAttempts", "MaxAttempts"),
         ("PollInterval", "PollInterval"),
         ("PollTimeout", "PollTimeout"),

@@ -1,4 +1,3 @@
-using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.Extensibility;
 using Microsoft.ApplicationInsights.WorkerService;
 using Microsoft.Extensions.Configuration;
@@ -29,7 +28,6 @@ public static class ConfigBootstrapper
 {
   private static ILogger? _logger;
   static Dictionary<string, string> EnvVars = new Dictionary<string, string>();
-  public static readonly BackendOptions s_defaults = new();
 
 
   public static BackendOptions CreateBackendOptions(ILogger logger, AppConfigBootstrap appConfigBootstrap)

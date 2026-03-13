@@ -1075,6 +1075,16 @@ public class ProxyWorker
                     }
                 }
             }
+            catch (OutOfMemoryException oomEx)
+            {
+                TriggerHostCB = false;
+                _logger.LogCritical(oomEx, "Out of memory caching request body for {Guid}", request.Guid);
+                intCode = (int)HttpStatusCode.RequestEntityTooLarge; // 413
+                throw new ProxyErrorException(
+                    ProxyErrorException.ErrorType.ContentTooLarge,
+                    HttpStatusCode.InternalServerError,
+                    $"Request body too large to buffer: {oomEx.Message}");
+            }
             catch (S7PRequeueException e)
             {
                 TriggerHostCB = false;

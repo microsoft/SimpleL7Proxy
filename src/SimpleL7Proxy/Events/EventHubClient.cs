@@ -73,6 +73,8 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
         try {
             if (!string.IsNullOrEmpty(_config.ConnectionString))
             {
+
+                _logger.LogInformation("[EVENT HUB] connecting via connection string, eventhubname :" + _config.EventHubName  );
                 _producerClient = new EventHubProducerClient(_config.ConnectionString, _config.EventHubName);
             }
             else if (!string.IsNullOrEmpty(_config.EventHubNamespace))
@@ -80,9 +82,9 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
                 
                 var credential = _defaultCredential.Credential;
 
-                // NOTE:  this breaks in gov cloud because of the namespace suffix.. needs a better solution
                 var fullyQualifiedNamespace = _config.EventHubNamespace;
-                if (!fullyQualifiedNamespace.EndsWith(".servicebus.windows.net"))
+                if (!fullyQualifiedNamespace.EndsWith(".servicebus.windows.net") &&
+                    !fullyQualifiedNamespace.EndsWith(".servicebus.usgovcloudapi.net"))
                     fullyQualifiedNamespace = $"{_config.EventHubNamespace}.servicebus.windows.net";
             
                 _producerClient = new EventHubProducerClient(fullyQualifiedNamespace, _config.EventHubName, credential);
@@ -224,22 +226,6 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
         //Console.WriteLine($" Enqueued: {value}");
         _logBuffer.Enqueue(value);
     }
-
-    // public void SendData(Dictionary<string, string> data)
-    // {
-    //     if (!isRunning || isShuttingDown) return;
-
-    //     string jsonData = JsonSerializer.Serialize(data);
-    //     SendData(jsonData);
-    // }
-
-    // public void SendData(ConcurrentDictionary<string, string> eventData, string? name = null)
-    // {
-    //     if (!isRunning || isShuttingDown) return;
-
-    //     string jsonData = JsonSerializer.Serialize(eventData);
-    //     SendData(jsonData);
-    // }
 
     protected virtual void Dispose(bool disposing)
     {

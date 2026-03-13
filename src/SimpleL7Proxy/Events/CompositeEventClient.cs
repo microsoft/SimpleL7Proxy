@@ -41,16 +41,13 @@ public class CompositeEventClient : IEventClient
     }
   }
 
+  // Return the max count of all the clients
   public int Count
   {
     get
     {
-      var count = 0;
-      foreach (var client in _frozen.Keys)
-      {
-        count += client.Count;
-      }
-      return count;
+      var snapshot = _frozen;
+      return snapshot.Count == 0 ? 0 : snapshot.Keys.Max(c => c.Count);
     }
   }
 

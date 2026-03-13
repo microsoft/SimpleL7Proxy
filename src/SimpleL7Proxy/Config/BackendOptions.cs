@@ -134,7 +134,7 @@ public class BackendOptions
     public string OAuthAudience { get; set; } = "";
     [ConfigOption("Security:UseOAuth", Mode = ConfigMode.Cold)]
     public bool UseOAuth { get; set; } = false;
-    [ConfigOption("Security:UseOAuthGov", Mode = ConfigMode.Cold)]
+    [ConfigOption("Security:UseOAuthGov", Mode = ConfigMode.Hidden)]
     public bool UseOAuthGov { get; set; } = false;
 
     // ── Server ──
@@ -142,6 +142,8 @@ public class BackendOptions
     public IterationModeEnum IterationMode { get; set; } = IterationModeEnum.SinglePass;
     [ConfigOption("Server:MaxQueueLength", Mode = ConfigMode.Cold)]
     public int MaxQueueLength { get; set; } = 1000;
+    [ConfigOption("Server:MaxEvents", Mode = ConfigMode.Cold)]
+    public int MaxEvents { get; set; } = 100000;
     [ConfigOption("Server:PollInterval", Mode = ConfigMode.Cold)]
     public int PollInterval { get; set; } = 15000;
     [ConfigOption("Server:PollTimeout", Mode = ConfigMode.Cold)]

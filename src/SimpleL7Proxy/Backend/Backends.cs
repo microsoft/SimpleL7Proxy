@@ -3,7 +3,6 @@ using Microsoft.Extensions.Options;
 using System.Text;
 using Azure.Core;
 using System.Text.Json;
-using Microsoft.ApplicationInsights;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
 using System.Threading;
