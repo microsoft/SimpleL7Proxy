@@ -38,6 +38,7 @@ public class LogFileEventClient : IEventHubClient
     }
 
     public int Count => _logBuffer.Count;
+    public bool isHealthy => isRunning && !isShuttingDown;
 
     public Task StartTimer()
     {
@@ -89,12 +90,17 @@ public class LogFileEventClient : IEventHubClient
             log?.Close();
             log?.Dispose();
         }
+
+        isRunning = false;
     }
+
+    StringBuilder sb = new StringBuilder();
 
     // Add the log to the batch up to count number at a time
     private void LogNextBatch(int count)
     {
         int initialCount = count;
+        sb.Clear();
 
         for (int i = 0; i < initialCount; i++)
         {
@@ -102,11 +108,12 @@ public class LogFileEventClient : IEventHubClient
             {
                 break;
             }
+            sb.AppendLine(log);
 
-            writer.WriteLine(log);
             Interlocked.Decrement(ref entryCount);
         }
 
+        writer.WriteLine(sb.ToString());
         writer.Flush();
     }
 

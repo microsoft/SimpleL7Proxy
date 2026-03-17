@@ -374,19 +374,19 @@ public class Program
     private static async Task Shutdown()
     {
         // ######## BEGIN SHUTDOWN SEQUENCE ########
+        var timeoutTask = Task.Delay(terminationGracePeriodSeconds * 1000);
         cancellationTokenSource.Cancel();
         // Wait for the listener to stop before shutting down the workers:
         if (ListenerTask != null)
         {
             await ListenerTask.ConfigureAwait(false);
         }
+        if (server != null)
+            await server.Queue().StopAsync().ConfigureAwait(false);
+
         Console.WriteLine($"Waiting for tasks to complete for maximum {terminationGracePeriodSeconds} seconds");
         eventHubClient?.SendData($"Server shutting down:   {ProxyWorker.GetState()}");
 
-        if (server != null)
-            server.Queue().Stop();
-
-        var timeoutTask = Task.Delay(terminationGracePeriodSeconds * 1000);
         var allTasksComplete = Task.WhenAll(allTasks);
         var completedTask = await Task.WhenAny(allTasksComplete, timeoutTask);
         if (completedTask == timeoutTask)

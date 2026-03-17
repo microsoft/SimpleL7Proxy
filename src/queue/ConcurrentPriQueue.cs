@@ -10,8 +10,18 @@ public class ConcurrentPriQueue<T>
 
     public int MaxQueueLength { get; set; }
 
-    public void Stop()
+    public async Task StopAsync()
     {
+        while (true)
+        {
+            // Wait until the queue is empty
+            if (thrdSafeCount == 0)
+            {
+                break;
+            }
+            Console.WriteLine($"Waiting for queue to drain... Current count: {thrdSafeCount}");
+            await Task.Delay(500).ConfigureAwait(false); // Check every 500ms
+        }
         // Shutdown
         _taskSignaler.CancelAllTasks();
     }
@@ -70,10 +80,20 @@ public class ConcurrentPriQueue<T>
     private string sigwrkr_status = "Not started";
     public async Task SignalWorker(CancellationToken cancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested)
+        // Continue draining after cancellation so StopAsync can complete cleanly
+        while (!cancellationToken.IsCancellationRequested || _priorityQueue.Count > 0)
         {
             // 40 seems good,  no timeout or 80ms gives reduced performance
-            await _enqueueEvent.WaitAsync(TimeSpan.FromMilliseconds(40), cancellationToken).ConfigureAwait(false); // Wait for an item to be added
+            try
+            {
+                await _enqueueEvent.WaitAsync(TimeSpan.FromMilliseconds(40), cancellationToken).ConfigureAwait(false); // Wait for an item to be added
+            }
+            catch (OperationCanceledException)
+            {
+                // Token fired — keep looping to drain any remaining items before exiting
+                if (_priorityQueue.Count == 0)
+                    break;
+            }
 
             while (_priorityQueue.Count > 0 && _taskSignaler.HasWaitingTasks())
             {
@@ -97,7 +117,7 @@ public class ConcurrentPriQueue<T>
             }
         }
 
-        Console.WriteLine("SignalWorker: Canceled");
+        Console.WriteLine("SignalWorker: Exiting - queue is empty: " + (_priorityQueue.Count == 0));
 
         // Shutdown
         _taskSignaler.CancelAllTasks();

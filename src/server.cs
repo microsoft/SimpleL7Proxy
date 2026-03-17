@@ -54,7 +54,7 @@ public class Server : IServer
 
         var timeoutTime = TimeSpan.FromMilliseconds(_options.Timeout).ToString(@"hh\:mm\:ss\.fff");
         _staticEvent.WriteOutput($"Server configuration:  Port: {_options.Port} Timeout: {timeoutTime} Workers: {_options.Workers}");
-        _probeServer = new ProbeServer(ProxyWorker.GetStatus );
+        _probeServer = new ProbeServer(ProxyWorker.GetStatus, eventHubClient );
 
         _probeServerTask = _probeServer.StartAsync(_cancellationToken);
     }

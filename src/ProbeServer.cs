@@ -34,10 +34,12 @@ public class ProbeServer
 
     private readonly Func<HealthStatusEnum> _getStatus;
     private Timer? _probeTimer;
+    private readonly IEventHubClient? _eventHubClient;
 
-    public ProbeServer(Func<HealthStatusEnum> getStatus)
+    public ProbeServer(Func<HealthStatusEnum> getStatus, IEventHubClient? eventHubClient = null)
     {
         _getStatus = getStatus ?? throw new ArgumentNullException(nameof(getStatus));
+        _eventHubClient = eventHubClient;
     }
 
     /// <summary>
@@ -51,6 +53,10 @@ public class ProbeServer
         {
             try {
                 _startupStatus = _readinessStatus = _getStatus();
+                if ( _eventHubClient?.isHealthy == false) {
+                    _readinessStatus = HealthStatusEnum.ReadinessFailedHosts;
+                }
+
             } catch (Exception ex) {
                 Console.WriteLine($"ProbeServer: Exception in status update: {ex.Message}, Retrying...");
             }

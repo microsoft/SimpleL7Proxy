@@ -11,16 +11,24 @@ public class EventHubClient : IEventHubClient
 
     private EventHubProducerClient? _producerClient;
     private EventDataBatch? _batchData;
-    private CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+    private readonly CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
     private CancellationToken workerCancelToken;
-    private bool isRunning = false;
-    private bool isShuttingDown = false;
+    private volatile bool isRunning = false;
+    private volatile bool isShuttingDown = false;
+    private bool _disposed = false;
     private Task? writerTask;
-    private ConcurrentQueue<string> _logBuffer = new ConcurrentQueue<string>();
+    private readonly ConcurrentQueue<string> _logBuffer = new ConcurrentQueue<string>();
+    private List<string> _pendingItems = new List<string>();
+    // Connection parameters retained for reconnection
+    private string? _connectionString;
+    private string? _fullyQualifiedNamespace;
+    private string? _eventHubName;
+    private TokenCredential? _credential;
 
     public bool IsRunning { get => isRunning; set => isRunning = value; }
     public int GetEntryCount() => entryCount;
     private static int entryCount = 0;
+    public static int ReconnectCount = 0;
 
     public EventHubClient(string fullyQualifiedNamespace, string eventHubName, TokenCredential credential)
     {
@@ -32,6 +40,9 @@ public class EventHubClient : IEventHubClient
             return;
         }
 
+        _fullyQualifiedNamespace = fullyQualifiedNamespace;
+        _eventHubName = eventHubName;
+        _credential = credential;
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         try
         {
@@ -60,6 +71,8 @@ public class EventHubClient : IEventHubClient
             return;
         }
 
+        _connectionString = connectionString;
+        _eventHubName = eventHubName;
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         try
         {
@@ -80,6 +93,19 @@ public class EventHubClient : IEventHubClient
     }
 
     public int Count => _logBuffer.Count;
+
+    public bool isHealthy
+    {
+        get {
+            bool healthy = isRunning && !isShuttingDown && ReconnectCount == 0 
+                && (writerTask == null || (!writerTask.IsFaulted && !writerTask.IsCanceled))
+                && _logBuffer.Count < 50000;
+            if (!healthy) {
+                Console.WriteLine($"EventHubClient health check failed: isRunning={isRunning}, isShuttingDown={isShuttingDown}, ReconnectCount={ReconnectCount}, writerTaskStatus={(writerTask == null ? "null" : writerTask.Status.ToString())}, logBufferCount={_logBuffer.Count}");
+            }
+            return healthy;
+        }
+    }
 
     public Task StartTimer()
     {
@@ -106,9 +132,27 @@ public class EventHubClient : IEventHubClient
             {
                 if (GetNextBatch(99) > 0)
                 {
-                    await _producerClient.SendAsync(_batchData).ConfigureAwait(false);
-                    _batchData.Dispose();
-                    _batchData = await _producerClient.CreateBatchAsync().ConfigureAwait(false);
+                    try
+                    {
+                        await _producerClient.SendAsync(_batchData).ConfigureAwait(false);
+                        _pendingItems.Clear();
+                        _batchData.Dispose();
+                        _batchData = await _producerClient.CreateBatchAsync(token).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        Console.WriteLine($"EventHubClient: SendAsync failed, reconnecting: {ex.Message}");
+                        // Re-enqueue items from the failed batch so they are not lost
+                        foreach (var item in _pendingItems)
+                        {
+                            _logBuffer.Enqueue(item);
+                            Interlocked.Increment(ref entryCount);
+                        }
+                        _pendingItems.Clear();
+                        try { await ReconnectAsync(cancellationToken: token).ConfigureAwait(false); }
+                        catch { /* reconnect failed; will retry on next iteration */ }
+                        continue;
+                    }
                 }
 
                 if (!isShuttingDown) {
@@ -118,9 +162,9 @@ public class EventHubClient : IEventHubClient
             Console.WriteLine("EventHubClient: EventWriter exiting");
 
         }
-        catch (TaskCanceledException)
+        catch (OperationCanceledException)
         {
-            // Ignore
+            // Normal shutdown via cancellation token
         }
         finally
         {
@@ -129,10 +173,25 @@ public class EventHubClient : IEventHubClient
             {
                 if (GetNextBatch(99) > 0)
                 {
-                    await _producerClient.SendAsync(_batchData).ConfigureAwait(false);
-                    _batchData.Dispose();
-                    _batchData = await _producerClient.CreateBatchAsync().ConfigureAwait(false);
-
+                    try
+                    {
+                        await _producerClient.SendAsync(_batchData).ConfigureAwait(false);
+                        _pendingItems.Clear();
+                        _batchData.Dispose();
+                        _batchData = await _producerClient.CreateBatchAsync().ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"EventHubClient: SendAsync failed during shutdown: {ex.Message}");
+                        foreach (var item in _pendingItems)
+                        {
+                            _logBuffer.Enqueue(item);
+                            Interlocked.Increment(ref entryCount);
+                        }
+                        _pendingItems.Clear();
+                        try { await ReconnectAsync().ConfigureAwait(false); }
+                        catch { break; } // give up draining if reconnect also fails
+                    }
                 }
                 else
                 {
@@ -140,10 +199,10 @@ public class EventHubClient : IEventHubClient
                 }
             }
 
-            await Task.Delay(500).ConfigureAwait(false); // Wait for 1/2 second
-            // make sure event hub client is closed
-            await _producerClient.CloseAsync().ConfigureAwait(false);
+            if (_producerClient is not null)
+                await _producerClient.CloseAsync().ConfigureAwait(false);
         }
+        isRunning = false;
     }
 
     // Add the log to the batch up to count number at a time
@@ -152,6 +211,7 @@ public class EventHubClient : IEventHubClient
         if (_batchData is null)
             return 0;
 
+        _pendingItems.Clear();
         int initialCount = count;
 
         for (int i = 0; i < initialCount; i++)
@@ -161,10 +221,23 @@ public class EventHubClient : IEventHubClient
                 break;
             }
 
-            var eventData = new EventData(Encoding.UTF8.GetBytes(log));
+            EventData eventData;
+            try
+            {
+                eventData = new EventData(Encoding.UTF8.GetBytes(log));
+            }
+            catch (Exception ex)
+            {
+                // Drop the item — it cannot be encoded; re-enqueuing would loop forever.
+                Interlocked.Decrement(ref entryCount);
+                Console.WriteLine($"EventHubClient: Failed to encode log entry, dropping: {ex.Message}");
+                continue;
+            }
+
             if (_batchData.TryAdd(eventData))
             {
                 Interlocked.Decrement(ref entryCount);
+                _pendingItems.Add(log);
             }
             else
             {
@@ -176,18 +249,23 @@ public class EventHubClient : IEventHubClient
         return _batchData.Count;
     }
 
-    public Task StopTimer()
+    public async Task StopTimer()
     {
         isShuttingDown = true;
-        while (isRunning && _logBuffer.Count > 0)
+        var drainDeadline = DateTime.UtcNow.AddSeconds(30);
+        while (isRunning && _logBuffer.Count > 0 && DateTime.UtcNow < drainDeadline)
         {
-            Task.Delay(100).Wait();
+            await Task.Delay(100).ConfigureAwait(false);
         }
+
+        if (_logBuffer.Count > 0)
+            Console.WriteLine($"[SHUTDOWN] EventHubClient stopped with {_logBuffer.Count} items still in queue.");
 
         cancellationTokenSource.Cancel();
         isRunning = false;
 
-        return writerTask!;
+        if (writerTask != null)
+            await writerTask.ConfigureAwait(false);
     }
 
     public void SendData(string? value)
@@ -216,4 +294,43 @@ public class EventHubClient : IEventHubClient
         SendData(jsonData);
     }
 
+    private async Task ReconnectAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (_producerClient is not null)
+                await _producerClient.CloseAsync().ConfigureAwait(false);
+        }
+        catch { /* best effort close */ }
+
+        Interlocked.Exchange(ref ReconnectCount, 0);
+
+        for (int attempt = 1; attempt <= 5; attempt++)
+        {
+            Interlocked.Increment(ref ReconnectCount);
+            try
+            {
+                if (!string.IsNullOrEmpty(_connectionString))
+                    _producerClient = new EventHubProducerClient(_connectionString, _eventHubName);
+                else if (!string.IsNullOrEmpty(_fullyQualifiedNamespace) && _credential != null)
+                    _producerClient = new EventHubProducerClient(_fullyQualifiedNamespace, _eventHubName, _credential);
+                else
+                    throw new InvalidOperationException("No connection parameters available for reconnect.");
+
+                _batchData?.Dispose();
+                _batchData = await _producerClient!.CreateBatchAsync().ConfigureAwait(false);
+                Console.WriteLine("EventHubClient: Reconnected successfully.");
+                Interlocked.Exchange(ref ReconnectCount, 0);
+                return;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Console.WriteLine($"EventHubClient: Reconnect attempt {attempt} failed: {ex.Message}");
+                if (attempt < 5)
+                    await Task.Delay(500 * attempt, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        throw new Exception("EventHubClient: Failed to reconnect after multiple attempts.");
+    }
 }

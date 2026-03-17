@@ -104,8 +104,12 @@ public class ProxyWorker
             }
             catch (OperationCanceledException)
             {
-                //Console.WriteLine("Operation was cancelled. Stopping the worker.");
-                break; // Exit the loop if the operation is cancelled
+                // Only exit if the cancellation token has fired AND the queue is empty.
+                // If there are still items, re-enter the loop so SignalWorker can dispatch them.
+                if (_requestsQueue.thrdSafeCount == 0 || !_cancellationToken.IsCancellationRequested)
+                    break;
+                // Cancelled but items remain — continue draining
+                continue;
             }
             finally
             {

@@ -6,6 +6,8 @@ public class NullEventHubClient : IEventHubClient
 {
     public int Count => 0;
 
+    public bool isHealthy => true;
+
     public bool IsRunning { get; set; } = false;
 
     public int GetEntryCount() => 0;

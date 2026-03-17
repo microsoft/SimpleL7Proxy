@@ -20,6 +20,7 @@ public interface IBackendService
 public interface IEventHubClient
 {
     int Count { get; }
+    bool isHealthy { get; } 
     Task StartTimer();
     Task StopTimer();
     void SendData(string? value);
