@@ -1,5 +1,12 @@
 # Release Notes #
 
+## V2.1.33.p8
+
+Proxy:
+* Readiness returns failure if over 50,000 entries in the eventhub client
+* Reconnect to eventhub on UTF failure, send failure or batch create failure
+* Reconnect max of 5 times before declaring failed readiness state
+
 ## V2.1.33.p7
 
 Proxy:
