@@ -25,6 +25,18 @@ public class CircuitBreaker : ICircuitBreaker
     // Instance state tracking
     private bool _isCurrentlyBlocked = false;
     private bool _isDeregistered = false;
+
+    private int count_50percent;
+    private int count_60percent;
+    private int count_70percent;
+    private int count_80percent;
+    private int count_90percent;
+    private static int delay_50percent = 100;
+    private static int delay_60percent = 200;
+    private static int delay_70percent = 300;
+    private static int delay_80percent = 400;
+    private static int delay_90percent = 500;
+
     
     public string ID { get; set; } = "";
 
@@ -37,6 +49,12 @@ public class CircuitBreaker : ICircuitBreaker
         _failureThreshold = backendOptions.CircuitBreakerErrorThreshold;
         _failureTimeFrame = backendOptions.CircuitBreakerTimeslice;
         _allowableCodes = new HashSet<int>(backendOptions.AcceptableStatusCodes ?? new[] { 200, 401, 403, 408, 410, 412, 417, 400 });
+
+        count_50percent = (int)(_failureThreshold * 0.5);
+        count_60percent = (int)(_failureThreshold * 0.6);
+        count_70percent = (int)(_failureThreshold * 0.7);
+        count_80percent = (int)(_failureThreshold * 0.8);
+        count_90percent = (int)(_failureThreshold * 0.9);
         _logger = logger;
 
         // Register this circuit breaker globally
@@ -82,12 +100,26 @@ public class CircuitBreaker : ICircuitBreaker
             ID, code, hostFailureTimes2.Count, state);
     }
 
+
     // returns true if the service is in failure state
-    public bool CheckFailedStatus()
+    public async Task<bool> CheckFailedStatusAsync(bool nosleep=false)
     {
+        int count = hostFailureTimes2.Count;
         //    Console.WriteLine($"Checking failed status: {hostFailureTimes2.Count} >= {FailureThreshold}");
-        if (hostFailureTimes2.Count < _failureThreshold)
+        if (count < _failureThreshold)
         {
+            if ( count >= count_50percent && !nosleep )
+            {
+                int delay = count >= count_90percent ? delay_90percent :
+                            count >= count_80percent ? delay_80percent :
+                            count >= count_70percent ? delay_70percent :
+                            count >= count_60percent ? delay_60percent : delay_50percent;
+
+                _logger.LogWarning("[CB-DELAY] Circuit breaker {ID} is experiencing elevated error rates. Count: {Count}, Introducing delay: {Delay}ms", 
+                    ID, count, delay);
+                await Task.Delay(delay).ConfigureAwait(false);
+            }
+            
             // If we were previously blocked but now we're not, decrement the blocked count
             if (_isCurrentlyBlocked)
             {
@@ -220,7 +252,7 @@ public class CircuitBreaker : ICircuitBreaker
             ["errMax"] = _failureThreshold.ToString(),
             ["winSec"] = _failureTimeFrame.ToString(),
             ["blocked"] = _isCurrentlyBlocked.ToString(),
-            ["failed"] = CheckFailedStatus().ToString(),
+            // ["failed"] = CheckFailedStatus().ToString(),
             ["expIn"] = timeUntilOldestExpires?.ToString("F1") ?? "N/A",
             ["span"] = delta.ToString("c")
         };

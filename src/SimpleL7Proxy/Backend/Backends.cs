@@ -40,7 +40,7 @@ public class Backends : IBackendService
   private CancellationTokenSource _cancellationTokenSource;
   private CancellationToken _cancellationToken;
 
-  public bool CheckFailedStatus() => _circuitBreaker.CheckFailedStatus();
+  public Task<bool> CheckFailedStatusAsync(bool nosleep=false) => _circuitBreaker.CheckFailedStatusAsync(nosleep);
 
   private readonly IEventClient _eventClient;
   private readonly ISharedIteratorRegistry? _sharedIteratorRegistry;

@@ -154,7 +154,7 @@ namespace SimpleL7Proxy.Backend
     /// <summary>
     /// Checks if this host's circuit breaker is in failed state
     /// </summary>
-    public bool CheckFailedStatus() => CircuitBreaker.CheckFailedStatus();
+    public Task<bool> CheckFailedStatusAsync() => CircuitBreaker.CheckFailedStatusAsync();
 
     public string GetCircuitBreakerStatusString() => CircuitBreaker.GetCircuitBreakerStatusString();
 

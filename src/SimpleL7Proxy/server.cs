@@ -236,7 +236,6 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         {
             // Handle specific errors, e.g., port already in use
             _staticEvent.WriteOutput($"Failed to start HttpListener: {ex.Message}");
-            // Consider rethrowing, logging the error, or handling it as needed
             throw new Exception("Failed to start the server due to an HttpListener exception.", ex);
         }
         catch (Exception ex)
@@ -272,6 +271,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         int maxEvents = _options.MaxEvents;
         int maxEvents_90Percent = (int)(maxEvents * .9);
         int maxEvents_80Percent = (int)(maxEvents * .8);
+        int maxEvents_70Percent = (int)(maxEvents * .7);
         int maxEvents_60Percent = (int)(maxEvents * .6);
         int maxEvents_50Percent = (int)(maxEvents * .5);
 
@@ -357,7 +357,8 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                         int eventCount = _probeServer.EventCount;
                         if ( eventCount > maxEvents_50Percent) {
                             int cnt =     eventCount > maxEvents_90Percent ? 1000
-                                        : eventCount > maxEvents_80Percent ? 5000
+                                        : eventCount > maxEvents_80Percent ? 500
+                                        : eventCount > maxEvents_70Percent ? 300
                                         : eventCount > maxEvents_60Percent ? 200
                                         : 100;
                             await Task.Delay(cnt);
@@ -371,7 +372,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                             retrymsg = ed["Message"] = "Max Events Exceeds Threshold";
                             logmsg = "MAX EVENTS  => 429:";
                         }
-                        else if (_backends.CheckFailedStatus())
+                        else if (await _backends.CheckFailedStatusAsync())
                         // Check circuit breaker status and enqueue the request
                         {
                             notEnqued = true;
@@ -726,8 +727,8 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                         temp_ed["Message"] = "Enqueued request";
 
                         temp_ed.SendEvent();
-                        _logger.LogDebug("[Queue:Enqueue:{Guid}] Request queued - Priority: {Priority}, User: {UserId}, Async: {IsAsync}, QueueLen: {QueueLength}, CircuitBreaker: {CircuitBreakerOpen}, ActiveHosts: {ActiveHosts}",
-                            rd.Guid, priority, rd.UserID, rd.runAsync, _requestsQueue.thrdSafeCount, _backends.CheckFailedStatus(), _backends.ActiveHostCount());
+                        _logger.LogDebug("[Queue:Enqueue:{Guid}] Request queued - Priority: {Priority}, User: {UserId}, Async: {IsAsync}, QueueLen: {QueueLength}, ActiveHosts: {ActiveHosts}",
+                            rd.Guid, priority, rd.UserID, rd.runAsync, _requestsQueue.thrdSafeCount, _backends.ActiveHostCount());
                     }
                 }
                 else
