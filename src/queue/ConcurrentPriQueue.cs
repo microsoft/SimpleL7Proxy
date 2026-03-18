@@ -19,7 +19,7 @@ public class ConcurrentPriQueue<T>
             {
                 break;
             }
-            Console.WriteLine($"Waiting for queue to drain... Current count: {thrdSafeCount}");
+            Console.WriteLine($"SignalWorker: Draining, Queue count: {thrdSafeCount}");
             await Task.Delay(500).ConfigureAwait(false); // Check every 500ms
         }
         // Shutdown
@@ -125,18 +125,10 @@ public class ConcurrentPriQueue<T>
 
     public async Task<T> DequeueAsync(int preferredPriority)
     {
-        try
-        {
-            // Register this worker's wait and nudge the signaler in case items already exist
-            var waitTask = _taskSignaler.WaitForSignalAsync(preferredPriority);
-            _enqueueEvent.Release(); // wake SignalWorker for potential item->worker pairing
-            var parameter = await waitTask.ConfigureAwait(false);
-            return parameter;
-        }
-        catch (TaskCanceledException)
-        {
-            throw;
-        }
+        // Register this worker's wait and nudge the signaler in case items already exist
+        var waitTask = _taskSignaler.WaitForSignalAsync(preferredPriority);
+        _enqueueEvent.Release(); // wake SignalWorker for potential item->worker pairing
+        return await waitTask.ConfigureAwait(false);
     }
 
     //public string Counters => $"Ins: {insertions} Ext: {extractions}";
