@@ -59,7 +59,13 @@ public class UserProfile : IUserProfile
                 {
                     await ConfigReader(cancellationToken).ConfigureAwait(false);
                 }
-                catch (Exception ex)
+                catch (OperationCanceledException)
+                {
+                    Console.Error.WriteLine("Shutdown: User Profile: Exiting");
+                    // Expected during shutdown, no action needed
+                    break;
+                }
+                catch (Exception ex) 
                 {
                     lock (_profileErrorEventLock)
                     {
