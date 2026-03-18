@@ -51,6 +51,19 @@ public class CompositeEventClient : IEventClient
     }
   }
 
+  public bool IsHealthy()
+  {
+    foreach (var client in _frozen.Keys)
+    {
+      if (!client.IsHealthy())
+      {
+        return false;
+      }
+    }
+    return true;
+  }
+
+
   public string ClientType
   {
     get

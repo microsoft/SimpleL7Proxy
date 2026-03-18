@@ -6,8 +6,8 @@ public interface IEventClient
 {
   int Count { get; }
   string ClientType { get; }
+  bool IsHealthy();
   public Task StopTimerAsync();
-
   void SendData(string? value);
 
 }

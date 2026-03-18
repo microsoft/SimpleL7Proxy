@@ -43,13 +43,17 @@ public class LogFileEventClient : IEventClient, IHostedService
 
         workerCancelToken = cancellationTokenSource.Token; 
 
-        isRunning = true;
 
         return;
     }
 
     public int Count => _logBuffer.Count;
     public string ClientType => "LogFile";
+
+    public bool IsHealthy()
+    {
+        return isRunning && !isShuttingDown;
+    }
 
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -72,9 +76,9 @@ public class LogFileEventClient : IEventClient, IHostedService
 
     public async Task EventWriter(CancellationToken token)
     {
+        isRunning = true;
         try
         {
-
             while (!token.IsCancellationRequested)
             {
                 LogNextBatch(99);
