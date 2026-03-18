@@ -374,7 +374,7 @@ public class Program
     private static async Task Shutdown()
     {
         // ######## BEGIN SHUTDOWN SEQUENCE ########
-        var timeoutTask = Task.Delay(terminationGracePeriodSeconds * 1000);
+        var timeoutTask = Task.Delay(Math.Max(terminationGracePeriodSeconds - 1, 0) * 1000);
         cancellationTokenSource.Cancel();
         // Wait for the listener to stop before shutting down the workers:
         if (ListenerTask != null)
@@ -384,18 +384,18 @@ public class Program
         if (server != null)
             await server.Queue().StopAsync().ConfigureAwait(false);
 
-        Console.WriteLine($"Waiting for tasks to complete for maximum {terminationGracePeriodSeconds} seconds");
+        Console.WriteLine($"Shutdown:Waiting for tasks to complete for maximum {terminationGracePeriodSeconds} seconds");
         eventHubClient?.SendData($"Server shutting down:   {ProxyWorker.GetState()}");
 
         var allTasksComplete = Task.WhenAll(allTasks);
         var completedTask = await Task.WhenAny(allTasksComplete, timeoutTask);
         if (completedTask == timeoutTask)
         {
-            Console.WriteLine($"Tasks did not complete within {terminationGracePeriodSeconds} seconds. Forcing shutdown.");
+            Console.WriteLine($"Shutdown: Tasks did not complete within {terminationGracePeriodSeconds} seconds. Forcing shutdown.");
         }
         else
         {
-            Console.WriteLine("All tasks shutdown completed.");
+            Console.WriteLine("Shutdown: All tasks completed.");
         }
 
         backends?.Stop(); // Stop the backend pollers
@@ -413,7 +413,7 @@ public class Program
         if (telemetryClient != null)
         {
             telemetryClient.FlushAsync(CancellationToken.None).Wait(TimeSpan.FromSeconds(5));
-            Console.WriteLine("Application Insights telemetry flushed");
+            Console.WriteLine("Shutdown:Application Insights telemetry flushed");
         }
     }
 

@@ -15,7 +15,6 @@ public class EventHubClient : IEventHubClient
     private CancellationToken workerCancelToken;
     private volatile bool isRunning = false;
     private volatile bool isShuttingDown = false;
-    private bool _disposed = false;
     private Task? writerTask;
     private readonly ConcurrentQueue<string> _logBuffer = new ConcurrentQueue<string>();
     private List<string> _pendingItems = new List<string>();

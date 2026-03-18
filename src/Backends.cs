@@ -214,17 +214,17 @@ public class Backends : IBackendService
                     }
                     catch (OperationCanceledException)
                     {
-                        Console.WriteLine("Operation was canceled. Stopping the backend poller task.");
+                        Console.WriteLine("Shutdown: Stopping the backend poller task.");
                         break; ;
                     }
                     catch (Exception e)
                     {
-                        Console.Error.WriteLine($"An unexpected error occurred: {e.Message}");
+                        Console.Error.WriteLine($"Shutdown: An unexpected error occurred: {e.Message}");
                     }
                 }
             }
 
-            Console.WriteLine("Backend Poller stopped.");
+            Console.WriteLine("Shutdown: Backend Poller stopped.");
         }
     }
 
