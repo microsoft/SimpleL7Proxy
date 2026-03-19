@@ -11,9 +11,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
-using System.Net;
-using System.Net.Sockets;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Reflection;
@@ -24,49 +21,75 @@ using SimpleL7Proxy.Events;
 
 namespace SimpleL7Proxy.Config;
 
-public static class ConfigBootstrapper
+/// <summary>
+/// Builds and registers the singleton BackendOptions instance.
+/// Handles environment variable collection, App Config merging,
+/// backend host discovery, and DI registration.
+/// </summary>
+public static class BackendOptionsBuilder
 {
   private static ILogger? _logger;
-  static Dictionary<string, string> EnvVars = new Dictionary<string, string>();
 
+  static BackendOptions s_options = new BackendOptions();
 
-  public static BackendOptions CreateBackendOptions(ILogger logger, AppConfigBootstrap appConfigBootstrap)
+  /// <summary>
+  /// Collects all OS env vars and seeds the Hostname identity fallback chain:
+  /// explicit Hostname > ReplicaID > CONTAINER_APP_REPLICA_NAME > HOSTNAME > MachineName.
+  /// </summary>
+  public static Dictionary<string, string> EffectiveEnvironment()
   {
-    Dictionary<string, string> effectiveEnvironment = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-    _logger = logger;
-
+    var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     foreach (DictionaryEntry de in Environment.GetEnvironmentVariables())
     {
-      var key = de.Key?.ToString();
-      if (string.IsNullOrEmpty(key))
-        continue;
-      effectiveEnvironment[key] = de.Value?.ToString() ?? string.Empty;
+      if (de.Key?.ToString() is string key)
+        env[key] = de.Value?.ToString() ?? string.Empty;
     }
 
-    // Wait for the bootstrap App Configuration download (started in Main) and
-    // add values into the effective environment dictionary so every
-    // ReadEnvironmentVariableOrDefault call below picks them up.
-    var appConfigSettings = appConfigBootstrap.WaitForDownload();
-    if (appConfigSettings != null)
+    if (!env.ContainsKey("Hostname"))
     {
-      foreach (var kvp in appConfigSettings)
-      {
-        // Keys from AppConfigBootstrap are already plain config names (e.g. "DependancyHeaders").
-        // Values may be JSON-style arrays like ["a","b"] — leave them intact;
-        // downstream parsers (ToListOfString, ReadEnvironmentVariableOrDefault) 
-        // already handle bracket/quote stripping correctly.
-        string key = kvp.Key.Trim();
-        string value = kvp.Value.Trim();
-        effectiveEnvironment[key] = value;
-      }
-      _logger?.LogInformation("[BOOTSTRAP] Applied {Count} App Configuration value(s) to effective environment", appConfigSettings.Count);
+      env["Hostname"] =
+          env.GetValueOrDefault("ReplicaID")
+          ?? Environment.GetEnvironmentVariable("CONTAINER_APP_REPLICA_NAME")
+          ?? Environment.GetEnvironmentVariable("HOSTNAME")
+          ?? Environment.MachineName;
     }
-    var backendOptions = ConfigParser.ParseOptions(effectiveEnvironment);
-    ConfigureHttpClientFromOptions(effectiveEnvironment, backendOptions);
 
-    return backendOptions;
+    return env;
   }
 
+  /// <summary>
+  /// Builds the initial BackendOptions: env vars first, then App Config warm+cold
+  /// overrides merged on top (warm wins on collision).
+  /// </summary>
+  public static async Task<BackendOptions> CreateOptions(AppConfigBootstrap appConfigBootstrap)
+  {
+    s_options.Apply(EffectiveEnvironment());
+
+    var (warmSettings, coldSettings) = await appConfigBootstrap.GetSettingsAsync().ConfigureAwait(false);
+
+    BackendOptions envOptions;
+
+    if (warmSettings == null && coldSettings == null) {
+      envOptions = s_options;
+    }
+    else
+    {
+      var merged = new Dictionary<string, string>(coldSettings ?? new Dictionary<string, string>());
+      if ( warmSettings != null)
+        foreach (var kvp in warmSettings) merged[kvp.Key] = kvp.Value;
+
+      envOptions = ConfigParser.ApplyEnv(merged, s_options);      
+    }
+
+    envOptions.ConfigureHttpClient();
+
+    return envOptions;
+  }
+
+  /// <summary>
+  /// Emits a telemetry event with all resolved config values,
+  /// masking sensitive keys (connection strings, secrets, etc.).
+  /// </summary>
   public static void OutputEnvVars(BackendOptions backendOptions)
   {
 
@@ -76,7 +99,6 @@ public static class ConfigBootstrapper
       ["Message"] = "Configuration loaded",
     };
 
-    // Build Warm / Cold / Hidden buckets from [ConfigOption] attributes
     var warm = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     var cold = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     var hidden = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -100,15 +122,10 @@ public static class ConfigBootstrapper
       pe[attr.KeyPath]= display;  
     }
 
-    Console.WriteLine("Writing to disk");
-
     pe.SendEvent();
 
-    // generate a JSON representation for logging
     var all = warm.Concat(cold).Concat(hidden).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
     string json = System.Text.Json.JsonSerializer.Serialize(all, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-
-    // _logger?.LogInformation("Effective configuration:\n{ConfigJson}", json);
 
     static string MaskSensitive(string key, string value)
     {
@@ -140,44 +157,45 @@ public static class ConfigBootstrapper
     }
   }
 
-
-  public static IServiceCollection AddBackendHostConfiguration(this IServiceCollection services, ILogger logger, BackendOptions backendOptions)
+  /// <summary>
+  /// Registers BackendOptions as a singleton for IOptions, IOptionsMonitor, and direct injection.
+  /// All resolve to the same instance so in-place warm-refresh is visible everywhere.
+  /// </summary>
+  public static IServiceCollection RegisterBackendOptions(this IServiceCollection services, ILogger logger, BackendOptions backendOptions)
   {
     _logger = logger;
 
-    services.AddSingleton(backendOptions); // Direct singleton
-    services.Configure<BackendOptions>(opt =>
-    {
-      // Copy all properties from backendOptions to opt
-      foreach (var prop in typeof(BackendOptions).GetProperties())
-      {
-        if (prop.CanWrite && prop.CanRead)
-          prop.SetValue(opt, prop.GetValue(backendOptions));
-      }
-    });
-    
+    var wrapper = new OptionsWrapper<BackendOptions>(backendOptions);
+    services.AddSingleton(backendOptions);
+    services.AddSingleton<IOptions<BackendOptions>>(wrapper);
+    services.AddSingleton<IOptionsMonitor<BackendOptions>>(new SingletonOptionsMonitor<BackendOptions>(backendOptions));
+
     return services;
+  }
+
+  /// <summary>IOptionsMonitor that always returns the same singleton. No change notifications.</summary>
+  private sealed class SingletonOptionsMonitor<T>(T instance) : IOptionsMonitor<T>
+  {
+    public T CurrentValue => instance;
+    public T Get(string? name) => instance;
+    public IDisposable? OnChange(Action<T, string?> listener) => null;
   }
 
   private static int ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, int defaultValue)
   {
     int value = _ReadEnvironmentVariableOrDefault(env, variableName, defaultValue);
-    EnvVars[variableName] = value.ToString();
     return value;
   }
 
   private static bool ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, bool defaultValue)
   {
     bool value = _ReadEnvironmentVariableOrDefault(env, variableName, defaultValue);
-    EnvVars[variableName] = value.ToString();
     return value;
   }
 
-  // Reusable DataTable for evaluating simple arithmetic expressions (e.g. "60*10", "1200/2")
   private static readonly System.Data.DataTable s_mathTable = new();
 
-  // Tries to evaluate a simple arithmetic expression (supports +, -, *, /).
-  // Returns false if the expression is not valid math.
+  /// <summary>Tries to evaluate a simple arithmetic expression (e.g. "60*10").</summary>
   private static bool TryEvaluateMathExpression(string expression, out double result)
   {
     result = 0;
@@ -191,26 +209,21 @@ public static class ConfigBootstrapper
     catch { return false; }
   }
 
-  // Reads an environment variable and returns its value as an integer.
-  // If the environment variable is not set, it returns the provided default value.
-  // Supports simple arithmetic expressions (e.g. "60*10").
+  /// <summary>Reads an int from the env dict, falling back to math expression eval then default.</summary>
   private static int _ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, int defaultValue)
   {
     var envValue = env.GetValueOrDefault(variableName);
     if (envValue?.Trim() == ConfigOptions.DefaultPlaceholder) envValue = null;
     if (!int.TryParse(envValue, out var value))
     {
-      // Try evaluating as a math expression (e.g. "60*10")
       if (TryEvaluateMathExpression(envValue!, out var mathResult))
         return (int)mathResult;
-      //_logger?.LogWarning($"Using default: {variableName}: {defaultValue}");
       return defaultValue;
     }
     return value;
   }
 
-  // Reads an environment variable and returns its value as a string.
-  // If the environment variable is not set, it returns the provided default value.
+  /// <summary>Reads a bool from the env dict, falling back to default.</summary>
   private static bool _ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, bool defaultValue)
   {
     var envValue = env.GetValueOrDefault(variableName);
@@ -222,177 +235,30 @@ public static class ConfigBootstrapper
     return envValue.Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
   }
 
-  // Converts a List<string> to a dictionary of integers.
-
-  private static SocketsHttpHandler getHandler(int initialDelaySecs, int IntervalSecs, int linuxRetryCount)
-  {
-    SocketsHttpHandler handler = new SocketsHttpHandler();
-    handler.ConnectCallback = async (ctx, ct) =>
-    {
-      DnsEndPoint dnsEndPoint = ctx.DnsEndPoint;
-      IPAddress[] addresses = await Dns.GetHostAddressesAsync(dnsEndPoint.Host, dnsEndPoint.AddressFamily, ct).ConfigureAwait(false);
-      var s = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
-      try
-      {
-        bool linuxKeepAliveConfigured = false;
-
-        // Basic keep-alive setting - should work on all platforms
-        s.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
-        try
-        {
-          if (OperatingSystem.IsWindows())
-          {
-            // Windows-specific approach using IOControl
-            byte[] keepAliveValues = new byte[12];
-            BitConverter.GetBytes((uint)1).CopyTo(keepAliveValues, 0);           // Turn keep-alive on
-            BitConverter.GetBytes((uint)(initialDelaySecs * 1000)).CopyTo(keepAliveValues, 4);
-            BitConverter.GetBytes((uint)(IntervalSecs * 1000)).CopyTo(keepAliveValues, 8);
-
-            s.IOControl(IOControlCode.KeepAliveValues, keepAliveValues, null);
-            //Console.WriteLine("TCP keep-alive settings applied using Windows-specific method");
-          }
-          else if (OperatingSystem.IsLinux())
-          {
-
-            // Set keep-alive idle time in milliseconds
-            s.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, initialDelaySecs);
-
-            // Set keep-alive interval in milliseconds
-            s.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, IntervalSecs);
-
-            s.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount, linuxRetryCount);
-            linuxKeepAliveConfigured = true;
-
-            //Console.WriteLine($"TCPKEEPALIVETIME set to {initialDelaySecs} seconds (connection idle time before sending probes)");
-            //Console.WriteLine($"TCPKEEPALIVEINTERVAL set to {IntervalSecs} seconds (interval between probes)");
-            // Console.WriteLine($"TCPKEEPALIVERETRYCOUNT set to {linuxRetryCount} probes (max failures before disconnect)");
-          }
-
-        }
-        catch (Exception ex)
-        {
-          ProxyEvent pe = new()
-          {
-            Type = EventType.Exception,
-            Exception = ex,
-            ["Message"] = "Failed to set TCP keep-alive parameters",
-            ["Host"] = dnsEndPoint.Host,
-            ["Port"] = dnsEndPoint.Port.ToString(),
-            ["InitialDelaySecs"] = initialDelaySecs.ToString(),
-            ["IntervalSecs"] = IntervalSecs.ToString(),
-            ["LinuxRetryCount"] = linuxRetryCount.ToString(),
-            ["linuxKeepAliveConfigured"] = linuxKeepAliveConfigured.ToString()
-          };
-          pe.SendEvent();
-        }
-
-        // Connect to the endpoint
-        await s.ConnectAsync(addresses, dnsEndPoint.Port, ct).ConfigureAwait(false);
-        return new NetworkStream(s, ownsSocket: true);
-      }
-      catch (Exception ex)
-      {
-        Console.Error.WriteLine($"Socket connection error: {ex.Message}");
-        s.Dispose();
-        throw;
-      }
-    };
-
-    return handler;
-  }
-
-  // Activates runtime resources derived from config (HttpClient/transport) after parsing.
-  private static void ConfigureHttpClientFromOptions(Dictionary<string, string> env, BackendOptions backendOptions)
-  {
-    // Read and set the DNS refresh timeout from environment variables or use the default value
-    // var DNSTimeout = ReadEnvironmentVariableOrDefault(env, "DnsRefreshTimeout", 240000);
-    var KeepAliveInitialDelaySecs = ReadEnvironmentVariableOrDefault(env, "KeepAliveInitialDelaySecs", 60); // 60 seconds
-    var KeepAlivePingIntervalSecs = ReadEnvironmentVariableOrDefault(env, "KeepAlivePingIntervalSecs", 60); // 60 seconds
-    var keepAliveDurationSecs = ReadEnvironmentVariableOrDefault(env, "KeepAliveIdleTimeoutSecs", 1200); // 20 minutes
-    var safeKeepAliveInitialDelaySecs = Math.Max(1, KeepAliveInitialDelaySecs);
-    var safeKeepAlivePingIntervalSecs = Math.Max(1, KeepAlivePingIntervalSecs);
-
-    var EnableMultipleHttp2Connections = ReadEnvironmentVariableOrDefault(env, "EnableMultipleHttp2Connections", false);
-    var MultiConnLifetimeSecs = ReadEnvironmentVariableOrDefault(env, "MultiConnLifetimeSecs", 3600); // 1 hours
-    var MultiConnIdleTimeoutSecs = ReadEnvironmentVariableOrDefault(env, "MultiConnIdleTimeoutSecs", 300); // 5 minutes
-    var MultiConnMaxConns = ReadEnvironmentVariableOrDefault(env, "MultiConnMaxConns", 4000); // 4000 connections
-
-    var retryCount = Math.Max(1, keepAliveDurationSecs / safeKeepAlivePingIntervalSecs);
-    var handler = getHandler(safeKeepAliveInitialDelaySecs, safeKeepAlivePingIntervalSecs, retryCount);
-
-    if (EnableMultipleHttp2Connections)
-    {
-      handler.EnableMultipleHttp2Connections = true;
-      handler.PooledConnectionLifetime = TimeSpan.FromSeconds(MultiConnLifetimeSecs);
-      handler.PooledConnectionIdleTimeout = TimeSpan.FromSeconds(MultiConnIdleTimeoutSecs);
-      handler.MaxConnectionsPerServer = MultiConnMaxConns;
-      handler.ResponseDrainTimeout = TimeSpan.FromSeconds(keepAliveDurationSecs);
-      Console.WriteLine("Multiple HTTP/2 connections enabled.");
-    }
-    else
-    {
-      handler.EnableMultipleHttp2Connections = false;
-      Console.WriteLine("Multiple HTTP/2 connections disabled.");
-    }
-
-    // Configure SSL handling
-    if (ReadEnvironmentVariableOrDefault(env, "IgnoreSSLCert", false))
-    {
-      handler.SslOptions = new System.Net.Security.SslClientAuthenticationOptions
-      {
-        RemoteCertificateValidationCallback = (sender, cert, chain, errors) => true
-      };
-      Console.WriteLine("Ignoring SSL certificate validation errors.");
-    }
-
-    HttpClient client = new HttpClient(handler)
-    {
-      // set timeout to large to disable it at HttpClient level. Will use token cancellation for timeout instead.
-      Timeout = Timeout.InfiniteTimeSpan
-    };
-
-    backendOptions.Client = client;
-  }
-
   /// <summary>
-  /// Clears and re-populates the backend host list by iterating
-  /// over <c>Host1..N</c>, <c>Probe_path1..N</c>, and <c>IP1..N</c> keys.
-  /// <para>
-  /// Each parsed <see cref="HostConfig"/> is staged into <paramref name="hostCollection"/>
-  /// (when provided). After all hosts are parsed, <see cref="IHostHealthCollection.Activate"/>
-  /// is called to build, freeze, and swap the snapshot.
-  /// </para>
-  /// <para>
-  /// Values are resolved in priority order:
-  /// <paramref name="cfg"/> dictionary → <c>Warm:</c>/<c>Cold:</c>/bare-key
-  /// from <paramref name="configuration"/> → environment variable.
-  /// </para>
-  /// <para>
-  /// If <c>APPENDHOSTSFILE</c> is <c>"true"</c>, the resolved host/IP pairs
-  /// are also appended to <c>/etc/hosts</c> (Linux container deployments).
-  /// </para>
+  /// Rebuilds the backend host list from Host1..N, Probe_path1..N, IP1..N keys.
+  /// Resolution priority: appConfigSettings → fallbackConfig (Warm/Cold/bare) → env var.
+  /// Optionally appends to /etc/hosts for Linux container deployments.
   /// </summary>
-  /// <param name="backendOptions">The target options whose <c>Hosts</c> list will be rebuilt.</param>
-  /// <param name="configuration">Optional <see cref="IConfiguration"/> for Warm/Cold/bare-key lookup.</param>
-  /// <param name="cfg">
-  /// Optional flat dictionary of host-family settings (e.g. from a warm snapshot).
-  /// Takes precedence over <paramref name="configuration"/> when supplied.
-  /// </param>
-  /// <param name="hostCollection">
-  /// Optional host collection manager. When provided, each parsed host is staged
-  /// and the collection is activated at the end.
-  /// </param>
-  public static void RegisterBackends(BackendOptions backendOptions, IConfiguration? configuration = null, Dictionary<string, string>? cfg = null, IHostHealthCollection? hostCollection = null)
+  public static void RegisterBackends(
+    BackendOptions backendOptions, 
+    IConfiguration? fallbackConfig = null, 
+    Dictionary<string, string>? appConfigSettings = null, 
+    IHostHealthCollection? hostCollection = null)
   {
-    //backendOptions.Client.Timeout = TimeSpan.FromMilliseconds(backendOptions.Timeout);
-
+    // Resolve a key using cascading priority:
+    //   1. appConfigSettings dict (e.g. warm snapshot)
+    //   2. IConfiguration Warm: prefix
+    //   3. IConfiguration Cold: prefix
+    //   4. IConfiguration bare key
+    //   5. OS environment variable
     string? ReadWithFallback(string key)
     {
       var configured =
-          (cfg != null && cfg.TryGetValue(key, out var cfgVal) ? cfgVal : null)
-          ?? configuration?[$"Warm:{key}"]
-          ?? configuration?[$"Cold:{key}"]
-          ?? configuration?[key];
+          (appConfigSettings != null && appConfigSettings.TryGetValue(key, out var cfgVal) ? cfgVal : null)
+          ?? fallbackConfig?[$"Warm:{key}"]
+          ?? fallbackConfig?[$"Cold:{key}"]
+          ?? fallbackConfig?[key];
 
       return !string.IsNullOrWhiteSpace(configured)
           ? configured.Trim()
@@ -422,8 +288,9 @@ public static class ConfigBootstrapper
     hostCollection?.Activate();
   }
 
-
   private record ParsedHostEntry(string HostKey, string Hostname, string? ProbePath, string? Ip);
+
+  /// <summary>Yields Host1..N entries until a gap is found.</summary>
   private static IEnumerable<ParsedHostEntry> ReadHostEntries(Func<string, string?> readWithFallback)
   {
     for (int i = 1; ; i++)
@@ -439,6 +306,8 @@ public static class ConfigBootstrapper
       );
     }
   }
+
+  /// <summary>Appends host/IP pairs to /etc/hosts when APPENDHOSTSFILE=true.</summary>
   private static void AppendHostsFileIfEnabled(string? flag, StringBuilder hostsContent)
   {
     if (flag?.Equals("true", StringComparison.OrdinalIgnoreCase) != true) return;

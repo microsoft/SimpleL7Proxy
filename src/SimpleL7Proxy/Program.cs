@@ -50,63 +50,45 @@ public class Program
     {
         Banner.Display();
 
-        var logLevel = GetLogLevelFromEnvironment();
-
-        var startupLoggerFactory = LoggerFactory.Create(builder =>
-        {
-            builder.AddConsole(options => options.FormatterName = "custom");
-            builder.AddConsoleFormatter<CustomConsoleFormatter, SimpleConsoleFormatterOptions>();
-            builder.SetMinimumLevel(logLevel);
-        });
-
+        var startupLoggerFactory = LoggerFactory.Create(ConfigureLogging);
         var startupLogger = startupLoggerFactory.CreateLogger<Program>();
+
+        // Bootstrap the bootstrapper !!!!
+        // We can't even connect to App Config unless we know this
         BackendOptions defaultBackendOptions = new BackendOptions
         {
-            // Bootstrap the bootstrapper !!!!
-            // We can't even connect to App Config unless we know this
             UseOAuthGov = string.Equals(
-                Environment.GetEnvironmentVariable("UseOAuthGov"), "true", StringComparison.OrdinalIgnoreCase)
+                Environment.GetEnvironmentVariable("UseOAuthGov"), "true", StringComparison.OrdinalIgnoreCase),
+            AppConfigConnectionString = Environment.GetEnvironmentVariable("AZURE_APPCONFIG_CONNECTION_STRING"),
+            AppConfigEndpoint = Environment.GetEnvironmentVariable("AZURE_APPCONFIG_ENDPOINT"),
+            AppConfigLabel = Environment.GetEnvironmentVariable("AZURE_APPCONFIG_LABEL"),
+            AppConfigRefreshIntervalSeconds = int.TryParse(Environment.GetEnvironmentVariable("AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS"), out var refreshInterval) ? refreshInterval : 30,
         };
         DefaultCredential defaultCredential = new DefaultCredential(defaultBackendOptions);
+
         var appConfigBootstrap = new AppConfigBootstrap(startupLoggerFactory.CreateLogger<AppConfigBootstrap>(), defaultBackendOptions, defaultCredential);
+        // Fire off the download — CreateBackendOptions will await completion before reading Settings.
         appConfigBootstrap.Start();
 
         var hostBuilder = Host.CreateDefaultBuilder(args)
-            .ConfigureAppConfiguration((hostContext, config) =>
-            {
-                config.AddAzureAppConfigurationWithWarmSupport(defaultCredential, startupLogger);
-            })
             .ConfigureLogging(logging =>
             {
                 logging.ClearProviders();
-                logging.AddConsole(options => options.FormatterName = "custom");
-                logging.AddConsoleFormatter<CustomConsoleFormatter, SimpleConsoleFormatterOptions>();
-
-                logging.SetMinimumLevel(logLevel);
-
+                ConfigureLogging(logging);
             })
             .ConfigureServices((hostContext, services) =>
             {
-                ConfigureApplicationInsights(services);
-                ConfigureDependencyInjection(services, startupLogger, appConfigBootstrap, defaultCredential);
+                ConfigureAppInsights(services);
+                ConfigureDI(services, startupLogger, appConfigBootstrap, defaultCredential);
             });
-
-
 
         var frameworkHost = hostBuilder.Build();
         //        var serviceProvider = frameworkHost.Services;
         // Perform static initialization after building the host to ensure correct singleton usage
         var serviceProvider = frameworkHost.Services;
 
-        // If Azure App Configuration refresh service is available, force initial download before other startup work.
-        var appConfigRefreshService = serviceProvider.GetService<AzureAppConfigurationRefreshService>();
-        if (appConfigRefreshService != null)
-        {
-            await appConfigRefreshService.InitializeAsync(CancellationToken.None);
-            var appConfigDictionary = appConfigRefreshService.GetCurrentConfigurationDictionary();
-            startupLogger.LogInformation("[INIT] Azure App Configuration dictionary loaded with {Count} keys", appConfigDictionary.Count);
-            startupLogger.LogInformation("[INIT] ✓ Azure App Configuration initial fetch completed");
-        }
+        appConfigBootstrap.Notifier       = serviceProvider.GetRequiredService<ConfigChangeNotifier>();
+        appConfigBootstrap.HostCollection = serviceProvider.GetRequiredService<IHostHealthCollection>();
 
         var options = serviceProvider.GetRequiredService<IOptions<BackendOptions>>();
         var eventClient = serviceProvider.GetService<IEventClient>();
@@ -129,11 +111,11 @@ public class Program
         HostConfig.Initialize(backendTokenProvider, startupLogger, serviceProvider);
 
         // Register backends after DI container is built and HostConfig is initialized
-        var configuration = serviceProvider.GetService<IConfiguration>();
         var hostCollection = serviceProvider.GetRequiredService<IHostHealthCollection>();
-        ConfigBootstrapper.RegisterBackends(options.Value, configuration, null, hostCollection);
 
+        BackendOptionsBuilder.RegisterBackends(options.Value, null, appConfigBootstrap.WarmSettings, hostCollection);
 
+        // Async
         try
         {
             //ServiceBusRequestService? serviceBusService = null;
@@ -173,7 +155,7 @@ public class Program
         appLifetime.ApplicationStarted.Register(() =>
         {
             var composite = serviceProvider.GetRequiredService<CompositeEventClient>();
-            ConfigBootstrapper.OutputEnvVars(options.Value);
+            BackendOptionsBuilder.OutputEnvVars(options.Value);
 
             startupLogger.LogInformation("[INIT] ✓ All hosted services started — active event loggers: {Loggers}",
                 composite.ClientType);
@@ -199,18 +181,18 @@ public class Program
         }
     }
 
-    private static LogLevel GetLogLevelFromEnvironment()
+    private static void ConfigureLogging(ILoggingBuilder logging)
     {
         var logLevelString = Environment.GetEnvironmentVariable("LOG_LEVEL") ?? "Information";
-        var l =  Enum.TryParse<LogLevel>(logLevelString, true, out var logLevel) ? logLevel : LogLevel.Information;
+        var logLevel = Enum.TryParse<LogLevel>(logLevelString, true, out var l) ? l : LogLevel.Information;
+        Console.WriteLine($"[CONFIG] Log level: {logLevel}");
 
-        // This should always be visible as it's critical startup information
-        Console.WriteLine($"[CONFIG] Log level: {l}");
-
-        return l;
+        logging.AddConsole(options => options.FormatterName = "custom");
+        logging.AddConsoleFormatter<CustomConsoleFormatter, SimpleConsoleFormatterOptions>();
+        logging.SetMinimumLevel(logLevel);
     }
 
-    private static void ConfigureApplicationInsights(IServiceCollection services)
+    private static void ConfigureAppInsights(IServiceCollection services)
     {
         var aiConnectionString = Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING") ?? "";
         if (!string.IsNullOrEmpty(aiConnectionString))
@@ -234,23 +216,22 @@ public class Program
         }
     }
 
-    private static void ConfigureDependencyInjection(IServiceCollection services, ILogger startupLogger, AppConfigBootstrap appConfigBootstrap, DefaultCredential defaultCredential)
+    private static void ConfigureDI(IServiceCollection services, ILogger startupLogger, AppConfigBootstrap appConfigBootstrap, DefaultCredential defaultCredential)
     {
         services.AddSingleton(appConfigBootstrap);
         services.AddSingleton(defaultCredential);
         TryAddCompositeEventClient(services);
       
         // register the backend options
-        var backendOptions = ConfigBootstrapper.CreateBackendOptions(startupLogger, appConfigBootstrap);
-        services.AddBackendHostConfiguration(startupLogger, backendOptions);
+        var backendOptions = BackendOptionsBuilder.CreateOptions(appConfigBootstrap).GetAwaiter().GetResult();
+        services.RegisterBackendOptions(startupLogger, backendOptions);
 
-        // Register event headers and event loggers
+        // Register event headers and event loggers .. needed for AWS
         RegisterEventHeaders(services, startupLogger, backendOptions);
         RegisterEventLoggers(services, startupLogger, backendOptions, backendOptions.EventLoggers);
 
-
-        // Wire up Azure App Configuration warm-refresh service (no-op if AZURE_APPCONFIG_ENDPOINT is not set)
-        services.AddAzureAppConfigurationWithWarmRefresh(startupLogger);
+        // Register refresh services only if App Configuration was reachable.
+        appConfigBootstrap.RegisterServices(services);
 
         if (backendOptions.AsyncModeEnabled)
         {

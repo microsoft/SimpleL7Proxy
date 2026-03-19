@@ -205,8 +205,12 @@ public class ProxyWorker
             }
             catch (OperationCanceledException)
             {
-                //_logger.LogInformation("Operation was cancelled. Stopping the worker.");
-                break; // Exit the loop if the operation is cancelled
+                // Only exit if the cancellation token has fired AND the queue is empty.
+                // If there are still items, re-enter the loop so SignalWorker can dispatch them.
+                if (s_requestsQueue.thrdSafeCount == 0 || !_cancellationToken.IsCancellationRequested)
+                    break;
+                // Cancelled but items remain — continue draining
+                continue;
             }
 
             if (incomingRequest.RecoveryProcessor != null)
@@ -684,7 +688,7 @@ public class ProxyWorker
     private async Task HandleProbeRequestAsync(RequestData req, HttpListenerContext lcontext)
     {
         int hostCount = _backends.ActiveHostCount();
-        bool hasFailedHosts = _backends.CheckFailedStatus();
+        bool hasFailedHosts = _backends.CheckFailedStatusAsync(true).Result;
         _healthCheckService.BuildHealthResponse(req.Path, hostCount, hasFailedHosts, out int probeStatus, out string probeMessage);
 
         lcontext.Response.StatusCode = probeStatus;
@@ -813,7 +817,8 @@ public class ProxyWorker
         {
             DateTime proxyStartDate = DateTime.UtcNow;
 
-            if (host.Config.CheckFailedStatus())
+            // Check circuit breaker before sending request to avoid unnecessary load on unhealthy hosts [ will delay if failure > 50% ]
+            if (await host.Config.CheckFailedStatusAsync().ConfigureAwait(false))
             {
                 var cbStatus = host.Config.GetCircuitBreakerStatusString();
                 _logger.LogCritical("[ProxyToBackEnd:{Guid}] ⚠ Circuit breaker BLOCKING host: {Host} - CB-Status: {CBStatus}",
@@ -886,6 +891,10 @@ public class ProxyWorker
                 using (HttpRequestMessage proxyRequest = new(new(request.Method), request.FullURL))
                 {
                     proxyRequest.Content = bodyContent;
+
+                    // // Allow downgrade to HTTP/1.0 for backends that don't support HTTP/1.1.
+                    // proxyRequest.Version = HttpVersion.Version11;
+                    // proxyRequest.VersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
 
                     proxyRequest.Headers.Add("x-PolicyCycleCounter", request.TotalDownstreamAttempts.ToString());
                     ProxyHelperUtils.CopyHeaders(request.Headers, proxyRequest, true, _options.StripRequestHeaders);
@@ -1276,6 +1285,19 @@ public class ProxyWorker
         ProxyHelperUtils.CopyResponseHeaders(proxyResponse, pr);
         pr.BodyResponseMessage = proxyResponse;
 
+        // // HTTP/1.0 backends use connection-close to delimit the response body (no Content-Length,
+        // // no chunked encoding). The backend closes the TCP connection immediately after sending the
+        // // body. Because we use ResponseHeadersRead, the body is read lazily — by the time
+        // // StreamResponseAsync calls CopyToAsync, the socket may have been reclaimed by the
+        // // connection pool, causing a SocketException.  Eagerly buffer the entire body here,
+        // // while the socket is still open and attributed to this request.
+        // if (proxyResponse.Version == HttpVersion.Version10 &&
+        //     proxyResponse.Content.Headers.ContentLength == null)
+        // {
+        //     _logger.LogDebug("[CaptureResponseStream:{Guid}] HTTP/1.0 backend with no Content-Length detected — eagerly buffering body", request.Guid);
+        //     await proxyResponse.Content.LoadIntoBufferAsync().ConfigureAwait(false);
+        // }
+
         // ASYNC: If the request was triggered asynchronously, we need to write the response to the async worker blob
         // For background checks, skip header writing here - will be written in StreamResponseAsync if completed
 
@@ -1501,8 +1523,7 @@ public class ProxyWorker
             }
             else if (!request.AsyncTriggered && request.Context != null)
             {
-                _logger.LogInformation("Response Status Code: {StatusCode} for request {Guid}",
-                    statusCode, request.Guid);
+                _logger.LogInformation("Response Status Code: {StatusCode} for request {Guid}", statusCode, request.Guid);
                 request.Context.Response.StatusCode = (int)statusCode;
                 request.Context.Response.KeepAlive = false;
 
@@ -1605,7 +1626,7 @@ public class ProxyWorker
 
         if (proxyResponse == null)
         {
-            _logger.LogError("Null Proxy response: Guid: {Guid}, Details: {details}", request.Guid, pr.ToString());
+            _logger.LogError("Null Proxy response: Guid: {Guid}", request.Guid);
             return;
         }
 
