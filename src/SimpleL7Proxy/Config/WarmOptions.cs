@@ -4,48 +4,24 @@ using Microsoft.Extensions.Logging;
 
 namespace SimpleL7Proxy.Config;
 
-/// <summary>
-/// Controls how a <see cref="BackendOptions"/> property is published
-/// and reloaded.
-/// </summary>
+/// <summary>How a BackendOptions property is published and reloaded.</summary>
 public enum ConfigMode
 {
-    /// <summary>
-    /// Published to App Configuration.  Changes are hot-reloaded
-    /// (typically within 30 seconds) — no restart required.
-    /// </summary>
+    /// <summary>Hot-reloaded from App Configuration (~30 s). No restart needed.</summary>
     Warm,
 
-    /// <summary>
-    /// Published to App Configuration.  Changes require an
-    /// application restart to take effect.
-    /// </summary>
+    /// <summary>Published to App Configuration but requires a restart.</summary>
     Cold,
 
-    /// <summary>
-    /// Not published.  Used for runtime-derived, composite, or
-    /// sensitive properties that should never appear in App Configuration.
-    /// </summary>
+    /// <summary>Runtime-derived or sensitive. Never published to App Configuration.</summary>
     Hidden
 }
 
 /// <summary>
-/// Marks a <see cref="BackendOptions"/> property as a managed config option.
-/// <para>
-/// <b>Warm</b> (default): published to App Configuration and hot-reloaded.<br/>
-/// <b>Cold</b>: published to App Configuration but requires restart.<br/>
-/// <b>Hidden</b>: not published — for runtime or composite values.
-/// </para>
-/// <para>
-/// <c>keyPath</c> defines the section path under a prefix that matches
-/// the <see cref="ConfigMode"/>: <c>Warm:</c> or <c>Cold:</c>
-/// (e.g. <c>"Logging:LogConsole"</c> → <c>Warm:Logging:LogConsole</c>,
-///       <c>"Server:Workers"</c> → <c>Cold:Server:Workers</c>).
-/// </para>
-/// <para>
-/// Use <c>ConfigName</c> when the source env var differs from the property name:
-/// <code>[ConfigOption("Metadata:ContainerApp", ConfigName = "CONTAINER_APP_NAME")]</code>
-/// </para>
+/// Marks a BackendOptions property as a managed config option.
+/// <c>keyPath</c> is the section path under the mode prefix
+/// (e.g. "Logging:LogConsole" → Warm:Logging:LogConsole).
+/// Set <c>ConfigName</c> when the env var differs from the property name.
 /// </summary>
 [AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
 public sealed class ConfigOptionAttribute : Attribute
@@ -55,27 +31,19 @@ public sealed class ConfigOptionAttribute : Attribute
         KeyPath = keyPath;
     }
 
-    /// <summary>Key path under the mode section, e.g. "Logging:LogConsole" → Warm:Logging:LogConsole or Cold:Server:Workers.</summary>
+    /// <summary>Section path under the Warm:/Cold: prefix.</summary>
     public string KeyPath { get; }
 
-    /// <summary>
-    /// Source environment variable / config name used by deployment tooling.
-    /// Defaults to the property name when not specified.
-    /// </summary>
+    /// <summary>Env var / config name override. Defaults to the property name.</summary>
     public string? ConfigName { get; set; }
 
-    /// <summary>
-    /// How this property is published and reloaded.
-    /// Default: <see cref="ConfigMode.Warm"/>.
-    /// </summary>
+    /// <summary>Reload mode. Default: Warm.</summary>
     public ConfigMode Mode { get; set; } = ConfigMode.Warm;
 }
 
 /// <summary>
-/// Marks a <see cref="BackendOptions"/> property whose default value is
-/// parsed from a composite configuration string (e.g. AsyncBlobStorageConfig,
-/// AsyncSBConfig) rather than read from a single environment variable.
-/// These properties are typically marked <see cref="ConfigMode.Hidden"/>.
+/// Marks a property whose default is parsed from a composite config string
+/// (e.g. AsyncSBConfig). Typically Hidden.
 /// </summary>
 [AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
 public sealed class ParsedConfigAttribute : Attribute
@@ -85,31 +53,29 @@ public sealed class ParsedConfigAttribute : Attribute
         SourceConfig = sourceConfig;
     }
 
-    /// <summary>Name of the composite config string this property is parsed from.</summary>
+    /// <summary>Composite config string this property is parsed from.</summary>
     public string SourceConfig { get; }
 }
 
+/// <summary>Metadata for a single [ConfigOption]-decorated BackendOptions property.</summary>
 public sealed class ConfigOptionDescriptor
 {
     public required PropertyInfo Property { get; init; }
     public required ConfigOptionAttribute Attribute { get; init; }
 
-    /// <summary>
-    /// Resolved config name: explicit ConfigName if set, otherwise the property name.
-    /// </summary>
+    /// <summary>Resolved config name: explicit ConfigName ?? property name.</summary>
     public string ConfigName => Attribute.ConfigName ?? Property.Name;
 
-    /// <summary>The reload mode for this config option.</summary>
+    /// <summary>Reload mode for this option.</summary>
     public ConfigMode Mode => Attribute.Mode;
 
-    /// <summary>Whether this option is published to App Configuration by deploy.sh.</summary>
+    /// <summary>True for Warm and Cold (published to App Configuration).</summary>
     public bool IsPublished => Mode != ConfigMode.Hidden;
 }
 
 /// <summary>
-/// Discovers and applies config options dynamically based on
-/// <see cref="ConfigOptionAttribute"/> decorations on
-/// <see cref="BackendOptions"/> properties.
+/// Discovers [ConfigOption] descriptors on BackendOptions and provides
+/// warm change detection for hot-reload.
 /// </summary>
 public static class ConfigOptions
 {
@@ -123,37 +89,31 @@ public static class ConfigOptions
     private static readonly Lazy<IReadOnlyDictionary<string, PropertyInfo>> _fieldsByConfigName =
         new(() => Descriptors.ToDictionary(d => d.ConfigName, d => d.Property, StringComparer.OrdinalIgnoreCase));
 
-    /// <summary>All discovered config option descriptors.</summary>
+    /// <summary>All discovered descriptors.</summary>
     public static IReadOnlyList<ConfigOptionDescriptor> Descriptors => _descriptors.Value;
 
-    /// <summary>Returns all discovered config option descriptors.</summary>
+    /// <summary>All discovered descriptors (same as Descriptors).</summary>
     public static IReadOnlyList<ConfigOptionDescriptor> GetDescriptors() => Descriptors;
 
-    /// <summary>Returns only warm (hot-reloadable) descriptors.</summary>
+    /// <summary>Warm (hot-reloadable) descriptors only.</summary>
     public static IReadOnlyList<ConfigOptionDescriptor> GetWarmDescriptors() =>
         _warmDescriptors.Value;
 
-    /// <summary>
-    /// Returns a reverse map from configuration name to <see cref="BackendOptions"/> field/property.
-    /// Computed once and cached for the process lifetime.
-    /// </summary>
+    /// <summary>Config name → PropertyInfo map. Cached for process lifetime.</summary>
     public static IReadOnlyDictionary<string, PropertyInfo> GetFieldsByConfigName() =>
         _fieldsByConfigName.Value;
 
-    /// <summary>
-    /// Tries to resolve a <see cref="BackendOptions"/> field/property by configuration name.
-    /// </summary>
+    /// <summary>Looks up a PropertyInfo by config name.</summary>
     public static bool TryGetFieldByConfigName(string configName, out PropertyInfo? field) =>
         _fieldsByConfigName.Value.TryGetValue(configName, out field);
 
-    /// <summary>Returns only publishable (Warm + Cold) descriptors.</summary>
+    /// <summary>Warm + Cold descriptors (everything published to App Configuration).</summary>
     public static IReadOnlyList<ConfigOptionDescriptor> GetPublishableDescriptors() =>
         Descriptors.Where(d => d.IsPublished).ToList();
 
     /// <summary>
-    /// Placeholder value written by deploy.sh when no env value or C# default
-    /// exists. Treated as "use the built-in code default" — the property is
-    /// left unchanged.
+    /// Placeholder value written by deploy.sh when no value exists.
+    /// Treated as "use the code default" — the property is left unchanged.
     /// </summary>
     public const string DefaultPlaceholder = "-";
 
@@ -185,29 +145,13 @@ public static class ConfigOptions
     // }
 
     /// <summary>
-    /// Iterates over a <c>Warm:</c>-prefixed configuration snapshot and detects
-    /// values that differ from <paramref name="liveOptions"/>.
-    /// <para>
-    /// Each snapshot key is resolved to a <see cref="BackendOptions"/> property
-    /// via the key-path or config-name descriptor maps.  Host-family keys
-    /// (<c>Host*</c>, <c>Probe_path*</c>, <c>IP*</c>) are collected separately
-    /// in <c>HostChanges</c> since they are not backed by descriptors.
-    /// </para>
-    /// <para>Does not mutate <paramref name="liveOptions"/>.</para>
+    /// Diffs bare-keyed warm settings against live options. Does not mutate liveOptions.
+    /// Host keys (Host*, Probe*, IP*) are returned separately in HostChanges.
+    /// Caller must strip the "Warm:" prefix and exclude the sentinel before calling.
     /// </summary>
-    /// <param name="liveOptions">The current in-memory <see cref="BackendOptions"/>.</param>
-    /// <param name="snapshot">
-    /// Flat dictionary captured from the <c>Warm:</c> configuration section.
-    /// Keys are prefixed (e.g. <c>Warm:Logging:LogConsole</c>, <c>Warm:Host1</c>).
-    /// </param>
-    /// <param name="logger">Optional logger for diagnostics.</param>
-    /// <returns>
-    /// A tuple of descriptor-backed changes with their parsed values, plus a
-    /// dictionary of host-family key changes keyed by bare name (e.g. <c>Host1</c>).
-    /// </returns>
     public static (List<ConfigChange> Changes, Dictionary<string, object?> ParsedValues, Dictionary<string, string> HostChanges) DetectWarmChanges(
         BackendOptions liveOptions,
-        Dictionary<string, string> snapshot,
+        Dictionary<string, string> warmSettings,
         ILogger? logger = null)
     {
         var changeList = new List<ConfigChange>();
@@ -216,39 +160,32 @@ public static class ConfigOptions
         var defaultTarget = new BackendOptions();
         var env = new Dictionary<string, string>(1, StringComparer.OrdinalIgnoreCase);
 
-        // iterate over the configuration snapshot values to detect changes compared to the live options
-        foreach (var kvp in snapshot)
+        foreach (var kvp in warmSettings)
         {
             var rawValue = kvp.Value;
 
             if (string.IsNullOrEmpty(rawValue))
                 continue;
 
-            // we only care about warm changes with a "Warm:" prefix
-            var snapshotKey = kvp.Key["Warm:".Length..];
-            if (snapshotKey.StartsWith("Host") || snapshotKey.StartsWith("Probe") || snapshotKey.StartsWith("IP"))
+            var key = kvp.Key;
+            if (key.StartsWith("Host") || key.StartsWith("Probe") || key.StartsWith("IP"))
             {
-                // skip Host/Probe/IP entries which are used for dynamic host discovery and not mapped to BackendOptions properties
-                hostChanges[snapshotKey] = rawValue;
+                hostChanges[key] = rawValue;
                 continue;
             }
 
-            // filter out the keys we dont care about
-            if (!_warmDescriptorsByKeyPath.Value.TryGetValue(snapshotKey, out var descriptor)
-                && !_warmDescriptorsByConfigName.Value.TryGetValue(snapshotKey, out descriptor))
+            if (!_warmDescriptorsByKeyPath.Value.TryGetValue(key, out var descriptor)
+                && !_warmDescriptorsByConfigName.Value.TryGetValue(key, out descriptor))
                 continue;
 
             var configName = descriptor.ConfigName;
             if (!TryGetFieldByConfigName(configName, out var field) || field == null)
                 continue;
 
-
             var currentValue = field.GetValue(liveOptions);
 
-            // ApplyFieldFromEnv handles DefaultPlaceholder ("-") internally —
-            // it treats it as absent and falls back to the default value.
-            // Use a single-entry dict because snapshot keys are "Warm:KeyPath"
-            // but ApplyFieldFromEnv looks up by configName (e.g. "DependancyHeaders").
+            // Parse the raw value via ApplyFieldFromEnv on a throwaway target.
+            // Single-entry dict keyed by configName so the lookup matches.
             env.Clear();
             env[configName] = rawValue;
 
@@ -263,10 +200,6 @@ public static class ConfigOptions
             if (DeepEquals(currentValue, newValue))
                 continue;
 
-            // // debug outout .. show all three:   new config, old value amd new parsed value
-            // logger?.LogInformation("[CONFIG] Detected change for {Property}: {Old} → {New} (raw: {Raw})",
-            //     descriptor.ConfigName, FormatValue(currentValue), FormatValue(newValue), rawValue);
-
             updates[configName] = newValue;
             changeList.Add(new ConfigChange
             {
@@ -280,9 +213,7 @@ public static class ConfigOptions
         return (changeList, updates, hostChanges);
     }
 
-    /// <summary>
-    /// Formats a value for logging, expanding collections into readable strings.
-    /// </summary>
+    /// <summary>Formats a value for logging, expanding collections to strings.</summary>
     private static string FormatValue(object? rawValue)
     {
         if (rawValue == null) return "";
@@ -298,10 +229,7 @@ public static class ConfigOptions
         };
     }
 
-    /// <summary>
-    /// Deep-compares two values, handling collections (List, array, Dictionary)
-    /// that would otherwise fail reference-equality checks via <see cref="object.Equals(object?, object?)"/>.
-    /// </summary>
+    /// <summary>Deep-compares two values, handling List, array, and Dictionary types.</summary>
     private static bool DeepEquals(object? a, object? b)
     {
         if (ReferenceEquals(a, b)) return true;
@@ -321,6 +249,7 @@ public static class ConfigOptions
         };
     }
 
+    /// <summary>Reflects over BackendOptions to discover all [ConfigOption] properties.</summary>
     private static IReadOnlyList<ConfigOptionDescriptor> DiscoverDescriptors()
     {
         return typeof(BackendOptions)

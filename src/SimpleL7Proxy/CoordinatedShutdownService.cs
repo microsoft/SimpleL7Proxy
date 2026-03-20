@@ -31,7 +31,10 @@ public class CoordinatedShutdownService : IHostedService
     private readonly IAsyncFeeder _asyncFeeder;
     private readonly IRequeueWorker _requeueWorker;
     private readonly BlobWriteQueue? _blobWriteQueue;
+    private readonly BlobWriter? _blobWriter;
+    private readonly IEnumerable<IShutdownParticipant> _shutdownParticipants;
     private readonly ProbeServer _probeServer;
+    private readonly CompositeEventClient _compositeEventClient;
 
 
     public CoordinatedShutdownService(IHostApplicationLifetime appLifetime,
@@ -61,8 +64,11 @@ public class CoordinatedShutdownService : IHostedService
         _backendTokenProvider = backendTokenProvider;
         _requeueWorker = requeueWorker;
         _blobWriteQueue = serviceProvider.GetService<BlobWriteQueue>();
+        _blobWriter = serviceProvider.GetService<BlobWriter>();
+        _shutdownParticipants = serviceProvider.GetServices<IShutdownParticipant>();
         _probeServer = probeServer;
         _options = backendOptions.Value;
+        _compositeEventClient = serviceProvider.GetRequiredService<CompositeEventClient>();
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -79,69 +85,84 @@ public class CoordinatedShutdownService : IHostedService
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("[SHUTDOWN] ⏹ Coordinated shutdown initiated");
-        _logger.LogInformation($"[SHUTDOWN] ⏳ Waiting for tasks to complete - Maximum {_options.TerminationGracePeriodSeconds}s");
+        await _server.StopListening(cancellationToken).ConfigureAwait(false);
+        var timeoutTask = Task.Delay(_options.TerminationGracePeriodSeconds * 1000, CancellationToken.None);
+        _logger.LogInformation($"[SHUTDOWN] ⏳============ Begin Shutdown - Maximum {_options.TerminationGracePeriodSeconds}s");
+        _compositeEventClient?.BeginShutdown(); // signal EventHubClient to begin agressively flushing
 
         // Stop AsyncFeeder and server first to prevent it from generating new work
-        await _server.StopListening(cancellationToken).ConfigureAwait(false);
         await _asyncFeeder.StopAsync(cancellationToken).ConfigureAwait(false);
-        await _queue.StopAsync().ConfigureAwait(false);
-
+        Task requeueTask = _requeueWorker.CancelAllCancelableTasks(); // cancel all cancellable delays
+        
+        var allTasksComplete = Task.WhenAll(ProxyWorkerCollection.GetAllTasks());
         ProxyWorkerCollection.ExpelAsyncRequests();  // backup all async requests
-        Task requeueTask = _requeueWorker.CancelAllCancelableTasks(); // cancel all cancellable delays 
         ProxyWorkerCollection.RequestWorkerShutdown();
 
+        // Logger task to periodically log the shutdown status
+        Task watcherTask = new Task(async () =>
+        {
+            int counter=0;
+            while ( ! allTasksComplete.IsCompleted )
+            {
+                int queueCount = _queue?.thrdSafeCount ?? 0;
+                if ( counter++ % 5 == 0) // Log every 5 iterations to avoid spamming
+                    Console.WriteLine($"[SHUTDOWN] Queue: {queueCount}, Workers: { HealthCheckService.GetWorkerState() }");
+                if (queueCount == 0 )
+                {
+                    await _queue!.StopAsync().ConfigureAwait(false);
+                    // no more work to do
+                    break;
+                }
+                await Task.Delay(200).ConfigureAwait(false);
+            }
+        });
+        watcherTask.Start();
 
-        var timeoutTask = Task.Delay(_options.TerminationGracePeriodSeconds * 1000, CancellationToken.None);
         await requeueTask.ConfigureAwait(false); // wait for all cancellable delays to be cancelled
 
-        var allTasksComplete = Task.WhenAll(ProxyWorkerCollection.GetAllTasks());
         var completedTask = await Task.WhenAny(allTasksComplete, timeoutTask).ConfigureAwait(false);
         if (completedTask == timeoutTask)
         {
-            _logger.LogInformation($"Tasks did not complete within {_options.TerminationGracePeriodSeconds} seconds. Forcing shutdown.");
+            _logger.LogInformation("[SHUTDOWN] ⚠ Grace period expired ({GracePeriod}s) — queue: {Queue}, workers: {States}",
+                _options.TerminationGracePeriodSeconds, _queue.thrdSafeCount, HealthCheckService.GetWorkerState());
         }
         else
         {
             _logger.LogInformation("[SHUTDOWN] ✓ All tasks completed");
         }
+        await _queue!.StopAsync().ConfigureAwait(false);
 
         ProxyEvent data=new() 
         {
             ["EventType"] = "S7P-Shutdown",
-            ["Message"] = "Coordinated shutdown completed.",
+            ["Message"] = "Coordinated shutdown in process.",
             ["Timestamp"] = DateTime.UtcNow.ToString("o"),
             ["BackendStatus"] = _backends.HostStatus,
             ["QueueCount"] = _queue.thrdSafeCount.ToString(),
-            ["ActiveWorkers"] = HealthCheckService.ActiveWorkers.ToString(),
-            ["WorkerStates"] = string.Join(", ", HealthCheckService.GetWorkerState())
+            ["WorkerStates"] = HealthCheckService.GetWorkerState()
         };
         data.SendEvent();
-
 
         Task? t = _backends.Stop();
         if (t != null)
             await t.ConfigureAwait(false); // Stop the backend pollers
 
-        data = new()
+        // Discover and invoke all IShutdownParticipant implementations, ordered by ShutdownOrder.
+        // Same pattern as IHostedService — register as IShutdownParticipant in DI, get discovered here.
+        foreach (var participant in _shutdownParticipants.OrderBy(p => p.ShutdownOrder))
         {
-            ["EventType"] = "S7P-Shutdown",
-            ["Message"] = "Backend pollers stopped.",
-            ["Timestamp"] = DateTime.UtcNow.ToString("o"),
-            ["BackendStatus"] = _backends.HostStatus,
-            ["QueueCount"] = _queue.thrdSafeCount.ToString(),
-            ["ActiveWorkers"] = HealthCheckService.ActiveWorkers.ToString(),
-            ["WorkerStates"] = string.Join(", ", HealthCheckService.GetWorkerState())
-        };
-        data.SendEvent();
+            _logger.LogInformation("[SHUTDOWN] ⏹ Shutting down {Service} (order {Order})",
+                participant.GetType().Name, participant.ShutdownOrder);
+            await participant.ShutdownAsync(cancellationToken).ConfigureAwait(false);
+        }
         
         if (_backendTokenProvider != null)
             await _backendTokenProvider.StopAsync(cancellationToken).ConfigureAwait(false);
         
-        // BackupAPIService is NOT registered as IHostedService - we control its shutdown explicitly here
-        // to ensure it stops AFTER all proxy workers have completed and flushed their status updates
-        if (_backupAPIService != null)
-            await _backupAPIService.StopAsync(cancellationToken).ConfigureAwait(false);
+        // // BackupAPIService is NOT registered as IHostedService - we control its shutdown explicitly here
+        // // to ensure it stops AFTER all proxy workers have completed and flushed their status updates
+        // if (_backupAPIService != null)
+        //     await _backupAPIService.StopAsync(cancellationToken).ConfigureAwait(false);
         
         // ServiceBusRequestService is stopped explicitly here for ordering control
         if (_serviceBusRequestService != null)
@@ -153,17 +174,19 @@ public class CoordinatedShutdownService : IHostedService
         {
             _logger.LogInformation("[SHUTDOWN] ⏹ Stopping BlobWriteQueue (final flush)");
             await _blobWriteQueue.StopAsync(CancellationToken.None).ConfigureAwait(false);
+            // Dispose underlying BlobWriter after the queue has flushed
+            _blobWriter?.Dispose();
         }
-        
-        if (_eventClient != null)
-            await _eventClient.StopTimerAsync().ConfigureAwait(false);
 
         // Health probes are stopped at the VERY END so the container orchestrator
         // (e.g. Kubernetes, Container Apps) continues to see healthy probes while
         // other services drain. If probes fail early, the orchestrator may kill the pod.
-        _logger.LogInformation("[SHUTDOWN] ⏹ Stopping health probes");
+        Console.WriteLine("[SHUTDOWN] ⏹ Stopping health probes");
         await _probeServer.StopAsync(CancellationToken.None).ConfigureAwait(false);
         await _server.StopProbes(CancellationToken.None).ConfigureAwait(false);
+
+        await _compositeEventClient.StopTimerAsync().ConfigureAwait(false);
+        Console.WriteLine("[SHUTDOWN] ✅ Service Stopped");
     }
 
 }

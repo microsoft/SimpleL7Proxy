@@ -7,12 +7,14 @@ public class EventHubConfig {
     public string? EventHubName { get; }
     public string? EventHubNamespace { get; }
     public int StartupSeconds { get; } = 10;
+    public int MaxReconnectAttempts { get; } = 5;
 
     public EventHubConfig(BackendOptions options) {
         ConnectionString = options.EventHubConnectionString;
         EventHubName = options.EventHubName;
         EventHubNamespace = options.EventHubNamespace;
         StartupSeconds = options.EventHubStartupSeconds;
+        MaxReconnectAttempts = options.EventHubMaxReconnectAttempts;
 
         // Valid config requires either (ConnectionString + EventHubName) or (EventHubNamespace + EventHubName)
         bool hasConnectionString = !string.IsNullOrEmpty(ConnectionString) && !string.IsNullOrEmpty(EventHubName);

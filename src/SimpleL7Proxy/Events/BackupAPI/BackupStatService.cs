@@ -15,8 +15,9 @@ using SimpleL7Proxy.ServiceBus;
 
 namespace SimpleL7Proxy.BackupAPI
 {
-    public class BackupAPIService : IHostedService, IBackupAPIService
+    public class BackupAPIService : IHostedService, IBackupAPIService, IShutdownParticipant
     {
+        public int ShutdownOrder => 20;
 
         private readonly BackendOptions _options;
         private readonly ILogger<BackupAPIService> _logger;
@@ -66,6 +67,10 @@ namespace SimpleL7Proxy.BackupAPI
             }
 
             return Task.CompletedTask;
+        }
+        public Task ShutdownAsync(CancellationToken cancellationToken)
+        {
+            return StopAsync(cancellationToken);
         }
 
         public async Task StopAsync(CancellationToken cancellationToken)

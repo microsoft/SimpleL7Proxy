@@ -24,14 +24,17 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
     private readonly CompositeEventClient _composite;
     private readonly CancellationTokenSource cancellationTokenSource = new();
     private CancellationToken workerCancelToken;
-    private bool isRunning = false;
-    private bool isShuttingDown = false;
+    private volatile bool isRunning = false;
+    private volatile bool isShuttingDown = false;
+    private volatile bool beginShutdown = false;
     private Task? writerTask;
     private readonly ConcurrentQueue<string> _logBuffer = new();
+    private List<string> _pendingItems = new List<string>();
+    // Connection parameters retained for reconnection
 
-    public bool IsRunning { get => isRunning; set => isRunning = value; }
-    public int GetEntryCount() => entryCount;
     private static int entryCount = 0;
+    public static int ReconnectCount = 0;
+
     //public EventHubClient(string connectionString, string eventHubName, ILogger<EventHubClient>? logger = null)
 
     public EventHubClient(CompositeEventClient composite, 
@@ -60,39 +63,30 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
     public int Count => _logBuffer.Count;
     public string ClientType => isRunning ? "EventHub" : "EventHub (Disabled)";
 
+    public bool IsHealthy()
+    {
+        return isRunning && ReconnectCount == 0 && !isShuttingDown;
+    }
+
+    public void BeginShutdown()
+    {
+        beginShutdown = true;
+    }
+
     public async Task StartAsync(CancellationToken cancellationToken) {
         // If config failed to initialize (constructor threw), skip startup gracefully
         if (_config == null)
         {
             _logger.LogInformation("EventHubClient configuration is null. EventHub will not be started.");
-            isRunning = false;
             return;
         }
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(_config.StartupSeconds));
         try {
-            if (!string.IsNullOrEmpty(_config.ConnectionString))
-            {
-
-                _logger.LogInformation("[EVENT HUB] connecting via connection string, eventhubname :" + _config.EventHubName  );
-                _producerClient = new EventHubProducerClient(_config.ConnectionString, _config.EventHubName);
-            }
-            else if (!string.IsNullOrEmpty(_config.EventHubNamespace))
-            {
-                
-                var credential = _defaultCredential.Credential;
-
-                var fullyQualifiedNamespace = _config.EventHubNamespace;
-                if (!fullyQualifiedNamespace.EndsWith(".servicebus.windows.net") &&
-                    !fullyQualifiedNamespace.EndsWith(".servicebus.usgovcloudapi.net"))
-                    fullyQualifiedNamespace = $"{_config.EventHubNamespace}.servicebus.windows.net";
             
-                _producerClient = new EventHubProducerClient(fullyQualifiedNamespace, _config.EventHubName, credential);
-            }
-            
-            _batchData = await _producerClient!.CreateBatchAsync(cts.Token).ConfigureAwait(false);
-            workerCancelToken = cancellationTokenSource.Token;
+            await ReconnectAsync(cancellationToken: cts.Token).ConfigureAwait(false);
             isRunning = true;
+            workerCancelToken = cancellationTokenSource.Token;
             
             _composite.Add(this);
             _logger.LogCritical("[SERVICE] ✓ EventHub Client started successfully");
@@ -100,12 +94,10 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
         }
         catch (OperationCanceledException) {
             _logger.LogError("EventHubClient setup timed out after {Seconds} seconds. EventHub logging will be disabled.", _config.StartupSeconds);
-            isRunning = false;
             // Don't throw — other event clients (e.g. LogFileEventClient) should continue running
         }
         catch (Exception ex) {
             _logger.LogError(ex, "Failed to setup EventHubClient. EventHub logging will be disabled.");
-            isRunning = false;
             // Don't throw — other event clients (e.g. LogFileEventClient) should continue running
         }
     }
@@ -115,15 +107,17 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
         await StopTimerAsync().ConfigureAwait(false);
     }
 
-    TaskCompletionSource<bool> ShutdownTCS = new();
-
     public async Task StopTimerAsync()
     {
         isShuttingDown = true;
-        while (isRunning && _logBuffer.Count > 0)
+        var drainDeadline = DateTime.UtcNow.AddSeconds(30);
+        while (isRunning && _logBuffer.Count > 0 && DateTime.UtcNow < drainDeadline)
         {
             await Task.Delay(100).ConfigureAwait(false);
         }
+
+        if (_logBuffer.Count > 0)
+            _logger.LogWarning("[SHUTDOWN] EventHubClient stopped with {Count} items still in queue.", _logBuffer.Count);
 
         cancellationTokenSource.Cancel();
         isRunning = false;
@@ -134,42 +128,79 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
     public async Task EventWriter(CancellationToken token)
     {
         if (_batchData is null || _producerClient is null)
+        {
+            isRunning = false;
             return;
+        }
 
         try
         {
-            _logger.LogCritical($"EventHubClient: EventWriter running.");
+            _logger.LogInformation("EventHubClient: EventWriter running.");
             while (!token.IsCancellationRequested)
             {
                 if (GetNextBatch(99) > 0)
                 {
-                    await _producerClient.SendAsync(_batchData).ConfigureAwait(false);
-                    _batchData.Dispose();
-                    _batchData = await _producerClient.CreateBatchAsync().ConfigureAwait(false);
+                    try
+                    {
+                        await _producerClient.SendAsync(_batchData, token).ConfigureAwait(false);
+                        _pendingItems.Clear();
+                        _batchData.Dispose();
+                        _batchData = await _producerClient.CreateBatchAsync(token).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        _logger.LogWarning(ex, "EventHubClient: SendAsync failed, reconnecting.");
+                        // Re-enqueue items from the failed batch so they are not lost
+                        foreach (var item in _pendingItems)
+                        {
+                            _logBuffer.Enqueue(item);
+                            Interlocked.Increment(ref entryCount);
+                        }
+                        _pendingItems.Clear();
+                        await ReconnectAsync(cancellationToken: token).ConfigureAwait(false);
+                        continue;
+                    }
                 }
 
-                if (!isShuttingDown)
+                if (!beginShutdown)
                 {
-                    await Task.Delay(500, token).ConfigureAwait(false); // Wait for 1/2 second
+                    await Task.Delay(500, token).ConfigureAwait(false);
                 }
             }
             _logger.LogInformation("[SHUTDOWN] ✓ EventHubClient exiting");
-
         }
-        catch (TaskCanceledException)
+        catch (OperationCanceledException)
         {
-            // Ignore
+            // Normal shutdown via cancellation token
         }
         finally
         {
+            isRunning = false;
 
             while (true)
             {
                 if (GetNextBatch(99) > 0)
                 {
-                    await _producerClient.SendAsync(_batchData).ConfigureAwait(false);
-                    _batchData.Dispose();
-                    _batchData = await _producerClient.CreateBatchAsync().ConfigureAwait(false);
+                    try
+                    {
+                        await _producerClient.SendAsync(_batchData).ConfigureAwait(false);
+                        _pendingItems.Clear();
+                        _batchData.Dispose();
+                        _batchData = await _producerClient.CreateBatchAsync().ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"EventHubClient: SendAsync failed during shutdown: {ex.Message}");
+                        // Re-enqueue the failed batch items so the reconnected client can retry them.
+                        foreach (var item in _pendingItems)
+                        {
+                            _logBuffer.Enqueue(item);
+                            Interlocked.Increment(ref entryCount);
+                        }
+                        _pendingItems.Clear();
+                        try { await ReconnectAsync(throwOnFailure: false).ConfigureAwait(false); }
+                        catch { break; } // give up draining if reconnect also fails
+                    }
                 }
                 else
                 {
@@ -177,10 +208,63 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
                 }
             }
 
-            await Task.Delay(500).ConfigureAwait(false); // Wait for 1/2 second
-            // make sure event hub client is closed
-            await _producerClient.CloseAsync().ConfigureAwait(false);
+            if (_producerClient is not null)
+                await _producerClient.CloseAsync().ConfigureAwait(false);
         }
+    }
+
+
+    private async Task ReconnectAsync(bool throwOnFailure = true, CancellationToken cancellationToken = default)
+    {
+        async Task ConnectAsync()
+        {
+            if (!string.IsNullOrEmpty(_config!.ConnectionString))
+            {
+                _logger.LogInformation("[EVENT HUB] connecting via connection string, eventhubname :" + _config.EventHubName);
+                _producerClient = new EventHubProducerClient(_config.ConnectionString, _config.EventHubName);
+            }
+            else if (!string.IsNullOrEmpty(_config.EventHubNamespace))
+            {
+                var credential = _defaultCredential.Credential;
+                var fullyQualifiedNamespace = _config.EventHubNamespace;
+                if (!fullyQualifiedNamespace.EndsWith(".servicebus.windows.net") &&
+                    !fullyQualifiedNamespace.EndsWith(".servicebus.usgovcloudapi.net"))
+                    fullyQualifiedNamespace = $"{_config.EventHubNamespace}.servicebus.windows.net";
+                _producerClient = new EventHubProducerClient(fullyQualifiedNamespace, _config.EventHubName, credential);
+            }
+        };
+
+        try
+        {
+            if (_producerClient is not null)
+                await _producerClient.CloseAsync().ConfigureAwait(false);
+        }
+        catch { /* best effort close */ }
+
+        Interlocked.Exchange(ref ReconnectCount, 0);
+
+        for (int attempt = 1; attempt <= _config!.MaxReconnectAttempts; attempt++)
+        {
+            Interlocked.Increment(ref ReconnectCount);
+            try
+            {
+                await ConnectAsync().ConfigureAwait(false);
+                _batchData?.Dispose();
+                _batchData = await _producerClient!.CreateBatchAsync().ConfigureAwait(false);
+                Console.WriteLine("EventHubClient: Reconnected successfully.");
+
+                Interlocked.Exchange(ref ReconnectCount, 0);
+                return;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"EventHubClient: Reconnect failed: {ex.Message}");
+                await Task.Delay(500 * attempt, cancellationToken).ConfigureAwait(false); // Wait for attempt/2 seconds before retrying
+            }
+        }
+
+        if ( throwOnFailure)
+            throw new Exception("EventHubClient: Failed to reconnect after multiple attempts.");
     }
 
     // Add the log to the batch up to count number at a time
@@ -189,6 +273,7 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
         if (_batchData is null)
             return 0;
 
+        _pendingItems.Clear();
         int initialCount = count;
 
         for (int i = 0; i < initialCount; i++)
@@ -198,15 +283,29 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
                 break;
             }
 
-            var eventData = new EventData(Encoding.UTF8.GetBytes(log));
+            EventData eventData;
+            try
+            {
+                eventData = new EventData(Encoding.UTF8.GetBytes(log));
+            }
+            catch (Exception ex)
+            {
+                // Drop the item — it cannot be encoded; re-enqueuing would loop forever.
+                Interlocked.Decrement(ref entryCount);
+                Console.WriteLine($"EventHubClient: Failed to encode log entry, dropping: {ex.Message}");
+                continue;
+            }
+
             if (_batchData.TryAdd(eventData))
             {
                 Interlocked.Decrement(ref entryCount);
+                _pendingItems.Add(log);
             }
             else
             {
-                _logBuffer.Enqueue(log);
-                _logger.LogError("Failed to add log to batchData.");
+                // Item exceeds the EventHub batch size limit — drop it to prevent an infinite re-enqueue cycle.
+                Interlocked.Decrement(ref entryCount);
+                _logger.LogError("EventHubClient: Log entry too large for batch, dropping ({Bytes} bytes).", Encoding.UTF8.GetByteCount(log));
             }
         }
 
@@ -223,7 +322,6 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
             value = value.Substring(2);
 
         Interlocked.Increment(ref entryCount);
-        //Console.WriteLine($" Enqueued: {value}");
         _logBuffer.Enqueue(value);
     }
 

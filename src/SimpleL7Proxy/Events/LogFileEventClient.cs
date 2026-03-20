@@ -19,6 +19,7 @@ public class LogFileEventClient : IEventClient, IHostedService
     private CancellationToken workerCancelToken;
     private bool isRunning = false;
     private bool isShuttingDown = false;
+    private bool beginShutdown = false;
     private Task? writerTask;
     private ConcurrentQueue<string> _logBuffer = new ConcurrentQueue<string>();
 
@@ -43,7 +44,6 @@ public class LogFileEventClient : IEventClient, IHostedService
 
         workerCancelToken = cancellationTokenSource.Token; 
 
-        isRunning = true;
 
         return;
     }
@@ -51,17 +51,27 @@ public class LogFileEventClient : IEventClient, IHostedService
     public int Count => _logBuffer.Count;
     public string ClientType => "LogFile";
 
+    public bool IsHealthy()
+    {
+        return isRunning && !isShuttingDown;
+    }
+
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
         Console.WriteLine("[INIT] ✓ Local File Logger starting");
         workerCancelToken = cancellationTokenSource.Token;
-        if (isRunning)
+        if (!isRunning)
         {
             _composite.Add(this);
             writerTask = Task.Run(() => EventWriter(workerCancelToken));
         }
         return Task.CompletedTask;
+    }
+
+    public void BeginShutdown()
+    {
+        beginShutdown = true;
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -72,14 +82,14 @@ public class LogFileEventClient : IEventClient, IHostedService
 
     public async Task EventWriter(CancellationToken token)
     {
+        isRunning = true;
         try
         {
-
             while (!token.IsCancellationRequested)
             {
                 LogNextBatch(99);
 
-                if (!isShuttingDown)
+                if (!beginShutdown)
                 {
                     await Task.Delay(500, token).ConfigureAwait(false); // Wait for 1/2 second
                 }

@@ -159,13 +159,6 @@ public class BackendOptions
     [ConfigOption("Server:Workers", Mode = ConfigMode.Cold)]
     public int Workers { get; set; } = 10;
 
-    // ── Shared Iterators ──
-    /// <summary>
-    /// When true, requests to the same path share the same host iterator,
-    /// ensuring fair round-robin distribution across concurrent requests.
-    /// </summary>
-    [ConfigOption("Server:UseSharedIterators", Mode = ConfigMode.Cold)]
-    public bool UseSharedIterators { get; set; } = false;
     /// <summary>How long (in seconds) an unused shared iterator lives before cleanup.</summary>
     [ConfigOption("Server:SharedIteratorTTLSeconds", Mode = ConfigMode.Cold)]
     public int SharedIteratorTTLSeconds { get; set; } = 60;
@@ -219,7 +212,7 @@ public class BackendOptions
     public string AsyncSBNamespace { get; set; } = "example-namespace";
 
     // ── Logging / Telemetry ──
-    [ConfigOption("Logging:Level", ConfigName = "LOG_LEVEL", Mode = ConfigMode.Cold)]
+    [ConfigOption("Logging:Level", ConfigName = "LOG_LEVEL", Mode = ConfigMode.Hidden)]
     public string LogLevel { get; set; } = "Information";
     [ConfigOption("Logging:AppInsightsConnectionString", ConfigName = "APPINSIGHTS_CONNECTIONSTRING", Mode = ConfigMode.Cold)]
     public string AppInsightsConnectionString { get; set; } = "";
@@ -243,6 +236,44 @@ public class BackendOptions
     public string EventHubNamespace { get; set; } = "";
     [ConfigOption("EventHub:StartupSeconds", ConfigName = "EVENTHUB_STARTUP_SECONDS", Mode = ConfigMode.Cold)]
     public int EventHubStartupSeconds { get; set; } = 10;
+    [ConfigOption("EventHub:MaxReconnectAttempts", ConfigName = "EVENTHUB_MAX_RECONNECT_ATTEMPTS", Mode = ConfigMode.Cold)]
+    public int EventHubMaxReconnectAttempts { get; set; } = 5;
+    [ConfigOption("EventHub:MaxUndrainedEvents", ConfigName = "EVENTHUB_MAX_UNDRAINED_EVENTS", Mode = ConfigMode.Cold)]
+    public int MaxUndrainedEvents { get; set; } = 100;
+
+    // ── Shared Iterators ──
+    /// <summary>
+    /// When true, requests to the same path share the same host iterator,
+    /// ensuring fair round-robin distribution across concurrent requests.
+    /// </summary>
+    [ConfigOption("Server:UseSharedIterators", Mode = ConfigMode.Hidden)]
+    public bool UseSharedIterators { get; set; } = true;
+
+    // ── App Config ──
+    [ConfigOption("AppConfig:Endpoint", ConfigName = "AZURE_APPCONFIG_ENDPOINT", Mode = ConfigMode.Hidden)]
+    public string? AppConfigEndpoint { get; set; }
+    [ConfigOption("AppConfig:ConnectionString", ConfigName = "AZURE_APPCONFIG_CONNECTION_STRING", Mode = ConfigMode.Hidden)]
+    public string? AppConfigConnectionString { get; set; }
+    [ConfigOption("AppConfig:Label", ConfigName = "AZURE_APPCONFIG_LABEL", Mode = ConfigMode.Hidden)]
+    public string? AppConfigLabel { get; set; }
+    [ConfigOption("AppConfig:RefreshIntervalSeconds", ConfigName = "AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS", Mode = ConfigMode.Hidden)]
+    public int AppConfigRefreshIntervalSeconds { get; set; } = 30;
+
+    // ── Transport / Keep-Alive ──
+    [ConfigOption("Transport:KeepAliveInitialDelaySecs", ConfigName = "KeepAliveInitialDelaySecs", Mode = ConfigMode.Hidden)]
+    public int KeepAliveInitialDelaySecs { get; set; } = 60;
+    [ConfigOption("Transport:KeepAlivePingIntervalSecs", ConfigName = "KeepAlivePingIntervalSecs", Mode = ConfigMode.Hidden)]
+    public int KeepAlivePingIntervalSecs { get; set; } = 60;
+    [ConfigOption("Transport:KeepAliveIdleTimeoutSecs", ConfigName = "KeepAliveIdleTimeoutSecs", Mode = ConfigMode.Hidden)]
+    public int KeepAliveIdleTimeoutSecs { get; set; } = 1200;
+    [ConfigOption("Transport:EnableMultipleHttp2Connections", ConfigName = "EnableMultipleHttp2Connections", Mode = ConfigMode.Hidden)]
+    public bool EnableMultipleHttp2Connections { get; set; } = false;
+    [ConfigOption("Transport:MultiConnLifetimeSecs", ConfigName = "MultiConnLifetimeSecs", Mode = ConfigMode.Hidden)]
+    public int MultiConnLifetimeSecs { get; set; } = 3600;
+    [ConfigOption("Transport:MultiConnIdleTimeoutSecs", ConfigName = "MultiConnIdleTimeoutSecs", Mode = ConfigMode.Hidden)]
+    public int MultiConnIdleTimeoutSecs { get; set; } = 300;
+    [ConfigOption("Transport:MultiConnMaxConns", ConfigName = "MultiConnMaxConns", Mode = ConfigMode.Hidden)]
+    public int MultiConnMaxConns { get; set; } = 4000;
 
     // ── Security ──
     [ConfigOption("Security:IgnoreSSLCert", ConfigName = "IgnoreSSLCert", Mode = ConfigMode.Cold)]
@@ -263,5 +294,5 @@ public class BackendOptions
     public string HostName { get; set; } = "";
     public List<HostConfig> Hosts { get; set; } = [];
     public Dictionary<int, int> PriorityWorkers { get; set; } = new() { { 2, 1 }, { 3, 1 } };
-    public bool TrackWorkers { get; set; } = false;
+    public bool TrackWorkers { get; set; } = true;
 }

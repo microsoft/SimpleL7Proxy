@@ -27,8 +27,16 @@ namespace SimpleL7Proxy.Backend.Iterators;
 /// │                                                                             │
 /// └─────────────────────────────────────────────────────────────────────────────┘
 /// </summary>
-public sealed class SharedIteratorRegistry : ISharedIteratorRegistry, IDisposable
+public sealed class SharedIteratorRegistry : ISharedIteratorRegistry, IShutdownParticipant, IDisposable
 {
+    public int ShutdownOrder => 200;
+
+    public Task ShutdownAsync(CancellationToken cancellationToken)
+    {
+        Dispose();
+        return Task.CompletedTask;
+    }
+
     private readonly Dictionary<string, SharedHostIterator> _iterators = new();
     private readonly object _lock = new();
     private readonly ILogger<SharedIteratorRegistry> _logger;
@@ -126,9 +134,10 @@ public sealed class SharedIteratorRegistry : ISharedIteratorRegistry, IDisposabl
             iterator.Dispose();
         }
 
-        _logger.LogInformation(
-            "[SharedIteratorRegistry] Invalidated all {Count} cached iterators",
-            count);
+        if ( count > 0)
+            _logger.LogInformation(
+                "[SharedIteratorRegistry] Invalidated all {Count} cached iterators",
+                count);
     }
 
     /// <inheritdoc/>

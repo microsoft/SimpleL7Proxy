@@ -99,8 +99,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
         // Single timer for status updates and optional sidecar push
         _probeTimer = new Timer(_ =>
         {
-            _startupStatus = _readinessStatus = _healthService.GetStatus();
-            _activeUndrainedEvents = _eventClient?.Count ?? 0;
+            (_startupStatus, _readinessStatus, _activeUndrainedEvents) = _healthService.GetStatus();
 
             // Push to sidecar if enabled (fire-and-forget async to avoid blocking threadpool)
             var client = _selfCheckClient;

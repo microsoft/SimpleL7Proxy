@@ -236,7 +236,6 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         {
             // Handle specific errors, e.g., port already in use
             _staticEvent.WriteOutput($"Failed to start HttpListener: {ex.Message}");
-            // Consider rethrowing, logging the error, or handling it as needed
             throw new Exception("Failed to start the server due to an HttpListener exception.", ex);
         }
         catch (Exception ex)
@@ -272,6 +271,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         int maxEvents = _options.MaxEvents;
         int maxEvents_90Percent = (int)(maxEvents * .9);
         int maxEvents_80Percent = (int)(maxEvents * .8);
+        int maxEvents_70Percent = (int)(maxEvents * .7);
         int maxEvents_60Percent = (int)(maxEvents * .6);
         int maxEvents_50Percent = (int)(maxEvents * .5);
 
@@ -298,6 +298,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                     {
                         continue;
                     }
+                    var isprobe = false;
 
                     // if it's a probe, then bypass all the below checks and enqueue the request 
                     var probePath = lc.Request.Url?.PathAndQuery;
@@ -314,6 +315,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                             continue;
                         case Constants.Health:
                         case Constants.ForceGC:
+                            isprobe = true;
                             break; // fall through to queue path
                         default:
                             break; // not a probe, fall through
@@ -341,9 +343,8 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                     ed["RequestUserAgent"] = rd.Headers["User-Agent"] ?? "N/A";
 
                     // if it's a probe, then bypass all the below checks and enqueue the request 
-                    if (Constants.probes.Contains(rd.Path))
+                    if (isprobe)
                     {
-
                         // /startup runs a priority of 0,   otherwise run at highest priority ( lower is more urgent )
                         priority = 0;//(rd.Path == Constants.Liveness || rd.Path == Constants.Health) ? livenessPriority : 0;
 
@@ -357,7 +358,8 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                         int eventCount = _probeServer.EventCount;
                         if ( eventCount > maxEvents_50Percent) {
                             int cnt =     eventCount > maxEvents_90Percent ? 1000
-                                        : eventCount > maxEvents_80Percent ? 5000
+                                        : eventCount > maxEvents_80Percent ? 500
+                                        : eventCount > maxEvents_70Percent ? 300
                                         : eventCount > maxEvents_60Percent ? 200
                                         : 100;
                             await Task.Delay(cnt);
@@ -371,7 +373,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                             retrymsg = ed["Message"] = "Max Events Exceeds Threshold";
                             logmsg = "MAX EVENTS  => 429:";
                         }
-                        else if (_backends.CheckFailedStatus())
+                        else if (await _backends.CheckFailedStatusAsync())
                         // Check circuit breaker status and enqueue the request
                         {
                             notEnqued = true;
@@ -655,7 +657,6 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                             retrymsg = ed["Message"] = "Server is shutting down.";
                             logmsg = "Connection rejected, Server is shutting down";
                             rd.Context.Response.Headers["Retry-After"] = "120"; // Retry after 120 seconds (adjust as needed)
-
                         }
                     }
 
@@ -689,7 +690,8 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                             ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
                             ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
 
-                            _logger.LogError($"{logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}");
+                            if (!_isShuttingDown)
+                                _logger.LogError($"{logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}");
 
                             try
                             {
@@ -713,7 +715,9 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                     
                                 ed["ErrorWritingResponse"] = msg;
                             }
-                            _staticEvent.WriteOutput($"Pri: {priority} Stat: {notEnquedCode} Path: {rd.Path}");
+
+                            if ( !_isShuttingDown)
+                                _staticEvent.WriteOutput($"Pri: {priority} Stat: {notEnquedCode} Path: {rd.Path}");
                         }
 
                         ed.SendEvent();
@@ -726,8 +730,8 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                         temp_ed["Message"] = "Enqueued request";
 
                         temp_ed.SendEvent();
-                        _logger.LogDebug("[Queue:Enqueue:{Guid}] Request queued - Priority: {Priority}, User: {UserId}, Async: {IsAsync}, QueueLen: {QueueLength}, CircuitBreaker: {CircuitBreakerOpen}, ActiveHosts: {ActiveHosts}",
-                            rd.Guid, priority, rd.UserID, rd.runAsync, _requestsQueue.thrdSafeCount, _backends.CheckFailedStatus(), _backends.ActiveHostCount());
+                        _logger.LogDebug("[Queue:Enqueue:{Guid}] Request queued - Priority: {Priority}, User: {UserId}, Async: {IsAsync}, QueueLen: {QueueLength}, ActiveHosts: {ActiveHosts}",
+                            rd.Guid, priority, rd.UserID, rd.runAsync, _requestsQueue.thrdSafeCount, _backends.ActiveHostCount());
                     }
                 }
                 else
