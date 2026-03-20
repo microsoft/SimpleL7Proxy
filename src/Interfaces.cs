@@ -27,6 +27,7 @@ public interface IEventHubClient
     void SendData(ProxyEvent eventData);
     int GetEntryCount();
     bool IsRunning { get; set; }
+    void BeginShutdown();
 }
 
 public interface IBackendOptions

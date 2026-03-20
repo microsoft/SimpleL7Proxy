@@ -12,6 +12,7 @@ public class LogFileEventClient : IEventHubClient
     private CancellationToken workerCancelToken;
     private bool isRunning = false;
     private bool isShuttingDown = false;
+    private bool beginShutdown = false;
     private Task? writerTask;
     private ConcurrentQueue<string> _logBuffer = new ConcurrentQueue<string>();
 
@@ -61,7 +62,7 @@ public class LogFileEventClient : IEventHubClient
             {
                 LogNextBatch(99);
 
-                if (!isShuttingDown)
+                if (!beginShutdown)
                 {
                     await Task.Delay(500, token).ConfigureAwait(false); // Wait for 1/2 second
                 }
@@ -115,6 +116,11 @@ public class LogFileEventClient : IEventHubClient
 
         writer.WriteLine(sb.ToString());
         writer.Flush();
+    }
+
+    public void BeginShutdown()
+    {
+        beginShutdown = true;
     }
 
     public Task StopTimer()

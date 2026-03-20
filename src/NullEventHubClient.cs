@@ -27,6 +27,11 @@ public class NullEventHubClient : IEventHubClient
         return Task.CompletedTask;
     }
 
+    public void BeginShutdown()
+    {
+        // No-op
+    }
+
     public Task StopTimer()
     {
         return Task.CompletedTask;

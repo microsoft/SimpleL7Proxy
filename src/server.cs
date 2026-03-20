@@ -418,7 +418,6 @@ public class Server : IServer
                             retrymsg = ed["Message"] = "Server is shutting down.";
                             logmsg = "Connection rejected, Server is shutting down";
                             rd.Context.Response.Headers["Retry-After"] = "120"; // Retry after 120 seconds (adjust as needed)
-
                         }
                     }
 
@@ -452,7 +451,8 @@ public class Server : IServer
                             ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
                             ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
 
-                            Console.Error.WriteLine($"{logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}");
+                            if ( !_isShuttingDown )
+                                Console.Error.WriteLine($"{logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}");
 
                             try
                             {
@@ -467,10 +467,12 @@ public class Server : IServer
                             }
                             catch (Exception ex)
                             {
-                                Console.Error.WriteLine($"Request was not enqueue'd and got an error writing on network: {ex.Message}");
+                                if ( !_isShuttingDown )
+                                   Console.Error.WriteLine($"Request was not enqueue'd and got an error writing on network: {ex.Message}");
                                 ed["ErrorWritingResponse"] = ex.Message;
                             }
-                            _staticEvent.WriteOutput($"Pri: {priority} Stat: 429 Path: {rd.Path}");
+                            if (!_isShuttingDown)
+                                _staticEvent.WriteOutput($"Pri: {priority} Stat: 429 Path: {rd.Path}");
                         }
 
                         ed.SendEvent();
@@ -500,7 +502,8 @@ public class Server : IServer
             {
                 // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
                 _staticEvent.WriteOutput("HTTP server shutdown initiated.");
-                break; // Exit the loop
+                _isShuttingDown = true;
+                // break; // Exit the loop
             }
             catch (Exception e)
             {
@@ -510,5 +513,11 @@ public class Server : IServer
         }
 
         _staticEvent.WriteOutput("HTTP server stopped.");
+    }
+
+    public void Stop()
+    {
+        _staticEvent.WriteOutput("HTTP server shutdown initiated.");
+        _isShuttingDown = true;
     }
 }

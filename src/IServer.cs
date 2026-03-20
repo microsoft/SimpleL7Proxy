@@ -6,4 +6,5 @@ public interface IServer
     Task Run();
     ConcurrentPriQueue<RequestData> Start(CancellationToken cancellationToken);
     ConcurrentPriQueue<RequestData> Queue();
+    void Stop();
 }

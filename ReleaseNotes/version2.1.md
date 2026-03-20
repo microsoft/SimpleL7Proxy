@@ -1,5 +1,9 @@
 # Release Notes #
 
+## V2.1.33.p9
+
+* OnShutdown: stop listening, begin agressive event flushing => after timeout period: continue woring, flushing events until done or killed.
+
 ## V2.1.33.p8
 
 Proxy:

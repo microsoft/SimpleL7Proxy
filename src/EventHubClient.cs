@@ -15,6 +15,8 @@ public class EventHubClient : IEventHubClient
     private CancellationToken workerCancelToken;
     private volatile bool isRunning = false;
     private volatile bool isShuttingDown = false;
+    private volatile bool beginShutdown = false;
+
     private Task? writerTask;
     private readonly ConcurrentQueue<string> _logBuffer = new ConcurrentQueue<string>();
     private List<string> _pendingItems = new List<string>();
@@ -154,7 +156,7 @@ public class EventHubClient : IEventHubClient
                     }
                 }
 
-                if (!isShuttingDown) {
+                if (!beginShutdown) {
                     await Task.Delay(500, token).ConfigureAwait(false); // Wait for 1/2 second
                 }
             }
@@ -265,6 +267,16 @@ public class EventHubClient : IEventHubClient
 
         if (writerTask != null)
             await writerTask.ConfigureAwait(false);
+    }
+
+    public void BeginShutdown()
+    {
+        beginShutdown = true;
+    }
+
+    public async Task CompleteShutdownAsync() 
+    {
+
     }
 
     public void SendData(string? value)

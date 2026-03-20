@@ -38,6 +38,8 @@ public class Program
     private static bool shutdownInitiated = false;
 
     static CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+    static CancellationTokenSource ServerCancellationTokenSource = new CancellationTokenSource();
+    static CancellationTokenSource QueueCancellationTokenSource = new CancellationTokenSource();
     public string OAuthAudience { get; set; } = "";
 
     static IServer? server;
@@ -52,6 +54,8 @@ public class Program
     public static async Task Main(string[] args)
     {
         var cancellationToken = cancellationTokenSource.Token;
+        var queueCancellationToken = QueueCancellationTokenSource.Token;
+        var serverCancellationToken = ServerCancellationTokenSource.Token;
         var backendOptions = LoadBackendOptions();
         Constants.REVISION = backendOptions.Revision;
         Constants.CONTAINERAPP = backendOptions.ContainerApp;
@@ -269,8 +273,8 @@ public class Program
         try
         {
             await backends.WaitForStartup(20); // wait for up to 20 seconds for startup
-            var queue = server.Start(cancellationToken);
-            queue.StartSignaler(cancellationToken);
+            var queue = server.Start(serverCancellationToken);
+            queue.StartSignaler(queueCancellationToken);
 
             var workerPriorities = new Dictionary<int, int>(backendOptions.PriorityWorkers);
             int workerPriority;
@@ -374,20 +378,40 @@ public class Program
     private static async Task Shutdown()
     {
         // ######## BEGIN SHUTDOWN SEQUENCE ########
+        server.Stop();     // stops server accepting more work ( except for probe requests )
+        bool shutdownComplete = false;
         var timeoutTask = Task.Delay(Math.Max(terminationGracePeriodSeconds - 1, 0) * 1000);
-        cancellationTokenSource.Cancel();
-        // Wait for the listener to stop before shutting down the workers:
-        if (ListenerTask != null)
-        {
-            await ListenerTask.ConfigureAwait(false);
-        }
-        if (server != null)
-            await server.Queue().StopAsync().ConfigureAwait(false);
-
         Console.WriteLine($"Shutdown:Waiting for tasks to complete for maximum {terminationGracePeriodSeconds} seconds");
-        eventHubClient?.SendData($"Server shutting down:   {ProxyWorker.GetState()}");
+        cancellationTokenSource.Cancel();
+        eventHubClient?.BeginShutdown();
+
+        // // Wait for the listener to stop before shutting down the workers:
+        // if (ListenerTask != null)
+        // {
+        //     await ListenerTask.ConfigureAwait(false);
+        // }
+
+        // eventHubClient?.SendData($"Server shutting down:   {ProxyWorker.GetState()}");
 
         var allTasksComplete = Task.WhenAll(allTasks);
+        Task watcherTask = new Task(async () =>
+        {
+            int counter=0;
+            while ( ! allTasksComplete.IsCompleted )
+            {
+                int queueCount = server?.Queue().Count ?? 0;
+                if ( counter++ % 5 == 0) // Log every 5 iterations to avoid spamming
+                    Console.WriteLine($"Shutdown: Queue: {queueCount}, Workers: { ProxyWorker.GetState() }");
+                if (queueCount == 0 )
+                {
+                    if (server != null)
+                        await server.Queue().StopAsync().ConfigureAwait(false);
+                }
+                await Task.Delay(200).ConfigureAwait(false);
+            }
+        });
+        watcherTask.Start();
+
         var completedTask = await Task.WhenAny(allTasksComplete, timeoutTask);
         if (completedTask == timeoutTask)
         {
@@ -398,12 +422,29 @@ public class Program
             Console.WriteLine("Shutdown: All tasks completed.");
         }
 
+        // At this point, its possible workers are still processing, but we really need to exit.
+        if (server != null)
+            await server.Queue().StopAsync().ConfigureAwait(false);
+
+        Task eventWatcherTask = new Task(async () =>
+        {
+            while ( ! shutdownComplete )
+            {
+                int count = eventHubClient?.GetEntryCount() ?? 0;
+                if ( count > 0)
+                    Console.WriteLine($"Shutdown: Unflushed events: {count}");
+                await Task.Delay(1000).ConfigureAwait(false);
+            }
+        });
+        eventWatcherTask.Start();
+
+
         backends?.Stop(); // Stop the backend pollers
         if (backendPollerTask != null)
         {
             await backendPollerTask.ConfigureAwait(false);
         }
-        eventHubClient?.SendData($"Workers Stopped:   {ProxyWorker.GetState()}");
+        // eventHubClient?.SendData($"Workers Stopped:   {ProxyWorker.GetState()}");
         if (eventHubClient != null)
         {
             await eventHubClient.StopTimer();
@@ -415,6 +456,9 @@ public class Program
             telemetryClient.FlushAsync(CancellationToken.None).Wait(TimeSpan.FromSeconds(5));
             Console.WriteLine("Shutdown:Application Insights telemetry flushed");
         }
+        
+        shutdownComplete = true;
+        Console.WriteLine("Shutdown complete");
     }
 
     private static int ReadEnvironmentVariableOrDefault(string variableName, int defaultValue)

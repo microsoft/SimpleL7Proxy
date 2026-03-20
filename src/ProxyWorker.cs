@@ -127,6 +127,7 @@ public class ProxyWorker
             {
                 var lcontext = incomingRequest.Context;
                 bool isExpired = false;
+                bool inCleanupState = false;
 
                 Interlocked.Increment(ref states[1]);
                 workerState = "Processing";
@@ -135,6 +136,7 @@ public class ProxyWorker
                     Interlocked.Decrement(ref states[1]);
                     workerState = "Exit - No Context";
                     Interlocked.Increment(ref states[7]);
+                    inCleanupState = true;
                     continue;
                 }
 
@@ -162,6 +164,7 @@ public class ProxyWorker
                         Interlocked.Decrement(ref states[1]);
                         workerState = "Exit - Probe";
                         Interlocked.Increment(ref states[7]);
+                        inCleanupState = true;
 
 
                         // probe details, will be logged in the finally clause [ or not if logProbes==false ]
@@ -262,12 +265,18 @@ public class ProxyWorker
                         eventData.Type = EventType.ProxyRequestExpired;
                     }
 
-                    // SYNCHRONOUS MODE
-                    await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);
+                    try
+                    {
+                        // SYNCHRONOUS MODE
+                        await WriteResponseAsync(lcontext, pr).ConfigureAwait(false);                    
+                    }
+                    finally
+                    {
+                        Interlocked.Decrement(ref states[5]);                    
+                    }
 
 
                     //                    Task.Yield(); // Yield to the scheduler to allow other tasks to run
-                    Interlocked.Decrement(ref states[5]);
                     Interlocked.Increment(ref states[6]);
                     workerState = "Finalize";
 
@@ -285,6 +294,7 @@ public class ProxyWorker
 
                     Interlocked.Decrement(ref states[6]);
                     Interlocked.Increment(ref states[7]);
+                    inCleanupState = true;
                     workerState = "Cleanup";
 
                     // Dispose ProxyData to release memory immediately (headers, body byte arrays)
@@ -299,10 +309,7 @@ public class ProxyWorker
                     {
                         // we shouldn't need to create a copy of the incomingRequest because we are skipping the dispose.
                         // Requeue the request after the retry-after value
-
-                        Interlocked.Decrement(ref states[7]);
                         await Task.Delay(e.RetryAfter).ConfigureAwait(false);
-                        Interlocked.Increment(ref states[7]);
 
                         _requestsQueue.Requeue(incomingRequest, incomingRequest.Priority, incomingRequest.Priority2, incomingRequest.EnqueueTime);
                     });
@@ -395,7 +402,8 @@ public class ProxyWorker
 
                         if (ex.Message == "Cannot access a disposed object." || ex.Message.StartsWith("Unable to write data") || ex.Message.Contains("Broken Pipe")) // The client likely closed the connection
                         {
-                            Console.Error.WriteLine($"Client closed connection: {incomingRequest.FullURL}");
+                            if ( !_cancellationToken.IsCancellationRequested )
+                                Console.Error.WriteLine($"Client closed connection: {incomingRequest.FullURL}");
                             eventData["InnerErrorDetail"] = "Client Disconnected";
                         }
                         else
@@ -467,7 +475,11 @@ public class ProxyWorker
                         Console.Error.WriteLine($"Error in finally: {e.Message}");
                     }
 
-                    Interlocked.Decrement(ref states[7]);
+                    if (inCleanupState)
+                    {
+                        Interlocked.Decrement(ref states[7]);
+                    }
+
                     workerState = "Exit - Finally";
                 }
             }
