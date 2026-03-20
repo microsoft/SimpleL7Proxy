@@ -282,11 +282,14 @@ public class Program
             });
 
             services.AddTransient<IAsyncWorkerFactory, AsyncWorkerFactory>();
+            services.AddSingleton<IAsyncFeeder, AsyncFeeder>();
+            services.AddHostedService(sp => (AsyncFeeder)sp.GetRequiredService<IAsyncFeeder>());
         }
         else {
             services.AddTransient<IAsyncWorkerFactory, NullAsyncWorkerFactory>();
             services.AddSingleton<IBlobWriter, NullBlobWriter>();
             services.AddSingleton<IRequestDataBackupService, NullRequestDataBackupService>();
+            services.AddSingleton<IAsyncFeeder, NullAsyncFeeder>();
         }
         // services.AddSingleton<BlobWriter>(provider =>
         // {
@@ -300,6 +303,7 @@ public class Program
         services.AddHostedService<UserProfile>(provider => provider.GetRequiredService<UserProfile>());
 
         services.AddSingleton<IRequeueWorker, RequeueDelayWorker>();
+        services.AddSingleton<IShutdownParticipant>(sp => (IShutdownParticipant)sp.GetRequiredService<IRequeueWorker>());
 
         services.AddTransient<ICircuitBreaker, CircuitBreaker>();
         services.AddSingleton<ConfigChangeNotifier>();
@@ -335,13 +339,11 @@ public class Program
         // explicitly by CoordinatedShutdownService to ensure proper shutdown ordering
         services.AddSingleton<IBackupAPIService, BackupAPIService>();
 
-        services.AddSingleton<IAsyncFeeder, AsyncFeeder>();
         services.AddSingleton<NormalRequest>();
         services.AddSingleton<OpenAIBackgroundRequest>();
 
         // services.AddSingleton<IRequestProcessor, NormalRequest>();
 
-        services.AddHostedService(sp => (AsyncFeeder)sp.GetRequiredService<IAsyncFeeder>());
 
         // Stream processor factory - optimized singleton for high-throughput scenarios
         services.AddSingleton<StreamProcessorFactory>();
@@ -361,6 +363,12 @@ public class Program
                 logger,
                 options.SharedIteratorTTLSeconds,
                 options.SharedIteratorCleanupIntervalSeconds);
+        });
+        services.AddSingleton<IShutdownParticipant>(sp =>
+        {
+            var registry = sp.GetRequiredService<ISharedIteratorRegistry>();
+            return registry as IShutdownParticipant ?? throw new InvalidOperationException(
+                "ISharedIteratorRegistry implementation does not implement IShutdownParticipant");
         });
 
         services.AddHostedService<ProxyWorkerCollection>();

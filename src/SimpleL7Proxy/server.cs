@@ -656,7 +656,6 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                             retrymsg = ed["Message"] = "Server is shutting down.";
                             logmsg = "Connection rejected, Server is shutting down";
                             rd.Context.Response.Headers["Retry-After"] = "120"; // Retry after 120 seconds (adjust as needed)
-
                         }
                     }
 
@@ -690,7 +689,8 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                             ed["QueueLength"] = _requestsQueue.thrdSafeCount.ToString();
                             ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
 
-                            _logger.LogError($"{logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}");
+                            if (!_isShuttingDown)
+                                _logger.LogError($"{logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}");
 
                             try
                             {
@@ -714,7 +714,9 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                     
                                 ed["ErrorWritingResponse"] = msg;
                             }
-                            _staticEvent.WriteOutput($"Pri: {priority} Stat: {notEnquedCode} Path: {rd.Path}");
+                            
+                            if ( !_isShuttingDown)
+                                _staticEvent.WriteOutput($"Pri: {priority} Stat: {notEnquedCode} Path: {rd.Path}");
                         }
 
                         ed.SendEvent();

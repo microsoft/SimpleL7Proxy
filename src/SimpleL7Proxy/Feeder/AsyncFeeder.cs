@@ -22,6 +22,15 @@ using System.Runtime.Intrinsics.Arm;
 
 namespace SimpleL7Proxy.Feeder
 {
+
+    public class NullAsyncFeeder : IAsyncFeeder
+    {
+        public Task StopAsync(CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
+    }
+    
     public class AsyncFeeder : IHostedService, IAsyncFeeder
     {
 

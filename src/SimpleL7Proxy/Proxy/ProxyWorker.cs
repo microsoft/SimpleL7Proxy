@@ -569,7 +569,7 @@ public class ProxyWorker
 
         HealthCheckService.DecrementActiveWorkers(_id);
 
-        _logger.LogDebug("[SHUTDOWN] ✓ Worker {IdStr} stopped", _idStr);
+        _logger.LogInformation("[SHUTDOWN] ✓ Worker {IdStr} stopped", _idStr);
 
     }
 
@@ -1138,12 +1138,24 @@ public class ProxyWorker
 
                 throw;
             }
-            catch (Exception ex) when (ex is TaskCanceledException || ex is OperationCanceledException)
+            catch (TaskCanceledException)
             {
+                // CTS timer fired — genuine backend timeout
                 TriggerHostCB = false;
-                // 408 Request Timeout - consolidates both TaskCanceledException and OperationCanceledException
                 intCode = (int)HttpStatusCode.RequestTimeout; // 408
-                PopulateTimeoutError(requestAttempt, request, proxyStartDate, ex is OperationCanceledException);
+                PopulateTimeoutError(requestAttempt, request, proxyStartDate);
+                requestAttempt["Error"] = "Request Timed out";
+                requestAttempt["Message"] = "Operation TIMEOUT";
+                continue;
+            }
+            catch (OperationCanceledException)
+            {
+                // Explicit .Cancel() call (e.g. shutdown) — not a timeout
+                TriggerHostCB = false;
+                intCode = (int)HttpStatusCode.RequestTimeout; // 408
+                PopulateTimeoutError(requestAttempt, request, proxyStartDate);
+                requestAttempt["Error"] = "Request Cancelled";
+                requestAttempt["Message"] = "Operation CANCELLED";
                 continue;
             }
             catch (HttpRequestException e)
@@ -1582,16 +1594,13 @@ public class ProxyWorker
     private void PopulateTimeoutError(
         ProxyEvent requestAttempt,
         RequestData request,
-        DateTime proxyStartDate,
-        bool isCancelled = false)
+        DateTime proxyStartDate)
     {
         requestAttempt.Status = HttpStatusCode.RequestTimeout;
         requestAttempt["Expires-At"] = request.ExpiresAt.ToString("o");
         requestAttempt["MaxTimeout"] = _options.Timeout.ToString();
         requestAttempt["Request-Date"] = proxyStartDate.ToString("o");
         requestAttempt["Request-Timeout"] = $"{request.Timeout} ms";
-        requestAttempt["Error"] = isCancelled ? "Request Cancelled" : "Request Timed out";
-        requestAttempt["Message"] = isCancelled ? "Operation CANCELLED" : "Operation TIMEOUT";
     }
 
     private static bool IsInvalidHeaderException(Exception ex)

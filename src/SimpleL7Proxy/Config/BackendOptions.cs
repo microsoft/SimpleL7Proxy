@@ -159,13 +159,6 @@ public class BackendOptions
     [ConfigOption("Server:Workers", Mode = ConfigMode.Cold)]
     public int Workers { get; set; } = 10;
 
-    // ── Shared Iterators ──
-    /// <summary>
-    /// When true, requests to the same path share the same host iterator,
-    /// ensuring fair round-robin distribution across concurrent requests.
-    /// </summary>
-    [ConfigOption("Server:UseSharedIterators", Mode = ConfigMode.Cold)]
-    public bool UseSharedIterators { get; set; } = false;
     /// <summary>How long (in seconds) an unused shared iterator lives before cleanup.</summary>
     [ConfigOption("Server:SharedIteratorTTLSeconds", Mode = ConfigMode.Cold)]
     public int SharedIteratorTTLSeconds { get; set; } = 60;
@@ -248,6 +241,14 @@ public class BackendOptions
     [ConfigOption("EventHub:MaxUndrainedEvents", ConfigName = "EVENTHUB_MAX_UNDRAINED_EVENTS", Mode = ConfigMode.Cold)]
     public int MaxUndrainedEvents { get; set; } = 100;
 
+    // ── Shared Iterators ──
+    /// <summary>
+    /// When true, requests to the same path share the same host iterator,
+    /// ensuring fair round-robin distribution across concurrent requests.
+    /// </summary>
+    [ConfigOption("Server:UseSharedIterators", Mode = ConfigMode.Hidden)]
+    public bool UseSharedIterators { get; set; } = true;
+
     // ── App Config ──
     [ConfigOption("AppConfig:Endpoint", ConfigName = "AZURE_APPCONFIG_ENDPOINT", Mode = ConfigMode.Hidden)]
     public string? AppConfigEndpoint { get; set; }
@@ -293,5 +294,5 @@ public class BackendOptions
     public string HostName { get; set; } = "";
     public List<HostConfig> Hosts { get; set; } = [];
     public Dictionary<int, int> PriorityWorkers { get; set; } = new() { { 2, 1 }, { 3, 1 } };
-    public bool TrackWorkers { get; set; } = false;
+    public bool TrackWorkers { get; set; } = true;
 }

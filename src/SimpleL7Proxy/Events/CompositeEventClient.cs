@@ -34,11 +34,14 @@ public class CompositeEventClient : IEventClient
 
   public async Task StopTimerAsync()
   {
+    List<Task> stopTasks = new();
+
     foreach (var client in _frozen.Keys)
     {
       Console.WriteLine($"Stopping timer for {client.ClientType}");
-      await client.StopTimerAsync().ConfigureAwait(false);
+      stopTasks.Add(client.StopTimerAsync());
     }
+    await Task.WhenAll(stopTasks).ConfigureAwait(false);
   }
 
   // Return the max count of all the clients

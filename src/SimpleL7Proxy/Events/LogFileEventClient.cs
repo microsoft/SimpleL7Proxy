@@ -60,7 +60,7 @@ public class LogFileEventClient : IEventClient, IHostedService
     {
         Console.WriteLine("[INIT] ✓ Local File Logger starting");
         workerCancelToken = cancellationTokenSource.Token;
-        if (isRunning)
+        if (!isRunning)
         {
             _composite.Add(this);
             writerTask = Task.Run(() => EventWriter(workerCancelToken));
