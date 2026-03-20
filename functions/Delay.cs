@@ -20,14 +20,28 @@ namespace Company.Function
         [Function("delay")]
         public async Task<IActionResult> Run([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")] HttpRequest req)
         {
-            // Generate a delay using a normal distribution with mean 1000 ms and standard deviation 200 ms
-            double u1 = 1.0 - rng.NextDouble(); // uniform(0,1] random doubles
-            double u2 = 1.0 - rng.NextDouble();
-            double randStdNormal = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Sin(2.0 * Math.PI * u2); // random normal(0,1)
-            double delay = mean + stdDev * randStdNormal; // random normal(mean,stdDev)
-            delay = Math.Max(10, delay); // Ensure the delay is at least 10 ms
+            string delayParam = req.Query["delay"];
+            double effectiveMean = (string.IsNullOrEmpty(delayParam) || !double.TryParse(delayParam, out double requestedDelay))
+                ? mean
+                : requestedDelay;
 
-            await Task.Delay((int)delay);
+            double delay;
+            if (effectiveMean == 0)
+            {
+                delay = 0;
+            }
+            else
+            {
+                // Generate a delay using a normal distribution around the effective mean
+                double u1 = 1.0 - rng.NextDouble(); // uniform(0,1] random doubles
+                double u2 = 1.0 - rng.NextDouble();
+                double randStdNormal = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Sin(2.0 * Math.PI * u2); // random normal(0,1)
+                delay = effectiveMean + stdDev * randStdNormal; // random normal(effectiveMean,stdDev)
+                delay = Math.Max(10, delay); // Ensure the delay is at least 10 ms
+            }
+
+            if (delay > 0)
+                await Task.Delay((int)delay);
 
             var story = Novel.content;
 

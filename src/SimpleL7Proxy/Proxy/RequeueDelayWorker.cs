@@ -10,8 +10,16 @@ using Shared.RequestAPI.Models;
 namespace SimpleL7Proxy.Proxy;
 
 
-public class RequeueDelayWorker : IRequeueWorker, IDisposable
+public class RequeueDelayWorker : IRequeueWorker, IShutdownParticipant, IDisposable
 {
+    public int ShutdownOrder => 10;
+
+    public Task ShutdownAsync(CancellationToken cancellationToken)
+    {
+        Dispose();
+        return Task.CompletedTask;
+    }
+
     private readonly ILogger<RequeueDelayWorker> _logger;
     private readonly IConcurrentPriQueue<RequestData> _requestsQueue;
     

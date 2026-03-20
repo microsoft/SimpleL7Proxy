@@ -42,6 +42,11 @@ namespace SimpleL7Proxy.StreamProcessor
     /// </summary>
     public abstract class JsonStreamProcessor : BaseStreamProcessor
     {
+        // Pre-compiled regex for extracting "id" field from JSON lines
+        private static readonly Regex s_idRegex = new(
+            @"\s*""id""\s*:\s*""([^""]+)""",
+            RegexOptions.Singleline | RegexOptions.Compiled);
+
         protected Dictionary<string, string> data = new();
         protected virtual int MaxLines { get; } = 10; 
         protected virtual int MinLineLength { get; } = 20;
@@ -146,8 +151,6 @@ namespace SimpleL7Proxy.StreamProcessor
 
                         string? usageLine = null;
 
-                        var idPattern = @"\s*""id""\s*:\s*""([^""]+)""";
-
                         var backgroundRequestFound = false;
                         var modelFound = false;
                         BackgroundCompleted = false;
@@ -188,8 +191,7 @@ namespace SimpleL7Proxy.StreamProcessor
 
                                 // Console.WriteLine("This is a background request : " + line);
 
-                                var match = Regex.Match(line, idPattern, RegexOptions.Singleline);
-                                var jsonBlock = String.Empty;
+                                var match = s_idRegex.Match(line);
 
                                 if (match.Success)
                                 {

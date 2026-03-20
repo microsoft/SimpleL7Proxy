@@ -161,6 +161,32 @@ else
 fi
 
 # ----------------------------------------------------------------------------
+# Ensure the Container App's managed identity has data-plane read access
+# ----------------------------------------------------------------------------
+CA_PRINCIPAL_ID="$(echo "${CA_JSON}" | jq -r '.identity.principalId // empty')"
+if [ -n "${CA_PRINCIPAL_ID}" ]; then
+    EXISTING_CA_ROLE="$(az role assignment list \
+        --assignee "${CA_PRINCIPAL_ID}" \
+        --role "App Configuration Data Reader" \
+        --scope "${APPCONFIG_RESOURCE_ID}" \
+        --query "[0].id" -o tsv 2>/dev/null || true)"
+
+    if [ -z "${EXISTING_CA_ROLE}" ]; then
+        echo -e "${YELLOW}Assigning 'App Configuration Data Reader' role to Container App managed identity (${CA_PRINCIPAL_ID})...${NC}"
+        az role assignment create \
+            --assignee "${CA_PRINCIPAL_ID}" \
+            --role "App Configuration Data Reader" \
+            --scope "${APPCONFIG_RESOURCE_ID}" \
+            >/dev/null
+        echo -e "${GREEN}✓ Role assigned. RBAC propagation may take a few minutes.${NC}"
+    else
+        echo -e "${GREEN}Container App managed identity already has 'App Configuration Data Reader' role.${NC}"
+    fi
+else
+    echo -e "${YELLOW}Warning: Container App has no system-assigned managed identity. Skipping RBAC assignment.${NC}"
+fi
+
+# ----------------------------------------------------------------------------
 # Discover config options dynamically from [ConfigOption("...")] decorations.
 # Handles:
 #   [ConfigOption("Key:Path")]                                → Mode = Warm (default), ConfigName = PropertyName
@@ -208,11 +234,19 @@ mapfile -t CONFIG_ENTRIES < <(
                         defVal = "";
                         if (match($0, /\}[[:space:]]*=[[:space:]]*(.+);/, dv)) {
                             defVal = dv[1];
-                            sub(/[[:space:]]*\/\/.*$/, "", defVal);
                             sub(/^[[:space:]]+/, "", defVal);
                             sub(/[[:space:]]+$/, "", defVal);
                             if (match(defVal, /^"(.*)"$/, q)) {
+                                # Quoted string — extract content directly.
+                                # Do NOT strip // comments here; the URL
+                                # inside (e.g. https://) is part of the value.
                                 defVal = q[1];
+                            } else {
+                                # Non-string (number, bool, enum) — safe to
+                                # strip trailing C# inline // comments.
+                                sub(/[[:space:]]*\/\/.*$/, "", defVal);
+                                sub(/^[[:space:]]+/, "", defVal);
+                                sub(/[[:space:]]+$/, "", defVal);
                             }
                         }
                         break;
@@ -226,7 +260,7 @@ mapfile -t CONFIG_ENTRIES < <(
                 print prop "|" key "|" configName "|" mode "|" defVal;
             }
         }
-    ' "${BACKEND_OPTIONS_FILE}"
+    ' "${BACKEND_OPTIONS_FILE}" | tr -d '\r'
 )
 
 if [ "${#CONFIG_ENTRIES[@]}" -eq 0 ]; then
@@ -256,7 +290,7 @@ for entry in "${CONFIG_ENTRIES[@]}"; do
     KEY_PATH="$(echo "${entry}" | cut -d'|' -f2)"
     CONFIG_NAME="$(echo "${entry}" | cut -d'|' -f3)"
     MODE="$(echo "${entry}" | cut -d'|' -f4)"
-    CS_DEFAULT="$(echo "${entry}" | cut -d'|' -f5)"
+    CS_DEFAULT="$(echo "${entry}" | cut -d'|' -f5-)"
     # Prefix matches the mode: Warm:Section:Key or Cold:Section:Key
     APP_CONFIG_KEY="${MODE}:${KEY_PATH}"
 
@@ -282,8 +316,9 @@ for entry in "${CONFIG_ENTRIES[@]}"; do
         SOURCE="cs-default"
         # Handle enum defaults like "TypeName.Value" → "Value"
         # Only match Identifier.Identifier (e.g. IterationModeEnum.SinglePass)
-        # Avoid mangling URLs, file paths, or floats that also contain dots
-        if [[ "${VALUE}" =~ ^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        # Require PascalCase first segment (uppercase start) so filenames
+        # like "eventslog.json" are not mistaken for enum qualifiers.
+        if [[ "${VALUE}" =~ ^[A-Z][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$ ]]; then
             VALUE="${VALUE##*.}"
         fi
     fi
@@ -292,6 +327,14 @@ for entry in "${CONFIG_ENTRIES[@]}"; do
     if [ -z "${VALUE}" ]; then
         VALUE="${DEFAULT_PLACEHOLDER}"
         SOURCE="placeholder"
+    fi
+
+    # Strip wrapping double quotes that may survive from C# string literal
+    # defaults (AWK quote-strip can fail on non-gawk) or from Container App
+    # env vars / local env vars that were set with accidental quoting.
+    if [[ "${VALUE}" == '"'*'"' ]]; then
+        VALUE="${VALUE#\"}"
+        VALUE="${VALUE%\"}"
     fi
 
     # Escape for JSON (handle backslashes, quotes, newlines)

@@ -1,10 +1,8 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Options;
 using System.Text;
-using Azure.Identity;
 using Azure.Core;
 using System.Text.Json;
-using Microsoft.ApplicationInsights;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
 using System.Threading;
@@ -42,7 +40,7 @@ public class Backends : IBackendService
   private CancellationTokenSource _cancellationTokenSource;
   private CancellationToken _cancellationToken;
 
-  public bool CheckFailedStatus() => _circuitBreaker.CheckFailedStatus();
+  public Task<bool> CheckFailedStatusAsync(bool nosleep=false) => _circuitBreaker.CheckFailedStatusAsync(nosleep);
 
   private readonly IEventClient _eventClient;
   private readonly ISharedIteratorRegistry? _sharedIteratorRegistry;
@@ -338,13 +336,16 @@ public class Backends : IBackendService
       //"S7P-Uri Format Exception";
       _probeEvent["Code"] = "-";
     }
-    catch (System.Threading.Tasks.TaskCanceledException e)
+    catch (System.Threading.Tasks.TaskCanceledException)
     {
-      // WriteOutput($"Poller: Host Timeout: {host.host}");
-      _probeEvent.Type = EventType.Exception;
-      _probeEvent.Exception = e;
-      _probeEvent["Code"] = "-";
+      // Probe timeout is a normal operational signal — host is slow/down.
+      // Not an exception; the circuit breaker handles it via AddCallSuccess(false).
+      _probeEvent.Type = EventType.Poller;
+      _probeEvent["Code"] = "Timeout";
       _probeEvent["Timeout"] = client.Timeout.TotalMilliseconds.ToString();
+ 
+
+      _circuitBreaker.TrackStatus(408, true, "ProbeTimeout");
     }
     catch (HttpRequestException e)
     {

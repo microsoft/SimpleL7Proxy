@@ -6,10 +6,9 @@ public interface IEventClient
 {
   int Count { get; }
   string ClientType { get; }
-  public Task StopTimerAsync();
-
+  bool IsHealthy();
+  void BeginShutdown();         // begin agressively flushing!
+  public Task StopTimerAsync(); // terminate!
   void SendData(string? value);
-//  void SendData(Dictionary<string, string> data);
-  //void SendData( ConcurrentDictionary<string, string> eventData, string? name="");
-  //void SendData(ProxyEvent eventData, IDictionary<string, string>? extraProperties = null);
+
 }

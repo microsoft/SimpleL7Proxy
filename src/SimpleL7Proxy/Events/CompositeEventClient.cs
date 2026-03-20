@@ -34,25 +34,46 @@ public class CompositeEventClient : IEventClient
 
   public async Task StopTimerAsync()
   {
+    List<Task> stopTasks = new();
+
     foreach (var client in _frozen.Keys)
     {
       Console.WriteLine($"Stopping timer for {client.ClientType}");
-      await client.StopTimerAsync().ConfigureAwait(false);
+      stopTasks.Add(client.StopTimerAsync());
     }
+    await Task.WhenAll(stopTasks).ConfigureAwait(false);
   }
 
+  // Return the max count of all the clients
   public int Count
   {
     get
     {
-      var count = 0;
-      foreach (var client in _frozen.Keys)
-      {
-        count += client.Count;
-      }
-      return count;
+      var snapshot = _frozen;
+      return snapshot.Count == 0 ? 0 : snapshot.Keys.Max(c => c.Count);
     }
   }
+
+  public bool IsHealthy()
+  {
+    foreach (var client in _frozen.Keys)
+    {
+      if (!client.IsHealthy())
+      {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  public void BeginShutdown()
+  {
+    foreach (var client in _frozen.Keys)
+    {
+      client.BeginShutdown();
+    }
+  }
+
 
   public string ClientType
   {

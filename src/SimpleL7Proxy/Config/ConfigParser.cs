@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Configuration;
 using SimpleL7Proxy.Backend.Iterators;
 using System.Reflection;
 
@@ -22,6 +21,7 @@ public static class ConfigParser
         ("DefaultPriority", "DefaultPriority"),
         ("DefaultTTLSecs", "DefaultTTLSecs"),
         ("MaxQueueLength", "MaxQueueLength"),
+        ("MaxEvents", "MaxEvents"),
         ("MaxAttempts", "MaxAttempts"),
         ("PollInterval", "PollInterval"),
         ("PollTimeout", "PollTimeout"),
@@ -31,6 +31,8 @@ public static class ConfigParser
         ("UserConfigRefreshIntervalSecs", "UserConfigRefreshIntervalSecs"),
         ("UserSoftDeleteTTLMinutes", "UserSoftDeleteTTLMinutes"),
         ("Workers", "Workers"),
+        ("SharedIteratorTTLSeconds", "SharedIteratorTTLSeconds"),
+        ("SharedIteratorCleanupIntervalSeconds", "SharedIteratorCleanupIntervalSeconds"),
 
         ("SuccessRate", "SuccessRate"),
         ("UserPriorityThreshold", "UserPriorityThreshold"),
@@ -48,6 +50,8 @@ public static class ConfigParser
         ("TimeoutHeader", "TimeoutHeader"),
         ("TTLHeader", "TTLHeader"),
         ("UserConfigUrl", "UserConfigUrl"),
+        ("LookupHeaderName", "UserIDFieldName"),  // older field name, kept for backward compatibility
+        ("UserIDFieldName", "UserIDFieldName"),   // newer field name
         ("UserProfileHeader", "UserProfileHeader"),
         ("ValidateAuthAppFieldName", "ValidateAuthAppFieldName"),
         ("ValidateAuthAppID", "ValidateAuthAppID"),
@@ -57,14 +61,11 @@ public static class ConfigParser
         ("AsyncModeEnabled", "AsyncModeEnabled"),
         ("LogAllRequestHeaders", "LogAllRequestHeaders"),
         ("LogAllResponseHeaders", "LogAllResponseHeaders"),
-        ("LogConsole", "LogConsole"),
-        ("LogConsoleEvent", "LogConsoleEvent"),
-        ("LogPoller", "LogPoller"),
-        ("LogProbes", "LogProbes"),
         ("StorageDbEnabled", "StorageDbEnabled"),
         ("UseOAuth", "UseOAuth"),
         ("UseOAuthGov", "UseOAuthGov"),
         ("UseProfiles", "UseProfiles"),
+        ("UseSharedIterators", "UseSharedIterators"),
         ("UserConfigRequired", "UserConfigRequired"),
 
         ("DependancyHeaders", "DependancyHeaders"),
@@ -72,46 +73,76 @@ public static class ConfigParser
         ("LogAllRequestHeadersExcept", "LogAllRequestHeadersExcept"),
         ("LogAllResponseHeadersExcept", "LogAllResponseHeadersExcept"),
         ("LogHeaders", "LogHeaders"),
+        ("LogToConsole", "LogToConsole"),
+        ("LogToEvents", "LogToEvents"),
+        ("LogToAI", "LogToAI"),
         ("PriorityKeys", "PriorityKeys"),
         ("RequiredHeaders", "RequiredHeaders"),
         ("StripRequestHeaders", "StripRequestHeaders"),
         ("StripResponseHeaders", "StripResponseHeaders"),
         ("UniqueUserHeaders", "UniqueUserHeaders"),
+
+        // ── Logging / Telemetry ──
+        ("LOG_LEVEL", "LogLevel"),
+        ("APPINSIGHTS_CONNECTIONSTRING", "AppInsightsConnectionString"),
+        ("EVENT_LOGGERS", "EventLoggers"),
+        ("EVENT_HEADERS", "EventHeaders"),
+        ("LOGTOFILE", "LogToFile"),
+        ("LOGFILE_NAME", "LogFileName"),
+
+        // ── EventHub ──
+        ("EVENTHUB_CONNECTIONSTRING", "EventHubConnectionString"),
+        ("EVENTHUB_NAME", "EventHubName"),
+        ("EVENTHUB_NAMESPACE", "EventHubNamespace"),
+        ("EVENTHUB_STARTUP_SECONDS", "EventHubStartupSeconds"),
+        ("EVENTHUB_MAX_RECONNECT_ATTEMPTS", "EventHubMaxReconnectAttempts"),
+        ("EVENTHUB_MAX_UNDRAINED_EVENTS", "MaxUndrainedEvents"),
+
+        // ── Transport / Keep-Alive ──
+        ("KeepAliveInitialDelaySecs", "KeepAliveInitialDelaySecs"),
+        ("KeepAlivePingIntervalSecs", "KeepAlivePingIntervalSecs"),
+        ("KeepAliveIdleTimeoutSecs", "KeepAliveIdleTimeoutSecs"),
+        ("EnableMultipleHttp2Connections", "EnableMultipleHttp2Connections"),
+        ("MultiConnLifetimeSecs", "MultiConnLifetimeSecs"),
+        ("MultiConnIdleTimeoutSecs", "MultiConnIdleTimeoutSecs"),
+        ("MultiConnMaxConns", "MultiConnMaxConns"),
+
+        // ── Security ──
+        ("IgnoreSSLCert", "IgnoreSSLCert"),
     };
 
-    public static BackendOptions ParseOptions(Dictionary<string, string> env)
+
+    // Creates a BackendOptions instance by applying environment variable overrides on top of the defaults
+    public static BackendOptions ApplyEnv(Dictionary<string, string> dict, BackendOptions defaults)
     {
         EnvVars.Clear();
 
+        // calculated values based on logic
         var opts = new BackendOptions();
-        var defaults = s_defaults;
 
-        foreach (var (envVar, property) in SimpleFields)
+        foreach (var (envVarName, propertyName) in SimpleFields)
         {
-            ApplyFieldFromEnv(env, opts, defaults, envVar, property);
+            // for all options, uses either the environment or default value
+            opts.ApplyFieldFromEnv(dict, defaults, envVarName, propertyName);
         }
 
-        opts.AcceptableStatusCodes = ReadEnvironmentVariableOrDefault(env, "AcceptableStatusCodes", defaults.AcceptableStatusCodes);
-        opts.IterationMode = ReadEnvironmentVariableOrDefault(env, "IterationMode", defaults.IterationMode);
+        opts.AcceptableStatusCodes = ReadEnvironmentVariableOrDefault(dict, "AcceptableStatusCodes", defaults.AcceptableStatusCodes);
+        opts.IterationMode = ReadEnvironmentVariableOrDefault(dict, "IterationMode", defaults.IterationMode);
 
         var defaultPriorityWorkers = string.Join(",", defaults.PriorityWorkers.Select(kvp => $"{kvp.Key}:{kvp.Value}"));
-        opts.PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault(env, "PriorityWorkers", defaultPriorityWorkers)));
+        opts.PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault(dict, "PriorityWorkers", defaultPriorityWorkers)));
 
         var defaultValidateHeaders = string.Join(",", defaults.ValidateHeaders.Select(kvp => $"{kvp.Key}={kvp.Value}"));
-        opts.ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault(env, "ValidateHeaders", defaultValidateHeaders)));
+        opts.ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault(dict, "ValidateHeaders", defaultValidateHeaders)));
 
-        ApplyAsyncServiceBusOverrides(env, opts, defaults);
-        ApplyAsyncBlobStorageOverrides(env, opts, defaults);
+        ApplyAsyncServiceBusOverrides(dict, opts, defaults);
+        ApplyAsyncBlobStorageOverrides(dict, opts, defaults);
 
-        var replicaId = ReadEnvironmentVariableOrDefault(
-            env,
-            "ReplicaID",
-            Environment.GetEnvironmentVariable("HOSTNAME") ?? Environment.MachineName);
-        ApplyReplicaIdentitySettings(env, opts, replicaId);
+        // IDStr is derived from the prefix + HostName (already resolved via SimpleFields).
+        opts.IDStr = $"{opts.IDStr}-{opts.HostName}-";
 
         ApplyDerivedSettingsFromConfigNames(
             opts,
-            configuration: null,
             nameof(BackendOptions.HealthProbeSidecar),
             nameof(BackendOptions.LoadBalanceMode),
             nameof(BackendOptions.PriorityKeys),
@@ -121,10 +152,54 @@ public static class ConfigParser
         return opts;
     }
 
-    public static IReadOnlyDictionary<string, string> GetParsedEnvVars()
-    {
-        return new Dictionary<string, string>(EnvVars, StringComparer.OrdinalIgnoreCase);
-    }
+    // Apply in this order
+    // 1. Default value from .cs file
+    // 2. Value from environment variable (if set)
+    // 3. Value from environment variable alias (if set) 
+    // 4. Value from App Configuration (if set)
+    // public static BackendOptions ParseOptions(Dictionary<string, string> dict)
+    // {
+    //     EnvVars.Clear();
+
+    //     // calculated values based on logic
+    //     var opts = new BackendOptions();
+
+    //     foreach (var (envVarName, propertyName) in SimpleFields)
+    //     {
+    //         // for all options, uses either the environment or default value
+    //         opts.ApplyFieldFromEnv(dict, s_defaults, envVarName, propertyName);
+    //     }
+
+    //     opts.AcceptableStatusCodes = ReadEnvironmentVariableOrDefault(dict, "AcceptableStatusCodes", s_defaults.AcceptableStatusCodes);
+    //     opts.IterationMode = ReadEnvironmentVariableOrDefault(dict, "IterationMode", s_defaults.IterationMode);
+
+    //     var defaultPriorityWorkers = string.Join(",", s_defaults.PriorityWorkers.Select(kvp => $"{kvp.Key}:{kvp.Value}"));
+    //     opts.PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault(dict, "PriorityWorkers", defaultPriorityWorkers)));
+
+    //     var defaultValidateHeaders = string.Join(",", s_defaults.ValidateHeaders.Select(kvp => $"{kvp.Key}={kvp.Value}"));
+    //     opts.ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault(dict, "ValidateHeaders", defaultValidateHeaders)));
+
+    //     ApplyAsyncServiceBusOverrides(dict, opts, s_defaults);
+    //     ApplyAsyncBlobStorageOverrides(dict, opts, s_defaults);
+
+    //     // IDStr is derived from the prefix + HostName (already resolved via SimpleFields).
+    //     opts.IDStr = $"{opts.IDStr}-{opts.HostName}-";
+
+    //     ApplyDerivedSettingsFromConfigNames(
+    //         opts,
+    //         nameof(BackendOptions.HealthProbeSidecar),
+    //         nameof(BackendOptions.LoadBalanceMode),
+    //         nameof(BackendOptions.PriorityKeys),
+    //         nameof(BackendOptions.PriorityValues),
+    //         nameof(BackendOptions.ValidateHeaders));
+
+    //     return opts;
+    // }
+
+    // public static IReadOnlyDictionary<string, string> GetParsedEnvVars()
+    // {
+    //     return new Dictionary<string, string>(EnvVars, StringComparer.OrdinalIgnoreCase);
+    // }
 
     /// <summary>
     /// Applies a single configuration field from the environment dictionary to the target <see cref="BackendOptions"/> instance.
@@ -144,6 +219,21 @@ public static class ConfigParser
         var pi = typeof(BackendOptions).GetProperty(property) ?? throw new InvalidOperationException($"Unknown BackendOptions property: {property}");
         var defVal = pi.GetValue(defaults);
         var type = pi.PropertyType;
+
+        // If the env var is not explicitly provided, check whether the property
+        // has already been set (by a prior alias). If so, skip — don't overwrite
+        // a previously resolved value with the default.
+        var envValue = env.GetValueOrDefault(envVar)?.Trim();
+        bool envVarPresent = !string.IsNullOrEmpty(envValue) && envValue != ConfigOptions.DefaultPlaceholder;
+        if (!envVarPresent)
+        {
+            var currentVal = pi.GetValue(target);
+            bool alreadyChanged = !Equals(currentVal, defVal);
+            if (alreadyChanged)
+            {
+                return;
+            }
+        }
 
         if (type == typeof(int) || type == typeof(double))
         {
@@ -219,7 +309,7 @@ public static class ConfigParser
 
         if (changedPropertyNames.Contains(nameof(BackendOptions.LoadBalanceMode)))
         {
-            ValidateLoadBalanceMode(backendOptions, s_defaults);
+            ValidateLoadBalanceMode(backendOptions);
         }
 
         if (changedPropertyNames.Contains(nameof(BackendOptions.PriorityKeys))
@@ -236,7 +326,6 @@ public static class ConfigParser
 
     public static void ApplyDerivedSettingsFromConfigNames(
         BackendOptions backendOptions,
-        IConfiguration? configuration,
         params string[] changedConfigNames)
     {
         if (changedConfigNames.Length == 0)
@@ -248,7 +337,6 @@ public static class ConfigParser
             .ToDictionary(d => d.ConfigName, d => d.Property, StringComparer.OrdinalIgnoreCase);
 
         var changedProperties = new List<PropertyInfo>(changedConfigNames.Length);
-        var shouldRefreshBackends = false;
 
         foreach (var changedConfigName in changedConfigNames)
         {
@@ -261,21 +349,11 @@ public static class ConfigParser
             {
                 changedProperties.Add(property);
             }
-
-            if (IsBackendHostConfigName(changedConfigName))
-            {
-                shouldRefreshBackends = true;
-            }
         }
 
         if (changedProperties.Count > 0)
         {
             ApplyDerivedSettings(backendOptions, [.. changedProperties]);
-        }
-
-        if (shouldRefreshBackends)
-        {
-            ConfigBootstrapper.RegisterBackends(backendOptions, configuration, null);
         }
     }
 
@@ -403,14 +481,14 @@ public static class ConfigParser
         }
     }
 
-    private static void ValidateLoadBalanceMode(BackendOptions backendOptions, BackendOptions defaults)
+    private static void ValidateLoadBalanceMode(BackendOptions backendOptions)
     {
         backendOptions.LoadBalanceMode = backendOptions.LoadBalanceMode.Trim().ToLowerInvariant();
         if (backendOptions.LoadBalanceMode != Constants.Latency &&
             backendOptions.LoadBalanceMode != Constants.RoundRobin &&
             backendOptions.LoadBalanceMode != Constants.Random)
         {
-            backendOptions.LoadBalanceMode = defaults.LoadBalanceMode;
+            backendOptions.LoadBalanceMode = Constants.Latency;
         }
     }
 
@@ -612,7 +690,7 @@ public static class ConfigParser
             trimmed = trimmed[1..^1];
         }
 
-        return [.. trimmed.Split(',').Select(p => p.Trim())];
+        return [.. trimmed.Split(',').Select(p => p.Trim().Trim('"')).Where(p => p.Length > 0)];
     }
 
     private static List<int> ToListOfInt(string s)
@@ -628,7 +706,7 @@ public static class ConfigParser
             trimmed = trimmed[1..^1];
         }
 
-        return trimmed.Split(',').Select(p => int.Parse(p.Trim())).ToList();
+        return trimmed.Split(',').Select(p => int.Parse(p.Trim().Trim('"'))).ToList();
     }
 
     private static Dictionary<string, string> ParseConfigString(string config, Dictionary<string, string[]> keyAliases)

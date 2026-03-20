@@ -13,7 +13,7 @@ public interface IBackendService
   // BackendType BackendKind { get; }
   string HostStatus { get; }
   // void TrackStatus(int code, bool wasException);
-  bool CheckFailedStatus();
+  Task<bool> CheckFailedStatusAsync(bool nosleep=false);
   // string OAuth2Token();
   Task WaitForStartup(int timeout);
   void Start();

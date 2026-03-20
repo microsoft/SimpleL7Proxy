@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Collections.Specialized;
 using System.Net;
 using System.Text;
@@ -13,11 +14,11 @@ namespace SimpleL7Proxy.Proxy;
 public static class ProxyHelperUtils
 {
     // Exclude hop-by-hop and restricted headers that HttpListener manages
-    private static readonly HashSet<string> ExcludedHeaders = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly FrozenSet<string> ExcludedHeaders = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "Content-Length", "Transfer-Encoding", "Connection", "Proxy-Connection",
         "Keep-Alive", "Upgrade", "Trailer", "TE", "Date", "Server"
-    };
+    }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Copies headers from a NameValueCollection to an HttpRequestMessage.
@@ -66,17 +67,13 @@ public static class ProxyHelperUtils
         // Content headers
         foreach (var header in response.Content.Headers)
         {
-            if (header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase))
-            {
-                pr.ContentHeaders[header.Key] = string.Join(", ", header.Value);
-                continue;
-            }
+            var value = string.Join(", ", header.Value);
+            pr.ContentHeaders[header.Key] = value;
 
             if (!ExcludedHeaders.Contains(header.Key))
             {
-                pr.Headers[header.Key] = string.Join(", ", header.Value);
+                pr.Headers[header.Key] = value;
             }
-            pr.ContentHeaders[header.Key] = string.Join(", ", header.Value);
         }
     }
 

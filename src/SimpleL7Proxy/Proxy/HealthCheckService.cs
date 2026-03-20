@@ -517,30 +517,42 @@ public class HealthCheckService
         }
     }
 
-    public HealthStatusEnum GetStatus()
+
+    // Method to get overall health status for probes, used by ProbeServer
+    // Returns a tuple of (startupStatus, readinessStatus, activeUndrainedEvents) for more detailed monitoring
+    public (HealthStatusEnum, HealthStatusEnum, int) GetStatus()
     {
         var isReady = IsReadyToWork;
         int hostCount = _backends.ActiveHostCount();
-        bool hasFailed = _backends.CheckFailedStatus();
-        
+        bool hasFailed = _backends.CheckFailedStatusAsync(true).Result; // this call will not block
+
+        int activeEvents = _eventClient?.Count ?? 0;
+        bool tooManyEvents = activeEvents > _options.MaxUndrainedEvents;
+        bool eventsAreHealthy = _eventClient?.IsHealthy() == true;
+
         // Debug logging - remove after fixing
-        // Console.WriteLine($"[STARTUP-DEBUG] IsReadyToWork={isReady}, hostCount={hostCount}, hasFailed={hasFailed}, activeWorkers={ActiveWorkers}");
+        // Console.WriteLine($"[STARTUP-DEBUG] IsReadyToWork={isReady}, hostCount={hostCount}, hasFailed={hasFailed}, activeEvents={activeEvents}");
 
         if (!isReady)
         {
-            return HealthStatusEnum.StartupZeroHosts;
+            return (HealthStatusEnum.StartupZeroHosts, HealthStatusEnum.StartupZeroHosts, activeEvents);
         }
 
         if (hostCount == 0)
         {
-            return HealthStatusEnum.StartupZeroHosts;
+            return (HealthStatusEnum.StartupZeroHosts, HealthStatusEnum.StartupZeroHosts, activeEvents);
         }
 
         if (hasFailed)
         {
-            return HealthStatusEnum.StartupFailedHosts;
+            return (HealthStatusEnum.StartupFailedHosts, HealthStatusEnum.StartupFailedHosts, activeEvents);
         }
 
-        return HealthStatusEnum.StartupReady;
+        if (!eventsAreHealthy)
+        {
+            return (HealthStatusEnum.StartupFailedHosts, HealthStatusEnum.StartupFailedHosts, activeEvents);
+        }
+
+        return (HealthStatusEnum.StartupReady, HealthStatusEnum.StartupReady, activeEvents);
     }
 }

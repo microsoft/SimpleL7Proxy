@@ -26,21 +26,31 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
         MaxQueueLength = _options.MaxQueueLength;
     }
 
-    public int MaxQueueLength { get;  }
+    public int MaxQueueLength { get; set; }
 
     // wait till the queue empties then tell all the workers to stop
     public async Task StopAsync()
     {
-        _logger.LogInformation($"[SHUTDOWN] ⏳ Queue draining - {_priorityQueue.Count} items remaining");
-        while (_priorityQueue.Count > 0)
+        int counter=0;
+        while (true)
         {
-            await Task.Delay(100);
+            // Wait until the queue is empty
+            if (thrdSafeCount == 0)
+            {
+                break;
+            }
+            if ( counter++ % 2 == 0) // log every 2 iterations (1 second)
+            {
+                _logger.LogInformation($"[SHUTDOWN] ⏳ Signal Worker waiting for queue to drain, current count: {thrdSafeCount}");
+            }
+
+            await Task.Delay(500).ConfigureAwait(false); // Check every 500ms
         }
 
         // Shutdown
+        _logger.LogInformation($"[SHUTDOWN] ⏳ SignalWorker stopping");
         _taskSignaler.CancelAllTasks();
     }
-
     public void StartSignaler(CancellationToken cancellationToken)
     {
         Task.Run(() => SignalWorker(cancellationToken), cancellationToken);
@@ -99,35 +109,51 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
     private string sigwrkr_status = "Not started";
     public async Task SignalWorker(CancellationToken cancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested)
+        // Continue draining after cancellation so StopAsync can complete cleanly
+        while (!cancellationToken.IsCancellationRequested || _priorityQueue.Count > 0)
         {
             // 40 seems good,  no timeout or 80ms gives reduced performance
-            await _enqueueEvent.WaitAsync(TimeSpan.FromMilliseconds(40), cancellationToken).ConfigureAwait(false); // Wait for an item to be added
+            try
+            {
+                await _enqueueEvent.WaitAsync(TimeSpan.FromMilliseconds(40), cancellationToken).ConfigureAwait(false); // Wait for an item to be added
+            }
+            catch (OperationCanceledException)
+            {
+                // Token fired — keep looping to drain any remaining items before exiting
+                if (_priorityQueue.Count == 0)
+                    break;
+            }
 
             while (_priorityQueue.Count > 0 && _taskSignaler.HasWaitingTasks())
             {
                 //Console.WriteLine("SignalWorker: Woke up .. getting task");
                 var nextWorker = _taskSignaler.GetNextTask();
                 if (nextWorker == null) continue;
-                
-                lock (_lock)
-                {
-                    // Check inside lock to handle race
-                    if (_priorityQueue.Count == 0)
+
+                try {
+                    lock (_lock)
                     {
-                        _taskSignaler.ReQueueTask(nextWorker);
-                        break; // No more work
+                        // Check inside lock to handle race
+                        if (_priorityQueue.Count == 0)
+                        {
+                            _taskSignaler.ReQueueTask(nextWorker);
+                            break; // No more work
+                        }
+
+                        // Dequeue and deliver in one atomic operation
+                        var item = _priorityQueue.Dequeue(nextWorker.Priority);
+                        nextWorker.TaskCompletionSource.SetResult(item);
                     }
-
-                    // Dequeue and deliver in one atomic operation
-                    var item = _priorityQueue.Dequeue(nextWorker.Priority);
-                    nextWorker.TaskCompletionSource.SetResult(item);
+                } catch (InvalidOperationException) {
+                    // This should never happen. It means that the queue is empty after we checked that the count was > 0
+                    // put the worker back in the queue   
+                    _logger.LogWarning("SignalWorker: InvalidOperationException - requeuing task  Priority: " + nextWorker.Priority);  
+                    _taskSignaler.ReQueueTask(nextWorker);               
                 }
-
             }
         }
 
-        Console.WriteLine("SignalWorker: Canceled");
+        _logger.LogInformation("SignalWorker: Exiting - queue is empty: " + (_priorityQueue.Count == 0));
 
         // Shutdown
         _taskSignaler.CancelAllTasks();
