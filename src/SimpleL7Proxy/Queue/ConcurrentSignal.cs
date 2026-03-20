@@ -41,7 +41,7 @@ public class ConcurrentSignal<T>
     }
 
     // This is looking for the designated probe worker task. 
- public WorkerTask<T>? GetNextProbeTask()
+    public WorkerTask<T>? GetNextProbeTask()
     {
         if (_probeWorkerTaskSet)
         {
@@ -52,7 +52,7 @@ public class ConcurrentSignal<T>
     }
    
     // This is looking for the next task in line.  The next available request will be processed by the worker.
-public WorkerTask<T>? GetNextTask()
+    public WorkerTask<T>? GetNextTask()
     {
         _taskCompletionSources.TryDequeue(out var workerTask);
         if (workerTask != null)

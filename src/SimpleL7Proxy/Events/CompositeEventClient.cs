@@ -66,6 +66,14 @@ public class CompositeEventClient : IEventClient
     return true;
   }
 
+  public void BeginShutdown()
+  {
+    foreach (var client in _frozen.Keys)
+    {
+      client.BeginShutdown();
+    }
+  }
+
 
   public string ClientType
   {

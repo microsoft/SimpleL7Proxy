@@ -298,6 +298,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                     {
                         continue;
                     }
+                    var isprobe = false;
 
                     // if it's a probe, then bypass all the below checks and enqueue the request 
                     var probePath = lc.Request.Url?.PathAndQuery;
@@ -314,6 +315,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                             continue;
                         case Constants.Health:
                         case Constants.ForceGC:
+                            isprobe = true;
                             break; // fall through to queue path
                         default:
                             break; // not a probe, fall through
@@ -341,9 +343,8 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                     ed["RequestUserAgent"] = rd.Headers["User-Agent"] ?? "N/A";
 
                     // if it's a probe, then bypass all the below checks and enqueue the request 
-                    if (Constants.probes.Contains(rd.Path))
+                    if (isprobe)
                     {
-
                         // /startup runs a priority of 0,   otherwise run at highest priority ( lower is more urgent )
                         priority = 0;//(rd.Path == Constants.Liveness || rd.Path == Constants.Health) ? livenessPriority : 0;
 
@@ -714,7 +715,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                     
                                 ed["ErrorWritingResponse"] = msg;
                             }
-                            
+
                             if ( !_isShuttingDown)
                                 _staticEvent.WriteOutput($"Pri: {priority} Stat: {notEnquedCode} Path: {rd.Path}");
                         }

@@ -41,13 +41,14 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
             }
             if ( counter++ % 2 == 0) // log every 2 iterations (1 second)
             {
-                _logger.LogInformation($"[SHUTDOWN] ⏳ Waiting for queue to drain, current count: {thrdSafeCount}");
+                _logger.LogInformation($"[SHUTDOWN] ⏳ Signal Worker waiting for queue to drain, current count: {thrdSafeCount}");
             }
 
             await Task.Delay(500).ConfigureAwait(false); // Check every 500ms
         }
 
         // Shutdown
+        _logger.LogInformation($"[SHUTDOWN] ⏳ SignalWorker stopping");
         _taskSignaler.CancelAllTasks();
     }
     public void StartSignaler(CancellationToken cancellationToken)
@@ -146,13 +147,13 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
                 } catch (InvalidOperationException) {
                     // This should never happen. It means that the queue is empty after we checked that the count was > 0
                     // put the worker back in the queue   
-                    Console.WriteLine("SignalWorker: InvalidOperationException - requeuing task  Priority: " + nextWorker.Priority);  
+                    _logger.LogWarning("SignalWorker: InvalidOperationException - requeuing task  Priority: " + nextWorker.Priority);  
                     _taskSignaler.ReQueueTask(nextWorker);               
                 }
             }
         }
 
-        Console.WriteLine("SignalWorker: Exiting - queue is empty: " + (_priorityQueue.Count == 0));
+        _logger.LogInformation("SignalWorker: Exiting - queue is empty: " + (_priorityQueue.Count == 0));
 
         // Shutdown
         _taskSignaler.CancelAllTasks();

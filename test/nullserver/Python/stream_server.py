@@ -6,16 +6,77 @@ import random
 import json
 import signal
 import http.server
+import socket
 import socketserver
 import threading
 import os
 from urllib.parse import urlparse, parse_qs
 from socketserver import ThreadingMixIn
 import argparse
+import glob
 
 httpd = None  # Declare httpd as a global variable
 
+# Cache: filename -> tuple of pre-encoded HTTP chunks, one per input line
+_file_cache = {}
+# Cache: filename -> full response body bytes without HTTP chunk framing
+_body_cache = {}
+
+def _encode_chunked_lines(lines):
+    """Pre-encode lines into individual HTTP chunks so each can be flushed separately."""
+    chunks = []
+    for line in lines:
+        chunk = line.encode('utf-8')
+        chunks.append(b"".join((f"{len(chunk):X}\r\n".encode('utf-8'), chunk, b"\r\n")))
+    return tuple(chunks)
+
+def _encode_body_lines(lines):
+    """Pre-encode lines into a single response body without HTTP chunk framing."""
+    return b"".join(line.encode('utf-8') for line in lines)
+
+def load_file_cache():
+    """Scan the current directory for .txt files and cache their pre-encoded contents."""
+    for filepath in glob.glob('*.txt'):
+        try:
+            with open(filepath, 'r') as f:
+                lines = f.readlines()
+            _file_cache[filepath] = _encode_chunked_lines(lines)
+            _body_cache[filepath] = _encode_body_lines(lines)
+            total_bytes = sum(len(chunk) for chunk in _file_cache[filepath])
+            print(f"Cached: {filepath} ({len(lines)} lines, {total_bytes} bytes across {len(_file_cache[filepath])} chunks)")
+        except Exception as e:
+            print(f"Warning: could not cache {filepath}: {e}")
+
+def get_cached_data(filename):
+    """Return pre-encoded chunked data for a file, loading on demand if not cached."""
+    if filename not in _file_cache:
+        try:
+            with open(filename, 'r') as f:
+                lines = f.readlines()
+            _file_cache[filename] = _encode_chunked_lines(lines)
+            _body_cache[filename] = _encode_body_lines(lines)
+            total_bytes = sum(len(chunk) for chunk in _file_cache[filename])
+            print(f"Cached on demand: {filename} ({len(lines)} lines, {total_bytes} bytes across {len(_file_cache[filename])} chunks)")
+        except FileNotFoundError:
+            return None
+    return _file_cache[filename]
+
+def get_cached_body(filename):
+    """Return the full cached response body without chunk framing."""
+    if filename not in _body_cache:
+        if get_cached_data(filename) is None:
+            return None
+    return _body_cache[filename]
+
+def is_cached_or_exists(filename):
+    """Check if a file is cached or exists on disk (caching it if found)."""
+    if filename in _file_cache:
+        return True
+    return get_cached_data(filename) is not None
+
 class MyHandler(http.server.BaseHTTPRequestHandler):
+    protocol_version = 'HTTP/1.1'
+
     def __init__(self, *args, **kwargs):
         self.gotAuth = ""
         super().__init__(*args, **kwargs)
@@ -41,6 +102,17 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         self.do_GET()
         
     def do_GET(self):
+        processor = self.headers.get('X-TokenProcessor', 'MultiLineAllUsage')
+        delayms = self.headers.get('X-DelaySecs', '0')
+        streaming = self.headers.get('X-Streaming', 'false').lower() == 'true'
+
+        if delayms and float(delayms) > 0:
+            delay_val = float(delayms)
+            sleep_time = random.uniform(delay_val, delay_val * 1.5)  # Random sleep time
+            print("Sleeping for " + str(sleep_time) + " seconds before sending response.")
+            time.sleep(sleep_time)
+
+
         parsed_path = urlparse(self.path)
         query_params = parse_qs(parsed_path.query)
         # check if Authorization header is present
@@ -51,35 +123,27 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
 
         # Example: /status-0123456789abcdef endpoint
         if parsed_path.path == '/status-0123456789abcdef':
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain")
-            self.end_headers()
-            self.wfile.write(b"OK")
+            self.send_fixed_response(200, b"OK")
             return
         
         # Example: /health endpoint
         if parsed_path.path == '/health':
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain")
-            self.end_headers()
-            self.wfile.write(b"OK")
+            self.send_fixed_response(200, b"OK")
             return
         
         if parsed_path.path == '/429error':
-            sleep_time = random.uniform(1, 1.5)  # Random sleep time
-            print("Sleeping before sending error response..." + str(sleep_time) + " seconds")
-            time.sleep(sleep_time)
-
             # Read the body
             content_length = int(self.headers.get('Content-Length', 0))  # Get the length of the body
             request_body = self.rfile.read(content_length).decode('utf-8')  # Read and decode the body
             print(f"Request: {parsed_path.path}  Body: {request_body}")
+            body = b"Hello, world!"
             self.send_response(429)
             self.send_header("Content-Type", "text/plain")
             self.send_header("retry-after-ms", "10000")
             self.send_header("S7PREQUEUE", "true")
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(b"Hello, world!")
+            self.wfile.write(body)
             return
         
         # Pattern: /{code}error   ex: /412error, /500error, etc.
@@ -90,17 +154,14 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
                 # Extract error code from /{code}error format
                 error_code_str = parsed_path.path[1:-5]  # Remove leading '/' and trailing 'error'
                 error_code = int(error_code_str)
-                self.send_response(error_code)
-                self.send_header("Content-Type", "text/plain")
-                self.end_headers()
-                self.wfile.write(f"Error {error_code} occurred!".encode('utf-8'))
+                body = f"Error {error_code} occurred!".encode('utf-8')
+                self.send_fixed_response(error_code, body)
                 return
             except ValueError:
                 # Not a valid error code, fall through to default handling
                 pass
 
         if parsed_path.path == '/killConnection':
-            time.sleep(.5)
             self.wfile.close()
             print("Connection closed")
             return
@@ -116,7 +177,7 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         
         if parsed_path.path in delay_patterns:
             delay_seconds = delay_patterns[parsed_path.path]
-            self.handle_delay_endpoint(delay_seconds)
+            self.handle_delay_endpoint(delay_seconds, streaming)
             return
                 
         if parsed_path.path == '/echo/requeueME':
@@ -125,12 +186,14 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             content_length = int(self.headers.get('Content-Length', 0))  # Get the length of the body
             request_body = self.rfile.read(content_length).decode('utf-8')  # Read and decode the body
             print(f"Request: {parsed_path.path}  Body: {request_body}")
+            body = b"Hello, world!"
             self.send_response(429)
             self.send_header("Content-Type", "text/plain")
             self.send_header("retry-after-ms", "10000")
             self.send_header("S7PREQUEUE", "true")
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(b"Hello, world!")
+            self.wfile.write(body)
             return
 
         if parsed_path.path == '/success':
@@ -138,94 +201,74 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             print("Headers received:")
             for header, value in self.headers.items():
                 print(f"{header}: {value}")
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain")
-            self.end_headers()
-            self.wfile.write(b" Congrats! You did it!")
+            self.send_fixed_response(200, b" Congrats! You did it!")
             return
 
         # Example: /echo/resource?param1=sample
         if parsed_path.path == '/echo/resource':
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain")
-            self.end_headers()
-            self.wfile.write(b"Hello, world!")
+            self.send_fixed_response(200, b"Hello, world!")
             return
 
         if parsed_path.path.startswith('/openai'):
-            sleep_time = random.uniform(5, 6)  # Random sleep time
-            time.sleep(sleep_time)
-            self.send_streaming_response("openAI.txt", "OpenAI")
+            self.send_streaming_response("openAI.txt", "OpenAI", streaming)
             return
 
         if parsed_path.path == '/openai-ml':
-            sleep_time = random.uniform(.4, .7)  # Random sleep time 
-            time.sleep(sleep_time)
-            self.send_streaming_response("openAI.txt", "MultiLineAllUsage")
+            self.send_streaming_response("openAI.txt", "MultiLineAllUsage", streaming)
             return
-        
+
         if parsed_path.path == '/multiline':
-            sleep_time = random.uniform(.4, .7)  # Random sleep time 
-            time.sleep(sleep_time)
-            self.send_streaming_response("multiline.txt", "MultiLineAllUsage")
+            self.send_streaming_response("multiline.txt", "MultiLineAllUsage", streaming)
             return
 
         if parsed_path.path.startswith('/file/'):
             filename = parsed_path.path[len('/file/'):]
-            print("Opening file for streaming response: " + parsed_path.path + " -> " + filename    ) 
-            # Make sure the file exists
-            if not os.path.exists(filename):
-                self.send_response(404)
-                self.end_headers()
-                self.wfile.write(b"File not found")
+            print(f"Streaming from cache: {parsed_path.path} -> {filename}")
+            # Make sure the file exists (check cache first)
+            if not is_cached_or_exists(filename):
+                self.send_fixed_response(404, b"File not found")
                 return
 
-            processor = self.headers.get('X-TokenProcessor', 'MultiLineAllUsage')
-            sleep_time = random.uniform(.4, .7)  # Random sleep time
-            time.sleep(sleep_time)
-            self.send_streaming_response(filename, processor)
+            # processor = self.headers.get('X-TokenProcessor', 'MultiLineAllUsage')
+            #sleep_time = random.uniform(.4, .7)  # Random sleep time
+            #time.sleep(sleep_time)
+            self.send_streaming_response(filename, processor, streaming)
             return
         
         
         if parsed_path.path.startswith('/file-nodelay/'):
             filename = parsed_path.path[len('/file-nodelay/'):]
-            print("Opening file for streaming response: " + parsed_path.path + " -> " + filename    ) 
-            # Make sure the file exists
-            if not os.path.exists(filename):
-                self.send_response(404)
-                self.end_headers()
-                self.wfile.write(b"File not found")
+            print(f"Streaming from cache (no-delay): {parsed_path.path} -> {filename}")
+            # Make sure the file exists (check cache first)
+            if not is_cached_or_exists(filename):
+                self.send_fixed_response(404, b"File not found")
                 return
 
-            processor = self.headers.get('X-TokenProcessor', 'MultiLineAllUsage')
-            self.send_streaming_response(filename, processor)
+            # processor = self.headers.get('X-TokenProcessor', 'MultiLineAllUsage')
+            self.send_streaming_response(filename, processor, streaming)
             return
 
         # Default response
         # Extract specific headers
         request_sequence, queue_time, process_time, s7pid = self.extract_request_headers()
 
-        # Sleep for a random number from 60 to 65 seconds
-        sleep_time = random.uniform(60, 65)  # Random sleep time 
-        time.sleep(sleep_time)
-
         print(f"Request: {parsed_path.path}  Sequence: {request_sequence} QueueTime: {queue_time} ProcessTime: {process_time} ID: {s7pid}")
 
-        # Send response
-        self.send_response(200)
-        self.set_streaming_response_headers(request_sequence, queue_time, process_time, s7pid)
-        self.end_headers()
-
-        time.sleep(1)
-        # Stream file contents line by line with a 1-second delay
         try:
-            self.stream_file_contents("stream_data.txt")
-
-            # Send the zero-length chunk to indicate the end of the response
-            self.wfile.write(b"0\r\n\r\n")
-            self.wfile.flush()
+            self.send_streaming_response("stream_data.txt", processor, streaming)
         except BrokenPipeError:
             print(f"Client disconnected during streaming for {parsed_path.path}")
+
+    def send_fixed_response(self, code, body, content_type="text/plain", extra_headers=None):
+        """Send a non-chunked response with proper Content-Length for HTTP/1.1."""
+        self.send_response(code)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        if extra_headers:
+            for k, v in extra_headers.items():
+                self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(body)
 
     def extract_request_headers(self):
         request_sequence = self.headers.get('x-Request-Sequence', 'N/A')
@@ -234,36 +277,48 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         s7pid = self.headers.get('x-S7PID', 'N/A')
         return request_sequence,queue_time,process_time,s7pid
     
-    def handle_delay_endpoint(self, delay_seconds):
+    def handle_delay_endpoint(self, delay_seconds, streaming=False):
         """Handle delay endpoints with the specified delay time."""
         print(f"Delaying for {delay_seconds} seconds...")
         time.sleep(delay_seconds)
-        
-        request_sequence, queue_time, process_time, s7pid = self.extract_request_headers()
-        self.send_response(200)
-        self.set_streaming_response_headers(request_sequence, queue_time, process_time, s7pid)
-        self.send_header('TOKENPROCESSOR', 'OpenAI')
-        self.end_headers()
-
-        self.stream_file_contents("openAI.txt")
-        
-        # Send the zero-length chunk to indicate the end of the response
-        self.wfile.write(b"0\r\n\r\n")
-        self.wfile.flush()
+        self.send_streaming_response("openAI.txt", "OpenAI", streaming)
     
-    def send_streaming_response(self, filename="openAI.txt", processor="OpenAI"):
+    def send_streaming_response(self, filename="openAI.txt", processor="OpenAI", streaming=False):
         """Send a streaming response with the specified file and processor."""
         request_sequence, queue_time, process_time, s7pid = self.extract_request_headers()
         self.send_response(200)
-        self.set_streaming_response_headers(request_sequence, queue_time, process_time, s7pid)
+        body = None
+        if streaming:
+            self.set_streaming_response_headers(request_sequence, queue_time, process_time, s7pid)
+        else:
+            body = get_cached_body(filename)
+            if body is None:
+                raise FileNotFoundError(f"File not found: {filename}")
+            self.set_fixed_event_response_headers(request_sequence, queue_time, process_time, s7pid, len(body))
         self.send_header('TOKENPROCESSOR', processor)
         self.end_headers()
 
-        self.stream_file_contents(filename)
-        
-        # Send the zero-length chunk to indicate the end of the response
-        self.wfile.write(b"0\r\n\r\n")
-        self.wfile.flush()
+        try:
+            if streaming:
+                self.stream_file_contents(filename)
+                self.wfile.write(b"0\r\n\r\n")
+                self.wfile.flush()
+            else:
+                self.wfile.write(body)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            print(f"Client disconnected during streaming of {filename}")
+
+    def set_fixed_event_response_headers(self, request_sequence, queue_time, process_time, s7pid, content_length):
+        self.send_header("x-Request-Sequence", request_sequence)
+        self.send_header("x-Request-Queue-Duration", queue_time)
+        self.send_header("x-Request-Process-Duration", process_time)
+        self.send_header("x-S7PID", s7pid)
+        self.send_header("Random-Header", "Random-Value")
+        self.send_header("x-Random-Header", "Random-Value")
+        self.send_header('Content-Type', 'text/event-stream')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Content-Length', str(content_length))
     
     def set_streaming_response_headers(self, request_sequence, queue_time, process_time, s7pid):
         self.send_header("x-Request-Sequence", request_sequence)
@@ -277,19 +332,20 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         self.send_header('Transfer-Encoding', 'chunked')
 
     def stream_file_contents(self, filename):
-        with open(filename, 'r') as file:
-            for line in file:
-                chunk = line.encode('utf-8')
-                chunk_length = f"{len(chunk):X}\r\n".encode('utf-8')
-                self.wfile.write(chunk_length)
-                self.wfile.write(chunk)
-                self.wfile.write(b"\r\n")
-                self.wfile.flush()
-                time.sleep(.01)
+        chunks = get_cached_data(filename)
+        if chunks is None:
+            raise FileNotFoundError(f"File not found: {filename}")
+        for chunk in chunks:
+            self.wfile.write(chunk)
+            self.wfile.flush()
 
 class ThreadedTCPServer(ThreadingMixIn, socketserver.TCPServer):
+    allow_reuse_address = True
     daemon_threads = True
-    pass
+
+    def server_bind(self):
+        self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        super().server_bind()
 
 shutdown_event = threading.Event()
 
@@ -368,4 +424,5 @@ if __name__ == '__main__':
     cli_port = args.port if args.port is not None else None
     shutdown_after = args.shutdown_after if args.shutdown_after is not None else None
 
+    load_file_cache()
     mt_main(port=cli_port, shutdown_after=shutdown_after)

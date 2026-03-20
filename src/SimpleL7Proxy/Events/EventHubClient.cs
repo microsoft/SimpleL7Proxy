@@ -26,6 +26,7 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
     private CancellationToken workerCancelToken;
     private volatile bool isRunning = false;
     private volatile bool isShuttingDown = false;
+    private volatile bool beginShutdown = false;
     private Task? writerTask;
     private readonly ConcurrentQueue<string> _logBuffer = new();
     private List<string> _pendingItems = new List<string>();
@@ -65,6 +66,11 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
     public bool IsHealthy()
     {
         return isRunning && ReconnectCount == 0 && !isShuttingDown;
+    }
+
+    public void BeginShutdown()
+    {
+        beginShutdown = true;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken) {
@@ -156,7 +162,7 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
                     }
                 }
 
-                if (!isShuttingDown)
+                if (!beginShutdown)
                 {
                     await Task.Delay(500, token).ConfigureAwait(false);
                 }

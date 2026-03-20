@@ -85,23 +85,41 @@ public class CoordinatedShutdownService : IHostedService
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("[SHUTDOWN] ⏹ Coordinated shutdown initiated");
-        _logger.LogInformation($"[SHUTDOWN] ⏳ Waiting for tasks to complete - Maximum {_options.TerminationGracePeriodSeconds}s");
+        await _server.StopListening(cancellationToken).ConfigureAwait(false);
+        var timeoutTask = Task.Delay(_options.TerminationGracePeriodSeconds * 1000, CancellationToken.None);
+        _logger.LogInformation($"[SHUTDOWN] ⏳============ Begin Shutdown - Maximum {_options.TerminationGracePeriodSeconds}s");
+        _compositeEventClient?.BeginShutdown(); // signal EventHubClient to begin agressively flushing
 
         // Stop AsyncFeeder and server first to prevent it from generating new work
-        var timeoutTask = Task.Delay(_options.TerminationGracePeriodSeconds * 1000, CancellationToken.None);
-        await _server.StopListening(cancellationToken).ConfigureAwait(false);
         await _asyncFeeder.StopAsync(cancellationToken).ConfigureAwait(false);
-        Task requeueTask = _requeueWorker.CancelAllCancelableTasks(); // cancel all cancellable delays 
-
+        Task requeueTask = _requeueWorker.CancelAllCancelableTasks(); // cancel all cancellable delays
+        
         var allTasksComplete = Task.WhenAll(ProxyWorkerCollection.GetAllTasks());
         ProxyWorkerCollection.ExpelAsyncRequests();  // backup all async requests
         ProxyWorkerCollection.RequestWorkerShutdown();
 
-        await _queue.StopAsync().ConfigureAwait(false);
+        // Logger task to periodically log the shutdown status
+        Task watcherTask = new Task(async () =>
+        {
+            int counter=0;
+            while ( ! allTasksComplete.IsCompleted )
+            {
+                int queueCount = _queue?.thrdSafeCount ?? 0;
+                if ( counter++ % 5 == 0) // Log every 5 iterations to avoid spamming
+                    Console.WriteLine($"[SHUTDOWN] Queue: {queueCount}, Workers: { HealthCheckService.GetWorkerState() }");
+                if (queueCount == 0 )
+                {
+                    await _queue!.StopAsync().ConfigureAwait(false);
+                    // no more work to do
+                    break;
+                }
+                await Task.Delay(200).ConfigureAwait(false);
+            }
+        });
+        watcherTask.Start();
+
         await requeueTask.ConfigureAwait(false); // wait for all cancellable delays to be cancelled
 
-        _logger.LogInformation($"[SHUTDOWN] Waiting for {HealthCheckService.ActiveWorkers} active workers to complete their tasks...");
         var completedTask = await Task.WhenAny(allTasksComplete, timeoutTask).ConfigureAwait(false);
         if (completedTask == timeoutTask)
         {
@@ -112,18 +130,18 @@ public class CoordinatedShutdownService : IHostedService
         {
             _logger.LogInformation("[SHUTDOWN] ✓ All tasks completed");
         }
+        await _queue!.StopAsync().ConfigureAwait(false);
 
         ProxyEvent data=new() 
         {
             ["EventType"] = "S7P-Shutdown",
-            ["Message"] = "Coordinated shutdown completed.",
+            ["Message"] = "Coordinated shutdown in process.",
             ["Timestamp"] = DateTime.UtcNow.ToString("o"),
             ["BackendStatus"] = _backends.HostStatus,
             ["QueueCount"] = _queue.thrdSafeCount.ToString(),
             ["WorkerStates"] = HealthCheckService.GetWorkerState()
         };
         data.SendEvent();
-
 
         Task? t = _backends.Stop();
         if (t != null)
