@@ -52,7 +52,6 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
 
     // Precomputed frozen collections for O(1) hot-path lookups, recomputed on config change
     private volatile FrozenSet<string> _disallowedHeaders;
-    private volatile FrozenSet<string> _priorityKeys;
     private volatile FrozenDictionary<string, int> _priorityKeyToValue;
 
     // Precomputed validation rules to avoid dictionary iteration and string ops per request
@@ -101,10 +100,13 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
 
         configChangeNotifier.Subscribe(this,
            [options => options.PriorityKeyHeader,
+            options => options.PriorityKeys,
+            options => options.PriorityValues,
+            options => options.UserIDFieldName,
+            options => options.UserProfileHeader,
             options => options.ValidateHeaders,
             // options => options.Port,  COLD option, requires full restart to take effect
             options => options.Timeout,
-            options => options.PriorityValues,
             // options => options.UseProfiles,
             options => options.AsyncModeEnabled,
             options => options.DefaultPriority,
@@ -112,15 +114,12 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
             options => options.ValidateAuthAppID,
             options => options.ValidateAuthAppIDHeader,
             options => options.DisallowedHeaders,
-            options => options.UserProfileHeader,
             options => options.RequiredHeaders,
             options => options.UniqueUserHeaders,
             options => options.AsyncClientRequestHeader,
-            options => options.PriorityKeys,
             options => options.TimeoutHeader,
             options => options.DefaultTTLSecs,
             options => options.TTLHeader,
-            options => options.UserIDFieldName,
             // options => options.CircuitBreakerTimeslice,   display only
             options => options.MaxQueueLength,
             options => options.PollInterval
@@ -128,7 +127,6 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
 
         // Precompute frozen sets and validation rules at startup
         _disallowedHeaders = _options.DisallowedHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
-        _priorityKeys = _options.PriorityKeys.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
         _priorityKeyToValue = _options.PriorityKeys
             .Zip(_options.PriorityValues)
             .ToFrozenDictionary(x => x.First, x => x.Second, StringComparer.OrdinalIgnoreCase);
@@ -165,7 +163,6 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
 
         // Recompute frozen sets from updated options
         _disallowedHeaders = backendOptions.DisallowedHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
-        _priorityKeys = backendOptions.PriorityKeys.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
         _priorityKeyToValue = _options.PriorityKeys
             .Zip(_options.PriorityValues)
             .ToFrozenDictionary(x => x.First, x => x.Second, StringComparer.OrdinalIgnoreCase);

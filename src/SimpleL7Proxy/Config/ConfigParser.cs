@@ -77,6 +77,7 @@ public static class ConfigParser
         ("LogToEvents", "LogToEvents"),
         ("LogToAI", "LogToAI"),
         ("PriorityKeys", "PriorityKeys"),
+        ("PriorityValues", "PriorityValues"),
         ("RequiredHeaders", "RequiredHeaders"),
         ("StripRequestHeaders", "StripRequestHeaders"),
         ("StripResponseHeaders", "StripResponseHeaders"),

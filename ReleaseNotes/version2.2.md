@@ -1,5 +1,24 @@
 # Release Notes #
 
+2.2.10.3-D1
+
+Proxy:
+* Bug fix: priorityvalues config as broken 
+
+2.2.10.3
+
+Proxy:
+* OnShutdown: stop listening, begin aggressively event flushing => after timeout period: continue working, flushing events until done or killed.
+* Begins to slow down connections when circuit breaker would trip
+* Refactor app configuration code for readability and remove unnecessary code
+* Server now slows down when number of memory events gets large
+* Health probe now shows not-ready if number of unflushed events is large
+* Update dotnet library versions
+* Nullserver:
+
+Updates to allow testing for streaming / non-streaming
+Allow tester to specify delay time
+
 2.2.10.2
 
 Proxy:
