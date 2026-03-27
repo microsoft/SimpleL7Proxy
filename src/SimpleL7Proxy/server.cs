@@ -232,14 +232,12 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         catch (HttpListenerException ex)
         {
             // Handle specific errors, e.g., port already in use
-            Console.WriteLine($"[SERVER-STARTUP-ERROR] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} {ex}");
             _staticEvent.WriteOutput($"Failed to start HttpListener: {ex.Message}");
             throw new Exception("Failed to start the server due to an HttpListener exception.", ex);
         }
         catch (Exception ex)
         {
             // Handle other potential errors
-            Console.WriteLine($"[SERVER-STARTUP-ERROR] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} {ex}");
             _staticEvent.WriteErrorOutput($"An error occurred: {ex.Message}");
             throw new Exception("An error occurred while starting the server.", ex);
         }

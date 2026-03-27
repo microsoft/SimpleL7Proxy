@@ -184,8 +184,7 @@ public class CoordinatedShutdownService : IHostedService
         Console.WriteLine("[SHUTDOWN] ⏹ Stopping health probes");
         await _probeServer.StopAsync(CancellationToken.None).ConfigureAwait(false);
         await _server.StopProbes(CancellationToken.None).ConfigureAwait(false);
-
-        await _compositeEventClient.StopTimerAsync().ConfigureAwait(false);
+        await _compositeEventClient!.StopTimerAsync().ConfigureAwait(false);
         Console.WriteLine("[SHUTDOWN] ✅ Service Stopped");
     }
 

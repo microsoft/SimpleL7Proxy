@@ -157,7 +157,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
 
                 // Launch all enabled config reads concurrently (independent I/O)
                 Task<CurrentRequestStatus>? profileTask = doUserConfig
-                    ? ProfileReader(profileConfigStatus, _options.UserConfigUrl, ParsingMode.ProfileMode)
+                    ? ProfileReader(profileConfigStatus, _options.UserConfigUrl!, ParsingMode.ProfileMode)
                     : null;
                 Task<CurrentRequestStatus>? suspendedTask = doSuspendedUserConfig
                     ? SuspendedUserReader(suspendedUserConfigStatus)
@@ -377,6 +377,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
         }
     }
 
+    // TODO  make all three the same call
 
     private async Task<CurrentRequestStatus> ProfileReader(ConfigStatus status, string url, ParsingMode mode)
     {
