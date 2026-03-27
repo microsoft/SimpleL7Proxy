@@ -63,7 +63,7 @@ public static class BackendOptionsBuilder
   /// </summary>
   public static async Task<BackendOptions> CreateOptions(AppConfigBootstrap appConfigBootstrap)
   {
-    s_options.Apply(EffectiveEnvironment());
+    s_options = s_options.Apply(EffectiveEnvironment());
 
     var (warmSettings, coldSettings) = await appConfigBootstrap.GetSettingsAsync().ConfigureAwait(false);
 
