@@ -233,6 +233,8 @@ public class Program
         // Register refresh services only if App Configuration was reachable.
         appConfigBootstrap.RegisterServices(services);
 
+        services.AddSingleton<WorkerContext>();
+
         if (backendOptions.AsyncModeEnabled)
         {
             services.AddSingleton<IBlobWriterFactory, BlobWriterFactory>();
@@ -260,6 +262,7 @@ public class Program
                     MetricsIntervalSeconds = 30
                 };
             });
+
 
             // Register BlobWriteQueue as singleton (started/stopped explicitly by CoordinatedShutdownService)
             services.AddSingleton<BlobWriteQueue>();
@@ -355,7 +358,7 @@ public class Program
             var options = sp.GetRequiredService<IOptions<BackendOptions>>().Value;
             if (!options.UseSharedIterators)
             {
-                // Return null - ProxyWorkerCollection handles null gracefully
+                // Return null - WorkerFactory handles null gracefully
                 return null!;
             }
             var logger = sp.GetRequiredService<ILogger<SharedIteratorRegistry>>();
@@ -371,7 +374,7 @@ public class Program
                 "ISharedIteratorRegistry implementation does not implement IShutdownParticipant");
         });
 
-        services.AddHostedService<ProxyWorkerCollection>();
+        services.AddHostedService<WorkerFactory>();
         services.AddTransient(source => new CancellationTokenSource());
         services.AddHostedService<CoordinatedShutdownService>();
     }
