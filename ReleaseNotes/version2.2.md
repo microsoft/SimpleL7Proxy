@@ -1,9 +1,12 @@
 # Release Notes #
 
-2.2.10.3-D1
+2.2.10.4
 
 Proxy:
 * Bug fix: priorityvalues config as broken 
+* bug fix: reading config options
+* Bug fix: startup probe
+* refactor user profile 
 
 2.2.10.3
 

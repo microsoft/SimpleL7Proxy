@@ -13,7 +13,7 @@ public static class Constants
     public const string RoundRobin = "roundrobin";
     public const string Random = "random";
     public const string Server = "simplel7proxy";
-    public const string VERSION = "2.2.10.3-d1";
+    public const string VERSION = "2.2.10.4";
 
     public const int AnyPriority = -1;
 
