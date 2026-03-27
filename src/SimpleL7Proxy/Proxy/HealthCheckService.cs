@@ -31,6 +31,7 @@ public class HealthCheckService
     private readonly IBackupAPIService? _backupAPIService;
     private readonly IServiceBusRequestService? _serviceBusRequestService;
     private readonly IBlobWriter? _blobWriter;
+    private readonly IUserProfileService? _userProfileService;
     private readonly Func<string> _getWorkerState;
 
     // Cache for health check responses to reduce allocations
@@ -62,14 +63,17 @@ public class HealthCheckService
         IConcurrentPriQueue<RequestData>? requestsQueue,
         IUserPriorityService? userPriority,
         IEventClient? eventClient,
+
         IServiceBusRequestService? serviceBusRequestService = null,
         IBlobWriter? blobWriter = null,
-        IBackupAPIService? backupAPIService = null)
+        IBackupAPIService? backupAPIService = null,
+        IUserProfileService? userProfileService = null)
     {
         _backends = backends ?? throw new ArgumentNullException(nameof(backends));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _requestsQueue = requestsQueue;
         _userPriority = userPriority;
+        _userProfileService = userProfileService;
         _eventClient = eventClient;
         _serviceBusRequestService = serviceBusRequestService;
         _blobWriter = blobWriter;
@@ -522,37 +526,38 @@ public class HealthCheckService
     // Returns a tuple of (startupStatus, readinessStatus, activeUndrainedEvents) for more detailed monitoring
     public (HealthStatusEnum, HealthStatusEnum, int) GetStatus()
     {
-        var isReady = IsReadyToWork;
         int hostCount = _backends.ActiveHostCount();
         bool hasFailed = _backends.CheckFailedStatusAsync(true).Result; // this call will not block
+        bool profilesReady = _userProfileService?.ServiceIsReady() ?? true; // if user profile service is not configured, consider it ready
 
         int activeEvents = _eventClient?.Count ?? 0;
         bool tooManyEvents = activeEvents > _options.MaxUndrainedEvents;
         bool eventsAreHealthy = _eventClient?.IsHealthy() == true;
+        var isReady = IsReadyToWork && profilesReady && !tooManyEvents;
 
         // Debug logging - remove after fixing
-        // Console.WriteLine($"[STARTUP-DEBUG] IsReadyToWork={isReady}, hostCount={hostCount}, hasFailed={hasFailed}, activeEvents={activeEvents}");
+        // Console.WriteLine($"[STARTUP-DEBUG] IsReadyToWork={isReady}, hasProfile={_userProfileService != null}, hostCount={hostCount}, hasFailed={hasFailed}, activeEvents={activeEvents}");
 
         if (!isReady)
         {
-            return (HealthStatusEnum.StartupZeroHosts, HealthStatusEnum.StartupZeroHosts, activeEvents);
+            return (HealthStatusEnum.StartupZeroHosts, HealthStatusEnum.ReadinessZeroHosts, activeEvents);
         }
 
         if (hostCount == 0)
         {
-            return (HealthStatusEnum.StartupZeroHosts, HealthStatusEnum.StartupZeroHosts, activeEvents);
+            return (HealthStatusEnum.StartupZeroHosts, HealthStatusEnum.ReadinessZeroHosts, activeEvents);
         }
 
         if (hasFailed)
         {
-            return (HealthStatusEnum.StartupFailedHosts, HealthStatusEnum.StartupFailedHosts, activeEvents);
+            return (HealthStatusEnum.StartupFailedHosts, HealthStatusEnum.ReadinessFailedHosts, activeEvents);
         }
 
         if (!eventsAreHealthy)
         {
-            return (HealthStatusEnum.StartupFailedHosts, HealthStatusEnum.StartupFailedHosts, activeEvents);
+            return (HealthStatusEnum.StartupFailedHosts, HealthStatusEnum.ReadinessFailedHosts, activeEvents);
         }
 
-        return (HealthStatusEnum.StartupReady, HealthStatusEnum.StartupReady, activeEvents);
+        return (HealthStatusEnum.StartupReady, HealthStatusEnum.ReadinessReady, activeEvents);
     }
 }
