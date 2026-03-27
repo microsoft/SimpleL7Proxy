@@ -171,6 +171,7 @@ namespace SimpleL7Proxy.Backend
     // Can pass in hostname  and probepath
     // or
     // hostname=host=<host:port>;probe=<path>;mode=<direct|apim|>;ipaddress=<ipaddress>;path=<partialpath>;usesretryafter=<true|false>
+    // Comma-delimited key/value pairs are also accepted.
     /// <summary>
     /// Constructs a BackendHostConfig from a hostname and optional probe path.
     /// </summary>
@@ -237,11 +238,11 @@ namespace SimpleL7Proxy.Backend
         UsesRetryAfter = true
       };
 
-      if (hostname.Contains(';'))
+      if (hostname.Contains(';') || hostname.Contains(','))
       {
         var configDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var part in hostname.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        foreach (var part in hostname.Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
           var splitIndex = part.IndexOf('=');
           if (splitIndex <= 0 || splitIndex >= part.Length - 1)
