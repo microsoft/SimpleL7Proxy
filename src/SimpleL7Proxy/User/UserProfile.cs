@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -9,48 +10,105 @@ using Microsoft.Extensions.Logging;
 
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
+using Microsoft.AspNetCore.Http;
 
 namespace SimpleL7Proxy.User;
 
-public class UserProfile : BackgroundService, IUserProfileService
+public class UserProfile : BackgroundService, IUserProfileService, IConfigChangeSubscriber
 {
-    private readonly string lookupHeaderName;
     private readonly BackendOptions _options;
 
     private volatile Dictionary<string, Dictionary<string, string>> userProfiles = new Dictionary<string, Dictionary<string, string>>();
     private volatile List<string> suspendedUserProfiles = new List<string>();
     private volatile Dictionary<string, Dictionary<string, string>> authAppIDs = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
-    private DateTime? lastSuccessfulProfileLoad = null;
-    private volatile bool profilesAreStale = false;
-    private TimeSpan? staleDuration = null;
+    // private DateTime? lastSuccessfulProfileLoad = null;
+    // private TimeSpan? staleDuration = null;
+
+    ConfigStatus profileConfigStatus = new ConfigStatus();
+    ConfigStatus suspendedUserConfigStatus = new ConfigStatus()
+    {
+        zeroProfilesOK = true // It's valid to have zero suspended users, so we set this flag to avoid treating that as degraded state
+    };
+    ConfigStatus authAppIDsConfigStatus = new ConfigStatus();
+
     private volatile bool isInitialized = false;
-    private TimeSpan SoftDeleteExpirationPeriod;
+    private static TimeSpan SoftDeleteExpirationPeriod;
     private static readonly HttpClient httpClient = new HttpClient();
-    
+
     // Reusable ProxyEvent for profile error logging to reduce allocations
     private readonly ProxyEvent _profileErrorEvent = new ProxyEvent(4);  // Message, EntityId/ConfigUrl, EntityType, Timestamp
     private readonly object _profileErrorEventLock = new object();
-    
+
     // Special keys used to mark deleted profiles in-place
-    private const string DeletedAtKey = "__DeletedAt";
-    private const string ExpiresAtKey = "__ExpiresAt";
+    private const string s_DeletedAtKey = "__DeletedAt";
+    private const string s_ExpiresAtKey = "__ExpiresAt";
 
     private readonly ILogger<UserProfile> _logger;
-    private readonly Dictionary<string, AsyncClientInfo> _userInformation = new();
+    private volatile Dictionary<string, AsyncClientInfo> _userInformation = new();
 
-    public UserProfile(BackendOptions options, ILogger<UserProfile> logger)
+    private bool doUserConfig = false;
+    private bool doSuspendedUserConfig = false;
+    private bool doAuthAppIDConfig = false;
+
+    private int NormalDelayMs;
+    private const int s_ErrorDelayMs = 3000; // 3 seconds
+    private bool _configRequired = false;
+
+    public UserProfile(BackendOptions options, ConfigChangeNotifier configChangeNotifier, ILogger<UserProfile> logger)
     {
         ArgumentNullException.ThrowIfNull(options, nameof(options));
         ArgumentNullException.ThrowIfNull(logger, nameof(logger));
+        ArgumentNullException.ThrowIfNull(configChangeNotifier, nameof(configChangeNotifier));
 
         _options = options;
         _logger = logger;
-        lookupHeaderName = options.UserIDFieldName;
-        _userInformation[Constants.Server] = new AsyncClientInfo(Constants.Server, Constants.Server, Constants.Server, 3600);
-        SoftDeleteExpirationPeriod = TimeSpan.FromMinutes(options.UserSoftDeleteTTLMinutes);
+        _userInformation = CreateDefaultAsyncClientInfoCache();
         _logger.LogInformation("[INIT] UserProfile service starting.  Lookup header: {Header}, Config URL: {ConfigUrl}, Refresh interval: {RefreshInterval}s, Soft-delete TTL: {SoftDeleteTTL} minutes, Required: {Required}",
-            lookupHeaderName, options.UserConfigUrl, options.UserConfigRefreshIntervalSecs, options.UserSoftDeleteTTLMinutes, options.UserConfigRequired);
+            options.UserIDFieldName, options.UserConfigUrl, options.UserConfigRefreshIntervalSecs, options.UserSoftDeleteTTLMinutes, options.UserConfigRequired);
+
+        initVars();
+
+        // Subscribe to config change notifications
+        configChangeNotifier.Subscribe(this,
+           [options => options.UseProfiles,
+            options => options.UserConfigUrl,
+            options => options.UserIDFieldName,
+            options => options.SuspendedUserConfigUrl,
+            options => options.ValidateAuthAppIDUrl,
+            options => options.UserConfigRefreshIntervalSecs,
+            options => options.UserSoftDeleteTTLMinutes,
+            options => options.AsyncClientConfigFieldName]);
     }
+
+    public void initVars()
+    {
+
+        doUserConfig = _options.UseProfiles && !string.IsNullOrEmpty(_options.UserConfigUrl);
+        doSuspendedUserConfig = doUserConfig && !string.IsNullOrEmpty(_options.SuspendedUserConfigUrl);
+        doAuthAppIDConfig = doUserConfig && !string.IsNullOrEmpty(_options.ValidateAuthAppIDUrl);
+        SoftDeleteExpirationPeriod = TimeSpan.FromMinutes(_options.UserSoftDeleteTTLMinutes);
+
+        NormalDelayMs = _options.UserConfigRefreshIntervalSecs * 1000; // Configurable interval
+        _configRequired = _options.UserConfigRequired;
+    }
+
+    public Task OnConfigChangedAsync(
+                IReadOnlyList<ConfigChange> changes,
+                BackendOptions backendOptions,
+                CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Received config change notification for UserProfile service. Changes: {Changes}",
+            string.Join(", ", changes.Select(c => c.ToString())));
+
+        initVars();
+
+        if (!doUserConfig)
+        {
+            isInitialized = true;
+        }
+        return Task.CompletedTask;
+    }
+
 
     public enum ParsingMode
     {
@@ -59,211 +117,322 @@ public class UserProfile : BackgroundService, IUserProfileService
         AuthAppIDMode
     }
 
-   private void OnApplicationStopping()
+    private void OnApplicationStopping()
     {
         _cancellationTokenSource?.Cancel();
     }
 
     CancellationTokenSource? _cancellationTokenSource;
 
-    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+
         _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         stoppingToken.Register(() =>
         {
             _logger.LogInformation("[SHUTDOWN] ⏹ User Profile Reader stopping");
         });
 
-        // Initialize User Profiles
-        if (_options.UseProfiles && !string.IsNullOrEmpty(_options.UserConfigUrl))
+        // // Initialize User Profiles
+        // if (!_options.UseProfiles || string.IsNullOrEmpty(_options.UserConfigUrl))
+        // {
+        //     _logger.LogInformation("User profiles disabled or no config URL provided. Skipping profile loading.");
+        //     isInitialized = true; // Service is ready since profiles are not required
+        //     return;
+        // }
+
+        // ConfigStatus profileConfigStatus = new();
+        // ConfigStatus suspendedUserConfigStatus = new();
+        // ConfigStatus authAppIDsConfigStatus = new();
+        StringBuilder sb = new StringBuilder();
+
+        while (!_cancellationTokenSource.IsCancellationRequested && !stoppingToken.IsCancellationRequested)
         {
-            // create a new task that reads the user config every hour
-            Task.Run(async () =>
-            {
-                while ( true) {
-                    try
-                    {
-                        await ConfigReader(stoppingToken).ConfigureAwait(false);
-                    }
-                    catch (TaskCanceledException) when (stoppingToken.IsCancellationRequested)
-                    {
-                        break;
-                    }
-                    catch (Exception ex)
-                    {
-                        lock (_profileErrorEventLock)
-                        {
-                            _profileErrorEvent.ClearEventData();
-                            _profileErrorEvent.Type = EventType.ProfileError;
-                            _profileErrorEvent["Message"] = "ConfigReader task failed";
-                            _profileErrorEvent["Exception"] = ex.Message;
-                            _profileErrorEvent.SendEvent();
-                        }
-                        Console.Error.WriteLine($"FATAL: ConfigReader task failed: {ex.Message}");
-                    }
-                }
-            }, stoppingToken);
-        }
-
-        return Task.CompletedTask;
-    }
-
-    public async Task ConfigReader(CancellationToken cancellationToken)
-    {
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            DateTime startTime = DateTime.UtcNow;
-            int NormalDelayMs = _options.UserConfigRefreshIntervalSecs * 1000; // Configurable interval
-            const int ErrorDelayMs = 3000; // 3 seconds
-
-            var localIsInitialized = false;
-            bool allConfigsLoadedSuccessfully = false;
             try
             {
-                var (profilesLoadedSuccessfully, profilesError) = await ReadUserConfigAsync(_options.UserConfigUrl ?? string.Empty, ParsingMode.ProfileMode).ConfigureAwait(false);
-                var (suspendedLoadedSuccessfully, suspendedError) = await ReadUserConfigAsync(_options.SuspendedUserConfigUrl ?? string.Empty, ParsingMode.SuspendedUserMode).ConfigureAwait(false);
-                var (authAppIDsLoadedSuccessfully, authAppIDsError) = await ReadUserConfigAsync(_options.ValidateAuthAppIDUrl ?? string.Empty, ParsingMode.AuthAppIDMode).ConfigureAwait(false);
+                DateTime startTime = DateTime.UtcNow;
+                sb.Clear();
+                bool success = false;
+                bool localIsInitialized = true;
 
-                // Log which configs succeeded/failed
-                if (!profilesLoadedSuccessfully)
-                {
-                    lock (_profileErrorEventLock)
-                    {
-                        _profileErrorEvent.ClearEventData();
-                        _profileErrorEvent.Type = EventType.ProfileError;
-                        _profileErrorEvent["Message"] = "Failed to load user profile config";
-                        _profileErrorEvent["ConfigUrl"] = _options.UserConfigUrl ?? "null";
-                        _profileErrorEvent.SendEvent();
-                    }
-                    
-                    // Calculate staleness for error message
-                    var currentStaleDuration = lastSuccessfulProfileLoad.HasValue 
-                        ? DateTime.UtcNow - lastSuccessfulProfileLoad.Value 
-                        : TimeSpan.Zero;
-                    if (userProfiles.Count > 0)
-                    {
-                        _logger.LogError($"ERROR loading configs: User profiles ({_options.UserConfigUrl}) [{profilesError}] - Stale {currentStaleDuration.TotalSeconds:F0}s");
-                    }
-                    else
-                    {
-                        _logger.LogError($"ERROR loading configs: User profiles ({_options.UserConfigUrl}) [{profilesError}] - No cached data available");
-                    }
-                }
-                if (!suspendedLoadedSuccessfully && !string.IsNullOrEmpty(_options.SuspendedUserConfigUrl))
-                    _logger.LogError($"ERROR loading configs: Suspended users ({_options.SuspendedUserConfigUrl}) [{suspendedError}]");
-                if (!authAppIDsLoadedSuccessfully && !string.IsNullOrEmpty(_options.ValidateAuthAppIDUrl))
-                    _logger.LogError($"ERROR loading configs: AuthAppIDs ({_options.ValidateAuthAppIDUrl}) [{authAppIDsError}]");
-
-                // Track successful profile loads
-                if (profilesLoadedSuccessfully)
-                {
-                    // Check if we're recovering from stale state
-                    bool wasStale = profilesAreStale;
-                    lastSuccessfulProfileLoad = DateTime.UtcNow;
-                    
-                    if (wasStale)
-                    {
-                        _logger.LogWarning($"RECOVERED loading configs: User profiles ({_options.UserConfigUrl})");
-                    }
-                }
-                // Note: Stale data status is shown in Config status line below
-
-                // Calculate staleness
-                profilesAreStale = !profilesLoadedSuccessfully && userProfiles.Count > 0;
-                staleDuration = profilesAreStale && lastSuccessfulProfileLoad.HasValue
-                    ? DateTime.UtcNow - lastSuccessfulProfileLoad.Value
+                // Launch all enabled config reads concurrently (independent I/O)
+                Task<CurrentRequestStatus>? profileTask = doUserConfig
+                    ? ProfileReader(profileConfigStatus, _options.UserConfigUrl!, ParsingMode.ProfileMode)
                     : null;
-                
-                // Determine if service is ready based on available data
-                bool hasProfileData = userProfiles.Count > 0;
-                bool hasAuthData = authAppIDs.Count > 0;
-                allConfigsLoadedSuccessfully = profilesLoadedSuccessfully && suspendedLoadedSuccessfully && authAppIDsLoadedSuccessfully;
-                
-                // Check if stale profiles have exceeded TTL
-                bool staleProfilesExpired = staleDuration.HasValue && staleDuration.Value >= SoftDeleteExpirationPeriod;
-                
-                if (_options.UserConfigRequired)
+                Task<CurrentRequestStatus>? suspendedTask = doSuspendedUserConfig
+                    ? SuspendedUserReader(suspendedUserConfigStatus)
+                    : null;
+                Task<CurrentRequestStatus>? authTask = doAuthAppIDConfig
+                    ? AuthReader(authAppIDsConfigStatus)
+                    : null;
+
+                // Process profile result
+                if (profileTask != null)
                 {
-                    // Fully initialized: all required configs loaded successfully with data
-                    if (allConfigsLoadedSuccessfully && userProfiles.Count > 0 && hasAuthData)
+                    var profileStatus = await profileTask.ConfigureAwait(false);
+                    if (!profileStatus.Success)
                     {
-                        localIsInitialized = true;
+                        success = false;
+                        if (profileConfigStatus.IsReallyStale)
+                        {
+                            var msg = $"Profile config has been really stale for {(DateTime.UtcNow - profileConfigStatus.LastSuccessfulLoad).TotalSeconds:F0}s";
+                            _logger.LogError($"{msg}, exceeding the soft-delete expiration period of {SoftDeleteExpirationPeriod.TotalMinutes} minutes.");
+                            localIsInitialized = false;
+
+                            LogMsg(msg);
+                        }
+
+                        LogMsg($"Failed to load user profile config at { _options.UserConfigUrl ?? "null" }: {profileStatus.Message}");
                     }
-                    // Degraded mode: running on stale data (within TTL), trigger fast retry (3s)
-                    else if (profilesAreStale && !staleProfilesExpired && hasAuthData)
-                    {
-                        _logger.LogCritical($"Service in degraded mode: {userProfiles.Count} stale profiles (stale for {staleDuration?.TotalSeconds:F0}s). Retrying every 3 seconds.");
-                    }
-                    // Not ready: missing required data or stale profiles expired
                     else
                     {
-                        if (staleProfilesExpired)
-                            _logger.LogCritical($"Service not ready: stale profiles exceeded TTL ({staleDuration?.TotalMinutes:F1} minutes).");
-                        else if (!hasProfileData)
-                            _logger.LogCritical("Service not ready: no profile data available.");
-                        else if (!hasAuthData)
-                            _logger.LogCritical("Service not ready: no auth app ID data available.");
-                        else
-                            _logger.LogCritical("Service not ready: missing required data.");
+                        success = true;
                     }
-                }
-                else
-                {
-                    localIsInitialized = true;
-                }
-            }
-            catch (Exception e)
-            {
-                _logger.LogError($"Error reading user config: {e.Message}");
-            }
 
-            // Determine overall health status
-            string statusPrefix;
-            if (profilesAreStale && staleDuration.HasValue)
-            {
-                statusPrefix = $"Config status - STALE {staleDuration.Value.TotalSeconds:F0}s";
+                    if (!profileConfigStatus.HasData)
+                        localIsInitialized = false;
+                    sb.Append($"Profile- {profileConfigStatus}");
+                }
+
+                if (suspendedTask != null)
+                {
+                    var suspendedStatus = await suspendedTask.ConfigureAwait(false);
+                    success = success && suspendedStatus.Success;
+                    sb.Append($", Suspended- {suspendedUserConfigStatus}");
+                }
+
+                if (authTask != null)
+                {
+                    var authAppIDsStatus = await authTask.ConfigureAwait(false);
+                    success = success && authAppIDsStatus.Success;
+
+                    if (!authAppIDsStatus.Success)
+                    {
+                        if (authAppIDsConfigStatus.IsReallyStale)
+                        {
+                            var msg = $"Auth app ID config has been really stale for {(DateTime.UtcNow - authAppIDsConfigStatus.LastSuccessfulLoad).TotalSeconds:F0}s";
+                            _logger.LogError($"{msg}, exceeding the soft-delete expiration period of {SoftDeleteExpirationPeriod.TotalMinutes} minutes.");
+                            localIsInitialized = false;
+                            LogMsg(msg);
+                        }
+                    }
+                    
+                    if (!authAppIDsConfigStatus.HasData)
+                        localIsInitialized = false;
+
+                    sb.Append($", AuthAppIDs- {authAppIDsConfigStatus}");
+                }
+
+                if (sb.Length > 0)
+                    _logger.LogInformation(sb.ToString());
+
+                if (profileTask == null && suspendedTask == null && authTask == null)
+                {
+                    success = true; // No configs to load means we're ready by default
+                }
+
+                int baseDelay = success ? NormalDelayMs : s_ErrorDelayMs;
+                int elapsedMs = (int)(DateTime.UtcNow - startTime).TotalMilliseconds;
+                int remainingDelay = Math.Max(0, baseDelay - elapsedMs);
+
+                // initilized if:  no errors && hasData  || users not required
+                isInitialized = !_configRequired || localIsInitialized;
+                // Console.WriteLine($"[PROFILE-DEBUG] Load {(success ? "succeeded" : "failed")}, Initialized: {isInitialized}, LocalIsInitialized: {localIsInitialized}");
+
+                await Task.Delay(remainingDelay, stoppingToken).ConfigureAwait(false);
             }
-            else if (!allConfigsLoadedSuccessfully)
+            catch (TaskCanceledException) when (stoppingToken.IsCancellationRequested)
             {
-                statusPrefix = "Config status - DEGRADED";
+                break;
+            }
+            catch (Exception ex)
+            {
+                LogMsg("ConfigReader task failed", ex.Message);
+
+                Console.Error.WriteLine($"FATAL: ConfigReader task failed: {ex.Message}");
+            }
+        }
+    }
+
+    private void LogMsg(string msg, string? excMsg = null)
+    {
+        lock (_profileErrorEventLock)
+        {
+            _profileErrorEvent.ClearEventData();
+            _profileErrorEvent.Type = EventType.ProfileError;
+            _profileErrorEvent["Message"] = msg;
+            if (excMsg != null)
+            {
+                _profileErrorEvent["Exception"] = excMsg;
+            }
+            _profileErrorEvent.SendEvent();
+        }
+    }
+
+    private class CurrentRequestStatus
+    {
+        public bool Success { get; set; } = false;
+        public string? Message { get; set; } = null;
+    }
+
+    private class ConfigStatus
+    {
+        public DateTime LastSuccessfulLoad { get; set; } = DateTime.UtcNow;
+        public bool IsStale { get; set; }
+        public volatile bool IsReallyStale = false;
+        public TimeSpan? StaleDuration { get; set; }
+        public int TotalProfiles { get; set; }
+        public int ActiveProfiles { get; set; }
+        public int SoftDeletedProfiles { get; set; }
+        public bool HasData => TotalProfiles > 0;
+        public bool zeroProfilesOK = false;
+
+
+        public void UpdateConfigStatusByEntries(Dictionary<string, Dictionary<string, string>> entries, bool lastSuccess)
+        {
+            UpdateConfigStatus(entries.Count, lastSuccess);
+
+            int softDeletedCount = 0;
+            foreach (var entry in entries.Values)
+            {
+                if (entry.ContainsKey(s_DeletedAtKey))
+                    softDeletedCount++;
+            }
+            ActiveProfiles = entries.Count - softDeletedCount;
+            SoftDeletedProfiles = softDeletedCount;
+        }
+
+        public void UpdateConfigStatus(int count, bool lastSuccess)
+        {
+            if (lastSuccess)
+                LastSuccessfulLoad = DateTime.UtcNow;
+
+            IsStale = !lastSuccess && count > 0;
+            IsReallyStale = IsStale && DateTime.UtcNow - LastSuccessfulLoad > SoftDeleteExpirationPeriod;
+
+            StaleDuration = IsStale && LastSuccessfulLoad != default
+            ? DateTime.UtcNow - LastSuccessfulLoad
+            : null;
+
+            ActiveProfiles = TotalProfiles = count;
+        }
+
+        public override string ToString()
+        {
+            string prefix;
+
+            if (IsStale && StaleDuration.HasValue)
+            {
+                prefix = $"STALE {StaleDuration.Value.TotalSeconds:F0}s";
+            }
+            else if ((StaleDuration.HasValue && StaleDuration.Value >= TimeSpan.FromMinutes(5)) ||
+                    (!zeroProfilesOK && (TotalProfiles == 0 || ActiveProfiles == 0)))
+            {
+                prefix = "DEGRADED";
             }
             else
             {
-                statusPrefix = "Config status - HEALTHY";
+                prefix = "HEALTHY";
             }
-            
-            // Calculate active vs soft-deleted profile counts
-            int activeProfiles = 0;
-            int softDeletedProfiles = 0;
-            var currentProfilesSnapshot = userProfiles;
-            foreach (var profile in currentProfilesSnapshot.Values)
-            {
-                if (profile.ContainsKey(DeletedAtKey))
-                    softDeletedProfiles++;
-                else
-                    activeProfiles++;
-            }
-            
-            // Calculate active vs soft-deleted AuthAppID counts
-            int activeAuthAppIDs = 0;
-            int softDeletedAuthAppIDs = 0;
-            var currentAuthAppIDsSnapshot = authAppIDs;
-            foreach (var authApp in currentAuthAppIDsSnapshot.Values)
-            {
-                if (authApp.ContainsKey(DeletedAtKey))
-                    softDeletedAuthAppIDs++;
-                else
-                    activeAuthAppIDs++;
-            }
-            
-            _logger.LogInformation($"{statusPrefix} - Profiles: {currentProfilesSnapshot.Count} ({activeProfiles} active, {softDeletedProfiles} soft-deleted), Suspended: {suspendedUserProfiles.Count}, AuthAppIDs: {currentAuthAppIDsSnapshot.Count} ({activeAuthAppIDs} active, {softDeletedAuthAppIDs} soft-deleted) | Initialized: {isInitialized}");
-            int baseDelay = localIsInitialized ? NormalDelayMs : ErrorDelayMs;
-            int elapsedMs = (int)(DateTime.UtcNow - startTime).TotalMilliseconds;
-            int remainingDelay = Math.Max(0, baseDelay - elapsedMs);
 
-            isInitialized = localIsInitialized;
-            await Task.Delay(remainingDelay, cancellationToken).ConfigureAwait(false);
+            return $"{prefix} - Tot: {TotalProfiles}, Act: {ActiveProfiles}, Soft-Del: {SoftDeletedProfiles} ";
         }
+    }
+
+    // private string DetailedMsg(bool staleProfilesExpired, bool hasProfileData, bool hasAuthData)
+    // {
+    //     if (staleProfilesExpired)
+    //     {
+    //         return $"Service not ready: stale profiles exceeded TTL ({staleDuration?.TotalMinutes:F1} minutes).";
+    //     }
+
+    //     if (!hasProfileData)
+    //     {
+    //         return "Service not ready: no profile data available.";
+    //     }
+
+    //     if (!hasAuthData)
+    //     {
+    //         return "Service not ready: no auth app ID data available.";
+    //     }
+
+    //     return "Service not ready: missing required data.";
+    // }
+
+    private void LogFailedLoads(CurrentRequestStatus profileStatus, CurrentRequestStatus suspendedStatus, CurrentRequestStatus authAppIDsStatus)
+    {
+        if (!profileStatus.Success)
+        {
+            _logger.LogError($"Load Failed: User profile: {_options.UserConfigUrl} - {profileStatus.Message}");
+        }
+
+        if (!suspendedStatus.Success)
+        {
+            _logger.LogError($"Load Failed: Suspended user config: {_options.SuspendedUserConfigUrl} - {suspendedStatus.Message}");
+        }
+
+        if (!authAppIDsStatus.Success)
+        {
+            _logger.LogError($"Load Failed: Auth app ID config: {_options.ValidateAuthAppIDUrl} - {authAppIDsStatus.Message}");
+        }
+    }
+
+    // TODO  make all three the same call
+
+    private async Task<CurrentRequestStatus> ProfileReader(ConfigStatus status, string url, ParsingMode mode)
+    {
+        var callResult = await ReadUserConfigAsync(url ?? string.Empty, mode).ConfigureAwait(false);
+
+        if (callResult.Success)
+        {
+            if (status.IsStale)
+            {
+                _logger.LogWarning($"RECOVERED loading configs: User profiles ({url})");
+            }
+        }
+        else
+        {
+            if (userProfiles.Count > 0)
+            {
+                callResult.Message = $"Stale {status.StaleDuration?.TotalSeconds:F0}s";
+            }
+            else
+            {
+                callResult.Message = "No cached data available";
+            }
+        }
+
+        status.UpdateConfigStatusByEntries(userProfiles, callResult.Success);
+
+        return callResult;
+    }
+
+    private async Task<CurrentRequestStatus> SuspendedUserReader(ConfigStatus suspendedUserConfigStatus)
+    {
+        var suspendedStatus = await ReadUserConfigAsync(_options.SuspendedUserConfigUrl ?? string.Empty, ParsingMode.SuspendedUserMode).ConfigureAwait(false);
+
+        if (!suspendedStatus.Success && !string.IsNullOrEmpty(_options.SuspendedUserConfigUrl))
+        {
+            suspendedStatus.Message = $"ERROR loading configs: Suspended users ({_options.SuspendedUserConfigUrl}) [{suspendedStatus.Message}]";
+        }
+
+        suspendedUserConfigStatus.UpdateConfigStatus(suspendedUserProfiles.Count, suspendedStatus.Success);
+
+        return suspendedStatus;
+    }
+
+    private async Task<CurrentRequestStatus> AuthReader(ConfigStatus authAppIDsConfigStatus)
+    {
+        var authAppIDsStatus = await ReadUserConfigAsync(_options.ValidateAuthAppIDUrl ?? string.Empty, ParsingMode.AuthAppIDMode).ConfigureAwait(false);
+
+        if (!authAppIDsStatus.Success && !string.IsNullOrEmpty(_options.ValidateAuthAppIDUrl))
+        {
+            authAppIDsStatus.Message = $"ERROR loading configs: AuthAppIDs ({_options.ValidateAuthAppIDUrl}) [{authAppIDsStatus.Message}]";
+        }
+
+        authAppIDsConfigStatus.UpdateConfigStatusByEntries(authAppIDs, authAppIDsStatus.Success);
+
+        return authAppIDsStatus;
     }
 
     public bool ServiceIsReady()
@@ -271,11 +440,11 @@ public class UserProfile : BackgroundService, IUserProfileService
         return isInitialized;
     }
 
-    public async Task<(bool success, string? errorMessage)> ReadUserConfigAsync(string config, ParsingMode mode)
+    private async Task<CurrentRequestStatus> ReadUserConfigAsync(string config, ParsingMode mode)
     {
         if (string.IsNullOrEmpty(config))
         {
-            return (true, null); // Empty config is considered success (not required)
+            return new CurrentRequestStatus { Success = true, Message = null }; // Empty config is considered success (not required)
         }
         // Read user config from URL
 
@@ -295,12 +464,12 @@ public class UserProfile : BackgroundService, IUserProfileService
                 }
                 catch (Exception ex)
                 {
-                    return (false, $"Error reading file: {ex.Message}");
+                    return new CurrentRequestStatus { Success = false, Message = $"Error reading file: {ex.Message}" };
                 }
             }
             else
             {
-                return (false, "File not found or not a JSON file");
+                return new CurrentRequestStatus { Success = false, Message = "File not found or not a JSON file" };
             }
         }
         else
@@ -312,17 +481,16 @@ public class UserProfile : BackgroundService, IUserProfileService
             }
             catch (HttpRequestException e)
             {
-                return (false, $"HTTP error: {e.Message}");
+                return new CurrentRequestStatus { Success = false, Message = $"HTTP error: {e.Message}" };
             }
         }
 
         if (!string.IsNullOrEmpty(fileContent))
         {
-            ParseUserConfig(fileContent, mode);
-            return (true, null);
+            return ParseUserConfig(fileContent, mode);
         }
-        
-        return (false, "Empty file content");
+
+        return new CurrentRequestStatus { Success = false, Message = "Empty file content" };
     }
 
 
@@ -341,8 +509,10 @@ public class UserProfile : BackgroundService, IUserProfileService
     //     }
     // ]
 
-    public void ParseUserConfig(string fileContent, ParsingMode mode)
+    private CurrentRequestStatus ParseUserConfig(string fileContent, ParsingMode mode)
     {
+
+        var response = new CurrentRequestStatus { Success = true, Message = null };
 
         Dictionary<string, Dictionary<string, string>> localUserProfiles = new Dictionary<string, Dictionary<string, string>>();
         List<string> localSuspendedUserProfiles = new List<string>();
@@ -350,8 +520,9 @@ public class UserProfile : BackgroundService, IUserProfileService
 
         if (string.IsNullOrWhiteSpace(fileContent))
         {
-            _logger.LogWarning("No user config provided to parse.");
-            return;
+            response.Success = false;
+            response.Message = "No user config provided to parse.";
+            return response;
         }
 
         try
@@ -360,14 +531,15 @@ public class UserProfile : BackgroundService, IUserProfileService
 
             if (userConfig.ValueKind != JsonValueKind.Array)
             {
-                _logger.LogWarning($"User config is not an array. Skipping...");
-                return;
+                response.Success = false;
+                response.Message = "User config is not an array.";
+                return response;
             }
 
             string lookupFieldName = "";
-            if (mode == ParsingMode.SuspendedUserMode || mode == ParsingMode.ProfileMode )
+            if (mode == ParsingMode.SuspendedUserMode || mode == ParsingMode.ProfileMode)
             {
-                lookupFieldName = lookupHeaderName;
+                lookupFieldName = _options.UserIDFieldName;
             }
             else if (mode == ParsingMode.AuthAppIDMode)
             {
@@ -382,25 +554,25 @@ public class UserProfile : BackgroundService, IUserProfileService
                     var entityId = entityElement.GetString() ?? string.Empty;
                     if (!string.IsNullOrEmpty(entityId))
                     {
-                        if (mode == ParsingMode.SuspendedUserMode) {
+                        if (mode == ParsingMode.SuspendedUserMode)
+                        {
                             localSuspendedUserProfiles.Add(entityId);
                             continue;
                         }
 
-                        if (mode == ParsingMode.AuthAppIDMode) {
+                        if (mode == ParsingMode.AuthAppIDMode)
+                        {
                             if (profile.TryGetProperty(_options.ValidateAuthAppFieldName, out JsonElement authAppIdElement))
                             {
                                 string authAppId = authAppIdElement.GetString() ?? string.Empty;
                                 if (!string.IsNullOrEmpty(authAppId))
                                 {
-                                    // Create dictionary entry for auth app ID (can store additional properties if needed)
                                     Dictionary<string, string> authAppEntry = new Dictionary<string, string>();
                                     foreach (var property in profile.EnumerateObject())
                                     {
                                         if (!property.Name.Equals(_options.ValidateAuthAppFieldName, StringComparison.OrdinalIgnoreCase))
                                         {
-                                            // Skip reserved deletion marker keys if present in source
-                                            if (property.Name == DeletedAtKey || property.Name == ExpiresAtKey)
+                                            if (property.Name == s_DeletedAtKey || property.Name == s_ExpiresAtKey)
                                             {
                                                 _logger.LogWarning($"AuthAppID {authAppId} contains reserved key '{property.Name}' - removing key");
                                                 continue;
@@ -414,16 +586,15 @@ public class UserProfile : BackgroundService, IUserProfileService
                             continue;
                         }
 
-                        if (mode == ParsingMode.ProfileMode) {
-
+                        if (mode == ParsingMode.ProfileMode)
+                        {
                             Dictionary<string, string> kvPairs = new Dictionary<string, string>();
-                            
+
                             foreach (var property in profile.EnumerateObject())
                             {
-                                if (!property.Name.Equals(lookupHeaderName, StringComparison.OrdinalIgnoreCase))
+                                if (!property.Name.Equals(_options.UserIDFieldName, StringComparison.OrdinalIgnoreCase))
                                 {
-                                    // Skip reserved deletion marker keys if present in source
-                                    if (property.Name == DeletedAtKey || property.Name == ExpiresAtKey)
+                                    if (property.Name == s_DeletedAtKey || property.Name == s_ExpiresAtKey)
                                     {
                                         _logger.LogWarning($"Profile {entityId} contains reserved key '{property.Name}' - removing key");
                                         continue;
@@ -431,44 +602,58 @@ public class UserProfile : BackgroundService, IUserProfileService
                                     kvPairs[property.Name] = property.Value.ToString();
                                 }
                             }
-                            
+
                             localUserProfiles[entityId] = kvPairs;
                         }
                     }
                     else
                     {
-                        _logger.LogWarning($"Profile field is missing {lookupHeaderName}. Skipping...");
+                        _logger.LogWarning($"Profile field is missing {_options.UserIDFieldName}. Skipping...");
                     }
                 }
             }
 
             if (mode == ParsingMode.SuspendedUserMode)
             {
+                // no suspended users is not an error - it just means no users are suspended, so we treat it as success but log a warning
+                if (localSuspendedUserProfiles.Count == 0)
+                {
+                    // response.Success = false;
+                    // response.Message = "No valid suspended user profiles found in config.";
+                }
                 Interlocked.Exchange(ref suspendedUserProfiles, localSuspendedUserProfiles);
             }
             else if (mode == ParsingMode.AuthAppIDMode)
             {
-                // Apply soft-delete logic using helper method
                 var (result, _, _, _) = ApplySoftDeletes(authAppIDs, localAuthAppIDs, "AuthAppID");
 
-                // Atomically swap dictionary
+                if (result.Count == 0)
+                {
+                    response.Success = false;
+                    response.Message = "No valid auth app IDs found in config.";
+                }
                 Interlocked.Exchange(ref authAppIDs, result);
             }
             else if (mode == ParsingMode.ProfileMode)
             {
-                // Apply soft-delete logic using helper method
                 var (result, _, _, _) = ApplySoftDeletes(userProfiles, localUserProfiles, "Profile");
 
-                // Atomically swap dictionary
+                if (result.Count == 0)
+                {
+                    response.Success = false;
+                    response.Message = "No valid user profiles found in config.";
+                }
                 Interlocked.Exchange(ref userProfiles, result);
+                Interlocked.Exchange(ref _userInformation, CreateDefaultAsyncClientInfoCache());
             }
-
-            // Logging moved to Config status line for conciseness
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Error parsing user config: {ex.Message}");
+            response.Success = false;
+            response.Message = $"Error parsing user config: {ex.Message}";
         }
+
+        return response;
     }
 
     public (Dictionary<string, string> profile, bool isSoftDeleted, bool isStale) GetUserProfile(string userId)
@@ -480,30 +665,30 @@ public class UserProfile : BackgroundService, IUserProfileService
 
         // Capture snapshots for thread safety
         var currentProfiles = userProfiles;
-        var currentStale = profilesAreStale;
+        var currentStale = profileConfigStatus.IsReallyStale;
 
         // Check if profile exists
         if (currentProfiles.TryGetValue(userId, out var profile))
         {
             var (isValid, isSoftDeleted) = CheckSoftDeleteStatus(profile, userId, "Profile");
-            
+
             if (!isValid)
             {
                 // Expired - treat as not found
                 return (new Dictionary<string, string>(), false, false);
             }
-            
-            if (isSoftDeleted || profile.ContainsKey(DeletedAtKey))
+
+            if (isSoftDeleted || profile.ContainsKey(s_DeletedAtKey))
             {
                 // Return profile without deletion markers
                 return (CleanSoftDeleteMarkers(profile), isSoftDeleted, currentStale);
             }
-            
+
             // Active profile (not marked as deleted) - return direct reference for performance
             // IMPORTANT: Callers must not modify the returned dictionary
             return (profile, false, currentStale);
         }
-        
+
         return (new Dictionary<string, string>(), false, false);
     }
 
@@ -527,7 +712,7 @@ public class UserProfile : BackgroundService, IUserProfileService
             var (isValid, _) = CheckSoftDeleteStatus(entry, authAppId, "AuthAppID");
             return isValid;
         }
-        
+
         return false;
     }
 
@@ -539,7 +724,7 @@ public class UserProfile : BackgroundService, IUserProfileService
         }
 
         var currentProfiles = userProfiles;
-        
+
         if (!currentProfiles.TryGetValue(userId, out var profile))
         {
             return false;
@@ -559,28 +744,28 @@ public class UserProfile : BackgroundService, IUserProfileService
     /// <returns>(isValid, isSoftDeleted) - isValid means entry can be used, isSoftDeleted indicates grace period</returns>
     private (bool isValid, bool isSoftDeleted) CheckSoftDeleteStatus(Dictionary<string, string> entry, string entityId, string entityType)
     {
-        // Fast path: Check ExpiresAtKey first with TryGetValue (single lookup instead of ContainsKey + indexer)
+        // Fast path: Check s_ExpiresAtKey first with TryGetValue (single lookup instead of ContainsKey + indexer)
         // Most entries won't have deletion markers, so this is the common case
-        if (!entry.TryGetValue(ExpiresAtKey, out var expiresAtStr))
+        if (!entry.TryGetValue(s_ExpiresAtKey, out var expiresAtStr))
         {
             // No expiration marker - active entry
             return (true, false);
         }
-        
-        // Has ExpiresAtKey - verify DeletedAtKey also exists for consistency
-        if (!entry.ContainsKey(DeletedAtKey))
+
+        // Has s_ExpiresAtKey - verify s_DeletedAtKey also exists for consistency
+        if (!entry.ContainsKey(s_DeletedAtKey))
         {
             // Inconsistent state (has ExpiresAt but no DeletedAt) - treat as active
             return (true, false);
         }
-        
+
         // Both markers present - check if deletion has expired
         if (DateTime.TryParse(expiresAtStr, out var expiresAt))
         {
             // Within grace period: valid but soft-deleted; Expired: no longer valid
             return expiresAt > DateTime.UtcNow ? (true, true) : (false, false);
         }
-        
+
         // Failed to parse expiration timestamp - log error but allow entry through
         // DEFENSIVE: Prefer false positive (allow corrupted soft-delete) over false negative (block legitimate entity)
         lock (_profileErrorEventLock)
@@ -598,8 +783,10 @@ public class UserProfile : BackgroundService, IUserProfileService
 
     public AsyncClientInfo? GetAsyncParams(string userId)
     {
+        var currentUserInformation = _userInformation;
+
         // Check cache first (thread-safe)
-        if (_userInformation.TryGetValue(userId, out var cachedInfo))
+        if (currentUserInformation.TryGetValue(userId, out var cachedInfo))
         {
             return cachedInfo;
         }
@@ -709,21 +896,34 @@ public class UserProfile : BackgroundService, IUserProfileService
 
         // Create and cache the result
         var newInfo = new AsyncClientInfo(userId, containerName, topicName, timeoutSecs, generateSasTokens);
-        _userInformation[userId] = newInfo;
+        var updatedUserInformation = new Dictionary<string, AsyncClientInfo>(currentUserInformation)
+        {
+            [userId] = newInfo
+        };
+        Interlocked.Exchange(ref _userInformation, updatedUserInformation);
         return newInfo;
     }
+
+    private static Dictionary<string, AsyncClientInfo> CreateDefaultAsyncClientInfoCache()
+    {
+        return new Dictionary<string, AsyncClientInfo>
+        {
+            [Constants.Server] = new AsyncClientInfo(Constants.Server, Constants.Server, Constants.Server, 3600)
+        };
+    }
+
     /// <summary>
     /// Removes soft-delete markers from an entry dictionary.
     /// </summary>
     private Dictionary<string, string> CleanSoftDeleteMarkers(Dictionary<string, string> entry)
     {
         var cleanEntry = new Dictionary<string, string>(entry);
-        cleanEntry.Remove(DeletedAtKey);
-        cleanEntry.Remove(ExpiresAtKey);
+        cleanEntry.Remove(s_DeletedAtKey);
+        cleanEntry.Remove(s_ExpiresAtKey);
         return cleanEntry;
     }
 
-        /// <summary>
+    /// <summary>
     /// Validates Azure blob container name rules.
     /// </summary>
     private bool IsValidBlobContainerName(string name, out string validatedName)
@@ -768,7 +968,7 @@ public class UserProfile : BackgroundService, IUserProfileService
     /// <param name="newData">The newly parsed data from config</param>
     /// <param name="entityType">The type of entity (e.g., "Profile", "AuthAppID") for logging</param>
     /// <returns>Tuple of (merged result, deleted count, list of deleted IDs, list of restored IDs)</returns>
-    private (Dictionary<string, Dictionary<string, string>> result, int deletedCount, List<string> deletedIds, List<string> restoredIds) 
+    private (Dictionary<string, Dictionary<string, string>> result, int deletedCount, List<string> deletedIds, List<string> restoredIds)
         ApplySoftDeletes(
             Dictionary<string, Dictionary<string, string>> currentData,
             Dictionary<string, Dictionary<string, string>> newData,
@@ -781,23 +981,23 @@ public class UserProfile : BackgroundService, IUserProfileService
 
         // Find restorations (entries that were deleted but now reappear in new config)
         var restoredEntries = newData.Keys
-            .Where(id => currentData.ContainsKey(id) && 
-                        currentData[id].ContainsKey(DeletedAtKey))
+            .Where(id => currentData.ContainsKey(id) &&
+                        currentData[id].ContainsKey(s_DeletedAtKey))
             .ToList();
 
         // Mark missing entries as deleted in-place
         int deletedCount = 0;
         var deletedIds = new List<string>();
-        
+
         foreach (var id in missingEntries)
         {
             if (currentData.TryGetValue(id, out var existingEntry))
             {
                 // Check if already marked as deleted and not expired
-                bool alreadyDeleted = existingEntry.ContainsKey(DeletedAtKey) && 
-                                     existingEntry.ContainsKey(ExpiresAtKey);
-                
-                if (alreadyDeleted && DateTime.TryParse(existingEntry[ExpiresAtKey], out var expiresAt))
+                bool alreadyDeleted = existingEntry.ContainsKey(s_DeletedAtKey) &&
+                                     existingEntry.ContainsKey(s_ExpiresAtKey);
+
+                if (alreadyDeleted && DateTime.TryParse(existingEntry[s_ExpiresAtKey], out var expiresAt))
                 {
                     if (expiresAt > DateTime.UtcNow)
                     {
@@ -813,8 +1013,8 @@ public class UserProfile : BackgroundService, IUserProfileService
                     var now = DateTime.UtcNow;
                     var entryWithDeletion = new Dictionary<string, string>(existingEntry)
                     {
-                        [DeletedAtKey] = now.ToString("o"),
-                        [ExpiresAtKey] = now.Add(SoftDeleteExpirationPeriod).ToString("o")
+                        [s_DeletedAtKey] = now.ToString("o"),
+                        [s_ExpiresAtKey] = now.Add(SoftDeleteExpirationPeriod).ToString("o")
                     };
                     newData[id] = entryWithDeletion;
                     deletedCount++;
@@ -837,7 +1037,7 @@ public class UserProfile : BackgroundService, IUserProfileService
                 _profileErrorEvent["GracePeriodMinutes"] = SoftDeleteExpirationPeriod.TotalMinutes.ToString("F0");
                 _profileErrorEvent.SendEvent();
             }
-            
+
             foreach (var id in deletedIds)
             {
                 _logger.LogWarning($"{entityType} status - SOFT-DELETED - ID: {id}, grace period: {SoftDeleteExpirationPeriod.TotalMinutes:F0} min");
@@ -857,7 +1057,7 @@ public class UserProfile : BackgroundService, IUserProfileService
                 _profileErrorEvent["RestoredIds"] = string.Join(",", restoredEntries);
                 _profileErrorEvent.SendEvent();
             }
-            
+
             foreach (var id in restoredEntries)
             {
                 _logger.LogWarning($"{entityType} status - RESTORED - ID: {id}");

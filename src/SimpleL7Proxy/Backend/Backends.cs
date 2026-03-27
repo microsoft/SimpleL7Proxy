@@ -115,6 +115,13 @@ public class Backends : IBackendService
   {
     // Start the backend poller task
     PollerTask = Task.Run(() => Run(), _cancellationToken);
+    PollerTask.ContinueWith(task =>
+    {
+      if (task.Exception != null)
+      {
+        Console.WriteLine($"[BACKENDS-POLLER-ERROR] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} {task.Exception.Flatten()}");
+      }
+    }, TaskContinuationOptions.OnlyOnFaulted);
 
     // If OAuth is enabled, start token refresh
 
@@ -158,6 +165,7 @@ public class Backends : IBackendService
     var completedTask = await Task.WhenAny(allTasks, delayTask).ConfigureAwait(false);
     if (completedTask == delayTask)
     {
+      Console.WriteLine($"[BACKENDS-STARTUP-ERROR] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} Backend Token Provider did not initialize tokens in the last {timeout} seconds.");
       _logger.LogError($"Backend Token Provider did not initialize tokens in the last {timeout} seconds.");
       throw new Exception("Backend Token Provider did not initialize tokens in time.");
     }
@@ -213,6 +221,7 @@ public class Backends : IBackendService
     catch (Exception ex)
     {
       // Catch any unhandled exceptions to prevent background service from crashing the host
+      Console.WriteLine($"[BACKENDS-RUN-ERROR] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} {ex}");
       _logger.LogError(ex, "[BACKENDS] CRITICAL: Unhandled exception in backend poller - service stopping");
       throw; // Rethrow to let the host know the background service failed, but at least we logged it
     }

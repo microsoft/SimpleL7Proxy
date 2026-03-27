@@ -13,6 +13,7 @@ using SimpleL7Proxy.User;
 using SimpleL7Proxy.ServiceBus;
 using SimpleL7Proxy.StreamProcessor;
 using Shared.RequestAPI.Models;
+using System.Collections.Frozen;
 
 namespace SimpleL7Proxy.Proxy;
 
@@ -27,35 +28,30 @@ namespace SimpleL7Proxy.Proxy;
 // 4. Return a 502 Bad Gateway if all backends fail.
 // 5. Return a 200 OK with backend server stats if the request is for /health.
 // 6. Log telemetry data for each request.
-public class ProxyWorker
+public class ProxyWorker : IConfigChangeSubscriber
 {
+    private readonly WorkerContext _wrkCntxt;
     private readonly int _preferredPriority;
     private readonly CancellationToken _cancellationToken;
     private static bool s_debug = false;            // dev time debug flag
     private static IConcurrentPriQueue<RequestData>? s_requestsQueue;
-    private static IRequeueWorker? s_requeueDelayWorker; // Initialized in constructor, only one instance
     private readonly IBackendService _backends;
     private readonly BackendOptions _options;
-    private readonly IEventClient _eventClient;
-    private readonly IAsyncWorkerFactory _asyncWorkerFactory; // Just inject the factory
     private readonly ILogger<ProxyWorker> _logger;
-    private readonly StreamProcessorFactory _streamProcessorFactory;
     private readonly RequestLifecycleManager _lifecycleManager;
     private readonly EventDataBuilder _eventDataBuilder;
-    //private readonly ProxyStreamWriter _proxyStreamWriter;
-    private readonly IUserPriorityService _userPriority;
-    private readonly IUserProfileService _profiles;
-    private readonly string _timeoutHeaderName;
     private readonly int _id;
     private readonly string _idStr;
     private static bool s_readyToWork;
     public static bool IsReadyToWork => s_readyToWork;
     private CancellationTokenSource? _asyncExpelSource;
     private bool _isEvictingAsyncRequest;
-    private readonly HealthCheckService _healthCheckService;
-
     private static List<string> s_backendKeys = [];
-    private readonly ISharedIteratorRegistry? _sharedIteratorRegistry;
+    private static FrozenSet<string> s_stripRequestHeaders = FrozenSet.Create<string>();
+    private static FrozenSet<string> s_stripResponseHeaders = FrozenSet.Create<string>();
+
+    //private readonly ProxyStreamWriter _proxyStreamWriter;
+    // private readonly string _timeoutHeaderName;
 
     // Static pre-allocated ProxyEvent objects for error scenarios to avoid expensive copy constructor
     // private static readonly ProxyEvent s_backendRequestAttemptEvent = new ProxyEvent(25);  // Base eventData (~20) + attempt fields (7)
@@ -64,46 +60,57 @@ public class ProxyWorker
     public ProxyWorker(
         int id,
         int priority,
-        IConcurrentPriQueue<RequestData> requestsQueue,
-        BackendOptions backendOptions,
-        IBackendService? backends,
-        IUserProfileService? profiles,
-        IUserPriorityService? userPriority,
-        IRequeueWorker requeueDelayWorker,
-        IEventClient eventClient,
-        IAsyncWorkerFactory asyncWorkerFactory,
-        ILogger<ProxyWorker> logger,
-        StreamProcessorFactory streamProcessorFactory,
-        RequestLifecycleManager lifecycleManager,
-        EventDataBuilder eventDataBuilder,
-        HealthCheckService healthCheckService,
-        ISharedIteratorRegistry? sharedIteratorRegistry,
-        //ProxyStreamWriter proxyStreamWriter,
+        WorkerContext context,
         CancellationToken cancellationToken)
     {
-        _cancellationToken = cancellationToken;
-        s_requestsQueue = requestsQueue ?? throw new ArgumentNullException(nameof(requestsQueue));
-        _backends = backends ?? throw new ArgumentNullException(nameof(backends));
-        _eventClient = eventClient;
-        _asyncWorkerFactory = asyncWorkerFactory;
-        s_requeueDelayWorker = requeueDelayWorker;
-        _logger = logger;
-        _streamProcessorFactory = streamProcessorFactory ?? throw new ArgumentNullException(nameof(streamProcessorFactory));
-        _lifecycleManager = lifecycleManager ?? throw new ArgumentNullException(nameof(lifecycleManager));
-        _eventDataBuilder = eventDataBuilder ?? throw new ArgumentNullException(nameof(eventDataBuilder));
-        //_proxyStreamWriter = proxyStreamWriter;
-        //_eventHubClient = eventHubClient;
-        _userPriority = userPriority ?? throw new ArgumentNullException(nameof(userPriority));
-        _options = backendOptions ?? throw new ArgumentNullException(nameof(backendOptions));
-        _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
-        _timeoutHeaderName = _options.TimeoutHeader;
-        if (_options.Client == null) throw new ArgumentNullException(nameof(_options.Client));
-        s_backendKeys = _options.DependancyHeaders;
+        ArgumentNullException.ThrowIfNull(context);
+
+        _wrkCntxt = context;
         _id = id;
         _idStr = id.ToString();
         _preferredPriority = priority;
-        _healthCheckService = healthCheckService ?? throw new ArgumentNullException(nameof(healthCheckService));
-        _sharedIteratorRegistry = sharedIteratorRegistry; // Optional - null if UseSharedIterators is false
+        _cancellationToken = cancellationToken;
+        _options = context.BackendOptions;
+
+        if (_options.Client == null) throw new ArgumentNullException(nameof(_options.Client));
+
+        s_requestsQueue = context.Queue;
+        _backends = context.Backends;
+        _logger = context.Logger;
+        _lifecycleManager = context.LifecycleManager;
+        _eventDataBuilder = context.EventDataBuilder;
+        _options = context.BackendOptions;
+        s_backendKeys = _options.DependancyHeaders;
+
+        s_stripRequestHeaders = _options.StripRequestHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+        s_stripResponseHeaders = _options.StripResponseHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+
+        _wrkCntxt.ConfigChangeNotifier.Subscribe(
+            this,
+            options => options.DependancyHeaders,
+            options => options.UseProfiles,
+            // options => options.Workers,    COLD
+            options => options.StripRequestHeaders,
+            options => options.StripResponseHeaders,
+            options => options.UseSharedIterators,
+            options => options.LoadBalanceMode,
+            options => options.IterationMode,
+            options => options.MaxAttempts,
+            options => options.Timeout,
+            options => options.AsyncTimeout,
+            options => options.AsyncTriggerTimeout);
+}
+
+    public Task OnConfigChangedAsync(
+        IReadOnlyList<ConfigChange> changes, 
+        BackendOptions backendOptions, 
+        CancellationToken cancellationToken)
+    {
+        s_backendKeys = backendOptions.DependancyHeaders;
+        s_stripRequestHeaders = backendOptions.StripRequestHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+        s_stripResponseHeaders = backendOptions.StripResponseHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -169,7 +176,7 @@ public class ProxyWorker
         bool doUserconfig = _options.UseProfiles;
         string workerState = string.Empty;
 
-        if (doUserconfig && _profiles == null) throw new ArgumentNullException(nameof(_profiles));
+        if (doUserconfig && _wrkCntxt.UserProfileService == null) throw new ArgumentNullException(nameof(_wrkCntxt.UserProfileService));
         if (s_requestsQueue == null) throw new ArgumentNullException(nameof(s_requestsQueue));
 
         // Only for use during shutdown after graceseconds have expired
@@ -384,7 +391,7 @@ public class ProxyWorker
                 {
                     // launches a delay task while the current worker goes back to the top of the loop for more work
                     _lifecycleManager.TransitionToRequeued(incomingRequest);
-                    s_requeueDelayWorker!.DelayAsync(incomingRequest, e.RetryAfter);
+                    _wrkCntxt.RequeueWorker.DelayAsync(incomingRequest, e.RetryAfter);
 
                 }
                 catch (ProxyErrorException e)
@@ -689,7 +696,7 @@ public class ProxyWorker
     {
         int hostCount = _backends.ActiveHostCount();
         bool hasFailedHosts = _backends.CheckFailedStatusAsync(true).Result;
-        _healthCheckService.BuildHealthResponse(req.Path, hostCount, hasFailedHosts, out int probeStatus, out string probeMessage);
+        _wrkCntxt.HealthCheckService.BuildHealthResponse(req.Path, hostCount, hasFailedHosts, out int probeStatus, out string probeMessage);
 
         lcontext.Response.StatusCode = probeStatus;
         lcontext.Response.ContentType = "text/plain";
@@ -897,7 +904,7 @@ public class ProxyWorker
                     // proxyRequest.VersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
 
                     proxyRequest.Headers.Add("x-PolicyCycleCounter", request.TotalDownstreamAttempts.ToString());
-                    ProxyHelperUtils.CopyHeaders(request.Headers, proxyRequest, true, _options.StripRequestHeaders);
+                    ProxyHelperUtils.CopyHeaders(request.Headers, proxyRequest, true, s_stripRequestHeaders);
 
                     var contentType = request.Context?.Request.ContentType ?? "application/json";
                     if (!MediaTypeHeaderValue.TryParse(contentType, out var req_mediaType))
@@ -1060,7 +1067,7 @@ public class ProxyWorker
                             pr.Headers["Total-Latency"] = requestSummary["Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3");
 
                             // Strip headers from pr.Headers that are not allowed in the response
-                            foreach (var header in _options.StripResponseHeaders)
+                            foreach (var header in s_stripResponseHeaders)
                             {
                                 pr.Headers.Remove(header);
                             }
@@ -1357,11 +1364,11 @@ public class ProxyWorker
         IHostIterator? hostIterator = null;
         ISharedHostIterator? sharedIterator = null;
 
-        if (_options.UseSharedIterators && _sharedIteratorRegistry != null)
+        if (_options.UseSharedIterators && _wrkCntxt.SharedIteratorRegistry != null)
         {
             // Use shared iterator - multiple requests to same path share the same iterator
             // The modifiedPath is stored on the iterator itself, so we don't need a second filtering call
-            sharedIterator = _sharedIteratorRegistry.GetOrCreate(
+            sharedIterator = _wrkCntxt.SharedIteratorRegistry.GetOrCreate(
                 request.Path,
                 () =>
                 {
@@ -1639,7 +1646,7 @@ public class ProxyWorker
             return;
         }
 
-        IStreamProcessor processor = _streamProcessorFactory.GetStreamProcessor(processWith, out string resolvedProcessor);
+        IStreamProcessor processor = _wrkCntxt.StreamProcessorFactory.GetStreamProcessor(processWith, out string resolvedProcessor);
         MemoryStream? memoryBuffer = null;
         
         try
@@ -1783,7 +1790,7 @@ public class ProxyWorker
             {
                 var timeLeft = _options.AsyncTriggerTimeout - (int)(DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds;
                 timeLeft = Math.Max(1, timeLeft);
-                request.asyncWorker = await _asyncWorkerFactory.CreateAsync(request, timeLeft).ConfigureAwait(false);
+                request.asyncWorker = await _wrkCntxt.AsyncWorkerFactory.CreateAsync(request, timeLeft).ConfigureAwait(false);
                 _ = request.asyncWorker.StartAsync();
             }
 
@@ -1801,11 +1808,10 @@ public class ProxyWorker
 
 
     // Exclude hop-by-hop and restricted headers that HttpListener manages
-    private static readonly HashSet<string> s_excludedHeaders = new(StringComparer.OrdinalIgnoreCase)
-    {
+    private static readonly FrozenSet<string> s_excludedHeaders = FrozenSet.Create(StringComparer.OrdinalIgnoreCase,
         "Content-Length", "Transfer-Encoding", "Connection", "Proxy-Connection",
         "Keep-Alive", "Upgrade", "Trailer", "TE", "Date", "Server"
-    };
+    );
 
     /// <summary>
     /// Helper method to abstract over shared vs per-request iterators.
@@ -1836,4 +1842,6 @@ public class ProxyWorker
         host = null;
         return false;
     }
+
+
 }

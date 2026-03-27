@@ -1,3 +1,5 @@
+using System.Collections.Frozen;
+
 namespace SimpleL7Proxy;
 public static class Constants
 {
@@ -11,13 +13,13 @@ public static class Constants
     public const string RoundRobin = "roundrobin";
     public const string Random = "random";
     public const string Server = "simplel7proxy";
-    public const string VERSION = "2.2.10.3";
+    public const string VERSION = "2.2.10.4";
 
     public const int AnyPriority = -1;
 
     /// <summary>
     /// An array of probe route constants used for health checks and readiness checks.
     /// </summary>
-    public static readonly string[] probes = { Health, Readiness, Startup, Liveness, ForceGC };
+    public static readonly FrozenSet<string> probes = FrozenSet.Create(Health, Readiness, Startup, Liveness, ForceGC);
 
 }

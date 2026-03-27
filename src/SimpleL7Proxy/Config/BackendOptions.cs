@@ -35,6 +35,12 @@ public class BackendOptions
     [ConfigOption("LoadBalancing:Mode")]
     public string LoadBalanceMode { get; set; } = "latency"; // "latency", "roundrobin", "random"
 
+    // ── Server ──
+    [ConfigOption("Server:IterationMode")]
+    public IterationModeEnum IterationMode { get; set; } = IterationModeEnum.SinglePass;
+    [ConfigOption("Server:Timeout")]
+    public int Timeout { get; set; } = 60*20*1000; // 20 minutes
+
     // ── Logging ──
     [ConfigOption("Logging:LogToConsole")]
     public List<string> LogToConsole { get; set; } = ["*"];   
@@ -91,17 +97,19 @@ public class BackendOptions
 
     // ── User ──
     [ConfigOption("User:SuspendedUserConfigUrl")]
-    public string SuspendedUserConfigUrl { get; set; } = "file:config.json";
+    public string SuspendedUserConfigUrl { get; set; } = ""; // e.g. "file:suspended.json" or "http://configservice/suspended"
     [ConfigOption("User:UniqueUserHeaders")]
     public List<string> UniqueUserHeaders { get; set; } = ["X-UserID"];
     [ConfigOption("User:UserConfigUrl")]
-    public string UserConfigUrl { get; set; } = "file:config.json";
+    public string UserConfigUrl { get; set; } = ""; // e.g. "file:users.json" or "http://configservice/users"
     [ConfigOption("User:UserIDFieldName")]
     public string UserIDFieldName { get; set; } = "userId";
     [ConfigOption("User:UserPriorityThreshold")]
     public float UserPriorityThreshold { get; set; } = 0.1f;
     [ConfigOption("User:UserProfileHeader")]
     public string UserProfileHeader { get; set; } = "X-UserProfile";
+    [ConfigOption("User:UseProfiles")]
+    public bool UseProfiles { get; set; } = false;
 
     // ── Validation ──
     [ConfigOption("Validation:ValidateHeaders")]
@@ -109,7 +117,7 @@ public class BackendOptions
     [ConfigOption("Validation:ValidateAuthAppID")]
     public bool ValidateAuthAppID { get; set; } = false;
     [ConfigOption("Validation:ValidateAuthAppIDUrl")]
-    public string ValidateAuthAppIDUrl { get; set; } = "file:auth.json";
+    public string ValidateAuthAppIDUrl { get; set; } = ""; // e.g. "file:authappids.json" or "http://configservice/authappids"
     [ConfigOption("Validation:ValidateAuthAppFieldName")]
     public string ValidateAuthAppFieldName { get; set; } = "authAppID";
     [ConfigOption("Validation:ValidateAuthAppIDHeader")]
@@ -134,12 +142,10 @@ public class BackendOptions
     public string OAuthAudience { get; set; } = "";
     [ConfigOption("Security:UseOAuth", Mode = ConfigMode.Cold)]
     public bool UseOAuth { get; set; } = false;
-    [ConfigOption("Security:UseOAuthGov", Mode = ConfigMode.Hidden)]
-    public bool UseOAuthGov { get; set; } = false;
+    [ConfigOption("Security:IgnoreSSLCert", ConfigName = "IgnoreSSLCert", Mode = ConfigMode.Cold)]
+    public bool IgnoreSSLCert { get; set; } = false;
 
     // ── Server ──
-    [ConfigOption("Server:IterationMode", Mode = ConfigMode.Cold)]
-    public IterationModeEnum IterationMode { get; set; } = IterationModeEnum.SinglePass;
     [ConfigOption("Server:MaxQueueLength", Mode = ConfigMode.Cold)]
     public int MaxQueueLength { get; set; } = 1000;
     [ConfigOption("Server:MaxEvents", Mode = ConfigMode.Cold)]
@@ -154,8 +160,6 @@ public class BackendOptions
     public int SuccessRate { get; set; } = 80;
     [ConfigOption("Server:TerminationGracePeriodSeconds", ConfigName = "TERMINATION_GRACE_PERIOD_SECONDS", Mode = ConfigMode.Cold)]
     public int TerminationGracePeriodSeconds { get; set; } = 30;
-    [ConfigOption("Server:Timeout", Mode = ConfigMode.Cold)]
-    public int Timeout { get; set; } = 1200000; // 20 minutes
     [ConfigOption("Server:Workers", Mode = ConfigMode.Cold)]
     public int Workers { get; set; } = 10;
 
@@ -173,8 +177,6 @@ public class BackendOptions
     public string StorageDbContainerName { get; set; } = "Requests";
 
     // ── User ──
-    [ConfigOption("User:UseProfiles", Mode = ConfigMode.Cold)]
-    public bool UseProfiles { get; set; } = false;
     [ConfigOption("User:UserConfigRequired", Mode = ConfigMode.Cold)]
     public bool UserConfigRequired { get; set; } = false;
     [ConfigOption("User:UserConfigRefreshIntervalSecs", Mode = ConfigMode.Cold)]
@@ -182,9 +184,37 @@ public class BackendOptions
     [ConfigOption("User:UserSoftDeleteTTLMinutes", Mode = ConfigMode.Cold)]
     public int UserSoftDeleteTTLMinutes { get; set; } = 360; // 6 hours
 
+    // ── Logging / Telemetry ──
+    [ConfigOption("Logging:AppInsightsConnectionString", ConfigName = "APPINSIGHTS_CONNECTIONSTRING", Mode = ConfigMode.Cold)]
+    public string AppInsightsConnectionString { get; set; } = "";
+    [ConfigOption("Logging:EventLoggers", ConfigName = "EVENT_LOGGERS", Mode = ConfigMode.Cold)]
+    public string EventLoggers { get; set; } = "file";
+    [ConfigOption("Logging:EventData", ConfigName = "EVENT_HEADERS", Mode = ConfigMode.Cold)]
+    public string EventHeaders { get; set; } = "SimpleL7Proxy.Events.CommonEventHeaders";
+    [ConfigOption("Logging:LogFileName", ConfigName = "LOGFILE_NAME", Mode = ConfigMode.Cold)]
+    public string LogFileName { get; set; } = "eventslog.json";
+
+    // ── EventHub ──
+    [ConfigOption("EventHub:ConnectionString", ConfigName = "EVENTHUB_CONNECTIONSTRING", Mode = ConfigMode.Cold)]
+    public string EventHubConnectionString { get; set; } = "";
+    [ConfigOption("EventHub:Name", ConfigName = "EVENTHUB_NAME", Mode = ConfigMode.Cold)]
+    public string EventHubName { get; set; } = "";
+    [ConfigOption("EventHub:Namespace", ConfigName = "EVENTHUB_NAMESPACE", Mode = ConfigMode.Cold)]
+    public string EventHubNamespace { get; set; } = "";
+    [ConfigOption("EventHub:StartupSeconds", ConfigName = "EVENTHUB_STARTUP_SECONDS", Mode = ConfigMode.Cold)]
+    public int EventHubStartupSeconds { get; set; } = 10;
+    [ConfigOption("EventHub:MaxReconnectAttempts", ConfigName = "EVENTHUB_MAX_RECONNECT_ATTEMPTS", Mode = ConfigMode.Cold)]
+    public int EventHubMaxReconnectAttempts { get; set; } = 5;
+    [ConfigOption("EventHub:MaxUndrainedEvents", ConfigName = "EVENTHUB_MAX_UNDRAINED_EVENTS", Mode = ConfigMode.Cold)]
+    public int MaxUndrainedEvents { get; set; } = 100;
+
     // ════════════════════════════════════════════════════════════════════
     // Hidden — not published (runtime-derived / parsed / composite)
     // ════════════════════════════════════════════════════════════════════
+
+    // ── Security ──
+    [ConfigOption("Security:UseOAuthGov", Mode = ConfigMode.Hidden)]
+    public bool UseOAuthGov { get; set; } = false;
 
     // ── Parsed from AsyncBlobStorageConfig ──
     [ParsedConfig("AsyncBlobStorageConfig")]
@@ -214,32 +244,8 @@ public class BackendOptions
     // ── Logging / Telemetry ──
     [ConfigOption("Logging:Level", ConfigName = "LOG_LEVEL", Mode = ConfigMode.Hidden)]
     public string LogLevel { get; set; } = "Information";
-    [ConfigOption("Logging:AppInsightsConnectionString", ConfigName = "APPINSIGHTS_CONNECTIONSTRING", Mode = ConfigMode.Cold)]
-    public string AppInsightsConnectionString { get; set; } = "";
-    [ConfigOption("Logging:EventLoggers", ConfigName = "EVENT_LOGGERS", Mode = ConfigMode.Cold)]
-    public string EventLoggers { get; set; } = "file";
-
-    [ConfigOption("Logging:EventData", ConfigName = "EVENT_HEADERS", Mode = ConfigMode.Cold)]
-    public string EventHeaders { get; set; } = "SimpleL7Proxy.Events.CommonEventHeaders";
-
     [ConfigOption("Logging:LogToFile", ConfigName = "LOGTOFILE", Mode = ConfigMode.Hidden)]
     public bool LogToFile { get; set; } = false;
-    [ConfigOption("Logging:LogFileName", ConfigName = "LOGFILE_NAME", Mode = ConfigMode.Cold)]
-    public string LogFileName { get; set; } = "eventslog.json";
-
-    // ── EventHub ──
-    [ConfigOption("EventHub:ConnectionString", ConfigName = "EVENTHUB_CONNECTIONSTRING", Mode = ConfigMode.Cold)]
-    public string EventHubConnectionString { get; set; } = "";
-    [ConfigOption("EventHub:Name", ConfigName = "EVENTHUB_NAME", Mode = ConfigMode.Cold)]
-    public string EventHubName { get; set; } = "";
-    [ConfigOption("EventHub:Namespace", ConfigName = "EVENTHUB_NAMESPACE", Mode = ConfigMode.Cold)]
-    public string EventHubNamespace { get; set; } = "";
-    [ConfigOption("EventHub:StartupSeconds", ConfigName = "EVENTHUB_STARTUP_SECONDS", Mode = ConfigMode.Cold)]
-    public int EventHubStartupSeconds { get; set; } = 10;
-    [ConfigOption("EventHub:MaxReconnectAttempts", ConfigName = "EVENTHUB_MAX_RECONNECT_ATTEMPTS", Mode = ConfigMode.Cold)]
-    public int EventHubMaxReconnectAttempts { get; set; } = 5;
-    [ConfigOption("EventHub:MaxUndrainedEvents", ConfigName = "EVENTHUB_MAX_UNDRAINED_EVENTS", Mode = ConfigMode.Cold)]
-    public int MaxUndrainedEvents { get; set; } = 100;
 
     // ── Shared Iterators ──
     /// <summary>
@@ -274,10 +280,6 @@ public class BackendOptions
     public int MultiConnIdleTimeoutSecs { get; set; } = 300;
     [ConfigOption("Transport:MultiConnMaxConns", ConfigName = "MultiConnMaxConns", Mode = ConfigMode.Hidden)]
     public int MultiConnMaxConns { get; set; } = 4000;
-
-    // ── Security ──
-    [ConfigOption("Security:IgnoreSSLCert", ConfigName = "IgnoreSSLCert", Mode = ConfigMode.Cold)]
-    public bool IgnoreSSLCert { get; set; } = false;
 
     // ── Metadata ──
     [ConfigOption("Metadata:ContainerApp", ConfigName = "CONTAINER_APP_NAME", Mode = ConfigMode.Hidden)]
