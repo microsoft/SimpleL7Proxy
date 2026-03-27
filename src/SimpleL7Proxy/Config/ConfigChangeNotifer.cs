@@ -58,7 +58,7 @@ public class ConfigChangeNotifier
         }
 
         var fieldDesc = filter != null ? string.Join(", ", filter) : "*";
-        _logger.LogInformation("[CONFIG] Subscriber registered: {Name} for fields: [{Fields}]",
+        _logger.LogDebug("[CONFIG] Subscriber registered: {Name} for fields: [{Fields}]",
             subscriber.GetType().Name, fieldDesc);
     }
 
