@@ -1,8 +1,12 @@
 # Release Notes #
 
+## V2.1.33.p10
+
+* GraceTerminationPeriod was not getting updated via environment variable 
+
 ## V2.1.33.p9
 
-* OnShutdown: stop listening, begin agressive event flushing => after timeout period: continue woring, flushing events until done or killed.
+* OnShutdown: stop listening, begin aggressively event flushing => after timeout period: continue working, flushing events until done or killed.
 
 ## V2.1.33.p8
 

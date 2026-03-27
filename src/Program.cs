@@ -34,7 +34,6 @@ public class Program
     Program program = new Program();
     private static HttpClient hc = new HttpClient();
     public static TelemetryClient? telemetryClient;
-    public static int terminationGracePeriodSeconds = 30;
     private static bool shutdownInitiated = false;
 
     static CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
@@ -380,8 +379,8 @@ public class Program
         // ######## BEGIN SHUTDOWN SEQUENCE ########
         server.Stop();     // stops server accepting more work ( except for probe requests )
         bool shutdownComplete = false;
-        var timeoutTask = Task.Delay(Math.Max(terminationGracePeriodSeconds - 1, 0) * 1000);
-        Console.WriteLine($"Shutdown:Waiting for tasks to complete for maximum {terminationGracePeriodSeconds} seconds");
+        var timeoutTask = Task.Delay(Math.Max(options.terminationGracePeriodSeconds - 1, 0) * 1000);
+        Console.WriteLine($"Shutdown:Waiting for tasks to complete for maximum {options.terminationGracePeriodSeconds} seconds");
         cancellationTokenSource.Cancel();
         eventHubClient?.BeginShutdown();
 
