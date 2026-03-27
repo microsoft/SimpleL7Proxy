@@ -46,6 +46,7 @@ public class Program
     static List<Task> allTasks = new List<Task>();
     static Task? ListenerTask;
     static Task? backendPollerTask;
+    static BackendOptions? _options;
 
     static IBackendService? backends;
     static Dictionary<string, string> EnvVars = new Dictionary<string, string>();
@@ -244,6 +245,7 @@ public class Program
         var frameworkHost = hostBuilder.Build();
         var serviceProvider = frameworkHost.Services;
         var options = serviceProvider.GetRequiredService<IOptions<BackendOptions>>();
+        _options = options.Value; // Store in static variable for access in shutdown
         telemetryClient = serviceProvider.GetRequiredService<TelemetryClient>();
 
         ProxyEvent.Initialize(options, eventHubClient, telemetryClient);
@@ -377,10 +379,10 @@ public class Program
     private static async Task Shutdown()
     {
         // ######## BEGIN SHUTDOWN SEQUENCE ########
-        server.Stop();     // stops server accepting more work ( except for probe requests )
+        server?.Stop();     // stops server accepting more work ( except for probe requests )
         bool shutdownComplete = false;
-        var timeoutTask = Task.Delay(Math.Max(options.terminationGracePeriodSeconds - 1, 0) * 1000);
-        Console.WriteLine($"Shutdown:Waiting for tasks to complete for maximum {options.terminationGracePeriodSeconds} seconds");
+        var timeoutTask = Task.Delay(Math.Max(_options!.TerminationGracePeriodSeconds - 1, 0) * 1000);
+        Console.WriteLine($"Shutdown: Waiting for tasks to complete for maximum {_options.TerminationGracePeriodSeconds} seconds");
         cancellationTokenSource.Cancel();
         eventHubClient?.BeginShutdown();
 
@@ -414,7 +416,7 @@ public class Program
         var completedTask = await Task.WhenAny(allTasksComplete, timeoutTask);
         if (completedTask == timeoutTask)
         {
-            Console.WriteLine($"Shutdown: Tasks did not complete within {terminationGracePeriodSeconds} seconds. Forcing shutdown.");
+            Console.WriteLine($"Shutdown: Tasks did not complete within {_options.TerminationGracePeriodSeconds} seconds. Forcing shutdown.");
         }
         else
         {
