@@ -1,3 +1,5 @@
+using System.Collections.Frozen;
+
 namespace SimpleL7Proxy;
 public static class Constants
 {
@@ -18,6 +20,6 @@ public static class Constants
     /// <summary>
     /// An array of probe route constants used for health checks and readiness checks.
     /// </summary>
-    public static readonly string[] probes = { Health, Readiness, Startup, Liveness, ForceGC };
+    public static readonly FrozenSet<string> probes = FrozenSet.Create(Health, Readiness, Startup, Liveness, ForceGC);
 
 }
