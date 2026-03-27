@@ -11,9 +11,13 @@ namespace SimpleL7Proxy.Backend
             get { return _hostname; }
             set
             {
-                // Handle both full URIs (with scheme) and host-only strings
-                if (Uri.TryCreate(value, UriKind.Absolute, out var uri) || 
-                    Uri.TryCreate($"https://{value}", UriKind.Absolute, out uri))
+                ArgumentException.ThrowIfNullOrWhiteSpace(value);
+
+                // Accept explicit http/https URLs or a bare host value.
+                var normalizedValue = value.Trim();
+                if ((Uri.TryCreate(normalizedValue, UriKind.Absolute, out var uri) &&
+                     (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)) ||
+                    Uri.TryCreate($"https://{normalizedValue}", UriKind.Absolute, out uri))
                 {
                     _hostname = uri.Host;
                 }

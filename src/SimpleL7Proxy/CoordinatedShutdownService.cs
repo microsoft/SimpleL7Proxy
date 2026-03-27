@@ -94,9 +94,9 @@ public class CoordinatedShutdownService : IHostedService
         await _asyncFeeder.StopAsync(cancellationToken).ConfigureAwait(false);
         Task requeueTask = _requeueWorker.CancelAllCancelableTasks(); // cancel all cancellable delays
         
-        var allTasksComplete = Task.WhenAll(ProxyWorkerCollection.GetAllTasks());
-        ProxyWorkerCollection.ExpelAsyncRequests();  // backup all async requests
-        ProxyWorkerCollection.RequestWorkerShutdown();
+        var allTasksComplete = Task.WhenAll(WorkerFactory.GetAllTasks());
+        WorkerFactory.ExpelAsyncRequests();  // backup all async requests
+        WorkerFactory.RequestWorkerShutdown();
 
         // Logger task to periodically log the shutdown status
         Task watcherTask = new Task(async () =>
@@ -184,8 +184,7 @@ public class CoordinatedShutdownService : IHostedService
         Console.WriteLine("[SHUTDOWN] ⏹ Stopping health probes");
         await _probeServer.StopAsync(CancellationToken.None).ConfigureAwait(false);
         await _server.StopProbes(CancellationToken.None).ConfigureAwait(false);
-
-        await _compositeEventClient.StopTimerAsync().ConfigureAwait(false);
+        await _compositeEventClient!.StopTimerAsync().ConfigureAwait(false);
         Console.WriteLine("[SHUTDOWN] ✅ Service Stopped");
     }
 

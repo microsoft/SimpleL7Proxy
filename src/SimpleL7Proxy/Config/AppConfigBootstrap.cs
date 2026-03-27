@@ -166,7 +166,7 @@ public class AppConfigBootstrap : BackgroundService
     {
         var sentinel = await ReadSentinelAsync(ct);
 
-        Console.WriteLine($"Comparing the sentinel value: {sentinel} with the last seen value: {_lastSentinel}");
+        // Console.WriteLine($"Comparing the sentinel value: {sentinel} with the last seen value: {_lastSentinel}");
         if (string.Equals(sentinel, _lastSentinel, StringComparison.Ordinal)) return;
 
         _logger.LogInformation("[APP-CONFIG] Sentinel changed ({Old} → {New}), re-downloading...",
