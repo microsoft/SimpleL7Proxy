@@ -30,7 +30,7 @@ public static class ProxyHelperUtils
         NameValueCollection sourceHeaders,
         HttpRequestMessage? targetMessage,
         bool ignoreHeaders = false,
-        List<string>? stripHeaders = null)
+        FrozenSet<string>? stripHeaders = null)
     {
         if (targetMessage == null) return;
 
