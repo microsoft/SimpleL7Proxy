@@ -18,7 +18,7 @@ public class AppConfigBootstrap : BackgroundService
     private readonly string? _endpoint;
     private readonly string? _connectionString;
     private readonly string? _labelFilter;
-    private readonly BackendOptions _options;
+    private BackendOptions _options;
     private readonly DefaultCredential _defaultCredential;
     private readonly TimeSpan _refreshInterval;
     private bool _isInitialized = false;
@@ -31,9 +31,6 @@ public class AppConfigBootstrap : BackgroundService
     public ConfigChangeNotifier? Notifier { get; set; }
     public IHostHealthCollection? HostCollection { get; set; }
 
-    // Snapshot of the last-downloaded warm keys, used for change detection.
-    private Dictionary<string, string> _snapshot = new(StringComparer.OrdinalIgnoreCase);
-
     /// <summary>The downloaded settings (merged warm + cold), available after <see cref="Start"/> has been awaited.</summary>
     public Dictionary<string, string>? Settings { get; private set; }
 
@@ -43,11 +40,12 @@ public class AppConfigBootstrap : BackgroundService
     /// <summary>Only cold-prefixed settings, available after <see cref="Start"/> has been awaited.</summary>
     public Dictionary<string, string>? ColdSettings { get; private set; }
 
+    public static BackendOptions DEFAULT_OPTIONS { get; set; }
+
 
     public AppConfigBootstrap(ILogger<AppConfigBootstrap> logger, BackendOptions backendOptions, DefaultCredential defaultCredential)
     {
         _logger = logger;
-        _options = backendOptions;
         _defaultCredential = defaultCredential;
         _endpoint = backendOptions.AppConfigEndpoint;
         _connectionString = backendOptions.AppConfigConnectionString;
@@ -136,8 +134,9 @@ public class AppConfigBootstrap : BackgroundService
     /// Registers the services needed for periodic hot-refresh and wires up dependencies
     /// once the DI container is built. Only registers when App Configuration was reachable.
     /// </summary>
-    public void RegisterServices(IServiceCollection services)
+    public void RegisterServices(IServiceCollection services, BackendOptions options)
     {
+        _options = options;
         if (!_isInitialized) return;
 
         services.AddHostedService(sp => this);
@@ -166,7 +165,6 @@ public class AppConfigBootstrap : BackgroundService
     {
         var sentinel = await ReadSentinelAsync(ct);
 
-        // Console.WriteLine($"Comparing the sentinel value: {sentinel} with the last seen value: {_lastSentinel}");
         if (string.Equals(sentinel, _lastSentinel, StringComparison.Ordinal)) return;
 
         _logger.LogInformation("[APP-CONFIG] Sentinel changed ({Old} → {New}), re-downloading...",
@@ -179,35 +177,9 @@ public class AppConfigBootstrap : BackgroundService
 
         if (result == null || Notifier == null)
             return;
-        // TODO:   MERGE INTO THE WAY BOOTSTRAP WORKS
-        
-        // Detect what changed between the new snapshot and current live options.
-        var (changes, parsedValues, hostChanges) = ConfigOptions.DetectWarmChanges(_options, warm, _logger);
-        if (changes.Count == 0 && hostChanges.Count == 0)
-            return;
 
-        // Apply changed properties to the live BackendOptions instance.
-        var fields = ConfigOptions.GetFieldsByConfigName();
-        var changedProps = new List<System.Reflection.PropertyInfo>(changes.Count);
-        foreach (var change in changes)
-        {
-            if (!fields.TryGetValue(change.PropertyName, out var prop)) continue;
-            if (!parsedValues.TryGetValue(change.PropertyName, out var value)) continue;
-            prop.SetValue(_options, value);
-            changedProps.Add(prop);
-        }
-        if (changedProps.Count > 0)
-            ConfigParser.ApplyDerivedSettings(_options, [.. changedProps]);
-
-        if (hostChanges.Count > 0)
-            BackendOptionsBuilder.RegisterBackends(_options, null, hostChanges, HostCollection);
-
-        if (changes.Count > 0)
-        {
-            _logger.LogInformation("[BOOTSTRAP] Applied {Count} warm change(s): {Names}",
-                changes.Count, string.Join(", ", changes.Select(c => c.PropertyName)));
-            await Notifier.NotifyAsync(changes, _options, ct);
-        }
+        await BackendOptionsBuilder.ApplyRefresh(
+            _options, DEFAULT_OPTIONS, warm, Notifier, HostCollection, _logger, ct);
     }
 
     private async Task<string?> ReadSentinelAsync(CancellationToken ct)

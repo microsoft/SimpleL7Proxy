@@ -30,8 +30,6 @@ public static class BackendOptionsBuilder
 {
   private static ILogger? _logger;
 
-  static BackendOptions s_options = new BackendOptions();
-
   /// <summary>
   /// Collects all OS env vars and seeds the Hostname identity fallback chain:
   /// explicit Hostname > ReplicaID > CONTAINER_APP_REPLICA_NAME > HOSTNAME > MachineName.
@@ -58,19 +56,22 @@ public static class BackendOptionsBuilder
   }
 
   /// <summary>
-  /// Builds the initial BackendOptions: env vars first, then App Config warm+cold
-  /// overrides merged on top (warm wins on collision).
+  /// Builds and returns two BackendOptions instances:
+  /// <list type="bullet">
+  ///   <item><c>baseOptions</c> — env vars only (pristine defaults snapshot, never mutated after startup).</item>
+  ///   <item><c>envOptions</c> — env vars + App Config warm/cold overrides merged on top (warm wins on collision). This is the live singleton.</item>
+  /// </list>
   /// </summary>
-  public static async Task<BackendOptions> CreateOptions(AppConfigBootstrap appConfigBootstrap)
+  public static async Task<(BackendOptions baseOptions, BackendOptions envOptions)> CreateOptions(AppConfigBootstrap appConfigBootstrap)
   {
-    s_options = s_options.Apply(EffectiveEnvironment());
+    var baseOptions = ConfigParser.ApplyEnv(EffectiveEnvironment(), new BackendOptions());
 
     var (warmSettings, coldSettings) = await appConfigBootstrap.GetSettingsAsync().ConfigureAwait(false);
 
     BackendOptions envOptions;
 
     if (warmSettings == null && coldSettings == null) {
-      envOptions = s_options;
+      envOptions = baseOptions.DeepClone();
     }
     else
     {
@@ -78,12 +79,150 @@ public static class BackendOptionsBuilder
       if ( warmSettings != null)
         foreach (var kvp in warmSettings) merged[kvp.Key] = kvp.Value;
 
-      envOptions = ConfigParser.ApplyEnv(merged, s_options);      
+      envOptions = ConfigParser.ApplyEnv(merged, baseOptions);      
     }
 
-    envOptions.ConfigureHttpClient();
+    ConfigParser.ConfigureHttpClient(envOptions);
 
-    return envOptions;
+    return (baseOptions, envOptions);
+  }
+
+  /// <summary>
+  /// Applies a warm-refresh: detects changes, updates the live options, re-registers
+  /// backends, derives dependent settings, and notifies subscribers.
+  /// Called by AppConfigBootstrap when the sentinel value changes.
+  /// </summary>
+  public static async Task ApplyRefresh(
+      BackendOptions liveOptions,
+      BackendOptions defaultOptions,
+      Dictionary<string, string> warm,
+      ConfigChangeNotifier? notifier,
+      IHostHealthCollection? hostCollection,
+      ILogger logger,
+      CancellationToken ct)
+  {
+    var (changes, parsedValues, hostChanges) = DetectWarmChanges(liveOptions, warm, logger);
+    if (changes.Count == 0 && hostChanges.Count == 0)
+        return;
+
+    var fields = ConfigOptions.GetFieldsByConfigName();
+    var ds = new Dictionary<string, string>(1);
+
+    foreach (var kvp in parsedValues)
+    {
+        var field = fields[kvp.Key];
+        var before = field.GetValue(liveOptions); // TODO: remove debug
+        ds.Clear();
+        ds[kvp.Key] = kvp.Value?.ToString() ?? "";
+        liveOptions.ApplyFieldFromEnv(ds, defaultOptions, kvp.Key, field.Name);
+        var after = field.GetValue(liveOptions); // TODO: remove debug
+        Console.WriteLine($"[WARM] Applied {kvp.Key} ({field.Name}): '{before}' -> '{after}'"); // TODO: remove debug
+    }
+
+    // Collect changed PropertyInfos for derived-settings recalculation.
+    var changedProps = new List<System.Reflection.PropertyInfo>(changes.Count);
+    foreach (var change in changes)
+    {
+        if (fields.TryGetValue(change.PropertyName, out var prop))
+            changedProps.Add(prop);
+    }
+    Console.WriteLine($"[WARM] {changedProps.Count} derived-settings prop(s) to recalculate"); // TODO: remove debug
+    if (changedProps.Count > 0)
+        ConfigParser.ApplyDerivedSettings(liveOptions, [.. changedProps]);
+
+    if (hostChanges.Count > 0)
+    {
+        Console.WriteLine($"[WARM] {hostChanges.Count} host change(s) detected, re-registering backends"); // TODO: remove debug
+        RegisterBackends(liveOptions, null, hostChanges, hostCollection);
+    }
+
+    if (changes.Count > 0)
+    {
+        Console.WriteLine($"[WARM] Notifying {changes.Count} change(s): {string.Join(", ", changes.Select(c => c.PropertyName))}"); // TODO: remove debug
+        logger.LogInformation("[BOOTSTRAP] Applied {Count} warm change(s): {Names}",
+            changes.Count, string.Join(", ", changes.Select(c => c.PropertyName)));
+        if (notifier != null)
+            await notifier.NotifyAsync(changes, liveOptions, ct);
+    }
+  }
+
+  /// <summary>
+  /// Diffs bare-keyed warm settings against live options. Does not mutate liveOptions.
+  /// Host keys (Host*, Probe*, IP*) are returned separately in HostChanges.
+  /// </summary>
+  private static (List<ConfigChange> Changes, Dictionary<string, object?> ParsedValues, Dictionary<string, string> HostChanges) DetectWarmChanges(
+      BackendOptions liveOptions,
+      Dictionary<string, string> warmSettings,
+      ILogger? logger = null)
+  {
+    var changeList = new List<ConfigChange>();
+    var updates = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+    var hostChanges = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    var defaultTarget = new BackendOptions();
+    var env = new Dictionary<string, string>(1, StringComparer.OrdinalIgnoreCase);
+
+    foreach (var kvp in warmSettings)
+    {
+        var rawValue = kvp.Value;
+        if (string.IsNullOrEmpty(rawValue)) continue;
+
+        var key = kvp.Key;
+        if (key.StartsWith("Host") || key.StartsWith("Probe") || key.StartsWith("IP"))
+        {
+            hostChanges[key] = rawValue;
+            continue;
+        }
+
+        if (!ConfigOptions.WarmDescriptorsByKeyPath.TryGetValue(key, out var descriptor)
+            && !ConfigOptions.WarmDescriptorsByConfigName.TryGetValue(key, out descriptor))
+            continue;
+
+        var configName = descriptor.ConfigName;
+        if (!ConfigOptions.TryGetFieldByConfigName(configName, out var field) || field == null)
+            continue;
+
+        var currentValue = field.GetValue(liveOptions);
+
+        // Parse the raw value via ApplyFieldFromEnv on a throwaway target.
+        env.Clear();
+        env[configName] = rawValue;
+
+        defaultTarget.ApplyFieldFromEnv(env, liveOptions, configName, field.Name);
+        var newValue = field.GetValue(defaultTarget);
+
+        if (DeepEquals(currentValue, newValue)) continue;
+
+        updates[configName] = newValue;
+        changeList.Add(new ConfigChange
+        {
+            PropertyName = configName,
+            KeyPath = descriptor.Attribute.KeyPath,
+            RawOldValue = currentValue,
+            RawNewValue = newValue
+        });
+    }
+
+    return (changeList, updates, hostChanges);
+  }
+
+  /// <summary>Deep-compares two values, handling List, array, and Dictionary types.</summary>
+  private static bool DeepEquals(object? a, object? b)
+  {
+    if (ReferenceEquals(a, b)) return true;
+    if (a is null || b is null) return false;
+    if (a.GetType() != b.GetType()) return false;
+
+    return (a, b) switch
+    {
+        (int[] la, int[] lb) => la.SequenceEqual(lb),
+        (IList<string> la, IList<string> lb) => la.SequenceEqual(lb),
+        (IList<int> la, IList<int> lb) => la.SequenceEqual(lb),
+        (IDictionary<string, string> da, IDictionary<string, string> db) =>
+            da.Count == db.Count && da.All(kvp => db.TryGetValue(kvp.Key, out var v) && v == kvp.Value),
+        (IDictionary<int, int> da, IDictionary<int, int> db) =>
+            da.Count == db.Count && da.All(kvp => db.TryGetValue(kvp.Key, out var v) && v == kvp.Value),
+        _ => Equals(a, b)
+    };
   }
 
   /// <summary>

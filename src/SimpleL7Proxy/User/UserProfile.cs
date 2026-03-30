@@ -152,6 +152,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
             {
                 DateTime startTime = DateTime.UtcNow;
                 sb.Clear();
+                sb.Append("[PROFILE-READER] ");
                 bool success = false;
                 bool localIsInitialized = true;
 
@@ -191,14 +192,14 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
 
                     if (!profileConfigStatus.HasData)
                         localIsInitialized = false;
-                    sb.Append($"Profile- {profileConfigStatus}");
+                    sb.Append($"(Profiles) {profileConfigStatus}");
                 }
 
                 if (suspendedTask != null)
                 {
                     var suspendedStatus = await suspendedTask.ConfigureAwait(false);
                     success = success && suspendedStatus.Success;
-                    sb.Append($", Suspended- {suspendedUserConfigStatus}");
+                    sb.Append($", (Suspended) {suspendedUserConfigStatus}");
                 }
 
                 if (authTask != null)
@@ -220,7 +221,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
                     if (!authAppIDsConfigStatus.HasData)
                         localIsInitialized = false;
 
-                    sb.Append($", AuthAppIDs- {authAppIDsConfigStatus}");
+                    sb.Append($", (AuthAppIDs) {authAppIDsConfigStatus}");
                 }
 
                 if (sb.Length > 0)
@@ -377,7 +378,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
         }
     }
 
-    // TODO  make all three the same call
+    // TODO  make all three the same
 
     private async Task<CurrentRequestStatus> ProfileReader(ConfigStatus status, string url, ParsingMode mode)
     {

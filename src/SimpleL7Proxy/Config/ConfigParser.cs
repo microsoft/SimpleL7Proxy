@@ -1,17 +1,18 @@
+using System.Net;
+using System.Net.Sockets;
 using SimpleL7Proxy.Backend.Iterators;
+using SimpleL7Proxy.Events;
 using System.Reflection;
 
 namespace SimpleL7Proxy.Config;
 
 public static class ConfigParser
 {
-    private static readonly Dictionary<string, string> EnvVars = new(StringComparer.OrdinalIgnoreCase);
     private static readonly BackendOptions s_defaults = new();
     private static readonly System.Data.DataTable s_mathTable = new();
 
     private static readonly (string envVar, string property)[] SimpleFields =
-    new (string envVar, string property)[]
-    {
+    [
         ("AsyncBlobWorkerCount", "AsyncBlobWorkerCount"),
         ("AsyncTimeout", "AsyncTimeout"),
         ("AsyncTTLSecs", "AsyncTTLSecs"),
@@ -110,14 +111,12 @@ public static class ConfigParser
 
         // ── Security ──
         ("IgnoreSSLCert", "IgnoreSSLCert"),
-    };
+    ];
 
 
     // Creates a BackendOptions instance by applying environment variable overrides on top of the defaults
     public static BackendOptions ApplyEnv(Dictionary<string, string> dict, BackendOptions defaults)
     {
-        EnvVars.Clear();
-
         // calculated values based on logic
         var opts = new BackendOptions();
 
@@ -203,93 +202,12 @@ public static class ConfigParser
     // }
 
     /// <summary>
-    /// Applies a single configuration field from the environment dictionary to the target <see cref="BackendOptions"/> instance.
-    /// Uses reflection to set the named property, falling back to the corresponding default value when the
-    /// environment variable is absent or set to the default placeholder. Supports int, double, float, string,
-    /// bool, List&lt;string&gt;, List&lt;int&gt;, int[], Dictionary&lt;string, string&gt;, and enum property types.
+    /// <summary>
+    /// Forwards to <see cref="BackendOptions.ApplyFieldFromEnv"/>. Kept for backward compatibility.
     /// </summary>
-    /// <param name="env">Dictionary of environment/configuration key-value pairs to read from.</param>
-    /// <param name="target">The <see cref="BackendOptions"/> instance whose property will be set.</param>
-    /// <param name="defaults">A default <see cref="BackendOptions"/> instance providing fallback values.</param>
-    /// <param name="envVar">The environment variable (dictionary key) to look up.</param>
-    /// <param name="property">The name of the <see cref="BackendOptions"/> property to set.</param>
-    /// <exception cref="InvalidOperationException">Thrown when <paramref name="property"/> does not exist on <see cref="BackendOptions"/>.</exception>
-    /// <exception cref="NotSupportedException">Thrown when the property type is not handled.</exception>
     public static void ApplyFieldFromEnv(Dictionary<string, string> env, BackendOptions target, BackendOptions defaults, string envVar, string property)
     {
-        var pi = typeof(BackendOptions).GetProperty(property) ?? throw new InvalidOperationException($"Unknown BackendOptions property: {property}");
-        var defVal = pi.GetValue(defaults);
-        var type = pi.PropertyType;
-
-        // If the env var is not explicitly provided, check whether the property
-        // has already been set (by a prior alias). If so, skip — don't overwrite
-        // a previously resolved value with the default.
-        var envValue = env.GetValueOrDefault(envVar)?.Trim();
-        bool envVarPresent = !string.IsNullOrEmpty(envValue) && envValue != ConfigOptions.DefaultPlaceholder;
-        if (!envVarPresent)
-        {
-            var currentVal = pi.GetValue(target);
-            bool alreadyChanged = !Equals(currentVal, defVal);
-            if (alreadyChanged)
-            {
-                return;
-            }
-        }
-
-        if (type == typeof(int) || type == typeof(double))
-        {
-            var val = ReadEnvironmentVariableOrDefault(env, envVar, Convert.ToInt32(defVal));
-            pi.SetValue(target, Convert.ChangeType(val, type));
-        }
-        else if (type == typeof(float))
-        {
-            var val = ReadEnvironmentVariableOrDefault(env, envVar, Convert.ToSingle(defVal));
-            pi.SetValue(target, Convert.ChangeType(val, type));
-        }
-        else if (type == typeof(string))
-        {
-            pi.SetValue(target, ReadEnvironmentVariableOrDefault(env, envVar, (string)defVal!));
-        }
-        else if (type == typeof(bool))
-        {
-            pi.SetValue(target, ReadEnvironmentVariableOrDefault(env, envVar, (bool)defVal!));
-        }
-        else if (type == typeof(List<string>))
-        {
-            var value = ReadEnvironmentVariableOrDefault(env, envVar, string.Join(",", (List<string>)defVal!));
-            pi.SetValue(target, ToListOfString(value));
-        }
-        else if (type == typeof(List<int>))
-        {
-            var value = ReadEnvironmentVariableOrDefault(env, envVar, string.Join(",", (List<int>)defVal!));
-            pi.SetValue(target, ToListOfInt(value));
-        }
-        else if (type == typeof(int[]))
-        {
-            pi.SetValue(target, ReadEnvironmentVariableOrDefault(env, envVar, (int[])defVal!));
-        }
-        else if (type == typeof(Dictionary<string, string>))
-        {
-            var defaultValue = string.Join(",", ((Dictionary<string, string>)defVal!).Select(kvp => $"{kvp.Key}={kvp.Value}"));
-            var value = ReadEnvironmentVariableOrDefault(env, envVar, defaultValue);
-            pi.SetValue(target, KVStringPairs(ToListOfString(value)));
-        }
-        else if (type.IsEnum)
-        {
-            var value = ReadEnvironmentVariableOrDefault(env, envVar, defVal!.ToString()!);
-            if (Enum.TryParse(type, value, true, out var parsed))
-            {
-                pi.SetValue(target, parsed);
-            }
-            else
-            {
-                pi.SetValue(target, defVal);
-            }
-        }
-        else
-        {
-            throw new NotSupportedException($"ApplyFieldFromEnv: unsupported property type {type.Name} for {property}");
-        }
+        target.ApplyFieldFromEnv(env, defaults, envVar, property);
     }
 
     public static void ApplyDerivedSettings(BackendOptions backendOptions, params PropertyInfo[] changedProperties)
@@ -510,52 +428,40 @@ public static class ConfigParser
         }
     }
 
-    private static int ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, int defaultValue)
+    public static int ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, int defaultValue)
     {
-        int value = ReadEnvironmentVariableOrDefaultCore(env, variableName, defaultValue);
-        EnvVars[variableName] = value.ToString();
-        return value;
+        return ReadEnvironmentVariableOrDefaultCore(env, variableName, defaultValue);
     }
 
-    private static int[] ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, int[] defaultValues)
+    public static int[] ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, int[] defaultValues)
     {
-        int[] value = ReadEnvironmentVariableOrDefaultCore(env, variableName, defaultValues);
-        EnvVars[variableName] = string.Join(",", value);
-        return value;
+        return ReadEnvironmentVariableOrDefaultCore(env, variableName, defaultValues);
     }
 
-    private static float ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, float defaultValue)
+    public static float ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, float defaultValue)
     {
-        float value = ReadEnvironmentVariableOrDefaultCore(env, variableName, defaultValue);
-        EnvVars[variableName] = value.ToString();
-        return value;
+        return ReadEnvironmentVariableOrDefaultCore(env, variableName, defaultValue);
     }
 
-    private static string ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, string defaultValue)
+    public static string ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, string defaultValue)
     {
-        string value = ReadEnvironmentVariableOrDefaultCore(env, variableName, defaultValue);
-        EnvVars[variableName] = value;
-        return value;
+        return ReadEnvironmentVariableOrDefaultCore(env, variableName, defaultValue);
     }
 
-    private static IterationModeEnum ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, IterationModeEnum defaultValue)
+    public static IterationModeEnum ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, IterationModeEnum defaultValue)
     {
         string? envValue = env.GetValueOrDefault(variableName)?.Trim();
         if (string.IsNullOrEmpty(envValue) || envValue == ConfigOptions.DefaultPlaceholder || !Enum.TryParse(envValue, true, out IterationModeEnum value))
         {
-            EnvVars[variableName] = defaultValue.ToString();
             return defaultValue;
         }
 
-        EnvVars[variableName] = value.ToString();
         return value;
     }
 
-    private static bool ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, bool defaultValue)
+    public static bool ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, bool defaultValue)
     {
-        bool value = ReadEnvironmentVariableOrDefaultCore(env, variableName, defaultValue);
-        EnvVars[variableName] = value.ToString();
-        return value;
+        return ReadEnvironmentVariableOrDefaultCore(env, variableName, defaultValue);
     }
 
     private static int ReadEnvironmentVariableOrDefaultCore(Dictionary<string, string> env, string variableName, int defaultValue)
@@ -654,7 +560,7 @@ public static class ConfigParser
         return keyValuePairs;
     }
 
-    private static Dictionary<string, string> KVStringPairs(List<string> list, char delimiter = '=')
+    public static Dictionary<string, string> KVStringPairs(List<string> list, char delimiter = '=')
     {
         char fallback = delimiter == '=' ? ':' : '=';
         Dictionary<string, string> keyValuePairs = [];
@@ -678,7 +584,7 @@ public static class ConfigParser
         return keyValuePairs;
     }
 
-    private static List<string> ToListOfString(string s)
+    public static List<string> ToListOfString(string s)
     {
         if (string.IsNullOrEmpty(s))
         {
@@ -694,7 +600,7 @@ public static class ConfigParser
         return [.. trimmed.Split(',').Select(p => p.Trim().Trim('"')).Where(p => p.Length > 0)];
     }
 
-    private static List<int> ToListOfInt(string s)
+    public static List<int> ToListOfInt(string s)
     {
         if (string.IsNullOrEmpty(s))
         {
@@ -846,5 +752,117 @@ public static class ConfigParser
         }
 
         return (connectionString, accountUri, useMI);
+    }
+
+    /// <summary>
+    /// Creates and assigns an <see cref="HttpClient"/> on this <see cref="BackendOptions"/>
+    /// instance, configured from the transport-related properties (keep-alive, HTTP/2, SSL).
+    /// </summary>
+    public static void ConfigureHttpClient(BackendOptions backendOptions)
+    {
+        var safeKeepAliveInitialDelaySecs = Math.Max(1, backendOptions.KeepAliveInitialDelaySecs);
+        var safeKeepAlivePingIntervalSecs = Math.Max(1, backendOptions.KeepAlivePingIntervalSecs);
+
+        var retryCount = Math.Max(1, backendOptions.KeepAliveIdleTimeoutSecs / safeKeepAlivePingIntervalSecs);
+        var handler = CreateSocketsHandler(safeKeepAliveInitialDelaySecs, safeKeepAlivePingIntervalSecs, retryCount);
+
+        if (backendOptions.EnableMultipleHttp2Connections)
+        {
+            handler.EnableMultipleHttp2Connections = true;
+            handler.PooledConnectionLifetime = TimeSpan.FromSeconds(backendOptions.MultiConnLifetimeSecs);
+            handler.PooledConnectionIdleTimeout = TimeSpan.FromSeconds(backendOptions.MultiConnIdleTimeoutSecs);
+            handler.MaxConnectionsPerServer = backendOptions.MultiConnMaxConns;
+            handler.ResponseDrainTimeout = TimeSpan.FromSeconds(backendOptions.KeepAliveIdleTimeoutSecs);
+            Console.WriteLine("Multiple HTTP/2 connections enabled.");
+        }
+        else
+        {
+            handler.EnableMultipleHttp2Connections = false;
+            Console.WriteLine("Multiple HTTP/2 connections disabled.");
+        }
+
+        // Configure SSL handling
+        if (backendOptions.IgnoreSSLCert)
+        {
+            handler.SslOptions = new System.Net.Security.SslClientAuthenticationOptions
+            {
+                RemoteCertificateValidationCallback = (sender, cert, chain, errors) => true
+            };
+            Console.WriteLine("Ignoring SSL certificate validation errors.");
+        }
+
+        HttpClient client = new HttpClient(handler)
+        {
+            // set timeout to large to disable it at HttpClient level. Will use token cancellation for timeout instead.
+            Timeout = Timeout.InfiniteTimeSpan
+        };
+
+        backendOptions.Client = client;
+    }
+
+    private static SocketsHttpHandler CreateSocketsHandler(int initialDelaySecs, int intervalSecs, int linuxRetryCount)
+    {
+        SocketsHttpHandler handler = new SocketsHttpHandler();
+        handler.ConnectCallback = async (ctx, ct) =>
+        {
+            DnsEndPoint dnsEndPoint = ctx.DnsEndPoint;
+            IPAddress[] addresses = await Dns.GetHostAddressesAsync(dnsEndPoint.Host, dnsEndPoint.AddressFamily, ct).ConfigureAwait(false);
+            var s = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+            try
+            {
+                bool linuxKeepAliveConfigured = false;
+
+                // Basic keep-alive setting - should work on all platforms
+                s.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+                try
+                {
+                    if (OperatingSystem.IsWindows())
+                    {
+                        // Windows-specific approach using IOControl
+                        byte[] keepAliveValues = new byte[12];
+                        BitConverter.GetBytes((uint)1).CopyTo(keepAliveValues, 0);           // Turn keep-alive on
+                        BitConverter.GetBytes((uint)(initialDelaySecs * 1000)).CopyTo(keepAliveValues, 4);
+                        BitConverter.GetBytes((uint)(intervalSecs * 1000)).CopyTo(keepAliveValues, 8);
+
+                        s.IOControl(IOControlCode.KeepAliveValues, keepAliveValues, null);
+                    }
+                    else if (OperatingSystem.IsLinux())
+                    {
+                        s.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, initialDelaySecs);
+                        s.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, intervalSecs);
+                        s.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount, linuxRetryCount);
+                        linuxKeepAliveConfigured = true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ProxyEvent pe = new()
+                    {
+                        Type = EventType.Exception,
+                        Exception = ex,
+                        ["Message"] = "Failed to set TCP keep-alive parameters",
+                        ["Host"] = dnsEndPoint.Host,
+                        ["Port"] = dnsEndPoint.Port.ToString(),
+                        ["InitialDelaySecs"] = initialDelaySecs.ToString(),
+                        ["IntervalSecs"] = intervalSecs.ToString(),
+                        ["LinuxRetryCount"] = linuxRetryCount.ToString(),
+                        ["linuxKeepAliveConfigured"] = linuxKeepAliveConfigured.ToString()
+                    };
+                    pe.SendEvent();
+                }
+
+                // Connect to the endpoint
+                await s.ConnectAsync(addresses, dnsEndPoint.Port, ct).ConfigureAwait(false);
+                return new NetworkStream(s, ownsSocket: true);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Socket connection error: {ex.Message}");
+                s.Dispose();
+                throw;
+            }
+        };
+
+        return handler;
     }
 }

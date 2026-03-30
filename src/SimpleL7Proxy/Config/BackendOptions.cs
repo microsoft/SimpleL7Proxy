@@ -1,3 +1,4 @@
+using System.Reflection;
 using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Backend.Iterators;
 
@@ -297,4 +298,115 @@ public class BackendOptions
     public List<HostConfig> Hosts { get; set; } = [];
     public Dictionary<int, int> PriorityWorkers { get; set; } = new() { { 2, 1 }, { 3, 1 } };
     public bool TrackWorkers { get; set; } = true;
+
+    /// <summary>
+    /// Creates a deep copy of this instance. Scalar properties are copied directly;
+    /// collections (List, Dictionary, array) are cloned so the copy is fully independent.
+    /// Note: <see cref="Client"/> (HttpClient) is shared, not cloned.
+    /// </summary>
+    public BackendOptions DeepClone()
+    {
+        var clone = (BackendOptions)MemberwiseClone();
+
+        // Clone collection properties so mutations don't leak between instances.
+        clone.AcceptableStatusCodes = (int[])AcceptableStatusCodes.Clone();
+        clone.DependancyHeaders = new List<string>(DependancyHeaders);
+        clone.DisallowedHeaders = new List<string>(DisallowedHeaders);
+        clone.LogAllRequestHeadersExcept = new List<string>(LogAllRequestHeadersExcept);
+        clone.LogAllResponseHeadersExcept = new List<string>(LogAllResponseHeadersExcept);
+        clone.LogHeaders = new List<string>(LogHeaders);
+        clone.LogToConsole = new List<string>(LogToConsole);
+        clone.LogToEvents = new List<string>(LogToEvents);
+        clone.LogToAI = new List<string>(LogToAI);
+        clone.PriorityKeys = new List<string>(PriorityKeys);
+        clone.PriorityValues = new List<int>(PriorityValues);
+        clone.RequiredHeaders = new List<string>(RequiredHeaders);
+        clone.StripRequestHeaders = new List<string>(StripRequestHeaders);
+        clone.StripResponseHeaders = new List<string>(StripResponseHeaders);
+        clone.UniqueUserHeaders = new List<string>(UniqueUserHeaders);
+        clone.ValidateHeaders = new Dictionary<string, string>(ValidateHeaders);
+        clone.PriorityWorkers = new Dictionary<int, int>(PriorityWorkers);
+        clone.Hosts = new List<HostConfig>(Hosts);
+
+        return clone;
+    }
+
+    /// <summary>
+    /// Applies a single configuration field from the environment dictionary to this instance.
+    /// Uses reflection to set the named property, falling back to the corresponding default value when the
+    /// environment variable is absent or set to the default placeholder.
+    /// </summary>
+    public void ApplyFieldFromEnv(Dictionary<string, string> env, BackendOptions defaults, string envVar, string property)
+    {
+        var pi = typeof(BackendOptions).GetProperty(property) ?? throw new InvalidOperationException($"Unknown BackendOptions property: {property}");
+        var defVal = pi.GetValue(defaults);
+        var type = pi.PropertyType;
+
+        var envValue = env.GetValueOrDefault(envVar)?.Trim();
+        bool envVarPresent = !string.IsNullOrEmpty(envValue) && envValue != ConfigOptions.DefaultPlaceholder;
+        if (!envVarPresent)
+        {
+            var currentVal = pi.GetValue(this);
+            bool alreadyChanged = !Equals(currentVal, defVal);
+            if (alreadyChanged)
+            {
+                return;
+            }
+        }
+
+        if (type == typeof(int) || type == typeof(double))
+        {
+            var val = ConfigParser.ReadEnvironmentVariableOrDefault(env, envVar, Convert.ToInt32(defVal));
+            pi.SetValue(this, Convert.ChangeType(val, type));
+        }
+        else if (type == typeof(float))
+        {
+            var val = ConfigParser.ReadEnvironmentVariableOrDefault(env, envVar, Convert.ToSingle(defVal));
+            pi.SetValue(this, Convert.ChangeType(val, type));
+        }
+        else if (type == typeof(string))
+        {
+            pi.SetValue(this, ConfigParser.ReadEnvironmentVariableOrDefault(env, envVar, (string)defVal!));
+        }
+        else if (type == typeof(bool))
+        {
+            pi.SetValue(this, ConfigParser.ReadEnvironmentVariableOrDefault(env, envVar, (bool)defVal!));
+        }
+        else if (type == typeof(List<string>))
+        {
+            var value = ConfigParser.ReadEnvironmentVariableOrDefault(env, envVar, string.Join(",", (List<string>)defVal!));
+            pi.SetValue(this, ConfigParser.ToListOfString(value));
+        }
+        else if (type == typeof(List<int>))
+        {
+            var value = ConfigParser.ReadEnvironmentVariableOrDefault(env, envVar, string.Join(",", (List<int>)defVal!));
+            pi.SetValue(this, ConfigParser.ToListOfInt(value));
+        }
+        else if (type == typeof(int[]))
+        {
+            pi.SetValue(this, ConfigParser.ReadEnvironmentVariableOrDefault(env, envVar, (int[])defVal!));
+        }
+        else if (type == typeof(Dictionary<string, string>))
+        {
+            var defaultValue = string.Join(",", ((Dictionary<string, string>)defVal!).Select(kvp => $"{kvp.Key}={kvp.Value}"));
+            var value = ConfigParser.ReadEnvironmentVariableOrDefault(env, envVar, defaultValue);
+            pi.SetValue(this, ConfigParser.KVStringPairs(ConfigParser.ToListOfString(value)));
+        }
+        else if (type.IsEnum)
+        {
+            var value = ConfigParser.ReadEnvironmentVariableOrDefault(env, envVar, defVal!.ToString()!);
+            if (Enum.TryParse(type, value, true, out var parsed))
+            {
+                pi.SetValue(this, parsed);
+            }
+            else
+            {
+                pi.SetValue(this, defVal);
+            }
+        }
+        else
+        {
+            throw new NotSupportedException($"ApplyFieldFromEnv: unsupported property type {type.Name} for {property}");
+        }
+    }
 }
