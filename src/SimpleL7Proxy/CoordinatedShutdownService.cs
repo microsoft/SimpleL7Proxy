@@ -22,7 +22,7 @@ public class CoordinatedShutdownService : IHostedService
     private readonly ILogger<CoordinatedShutdownService> _logger;
     private readonly Server _server;
     private readonly BackendTokenProvider _backendTokenProvider;
-    private readonly BackendOptions _options;
+    private readonly ProxyConfig _options;
     private readonly IEventClient? _eventClient;
     private readonly IServiceBusRequestService _serviceBusRequestService;
     private readonly IBackupAPIService _backupAPIService;
@@ -38,7 +38,7 @@ public class CoordinatedShutdownService : IHostedService
 
 
     public CoordinatedShutdownService(IHostApplicationLifetime appLifetime,
-        IOptions<BackendOptions> backendOptions,
+        IOptions<ProxyConfig> backendOptions,
         IConcurrentPriQueue<RequestData> queue,
         BackendTokenProvider backendTokenProvider,
         IBackendService backends,
