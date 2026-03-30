@@ -156,7 +156,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
     public int EventCount => _activeUndrainedEvents;
 
     // TODO: no need for stopwatch any longer
-    public async Task LivenessResponseAsync(HttpListenerContext lc)
+    public async Task<HttpStatusCode> LivenessResponseAsync(HttpListenerContext lc)
     {
         // Liveness probe check - use pre-allocated objects
         try
@@ -186,10 +186,12 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
             catch { }
             
         }
+        return HttpStatusCode.OK;
     }
 
-    public async Task ReadinessResponseAsync(HttpListenerContext lc)
+    public async Task<HttpStatusCode> ReadinessResponseAsync(HttpListenerContext lc)
     {
+        HttpStatusCode statusCode = HttpStatusCode.OK; // default to 200, may be overridden in switch
         try
         {
             lc.Response.ContentType = "text/plain";
@@ -202,16 +204,20 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
                     lc.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
                     lc.Response.ContentLength64 = s_zeroHostsLength;
                     await lc.Response.OutputStream.WriteAsync(s_zeroHosts, 0, s_zeroHostsLength);
+                    statusCode = HttpStatusCode.ServiceUnavailable;
                     break;
                 case HealthStatusEnum.ReadinessFailedHosts:
                     lc.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
                     lc.Response.ContentLength64 = s_failedHostsLength;
                     await lc.Response.OutputStream.WriteAsync(s_failedHosts, 0, s_failedHostsLength);
+                    statusCode = HttpStatusCode.ServiceUnavailable;
                     break;
                 case HealthStatusEnum.ReadinessReady:
                     lc.Response.StatusCode = (int)HttpStatusCode.OK;
                     lc.Response.ContentLength64 = s_okLength;
                     await lc.Response.OutputStream.WriteAsync(s_okBytes, 0, s_okLength);
+                    statusCode = HttpStatusCode.OK;
+
                     break;
             }
         } finally {
@@ -221,10 +227,12 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
             }
             catch { }
         }
+        return statusCode;
     }
 
-    public async Task StartupResponseAsync(HttpListenerContext lc)
+    public async Task<HttpStatusCode> StartupResponseAsync(HttpListenerContext lc)
     {
+        HttpStatusCode statusCode = HttpStatusCode.OK; // default to 200, may be overridden in switch
         try
         {
             lc.Response.ContentType = "text/plain";
@@ -237,16 +245,19 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
                     lc.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
                     lc.Response.ContentLength64 = s_zeroHostsLength;
                     await lc.Response.OutputStream.WriteAsync(s_zeroHosts, 0, s_zeroHostsLength);
+                    statusCode = HttpStatusCode.ServiceUnavailable;
                     break;
                 case HealthStatusEnum.StartupFailedHosts:
                     lc.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
                     lc.Response.ContentLength64 = s_failedHostsLength;
                     await lc.Response.OutputStream.WriteAsync(s_failedHosts, 0, s_failedHostsLength);
+                    statusCode = HttpStatusCode.ServiceUnavailable;
                     break;
                 case HealthStatusEnum.StartupReady:
                     lc.Response.StatusCode = (int)HttpStatusCode.OK;
                     lc.Response.ContentLength64 = s_okLength;
                     await lc.Response.OutputStream.WriteAsync(s_okBytes, 0, s_okLength);
+                    statusCode = HttpStatusCode.OK;
                     break;
             }
         }
@@ -257,8 +268,8 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
                 lc.Response.Close();
             }
             catch { }
-
         }
+        return statusCode;
     }
 
     /// <summary>

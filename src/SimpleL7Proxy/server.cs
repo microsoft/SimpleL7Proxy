@@ -47,7 +47,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
 
     private readonly IEventClient? _eventHubClient;
     private static ProxyEvent _staticEvent = new ProxyEvent();
-
+    private static ProxyEvent _probe = new ProxyEvent();
     private readonly ProbeServer _probeServer;
 
     // Precomputed frozen collections for O(1) hot-path lookups, recomputed on config change
@@ -281,6 +281,8 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         int maxEvents_60Percent = (int)(maxEvents * .6);
         int maxEvents_50Percent = (int)(maxEvents * .5);
 
+        _probe.Type = EventType.Probe;
+
         while (!cancellationToken.IsCancellationRequested)
         {
             ProxyEvent ed = null!;
@@ -305,26 +307,32 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                         continue;
                     }
                     var isprobe = false;
-
-                    // if it's a probe, then bypass all the below checks and enqueue the request 
                     var probePath = lc.Request.Url?.PathAndQuery;
-                    switch (probePath)
+
+                    // Liveness/Readiness/Startup: respond immediately, don't enqueue
+                    if (probePath is Constants.Liveness or Constants.Readiness or Constants.Startup)
                     {
-                        case Constants.Liveness:
-                            await _probeServer.LivenessResponseAsync(lc);
-                            continue;
-                        case Constants.Readiness:
-                            await _probeServer.ReadinessResponseAsync(lc);
-                            continue;
-                        case Constants.Startup:
-                            await _probeServer.StartupResponseAsync(lc);
-                            continue;
-                        case Constants.Health:
-                        case Constants.ForceGC:
-                            isprobe = true;
-                            break; // fall through to queue path
-                        default:
-                            break; // not a probe, fall through
+                        var (probeType, code) = probePath switch
+                        {
+                            Constants.Liveness  => ("Liveness",  await _probeServer.LivenessResponseAsync(lc)),
+                            Constants.Readiness => ("Readiness", await _probeServer.ReadinessResponseAsync(lc)),
+                            _                   => ("Startup",   await _probeServer.StartupResponseAsync(lc)),
+                        };
+                        _probe.Uri = lc.Request.Url!;
+                        _probe["ProbeType"] = probeType;
+                        _probe["StatusCode"] = ((int)code).ToString();
+                        _probe.SendEvent();
+                        continue;
+                    }
+
+                    // Health/ForceGC: log probe event, then fall through to enqueue
+                    if (probePath is Constants.Health or Constants.ForceGC)
+                    {
+                        isprobe = true;
+                        _probe.Uri = lc.Request.Url!;
+                        _probe["ProbeType"] = probePath == Constants.Health ? "Health" : "ForceGC";
+                        _probe["StatusCode"] = ((int)HttpStatusCode.OK).ToString();
+                        _probe.SendEvent();
                     }
                     
                     int priority = _options.DefaultPriority;

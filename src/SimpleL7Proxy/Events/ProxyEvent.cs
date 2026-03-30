@@ -160,6 +160,7 @@ namespace SimpleL7Proxy.Events
             case EventType.ProxyRequest:
             case EventType.ProxyRequestExpired:
             case EventType.ProxyRequestRequeued:
+            case EventType.Probe:
               TrackRequest();
               break;
 
@@ -186,32 +187,32 @@ namespace SimpleL7Proxy.Events
 
     public static string ConvertToJson(ProxyEvent proxyEvent, IDictionary<string, string>? extraProperties = null)
     {
-        // Use Utf8JsonWriter to merge proxyEvent + extraProperties into one JSON object
-        // without allocating an intermediate merged dictionary
-        var buffer = new ArrayBufferWriter<byte>(512);
-        using (var writer = new Utf8JsonWriter(buffer))
+      // Use Utf8JsonWriter to merge proxyEvent + extraProperties into one JSON object
+      // without allocating an intermediate merged dictionary
+      var buffer = new ArrayBufferWriter<byte>(512);
+      using (var writer = new Utf8JsonWriter(buffer))
+      {
+        writer.WriteStartObject();
+
+        foreach (var kvp in proxyEvent)
         {
-            writer.WriteStartObject();
-
-            foreach (var kvp in proxyEvent)
-            {
-                writer.WriteString(kvp.Key, kvp.Value);
-            }
-
-            if (extraProperties is not null)
-            {
-                foreach (var kvp in extraProperties)
-                {
-                    writer.WriteString(kvp.Key, kvp.Value);
-                }
-            }
-
-            writer.WriteEndObject();
+          writer.WriteString(kvp.Key, kvp.Value);
         }
 
-        return Encoding.UTF8.GetString(buffer.WrittenSpan);
+        if (extraProperties is not null)
+        {
+          foreach (var kvp in extraProperties)
+          {
+            writer.WriteString(kvp.Key, kvp.Value);
+          }
+        }
+
+        writer.WriteEndObject();
+      }
+
+      return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
-  
+
 
     private void TrackEvent()
     {
@@ -294,10 +295,9 @@ namespace SimpleL7Proxy.Events
         Url = Uri,
         ResponseCode = Status.ToString(),
         Success = success,
-        Id = requestId // Set a consistent ID to help identify duplicates
+        Id = requestId, // Set a consistent ID to help identify duplicates
+        Timestamp = DateTimeOffset.UtcNow.Subtract(Duration)
       };
-
-      requestTelemetry.Timestamp = DateTimeOffset.UtcNow.Subtract(Duration);
       requestTelemetry.Properties["HttpMethod"] = Method ?? "GET";
       requestTelemetry.Source = "S7P"; // Custom source identifier
       requestTelemetry.Duration = Duration;
@@ -312,6 +312,7 @@ namespace SimpleL7Proxy.Events
       {
         requestTelemetry.Properties.Add(kvp);
       }
+      Console.WriteLine("Logging request");
 
       _telemetryClient?.TrackRequest(requestTelemetry);
     }
@@ -373,7 +374,7 @@ namespace SimpleL7Proxy.Events
         Type = EventType.Console;
 
         // Only send to event client if this event type is enabled for it
-        if ( EventAttr.Console ) 
+        if (EventAttr.Console)
         {
           _eventClient?.SendData(ConvertToJson(this));
         }

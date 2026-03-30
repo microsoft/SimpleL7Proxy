@@ -49,8 +49,6 @@ public class ProxyConfig
     public List<string> LogToEvents { get; set; } = ["async","backend","circuitbreaker","custom","exception","profile","proxy","enqueued","auth"];
     [ConfigOption("Logging:LogToAI")]
     public List<string> LogToAI { get; set; } = ["*"];
-
-    public bool LogProbes { get; set; } = true;
     [ConfigOption("Logging:LogHeaders")]
     public List<string> LogHeaders { get; set; } = [];
     [ConfigOption("Logging:LogAllRequestHeaders")]
@@ -343,7 +341,7 @@ public class ProxyConfig
         var type = pi.PropertyType;
 
         var envValue = env.GetValueOrDefault(envVar)?.Trim();
-        bool envVarPresent = !string.IsNullOrEmpty(envValue) && envValue != ConfigMetadata.DefaultPlaceholder;
+        bool envVarPresent = !string.IsNullOrEmpty(envValue) && envValue != ConfigOptions.DefaultPlaceholder;
         if (!envVarPresent)
         {
             var currentVal = pi.GetValue(this);
