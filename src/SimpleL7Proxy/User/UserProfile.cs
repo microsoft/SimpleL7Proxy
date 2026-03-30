@@ -16,7 +16,7 @@ namespace SimpleL7Proxy.User;
 
 public class UserProfile : BackgroundService, IUserProfileService, IConfigChangeSubscriber
 {
-    private readonly BackendOptions _options;
+    private readonly ProxyConfig _options;
 
     private volatile Dictionary<string, Dictionary<string, string>> userProfiles = new Dictionary<string, Dictionary<string, string>>();
     private volatile List<string> suspendedUserProfiles = new List<string>();
@@ -54,7 +54,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
     private const int s_ErrorDelayMs = 3000; // 3 seconds
     private bool _configRequired = false;
 
-    public UserProfile(BackendOptions options, ConfigChangeNotifier configChangeNotifier, ILogger<UserProfile> logger)
+    public UserProfile(ProxyConfig options, ConfigChangeNotifier configChangeNotifier, ILogger<UserProfile> logger)
     {
         ArgumentNullException.ThrowIfNull(options, nameof(options));
         ArgumentNullException.ThrowIfNull(logger, nameof(logger));
@@ -94,7 +94,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
 
     public Task OnConfigChangedAsync(
                 IReadOnlyList<ConfigChange> changes,
-                BackendOptions backendOptions,
+                ProxyConfig backendOptions,
                 CancellationToken cancellationToken)
     {
         _logger.LogInformation("Received config change notification for UserProfile service. Changes: {Changes}",

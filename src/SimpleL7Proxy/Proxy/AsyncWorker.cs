@@ -40,7 +40,7 @@ namespace SimpleL7Proxy.Proxy
         private readonly IBlobWriter _blobWriter;
         private readonly ILogger<AsyncWorker> _logger;
         private readonly IRequestDataBackupService _requestBackupService;
-        private readonly BackendOptions _options;
+        private readonly ProxyConfig _options;
         // private readonly IBackupAPIService _backupAPIService;
         public  bool ShouldReprocess { get; set; } = false; 
         public string ErrorMessage { get; set; } = "";
@@ -70,7 +70,7 @@ namespace SimpleL7Proxy.Proxy
         public AsyncWorker(RequestData data, int AsyncTriggerTimeout, 
             IBlobWriter blobWriter, 
             ILogger<AsyncWorker> logger, 
-            IRequestDataBackupService requestBackupService, BackendOptions backendOptions)
+            IRequestDataBackupService requestBackupService, ProxyConfig backendOptions)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _requestData = data ?? throw new ArgumentNullException(nameof(data));

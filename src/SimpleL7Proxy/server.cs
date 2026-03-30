@@ -28,7 +28,7 @@ namespace SimpleL7Proxy;
 public class Server :  BackgroundService, IConfigChangeSubscriber
 {
     //    private readonly IBackendOptions? _options;
-    private readonly BackendOptions _options;
+    private readonly ProxyConfig _options;
     private readonly HttpListener _httpListener;
 
     private readonly IBackendService _backends;
@@ -61,7 +61,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
     // Constructor to initialize the server with backend options and telemetry client.
     public Server(
         IConcurrentPriQueue<RequestData> requestsQueue,
-        IOptions<BackendOptions> backendOptions,
+        IOptions<ProxyConfig> backendOptions,
         IHostApplicationLifetime appLifetime,
         IUserPriorityService userPriority,
         IUserProfileService userProfile,
@@ -156,7 +156,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
 
     public Task OnConfigChangedAsync(
         IReadOnlyList<ConfigChange> changes,
-        BackendOptions backendOptions,
+        ProxyConfig backendOptions,
         CancellationToken cancellationToken)
     {
         _logger.LogInformation("[CONFIG] Server changed — Settings live updated without restart");

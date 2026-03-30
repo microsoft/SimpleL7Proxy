@@ -36,7 +36,7 @@ public class ProxyWorker : IConfigChangeSubscriber
     private static bool s_debug = false;            // dev time debug flag
     private static IConcurrentPriQueue<RequestData>? s_requestsQueue;
     private readonly IBackendService _backends;
-    private readonly BackendOptions _options;
+    private readonly ProxyConfig _options;
     private readonly ILogger<ProxyWorker> _logger;
     private readonly RequestLifecycleManager _lifecycleManager;
     private readonly EventDataBuilder _eventDataBuilder;
@@ -103,7 +103,7 @@ public class ProxyWorker : IConfigChangeSubscriber
 
     public Task OnConfigChangedAsync(
         IReadOnlyList<ConfigChange> changes, 
-        BackendOptions backendOptions, 
+        ProxyConfig backendOptions, 
         CancellationToken cancellationToken)
     {
         s_backendKeys = backendOptions.DependancyHeaders;

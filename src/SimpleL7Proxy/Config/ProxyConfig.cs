@@ -4,7 +4,7 @@ using SimpleL7Proxy.Backend.Iterators;
 
 namespace SimpleL7Proxy.Config;
 
-public class BackendOptions
+public class ProxyConfig
 {
     // ════════════════════════════════════════════════════════════════════
     // Warm — published to App Configuration, hot-reloaded (~30 s)
@@ -304,9 +304,9 @@ public class BackendOptions
     /// collections (List, Dictionary, array) are cloned so the copy is fully independent.
     /// Note: <see cref="Client"/> (HttpClient) is shared, not cloned.
     /// </summary>
-    public BackendOptions DeepClone()
+    public ProxyConfig DeepClone()
     {
-        var clone = (BackendOptions)MemberwiseClone();
+        var clone = (ProxyConfig)MemberwiseClone();
 
         // Clone collection properties so mutations don't leak between instances.
         clone.AcceptableStatusCodes = (int[])AcceptableStatusCodes.Clone();
@@ -336,14 +336,14 @@ public class BackendOptions
     /// Uses reflection to set the named property, falling back to the corresponding default value when the
     /// environment variable is absent or set to the default placeholder.
     /// </summary>
-    public void ApplyFieldFromEnv(Dictionary<string, string> env, BackendOptions defaults, string envVar, string property)
+    public void ApplyFieldFromEnv(Dictionary<string, string> env, ProxyConfig defaults, string envVar, string property)
     {
-        var pi = typeof(BackendOptions).GetProperty(property) ?? throw new InvalidOperationException($"Unknown BackendOptions property: {property}");
+        var pi = typeof(ProxyConfig).GetProperty(property) ?? throw new InvalidOperationException($"Unknown BackendOptions property: {property}");
         var defVal = pi.GetValue(defaults);
         var type = pi.PropertyType;
 
         var envValue = env.GetValueOrDefault(envVar)?.Trim();
-        bool envVarPresent = !string.IsNullOrEmpty(envValue) && envValue != ConfigOptions.DefaultPlaceholder;
+        bool envVarPresent = !string.IsNullOrEmpty(envValue) && envValue != ConfigMetadata.DefaultPlaceholder;
         if (!envVarPresent)
         {
             var currentVal = pi.GetValue(this);

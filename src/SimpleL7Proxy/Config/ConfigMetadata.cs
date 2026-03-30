@@ -75,7 +75,7 @@ public sealed class ConfigOptionDescriptor
 /// Discovers [ConfigOption] descriptors on BackendOptions and provides
 /// warm change detection for hot-reload.
 /// </summary>
-public static class ConfigOptions
+public static class ConfigMetadata
 {
     private static readonly Lazy<IReadOnlyList<ConfigOptionDescriptor>> _descriptors = new(DiscoverDescriptors);
     private static readonly Lazy<IReadOnlyList<ConfigOptionDescriptor>> _warmDescriptors =
@@ -126,7 +126,7 @@ public static class ConfigOptions
     /// <summary>Reflects over BackendOptions to discover all [ConfigOption] properties.</summary>
     private static IReadOnlyList<ConfigOptionDescriptor> DiscoverDescriptors()
     {
-        return typeof(BackendOptions)
+        return typeof(ProxyConfig)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(prop => prop.CanRead && prop.CanWrite)
             .Select(prop => new

@@ -16,7 +16,7 @@ namespace SimpleL7Proxy.Events
 
   public class ProxyEvent : ConcurrentDictionary<string, string>, IConfigChangeSubscriber
   {
-    private static IOptions<BackendOptions> _options = null!;
+    private static IOptions<ProxyConfig> _options = null!;
     private static IEventClient? _eventClient;
     private static TelemetryClient? _telemetryClient;
 
@@ -44,7 +44,7 @@ namespace SimpleL7Proxy.Events
     public static FrozenDictionary<string, string> DefaultParams { get; private set; } = FrozenDictionary<string, string>.Empty;
 
     public static void Initialize(
-      IOptions<BackendOptions> backendOptions,
+      IOptions<ProxyConfig> backendOptions,
       IEventClient? eventClient = null,
       ICommonEventData? commonEventData = null,
       TelemetryClient? telemetryClient = null)
@@ -75,7 +75,7 @@ namespace SimpleL7Proxy.Events
     /// <inheritdoc />
     public Task OnConfigChangedAsync(
       IReadOnlyList<ConfigChange> changes,
-      BackendOptions backendOptions,
+      ProxyConfig backendOptions,
       CancellationToken cancellationToken)
     {
       UpdateLogTargets(backendOptions);
@@ -83,12 +83,12 @@ namespace SimpleL7Proxy.Events
     }
 
     /// <summary>
-    /// Parses <see cref="BackendOptions.LogToConsole"/>, <see cref="BackendOptions.LogToEvents"/>,
-    /// and <see cref="BackendOptions.LogToAI"/> into <see cref="ConAttr"/>, <see cref="EventAttr"/>,
+    /// Parses <see cref="ProxyConfig.LogToConsole"/>, <see cref="ProxyConfig.LogToEvents"/>,
+    /// and <see cref="ProxyConfig.LogToAI"/> into <see cref="ConAttr"/>, <see cref="EventAttr"/>,
     /// <see cref="AIAttr"/>. A list containing "*" enables all event types for that destination.
     /// Safe to call on config hot-reload.
     /// </summary>
-    public static void UpdateLogTargets(BackendOptions options)
+    public static void UpdateLogTargets(ProxyConfig options)
     {
       ConAttr   = LogTargetAttr.From(options.LogToConsole);
       EventAttr = LogTargetAttr.From(options.LogToEvents);

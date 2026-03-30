@@ -10,10 +10,10 @@ public interface IConfigChangeSubscriber
     /// Called when one or more warm configuration settings have changed.
     /// </summary>
     /// <param name="changes">The list of settings that changed in this refresh cycle.</param>
-    /// <param name="backendOptions">The current <see cref="BackendOptions"/> instance (already updated).</param>
+    /// <param name="backendOptions">The current <see cref="ProxyConfig"/> instance (already updated).</param>
     /// <param name="cancellationToken">Cancellation token tied to the host lifetime.</param>
     Task OnConfigChangedAsync(
         IReadOnlyList<ConfigChange> changes,
-        BackendOptions backendOptions,
+        ProxyConfig backendOptions,
         CancellationToken cancellationToken);
 }

@@ -26,7 +26,7 @@ namespace SimpleL7Proxy.Config;
 /// Handles environment variable collection, App Config merging,
 /// backend host discovery, and DI registration.
 /// </summary>
-public static class BackendOptionsBuilder
+public static class ConfigFactory
 {
   private static ILogger? _logger;
 
@@ -62,13 +62,13 @@ public static class BackendOptionsBuilder
   ///   <item><c>envOptions</c> — env vars + App Config warm/cold overrides merged on top (warm wins on collision). This is the live singleton.</item>
   /// </list>
   /// </summary>
-  public static async Task<(BackendOptions baseOptions, BackendOptions envOptions)> CreateOptions(AppConfigBootstrap appConfigBootstrap)
+  public static async Task<(ProxyConfig baseOptions, ProxyConfig envOptions)> CreateOptions(AppConfigService appConfigBootstrap)
   {
-    var baseOptions = ConfigParser.ApplyEnv(EffectiveEnvironment(), new BackendOptions());
+    var baseOptions = ConfigParser.ApplyEnv(EffectiveEnvironment(), new ProxyConfig());
 
     var (warmSettings, coldSettings) = await appConfigBootstrap.GetSettingsAsync().ConfigureAwait(false);
 
-    BackendOptions envOptions;
+    ProxyConfig envOptions;
 
     if (warmSettings == null && coldSettings == null) {
       envOptions = baseOptions.DeepClone();
@@ -93,8 +93,8 @@ public static class BackendOptionsBuilder
   /// Called by AppConfigBootstrap when the sentinel value changes.
   /// </summary>
   public static async Task ApplyRefresh(
-      BackendOptions liveOptions,
-      BackendOptions defaultOptions,
+      ProxyConfig liveOptions,
+      ProxyConfig defaultOptions,
       Dictionary<string, string> warm,
       ConfigChangeNotifier? notifier,
       IHostHealthCollection? hostCollection,
@@ -105,7 +105,7 @@ public static class BackendOptionsBuilder
     if (changes.Count == 0 && hostChanges.Count == 0)
         return;
 
-    var fields = ConfigOptions.GetFieldsByConfigName();
+    var fields = ConfigMetadata.GetFieldsByConfigName();
     var ds = new Dictionary<string, string>(1);
 
     foreach (var kvp in parsedValues)
@@ -151,14 +151,14 @@ public static class BackendOptionsBuilder
   /// Host keys (Host*, Probe*, IP*) are returned separately in HostChanges.
   /// </summary>
   private static (List<ConfigChange> Changes, Dictionary<string, object?> ParsedValues, Dictionary<string, string> HostChanges) DetectWarmChanges(
-      BackendOptions liveOptions,
+      ProxyConfig liveOptions,
       Dictionary<string, string> warmSettings,
       ILogger? logger = null)
   {
     var changeList = new List<ConfigChange>();
     var updates = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
     var hostChanges = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-    var defaultTarget = new BackendOptions();
+    var defaultTarget = new ProxyConfig();
     var env = new Dictionary<string, string>(1, StringComparer.OrdinalIgnoreCase);
 
     foreach (var kvp in warmSettings)
@@ -173,12 +173,12 @@ public static class BackendOptionsBuilder
             continue;
         }
 
-        if (!ConfigOptions.WarmDescriptorsByKeyPath.TryGetValue(key, out var descriptor)
-            && !ConfigOptions.WarmDescriptorsByConfigName.TryGetValue(key, out descriptor))
+        if (!ConfigMetadata.WarmDescriptorsByKeyPath.TryGetValue(key, out var descriptor)
+            && !ConfigMetadata.WarmDescriptorsByConfigName.TryGetValue(key, out descriptor))
             continue;
 
         var configName = descriptor.ConfigName;
-        if (!ConfigOptions.TryGetFieldByConfigName(configName, out var field) || field == null)
+        if (!ConfigMetadata.TryGetFieldByConfigName(configName, out var field) || field == null)
             continue;
 
         var currentValue = field.GetValue(liveOptions);
@@ -229,7 +229,7 @@ public static class BackendOptionsBuilder
   /// Emits a telemetry event with all resolved config values,
   /// masking sensitive keys (connection strings, secrets, etc.).
   /// </summary>
-  public static void OutputEnvVars(BackendOptions backendOptions)
+  public static void OutputEnvVars(ProxyConfig backendOptions)
   {
 
     ProxyEvent pe = new()
@@ -242,7 +242,7 @@ public static class BackendOptionsBuilder
     var cold = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     var hidden = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-    foreach (var prop in typeof(BackendOptions).GetProperties(BindingFlags.Public | BindingFlags.Instance))
+    foreach (var prop in typeof(ProxyConfig).GetProperties(BindingFlags.Public | BindingFlags.Instance))
     {
       var attr = prop.GetCustomAttribute<ConfigOptionAttribute>();
       if (attr == null) continue;
@@ -300,14 +300,14 @@ public static class BackendOptionsBuilder
   /// Registers BackendOptions as a singleton for IOptions, IOptionsMonitor, and direct injection.
   /// All resolve to the same instance so in-place warm-refresh is visible everywhere.
   /// </summary>
-  public static IServiceCollection RegisterBackendOptions(this IServiceCollection services, ILogger logger, BackendOptions backendOptions)
+  public static IServiceCollection RegisterBackendOptions(this IServiceCollection services, ILogger logger, ProxyConfig backendOptions)
   {
     _logger = logger;
 
-    var wrapper = new OptionsWrapper<BackendOptions>(backendOptions);
+    var wrapper = new OptionsWrapper<ProxyConfig>(backendOptions);
     services.AddSingleton(backendOptions);
-    services.AddSingleton<IOptions<BackendOptions>>(wrapper);
-    services.AddSingleton<IOptionsMonitor<BackendOptions>>(new SingletonOptionsMonitor<BackendOptions>(backendOptions));
+    services.AddSingleton<IOptions<ProxyConfig>>(wrapper);
+    services.AddSingleton<IOptionsMonitor<ProxyConfig>>(new SingletonOptionsMonitor<ProxyConfig>(backendOptions));
 
     return services;
   }
@@ -352,7 +352,7 @@ public static class BackendOptionsBuilder
   private static int _ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, int defaultValue)
   {
     var envValue = env.GetValueOrDefault(variableName);
-    if (envValue?.Trim() == ConfigOptions.DefaultPlaceholder) envValue = null;
+    if (envValue?.Trim() == ConfigMetadata.DefaultPlaceholder) envValue = null;
     if (!int.TryParse(envValue, out var value))
     {
       if (TryEvaluateMathExpression(envValue!, out var mathResult))
@@ -366,7 +366,7 @@ public static class BackendOptionsBuilder
   private static bool _ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, bool defaultValue)
   {
     var envValue = env.GetValueOrDefault(variableName);
-    if (string.IsNullOrEmpty(envValue) || envValue.Trim() == ConfigOptions.DefaultPlaceholder)
+    if (string.IsNullOrEmpty(envValue) || envValue.Trim() == ConfigMetadata.DefaultPlaceholder)
     {
       _logger?.LogWarning($"Using default: {variableName}: {defaultValue}");
       return defaultValue;
@@ -380,7 +380,7 @@ public static class BackendOptionsBuilder
   /// Optionally appends to /etc/hosts for Linux container deployments.
   /// </summary>
   public static void RegisterBackends(
-    BackendOptions backendOptions, 
+    ProxyConfig backendOptions, 
     IConfiguration? fallbackConfig = null, 
     Dictionary<string, string>? appConfigSettings = null, 
     IHostHealthCollection? hostCollection = null)

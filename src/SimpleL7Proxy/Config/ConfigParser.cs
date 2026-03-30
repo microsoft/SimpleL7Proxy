@@ -8,7 +8,7 @@ namespace SimpleL7Proxy.Config;
 
 public static class ConfigParser
 {
-    private static readonly BackendOptions s_defaults = new();
+    private static readonly ProxyConfig s_defaults = new();
     private static readonly System.Data.DataTable s_mathTable = new();
 
     private static readonly (string envVar, string property)[] SimpleFields =
@@ -115,10 +115,10 @@ public static class ConfigParser
 
 
     // Creates a BackendOptions instance by applying environment variable overrides on top of the defaults
-    public static BackendOptions ApplyEnv(Dictionary<string, string> dict, BackendOptions defaults)
+    public static ProxyConfig ApplyEnv(Dictionary<string, string> dict, ProxyConfig defaults)
     {
         // calculated values based on logic
-        var opts = new BackendOptions();
+        var opts = new ProxyConfig();
 
         foreach (var (envVarName, propertyName) in SimpleFields)
         {
@@ -143,11 +143,11 @@ public static class ConfigParser
 
         ApplyDerivedSettingsFromConfigNames(
             opts,
-            nameof(BackendOptions.HealthProbeSidecar),
-            nameof(BackendOptions.LoadBalanceMode),
-            nameof(BackendOptions.PriorityKeys),
-            nameof(BackendOptions.PriorityValues),
-            nameof(BackendOptions.ValidateHeaders));
+            nameof(ProxyConfig.HealthProbeSidecar),
+            nameof(ProxyConfig.LoadBalanceMode),
+            nameof(ProxyConfig.PriorityKeys),
+            nameof(ProxyConfig.PriorityValues),
+            nameof(ProxyConfig.ValidateHeaders));
 
         return opts;
     }
@@ -205,12 +205,12 @@ public static class ConfigParser
     /// <summary>
     /// Forwards to <see cref="BackendOptions.ApplyFieldFromEnv"/>. Kept for backward compatibility.
     /// </summary>
-    public static void ApplyFieldFromEnv(Dictionary<string, string> env, BackendOptions target, BackendOptions defaults, string envVar, string property)
+    public static void ApplyFieldFromEnv(Dictionary<string, string> env, ProxyConfig target, ProxyConfig defaults, string envVar, string property)
     {
         target.ApplyFieldFromEnv(env, defaults, envVar, property);
     }
 
-    public static void ApplyDerivedSettings(BackendOptions backendOptions, params PropertyInfo[] changedProperties)
+    public static void ApplyDerivedSettings(ProxyConfig backendOptions, params PropertyInfo[] changedProperties)
     {
         if (changedProperties.Length == 0)
         {
@@ -221,30 +221,30 @@ public static class ConfigParser
             changedProperties.Select(p => p.Name),
             StringComparer.OrdinalIgnoreCase);
 
-        if (changedPropertyNames.Contains(nameof(BackendOptions.HealthProbeSidecar)))
+        if (changedPropertyNames.Contains(nameof(ProxyConfig.HealthProbeSidecar)))
         {
             ParseHealthProbeSidecarSettings(backendOptions);
         }
 
-        if (changedPropertyNames.Contains(nameof(BackendOptions.LoadBalanceMode)))
+        if (changedPropertyNames.Contains(nameof(ProxyConfig.LoadBalanceMode)))
         {
             ValidateLoadBalanceMode(backendOptions);
         }
 
-        if (changedPropertyNames.Contains(nameof(BackendOptions.PriorityKeys))
-            || changedPropertyNames.Contains(nameof(BackendOptions.PriorityValues)))
+        if (changedPropertyNames.Contains(nameof(ProxyConfig.PriorityKeys))
+            || changedPropertyNames.Contains(nameof(ProxyConfig.PriorityValues)))
         {
             ValidatePrioritySettings(backendOptions, s_defaults);
         }
 
-        if (changedPropertyNames.Contains(nameof(BackendOptions.ValidateHeaders)))
+        if (changedPropertyNames.Contains(nameof(ProxyConfig.ValidateHeaders)))
         {
             ValidateHeaderSettings(backendOptions);
         }
     }
 
     public static void ApplyDerivedSettingsFromConfigNames(
-        BackendOptions backendOptions,
+        ProxyConfig backendOptions,
         params string[] changedConfigNames)
     {
         if (changedConfigNames.Length == 0)
@@ -252,7 +252,7 @@ public static class ConfigParser
             return;
         }
 
-        var descriptorByConfigName = ConfigOptions.GetDescriptors()
+        var descriptorByConfigName = ConfigMetadata.GetDescriptors()
             .ToDictionary(d => d.ConfigName, d => d.Property, StringComparer.OrdinalIgnoreCase);
 
         var changedProperties = new List<PropertyInfo>(changedConfigNames.Length);
@@ -311,7 +311,7 @@ public static class ConfigParser
             || normalized.Equals("AppendHostsFile", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static void ApplyAsyncServiceBusOverrides(Dictionary<string, string> env, BackendOptions opts, BackendOptions defaults)
+    private static void ApplyAsyncServiceBusOverrides(Dictionary<string, string> env, ProxyConfig opts, ProxyConfig defaults)
     {
         var configStr = ReadEnvironmentVariableOrDefault(env, "AsyncSBConfig", defaults.AsyncSBConfig);
         var (connStr, ns, queue, useMi) = ParseServiceBusConfig(configStr);
@@ -322,7 +322,7 @@ public static class ConfigParser
         opts.AsyncSBUseMI = ReadEnvironmentVariableOrDefault(env, "AsyncSBUseMI", useMi);
     }
 
-    private static void ApplyAsyncBlobStorageOverrides(Dictionary<string, string> env, BackendOptions opts, BackendOptions defaults)
+    private static void ApplyAsyncBlobStorageOverrides(Dictionary<string, string> env, ProxyConfig opts, ProxyConfig defaults)
     {
         var configStr = ReadEnvironmentVariableOrDefault(env, "AsyncBlobStorageConfig", defaults.AsyncBlobStorageConfig);
         var (connStr, accountUri, useMi) = ParseBlobStorageConfig(configStr);
@@ -332,13 +332,13 @@ public static class ConfigParser
         opts.AsyncBlobStorageUseMI = ReadEnvironmentVariableOrDefault(env, "AsyncBlobStorageUseMI", useMi);
     }
 
-    private static void ApplyReplicaIdentitySettings(Dictionary<string, string> env, BackendOptions opts, string replicaId)
+    private static void ApplyReplicaIdentitySettings(Dictionary<string, string> env, ProxyConfig opts, string replicaId)
     {
         opts.HostName = ReadEnvironmentVariableOrDefault(env, "Hostname", replicaId);
         opts.IDStr = $"{ReadEnvironmentVariableOrDefault(env, "RequestIDPrefix", "S7P")}-{replicaId}-";
     }
 
-    private static void ParseHealthProbeSidecarSettings(BackendOptions backendOptions)
+    private static void ParseHealthProbeSidecarSettings(ProxyConfig backendOptions)
     {
         var healthSettings = backendOptions.HealthProbeSidecar.Split(';', StringSplitOptions.RemoveEmptyEntries);
         foreach (var setting in healthSettings)
@@ -359,7 +359,7 @@ public static class ConfigParser
         }
     }
 
-    private static void ValidatePrioritySettings(BackendOptions backendOptions, BackendOptions defaults)
+    private static void ValidatePrioritySettings(ProxyConfig backendOptions, ProxyConfig defaults)
     {
         if (backendOptions.PriorityKeys.Count != backendOptions.PriorityValues.Count)
         {
@@ -378,7 +378,7 @@ public static class ConfigParser
         }
     }
 
-    private static void ValidateHeaderSettings(BackendOptions backendOptions)
+    private static void ValidateHeaderSettings(ProxyConfig backendOptions)
     {
         if (backendOptions.ValidateHeaders.Count > 0)
         {
@@ -400,7 +400,7 @@ public static class ConfigParser
         }
     }
 
-    private static void ValidateLoadBalanceMode(BackendOptions backendOptions)
+    private static void ValidateLoadBalanceMode(ProxyConfig backendOptions)
     {
         backendOptions.LoadBalanceMode = backendOptions.LoadBalanceMode.Trim().ToLowerInvariant();
         if (backendOptions.LoadBalanceMode != Constants.Latency &&
@@ -451,7 +451,7 @@ public static class ConfigParser
     public static IterationModeEnum ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, IterationModeEnum defaultValue)
     {
         string? envValue = env.GetValueOrDefault(variableName)?.Trim();
-        if (string.IsNullOrEmpty(envValue) || envValue == ConfigOptions.DefaultPlaceholder || !Enum.TryParse(envValue, true, out IterationModeEnum value))
+        if (string.IsNullOrEmpty(envValue) || envValue == ConfigMetadata.DefaultPlaceholder || !Enum.TryParse(envValue, true, out IterationModeEnum value))
         {
             return defaultValue;
         }
@@ -467,7 +467,7 @@ public static class ConfigParser
     private static int ReadEnvironmentVariableOrDefaultCore(Dictionary<string, string> env, string variableName, int defaultValue)
     {
         var envValue = env.GetValueOrDefault(variableName);
-        if (envValue?.Trim() == ConfigOptions.DefaultPlaceholder) envValue = null;
+        if (envValue?.Trim() == ConfigMetadata.DefaultPlaceholder) envValue = null;
 
         if (!int.TryParse(envValue, out var value))
         {
@@ -484,7 +484,7 @@ public static class ConfigParser
     private static int[] ReadEnvironmentVariableOrDefaultCore(Dictionary<string, string> env, string variableName, int[] defaultValues)
     {
         var envValue = env.GetValueOrDefault(variableName);
-        if (string.IsNullOrEmpty(envValue) || envValue.Trim() == ConfigOptions.DefaultPlaceholder)
+        if (string.IsNullOrEmpty(envValue) || envValue.Trim() == ConfigMetadata.DefaultPlaceholder)
         {
             return defaultValues;
         }
@@ -508,7 +508,7 @@ public static class ConfigParser
     private static float ReadEnvironmentVariableOrDefaultCore(Dictionary<string, string> env, string variableName, float defaultValue)
     {
         var envValue = env.GetValueOrDefault(variableName);
-        if (envValue?.Trim() == ConfigOptions.DefaultPlaceholder) envValue = null;
+        if (envValue?.Trim() == ConfigMetadata.DefaultPlaceholder) envValue = null;
 
         if (!float.TryParse(envValue, out var value))
         {
@@ -525,7 +525,7 @@ public static class ConfigParser
     private static string ReadEnvironmentVariableOrDefaultCore(Dictionary<string, string> env, string variableName, string defaultValue)
     {
         var envValue = env.GetValueOrDefault(variableName);
-        if (string.IsNullOrEmpty(envValue) || envValue.Trim() == ConfigOptions.DefaultPlaceholder)
+        if (string.IsNullOrEmpty(envValue) || envValue.Trim() == ConfigMetadata.DefaultPlaceholder)
         {
             return defaultValue;
         }
@@ -536,7 +536,7 @@ public static class ConfigParser
     private static bool ReadEnvironmentVariableOrDefaultCore(Dictionary<string, string> env, string variableName, bool defaultValue)
     {
         var envValue = env.GetValueOrDefault(variableName);
-        if (string.IsNullOrEmpty(envValue) || envValue.Trim() == ConfigOptions.DefaultPlaceholder)
+        if (string.IsNullOrEmpty(envValue) || envValue.Trim() == ConfigMetadata.DefaultPlaceholder)
         {
             return defaultValue;
         }
@@ -755,10 +755,10 @@ public static class ConfigParser
     }
 
     /// <summary>
-    /// Creates and assigns an <see cref="HttpClient"/> on this <see cref="BackendOptions"/>
+    /// Creates and assigns an <see cref="HttpClient"/> on this <see cref="ProxyConfig"/>
     /// instance, configured from the transport-related properties (keep-alive, HTTP/2, SSL).
     /// </summary>
-    public static void ConfigureHttpClient(BackendOptions backendOptions)
+    public static void ConfigureHttpClient(ProxyConfig backendOptions)
     {
         var safeKeepAliveInitialDelaySecs = Math.Max(1, backendOptions.KeepAliveInitialDelaySecs);
         var safeKeepAlivePingIntervalSecs = Math.Max(1, backendOptions.KeepAlivePingIntervalSecs);

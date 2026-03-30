@@ -11,14 +11,14 @@ namespace SimpleL7Proxy.Config;
 /// initial download before DI, then periodic sentinel-based refresh
 /// running as a BackgroundService inside the host.
 /// </summary>
-public class AppConfigBootstrap : BackgroundService
+public class AppConfigService : BackgroundService
 {
     private Task<(Dictionary<string, string> warm, Dictionary<string, string> cold)?>? _downloadTask;
-    private readonly ILogger<AppConfigBootstrap> _logger;
+    private readonly ILogger<AppConfigService> _logger;
     private readonly string? _endpoint;
     private readonly string? _connectionString;
     private readonly string? _labelFilter;
-    private BackendOptions _options;
+    private ProxyConfig _options;
     private readonly DefaultCredential _defaultCredential;
     private readonly TimeSpan _refreshInterval;
     private bool _isInitialized = false;
@@ -40,10 +40,10 @@ public class AppConfigBootstrap : BackgroundService
     /// <summary>Only cold-prefixed settings, available after <see cref="Start"/> has been awaited.</summary>
     public Dictionary<string, string>? ColdSettings { get; private set; }
 
-    public static BackendOptions DEFAULT_OPTIONS { get; set; }
+    public static ProxyConfig DEFAULT_OPTIONS { get; set; }
 
 
-    public AppConfigBootstrap(ILogger<AppConfigBootstrap> logger, BackendOptions backendOptions, DefaultCredential defaultCredential)
+    public AppConfigService(ILogger<AppConfigService> logger, ProxyConfig backendOptions, DefaultCredential defaultCredential)
     {
         _logger = logger;
         _defaultCredential = defaultCredential;
@@ -134,7 +134,7 @@ public class AppConfigBootstrap : BackgroundService
     /// Registers the services needed for periodic hot-refresh and wires up dependencies
     /// once the DI container is built. Only registers when App Configuration was reachable.
     /// </summary>
-    public void RegisterServices(IServiceCollection services, BackendOptions options)
+    public void RegisterServices(IServiceCollection services, ProxyConfig options)
     {
         _options = options;
         if (!_isInitialized) return;
@@ -178,7 +178,7 @@ public class AppConfigBootstrap : BackgroundService
         if (result == null || Notifier == null)
             return;
 
-        await BackendOptionsBuilder.ApplyRefresh(
+        await ConfigFactory.ApplyRefresh(
             _options, DEFAULT_OPTIONS, warm, Notifier, HostCollection, _logger, ct);
     }
 
@@ -222,7 +222,7 @@ public class AppConfigBootstrap : BackgroundService
 
             // Build a lookup from App Config key path → env var name using the descriptors.
             // e.g. "Logging:LogConsole" → "LogConsole", "Async:Timeout" → "AsyncTimeout"
-            var keyPathToEnvVar = ConfigOptions.Descriptors
+            var keyPathToEnvVar = ConfigMetadata.Descriptors
                 .ToDictionary(d => d.Attribute.KeyPath, d => d.ConfigName, StringComparer.OrdinalIgnoreCase);
 
             var warm = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

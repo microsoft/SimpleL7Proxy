@@ -39,7 +39,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
     // Active snapshots published to readers (use Volatile.Read/Write for memory ordering)
 
     private Timer? _probeTimer;
-    private readonly BackendOptions _backendOptions;
+    private readonly ProxyConfig _backendOptions;
     private HttpClient? _selfCheckClient;
     private IEventClient? _eventClient;
 
@@ -57,7 +57,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
         IBackendService backends, 
         HealthCheckService healthService, 
         ILogger<ProbeServer> logger, 
-        IOptions<BackendOptions> backendOptions, 
+        IOptions<ProxyConfig> backendOptions, 
         ConfigChangeNotifier configChangeNotifier,
         IEventClient eventClient)
     {
@@ -277,7 +277,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
     /// </summary>
     public Task OnConfigChangedAsync(
         IReadOnlyList<ConfigChange> changes,
-        BackendOptions backendOptions,
+        ProxyConfig backendOptions,
         CancellationToken cancellationToken)
     {
         _logger.LogInformation("[CONFIG] HealthProbeSidecar changed — restarting probe server");

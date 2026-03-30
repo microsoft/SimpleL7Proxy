@@ -15,14 +15,14 @@ namespace SimpleL7Proxy.Proxy
         private readonly IRequestDataBackupService _requestBackupService;
         private readonly IBackupAPIService _backupAPIService;
 
-        private readonly BackendOptions _backendOptions;
+        private readonly ProxyConfig _backendOptions;
         private readonly SemaphoreSlim _initLock = new(1, 1);
         private bool _initialized;
 
         public AsyncWorkerFactory(IBlobWriter blobWriter,
                                   ILogger<AsyncWorker> logger,
                                   IRequestDataBackupService requestBackupService,
-                                  IOptions<BackendOptions> backendOptions,
+                                  IOptions<ProxyConfig> backendOptions,
                                   IBackupAPIService backupAPIService)
         {
             _blobWriter = blobWriter;

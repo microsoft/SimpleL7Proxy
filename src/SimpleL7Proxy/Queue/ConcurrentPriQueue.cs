@@ -14,10 +14,10 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
     //private int insertions = 0;
     //private int extractions = 0;
 
-    private readonly BackendOptions _options;
+    private readonly ProxyConfig _options;
 
   
-    public ConcurrentPriQueue(IOptions<BackendOptions> backendOptions, ILogger<ConcurrentPriQueue<T>> logger)
+    public ConcurrentPriQueue(IOptions<ProxyConfig> backendOptions, ILogger<ConcurrentPriQueue<T>> logger)
     {
         ArgumentNullException.ThrowIfNull(backendOptions);
         _options = backendOptions.Value;

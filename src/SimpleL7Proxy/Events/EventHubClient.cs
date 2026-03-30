@@ -38,7 +38,7 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
     //public EventHubClient(string connectionString, string eventHubName, ILogger<EventHubClient>? logger = null)
 
     public EventHubClient(CompositeEventClient composite, 
-        IOptions<BackendOptions> options, 
+        IOptions<ProxyConfig> options, 
         ILogger<EventHubClient> logger,
         DefaultCredential defaultCredential)
     {

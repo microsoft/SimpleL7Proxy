@@ -29,7 +29,7 @@ public class Backends : IBackendService
   /// </summary>
   private List<BaseHostHealth> _backendHosts => _backendHostCollection.Current.Hosts;
 
-  private readonly BackendOptions _options;
+  private readonly ProxyConfig _options;
   private static readonly bool _debug = false;
 
   private static double _successRate;
@@ -57,7 +57,7 @@ public class Backends : IBackendService
   private Task? PollerTask;
   //public Backends(List<BackendHost> hosts, HttpClient client, int interval, int successRate)
   public Backends(
-      IOptions<BackendOptions> options,
+      IOptions<ProxyConfig> options,
       ICircuitBreaker circuitBreaker,
       IHostHealthCollection backendHostCollection, //
       IHostApplicationLifetime appLifetime,               //

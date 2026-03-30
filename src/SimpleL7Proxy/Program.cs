@@ -55,7 +55,7 @@ public class Program
 
         // Bootstrap the bootstrapper !!!!
         // We can't even connect to App Config unless we know this
-        BackendOptions defaultBackendOptions = new BackendOptions
+        ProxyConfig defaultBackendOptions = new ProxyConfig
         {
             UseOAuthGov = string.Equals(
                 Environment.GetEnvironmentVariable("UseOAuthGov"), "true", StringComparison.OrdinalIgnoreCase),
@@ -66,7 +66,7 @@ public class Program
         };
         DefaultCredential defaultCredential = new DefaultCredential(defaultBackendOptions);
 
-        var appConfigBootstrap = new AppConfigBootstrap(startupLoggerFactory.CreateLogger<AppConfigBootstrap>(), defaultBackendOptions, defaultCredential);
+        var appConfigBootstrap = new AppConfigService(startupLoggerFactory.CreateLogger<AppConfigService>(), defaultBackendOptions, defaultCredential);
         // Fire off the download — CreateBackendOptions will await completion before reading Settings.
         appConfigBootstrap.Start();
 
@@ -78,7 +78,6 @@ public class Program
             })
             .ConfigureServices((hostContext, services) =>
             {
-                ConfigureAppInsights(services);
                 ConfigureDI(services, startupLogger, appConfigBootstrap, defaultCredential);
             });
 
@@ -87,10 +86,10 @@ public class Program
         // Perform static initialization after building the host to ensure correct singleton usage
         var serviceProvider = frameworkHost.Services;
 
+        var options = serviceProvider.GetRequiredService<IOptions<ProxyConfig>>();
         appConfigBootstrap.Notifier       = serviceProvider.GetRequiredService<ConfigChangeNotifier>();
         appConfigBootstrap.HostCollection = serviceProvider.GetRequiredService<IHostHealthCollection>();
 
-        var options = serviceProvider.GetRequiredService<IOptions<BackendOptions>>();
         var eventClient = serviceProvider.GetService<IEventClient>();
         var telemetryClient = serviceProvider.GetService<TelemetryClient>();
         var backendTokenProvider = serviceProvider.GetRequiredService<BackendTokenProvider>();
@@ -113,7 +112,7 @@ public class Program
         // Register backends after DI container is built and HostConfig is initialized
         var hostCollection = serviceProvider.GetRequiredService<IHostHealthCollection>();
 
-        BackendOptionsBuilder.RegisterBackends(options.Value, null, appConfigBootstrap.WarmSettings, hostCollection);
+        ConfigFactory.RegisterBackends(options.Value, null, appConfigBootstrap.WarmSettings, hostCollection);
 
         // Async
         try
@@ -155,7 +154,7 @@ public class Program
         appLifetime.ApplicationStarted.Register(() =>
         {
             var composite = serviceProvider.GetRequiredService<CompositeEventClient>();
-            BackendOptionsBuilder.OutputEnvVars(options.Value);
+            ConfigFactory.OutputEnvVars(options.Value);
 
             startupLogger.LogInformation("[INIT] ✓ All hosted services started — active event loggers: {Loggers}",
                 composite.ClientType);
@@ -192,9 +191,9 @@ public class Program
         logging.SetMinimumLevel(logLevel);
     }
 
-    private static void ConfigureAppInsights(IServiceCollection services)
+    private static void ConfigureAppInsights(IServiceCollection services, ProxyConfig options, ILogger startupLogger)
     {
-        var aiConnectionString = Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING") ?? "";
+        var aiConnectionString = options.AppInsightsConnectionString;
         if (!string.IsNullOrEmpty(aiConnectionString))
         {
             // Register Application Insights
@@ -212,18 +211,24 @@ public class Program
             });
 
             // Note: logging isn't fully configured yet
-            Console.WriteLine("[INIT] ✓ AppInsights initialized with custom request tracking");
+            startupLogger.LogInformation("[INIT] ✓ AppInsights initialized with custom request tracking");
         }
     }
 
-    private static void ConfigureDI(IServiceCollection services, ILogger startupLogger, AppConfigBootstrap appConfigBootstrap, DefaultCredential defaultCredential)
+    private static void ConfigureDI(IServiceCollection services, ILogger startupLogger, AppConfigService appConfigBootstrap, DefaultCredential defaultCredential)
     {
         services.AddSingleton(appConfigBootstrap);
         services.AddSingleton(defaultCredential);
         TryAddCompositeEventClient(services);
       
         // register the backend options
-        var backendOptions = BackendOptionsBuilder.CreateOptions(appConfigBootstrap).GetAwaiter().GetResult();
+        var result = ConfigFactory.CreateOptions(appConfigBootstrap).GetAwaiter().GetResult();
+
+        // a copy of the defaults
+        AppConfigService.DEFAULT_OPTIONS = result.baseOptions;
+        var backendOptions = result.envOptions;
+
+        ConfigureAppInsights(services, backendOptions, startupLogger);
         services.RegisterBackendOptions(startupLogger, backendOptions);
 
         // Register event headers and event loggers .. needed for AWS
@@ -231,7 +236,7 @@ public class Program
         RegisterEventLoggers(services, startupLogger, backendOptions, backendOptions.EventLoggers);
 
         // Register refresh services only if App Configuration was reachable.
-        appConfigBootstrap.RegisterServices(services);
+        appConfigBootstrap.RegisterServices(services, backendOptions);
 
         services.AddSingleton<WorkerContext>();
 
@@ -355,7 +360,7 @@ public class Program
         // When enabled, requests to the same path share the same iterator for fair distribution
         services.AddSingleton<ISharedIteratorRegistry>(sp =>
         {
-            var options = sp.GetRequiredService<IOptions<BackendOptions>>().Value;
+            var options = sp.GetRequiredService<IOptions<ProxyConfig>>().Value;
             if (!options.UseSharedIterators)
             {
                 // Return null - WorkerFactory handles null gracefully
@@ -379,7 +384,7 @@ public class Program
         services.AddHostedService<CoordinatedShutdownService>();
     }
 
-    private static void RegisterEventHeaders(IServiceCollection services, ILogger startupLogger, BackendOptions backendOptions)
+    private static void RegisterEventHeaders(IServiceCollection services, ILogger startupLogger, ProxyConfig backendOptions)
     {
         var registered = false;
         var eventdataclass = backendOptions.EventHeaders;
@@ -411,7 +416,7 @@ public class Program
         }
     }
 
-    private static void RegisterEventLoggers(IServiceCollection services, ILogger startupLogger, BackendOptions backendOptions, string? eventLoggersRaw)
+    private static void RegisterEventLoggers(IServiceCollection services, ILogger startupLogger, ProxyConfig backendOptions, string? eventLoggersRaw)
     {
         HashSet<string> enabledLoggers;
         if (!string.IsNullOrWhiteSpace(eventLoggersRaw))
@@ -435,7 +440,7 @@ public class Program
             if (loggername == "file")
             {
                 services.AddSingleton<LogFileEventClient>(svc =>
-                    new LogFileEventClient(backendOptions.LogFileName, svc.GetRequiredService<CompositeEventClient>(), svc.GetRequiredService<IOptions<BackendOptions>>()));
+                    new LogFileEventClient(backendOptions.LogFileName, svc.GetRequiredService<CompositeEventClient>(), svc.GetRequiredService<IOptions<ProxyConfig>>()));
                 services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService<LogFileEventClient>());
             }
             else if (loggername == "eventhub")

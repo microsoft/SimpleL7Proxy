@@ -40,7 +40,7 @@ public class CircuitBreaker : ICircuitBreaker
     
     public string ID { get; set; } = "";
 
-    public CircuitBreaker(IOptions<BackendOptions> options, ILogger<CircuitBreaker> logger)
+    public CircuitBreaker(IOptions<ProxyConfig> options, ILogger<CircuitBreaker> logger)
     {
         ArgumentNullException.ThrowIfNull(options?.Value, nameof(options));
         ArgumentNullException.ThrowIfNull(logger, nameof(logger));
