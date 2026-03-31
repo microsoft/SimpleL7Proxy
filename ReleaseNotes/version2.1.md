@@ -1,5 +1,9 @@
 # Release Notes #
 
+## V2.1.33.p11
+
+* Rework shutdown so that ACA doesn't immediately kill the container
+ 
 ## V2.1.33.p10
 
 * GraceTerminationPeriod was not getting updated via environment variable 

@@ -34,9 +34,9 @@ public class Program
     Program program = new Program();
     private static HttpClient hc = new HttpClient();
     public static TelemetryClient? telemetryClient;
-    private static bool shutdownInitiated = false;
 
     static CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+    static CancellationTokenSource hostCancellationTokenSource = new CancellationTokenSource();
     static CancellationTokenSource ServerCancellationTokenSource = new CancellationTokenSource();
     static CancellationTokenSource QueueCancellationTokenSource = new CancellationTokenSource();
     public string OAuthAudience { get; set; } = "";
@@ -319,13 +319,6 @@ public class Program
         try
         {
             ListenerTask = server.Run();
-
-            // Shutdown() will call Stop on the eventHubClient
-            if (eventHubTask != null)
-            {
-                await eventHubTask.ConfigureAwait(false);
-            }
-
         }
         catch (Exception e)
         {
@@ -334,45 +327,32 @@ public class Program
             Console.Error.WriteLine($"Stack Trace: {e.StackTrace}");
         }
 
+        // RunAsync keeps the process alive until hostCancellationToken is cancelled by a signal handler
         try
         {
-            // Pass the CancellationToken to RunAsync
-            await frameworkHost.RunAsync(cancellationToken);
+            await frameworkHost.RunAsync(hostCancellationTokenSource.Token).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
-        {
-            Console.Error.WriteLine("Service Exiting.");
-        }
-        catch (Exception e)
-        {
-            // Handle other exceptions that might occur
-            Console.Error.WriteLine($"An unexpected error occurred: {e.Message}");
-        }
+        catch (OperationCanceledException) { }
+
+        Console.WriteLine("Shutdown signal received, beginning shutdown sequence...");
+        await Shutdown().ConfigureAwait(false);
+        Console.WriteLine("Exiting process");
     }
 
     static void RegisterShutdownHandlers()
     {
-        async Task HandleShutdown()
+        PosixSignalRegistration.Create(PosixSignal.SIGTERM, (ctx) =>
         {
-            if (shutdownInitiated)
-            {
-                return;
-            }
+            ctx.Cancel = true; // Prevent the runtime from terminating the process
+            Console.WriteLine("############## SIGTERM received. Initiating shutdown. ##############");
+            hostCancellationTokenSource.Cancel(); // Only exit RunAsync; Shutdown() will cancel workers
+        });
 
-            shutdownInitiated = true;
-            Console.WriteLine("############## Shutdown signal received. Initiating shutdown. ##############");
-            Console.WriteLine("SIGTERM received. Initiating shutdown...");
-            await Shutdown().ConfigureAwait(false);
-        }
-
-        PosixSignalRegistration.Create(PosixSignal.SIGTERM, async (ctx) => await HandleShutdown());
-
-        AppDomain.CurrentDomain.ProcessExit += async (s, e) => await HandleShutdown();
-
-        Console.CancelKeyPress += async (sender, e) =>
+        Console.CancelKeyPress += (sender, e) =>
         {
             e.Cancel = true;
-            await HandleShutdown();
+            Console.WriteLine("############## CancelKeyPress received. Initiating shutdown. ##############");
+            hostCancellationTokenSource.Cancel(); // Only exit RunAsync; Shutdown() will cancel workers
         };
     }
 
@@ -438,7 +418,6 @@ public class Program
             }
         });
         eventWatcherTask.Start();
-
 
         backends?.Stop(); // Stop the backend pollers
         if (backendPollerTask != null)
