@@ -25,7 +25,5 @@ public class EventHubConfig {
             Console.WriteLine("[CONFIG] EventHubConfig incomplete — need (EVENTHUB_CONNECTIONSTRING + EVENTHUB_NAME) or (EVENTHUB_NAMESPACE + EVENTHUB_NAME). EventHub logging will be disabled.");
             throw new InvalidOperationException("Incomplete EventHub configuration. Check logs for details.");
         }
-
-        Console.WriteLine($"[CONFIG] EventHubConfig initialized. ConnectionString: {(string.IsNullOrEmpty(ConnectionString) ? "Not Set" : "Set")}, EventHubName: {EventHubName}, EventHubNamespace: {EventHubNamespace}, StartupSeconds: {StartupSeconds}");
     }
 }

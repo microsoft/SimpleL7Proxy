@@ -91,7 +91,6 @@ public sealed class HostCollectionManager : IHostHealthCollection
       }
 
       // Activate circuit breakers only for configs that survived dedup
-      _logger.LogInformation("[HOST-MANAGER] Activating {Count} host(s)...", uniqueConfigs.Count);
       foreach (var config in uniqueConfigs)
       {
         config.Activate();

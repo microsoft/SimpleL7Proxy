@@ -89,7 +89,9 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
             workerCancelToken = cancellationTokenSource.Token;
             
             _composite.Add(this);
-            _logger.LogCritical("[SERVICE] ✓ EventHub Client started successfully");
+            var ConnString = string.IsNullOrEmpty(_config.ConnectionString) ? "Not Set" : "Set";
+            _logger.LogCritical("[SERVICE] ✓ EventHub Client started: ConnectionString: {ConnString}, Name: {EventHubName}, Namespace: {EventHubNamespace}", ConnString, _config.EventHubName, _config.EventHubNamespace);
+
             writerTask = Task.Run(() => EventWriter(workerCancelToken), workerCancelToken);
         }
         catch (OperationCanceledException) {
@@ -135,7 +137,6 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
 
         try
         {
-            _logger.LogInformation("EventHubClient: EventWriter running.");
             while (!token.IsCancellationRequested)
             {
                 if (GetNextBatch(99) > 0)
@@ -251,7 +252,6 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
                 await ConnectAsync().ConfigureAwait(false);
                 _batchData?.Dispose();
                 _batchData = await _producerClient!.CreateBatchAsync().ConfigureAwait(false);
-                Console.WriteLine("EventHubClient: Reconnected successfully.");
 
                 Interlocked.Exchange(ref ReconnectCount, 0);
                 return;

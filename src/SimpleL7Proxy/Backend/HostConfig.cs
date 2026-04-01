@@ -307,7 +307,7 @@ namespace SimpleL7Proxy.Backend
         result.Hostname = result.Host;
       } else 
       {
-        Console.WriteLine($"Direct mode host detected: {result.Host}");
+        // Console.WriteLine($"Direct mode host detected: {result.Host}");
         result.Hostname = new Uri(result.Host).Host;
         if (string.IsNullOrEmpty(result.Processor))
         {

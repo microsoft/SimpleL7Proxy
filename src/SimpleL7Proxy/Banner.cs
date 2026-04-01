@@ -5,13 +5,14 @@ using System.Text;
 using System.Threading.Tasks;
 using SimpleL7Proxy;
 
+using SimpleL7Proxy.Config;
 namespace SimpleL7Proxy;
 
 public static class Banner
 {
   public const string VERSION = Constants.VERSION;
 
-  public static void Display()
+  public static void Display(ProxyConfig options)
   {
     Console.WriteLine("=======================================================================================");
     Console.WriteLine(" #####                                 #       ####### ");
@@ -22,7 +23,6 @@ public static class Banner
     Console.WriteLine("#     #  # #    # #      #      #      #         #     #      #   #  #    #  #  #    #");
     Console.WriteLine(" #####   # #    # #      ###### ###### #######   #     #      #    #  ####  #    #   #");
     Console.WriteLine("=======================================================================================");
-    Console.WriteLine($"Version: {VERSION}");
-
+    Console.WriteLine($"Version: {VERSION}  Log_Level: {options.LogLevel}  Container App: {options.ContainerApp}  Replica: {options.ReplicaName}");
   }
 }

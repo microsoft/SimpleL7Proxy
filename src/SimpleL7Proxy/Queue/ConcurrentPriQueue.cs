@@ -153,7 +153,6 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
             }
         }
 
-        _logger.LogInformation("SignalWorker: Exiting - queue is empty: " + (_priorityQueue.Count == 0));
 
         // Shutdown
         _taskSignaler.CancelAllTasks();
