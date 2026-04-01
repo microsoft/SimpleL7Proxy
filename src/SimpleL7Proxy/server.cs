@@ -139,8 +139,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         //     _probeDataPool[i] = new ProbeData();
         // }
 
-        var timeoutTime = TimeSpan.FromMilliseconds(_options.Timeout).ToString(@"hh\:mm\:ss\.fff");
-        _logger.LogInformation($"[CONFIG] Server configuration - Port: {_options.Port} | Timeout: {timeoutTime} | Workers: {_options.Workers}");
+        // Server config is logged at startup in ExecuteAsync alongside the listening message
     }
 
     public void InitVars()
@@ -209,6 +208,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
     protected override Task ExecuteAsync(CancellationToken cancellationToken)
     {
         Task backendStartTask;
+        string serverInfo = $"Port: {_options.Port}, Timeout: {_options.Timeout}ms, Workers: {_options.Workers}, LoadBalanceMode: {_options.LoadBalanceMode}, ValidateAuthAppID: {_options.ValidateAuthAppID}, AsyncModeEnabled: {_options.AsyncModeEnabled}";
         try
         {
             _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -218,21 +218,20 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
             backendStartTask = _backends.WaitForStartup(20);
 
             _httpListener.Start();
-            _logger.LogInformation($"[SERVICE] ✓ Server listening on port {_options?.Port}");
+            var timeoutTime = TimeSpan.FromMilliseconds(_options.Timeout).ToString(@"hh\:mm\:ss\.fff");
+            _logger.LogInformation($"[SERVICE] ✓ Server listening: {serverInfo}");
             // Additional setup or async start operations can be performed here
 
             _requestsQueue.StartSignaler(cancellationToken);
         }
         catch (HttpListenerException ex)
         {
-            // Handle specific errors, e.g., port already in use
-            _staticEvent.WriteOutput($"Failed to start HttpListener: {ex.Message}");
-            throw new Exception("Failed to start the server due to an HttpListener exception.", ex);
+            _logger.LogError(ex, "[SERVICE] ✗ HttpListener failed to start {info}, {Message}", serverInfo, ex.Message);
+            throw new Exception($"Failed to start the server on port {_options.Port}.", ex);
         }
         catch (Exception ex)
         {
-            // Handle other potential errors
-            _staticEvent.WriteErrorOutput($"An error occurred: {ex.Message}");
+            _logger.LogError(ex, "[SERVICE] ✗ Server failed to start — {info}, {Message}", serverInfo, ex.Message);
             throw new Exception("An error occurred while starting the server.", ex);
         }
 

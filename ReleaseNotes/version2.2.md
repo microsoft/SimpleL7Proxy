@@ -1,5 +1,16 @@
 # Release Notes #
 
+2.2.10.5-d1
+
+* Bug Fix: Start App Insights with app config setting
+* Bug Fix: environment defaults and BackendOptions were getting mixedup 
+* Bug Fix: Probes not getting logged
+* Bug Fix: Environment variables not being defaulted to
+* Bug Fix: Make sure program does not exit until shutdown completes
+* Make shared_iterator use either singlePass or maxAttempts, default to singlePass.
+* Don't invalidate shared iterators unless using latency load balancer and the order changed
+* In the case of a 404, use the same response path as a normal response
+  
 2.2.10.4
 
 Proxy:

@@ -202,6 +202,7 @@ public class Program
         logging.AddConsole(options => options.FormatterName = "custom");
         logging.AddConsoleFormatter<CustomConsoleFormatter, SimpleConsoleFormatterOptions>();
         logging.SetMinimumLevel(logLevel);
+        logging.AddFilter("Microsoft.Hosting.Lifetime", LogLevel.Warning);
     }
 
     private static void ConfigureAppInsights(IServiceCollection services, ProxyConfig options, ILogger startupLogger)
