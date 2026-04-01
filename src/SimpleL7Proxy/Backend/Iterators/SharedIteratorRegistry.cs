@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using Microsoft.Extensions.Logging;
+using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.Backend.Iterators;
 
@@ -27,7 +28,7 @@ namespace SimpleL7Proxy.Backend.Iterators;
 /// │                                                                             │
 /// └─────────────────────────────────────────────────────────────────────────────┘
 /// </summary>
-public sealed class SharedIteratorRegistry : ISharedIteratorRegistry, IShutdownParticipant, IDisposable
+public sealed class SharedIteratorRegistry : ISharedIteratorRegistry, IShutdownParticipant, IDisposable, IConfigChangeSubscriber
 {
     public int ShutdownOrder => 200;
 
@@ -40,26 +41,26 @@ public sealed class SharedIteratorRegistry : ISharedIteratorRegistry, IShutdownP
     private readonly Dictionary<string, SharedHostIterator> _iterators = new();
     private readonly object _lock = new();
     private readonly ILogger<SharedIteratorRegistry> _logger;
+    private readonly ProxyConfig _options;
     private readonly Timer _cleanupTimer;
-    private readonly TimeSpan _iteratorTTL;
-    private readonly TimeSpan _cleanupInterval;
+    private TimeSpan _iteratorTTL;
+    private TimeSpan _cleanupInterval;
     private volatile bool _disposed;
 
     /// <summary>
     /// Creates a new SharedIteratorRegistry with the specified TTL and cleanup interval.
     /// </summary>
     /// <param name="logger">Logger for diagnostic output</param>
-    /// <param name="iteratorTTLSeconds">How long an unused iterator lives before cleanup (default: 60 seconds)</param>
-    /// <param name="cleanupIntervalSeconds">How often to run cleanup (default: 30 seconds)</param>
+    /// <param name="backendOptions">Backend configuration options</param>
     public SharedIteratorRegistry(
         ILogger<SharedIteratorRegistry> logger,
-        int iteratorTTLSeconds = 60,
-        int cleanupIntervalSeconds = 30)
+        ProxyConfig backendOptions,
+        ConfigChangeNotifier configChangeNotifier)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _iteratorTTL = TimeSpan.FromSeconds(Math.Max(10, iteratorTTLSeconds));
-        _cleanupInterval = TimeSpan.FromSeconds(Math.Max(5, cleanupIntervalSeconds));
+        _options = backendOptions ?? throw new ArgumentNullException(nameof(backendOptions));
 
+        InitVars();
         // Start cleanup timer
         _cleanupTimer = new Timer(
             CleanupStaleIterators,
@@ -67,11 +68,26 @@ public sealed class SharedIteratorRegistry : ISharedIteratorRegistry, IShutdownP
             _cleanupInterval,
             _cleanupInterval);
 
-        _logger.LogInformation(
+        _logger.LogDebug(
             "[SharedIteratorRegistry] Initialized with TTL={TTL}s, CleanupInterval={Interval}s",
             _iteratorTTL.TotalSeconds, _cleanupInterval.TotalSeconds);
+
+        configChangeNotifier.Subscribe(this,
+            o => o.SharedIteratorTTLSeconds,
+            o => o.SharedIteratorCleanupIntervalSeconds);
     }
 
+    public Task OnConfigChangedAsync(IReadOnlyList<ConfigChange> changes, ProxyConfig backendOptions, CancellationToken cancellationToken)
+    {
+        InitVars();
+        return Task.CompletedTask;
+    }
+
+    public void InitVars()
+    {
+        _iteratorTTL = TimeSpan.FromSeconds(Math.Max(10, _options.SharedIteratorTTLSeconds));
+        _cleanupInterval = TimeSpan.FromSeconds(Math.Max(5, _options.SharedIteratorCleanupIntervalSeconds));
+    }
     /// <inheritdoc/>
     public int Count
     {
@@ -265,7 +281,6 @@ public sealed class SharedIteratorRegistry : ISharedIteratorRegistry, IShutdownP
         {
             iterator.Dispose();
         }
-
-        _logger.LogInformation("[SharedIteratorRegistry] Disposed");
     }
+
 }

@@ -14,17 +14,52 @@ using SimpleL7Proxy.User;
 namespace SimpleL7Proxy.Events
 {
 
-  public class ProxyEvent : ConcurrentDictionary<string, string>, IConfigChangeSubscriber
+  public class ProxyEventInitializer : IConfigChangeSubscriber
+  {
+    public ProxyEventInitializer(
+      IOptions<ProxyConfig> backendOptions,
+      IEventClient eventClient,
+      ICommonEventData commonEventData,
+      ConfigChangeNotifier configChangeNotifier,
+      TelemetryClient? telemetryClient = null)
+    {
+      ProxyEvent.Initialize(backendOptions, eventClient, commonEventData, telemetryClient);
+
+      configChangeNotifier.Subscribe(this,
+        o => o.LogToConsole,
+        o => o.LogToEvents,
+        o => o.LogToAI);
+      InitVars();
+    }
+
+    public void InitVars()
+    {
+      var options = ProxyEvent.Options;
+      ProxyEvent.ConAttr   = LogTargetAttr.From(options.Value.LogToConsole);
+      ProxyEvent.EventAttr = LogTargetAttr.From(options.Value.LogToEvents);
+      ProxyEvent.AIAttr    = LogTargetAttr.From(options.Value.LogToAI);
+    }
+
+    public Task OnConfigChangedAsync(
+      IReadOnlyList<ConfigChange> changes,
+      ProxyConfig backendOptions,
+      CancellationToken cancellationToken)
+    {
+      InitVars();
+      return Task.CompletedTask;
+    }
+  } 
+
+  public class ProxyEvent : ConcurrentDictionary<string, string>
   {
     private static IOptions<ProxyConfig> _options = null!;
     private static IEventClient? _eventClient;
     private static TelemetryClient? _telemetryClient;
 
     /// <summary>
-    /// Singleton instance used for config-change subscription.
-    /// Created by <see cref="SubscribeToConfigChanges"/>.
+    /// Exposes the options for <see cref="ProxyEventInitializer"/> to read during config refresh.
     /// </summary>
-    private static ProxyEvent? _subscriberInstance;
+    internal static IOptions<ProxyConfig> Options => _options;
     private static readonly Uri LOCALHOSTURI = new Uri("http://localhost");
 
     // ── Per-event-type log routing ──
@@ -55,44 +90,6 @@ namespace SimpleL7Proxy.Events
 
       // Set default parameters that should be included with every event (frozen = immutable + optimized reads)
       DefaultParams = commonEventData?.DefaultEventData() ?? DefaultParams;
-
-      UpdateLogTargets(backendOptions.Value);
-    }
-
-    /// <summary>
-    /// Subscribes to warm config changes for LogToConsole, LogToEvents, and LogToAI.
-    /// Call once after <see cref="Initialize"/> when the <see cref="ConfigChangeNotifier"/> is available.
-    /// </summary>
-    public static void SubscribeToConfigChanges(ConfigChangeNotifier notifier)
-    {
-      _subscriberInstance ??= new ProxyEvent();
-      notifier.Subscribe(_subscriberInstance,
-        o => o.LogToConsole,
-        o => o.LogToEvents,
-        o => o.LogToAI);
-    }
-
-    /// <inheritdoc />
-    public Task OnConfigChangedAsync(
-      IReadOnlyList<ConfigChange> changes,
-      ProxyConfig backendOptions,
-      CancellationToken cancellationToken)
-    {
-      UpdateLogTargets(backendOptions);
-      return Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// Parses <see cref="ProxyConfig.LogToConsole"/>, <see cref="ProxyConfig.LogToEvents"/>,
-    /// and <see cref="ProxyConfig.LogToAI"/> into <see cref="ConAttr"/>, <see cref="EventAttr"/>,
-    /// <see cref="AIAttr"/>. A list containing "*" enables all event types for that destination.
-    /// Safe to call on config hot-reload.
-    /// </summary>
-    public static void UpdateLogTargets(ProxyConfig options)
-    {
-      ConAttr   = LogTargetAttr.From(options.LogToConsole);
-      EventAttr = LogTargetAttr.From(options.LogToEvents);
-      AIAttr    = LogTargetAttr.From(options.LogToAI);
     }
 
     /// <summary>
