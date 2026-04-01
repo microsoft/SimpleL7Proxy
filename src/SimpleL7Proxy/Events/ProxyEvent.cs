@@ -134,7 +134,6 @@ namespace SimpleL7Proxy.Events
     {
       try
       {
-
         bool logToConsole     = ConAttr.IsEnabled(Type);
         bool logToEventClient = EventAttr.IsEnabled(Type);
         bool logToAI          = AIAttr.IsEnabled(Type);
@@ -179,6 +178,7 @@ namespace SimpleL7Proxy.Events
       catch (Exception ex)
       {
         Console.Error.WriteLine($"Error sending telemetry: {ex.Message}");
+        Console.WriteLine("Stack: " + ex.StackTrace);
       }
     }
 
@@ -307,9 +307,8 @@ namespace SimpleL7Proxy.Events
 
       foreach (var kvp in this)
       {
-        requestTelemetry.Properties.Add(kvp);
+        requestTelemetry.Properties[kvp.Key] = kvp.Value;
       }
-      Console.WriteLine("Logging request");
 
       _telemetryClient?.TrackRequest(requestTelemetry);
     }
