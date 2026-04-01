@@ -16,4 +16,8 @@ public interface IConfigChangeSubscriber
         IReadOnlyList<ConfigChange> changes,
         ProxyConfig backendOptions,
         CancellationToken cancellationToken);
+
+    // Share this method between the constructor and the OnConfigChangedAsync to avoid 
+    // code duplication and potential bugs where the two get out of sync.
+    void InitVars();
 }

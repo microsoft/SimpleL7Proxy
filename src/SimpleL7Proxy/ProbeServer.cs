@@ -281,6 +281,10 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
         return base.StopAsync(cancellationToken);
     }
 
+    public void InitVars()
+    {
+        // no config-dependent variables to init for now, but this is a placeholder for future ones
+    }
 
     /// <summary>
     /// Called when HealthProbeSidecar config changes at runtime.

@@ -261,6 +261,11 @@ public class ConfigChangeNotifier
         Func<IReadOnlyList<ConfigChange>, ProxyConfig, CancellationToken, Task> callback)
         : IConfigChangeSubscriber
     {
+        public void InitVars()
+        {
+            throw new NotImplementedException();
+        }
+
         public Task OnConfigChangedAsync(
             IReadOnlyList<ConfigChange> changes,
             ProxyConfig backendOptions,

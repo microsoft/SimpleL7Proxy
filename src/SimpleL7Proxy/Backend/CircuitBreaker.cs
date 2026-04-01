@@ -11,10 +11,11 @@ namespace SimpleL7Proxy.Backend;
 
 public class CircuitBreaker : ICircuitBreaker
 {
+    static ProxyConfig _options = null!;
     private ConcurrentQueue<DateTime> hostFailureTimes2 = new();
-    private readonly int _failureThreshold;
-    private readonly int _failureTimeFrame;
-    private readonly HashSet<int> _allowableCodes;
+    private int _failureThreshold;
+    private  int _failureTimeFrame;
+    private HashSet<int> _allowableCodes = null!;
     private readonly ILogger<CircuitBreaker> _logger;
     
     // Global counters using Interlocked operations
@@ -46,16 +47,10 @@ public class CircuitBreaker : ICircuitBreaker
         ArgumentNullException.ThrowIfNull(logger, nameof(logger));
 
         var backendOptions = options.Value;
-        _failureThreshold = backendOptions.CircuitBreakerErrorThreshold;
-        _failureTimeFrame = backendOptions.CircuitBreakerTimeslice;
-        _allowableCodes = new HashSet<int>(backendOptions.AcceptableStatusCodes ?? new[] { 200, 401, 403, 408, 410, 412, 417, 400 });
-
-        count_50percent = (int)(_failureThreshold * 0.5);
-        count_60percent = (int)(_failureThreshold * 0.6);
-        count_70percent = (int)(_failureThreshold * 0.7);
-        count_80percent = (int)(_failureThreshold * 0.8);
-        count_90percent = (int)(_failureThreshold * 0.9);
         _logger = logger;
+        _options = backendOptions;
+
+        InitVars();
 
         // Register this circuit breaker globally
         Interlocked.Increment(ref _totalCircuitBreakersCount);
@@ -67,6 +62,19 @@ public class CircuitBreaker : ICircuitBreaker
 
         _logger.LogDebug("[INIT] Circuit breaker {ID} initialized with threshold: {Threshold}, timeframe: {TimeFrame}s. Total circuit breakers: {Total}", 
             ID, _failureThreshold, _failureTimeFrame, _totalCircuitBreakersCount);
+    }
+
+    public void InitVars()
+    {
+        _failureThreshold = _options.CircuitBreakerErrorThreshold;
+        _failureTimeFrame = _options.CircuitBreakerTimeslice;
+        _allowableCodes = new HashSet<int>(_options.AcceptableStatusCodes ?? new[] { 200, 401, 403, 408, 410, 412, 417, 400 });
+
+        count_50percent = (int)(_failureThreshold * 0.5);
+        count_60percent = (int)(_failureThreshold * 0.6);
+        count_70percent = (int)(_failureThreshold * 0.7);
+        count_80percent = (int)(_failureThreshold * 0.8);
+        count_90percent = (int)(_failureThreshold * 0.9);
     }
 
     public void TrackStatus(int code, bool wasFailure, string state)

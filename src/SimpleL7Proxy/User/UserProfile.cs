@@ -66,7 +66,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
         _logger.LogInformation("[INIT] UserProfile service starting.  Lookup header: {Header}, Config URL: {ConfigUrl}, Refresh interval: {RefreshInterval}s, Soft-delete TTL: {SoftDeleteTTL} minutes, Required: {Required}",
             options.UserIDFieldName, options.UserConfigUrl, options.UserConfigRefreshIntervalSecs, options.UserSoftDeleteTTLMinutes, options.UserConfigRequired);
 
-        initVars();
+        InitVars();
 
         // Subscribe to config change notifications
         configChangeNotifier.Subscribe(this,
@@ -80,7 +80,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
             options => options.AsyncClientConfigFieldName]);
     }
 
-    public void initVars()
+    public void InitVars()
     {
 
         doUserConfig = _options.UseProfiles && !string.IsNullOrEmpty(_options.UserConfigUrl);
@@ -100,7 +100,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
         _logger.LogInformation("Received config change notification for UserProfile service. Changes: {Changes}",
             string.Join(", ", changes.Select(c => c.ToString())));
 
-        initVars();
+        InitVars();
 
         if (!doUserConfig)
         {

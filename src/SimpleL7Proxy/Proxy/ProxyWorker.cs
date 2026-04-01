@@ -80,10 +80,8 @@ public class ProxyWorker : IConfigChangeSubscriber
         _lifecycleManager = context.LifecycleManager;
         _eventDataBuilder = context.EventDataBuilder;
         _options = context.BackendOptions;
-        s_backendKeys = _options.DependancyHeaders;
 
-        s_stripRequestHeaders = _options.StripRequestHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
-        s_stripResponseHeaders = _options.StripResponseHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+        InitVars();
 
         _wrkCntxt.ConfigChangeNotifier.Subscribe(
             this,
@@ -99,17 +97,21 @@ public class ProxyWorker : IConfigChangeSubscriber
             options => options.Timeout,
             options => options.AsyncTimeout,
             options => options.AsyncTriggerTimeout);
-}
+    }
+
+    public void InitVars(){
+        s_backendKeys = _options.DependancyHeaders;
+        s_stripRequestHeaders = _options.StripRequestHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+        s_stripResponseHeaders = _options.StripResponseHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+    }
+
 
     public Task OnConfigChangedAsync(
         IReadOnlyList<ConfigChange> changes, 
         ProxyConfig backendOptions, 
         CancellationToken cancellationToken)
     {
-        s_backendKeys = backendOptions.DependancyHeaders;
-        s_stripRequestHeaders = backendOptions.StripRequestHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
-        s_stripResponseHeaders = backendOptions.StripResponseHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
-
+        InitVars();
         return Task.CompletedTask;
     }
 
