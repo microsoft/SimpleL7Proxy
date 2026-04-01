@@ -23,6 +23,6 @@ public static class Banner
     Console.WriteLine("#     #  # #    # #      #      #      #         #     #      #   #  #    #  #  #    #");
     Console.WriteLine(" #####   # #    # #      ###### ###### #######   #     #      #    #  ####  #    #   #");
     Console.WriteLine("=======================================================================================");
-    Console.WriteLine($"Version: {VERSION}  Log_Level: {options.LogLevel}  Container App: {options.ContainerApp}  Replica: {options.ReplicaName}");
+    Console.WriteLine($"Version: {VERSION}  LogLevel: {options.LogLevel}  ContainerApp: {options.ContainerApp}  Replica: {options.ReplicaName}");
   }
 }

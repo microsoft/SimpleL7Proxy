@@ -316,7 +316,6 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                         _probe["ProbeType"] = probeType;
                         _probe["StatusCode"] = ((int)code).ToString();
                         _probe.SendEvent();
-                        Console.WriteLine($"[PROBE] {probeType} probe received, responded with {code}");
                         continue;
                     }
 
