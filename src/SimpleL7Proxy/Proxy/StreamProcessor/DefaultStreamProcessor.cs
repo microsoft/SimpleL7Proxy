@@ -14,9 +14,6 @@ namespace SimpleL7Proxy.StreamProcessor
         /// </summary>
         public override async Task CopyToAsync(System.Net.Http.HttpContent sourceContent, Stream outputStream)
         {
-            //            if (cancellationToken != null)
-            //              await sourceContent.CopyToAsync(outputStream, cancellationToken.Value).ConfigureAwait(false);
-            //        else
             await sourceContent.CopyToAsync(outputStream).ConfigureAwait(false);
         }
 

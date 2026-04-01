@@ -4,13 +4,13 @@ using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.Events;
 
-public class CommonEventHeaders(IOptions<BackendOptions> options) : ICommonEventData
+public class CommonEventHeaders(IOptions<ProxyConfig> options) : ICommonEventData
 {
   private readonly FrozenDictionary<string, string> _defaultEventData =
     new Dictionary<string, string>
     {
       ["Ver"] = Constants.VERSION,
-      ["Revision"] = options.Value.Revision,
+      ["Replica"] = options.Value.ReplicaName,
       ["ContainerApp"] = options.Value.ContainerApp
     }.ToFrozenDictionary();
 

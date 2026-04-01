@@ -28,7 +28,7 @@ namespace SimpleL7Proxy;
 public class Server :  BackgroundService, IConfigChangeSubscriber
 {
     //    private readonly IBackendOptions? _options;
-    private readonly BackendOptions _options;
+    private readonly ProxyConfig _options;
     private readonly HttpListener _httpListener;
 
     private readonly IBackendService _backends;
@@ -47,21 +47,21 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
 
     private readonly IEventClient? _eventHubClient;
     private static ProxyEvent _staticEvent = new ProxyEvent();
-
+    private static ProxyEvent _probe = new ProxyEvent();
     private readonly ProbeServer _probeServer;
 
     // Precomputed frozen collections for O(1) hot-path lookups, recomputed on config change
-    private volatile FrozenSet<string> _disallowedHeaders;
-    private volatile FrozenDictionary<string, int> _priorityKeyToValue;
+    private volatile FrozenSet<string> _disallowedHeaders = null!;
+    private volatile FrozenDictionary<string, int> _priorityKeyToValue = null!;
 
     // Precomputed validation rules to avoid dictionary iteration and string ops per request
     private readonly record struct ValidateHeaderRule(string SourceHeader, string AllowedValuesHeader, string DisplayName);
-    private ValidateHeaderRule[] _validateHeaderRules;
+    private ValidateHeaderRule[] _validateHeaderRules = null!;
 
     // Constructor to initialize the server with backend options and telemetry client.
     public Server(
         IConcurrentPriQueue<RequestData> requestsQueue,
-        IOptions<BackendOptions> backendOptions,
+        IOptions<ProxyConfig> backendOptions,
         IHostApplicationLifetime appLifetime,
         IUserPriorityService userPriority,
         IUserProfileService userProfile,
@@ -125,18 +125,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
             options => options.PollInterval
             ]);
 
-        // Precompute frozen sets and validation rules at startup
-        _disallowedHeaders = _options.DisallowedHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
-        _priorityKeyToValue = _options.PriorityKeys
-            .Zip(_options.PriorityValues)
-            .ToFrozenDictionary(x => x.First, x => x.Second, StringComparer.OrdinalIgnoreCase);
-
-        _validateHeaderRules = _options.ValidateHeaders
-            .Select(kvp => new ValidateHeaderRule(
-                kvp.Key,
-                kvp.Value,
-                kvp.Key.StartsWith("S7", StringComparison.Ordinal) ? kvp.Key[2..] : kvp.Key))
-            .ToArray();
+        InitVars();
 
         var _listeningUrl = $"http://+:{_options.Port}/";
 
@@ -150,29 +139,33 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         //     _probeDataPool[i] = new ProbeData();
         // }
 
-        var timeoutTime = TimeSpan.FromMilliseconds(_options.Timeout).ToString(@"hh\:mm\:ss\.fff");
-        _logger.LogInformation($"[CONFIG] Server configuration - Port: {_options.Port} | Timeout: {timeoutTime} | Workers: {_options.Workers}");
+        // Server config is logged at startup in ExecuteAsync alongside the listening message
     }
 
-    public Task OnConfigChangedAsync(
-        IReadOnlyList<ConfigChange> changes,
-        BackendOptions backendOptions,
-        CancellationToken cancellationToken)
+    public void InitVars()
     {
-        _logger.LogInformation("[CONFIG] Server changed — Settings live updated without restart");
-
         // Recompute frozen sets from updated options
-        _disallowedHeaders = backendOptions.DisallowedHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+        _disallowedHeaders = _options.DisallowedHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
         _priorityKeyToValue = _options.PriorityKeys
             .Zip(_options.PriorityValues)
             .ToFrozenDictionary(x => x.First, x => x.Second, StringComparer.OrdinalIgnoreCase);
 
-        _validateHeaderRules = backendOptions.ValidateHeaders
+        _validateHeaderRules = _options.ValidateHeaders
             .Select(kvp => new ValidateHeaderRule(
                 kvp.Key,
                 kvp.Value,
                 kvp.Key.StartsWith("S7", StringComparison.Ordinal) ? kvp.Key[2..] : kvp.Key))
             .ToArray();
+    }
+
+    public Task OnConfigChangedAsync(
+        IReadOnlyList<ConfigChange> changes,
+        ProxyConfig backendOptions,
+        CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("[CONFIG] Server changed — Settings live updated without restart");
+
+        InitVars();
 
         return Task.CompletedTask;
     }
@@ -215,6 +208,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
     protected override Task ExecuteAsync(CancellationToken cancellationToken)
     {
         Task backendStartTask;
+        string serverInfo = $"Port: {_options.Port}, Timeout: {_options.Timeout}ms, Workers: {_options.Workers}, LoadBalanceMode: {_options.LoadBalanceMode}, ValidateAuthAppID: {_options.ValidateAuthAppID}, AsyncModeEnabled: {_options.AsyncModeEnabled}";
         try
         {
             _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -224,21 +218,20 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
             backendStartTask = _backends.WaitForStartup(20);
 
             _httpListener.Start();
-            _logger.LogInformation($"[SERVICE] ✓ Server listening on port {_options?.Port}");
+            var timeoutTime = TimeSpan.FromMilliseconds(_options.Timeout).ToString(@"hh\:mm\:ss\.fff");
+            _logger.LogInformation($"[SERVICE] ✓ Server listening: {serverInfo}");
             // Additional setup or async start operations can be performed here
 
             _requestsQueue.StartSignaler(cancellationToken);
         }
         catch (HttpListenerException ex)
         {
-            // Handle specific errors, e.g., port already in use
-            _staticEvent.WriteOutput($"Failed to start HttpListener: {ex.Message}");
-            throw new Exception("Failed to start the server due to an HttpListener exception.", ex);
+            _logger.LogError(ex, "[SERVICE] ✗ HttpListener failed to start {info}, {Message}", serverInfo, ex.Message);
+            throw new Exception($"Failed to start the server on port {_options.Port}.", ex);
         }
         catch (Exception ex)
         {
-            // Handle other potential errors
-            _staticEvent.WriteErrorOutput($"An error occurred: {ex.Message}");
+            _logger.LogError(ex, "[SERVICE] ✗ Server failed to start — {info}, {Message}", serverInfo, ex.Message);
             throw new Exception("An error occurred while starting the server.", ex);
         }
 
@@ -250,7 +243,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         {
             if (x.IsFaulted && x.Exception != null)
             {
-                Console.WriteLine($"[BACKENDS-STARTUP-ERROR] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} {x.Exception.Flatten()}");
+                // Console.WriteLine($"[BACKENDS-STARTUP-ERROR] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} {x.Exception.Flatten()}");
                 throw x.Exception.Flatten();
             }
 
@@ -281,6 +274,8 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         int maxEvents_60Percent = (int)(maxEvents * .6);
         int maxEvents_50Percent = (int)(maxEvents * .5);
 
+        _probe.Type = EventType.Probe;
+
         while (!cancellationToken.IsCancellationRequested)
         {
             ProxyEvent ed = null!;
@@ -305,26 +300,32 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                         continue;
                     }
                     var isprobe = false;
-
-                    // if it's a probe, then bypass all the below checks and enqueue the request 
                     var probePath = lc.Request.Url?.PathAndQuery;
-                    switch (probePath)
+
+                    // Liveness/Readiness/Startup: respond immediately, don't enqueue
+                    if (probePath is Constants.Liveness or Constants.Readiness or Constants.Startup)
                     {
-                        case Constants.Liveness:
-                            await _probeServer.LivenessResponseAsync(lc);
-                            continue;
-                        case Constants.Readiness:
-                            await _probeServer.ReadinessResponseAsync(lc);
-                            continue;
-                        case Constants.Startup:
-                            await _probeServer.StartupResponseAsync(lc);
-                            continue;
-                        case Constants.Health:
-                        case Constants.ForceGC:
-                            isprobe = true;
-                            break; // fall through to queue path
-                        default:
-                            break; // not a probe, fall through
+                        var (probeType, code) = probePath switch
+                        {
+                            Constants.Liveness  => ("Liveness",  await _probeServer.LivenessResponseAsync(lc)),
+                            Constants.Readiness => ("Readiness", await _probeServer.ReadinessResponseAsync(lc)),
+                            _                   => ("Startup",   await _probeServer.StartupResponseAsync(lc)),
+                        };
+                        _probe.Uri = lc.Request.Url!;
+                        _probe["ProbeType"] = probeType;
+                        _probe["StatusCode"] = ((int)code).ToString();
+                        _probe.SendEvent();
+                        continue;
+                    }
+
+                    // Health/ForceGC: log probe event, then fall through to enqueue
+                    if (probePath is Constants.Health or Constants.ForceGC)
+                    {
+                        isprobe = true;
+                        _probe.Uri = lc.Request.Url!;
+                        _probe["ProbeType"] = probePath == Constants.Health ? "Health" : "ForceGC";
+                        _probe["StatusCode"] = ((int)HttpStatusCode.OK).ToString();
+                        _probe.SendEvent();
                     }
                     
                     int priority = _options.DefaultPriority;
@@ -419,12 +420,12 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                     if (!string.IsNullOrEmpty(authAppID) && _userProfile.IsAuthAppIDValid(authAppID))
                                     {
                                         if (rd.Debug)
-                                            Console.WriteLine($"AuthAppID {rd.Headers[_options.ValidateAuthAppIDHeader]} is valid.");
+                                            _logger.LogInformation("AuthAppID {AuthAppID} is valid.", rd.Headers[_options.ValidateAuthAppIDHeader]);
                                     }
                                     else
                                     {
                                         if (rd.Debug)
-                                            Console.WriteLine($"AuthAppID {rd.Headers[_options.ValidateAuthAppIDHeader]} is invalid.");
+                                            _logger.LogInformation("AuthAppID {AuthAppID} is invalid.", rd.Headers[_options.ValidateAuthAppIDHeader]);
 
                                         throw new ProxyErrorException(
                                             ProxyErrorException.ErrorType.DisallowedAppID,
@@ -438,7 +439,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                 foreach (var header in _disallowedHeaders)
                                 {
                                     if (rd.Debug && !string.IsNullOrEmpty(rd.Headers.Get(header)))
-                                        Console.WriteLine($"Disallowed header {header} removed from request.");
+                                        _logger.LogInformation("Disallowed header {Header} removed from request.", header);
                                     rd.Headers.Remove(header);
                                 }
 
@@ -466,14 +467,14 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                                 {
                                                     rd.Headers.Set(header.Key, header.Value);
                                                     if (rd.Debug)
-                                                        Console.WriteLine($"Add Header: {header.Key} = {header.Value}");
+                                                        _logger.LogInformation("Add Header: {Header} = {Value}", header.Key, header.Value);
                                                 }
                                             }
                                         }
                                         else
                                         {
                                             if (rd.Debug)
-                                                Console.WriteLine($"User profile for {requestUser} not found.");
+                                                _logger.LogInformation("User profile for {User} not found.", requestUser);
                                             throw new ProxyErrorException(
                                                 ProxyErrorException.ErrorType.UnknownProfile,
                                                 HttpStatusCode.Forbidden,
@@ -491,7 +492,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                     if (!string.IsNullOrEmpty(missing))
                                     {
                                         if (rd.Debug)
-                                            Console.WriteLine($"Required header {missing} is missing from request.");
+                                            _logger.LogInformation("Required header {Header} is missing from request.", missing);
 
                                         throw new ProxyErrorException(
                                             ProxyErrorException.ErrorType.IncompleteHeaders,
@@ -531,7 +532,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                         if (!matched)
                                         {
                                             if (rd.Debug)
-                                                Console.WriteLine($"Validation check failed for {rule.DisplayName}: {lookup}");
+                                                _logger.LogInformation("Validation check failed for {DisplayName}: {Lookup}", rule.DisplayName, lookup.ToString());
                                             throw new ProxyErrorException(
                                                 ProxyErrorException.ErrorType.InvalidHeader,
                                                 HttpStatusCode.ExpectationFailed,
@@ -540,7 +541,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                         }
                                     }
                                     if (rd.Debug)
-                                        Console.WriteLine($"Validation check passed for all headers.");
+                                        _logger.LogInformation("Validation check passed for all headers.");
                                 }
 
                                 // Determine priority boost based on the UserID 
@@ -561,7 +562,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                 ed["S7P-ID"] = rd.MID;
 
                                 if (rd.Debug)
-                                    Console.WriteLine($"UserID: {rd.UserID}");
+                                    _logger.LogInformation("UserID: {UserID}", rd.UserID);
 
                                 // ASYNC: Determine if the request is allowed async operation
                                 if (doAsync && bool.TryParse(rd.Headers[_options.AsyncClientRequestHeader], out var asyncEnabled) && asyncEnabled)
@@ -582,7 +583,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
 
                                     if (rd.Debug)
                                     {
-                                        Console.WriteLine($"AsyncEnabled: {rd.runAsync}");
+                                        _logger.LogInformation("AsyncEnabled: {AsyncEnabled}", rd.runAsync);
                                     }
                                 }
 
@@ -752,8 +753,6 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
             }
             catch (OperationCanceledException)
             {
-                // Handle the cancellation request (e.g., break the loop, log the cancellation, etc.)
-                _staticEvent.WriteOutput("[SHUTDOWN] ⏹ HTTP server shutdown initiated");
                 break; // Exit the loop
             }
             catch (Exception e)

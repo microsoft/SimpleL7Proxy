@@ -11,7 +11,7 @@ namespace SimpleL7Proxy.Proxy;
 
 public class WorkerFactory : BackgroundService
 {
-  private readonly BackendOptions _backendOptions;
+  private readonly ProxyConfig _backendOptions;
   private readonly WorkerContext _context;
   private readonly ILogger<ProxyWorker> _logger;
   //private readonly ProxyStreamWriter _proxyStreamWriter;

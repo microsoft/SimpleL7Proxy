@@ -67,7 +67,7 @@ public class ConfigChangeNotifier
     /// Returns a handle that can be passed to <see cref="Unsubscribe"/>.
     /// </summary>
     public IConfigChangeSubscriber Subscribe(
-        Func<IReadOnlyList<ConfigChange>, BackendOptions, CancellationToken, Task> callback,
+        Func<IReadOnlyList<ConfigChange>, ProxyConfig, CancellationToken, Task> callback,
         params string[] fields)
     {
         var wrapper = new DelegateSubscriber(callback);
@@ -76,24 +76,24 @@ public class ConfigChangeNotifier
     }
 
     /// <summary>
-    /// Register a subscriber for specific <see cref="BackendOptions"/> properties.
+    /// Register a subscriber for specific <see cref="ProxyConfig"/> properties.
     /// This avoids callers needing to know config/env field names.
     /// </summary>
     public void Subscribe(
         IConfigChangeSubscriber subscriber,
-        params Expression<Func<BackendOptions, object?>>[] fields)
+        params Expression<Func<ProxyConfig, object?>>[] fields)
     {
         var configNames = ResolveConfigNames(fields);
         Subscribe(subscriber, configNames);
     }
 
     /// <summary>
-    /// Register a callback for specific <see cref="BackendOptions"/> properties.
+    /// Register a callback for specific <see cref="ProxyConfig"/> properties.
     /// Returns a handle that can be passed to <see cref="Unsubscribe"/>.
     /// </summary>
     public IConfigChangeSubscriber Subscribe(
-        Func<IReadOnlyList<ConfigChange>, BackendOptions, CancellationToken, Task> callback,
-        params Expression<Func<BackendOptions, object?>>[] fields)
+        Func<IReadOnlyList<ConfigChange>, ProxyConfig, CancellationToken, Task> callback,
+        params Expression<Func<ProxyConfig, object?>>[] fields)
     {
         var configNames = ResolveConfigNames(fields);
         return Subscribe(callback, configNames);
@@ -147,7 +147,7 @@ public class ConfigChangeNotifier
     /// </summary>
     internal async Task NotifyAsync(
         IReadOnlyList<ConfigChange> changes,
-        BackendOptions backendOptions,
+        ProxyConfig backendOptions,
         CancellationToken cancellationToken)
     {
         if (changes.Count == 0) return;
@@ -209,14 +209,14 @@ public class ConfigChangeNotifier
         return merged;
     }
 
-    private static string[] ResolveConfigNames(Expression<Func<BackendOptions, object?>>[] fields)
+    private static string[] ResolveConfigNames(Expression<Func<ProxyConfig, object?>>[] fields)
     {
         if (fields.Length == 0)
         {
             return [];
         }
 
-        var descriptorByPropertyName = ConfigOptions.GetDescriptors()
+        var descriptorByPropertyName = ConfigMetadata.GetDescriptors()
             .ToDictionary(d => d.Property.Name, d => d.ConfigName, StringComparer.OrdinalIgnoreCase);
 
         var configNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -258,12 +258,17 @@ public class ConfigChangeNotifier
 
     /// <summary>Wraps a lambda/delegate as an <see cref="IConfigChangeSubscriber"/>.</summary>
     private sealed class DelegateSubscriber(
-        Func<IReadOnlyList<ConfigChange>, BackendOptions, CancellationToken, Task> callback)
+        Func<IReadOnlyList<ConfigChange>, ProxyConfig, CancellationToken, Task> callback)
         : IConfigChangeSubscriber
     {
+        public void InitVars()
+        {
+            throw new NotImplementedException();
+        }
+
         public Task OnConfigChangedAsync(
             IReadOnlyList<ConfigChange> changes,
-            BackendOptions backendOptions,
+            ProxyConfig backendOptions,
             CancellationToken cancellationToken) => callback(changes, backendOptions, cancellationToken);
     }
 }

@@ -13,7 +13,7 @@ using SimpleL7Proxy.Backend.Iterators;
 public class WorkerContext
 {
     //public ProxyStreamWriter ProxyStreamWriter { get; }
-    public BackendOptions BackendOptions { get; }
+    public ProxyConfig BackendOptions { get; }
     public ConfigChangeNotifier ConfigChangeNotifier { get; }
     public EventDataBuilder EventDataBuilder { get; }
     public HealthCheckService HealthCheckService { get; }
@@ -30,7 +30,7 @@ public class WorkerContext
     public StreamProcessorFactory StreamProcessorFactory { get; }
 
     public WorkerContext(
-        BackendOptions backendOptions,
+        ProxyConfig backendOptions,
         IConcurrentPriQueue<RequestData> queue,
         IBackendService backends,
         IUserPriorityService userPriorityService,

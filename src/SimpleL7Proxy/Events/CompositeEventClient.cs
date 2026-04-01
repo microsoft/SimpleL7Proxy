@@ -29,7 +29,6 @@ public class CompositeEventClient : IEventClient
       _mutable[client] = 0;
       _frozen = _mutable.ToFrozenDictionary();
     }
-    Console.WriteLine($"[CompositeEventClient] Added {client.ClientType}");
   }
 
   public async Task StopTimerAsync()
@@ -38,7 +37,6 @@ public class CompositeEventClient : IEventClient
 
     foreach (var client in _frozen.Keys)
     {
-      Console.WriteLine($"Stopping timer for {client.ClientType}");
       stopTasks.Add(client.StopTimerAsync());
     }
     await Task.WhenAll(stopTasks).ConfigureAwait(false);

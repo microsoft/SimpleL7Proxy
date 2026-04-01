@@ -23,7 +23,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     public static IServiceBusRequestService? SBRequestService { get; private set; }
     public static IBackupAPIService? BackupAPIService { get; private set; }
     public static IUserPriorityService? UserPriorityService { get; private set; }
-    public static BackendOptions? BackendOptionsStatic { get; private set; }
+    public static ProxyConfig? BackendOptionsStatic { get; private set; }
 
     // -- ASYNC RELATED PARAMS --
 
@@ -166,7 +166,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     public static void InitializeServiceBusRequestService(IServiceBusRequestService serviceBusRequestService,
                                                           IBackupAPIService backupAPIService,
                                                           IUserPriorityService userPriorityService,
-                                                          BackendOptions backendOptions)
+                                                          ProxyConfig backendOptions)
     {
         SBRequestService ??= serviceBusRequestService;
         BackupAPIService ??= backupAPIService;

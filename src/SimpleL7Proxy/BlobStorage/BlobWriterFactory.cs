@@ -18,13 +18,13 @@ namespace SimpleL7Proxy.BlobStorage
     public class BlobWriterFactory : IBlobWriterFactory
     {
         private readonly DefaultCredential _defaultCredential;
-        private readonly IOptionsMonitor<BackendOptions> _optionsMonitor;
+        private readonly IOptionsMonitor<ProxyConfig> _optionsMonitor;
         private readonly ILogger<BlobWriter> _logger;
         private readonly ILogger<NullBlobWriter> _nullBlobWriterLogger;
 
         public BlobWriterFactory(
             DefaultCredential defaultCredential,
-            IOptionsMonitor<BackendOptions> optionsMonitor,
+            IOptionsMonitor<ProxyConfig> optionsMonitor,
             ILogger<BlobWriter> logger,
             ILogger<NullBlobWriter> nullBlobWriterLogger)
         {

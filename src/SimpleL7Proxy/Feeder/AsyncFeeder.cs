@@ -34,7 +34,7 @@ namespace SimpleL7Proxy.Feeder
     public class AsyncFeeder : IHostedService, IAsyncFeeder
     {
 
-        private readonly BackendOptions _options;
+        private readonly ProxyConfig _options;
         private readonly ILogger<AsyncFeeder> _logger;
         private readonly IUserProfileService _userProfile;
         private readonly IRequestDataBackupService _requestBackupService;
@@ -77,7 +77,7 @@ namespace SimpleL7Proxy.Feeder
         // Batch tuning
         private static readonly TimeSpan FlushIntervalMs = TimeSpan.FromMilliseconds(1000);    // small delay to coalesce bursts (when not shutting down)
 
-        public AsyncFeeder(IOptions<BackendOptions> options,
+        public AsyncFeeder(IOptions<ProxyConfig> options,
                             IUserPriorityService userPriority,
                             IUserProfileService userProfile,
                             IRequestDataBackupService requestBackupService,

@@ -16,9 +16,9 @@ namespace SimpleL7Proxy.Proxy;
 public class RequestLifecycleManager
 {
     private readonly ILogger<RequestLifecycleManager> _logger;
-    private readonly BackendOptions _options;
+    private readonly ProxyConfig _options;
 
-    public RequestLifecycleManager(ILogger<RequestLifecycleManager> logger, IOptions<BackendOptions> options)
+    public RequestLifecycleManager(ILogger<RequestLifecycleManager> logger, IOptions<ProxyConfig> options)
     {
         _logger = logger;
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));

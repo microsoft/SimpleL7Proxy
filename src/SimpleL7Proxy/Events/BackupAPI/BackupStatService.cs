@@ -19,7 +19,7 @@ namespace SimpleL7Proxy.BackupAPI
     {
         public int ShutdownOrder => 20;
 
-        private readonly BackendOptions _options;
+        private readonly ProxyConfig _options;
         private readonly ILogger<BackupAPIService> _logger;
         private static readonly ConcurrentQueue<RequestAPIDocument> _statusQueue = new();
         private readonly SemaphoreSlim _queueSignal = new SemaphoreSlim(0);
@@ -42,7 +42,7 @@ namespace SimpleL7Proxy.BackupAPI
         private const int MaxDrainPerCycle = 50; // max messages to drain from queue per cycle
         private static readonly TimeSpan FlushIntervalMs = TimeSpan.FromMilliseconds(1000);    // small delay to coalesce bursts (when not shutting down)
 
-        public BackupAPIService(IOptions<BackendOptions> options, ServiceBusFactory senderFactory,ILogger<BackupAPIService> logger)
+        public BackupAPIService(IOptions<ProxyConfig> options, ServiceBusFactory senderFactory,ILogger<BackupAPIService> logger)
         {
             _options = options.Value;
             _senderFactory = senderFactory;

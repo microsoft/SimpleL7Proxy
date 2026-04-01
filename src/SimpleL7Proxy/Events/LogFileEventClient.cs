@@ -32,7 +32,7 @@ public class LogFileEventClient : IEventClient, IHostedService
     private static Stream log = null!;
     private static StreamWriter writer = null!;
     
-    public LogFileEventClient(string filename, CompositeEventClient composite, IOptions<BackendOptions> options )
+    public LogFileEventClient(string filename, CompositeEventClient composite, IOptions<ProxyConfig> options )
     {
         _composite = composite ?? throw new ArgumentNullException(nameof(composite));
         // create file stream to a log file

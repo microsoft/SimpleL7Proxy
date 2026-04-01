@@ -24,13 +24,13 @@ namespace SimpleL7Proxy.Feeder
     public class OpenAIBackgroundRequest : IRequestProcessor
     {
 
-        private readonly BackendOptions _options;
+        private readonly ProxyConfig _options;
         private readonly ILogger<OpenAIBackgroundRequest> _logger;
         private readonly IRequestDataBackupService _backupService;
         private readonly IAsyncWorkerFactory _asyncWorkerFactory;
 
 
-        public OpenAIBackgroundRequest(IOptions<BackendOptions> options,
+        public OpenAIBackgroundRequest(IOptions<ProxyConfig> options,
                             IRequestDataBackupService backupService,
                             IAsyncWorkerFactory asyncWorkerFactory,
                             ILogger<OpenAIBackgroundRequest> logger)

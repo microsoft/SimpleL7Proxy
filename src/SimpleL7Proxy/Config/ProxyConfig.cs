@@ -1,9 +1,10 @@
+using System.Reflection;
 using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Backend.Iterators;
 
 namespace SimpleL7Proxy.Config;
 
-public class BackendOptions
+public class ProxyConfig
 {
     // ════════════════════════════════════════════════════════════════════
     // Warm — published to App Configuration, hot-reloaded (~30 s)
@@ -33,7 +34,7 @@ public class BackendOptions
 
     // ── Load Balancing ──
     [ConfigOption("LoadBalancing:Mode")]
-    public string LoadBalanceMode { get; set; } = "latency"; // "latency", "roundrobin", "random"
+    public string LoadBalanceMode { get; set; } = Constants.Latency;
 
     // ── Server ──
     [ConfigOption("Server:IterationMode")]
@@ -48,8 +49,6 @@ public class BackendOptions
     public List<string> LogToEvents { get; set; } = ["async","backend","circuitbreaker","custom","exception","profile","proxy","enqueued","auth"];
     [ConfigOption("Logging:LogToAI")]
     public List<string> LogToAI { get; set; } = ["*"];
-
-    public bool LogProbes { get; set; } = true;
     [ConfigOption("Logging:LogHeaders")]
     public List<string> LogHeaders { get; set; } = [];
     [ConfigOption("Logging:LogAllRequestHeaders")]
@@ -94,6 +93,11 @@ public class BackendOptions
     public int[] AcceptableStatusCodes { get; set; } = [200, 202, 401, 403, 404, 408, 410, 412, 417, 400];
     [ConfigOption("Response:StripResponseHeaders")]
     public List<string> StripResponseHeaders { get; set; } = [];
+
+    // Sentinel --
+    [ConfigOption("Sentinel")]
+    public string Sentinel { get; set; } = ""; // used for app configrefresh
+
 
     // ── User ──
     [ConfigOption("User:SuspendedUserConfigUrl")]
@@ -247,6 +251,9 @@ public class BackendOptions
     [ConfigOption("Logging:LogToFile", ConfigName = "LOGTOFILE", Mode = ConfigMode.Hidden)]
     public bool LogToFile { get; set; } = false;
 
+    [ConfigOption("Logging:LogDateTime", ConfigName = "LOGDATETIME", Mode = ConfigMode.Cold)]
+    public bool LogDateTime { get; set; } = false;
+
     // ── Shared Iterators ──
     /// <summary>
     /// When true, requests to the same path share the same host iterator,
@@ -284,8 +291,12 @@ public class BackendOptions
     // ── Metadata ──
     [ConfigOption("Metadata:ContainerApp", ConfigName = "CONTAINER_APP_NAME", Mode = ConfigMode.Hidden)]
     public string ContainerApp { get; set; } = "ContainerAppName";
+    [ConfigOption("Metadata:HostName", ConfigName = "Hostname", Mode = ConfigMode.Hidden)]
+    public string HostName { get; set; } = "";
     [ConfigOption("Metadata:IDStr", ConfigName = "RequestIDPrefix", Mode = ConfigMode.Hidden)]
     public string IDStr { get; set; } = "S7P";
+    [ConfigOption("Metadata:ReplicaName", ConfigName = "CONTAINER_APP_REPLICA_NAME", Mode = ConfigMode.Hidden)]
+    public string ReplicaName { get; set; } = "";
     [ConfigOption("Metadata:Revision", ConfigName = "CONTAINER_APP_REVISION", Mode = ConfigMode.Hidden)]
     public string Revision { get; set; } = "revisionID";
 
@@ -293,8 +304,89 @@ public class BackendOptions
     public HttpClient? Client { get; set; }
     public bool HealthProbeSidecarEnabled { get; set; } = false;
     public string HealthProbeSidecarUrl { get; set; } = "http://localhost/9000";
-    public string HostName { get; set; } = "";
     public List<HostConfig> Hosts { get; set; } = [];
     public Dictionary<int, int> PriorityWorkers { get; set; } = new() { { 2, 1 }, { 3, 1 } };
     public bool TrackWorkers { get; set; } = true;
+
+    /// <summary>
+    /// Creates a deep copy of this instance. Scalar properties are copied directly;
+    /// collections (List, Dictionary, array) are cloned so the copy is fully independent.
+    /// Note: <see cref="Client"/> (HttpClient) is shared, not cloned.
+    /// </summary>
+    public ProxyConfig DeepClone()
+    {
+        var clone = (ProxyConfig)MemberwiseClone();
+
+        // Clone collection properties so mutations don't leak between instances.
+        clone.AcceptableStatusCodes = (int[])AcceptableStatusCodes.Clone();
+        clone.DependancyHeaders = new List<string>(DependancyHeaders);
+        clone.DisallowedHeaders = new List<string>(DisallowedHeaders);
+        clone.LogAllRequestHeadersExcept = new List<string>(LogAllRequestHeadersExcept);
+        clone.LogAllResponseHeadersExcept = new List<string>(LogAllResponseHeadersExcept);
+        clone.LogHeaders = new List<string>(LogHeaders);
+        clone.LogToConsole = new List<string>(LogToConsole);
+        clone.LogToEvents = new List<string>(LogToEvents);
+        clone.LogToAI = new List<string>(LogToAI);
+        clone.PriorityKeys = new List<string>(PriorityKeys);
+        clone.PriorityValues = new List<int>(PriorityValues);
+        clone.RequiredHeaders = new List<string>(RequiredHeaders);
+        clone.StripRequestHeaders = new List<string>(StripRequestHeaders);
+        clone.StripResponseHeaders = new List<string>(StripResponseHeaders);
+        clone.UniqueUserHeaders = new List<string>(UniqueUserHeaders);
+        clone.ValidateHeaders = new Dictionary<string, string>(ValidateHeaders);
+        clone.PriorityWorkers = new Dictionary<int, int>(PriorityWorkers);
+        clone.Hosts = new List<HostConfig>(Hosts);
+
+        return clone;
+    }
+
+    /// <summary>
+    /// Applies a single configuration field from the incoming settings to this instance.
+    /// Looks up <paramref name="configKey"/> in <paramref name="incomingSettings"/>; when absent
+    /// or set to the default placeholder, the property is left unchanged.
+    /// The caller is expected to seed this instance (e.g. via DeepClone) before calling.
+    /// </summary>
+    public void ApplyFieldFromEnv(Dictionary<string, string> incomingSettings, string configKey, string propertyName)
+    {
+        var prop = typeof(ProxyConfig).GetProperty(propertyName) ?? throw new InvalidOperationException($"Unknown ProxyConfig property: {propertyName}");
+        var currentValue = prop.GetValue(this);
+        var type = prop.PropertyType;
+
+        var rawIncoming = incomingSettings.GetValueOrDefault(configKey)?.Trim();
+        bool hasIncomingValue = !string.IsNullOrEmpty(rawIncoming) && rawIncoming != ConfigMetadata.DefaultPlaceholder;
+        if (!hasIncomingValue)
+            return;
+
+        object? resolved = type switch
+        {
+            _ when type == typeof(int)
+                => ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, Convert.ToInt32(currentValue)),
+            _ when type == typeof(double)
+                => ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, Convert.ToInt32(currentValue)),
+            _ when type == typeof(float)
+                => ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, Convert.ToSingle(currentValue)),
+            _ when type == typeof(string)
+                => ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, (string)currentValue!),
+            _ when type == typeof(bool)
+                => ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, (bool)currentValue!),
+            _ when type == typeof(List<string>)
+                => ConfigParser.ToListOfString(
+                       ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, string.Join(",", (List<string>)currentValue!))),
+            _ when type == typeof(List<int>)
+                => ConfigParser.ToListOfInt(
+                       ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, string.Join(",", (List<int>)currentValue!))),
+            _ when type == typeof(int[])
+                => ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, (int[])currentValue!),
+            _ when type == typeof(Dictionary<string, string>)
+                => ConfigParser.KVStringPairs(ConfigParser.ToListOfString(
+                       ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey,
+                           string.Join(",", ((Dictionary<string, string>)currentValue!).Select(kvp => $"{kvp.Key}={kvp.Value}"))))),
+            _ when type.IsEnum
+                => Enum.TryParse(type, ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, currentValue!.ToString()!), true, out var parsed)
+                    ? parsed : currentValue,
+            _ => throw new NotSupportedException($"ApplyFieldFromEnv: unsupported property type {type.Name} for {propertyName}")
+        };
+
+        prop.SetValue(this, resolved);
+    }
 }

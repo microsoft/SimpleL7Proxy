@@ -24,7 +24,7 @@ namespace SimpleL7Proxy.Proxy;
 public class HealthCheckService
 {
     private readonly IBackendService _backends;
-    private static BackendOptions _options=null!;
+    private static ProxyConfig _options=null!;
     private readonly IConcurrentPriQueue<RequestData>? _requestsQueue;
     private readonly IUserPriorityService? _userPriority;
     private readonly IEventClient? _eventClient;
@@ -59,7 +59,7 @@ public class HealthCheckService
 
     public HealthCheckService(
         IBackendService backends,
-        IOptions<BackendOptions> options,
+        IOptions<ProxyConfig> options,
         IConcurrentPriQueue<RequestData>? requestsQueue,
         IUserPriorityService? userPriority,
         IEventClient? eventClient,
@@ -334,6 +334,16 @@ public class HealthCheckService
                                 .Append(hostCount)
                                 .Append("  -  ")
                                 .Append(hasFailedHosts ? "FAILED HOSTS" : "All Hosts Operational")
+                                .Append('\n');
+
+                            // Probe status snapshot
+                            var (startupStatus, readinessStatus, undrainedEvents) = GetStatus();
+                            _stringBuilder.Append("Probes:\n  /startup:   ")
+                                .Append(startupStatus == HealthStatusEnum.StartupReady ? "200 OK" : "503 " + startupStatus)
+                                .Append("\n  /readiness: ")
+                                .Append(readinessStatus == HealthStatusEnum.ReadinessReady ? "200 OK" : "503 " + readinessStatus)
+                                .Append("\n  Undrained Events: ")
+                                .Append(undrainedEvents)
                                 .Append('\n');
 
                             // ThreadPool availability snapshot

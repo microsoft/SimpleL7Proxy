@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Deploy/Update Azure App Configuration for BackendOptions
+# Deploy/Update Azure App Configuration for ProxyConfig
 #
 # Goals:
 #   1. Migration  – seed App Configuration from a live Container App's
@@ -8,12 +8,12 @@
 #   2. Catalog    – every publishable setting is always written so that
 #                   operators can see the full list in the portal.
 #                   When no env value exists, the C# default from
-#                   BackendOptions.cs is used. If even that is empty,
+#                   ProxyConfig.cs is used. If even that is empty,
 #                   a "-" placeholder is written, meaning "use the
 #                   built-in code default".
 #
 # Discovers publishable keys dynamically from [ConfigOption("...")]
-# decorations in BackendOptions.cs.
+# decorations in ProxyConfig.cs.
 #
 # Three modes (ConfigMode enum):
 #   Warm   – published under "Warm:" prefix, hot-reloaded (~30 s)
@@ -60,7 +60,7 @@ APPCONFIG_LABEL="${APPCONFIG_LABEL:-}"
 AZURE_APPCONFIG_REFRESH_SECONDS="${AZURE_APPCONFIG_REFRESH_SECONDS:-30}"
 UPDATE_CONTAINER_APP_ENV="${UPDATE_CONTAINER_APP_ENV:-true}"
 
-BACKEND_OPTIONS_FILE="${BACKEND_OPTIONS_FILE:-${REPO_ROOT}/src/SimpleL7Proxy/Config/BackendOptions.cs}"
+BACKEND_OPTIONS_FILE="${BACKEND_OPTIONS_FILE:-${REPO_ROOT}/src/SimpleL7Proxy/Config/ProxyConfig.cs}"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -76,7 +76,7 @@ if ! command -v az >/dev/null 2>&1; then
 fi
 
 if [ ! -f "${BACKEND_OPTIONS_FILE}" ]; then
-    echo -e "${RED}Error: BackendOptions file not found: ${BACKEND_OPTIONS_FILE}${NC}"
+    echo -e "${RED}Error: ProxyConfig file not found: ${BACKEND_OPTIONS_FILE}${NC}"
     exit 1
 fi
 
@@ -310,7 +310,7 @@ for entry in "${CONFIG_ENTRIES[@]}"; do
         [ -n "${VALUE}" ] && SOURCE="local-env"
     fi
 
-    # 3) Fallback to C# default from BackendOptions.cs
+    # 3) Fallback to C# default from ProxyConfig.cs
     if [ -z "${VALUE}" ] && [ -n "${CS_DEFAULT}" ]; then
         VALUE="${CS_DEFAULT}"
         SOURCE="cs-default"

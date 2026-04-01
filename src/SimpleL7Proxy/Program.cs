@@ -48,14 +48,14 @@ public class Program
 
     public static async Task Main(string[] args)
     {
-        Banner.Display();
 
+        DateTime StartTime= DateTime.UtcNow; 
         var startupLoggerFactory = LoggerFactory.Create(ConfigureLogging);
         var startupLogger = startupLoggerFactory.CreateLogger<Program>();
 
         // Bootstrap the bootstrapper !!!!
         // We can't even connect to App Config unless we know this
-        BackendOptions defaultBackendOptions = new BackendOptions
+        ProxyConfig defaultBackendOptions = new ProxyConfig
         {
             UseOAuthGov = string.Equals(
                 Environment.GetEnvironmentVariable("UseOAuthGov"), "true", StringComparison.OrdinalIgnoreCase),
@@ -66,7 +66,7 @@ public class Program
         };
         DefaultCredential defaultCredential = new DefaultCredential(defaultBackendOptions);
 
-        var appConfigBootstrap = new AppConfigBootstrap(startupLoggerFactory.CreateLogger<AppConfigBootstrap>(), defaultBackendOptions, defaultCredential);
+        var appConfigBootstrap = new AppConfigService(startupLoggerFactory.CreateLogger<AppConfigService>(), defaultBackendOptions, defaultCredential);
         // Fire off the download — CreateBackendOptions will await completion before reading Settings.
         appConfigBootstrap.Start();
 
@@ -78,8 +78,7 @@ public class Program
             })
             .ConfigureServices((hostContext, services) =>
             {
-                ConfigureAppInsights(services);
-                ConfigureDI(services, startupLogger, appConfigBootstrap, defaultCredential);
+                ConfigureDI(services, startupLoggerFactory, appConfigBootstrap, defaultCredential);
             });
 
         var frameworkHost = hostBuilder.Build();
@@ -87,10 +86,12 @@ public class Program
         // Perform static initialization after building the host to ensure correct singleton usage
         var serviceProvider = frameworkHost.Services;
 
+        var options = serviceProvider.GetRequiredService<IOptions<ProxyConfig>>();
+        Banner.Display(options.Value);
+
         appConfigBootstrap.Notifier       = serviceProvider.GetRequiredService<ConfigChangeNotifier>();
         appConfigBootstrap.HostCollection = serviceProvider.GetRequiredService<IHostHealthCollection>();
 
-        var options = serviceProvider.GetRequiredService<IOptions<BackendOptions>>();
         var eventClient = serviceProvider.GetService<IEventClient>();
         var telemetryClient = serviceProvider.GetService<TelemetryClient>();
         var backendTokenProvider = serviceProvider.GetRequiredService<BackendTokenProvider>();
@@ -99,13 +100,11 @@ public class Program
         var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
         var streamProcessorLogger = loggerFactory.CreateLogger("StreamProcessor");
         BaseStreamProcessor.SetLogger(streamProcessorLogger);
-        startupLogger.LogInformation("[INIT] ✓ Stream processor logger initialized");
 
         // Initialize ProxyEvent with BackendOptions
 
         var commonEventData = serviceProvider.GetRequiredService<ICommonEventData>();
-        ProxyEvent.Initialize(options, eventClient, commonEventData, telemetryClient);
-        ProxyEvent.SubscribeToConfigChanges(serviceProvider.GetRequiredService<ConfigChangeNotifier>());
+        serviceProvider.GetRequiredService<ProxyEventInitializer>();
 
         // Initialize HostConfig with all required dependencies including service provider for circuit breaker DI
         HostConfig.Initialize(backendTokenProvider, startupLogger, serviceProvider);
@@ -113,7 +112,7 @@ public class Program
         // Register backends after DI container is built and HostConfig is initialized
         var hostCollection = serviceProvider.GetRequiredService<IHostHealthCollection>();
 
-        BackendOptionsBuilder.RegisterBackends(options.Value, null, appConfigBootstrap.WarmSettings, hostCollection);
+        ConfigFactory.RegisterBackends(options.Value, null, appConfigBootstrap.WarmSettings, hostCollection);
 
         // Async
         try
@@ -139,10 +138,6 @@ public class Program
                 //     serviceProvider.GetRequiredService<ILogger<AsyncWorker>>()
                 // );
             }
-            else
-            {
-                startupLogger.LogInformation("[INIT] ⚠ Async mode disabled - Running in synchronous mode only");
-            }
         }
         catch (Exception ex)
         {
@@ -155,7 +150,7 @@ public class Program
         appLifetime.ApplicationStarted.Register(() =>
         {
             var composite = serviceProvider.GetRequiredService<CompositeEventClient>();
-            BackendOptionsBuilder.OutputEnvVars(options.Value);
+            ConfigFactory.OutputEnvVars(options.Value);
 
             startupLogger.LogInformation("[INIT] ✓ All hosted services started — active event loggers: {Loggers}",
                 composite.ClientType);
@@ -172,58 +167,87 @@ public class Program
         catch (Exception e)
         {
             // Log full exception details including inner exceptions
-            Console.WriteLine(e.ToString());
-            
             startupLogger.LogError(e, "[ERROR] ✗ Unexpected startup error: {Message}", e.Message);
+            
             var pe = new ProxyEvent();
             pe.Type = EventType.Exception;
             pe.SendEvent();
         }
+
+        // await for the coordinated shutdown to complete before exiting Main, ensuring all cleanup logic runs
+        // (RunAsync may return early if the host's ShutdownTimeout expires before StopAsync finishes)
+        try {
+            var shutdownService = serviceProvider.GetRequiredService<CoordinatedShutdownService>();
+            await shutdownService.ShutdownComplete;
+        }
+        catch (ObjectDisposedException)
+        {
+            //nop - Shutdown may have completed already or may have timed out, in which case we just exit
+        }
+
+        catch (Exception ex)
+        {
+            //nop - Shutdown may have completed already or may have timed out, in which case we just exit
+            startupLogger.LogWarning(ex, "[SHUTDOWN] Coordinated shutdown did not complete gracefully");
+        }
+
+        startupLogger.LogInformation("[SHUTDOWN] ✅ SimpleL7Proxy Service Stopped.  Version: {Version}  Runtime: {Runtime}", Banner.VERSION, DateTime.UtcNow - StartTime);
     }
 
     private static void ConfigureLogging(ILoggingBuilder logging)
     {
         var logLevelString = Environment.GetEnvironmentVariable("LOG_LEVEL") ?? "Information";
         var logLevel = Enum.TryParse<LogLevel>(logLevelString, true, out var l) ? l : LogLevel.Information;
-        Console.WriteLine($"[CONFIG] Log level: {logLevel}");
 
         logging.AddConsole(options => options.FormatterName = "custom");
         logging.AddConsoleFormatter<CustomConsoleFormatter, SimpleConsoleFormatterOptions>();
         logging.SetMinimumLevel(logLevel);
+        logging.AddFilter("Microsoft.Hosting.Lifetime", LogLevel.Warning);
     }
 
-    private static void ConfigureAppInsights(IServiceCollection services)
+    private static void ConfigureAppInsights(IServiceCollection services, ProxyConfig options, ILogger startupLogger)
     {
-        var aiConnectionString = Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING") ?? "";
+        var aiConnectionString = options.AppInsightsConnectionString;
         if (!string.IsNullOrEmpty(aiConnectionString))
         {
-            // Register Application Insights
+            // Register Application Insights — also adds the ILogger → App Insights provider,
+            // so all ILogger output flows to both console and App Insights once the host starts.
             services.AddApplicationInsightsTelemetryWorkerService(options =>
             {
                 options.ConnectionString = aiConnectionString;
                 options.EnableAdaptiveSampling = false; // Disable sampling to ensure all your custom telemetry is sent
             });
 
-            // Configure telemetry to filter out duplicate logs
+            // Filter out duplicate request telemetry
             services.Configure<TelemetryConfiguration>(config =>
             {
                 config.TelemetryProcessorChainBuilder.Use(next => new RequestFilterTelemetryProcessor(next));
                 config.TelemetryProcessorChainBuilder.Build();
             });
 
-            // Note: logging isn't fully configured yet
-            Console.WriteLine("[INIT] ✓ AppInsights initialized with custom request tracking");
+            startupLogger.LogInformation("[INIT] ✓ AppInsights initialized with custom request tracking");
         }
     }
-
-    private static void ConfigureDI(IServiceCollection services, ILogger startupLogger, AppConfigBootstrap appConfigBootstrap, DefaultCredential defaultCredential)
+    private static void ConfigureDI(IServiceCollection services, ILoggerFactory startupLoggerFactory, AppConfigService appConfigBootstrap, DefaultCredential defaultCredential)
     {
         services.AddSingleton(appConfigBootstrap);
         services.AddSingleton(defaultCredential);
         TryAddCompositeEventClient(services);
       
         // register the backend options
-        var backendOptions = BackendOptionsBuilder.CreateOptions(appConfigBootstrap).GetAwaiter().GetResult();
+        var result = ConfigFactory.CreateOptions(appConfigBootstrap).GetAwaiter().GetResult();
+
+        // create a new logger based on configs loaded from App Config
+        var startupLogger = startupLoggerFactory.CreateLogger<Program>();
+
+
+        // a copy of the defaults
+        AppConfigService.DEFAULT_OPTIONS = result.baseOptions;
+        var backendOptions = result.envOptions;
+
+        Console.Out.Flush();
+        
+        ConfigureAppInsights(services, backendOptions, startupLogger);
         services.RegisterBackendOptions(startupLogger, backendOptions);
 
         // Register event headers and event loggers .. needed for AWS
@@ -231,7 +255,7 @@ public class Program
         RegisterEventLoggers(services, startupLogger, backendOptions, backendOptions.EventLoggers);
 
         // Register refresh services only if App Configuration was reachable.
-        appConfigBootstrap.RegisterServices(services);
+        appConfigBootstrap.RegisterServices(services, backendOptions);
 
         services.AddSingleton<WorkerContext>();
 
@@ -310,6 +334,7 @@ public class Program
 
         services.AddTransient<ICircuitBreaker, CircuitBreaker>();
         services.AddSingleton<ConfigChangeNotifier>();
+        services.AddSingleton<ProxyEventInitializer>();
         services.AddSingleton<IBackendService, Backends>();
         services.AddSingleton<Server>();
         services.AddSingleton<ConcurrentSignal<RequestData>>();
@@ -351,35 +376,18 @@ public class Program
         // Stream processor factory - optimized singleton for high-throughput scenarios
         services.AddSingleton<StreamProcessorFactory>();
 
-        // Shared Iterator Registry - conditionally registered based on UseSharedIterators option
-        // When enabled, requests to the same path share the same iterator for fair distribution
-        services.AddSingleton<ISharedIteratorRegistry>(sp =>
-        {
-            var options = sp.GetRequiredService<IOptions<BackendOptions>>().Value;
-            if (!options.UseSharedIterators)
-            {
-                // Return null - WorkerFactory handles null gracefully
-                return null!;
-            }
-            var logger = sp.GetRequiredService<ILogger<SharedIteratorRegistry>>();
-            return new SharedIteratorRegistry(
-                logger,
-                options.SharedIteratorTTLSeconds,
-                options.SharedIteratorCleanupIntervalSeconds);
-        });
-        services.AddSingleton<IShutdownParticipant>(sp =>
-        {
-            var registry = sp.GetRequiredService<ISharedIteratorRegistry>();
-            return registry as IShutdownParticipant ?? throw new InvalidOperationException(
-                "ISharedIteratorRegistry implementation does not implement IShutdownParticipant");
-        });
+        // Shared Iterator Registry — requests to the same path share the same iterator for fair distribution
+        services.AddSingleton<SharedIteratorRegistry>();
+        services.AddSingleton<ISharedIteratorRegistry>(sp => sp.GetRequiredService<SharedIteratorRegistry>());
+        services.AddSingleton<IShutdownParticipant>(sp => sp.GetRequiredService<SharedIteratorRegistry>());
 
         services.AddHostedService<WorkerFactory>();
         services.AddTransient(source => new CancellationTokenSource());
-        services.AddHostedService<CoordinatedShutdownService>();
+        services.AddSingleton<CoordinatedShutdownService>();
+        services.AddHostedService<CoordinatedShutdownService>(sp => sp.GetRequiredService<CoordinatedShutdownService>());
     }
 
-    private static void RegisterEventHeaders(IServiceCollection services, ILogger startupLogger, BackendOptions backendOptions)
+    private static void RegisterEventHeaders(IServiceCollection services, ILogger startupLogger, ProxyConfig backendOptions)
     {
         var registered = false;
         var eventdataclass = backendOptions.EventHeaders;
@@ -411,7 +419,7 @@ public class Program
         }
     }
 
-    private static void RegisterEventLoggers(IServiceCollection services, ILogger startupLogger, BackendOptions backendOptions, string? eventLoggersRaw)
+    private static void RegisterEventLoggers(IServiceCollection services, ILogger startupLogger, ProxyConfig backendOptions, string? eventLoggersRaw)
     {
         HashSet<string> enabledLoggers;
         if (!string.IsNullOrWhiteSpace(eventLoggersRaw))
@@ -419,7 +427,7 @@ public class Program
             enabledLoggers = new HashSet<string>(
                 eventLoggersRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
                 StringComparer.OrdinalIgnoreCase);
-            Console.WriteLine($"[CONFIG] EVENT_LOGGERS: {string.Join(", ", enabledLoggers)}");
+            startupLogger.LogInformation("[CONFIG] EVENT_LOGGERS: {EventLoggers}", string.Join(", ", enabledLoggers));
         }
         else
         {
@@ -427,7 +435,7 @@ public class Program
             {
                 backendOptions.LogToFile ? "file" : "eventhub"
             };
-            Console.WriteLine($"[CONFIG] EVENT_LOGGERS not set, falling back to legacy: {string.Join(", ", enabledLoggers)}");
+            startupLogger.LogInformation("[CONFIG] EVENT_LOGGERS not set, falling back to legacy: {EventLoggers}", string.Join(", ", enabledLoggers));
         }
 
         foreach (var loggername in enabledLoggers)
@@ -435,7 +443,7 @@ public class Program
             if (loggername == "file")
             {
                 services.AddSingleton<LogFileEventClient>(svc =>
-                    new LogFileEventClient(backendOptions.LogFileName, svc.GetRequiredService<CompositeEventClient>(), svc.GetRequiredService<IOptions<BackendOptions>>()));
+                    new LogFileEventClient(backendOptions.LogFileName, svc.GetRequiredService<CompositeEventClient>(), svc.GetRequiredService<IOptions<ProxyConfig>>()));
                 services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService<LogFileEventClient>());
             }
             else if (loggername == "eventhub")

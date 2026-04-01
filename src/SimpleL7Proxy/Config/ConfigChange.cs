@@ -10,7 +10,7 @@ public readonly record struct ConfigChange
     private readonly object? _oldValue;
     private readonly object? _newValue;
 
-    /// <summary>Property name on <see cref="BackendOptions"/> (e.g. "LogConsole").</summary>
+    /// <summary>Property name on <see cref="ProxyConfig"/> (e.g. "LogConsole").</summary>
     public string PropertyName { get; init; }
 
     /// <summary>The App Configuration key path (e.g. "Logging:LogConsole").</summary>
