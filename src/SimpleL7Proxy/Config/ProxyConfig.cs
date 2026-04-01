@@ -94,6 +94,11 @@ public class ProxyConfig
     [ConfigOption("Response:StripResponseHeaders")]
     public List<string> StripResponseHeaders { get; set; } = [];
 
+    // Sentinel --
+    [ConfigOption("Sentinel")]
+    public string Sentinel { get; set; } = ""; // used for app configrefresh
+
+
     // ── User ──
     [ConfigOption("User:SuspendedUserConfigUrl")]
     public string SuspendedUserConfigUrl { get; set; } = ""; // e.g. "file:suspended.json" or "http://configservice/suspended"
@@ -246,6 +251,9 @@ public class ProxyConfig
     [ConfigOption("Logging:LogToFile", ConfigName = "LOGTOFILE", Mode = ConfigMode.Hidden)]
     public bool LogToFile { get; set; } = false;
 
+    [ConfigOption("Logging:LogDateTime", ConfigName = "LOGDATETIME", Mode = ConfigMode.Cold)]
+    public bool LogDateTime { get; set; } = false;
+
     // ── Shared Iterators ──
     /// <summary>
     /// When true, requests to the same path share the same host iterator,
@@ -283,8 +291,12 @@ public class ProxyConfig
     // ── Metadata ──
     [ConfigOption("Metadata:ContainerApp", ConfigName = "CONTAINER_APP_NAME", Mode = ConfigMode.Hidden)]
     public string ContainerApp { get; set; } = "ContainerAppName";
+    [ConfigOption("Metadata:HostName", ConfigName = "Hostname", Mode = ConfigMode.Hidden)]
+    public string HostName { get; set; } = "";
     [ConfigOption("Metadata:IDStr", ConfigName = "RequestIDPrefix", Mode = ConfigMode.Hidden)]
     public string IDStr { get; set; } = "S7P";
+    [ConfigOption("Metadata:ReplicaName", ConfigName = "CONTAINER_APP_REPLICA_NAME", Mode = ConfigMode.Hidden)]
+    public string ReplicaName { get; set; } = "";
     [ConfigOption("Metadata:Revision", ConfigName = "CONTAINER_APP_REVISION", Mode = ConfigMode.Hidden)]
     public string Revision { get; set; } = "revisionID";
 
@@ -292,7 +304,6 @@ public class ProxyConfig
     public HttpClient? Client { get; set; }
     public bool HealthProbeSidecarEnabled { get; set; } = false;
     public string HealthProbeSidecarUrl { get; set; } = "http://localhost/9000";
-    public string HostName { get; set; } = "";
     public List<HostConfig> Hosts { get; set; } = [];
     public Dictionary<int, int> PriorityWorkers { get; set; } = new() { { 2, 1 }, { 3, 1 } };
     public bool TrackWorkers { get; set; } = true;
@@ -330,81 +341,52 @@ public class ProxyConfig
     }
 
     /// <summary>
-    /// Applies a single configuration field from the environment dictionary to this instance.
-    /// Uses reflection to set the named property, falling back to the corresponding default value when the
-    /// environment variable is absent or set to the default placeholder.
+    /// Applies a single configuration field from the incoming settings to this instance.
+    /// Looks up <paramref name="configKey"/> in <paramref name="incomingSettings"/>; when absent
+    /// or set to the default placeholder, the property is left unchanged.
+    /// The caller is expected to seed this instance (e.g. via DeepClone) before calling.
     /// </summary>
-    public void ApplyFieldFromEnv(Dictionary<string, string> env, ProxyConfig defaults, string envVar, string property)
+    public void ApplyFieldFromEnv(Dictionary<string, string> incomingSettings, string configKey, string propertyName)
     {
-        var pi = typeof(ProxyConfig).GetProperty(property) ?? throw new InvalidOperationException($"Unknown BackendOptions property: {property}");
-        var defVal = pi.GetValue(defaults);
-        var type = pi.PropertyType;
+        var prop = typeof(ProxyConfig).GetProperty(propertyName) ?? throw new InvalidOperationException($"Unknown ProxyConfig property: {propertyName}");
+        var currentValue = prop.GetValue(this);
+        var type = prop.PropertyType;
 
-        var envValue = env.GetValueOrDefault(envVar)?.Trim();
-        bool envVarPresent = !string.IsNullOrEmpty(envValue) && envValue != ConfigOptions.DefaultPlaceholder;
-        if (!envVarPresent)
-        {
-            var currentVal = pi.GetValue(this);
-            bool alreadyChanged = !Equals(currentVal, defVal);
-            if (alreadyChanged)
-            {
-                return;
-            }
-        }
+        var rawIncoming = incomingSettings.GetValueOrDefault(configKey)?.Trim();
+        bool hasIncomingValue = !string.IsNullOrEmpty(rawIncoming) && rawIncoming != ConfigMetadata.DefaultPlaceholder;
+        if (!hasIncomingValue)
+            return;
 
-        if (type == typeof(int) || type == typeof(double))
+        object? resolved = type switch
         {
-            var val = ConfigParser.ReadEnvironmentVariableOrDefault(env, envVar, Convert.ToInt32(defVal));
-            pi.SetValue(this, Convert.ChangeType(val, type));
-        }
-        else if (type == typeof(float))
-        {
-            var val = ConfigParser.ReadEnvironmentVariableOrDefault(env, envVar, Convert.ToSingle(defVal));
-            pi.SetValue(this, Convert.ChangeType(val, type));
-        }
-        else if (type == typeof(string))
-        {
-            pi.SetValue(this, ConfigParser.ReadEnvironmentVariableOrDefault(env, envVar, (string)defVal!));
-        }
-        else if (type == typeof(bool))
-        {
-            pi.SetValue(this, ConfigParser.ReadEnvironmentVariableOrDefault(env, envVar, (bool)defVal!));
-        }
-        else if (type == typeof(List<string>))
-        {
-            var value = ConfigParser.ReadEnvironmentVariableOrDefault(env, envVar, string.Join(",", (List<string>)defVal!));
-            pi.SetValue(this, ConfigParser.ToListOfString(value));
-        }
-        else if (type == typeof(List<int>))
-        {
-            var value = ConfigParser.ReadEnvironmentVariableOrDefault(env, envVar, string.Join(",", (List<int>)defVal!));
-            pi.SetValue(this, ConfigParser.ToListOfInt(value));
-        }
-        else if (type == typeof(int[]))
-        {
-            pi.SetValue(this, ConfigParser.ReadEnvironmentVariableOrDefault(env, envVar, (int[])defVal!));
-        }
-        else if (type == typeof(Dictionary<string, string>))
-        {
-            var defaultValue = string.Join(",", ((Dictionary<string, string>)defVal!).Select(kvp => $"{kvp.Key}={kvp.Value}"));
-            var value = ConfigParser.ReadEnvironmentVariableOrDefault(env, envVar, defaultValue);
-            pi.SetValue(this, ConfigParser.KVStringPairs(ConfigParser.ToListOfString(value)));
-        }
-        else if (type.IsEnum)
-        {
-            var value = ConfigParser.ReadEnvironmentVariableOrDefault(env, envVar, defVal!.ToString()!);
-            if (Enum.TryParse(type, value, true, out var parsed))
-            {
-                pi.SetValue(this, parsed);
-            }
-            else
-            {
-                pi.SetValue(this, defVal);
-            }
-        }
-        else
-        {
-            throw new NotSupportedException($"ApplyFieldFromEnv: unsupported property type {type.Name} for {property}");
-        }
+            _ when type == typeof(int)
+                => ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, Convert.ToInt32(currentValue)),
+            _ when type == typeof(double)
+                => ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, Convert.ToInt32(currentValue)),
+            _ when type == typeof(float)
+                => ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, Convert.ToSingle(currentValue)),
+            _ when type == typeof(string)
+                => ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, (string)currentValue!),
+            _ when type == typeof(bool)
+                => ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, (bool)currentValue!),
+            _ when type == typeof(List<string>)
+                => ConfigParser.ToListOfString(
+                       ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, string.Join(",", (List<string>)currentValue!))),
+            _ when type == typeof(List<int>)
+                => ConfigParser.ToListOfInt(
+                       ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, string.Join(",", (List<int>)currentValue!))),
+            _ when type == typeof(int[])
+                => ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, (int[])currentValue!),
+            _ when type == typeof(Dictionary<string, string>)
+                => ConfigParser.KVStringPairs(ConfigParser.ToListOfString(
+                       ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey,
+                           string.Join(",", ((Dictionary<string, string>)currentValue!).Select(kvp => $"{kvp.Key}={kvp.Value}"))))),
+            _ when type.IsEnum
+                => Enum.TryParse(type, ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, currentValue!.ToString()!), true, out var parsed)
+                    ? parsed : currentValue,
+            _ => throw new NotSupportedException($"ApplyFieldFromEnv: unsupported property type {type.Name} for {propertyName}")
+        };
+
+        prop.SetValue(this, resolved);
     }
 }

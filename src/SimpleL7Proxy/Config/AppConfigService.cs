@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Azure.Data.AppConfiguration;
+using System.Collections.Frozen;
 using SimpleL7Proxy.Backend;
 
 namespace SimpleL7Proxy.Config;
@@ -18,21 +19,21 @@ public class AppConfigService : BackgroundService
     private readonly string? _endpoint;
     private readonly string? _connectionString;
     private readonly string? _labelFilter;
-    private ProxyConfig _options;
     private readonly DefaultCredential _defaultCredential;
     private readonly TimeSpan _refreshInterval;
     private bool _isInitialized = false;
 
-    // Warm-keyed snapshot: "Warm:KeyPath" → value, used by DetectWarmChanges.
-    private Dictionary<string, string> _warmSnapshot = new(StringComparer.OrdinalIgnoreCase);
+    // App Config key path → config name (e.g. "Logging:LogConsole" → "LogConsole").
+    // Built once from static descriptors; never changes.
+    private static readonly FrozenDictionary<string, string> s_keyPathToConfigName =
+        ConfigMetadata.Descriptors.ToFrozenDictionary(
+            d => d.Attribute.KeyPath, d => d.ConfigName, StringComparer.OrdinalIgnoreCase);
+
     private string? _lastSentinel;
 
     // Set from Program.cs after the DI container is built.
     public ConfigChangeNotifier? Notifier { get; set; }
     public IHostHealthCollection? HostCollection { get; set; }
-
-    /// <summary>The downloaded settings (merged warm + cold), available after <see cref="Start"/> has been awaited.</summary>
-    public Dictionary<string, string>? Settings { get; private set; }
 
     /// <summary>Only warm-prefixed settings, available after <see cref="Start"/> has been awaited.</summary>
     public Dictionary<string, string>? WarmSettings { get; private set; }
@@ -40,7 +41,8 @@ public class AppConfigService : BackgroundService
     /// <summary>Only cold-prefixed settings, available after <see cref="Start"/> has been awaited.</summary>
     public Dictionary<string, string>? ColdSettings { get; private set; }
 
-    public static ProxyConfig DEFAULT_OPTIONS { get; set; }
+    private ProxyConfig _options = null!;
+    public static ProxyConfig DEFAULT_OPTIONS { get; set; } = null!;
 
 
     public AppConfigService(ILogger<AppConfigService> logger, ProxyConfig backendOptions, DefaultCredential defaultCredential)
@@ -76,7 +78,6 @@ public class AppConfigService : BackgroundService
             return;
         }
 
-        _logger.LogInformation("[BOOTSTRAP] Starting App Configuration bootstrap download...");
         _downloadTask = Task.Run(DownloadConfig);
     }
 
@@ -107,27 +108,15 @@ public class AppConfigService : BackgroundService
             return (null, null);
         }
 
-        _logger.LogInformation("[BOOTSTRAP] Retrieved {WarmCount} warm and {ColdCount} cold App Configuration value(s)", warm.Count, cold.Count);
-        CommitDownload(warm, cold);
-        _isInitialized = true;
-        return (WarmSettings, ColdSettings);
-    }
-
-    public (Dictionary<string, string>?, Dictionary<string, string>?) WaitForDownload() => (Settings, ColdSettings);
-
-    /// <summary>
-    /// Commits a freshly downloaded config: stores Settings, swaps snapshot, extracts sentinel.
-    /// </summary>
-    private void CommitDownload(Dictionary<string, string> warm, Dictionary<string, string> cold)
-    {
+        _logger.LogInformation("[BOOTSTRAP] App Configuration- Warm: {WarmCount}, Cold: {ColdCount} Refresh: {interval} secs", warm.Count, cold.Count, _refreshInterval.TotalSeconds);
         WarmSettings = warm;
         ColdSettings = cold;
-        // Merge: cold first, then warm overwrites (warm takes precedence)
-        // var merged = new Dictionary<string, string>(cold, StringComparer.OrdinalIgnoreCase);
-        // foreach (var kvp in warm) merged[kvp.Key] = kvp.Value;
-        // Settings = merged;
-        // _snapshot = new Dictionary<string, string>(_warmSnapshot, StringComparer.OrdinalIgnoreCase);
-        _lastSentinel = _warmSnapshot.TryGetValue("Warm:Sentinel", out var s) ? s : null;
+        warm.TryGetValue("Sentinel", out _lastSentinel);
+        if (_lastSentinel == null)
+            _logger.LogInformation("[APP-CONFIG] Sentinel missing");
+        _isInitialized = true;
+
+        return (WarmSettings, ColdSettings);
     }
 
     /// <summary>
@@ -148,13 +137,17 @@ public class AppConfigService : BackgroundService
         if (string.IsNullOrEmpty(_endpoint) && string.IsNullOrEmpty(_connectionString))
             return; // No App Config — nothing to refresh.
 
-        _logger.LogInformation("[BOOTSTRAP] App Configuration refresh: {Interval} seconds", _refreshInterval.TotalSeconds);
-
+        DateTime nextRefreshTime = DateTime.UtcNow.Add(_refreshInterval);
         while (!stoppingToken.IsCancellationRequested)
         {
-            await Task.Delay(_refreshInterval, stoppingToken);
+            var delay = nextRefreshTime - DateTime.UtcNow;
+            if (delay > TimeSpan.Zero)
+            {
+                await Task.Delay(delay, stoppingToken);
+            }
             try { 
                 await ProcessRefreshAsync(stoppingToken);
+                nextRefreshTime = nextRefreshTime.Add(_refreshInterval);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex) { _logger.LogWarning(ex, "[BOOTSTRAP] Refresh failed, will retry"); }
@@ -173,12 +166,14 @@ public class AppConfigService : BackgroundService
         var result = await Task.Run(DownloadConfig, ct);
 
         var (warm, cold) = result.Value;
-        CommitDownload(warm, cold);
+        WarmSettings = warm;
+        ColdSettings = cold;
+        warm.TryGetValue("Sentinel", out _lastSentinel);
 
         if (result == null || Notifier == null)
             return;
 
-        await ConfigFactory.ApplyRefresh(
+        await ConfigFactory.ApplyRefreshV2(
             _options, DEFAULT_OPTIONS, warm, Notifier, HostCollection, _logger, ct);
     }
 
@@ -214,59 +209,48 @@ public class AppConfigService : BackgroundService
         return _cachedClient;
     } 
 
+    /// <summary>
+    /// Downloads all settings from Azure App Configuration in a single round-trip,
+    /// filtered by label. Each key is expected to have a "Warm:" or "Cold:" prefix;
+    /// unrecognised prefixes default to cold. The prefix is stripped and the remaining
+    /// key path is resolved to a config name via <see cref="s_keyPathToConfigName"/>
+    /// or passed through directly for backend host keys.
+    /// Returns null if the download fails.
+    /// </summary>
     private (Dictionary<string, string> warm, Dictionary<string, string> cold)? DownloadConfig()
     {
         try
         {
             var client = GetConfigurationClient();
 
-            // Build a lookup from App Config key path → env var name using the descriptors.
-            // e.g. "Logging:LogConsole" → "LogConsole", "Async:Timeout" → "AsyncTimeout"
-            var keyPathToEnvVar = ConfigMetadata.Descriptors
-                .ToDictionary(d => d.Attribute.KeyPath, d => d.ConfigName, StringComparer.OrdinalIgnoreCase);
-
             var warm = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var cold = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            var warmSnapshot = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var prefix in new[] { "Warm:", "Cold:" })
+            var selector = new SettingSelector { KeyFilter = "*", LabelFilter = _labelFilter };
+            foreach (var setting in client.GetConfigurationSettings(selector))
             {
-                var isWarm = prefix == "Warm:";
-                var target = isWarm ? warm : cold;
-                var selector = new SettingSelector { KeyFilter = $"{prefix}*", LabelFilter = _labelFilter };
-                foreach (var setting in client.GetConfigurationSettings(selector))
+                var (key, value) = (setting.Key, setting.Value ?? "");
+
+                if (key.Length < 6) continue;
+
+                var keyPath = key[5..];
+                Dictionary<string, string>? target =
+                    key.StartsWith("Warm:", StringComparison.OrdinalIgnoreCase) ? warm :
+                    key.StartsWith("Cold:", StringComparison.OrdinalIgnoreCase) ? cold :
+                    cold;
+
+                var resolvedKey = s_keyPathToConfigName.TryGetValue(keyPath, out var envVarName) ? envVarName
+                    : ConfigParser.IsBackendHostConfigName(keyPath) ? keyPath
+                    : null;
+
+                if (resolvedKey == null)
                 {
-                    var keyPath = setting.Key.Substring(prefix.Length);
-                    if (string.IsNullOrEmpty(keyPath)) continue;
-
-                    var value = setting.Value ?? "";
-
-                    if (isWarm && keyPath.Equals("Sentinel", StringComparison.OrdinalIgnoreCase))
-                    {
-                        warmSnapshot[setting.Key] = value;
-                        continue;
-                    }
-
-                    if (keyPathToEnvVar.TryGetValue(keyPath, out var envVarName))
-                    {
-                        target[envVarName] = value;
-                        if (isWarm) warmSnapshot[setting.Key] = value;
-                        _logger.LogDebug("[CONFIG] {Key} → {EnvVar}", setting.Key, envVarName);
-                    }
-                    else if (ConfigParser.IsBackendHostConfigName(keyPath))
-                    {
-                        target[keyPath] = value;
-                        if (isWarm) warmSnapshot[setting.Key] = value;
-                        _logger.LogDebug("[CONFIG] {Key} → {KeyPath}", setting.Key, keyPath);
-                    }
-                    else
-                    {
-                        _logger.LogDebug("[CONFIG] No descriptor for key {Key}, skipping", setting.Key);
-                    }
+                    _logger.LogInformation("[CONFIG] No descriptor for key {Key}, skipping", key);
+                    continue;
                 }
-            }
 
-            _warmSnapshot = warmSnapshot;
+                target[resolvedKey] = value;
+            }
 
             return (warm, cold);
         }

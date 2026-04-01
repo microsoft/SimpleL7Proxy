@@ -75,11 +75,11 @@ public static class ConfigFactory
     }
     else
     {
-      var merged = new Dictionary<string, string>(coldSettings ?? new Dictionary<string, string>());
+      var incoming = new Dictionary<string, string>(coldSettings ?? new Dictionary<string, string>());
       if ( warmSettings != null)
-        foreach (var kvp in warmSettings) merged[kvp.Key] = kvp.Value;
+        foreach (var kvp in warmSettings) incoming[kvp.Key] = kvp.Value;
 
-      envOptions = ConfigParser.ApplyEnv(merged, baseOptions);      
+      envOptions = ConfigParser.ApplyEnv(incoming, baseOptions);      
     }
 
     ConfigParser.ConfigureHttpClient(envOptions);
@@ -114,9 +114,9 @@ public static class ConfigFactory
         var before = field.GetValue(liveOptions); // TODO: remove debug
         ds.Clear();
         ds[kvp.Key] = kvp.Value?.ToString() ?? "";
-        liveOptions.ApplyFieldFromEnv(ds, defaultOptions, kvp.Key, field.Name);
+        liveOptions.ApplyFieldFromEnv(ds, kvp.Key, field.Name);
         var after = field.GetValue(liveOptions); // TODO: remove debug
-        Console.WriteLine($"[WARM] Applied {kvp.Key} ({field.Name}): '{before}' -> '{after}'"); // TODO: remove debug
+        // Console.WriteLine($"[WARM] Applied {kvp.Key} ({field.Name}): '{before}' -> '{after}'"); // TODO: remove debug
     }
 
     // Collect changed PropertyInfos for derived-settings recalculation.
@@ -126,23 +126,109 @@ public static class ConfigFactory
         if (fields.TryGetValue(change.PropertyName, out var prop))
             changedProps.Add(prop);
     }
-    Console.WriteLine($"[WARM] {changedProps.Count} derived-settings prop(s) to recalculate"); // TODO: remove debug
+    // Console.WriteLine($"[WARM] {changedProps.Count} derived-settings prop(s) to recalculate"); // TODO: remove debug
     if (changedProps.Count > 0)
         ConfigParser.ApplyDerivedSettings(liveOptions, [.. changedProps]);
 
     if (hostChanges.Count > 0)
     {
-        Console.WriteLine($"[WARM] {hostChanges.Count} host change(s) detected, re-registering backends"); // TODO: remove debug
+        // Console.WriteLine($"[WARM] {hostChanges.Count} host change(s) detected, re-registering backends"); // TODO: remove debug
         RegisterBackends(liveOptions, null, hostChanges, hostCollection);
     }
 
     if (changes.Count > 0)
     {
-        Console.WriteLine($"[WARM] Notifying {changes.Count} change(s): {string.Join(", ", changes.Select(c => c.PropertyName))}"); // TODO: remove debug
+        // Console.WriteLine($"[WARM] Notifying {changes.Count} change(s): {string.Join(", ", changes.Select(c => c.PropertyName))}"); // TODO: remove debug
         logger.LogInformation("[BOOTSTRAP] Applied {Count} warm change(s): {Names}",
             changes.Count, string.Join(", ", changes.Select(c => c.PropertyName)));
         if (notifier != null)
             await notifier.NotifyAsync(changes, liveOptions, ct);
+    }
+  }
+
+  /// <summary>
+  /// Single-pass warm-refresh: detects changes, applies them to liveOptions, derives
+  /// dependent settings, re-registers backends, and notifies subscribers — all without
+  /// throwaway ProxyConfig allocations or double-parsing.
+  /// Parallel replacement for ApplyRefresh + DetectWarmChanges for comparison.
+  /// </summary>
+  public static async Task ApplyRefreshV2(
+      ProxyConfig liveOptions,
+      ProxyConfig defaultOptions,
+      Dictionary<string, string> warm,
+      ConfigChangeNotifier? notifier,
+      IHostHealthCollection? hostCollection,
+      ILogger logger,
+      CancellationToken ct)
+  {
+    var changeList = new List<ConfigChange>();
+    var changedProps = new List<PropertyInfo>();
+    var hostChanges = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    var env = new Dictionary<string, string>(1, StringComparer.OrdinalIgnoreCase);
+
+    foreach (var kvp in warm)
+    {
+        var (key, rawValue) = (kvp.Key, kvp.Value);
+        if (string.IsNullOrEmpty(rawValue)) continue;
+
+        // Host keys are handled separately via RegisterBackends.
+        if (key.StartsWith("Host") || key.StartsWith("Probe") || key.StartsWith("IP"))
+        {
+            hostChanges[key] = rawValue;
+            continue;
+        }
+
+        // Resolve the warm descriptor (try key-path first, then config name).
+        if (!ConfigMetadata.WarmDescriptorsByKeyPath.TryGetValue(key, out var descriptor)
+            && !ConfigMetadata.WarmDescriptorsByConfigName.TryGetValue(key, out descriptor))
+            continue;
+
+        var configName = descriptor.ConfigName;
+        if (!ConfigMetadata.TryGetFieldByConfigName(configName, out var field) || field == null)
+            continue;
+
+        // Capture the current live value before applying.
+        var currentValue = field.GetValue(liveOptions);
+
+        // Parse the raw value by applying directly to liveOptions (single parse).
+        env.Clear();
+        env[configName] = rawValue;
+        liveOptions.ApplyFieldFromEnv(env, configName, field.Name);
+        var newValue = field.GetValue(liveOptions);
+
+        // If unchanged, skip.
+        if (DeepEquals(currentValue, newValue)) continue;
+
+        Console.WriteLine($"[WARM-V2] Applied {configName} ({field.Name}): '{currentValue}' -> '{newValue}'"); // TODO: remove debug
+
+        changedProps.Add(field);
+        changeList.Add(new ConfigChange
+        {
+            PropertyName = configName,
+            KeyPath = descriptor.Attribute.KeyPath,
+            RawOldValue = currentValue,
+            RawNewValue = newValue
+        });
+    }
+
+    if (changeList.Count == 0 && hostChanges.Count == 0)
+        return;
+
+    // Recalculate derived settings for any changed properties.
+    if (changedProps.Count > 0)
+        ConfigParser.ApplyDerivedSettings(liveOptions, [.. changedProps]);
+
+    // Re-register backends if host keys changed.
+    if (hostChanges.Count > 0)
+        RegisterBackends(liveOptions, null, hostChanges, hostCollection);
+
+    // Notify subscribers.
+    if (changeList.Count > 0)
+    {
+        logger.LogInformation("[BOOTSTRAP] Applied {Count} warm change(s): {Names}",
+            changeList.Count, string.Join(", ", changeList.Select(c => c.PropertyName)));
+        if (notifier != null)
+            await notifier.NotifyAsync(changeList, liveOptions, ct);
     }
   }
 
@@ -187,7 +273,7 @@ public static class ConfigFactory
         env.Clear();
         env[configName] = rawValue;
 
-        defaultTarget.ApplyFieldFromEnv(env, liveOptions, configName, field.Name);
+        defaultTarget.ApplyFieldFromEnv(env, configName, field.Name);
         var newValue = field.GetValue(defaultTarget);
 
         if (DeepEquals(currentValue, newValue)) continue;

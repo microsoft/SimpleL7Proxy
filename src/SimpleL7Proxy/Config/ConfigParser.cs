@@ -40,12 +40,10 @@ public static class ConfigParser
 
         ("AsyncClientRequestHeader", "AsyncClientRequestHeader"),
         ("AsyncClientConfigFieldName", "AsyncClientConfigFieldName"),
-        ("CONTAINER_APP_NAME", "ContainerApp"),
         ("HealthProbeSidecar", "HealthProbeSidecar"),
         ("LoadBalanceMode", "LoadBalanceMode"),
         ("OAuthAudience", "OAuthAudience"),
         ("PriorityKeyHeader", "PriorityKeyHeader"),
-        ("CONTAINER_APP_REVISION", "Revision"),
         ("StorageDbContainerName", "StorageDbContainerName"),
         ("SuspendedUserConfigUrl", "SuspendedUserConfigUrl"),
         ("TimeoutHeader", "TimeoutHeader"),
@@ -91,6 +89,7 @@ public static class ConfigParser
         ("EVENT_HEADERS", "EventHeaders"),
         ("LOGTOFILE", "LogToFile"),
         ("LOGFILE_NAME", "LogFileName"),
+        ("LOGDATETIME", "LogDateTime"),
 
         // ── EventHub ──
         ("EVENTHUB_CONNECTIONSTRING", "EventHubConnectionString"),
@@ -111,35 +110,44 @@ public static class ConfigParser
 
         // ── Security ──
         ("IgnoreSSLCert", "IgnoreSSLCert"),
+
+        // ── Identity ──
+        ("CONTAINER_APP_NAME", "ContainerApp"),
+        ("CONTAINER_APP_REVISION", "Revision"),
+        ("CONTAINER_APP_REPLICA_NAME", "ReplicaName"),
+        ("Hostname", "HostName"),
+        ("RequestIDPrefix", "IDStr"),
     ];
 
 
     // Creates a BackendOptions instance by applying environment variable overrides on top of the defaults
-    public static ProxyConfig ApplyEnv(Dictionary<string, string> dict, ProxyConfig defaults)
+    public static ProxyConfig ApplyEnv(Dictionary<string, string> incoming, ProxyConfig defaults)
     {
-        // calculated values based on logic
-        var opts = new ProxyConfig();
+        // Start from a copy of the defaults; the loop only overwrites keys present in incoming.
+        var opts = defaults.DeepClone();
 
         foreach (var (envVarName, propertyName) in SimpleFields)
         {
-            // for all options, uses either the environment or default value
-            opts.ApplyFieldFromEnv(dict, defaults, envVarName, propertyName);
+            opts.ApplyFieldFromEnv(incoming, envVarName, propertyName);
         }
 
-        opts.AcceptableStatusCodes = ReadEnvironmentVariableOrDefault(dict, "AcceptableStatusCodes", defaults.AcceptableStatusCodes);
-        opts.IterationMode = ReadEnvironmentVariableOrDefault(dict, "IterationMode", defaults.IterationMode);
+        opts.AcceptableStatusCodes = ReadEnvironmentVariableOrDefault(incoming, "AcceptableStatusCodes", defaults.AcceptableStatusCodes);
+        opts.IterationMode = ReadEnvironmentVariableOrDefault(incoming, "IterationMode", defaults.IterationMode);
 
         var defaultPriorityWorkers = string.Join(",", defaults.PriorityWorkers.Select(kvp => $"{kvp.Key}:{kvp.Value}"));
-        opts.PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault(dict, "PriorityWorkers", defaultPriorityWorkers)));
+        opts.PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault(incoming, "PriorityWorkers", defaultPriorityWorkers)));
 
         var defaultValidateHeaders = string.Join(",", defaults.ValidateHeaders.Select(kvp => $"{kvp.Key}={kvp.Value}"));
-        opts.ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault(dict, "ValidateHeaders", defaultValidateHeaders)));
+        opts.ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault(incoming, "ValidateHeaders", defaultValidateHeaders)));
 
-        ApplyAsyncServiceBusOverrides(dict, opts, defaults);
-        ApplyAsyncBlobStorageOverrides(dict, opts, defaults);
+        ApplyAsyncServiceBusOverrides(incoming, opts, defaults);
+        ApplyAsyncBlobStorageOverrides(incoming, opts, defaults);
 
-        // IDStr is derived from the prefix + HostName (already resolved via SimpleFields).
-        opts.IDStr = $"{opts.IDStr}-{opts.HostName}-";
+        // IDStr uses the replica identity for request tracing.
+        // Prefer the container-app replica ID over the resolved HostName,
+        // since Hostname may be explicitly overridden to a user-friendly value.
+        var replicaId = !string.IsNullOrEmpty(opts.ReplicaName) ? opts.ReplicaName : opts.HostName;
+        opts.IDStr = $"{opts.IDStr}-{replicaId}-";
 
         ApplyDerivedSettingsFromConfigNames(
             opts,
@@ -203,12 +211,12 @@ public static class ConfigParser
 
     /// <summary>
     /// <summary>
-    /// Forwards to <see cref="BackendOptions.ApplyFieldFromEnv"/>. Kept for backward compatibility.
+    /// Forwards to <see cref="ProxyConfig.ApplyFieldFromEnv"/>. Kept for backward compatibility.
     /// </summary>
-    public static void ApplyFieldFromEnv(Dictionary<string, string> env, ProxyConfig target, ProxyConfig defaults, string envVar, string property)
-    {
-        target.ApplyFieldFromEnv(env, defaults, envVar, property);
-    }
+    // public static void ApplyFieldFromEnv(Dictionary<string, string> incomingSettings, ProxyConfig target, string configKey, string propertyName)
+    // {
+    //     target.ApplyFieldFromEnv(incomingSettings, configKey, propertyName);
+    // }
 
     public static void ApplyDerivedSettings(ProxyConfig backendOptions, params PropertyInfo[] changedProperties)
     {
@@ -330,12 +338,6 @@ public static class ConfigParser
         opts.AsyncBlobStorageAccountUri = ReadEnvironmentVariableOrDefault(env, "AsyncBlobStorageAccountUri", accountUri);
         opts.AsyncBlobStorageConnectionString = ReadEnvironmentVariableOrDefault(env, "AsyncBlobStorageConnectionString", connStr);
         opts.AsyncBlobStorageUseMI = ReadEnvironmentVariableOrDefault(env, "AsyncBlobStorageUseMI", useMi);
-    }
-
-    private static void ApplyReplicaIdentitySettings(Dictionary<string, string> env, ProxyConfig opts, string replicaId)
-    {
-        opts.HostName = ReadEnvironmentVariableOrDefault(env, "Hostname", replicaId);
-        opts.IDStr = $"{ReadEnvironmentVariableOrDefault(env, "RequestIDPrefix", "S7P")}-{replicaId}-";
     }
 
     private static void ParseHealthProbeSidecarSettings(ProxyConfig backendOptions)
