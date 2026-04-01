@@ -10,7 +10,7 @@ public class CommonEventHeaders(IOptions<ProxyConfig> options) : ICommonEventDat
     new Dictionary<string, string>
     {
       ["Ver"] = Constants.VERSION,
-      ["Revision"] = options.Value.Revision,
+      ["Replica"] = options.Value.ReplicaName,
       ["ContainerApp"] = options.Value.ContainerApp
     }.ToFrozenDictionary();
 

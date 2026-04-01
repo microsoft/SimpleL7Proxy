@@ -90,7 +90,7 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
             
             _composite.Add(this);
             var ConnString = string.IsNullOrEmpty(_config.ConnectionString) ? "Not Set" : "Set";
-            _logger.LogCritical("[SERVICE] ✓ EventHub Client started: ConnectionString: {ConnString}, Name: {EventHubName}, Namespace: {EventHubNamespace}", ConnString, _config.EventHubName, _config.EventHubNamespace);
+            _logger.LogInformation("[SERVICE] ✓ EventHub Client started: ConnectionString: {ConnString}, Name: {EventHubName}, Namespace: {EventHubNamespace}", ConnString, _config.EventHubName, _config.EventHubNamespace);
 
             writerTask = Task.Run(() => EventWriter(workerCancelToken), workerCancelToken);
         }

@@ -209,21 +209,21 @@ public class Program
         var aiConnectionString = options.AppInsightsConnectionString;
         if (!string.IsNullOrEmpty(aiConnectionString))
         {
-            // Register Application Insights
+            // Register Application Insights — also adds the ILogger → App Insights provider,
+            // so all ILogger output flows to both console and App Insights once the host starts.
             services.AddApplicationInsightsTelemetryWorkerService(options =>
             {
                 options.ConnectionString = aiConnectionString;
                 options.EnableAdaptiveSampling = false; // Disable sampling to ensure all your custom telemetry is sent
             });
 
-            // Configure telemetry to filter out duplicate logs
+            // Filter out duplicate request telemetry
             services.Configure<TelemetryConfiguration>(config =>
             {
                 config.TelemetryProcessorChainBuilder.Use(next => new RequestFilterTelemetryProcessor(next));
                 config.TelemetryProcessorChainBuilder.Build();
             });
 
-            // Note: logging isn't fully configured yet
             startupLogger.LogInformation("[INIT] ✓ AppInsights initialized with custom request tracking");
         }
     }
