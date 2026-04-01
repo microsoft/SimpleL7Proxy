@@ -34,7 +34,7 @@ public class ProxyConfig
 
     // ── Load Balancing ──
     [ConfigOption("LoadBalancing:Mode")]
-    public string LoadBalanceMode { get; set; } = "latency"; // "latency", "roundrobin", "random"
+    public string LoadBalanceMode { get; set; } = Constants.Latency;
 
     // ── Server ──
     [ConfigOption("Server:IterationMode")]
