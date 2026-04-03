@@ -239,6 +239,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         await Run(token);
     }  
 
+    bool initialStartup = true;
     // Continuously listens for incoming HTTP requests and processes them.
     // Requests are enqueued with a priority based on specific headers.
     // The method runs until a cancellation is requested.
@@ -303,6 +304,13 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                         _probe["StatusCode"] = ((int)code).ToString();
                         _probe.SendEvent();
 
+                        if (initialStartup )
+                        {
+                            if (code != HttpStatusCode.OK)
+                                _logger.LogInformation("[- PROBE] SERVICE NOT READY: {ProbeType} probe responded with {Code} during startup", probeType, code);
+                            else
+                                initialStartup = false;
+                        }
                         // Console.WriteLine($"[PROBE] {probeType} probe received, responded with {code}");
                         continue;
                     }
