@@ -112,10 +112,11 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
         // Continue draining after cancellation so StopAsync can complete cleanly
         while (!cancellationToken.IsCancellationRequested || _priorityQueue.Count > 0)
         {
-            // 40 seems good,  no timeout or 80ms gives reduced performance
             try
             {
-                await _enqueueEvent.WaitAsync(TimeSpan.FromMilliseconds(40), cancellationToken).ConfigureAwait(false); // Wait for an item to be added
+                // // 40 seems good,  no timeout or 80ms gives reduced performance
+                // await _enqueueEvent.WaitAsync(TimeSpan.FromMilliseconds(40), cancellationToken).ConfigureAwait(false); // Wait for an item to be added
+                await _enqueueEvent.WaitAsync(cancellationToken).ConfigureAwait(false); // Signal-driven: wakes on Enqueue Release(), no timer allocations
             }
             catch (OperationCanceledException)
             {
