@@ -202,7 +202,7 @@ public class AppConfigService : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[CONFIG] Failed to create ConfigurationClient");
+            _logger.LogError(ex, "[CONFIGS] Failed to create ConfigurationClient");
             throw;
         }
 
@@ -245,7 +245,7 @@ public class AppConfigService : BackgroundService
 
                 if (resolvedKey == null)
                 {
-                    _logger.LogInformation("[CONFIG] No descriptor for key {Key}, skipping", key);
+                    _logger.LogInformation("[CONFIGS] No descriptor for key {Key}, skipping", key);
                     continue;
                 }
 
@@ -256,7 +256,7 @@ public class AppConfigService : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "[CONFIG] ✗ App Configuration download failed — continuing with env vars only");
+            _logger.LogWarning(ex, "[CONFIGS] ✗ App Configuration download failed — continuing with env vars only");
             return null;
         }
     }

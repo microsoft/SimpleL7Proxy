@@ -1,0 +1,551 @@
+Experiment: #__ 1 _
+Config Change: __ log to file instead of eventhub _
+Time since change: 30 min
+
+2 MINS AFTER STARTUP:
+  Total Managed Memory: 12.88 MB
+  Working Set: 126.33 MB
+  Private Memory: 199.30 MB
+  Heap Size: 0.00 MB
+  Fragmented: 0.00 MB
+  Gen0 Collections: 0
+  Gen1 Collections: 0
+  Gen2 Collections: 0
+  High Memory Load: 0.00 MB
+
+BEFORE GC:
+  Total Managed Memory: 10.71 MB
+  Working Set: 164.34 MB
+  Private Memory: 233.82 MB
+  Heap Size: 4.47 MB
+  Fragmented: 1.24 MB
+  Gen0 Collections: 4
+  Gen1 Collections: 2
+  Gen2 Collections: 2
+  High Memory Load: 92.16 MB
+
+AFTER GC (forcegc + 2min wait):
+  Total Managed Memory: 7.11 MB
+  Working Set: 143.39 MB
+  Private Memory: 210.88 MB
+  Heap Size: 3.69 MB
+  Fragmented: 0.74 MB
+  Gen0 Collections: 6
+  Gen1 Collections: 4
+  Gen2 Collections: 4
+  High Memory Load: 71.68 MB
+
+Delta from baseline (Private): ___ MB
+
+==== OBSERVATIONS ====
+- First experiment; establishes file-log baseline: 199 MB startup, 211 MB post-GC
+- GC reclaimed ~23 MB private (234→211), indicating significant managed/finalizable churn at idle
+- Managed memory dropped only 3.6 MB (10.7→7.1) yet private dropped 23 MB — most reclaimable memory is native
+- Gen counts 6/4/4 after forced GC — moderate collection activity for 30 min idle
+======================
+
+-------------------------
+
+Experiment: #__ 2 _
+Config Change: __ turn off app insights, re-enable eventhub _
+Time since change: 30 min
+
+2 MINS AFTER STARTUP:
+  Total Managed Memory: 8.82 MB
+  Working Set: 113.16 MB
+  Private Memory: 177.08 MB
+  Heap Size: 0.00 MB
+  Fragmented: 0.00 MB
+  Gen0 Collections: 0
+  Gen1 Collections: 0
+  Gen2 Collections: 0
+  High Memory Load: 0.00 MB
+
+BEFORE GC:
+  Total Managed Memory: 7.06 MB
+  Working Set: 148.66 MB
+  Private Memory: 215.71 MB
+  Heap Size: 3.78 MB
+  Fragmented: 1.74 MB
+  Gen0 Collections: 4
+  Gen1 Collections: 2
+  Gen2 Collections: 2
+  High Memory Load: 81.92 MB
+
+AFTER GC (forcegc + 5min wait):
+  Total Managed Memory: 11.86 MB
+  Working Set: 133.17 MB
+  Private Memory: 199.29 MB
+  Heap Size: 2.42 MB
+  Fragmented: 0.73 MB
+  Gen0 Collections: 6
+  Gen1 Collections: 4
+  Gen2 Collections: 4
+  High Memory Load: 61.44 MB
+
+Delta from baseline (Private): ___ MB
+
+==== OBSERVATIONS ====
+- Startup dropped 22 MB vs Exp 1 (199→177) — removing App Insights is a large savings
+- Post-GC dropped 12 MB (211→199) — AI holds ~12 MB of non-reclaimable native state
+- Pre-GC growth similar (~39 MB vs ~35 MB from startup) — underlying churn rate unchanged without AI
+- EventHub alone (still enabled) adds only ~2-3 MB vs the fully-stripped floor seen later
+======================
+
+-------------------------
+
+Experiment: #__ 3 _
+Config Change: __re-enable app insights, set poller to 300 seconds _
+Time since change: 30 min
+
+2 MINS AFTER STARTUP:
+  Total Managed Memory: 13.32 MB
+  Working Set: 135.14 MB
+  Private Memory: 199.98 MB
+  Heap Size: 0.00 MB
+  Fragmented: 0.00 MB
+  Gen0 Collections: 0
+  Gen1 Collections: 0
+  Gen2 Collections: 0
+  High Memory Load: 0.00 MB
+
+BEFORE GC:
+  Total Managed Memory: 21.79 MB
+  Working Set: 166.27 MB
+  Private Memory: 232.50 MB
+  Heap Size: 4.83 MB
+  Fragmented: 1.61 MB
+  Gen0 Collections: 4
+  Gen1 Collections: 2
+  Gen2 Collections: 2
+  High Memory Load: 92.16 MB
+
+AFTER GC (forcegc + 2min wait):
+  Total Managed Memory: 10.38 MB
+  Working Set: 147.56 MB
+  Private Memory: 213.15 MB
+  Heap Size: 3.79 MB
+  Fragmented: 0.74 MB
+  Gen0 Collections: 6
+  Gen1 Collections: 4
+  Gen2 Collections: 4
+  High Memory Load: 71.68 MB
+
+Delta from baseline (Private): ___ MB
+
+==== OBSERVATIONS ====
+- Startup identical to Exp 1 (199→200 MB) — AI and EH both re-enabled, as expected
+- Post-GC nearly identical to Exp 1 (211→213) — slowing poller from 15s→300s made no difference
+- Managed before-GC highest yet (21.79 MB) — something is accumulating managed objects aggressively
+- Poller frequency doesn't matter; cost appears to be connection pool maintenance, not per-request
+======================
+
+-------------------------
+
+Experiment: #__ 4 _
+Config Change: __ reset poller, disble sidecar health probe _
+Time since change: 30 min
+
+2 MINS AFTER STARTUP:
+  Total Managed Memory: 12.88 MB
+  Working Set: 126.33 MB
+  Private Memory: 199.30 MB
+  Heap Size: 0.00 MB
+  Fragmented: 0.00 MB
+  Gen0 Collections: 0
+  Gen1 Collections: 0
+  Gen2 Collections: 0
+  High Memory Load: 0.00 MB
+
+BEFORE GC:
+  Total Managed Memory: 18.03 MB
+  Working Set: 173.69 MB
+  Private Memory: 235.98 MB
+  Heap Size: 4.93 MB
+  Fragmented: 1.59 MB
+  Gen0 Collections: 4
+  Gen1 Collections: 2
+  Gen2 Collections: 2
+  High Memory Load: 102.40 MB
+
+AFTER GC (forcegc + 2min wait):
+  Managed:  ___ MB
+  Working:  ___ MB
+  Private:  ___ MB
+  Heap:     ___ MB
+
+Delta from baseline (Private): ___ MB
+
+==== OBSERVATIONS ====
+- Startup identical to Exp 1 (199 MB) — removing sidecar has no startup cost
+- Before-GC rose to 236 MB — highest seen; disabling sidecar didn't reduce pressure
+- Post-GC not captured, limiting comparison value
+- Surprising: disabling sidecar didn't help — the problem may be in disposal, not connection count
+======================
+
+-------------------------
+
+Experiment: #__ 5 _
+Config Change: __disable eventhub, appinsights and sidecar _
+Time since change: 30 min
+
+2 MINS AFTER STARTUP:
+  Total Managed Memory: 8.39 MB
+  Working Set: 104.73 MB
+  Private Memory: 172.09 MB
+  Heap Size: 0.00 MB
+  Fragmented: 0.00 MB
+  Gen0 Collections: 0
+  Gen1 Collections: 0
+  Gen2 Collections: 0
+  High Memory Load: 0.00 MB
+
+BEFORE GC: ( at 1:31 )
+  Total Managed Memory: 5.60 MB
+  Working Set: 136.09 MB
+  Private Memory: 215.32 MB
+  Heap Size: 4.10 MB
+  Fragmented: 1.73 MB
+  Gen0 Collections: 3
+  Gen1 Collections: 2
+  Gen2 Collections: 2
+  High Memory Load: 71.68 MB
+
+AFTER GC (forcegc + 6min wait):
+  Total Managed Memory: 9.78 MB
+  Working Set: 121.18 MB
+  Private Memory: 196.57 MB
+  Heap Size: 2.28 MB
+  Fragmented: 0.72 MB
+  Gen0 Collections: 5
+  Gen1 Collections: 4
+  Gen2 Collections: 4
+  High Memory Load: 51.20 MB
+
+Delta from baseline (Private): ___ MB
+
+==== OBSERVATIONS ====
+- Lowest startup yet (172 MB) — stripping EH, AI, and sidecar removes ~27 MB from Exp 1 baseline
+- Vs Exp 2 (AI-only removed, 177 MB), another 5 MB saved — sidecar + EH native cost combined
+- Growth is WORST at +24.5 MB — paradox: fewer services yet more growth?
+- Possible explanation: AI/EH background activity was triggering GC in prior exps, masking accumulation
+- Only the poller (15s) and idle workers remain — they alone drive significant native growth
+======================
+
+-------------------------
+
+Experiment: #__ 6 _
+Config Change: __re-enable sidecar with 30s updates, re-enable app insights, re-enable poller to 15 s, re-enable eventhub _
+Time since change: 30 min
+
+2 MINS AFTER STARTUP:
+  Total Managed Memory: 13.31 MB
+  Working Set: 133.81 MB
+  Private Memory: 201.43 MB
+  Heap Size: 0.00 MB
+  Fragmented: 0.00 MB
+  Gen0 Collections: 0
+  Gen1 Collections: 0
+  Gen2 Collections: 0
+  High Memory Load: 0.00 MB
+
+BEFORE GC:
+  Total Managed Memory: 6.78 MB
+  Working Set: 175.99 MB
+  Private Memory: 235.43 MB
+  Heap Size: 4.57 MB
+  Fragmented: 1.37 MB
+  Gen0 Collections: 4
+  Gen1 Collections: 2
+  Gen2 Collections: 2
+  High Memory Load: 102.40 MB
+
+AFTER GC (forcegc + 3min wait):
+  Total Managed Memory: 9.25 MB
+  Working Set: 154.68 MB
+  Private Memory: 214.25 MB
+  Heap Size: 3.85 MB
+  Fragmented: 0.75 MB
+  Gen0 Collections: 6
+  Gen1 Collections: 4
+  Gen2 Collections: 4
+  High Memory Load: 81.92 MB
+
+Delta from baseline (Private): ___ MB
+
+==== OBSERVATIONS ====
+- Startup rose 29 MB vs Exp 5 (172→201) — re-enabling all services (AI ~22, EH ~3, sidecar ~4)
+- Post-GC rose 18 MB (197→214) — services contribute ~18 MB of non-reclaimable native state
+- Growth LOWER than Exp 5 (+12.8 vs +24.5) — confirms AI's background flushing triggers GC, masking growth
+- Establishes the "all-on" baseline: 201 startup, 214 post-GC, +12.8 MB growth in 30 min
+======================
+
+-------------------------
+
+Experiment: #__ 7 _
+Config Change: __disabple sidecar, no sidecar, poller=1hr, hosts=direct, eventhub-return-early _
+Time since change: 30 min
+
+2 MINS AFTER STARTUP:
+  Total Managed Memory: 8.02 MB
+  Working Set: 106.34 MB
+  Private Memory: 172.63 MB
+  Heap Size: 0.00 MB
+  Fragmented: 0.00 MB
+  Gen0 Collections: 0
+  Gen1 Collections: 0
+  Gen2 Collections: 0
+  High Memory Load: 0.00 MB
+
+BEFORE GC:
+  Total Managed Memory: 23.94 MB
+  Working Set: 146.31 MB
+  Private Memory: 211.46 MB
+  Heap Size: 4.28 MB
+  Fragmented: 0.73 MB
+  Gen0 Collections: 2
+  Gen1 Collections: 1
+  Gen2 Collections: 0
+  High Memory Load: 71.68 MB
+
+AFTER GC (forcegc + 2min wait):
+  Total Managed Memory: 5.59 MB
+  Working Set: 124.86 MB
+  Private Memory: 186.68 MB
+  Heap Size: 2.34 MB
+  Fragmented: 0.74 MB
+  Gen0 Collections: 4
+  Gen1 Collections: 3
+  Gen2 Collections: 2
+  High Memory Load: 51.20 MB
+
+Delta from baseline (Private): ___ MB
+
+==== OBSERVATIONS ====
+- Startup identical to Exp 5 (172→173) — same minimal config, just poller pushed to 1hr
+- Post-GC dropped 10 MB vs Exp 5 (197→187) — poller TLS connection pool costs ~10 MB native
+- Managed before-GC spiked to 24 MB — highest managed reading in any experiment
+- Something in the idle workers is allocating heavily; poller was barely active at 1hr interval
+- Gen counts 2/1/0 before GC — very few collections, so managed objects just accumulated
+======================
+
+-------------------------
+
+Experiment: #__ 8 _
+Config Change:  _ signalWorker => 4000 _
+Time since change: 30 min
+
+5 MINS AFTER STARTUP:  
+  Total Managed Memory: 5.42 MB
+  Working Set: 103.98 MB
+  Private Memory: 171.95 MB
+  Heap Size: 0.00 MB
+  Fragmented: 0.00 MB
+  Gen0 Collections: 0
+  Gen1 Collections: 0
+  Gen2 Collections: 0
+  High Memory Load: 0.00 MB
+
+BEFORE GC:
+  Total Managed Memory: 4.28 MB
+  Working Set: 129.33 MB
+  Private Memory: 201.37 MB
+  Heap Size: 5.04 MB
+  Fragmented: 3.37 MB
+  Gen0 Collections: 1
+  Gen1 Collections: 1
+  Gen2 Collections: 1
+  High Memory Load: 61.44 MB
+
+AFTER GC (forcegc + 2min wait):
+  Total Managed Memory: 2.44 MB
+  Working Set: 120.99 MB
+  Private Memory: 186.34 MB
+  Heap Size: 2.35 MB
+  Fragmented: 0.74 MB
+  Gen0 Collections: 3
+  Gen1 Collections: 3
+  Gen2 Collections: 3
+  High Memory Load: 51.20 MB
+
+Delta from baseline (Private): ___ MB
+
+==== OBSERVATIONS ====
+- Managed before-GC plummeted from 24 MB (Exp 7) to 4 MB — single variable change (40ms→4000ms)
+- Confirms the 24 MB managed spike was entirely timer allocation churn from SemaphoreSlim.WaitAsync(TimeSpan)
+- Pre-GC private dropped 10 MB (211→201) — fewer live managed objects = less native overhead
+- Post-GC identical to Exp 7 (187→186) — timer objects were transient, not a permanent leak
+- Gen counts dropped to 1/1/1 from 2/1/0 — dramatically less GC pressure
+======================
+
+Experiment: #__ 9 _
+Config Change:  _ make signalworker without delay, added agressive GC to dockerfile _
+Time since change: 30 min
+
+3 MINS AFTER STARTUP:  
+  Total Managed Memory: 5.65 MB
+  Working Set: 105.39 MB
+  Private Memory: 170.30 MB
+  Heap Size: 0.00 MB
+  Fragmented: 0.00 MB
+  Gen0 Collections: 0
+  Gen1 Collections: 0
+  Gen2 Collections: 0
+  High Memory Load: 0.00 MB
+
+Before GC:
+  Total Managed Memory: 8.58 MB
+  Working Set: 127.01 MB
+  Private Memory: 192.44 MB
+  Heap Size: 5.09 MB
+  Fragmented: 3.62 MB
+  Gen0 Collections: 1
+  Gen1 Collections: 1
+  Gen2 Collections: 1
+  High Memory Load: 51.20 MB
+
+AFTER GC (forcegc + 2min wait):
+  Total Managed Memory: 2.25 MB
+  Working Set: 118.36 MB
+  Private Memory: 181.79 MB
+  Heap Size: 2.30 MB
+  Fragmented: 0.74 MB
+  Gen0 Collections: 3
+  Gen1 Collections: 3
+  Gen2 Collections: 3
+  High Memory Load: 51.20 MB
+
+==== OBSERVATIONS ====
+- Post-GC dropped 5 MB vs Exp 8 (186→182) — Workstation GC decommits pages more eagerly
+- Pre-GC dropped 9 MB (201→192) — pure signal (no timeout) generates zero timer overhead
+- Lowest post-GC floor yet (182 MB) — likely near the irreducible minimum for this app
+- Two variables changed (signal + WS GC); combined savings ~9 MB post-GC vs Exp 7
+- Gen counts identical to Exp 8 (1/1/1) — no change in collection frequency
+======================
+
+Experiment: #__ 10 _
+Config Change:  _ eventlogs, apim mode, poller=15s, appinsights, sidecar _
+Time since change: overnight
+
+2 MINS AFTER STARTUP:  17:24:37
+  Total Managed Memory: 11.16 MB
+  Working Set: 129.34 MB
+  Private Memory: 198.27 MB
+  Heap Size: 0.00 MB
+  Fragmented: 0.00 MB
+  Gen0 Collections: 0
+  Gen1 Collections: 0
+  Gen2 Collections: 0
+  High Memory Load: 0.00 MB
+
+Next morning:  8:53:23 AM
+  Total Managed Memory: 12.74 MB
+  Working Set: 171.14 MB
+  Private Memory: 235.27 MB
+  Heap Size: 4.56 MB
+  Fragmented: 1.73 MB
+  Gen0 Collections: 61
+  Gen1 Collections: 61
+  Gen2 Collections: 61
+  High Memory Load: 102.40 MB
+
+==== OBSERVATIONS ====
+- Overnight growth: +37 MB in 15.5 hrs = ~2.4 MB/hr with all services on
+- Signal fix (Exp 8/9) reduced short-term churn, but long-term growth persists
+- GC 61:61:61 = every collection is full Gen2 — GCConserveMemory=9 working as intended
+- Despite aggressive Gen2 collection, native memory still grew — remaining source is not managed
+- Managed stayed flat (11→13 MB) — confirms the growth is purely native/unmanaged
+======================
+
+Experiment: #__ 11 _
+Config Change:  _ apply using fixes on poller,  updated poller to 1s  _
+Time since change: 30 mins
+
+2 MINS AFTER STARTUP:
+  Total Managed Memory: 14.98 MB
+  Working Set: 135.44 MB
+  Private Memory: 202.44 MB
+  Heap Size: 0.00 MB
+  Fragmented: 0.00 MB
+  Gen0 Collections: 0
+  Gen1 Collections: 0
+  Gen2 Collections: 0
+  High Memory Load: 0.00 MB
+
+Before GC:
+  Total Managed Memory: 10.89 MB
+  Working Set: 160.45 MB
+  Private Memory: 233.92 MB
+  Heap Size: 5.39 MB
+  Fragmented: 2.24 MB
+  Gen0 Collections: 5
+  Gen1 Collections: 3
+  Gen2 Collections: 2
+  High Memory Load: 92.16 MB
+
+AFTER GC (forcegc + 2min wait):
+  Total Managed Memory: 9.56 MB
+  Working Set: 138.89 MB
+  Private Memory: 212.15 MB
+  Heap Size: 3.94 MB
+  Fragmented: 0.73 MB
+  Gen0 Collections: 7
+  Gen1 Collections: 5
+  Gen2 Collections: 4
+  High Memory Load: 61.44 MB
+
+==== OBSERVATIONS ====
+- Despite 60x more polling (1s vs 15s), post-GC growth only +9.7 MB — LESS than Exp 6 baseline (+12.8)
+- `using var request` fix is working — more requests yet less growth
+- Before-GC pressure similar to Exp 6 (234 vs 235) — Task.Delay timers at 1s fill the gap left by fix
+- Gen counts 7/5/4 vs 6/4/4 (Exp 6) — slightly more GC from higher allocation rate
+- Remaining growth likely from Task.Delay creating ~1,800 TimerQueueTimer objects in 30 min
+======================
+
+Experiment: #__ 12 _
+Config Change:  _ refactor poller timer to use interval  _
+Time since change: 70 mins
+
+2 MINS AFTER STARTUP:
+  Total Managed Memory: 15.58 MB
+  Working Set: 134.52 MB
+  Private Memory: 203.48 MB
+  Heap Size: 0.00 MB
+  Fragmented: 0.00 MB
+  Gen0 Collections: 0
+  Gen1 Collections: 0
+  Gen2 Collections: 0
+  High Memory Load: 0.00 MB
+
+
+Before GC:
+  Total Managed Memory: 15.14 MB
+  Working Set: 165.99 MB
+  Private Memory: 240.44 MB
+  Heap Size: 5.61 MB
+  Fragmented: 0.86 MB
+  Gen0 Collections: 13
+  Gen1 Collections: 6
+  Gen2 Collections: 5
+  High Memory Load: 92.16 MB
+
+AFTER GC (forcegc + 3min wait):
+  Total Managed Memory: 12.56 MB
+  Working Set: 148.33 MB
+  Private Memory: 221.37 MB
+  Heap Size: 4.03 MB
+  Fragmented: 0.73 MB
+  Gen0 Collections: 15
+  Gen1 Collections: 8
+  Gen2 Collections: 7
+  High Memory Load: 71.68 MB
+
+==== OBSERVATIONS ====
+- 70-min run (vs 30 min standard) — longer observation window
+- Startup comparable to Exp 11 (203 vs 202 MB) — PeriodicTimer has no startup cost difference
+- Before-GC: 240 vs 234 (Exp 11) — higher, but 70 min vs 30 min; rate is ~0.53 MB/min vs 1.05 MB/min
+- Post-GC: 221 vs 212 (Exp 11) — +18 MB growth vs +9.7 MB, but over 2.3x the duration
+- Growth rate per minute: 0.26 MB/min vs 0.32 MB/min (Exp 11) — slight improvement
+- Gen counts 15/8/7 vs 7/5/4 (Exp 11) — proportional to longer runtime
+- PeriodicTimer eliminated per-tick timer allocations; residual growth may be Azure SDK pipeline state
+======================

@@ -38,7 +38,7 @@ public sealed class HostCollectionManager : IHostHealthCollection
 
     // Start empty — hosts are staged via StageHost() then Activate()
     _current = HostCollectionSnapshot.Empty;
-    _logger.LogDebug("[HOST-MANAGER] Initialized with empty snapshot");
+    _logger.LogDebug("[HOSTMGR] Initialized with empty snapshot");
   }
 
   /// <inheritdoc />
@@ -49,7 +49,7 @@ public sealed class HostCollectionManager : IHostHealthCollection
     config.FreezeHash();
     _stagedConfigs ??= [];
     _stagedConfigs.Add(config);
-    _logger.LogDebug("[HOST-MANAGER] Staged host: {Host} ({Count} staged)",
+    _logger.LogDebug("[HOSTMGR] Staged host: {Host} ({Count} staged)",
         config.Host, _stagedConfigs.Count);
   }
 
@@ -63,7 +63,7 @@ public sealed class HostCollectionManager : IHostHealthCollection
 
     _version++;
     _pending = HostCollectionSnapshot.Build(hostConfigs, _logger, _version);
-    _logger.LogInformation("[HOST-MANAGER] Pending snapshot built (v{Version}, {Count} hosts)",
+    _logger.LogInformation("[HOSTMGR] Pending snapshot built (v{Version}, {Count} hosts)",
         _version, _pending.Hosts.Count);
   }
 
@@ -86,7 +86,7 @@ public sealed class HostCollectionManager : IHostHealthCollection
       // Compare staged hashes against current snapshot — skip rebuild if identical
       if (MatchesCurrentSnapshot(uniqueConfigs))
       {
-        _logger.LogDebug("[HOST-MANAGER] Staged hosts match current snapshot — no changes, skipping activation");
+        _logger.LogDebug("[HOSTMGR] Staged hosts match current snapshot — no changes, skipping activation");
         return;
       }
 
@@ -102,7 +102,7 @@ public sealed class HostCollectionManager : IHostHealthCollection
 
     if (_pending == null)
     {
-      _logger.LogWarning("[HOST-MANAGER] Activate() called with no pending snapshot or staged hosts");
+      _logger.LogWarning("[HOSTMGR] Activate() called with no pending snapshot or staged hosts");
       return;
     }
 
@@ -116,7 +116,7 @@ public sealed class HostCollectionManager : IHostHealthCollection
     _current = _pending;
     _pending = null;
 
-    _logger.LogInformation("[HOST-MANAGER] ✓ Snapshot activated (v{OldVersion} → v{NewVersion}, {Count} hosts)",
+    _logger.LogInformation("[HOSTMGR] ✓ Snapshot activated (v{OldVersion} → v{NewVersion}, {Count} hosts)",
         oldVersion, _current.Version, _current.Hosts.Count);
 
     IteratorFactory.InvalidateCache();
@@ -143,14 +143,14 @@ public sealed class HostCollectionManager : IHostHealthCollection
       else
       {
         dupCount++;
-        _logger.LogWarning("[HOST-MANAGER] Duplicate host config skipped: {Host} (hash {Hash})",
+        _logger.LogWarning("[HOSTMGR] Duplicate host config skipped: {Host} (hash {Hash})",
             config.Host, hash);
       }
     }
 
     if (dupCount > 0)
     {
-      _logger.LogInformation("[HOST-MANAGER] Dedup: {Original} staged → {Unique} unique ({Dups} duplicates removed)",
+      _logger.LogInformation("[HOSTMGR] Dedup: {Original} staged → {Unique} unique ({Dups} duplicates removed)",
           configs.Count, unique.Count, dupCount);
     }
 
@@ -213,7 +213,7 @@ public sealed class HostCollectionManager : IHostHealthCollection
         continue;
 
       oldHost.Config.SpinDown();
-      _logger.LogInformation("[HOST-MANAGER] Host spinning down: {Host} (removed from active snapshot)",
+      _logger.LogInformation("[HOSTMGR] Host spinning down: {Host} (removed from active snapshot)",
           oldHost.Config.Host);
     }
   }

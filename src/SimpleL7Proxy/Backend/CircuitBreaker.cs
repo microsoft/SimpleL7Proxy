@@ -60,7 +60,7 @@ public class CircuitBreaker : ICircuitBreaker
             ID = Guid.NewGuid().ToString();
         }
 
-        _logger.LogDebug("[INIT] Circuit breaker {ID} initialized with threshold: {Threshold}, timeframe: {TimeFrame}s. Total circuit breakers: {Total}", 
+        _logger.LogDebug("[STARTUP] Circuit breaker {ID} initialized with threshold: {Threshold}, timeframe: {TimeFrame}s. Total circuit breakers: {Total}", 
             ID, _failureThreshold, _failureTimeFrame, _totalCircuitBreakersCount);
     }
 

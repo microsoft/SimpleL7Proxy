@@ -189,8 +189,6 @@ public class ProxyWorker : IConfigChangeSubscriber
         if (_options.Workers == HealthCheckService.IncrementActiveWorkers(_options.Workers))
         {
             s_readyToWork = true;
-            // Always display
-            _logger.LogInformation("[READY] ✓ All workers ready to work");
         }
 
         // Run until cancellation is requested. (Queue emptiness is handled by the blocking DequeueAsync call.)

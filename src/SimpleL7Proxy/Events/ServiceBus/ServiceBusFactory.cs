@@ -119,7 +119,7 @@ namespace SimpleL7Proxy.ServiceBus
         {
             try
             {
-                _logger.LogInformation("[INIT] ✓ ServiceBusClient created with managed identity - Namespace: {Namespace}", fullyQualifiedNamespace);
+                _logger.LogInformation("[STARTUP] ✓ ServiceBusClient created with managed identity - Namespace: {Namespace}", fullyQualifiedNamespace);
                 
                 // Use DefaultAzureCredential for managed identity authentication
                 var credential = _defaultCredential.Credential;

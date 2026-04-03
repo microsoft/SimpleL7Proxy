@@ -88,12 +88,12 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
     {
         if (_backendOptions.HealthProbeSidecarEnabled)
         {
-            _logger.LogInformation("[INIT] ✓ Health probe sidecar enabled at {Url}", _backendOptions.HealthProbeSidecarUrl);
+            _logger.LogInformation("[PROBE-E] ✓ External health probe sidecar enabled at {Url}", _backendOptions.HealthProbeSidecarUrl);
             _selfCheckClient = CreateSelfCheckClient();
         }
         else
         {
-            _logger.LogInformation("[INIT] Health probe running in standalone mode (no sidecar)");
+            _logger.LogInformation("[PROBE-L] Local health probe running in standalone mode (no sidecar)");
         }
 
         // Single timer for status updates and optional sidecar push
@@ -108,7 +108,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
                 _ = PushStatusToSidecarAsync(client);
             }
 
-        }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+        }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(10)); // initial delay, interval
 
         FailedAttempts = 0;
     }
@@ -131,7 +131,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
         try
         {
             var url = $"{_backendOptions.HealthProbeSidecarUrl}/internal/update-status?readiness={_readinessStatus}&startup={_startupStatus}";
-            var response = await selfCheckClient.GetAsync(url).ConfigureAwait(false);
+            using var response = await selfCheckClient.GetAsync(url).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 FailedAttempts++;
@@ -295,7 +295,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
         ProxyConfig backendOptions,
         CancellationToken cancellationToken)
     {
-        _logger.LogInformation("[CONFIG] HealthProbeSidecar changed — restarting probe server");
+        _logger.LogInformation("[CONFIGS] HealthProbeSidecar changed — restarting probe server");
         // apply the changes
         StopProbeServer();
         StartProbeServer();

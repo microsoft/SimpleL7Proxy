@@ -15,7 +15,7 @@ namespace SimpleL7Proxy.DTO
         public RequestDataBackupService(IBlobWriter blobWriter, ILogger<RequestDataBackupService> logger)
         {
             _logger = logger;
-            _logger.LogDebug("[INIT] BackupAPI Service starting");
+            _logger.LogDebug("[STARTUP] BackupAPI Service starting");
             _blobWriter = blobWriter;
         }
 

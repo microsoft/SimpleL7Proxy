@@ -29,7 +29,7 @@ public abstract class BaseHostHealth
   protected BaseHostHealth(HostConfig config, ILogger logger)
   {
     Config = config ?? throw new ArgumentNullException(nameof(config));
-    logger.LogInformation("[HOST-MANAGER] ✓ {Mode} : {Host} | Path: {Path} | Probe: {Probe}",
+    logger.LogInformation("[HOSTMGR] ✓ {Mode} : {Host} | Path: {Path} | Probe: {Probe}",
         config.DirectMode ? "Direct" : "APIM", config.Host, config.PartialPath, config.ProbePath);
   }
 

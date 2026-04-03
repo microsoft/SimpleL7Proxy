@@ -74,7 +74,7 @@ public sealed class HostCollectionSnapshot
       if (group.Count() > 1) {
         var duplicateHosts = string.Join(", ", group.Select(h => h.Host));
         _logger?.LogWarning(
-            "[CONFIG] Duplicate host Guid {Guid} found across hosts: [{Hosts}]. Only the first occurrence will be used.",
+            "[CONFIGS] Duplicate host Guid {Guid} found across hosts: [{Hosts}]. Only the first occurrence will be used.",
             group.Key, duplicateHosts);
       }
     }
@@ -85,7 +85,7 @@ public sealed class HostCollectionSnapshot
       if (group.Count() > 1) {
         var duplicateGuids = string.Join(", ", group.Select(h => h.guid));
         _logger?.LogWarning(
-            "[CONFIG] Duplicate host URL '{Url}' found {Count} times (Guids: [{Guids}]). Only the first occurrence will be used.",
+            "[CONFIGS] Duplicate host URL '{Url}' found {Count} times (Guids: [{Guids}]). Only the first occurrence will be used.",
             group.Key, group.Count(), duplicateGuids);
       }
     }
@@ -127,7 +127,7 @@ public sealed class HostCollectionSnapshot
       CategorizeHost(host, specificPathHosts, catchAllHosts);
     }
 
-    logger.LogInformation("[HOST-MANAGER] Categorized: {SpecificCount} specific-path, {CatchAllCount} catch-all",
+    logger.LogInformation("[HOSTMGR] Categorized: {SpecificCount} specific-path, {CatchAllCount} catch-all",
         specificPathHosts.Count, catchAllHosts.Count);
 
     return new HostCollectionSnapshot(hosts, specificPathHosts, catchAllHosts, version, logger);

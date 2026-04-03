@@ -14,7 +14,7 @@ public class CustomConsoleFormatter : ConsoleFormatter
     public CustomConsoleFormatter(IOptions<ProxyConfig> options) : base("custom")
     {
         _logDateTime = options?.Value?.LogDateTime ?? false;
-        Console.WriteLine($"[CONFIG] CustomConsoleFormatter initialized with LogDateTime={_logDateTime}");
+        Console.WriteLine($"[CONFIGS] CustomConsoleFormatter initialized with LogDateTime={_logDateTime}");
     }
 
     public override void Write<TState>(in LogEntry<TState> logEntry, IExternalScopeProvider? scopeProvider, TextWriter textWriter)

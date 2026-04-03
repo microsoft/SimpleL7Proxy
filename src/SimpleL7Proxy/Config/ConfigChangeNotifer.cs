@@ -58,7 +58,7 @@ public class ConfigChangeNotifier
         }
 
         var fieldDesc = filter != null ? string.Join(", ", filter) : "*";
-        _logger.LogDebug("[CONFIG] Subscriber registered: {Name} for fields: [{Fields}]",
+        _logger.LogDebug("[CONFIGS] Subscriber registered: {Name} for fields: [{Fields}]",
             subscriber.GetType().Name, fieldDesc);
     }
 
@@ -106,7 +106,7 @@ public class ConfigChangeNotifier
         {
             _subscriptions.RemoveAll(s => s.Subscriber == subscriber);
         }
-        _logger.LogInformation("[CONFIG] Subscriber removed: {Name}", subscriber.GetType().Name);
+        _logger.LogInformation("[CONFIGS] Subscriber removed: {Name}", subscriber.GetType().Name);
     }
 
     /// <summary>
@@ -180,13 +180,13 @@ public class ConfigChangeNotifier
 
             try
             {
-                _logger.LogDebug("[CONFIG] Notifying {Name} of {Count} change(s)",
+                _logger.LogDebug("[CONFIGS] Notifying {Name} of {Count} change(s)",
                     sub.Subscriber.GetType().Name, relevant.Count);
                 await sub.Subscriber.OnConfigChangedAsync(relevant, backendOptions, cancellationToken);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[CONFIG] Subscriber {Name} failed", sub.Subscriber.GetType().Name);
+                _logger.LogError(ex, "[CONFIGS] Subscriber {Name} failed", sub.Subscriber.GetType().Name);
             }
         }
     }
