@@ -1,7 +1,6 @@
 
 using System.Text.Json.Nodes;
 using System.Net.Http.Headers;
-using SimpleL7Proxy.Events;
 
 namespace SimpleL7Proxy.StreamProcessor
 {
@@ -46,7 +45,7 @@ namespace SimpleL7Proxy.StreamProcessor
         /// <summary>
         /// Populates event data with OpenAI-specific statistics.
         /// </summary>
-        protected override void PopulateEventData(ProxyEvent eventData, HttpResponseHeaders headers)
+        protected override void PopulateEventData(IDictionary<string, string> eventData, HttpResponseHeaders headers)
         {
             // Transfer the specific OpenAI fields we care about
             if (data.TryGetValue("Completion_Tokens", out var completionTokens))

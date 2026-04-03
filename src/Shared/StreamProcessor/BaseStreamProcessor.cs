@@ -1,6 +1,6 @@
 using System.Net.Http.Headers;
-using SimpleL7Proxy.Events;
 using Microsoft.Extensions.Logging;
+
 
 /*
  * STREAM PROCESSOR BASE CLASS DOCUMENTATION
@@ -69,7 +69,7 @@ namespace SimpleL7Proxy.StreamProcessor
         /// </summary>
         /// <param name="eventData">The event data object to populate with statistics.</param>
         /// <param name="headers">The HTTP response headers containing potential statistics.</param>
-        public abstract void GetStats(ProxyEvent eventData, HttpResponseHeaders headers);
+        public abstract void GetStats(IDictionary<string, string> eventData, HttpResponseHeaders headers);
 
         private string _backgroundRequestId = string.Empty;
         private bool _backgroundCompleted = false;

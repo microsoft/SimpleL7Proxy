@@ -1,13 +1,22 @@
 # Release Notes #
 
+2.2.10.6-d1
+
+Shared
+* Pulled Stream Processor code into folder
+* Updated to dotnet 10
+
+Proxy:
+* Moved Stream Processor into Shared 
+
 2.2.10.5
 
 * Bug Fix: Start App Insights with app config setting
-* Bug Fix: environment defaults and BackendOptions were getting mixedup 
+* Bug Fix: environment defaults and BackendOptions were getting mixed-up 
 * Bug Fix: Probes not getting logged
 * Bug Fix: Environment variables not being defaulted to
 * Bug Fix: Make sure program does not exit until shutdown completes
-* Make shared_iterator use either singlePass or maxAttempts, default to singlePass.
+* Make shared iterator use either single Pass or maxAttempts, default to single Pass.
 * Don't invalidate shared iterators unless using latency load balancer and the order changed
 * In the case of a 404, use the same response path as a normal response
 * Bug fix: possible loss of event in edge case

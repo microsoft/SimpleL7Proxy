@@ -2,6 +2,28 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Launch .NET 10 (SimpleL7Proxy)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build (Main Solution - .NET 10)",
+            "program": "${workspaceFolder}/src/SimpleL7Proxy/bin/Debug/net10.0/SimpleL7Proxy.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/src/SimpleL7Proxy",
+            "stopAtEntry": false,
+            "console": "internalConsole"
+        },
+        {
+            "name": "Launch .NET 9 (Functions)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build (Functions - .NET 9)",
+            "program": "${workspaceFolder}/functions/bin/Debug/net9.0/functions.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/functions",
+            "stopAtEntry": false,
+            "console": "internalConsole"
+        },
+        {
             "name": "Attach to .NET Functions",
             "type": "coreclr",
             "request": "attach",

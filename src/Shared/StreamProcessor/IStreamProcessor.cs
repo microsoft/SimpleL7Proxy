@@ -1,4 +1,3 @@
-using SimpleL7Proxy.Events;
 using System.Net.Http.Headers;
 
 namespace SimpleL7Proxy.StreamProcessor
@@ -21,7 +20,7 @@ namespace SimpleL7Proxy.StreamProcessor
         /// Gets statistics about the stream processing operation.
         /// </summary>
         /// <returns>A dictionary containing processing statistics.</returns>
-        void GetStats(ProxyEvent eventData, HttpResponseHeaders headers);
+        void GetStats(IDictionary<string, string> eventData, HttpResponseHeaders headers);
 
         // Partial method to indicate if the request is running in background mode
         string BackgroundRequestId { get; }

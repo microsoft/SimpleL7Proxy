@@ -1,6 +1,5 @@
 using System.Text.Json.Nodes;
 using System.Net.Http.Headers;
-using SimpleL7Proxy.Events;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 
@@ -68,35 +67,37 @@ namespace SimpleL7Proxy.StreamProcessor
                 _logger?.LogDebug("Opening source stream for reading");
                 using var sourceStream = await sourceContent.ReadAsStreamAsync().ConfigureAwait(false);
                 using var reader = new StreamReader(sourceStream);
-                using var writer = new StreamWriter(outputStream, bufferSize: 4096, leaveOpen: true);
-
-                string? currentLine;
-
-                // Stream all content immediately while tracking meaningful lines
-                while ((currentLine = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
+                var writer = new StreamWriter(outputStream, bufferSize: 4096, leaveOpen: true);
+                await using (writer.ConfigureAwait(false))
                 {
-                    //cancellationToken?.ThrowIfCancellationRequested();
+                    string? currentLine;
 
-                    // Write each line immediately - no delays
-                    Task t = writer.WriteLineAsync(currentLine);
-
-                    // Only process through lines that could have usage in them
-                    if (CaptureAllLines)
+                    // Stream all content immediately while tracking meaningful lines
+                    while ((currentLine = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
                     {
-                        allLines!.Add(currentLine);
-                        lineCount++;
-                    }
-                    else if (currentLine.Length > MinLineLength)
-                    {
-                        lastLines![currentIndex] = currentLine;
-                        currentIndex = (currentIndex + 1) % MaxLines; // Wrap around
-                        lineCount++;
-                    }
+                        //cancellationToken?.ThrowIfCancellationRequested();
 
-                    await t.ConfigureAwait(false);
-                }
-                
-                _logger?.LogDebug("Finished streaming {LineCount} lines from source", lineCount);
+                        // Write each line immediately - no delays
+                        Task t = writer.WriteLineAsync(currentLine);
+
+                        // Only process through lines that could have usage in them
+                        if (CaptureAllLines)
+                        {
+                            allLines!.Add(currentLine);
+                            lineCount++;
+                        }
+                        else if (currentLine.Length > MinLineLength)
+                        {
+                            lastLines![currentIndex] = currentLine;
+                            currentIndex = (currentIndex + 1) % MaxLines; // Wrap around
+                            lineCount++;
+                        }
+
+                        await t.ConfigureAwait(false);
+                    }
+                    
+                    _logger?.LogDebug("Finished streaming {LineCount} lines from source", lineCount);
+                } // end await using writer
             }
             catch (IOException e)
             {
@@ -271,7 +272,7 @@ namespace SimpleL7Proxy.StreamProcessor
         /// <summary>
         /// Implements the common pattern of transferring data dictionary to event data.
         /// </summary>
-        public override void GetStats(ProxyEvent eventData, HttpResponseHeaders headers)
+        public override void GetStats(IDictionary<string, string> eventData, HttpResponseHeaders headers)
         {
             _logger?.LogTrace("Populating event data with {Count} statistics entries", data.Count);
             PopulateEventData(eventData, headers);
@@ -302,7 +303,7 @@ namespace SimpleL7Proxy.StreamProcessor
         /// </summary>
         /// <param name="eventData">The event data object to populate.</param>
         /// <param name="headers">The HTTP response headers.</param>
-        protected virtual void PopulateEventData(ProxyEvent eventData, HttpResponseHeaders headers)
+        protected virtual void PopulateEventData(IDictionary<string, string> eventData, HttpResponseHeaders headers)
         {
             // Default implementation: copy all data to event data
             foreach (var kvp in data)
