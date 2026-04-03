@@ -67,35 +67,37 @@ namespace SimpleL7Proxy.StreamProcessor
                 _logger?.LogDebug("Opening source stream for reading");
                 using var sourceStream = await sourceContent.ReadAsStreamAsync().ConfigureAwait(false);
                 using var reader = new StreamReader(sourceStream);
-                using var writer = new StreamWriter(outputStream, bufferSize: 4096, leaveOpen: true);
-
-                string? currentLine;
-
-                // Stream all content immediately while tracking meaningful lines
-                while ((currentLine = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
+                var writer = new StreamWriter(outputStream, bufferSize: 4096, leaveOpen: true);
+                await using (writer.ConfigureAwait(false))
                 {
-                    //cancellationToken?.ThrowIfCancellationRequested();
+                    string? currentLine;
 
-                    // Write each line immediately - no delays
-                    Task t = writer.WriteLineAsync(currentLine);
-
-                    // Only process through lines that could have usage in them
-                    if (CaptureAllLines)
+                    // Stream all content immediately while tracking meaningful lines
+                    while ((currentLine = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
                     {
-                        allLines!.Add(currentLine);
-                        lineCount++;
-                    }
-                    else if (currentLine.Length > MinLineLength)
-                    {
-                        lastLines![currentIndex] = currentLine;
-                        currentIndex = (currentIndex + 1) % MaxLines; // Wrap around
-                        lineCount++;
-                    }
+                        //cancellationToken?.ThrowIfCancellationRequested();
 
-                    await t.ConfigureAwait(false);
-                }
-                
-                _logger?.LogDebug("Finished streaming {LineCount} lines from source", lineCount);
+                        // Write each line immediately - no delays
+                        Task t = writer.WriteLineAsync(currentLine);
+
+                        // Only process through lines that could have usage in them
+                        if (CaptureAllLines)
+                        {
+                            allLines!.Add(currentLine);
+                            lineCount++;
+                        }
+                        else if (currentLine.Length > MinLineLength)
+                        {
+                            lastLines![currentIndex] = currentLine;
+                            currentIndex = (currentIndex + 1) % MaxLines; // Wrap around
+                            lineCount++;
+                        }
+
+                        await t.ConfigureAwait(false);
+                    }
+                    
+                    _logger?.LogDebug("Finished streaming {LineCount} lines from source", lineCount);
+                } // end await using writer
             }
             catch (IOException e)
             {
