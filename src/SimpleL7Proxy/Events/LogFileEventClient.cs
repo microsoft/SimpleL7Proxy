@@ -59,7 +59,7 @@ public class LogFileEventClient : IEventClient, IHostedService
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        Console.WriteLine("[INIT] ✓ Local File Logger starting");
+        Console.WriteLine("[STARTUP] ✓ Local File Logger starting");
         workerCancelToken = cancellationTokenSource.Token;
         if (!isRunning)
         {

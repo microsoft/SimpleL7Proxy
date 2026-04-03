@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System.Text;
 using System.Net;
 using System.Collections.Concurrent;
@@ -33,6 +34,14 @@ public class HealthCheckService
     private readonly IBlobWriter? _blobWriter;
     private readonly IUserProfileService? _userProfileService;
     private readonly Func<string> _getWorkerState;
+    private readonly ILogger<HealthCheckService> _logger;
+
+    /// <summary>
+    /// Task that completes when backend startup (token acquisition, health polling) succeeds.
+    /// Callers can await this to block until backends are ready.
+    /// Set by <see cref="BeginStartupMonitoring"/>.
+    /// </summary>
+    public Task BackendStartupTask { get; private set; } = Task.CompletedTask;
 
     // Cache for health check responses to reduce allocations
     private readonly StringBuilder _stringBuilder;
@@ -63,6 +72,7 @@ public class HealthCheckService
         IConcurrentPriQueue<RequestData>? requestsQueue,
         IUserPriorityService? userPriority,
         IEventClient? eventClient,
+        ILogger<HealthCheckService> logger,
 
         IServiceBusRequestService? serviceBusRequestService = null,
         IBlobWriter? blobWriter = null,
@@ -79,9 +89,31 @@ public class HealthCheckService
         _blobWriter = blobWriter;
         _backupAPIService = backupAPIService;
         _getWorkerState = GetWorkerState;
+        _logger = logger;
 
         // Pre-allocate StringBuilder to reduce allocations
         _stringBuilder = new StringBuilder(512);
+    }
+
+    bool firstHealthCheck = true;
+    bool backendsStarted = false;
+    /// <summary>
+    /// Starts backend health polling and token acquisition.
+    /// Call once after backends have been registered (HostConfig.Initialize + RegisterBackends).
+    /// </summary>
+    public async Task BeginStartupMonitoring()
+    {
+        try
+        {
+            await _backends.WaitForStartupAsync().ConfigureAwait(false);
+            backendsStarted = true;
+             _logger.LogInformation("[STARTUP] ✓ Backend startup completed successfully.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[STARTUP] ✗ Backend startup failed — {Message}", ex.Message);
+            throw;
+        }
     }
 
     /// <summary>
@@ -543,7 +575,13 @@ public class HealthCheckService
         int activeEvents = _eventClient?.Count ?? 0;
         bool tooManyEvents = activeEvents > _options.MaxUndrainedEvents;
         bool eventsAreHealthy = _eventClient?.IsHealthy() == true;
-        var isReady = IsReadyToWork && profilesReady && !tooManyEvents;
+        var isReady = IsReadyToWork && backendsStarted && profilesReady && !tooManyEvents;
+
+        if (isReady && firstHealthCheck)
+        {
+            _logger.LogInformation("[-READY-] ✓ All workers ready to work");
+            firstHealthCheck = false;
+        }
 
         // Debug logging - remove after fixing
         // Console.WriteLine($"[STARTUP-DEBUG] IsReadyToWork={isReady}, hasProfile={_userProfileService != null}, hostCount={hostCount}, hasFailed={hasFailed}, activeEvents={activeEvents}");

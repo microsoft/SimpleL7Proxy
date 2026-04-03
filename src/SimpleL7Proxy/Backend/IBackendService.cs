@@ -15,8 +15,7 @@ public interface IBackendService
   // void TrackStatus(int code, bool wasException);
   Task<bool> CheckFailedStatusAsync(bool nosleep=false);
   // string OAuth2Token();
-  Task WaitForStartup(int timeout);
-  void Start();
+  Task WaitForStartupAsync();
   Task Stop();
   List<BaseHostHealth> GetSpecificPathHosts();
   List<BaseHostHealth> GetCatchAllHosts();

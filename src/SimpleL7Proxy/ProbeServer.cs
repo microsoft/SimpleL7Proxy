@@ -88,12 +88,12 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
     {
         if (_backendOptions.HealthProbeSidecarEnabled)
         {
-            _logger.LogInformation("[INIT] ✓ Health probe sidecar enabled at {Url}", _backendOptions.HealthProbeSidecarUrl);
+            _logger.LogInformation("[PROBE-E] ✓ External health probe sidecar enabled at {Url}", _backendOptions.HealthProbeSidecarUrl);
             _selfCheckClient = CreateSelfCheckClient();
         }
         else
         {
-            _logger.LogInformation("[INIT] Health probe running in standalone mode (no sidecar)");
+            _logger.LogInformation("[PROBE-L] Local health probe running in standalone mode (no sidecar)");
         }
 
         // Single timer for status updates and optional sidecar push
@@ -295,7 +295,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
         ProxyConfig backendOptions,
         CancellationToken cancellationToken)
     {
-        _logger.LogInformation("[CONFIG] HealthProbeSidecar changed — restarting probe server");
+        _logger.LogInformation("[CONFIGS] HealthProbeSidecar changed — restarting probe server");
         // apply the changes
         StopProbeServer();
         StartProbeServer();

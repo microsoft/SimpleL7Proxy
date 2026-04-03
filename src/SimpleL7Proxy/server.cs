@@ -163,7 +163,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         ProxyConfig backendOptions,
         CancellationToken cancellationToken)
     {
-        _logger.LogInformation("[CONFIG] Server changed — Settings live updated without restart");
+        _logger.LogInformation("[CONFIGS] Server changed — Settings live updated without restart");
 
         InitVars();
 
@@ -205,33 +205,29 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
     // }
 
     // Method to start the server and begin processing requests.
-    protected override Task ExecuteAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken cancellationToken)
     {
-        Task backendStartTask;
         string serverInfo = $"Port: {_options.Port}, Timeout: {_options.Timeout}ms, Workers: {_options.Workers}, LoadBalanceMode: {_options.LoadBalanceMode}, ValidateAuthAppID: {_options.ValidateAuthAppID}, AsyncModeEnabled: {_options.AsyncModeEnabled}";
         try
         {
             _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             _probesCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
-            _backends.Start();
-            backendStartTask = _backends.WaitForStartup(20);
-
             _httpListener.Start();
-            var timeoutTime = TimeSpan.FromMilliseconds(_options.Timeout).ToString(@"hh\:mm\:ss\.fff");
-            _logger.LogInformation($"[SERVICE] ✓ Server listening: {serverInfo}");
+
+            _logger.LogInformation($"[HTTP(s)] ✓ Server listening: {serverInfo}");
             // Additional setup or async start operations can be performed here
 
             _requestsQueue.StartSignaler(cancellationToken);
         }
         catch (HttpListenerException ex)
         {
-            _logger.LogError(ex, "[SERVICE] ✗ HttpListener failed to start {info}, {Message}", serverInfo, ex.Message);
+            _logger.LogError(ex, "[HTTP(s)] ✗ HttpListener failed to start {info}, {Message}", serverInfo, ex.Message);
             throw new Exception($"Failed to start the server on port {_options.Port}.", ex);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[SERVICE] ✗ Server failed to start — {info}, {Message}", serverInfo, ex.Message);
+            _logger.LogError(ex, "[HTTP(s)] ✗ Server failed to start — {info}, {Message}", serverInfo, ex.Message);
             throw new Exception("An error occurred while starting the server.", ex);
         }
 
@@ -239,17 +235,8 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         // StopListening cancels _cancellationTokenSource (which sets _isShuttingDown=true).
         // Only StopProbes() cancels _probesCts, killing the loop entirely.
         var token = _probesCts.Token;
-        return backendStartTask.ContinueWith((x) =>
-        {
-            if (x.IsFaulted && x.Exception != null)
-            {
-                // Console.WriteLine($"[BACKENDS-STARTUP-ERROR] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} {x.Exception.Flatten()}");
-                throw x.Exception.Flatten();
-            }
 
-            return Run(token);
-        }, token).Unwrap();
-
+        await Run(token);
     }  
 
     // Continuously listens for incoming HTTP requests and processes them.

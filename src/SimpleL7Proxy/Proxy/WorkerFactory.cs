@@ -29,11 +29,10 @@ public class WorkerFactory : BackgroundService
     
   }
 
-  protected override Task ExecuteAsync(CancellationToken cancellationToken)
+  protected override async Task ExecuteAsync(CancellationToken cancellationToken)
   {
 
     var workerPriorities = new Dictionary<int, int>(_backendOptions.PriorityWorkers);
-    _logger.LogInformation($"[CONFIG] Worker priority distribution: {string.Join(",", workerPriorities)}");
 
     // The loop creates a number of workers based on backendOptions.Workers.
     // The first worker (wrkrNum == 0) is always a probe worker with priority 0.
@@ -67,7 +66,11 @@ public class WorkerFactory : BackgroundService
     foreach (var pw in _workers)
       _tasks.Add(Task.Run(() => pw.TaskRunnerAsync(), cancellationToken));
 
-    return Task.WhenAll(_tasks);
+    await Task.WhenAll(_tasks).ConfigureAwait(false);
+
+    _logger.LogInformation($"[WORKER] ✓ Total: {_workers.Count} | Priority distribution: {string.Join(",", workerPriorities)}");
+
+    return;
   }
 
   public static void ExpelAsyncRequests()

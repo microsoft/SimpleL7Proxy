@@ -114,6 +114,10 @@ public class Program
 
         ConfigFactory.RegisterBackends(options.Value, null, appConfigBootstrap.WarmSettings, hostCollection);
 
+        // Start backend health polling + token acquisition now that hosts are registered
+        var healthService = serviceProvider.GetRequiredService<HealthCheckService>();
+        Task healthCheck= healthService.BeginStartupMonitoring();
+
         // Async
         try
         {
@@ -122,7 +126,7 @@ public class Program
             if (options.Value.AsyncModeEnabled)
             {
 
-                startupLogger.LogInformation("[INIT] ✓ Async mode enabled - Initializing ServiceBus and AsyncWorker services");
+                startupLogger.LogInformation("[STARTUP] ✓ Async mode enabled - Initializing ServiceBus and AsyncWorker services");
                 var serviceBusRequestService = serviceProvider.GetRequiredService<IServiceBusRequestService>();
                 var backupAPIService = serviceProvider.GetRequiredService<IBackupAPIService>();
                 var userPriority = serviceProvider.GetRequiredService<IUserPriorityService>();
@@ -147,12 +151,14 @@ public class Program
         // Log confirmation once all IHostedService.StartAsync calls have completed.
         // This fires after the framework has started every hosted service (including event loggers).
         var appLifetime = serviceProvider.GetRequiredService<IHostApplicationLifetime>();
-        appLifetime.ApplicationStarted.Register(() =>
+        appLifetime.ApplicationStarted.Register(async () =>
         {
             var composite = serviceProvider.GetRequiredService<CompositeEventClient>();
             ConfigFactory.OutputEnvVars(options.Value);
 
-            startupLogger.LogInformation("[INIT] ✓ All hosted services started — active event loggers: {Loggers}",
+            await healthCheck.ConfigureAwait(false); // Ensure backend startup monitoring completes before logging startup success
+
+            startupLogger.LogInformation("[STARTUP] ✓ All hosted services started — active event loggers: {Loggers}",
                 composite.ClientType);
         });
 
@@ -225,7 +231,7 @@ public class Program
                 config.TelemetryProcessorChainBuilder.Build();
             });
 
-            startupLogger.LogInformation("[INIT] ✓ AppInsights initialized with custom request tracking");
+            startupLogger.LogInformation("[STARTUP] ✓ AppInsights initialized with custom request tracking");
         }
     }
     private static void ConfigureDI(IServiceCollection services, ILoggerFactory startupLoggerFactory, AppConfigService appConfigBootstrap, DefaultCredential defaultCredential)
@@ -268,7 +274,7 @@ public class Program
                 var factory = provider.GetRequiredService<IBlobWriterFactory>();
                 var blobWriter = factory.CreateBlobWriter() as BlobWriter;
                 var logger = provider.GetRequiredService<ILogger<Program>>();
-                logger.LogInformation("[INIT] ✓ Underlying BlobWriter created: {BlobWriterType}", blobWriter?.GetType().Name ?? "Unknown");
+                logger.LogInformation("[STARTUP] ✓ Underlying BlobWriter created: {BlobWriterType}", blobWriter?.GetType().Name ?? "Unknown");
                 return blobWriter!;
             });
 
@@ -302,7 +308,7 @@ public class Program
                 var queuedWriter = new QueuedBlobWriter(underlyingWriter, queue, logger, useQueueForWrites: true);
                 
                 var programLogger = provider.GetRequiredService<ILogger<Program>>();
-                programLogger.LogInformation("[INIT] ✓ QueuedBlobWriter initialized (wrapping {UnderlyingType})", 
+                programLogger.LogInformation("[STARTUP] ✓ QueuedBlobWriter initialized (wrapping {UnderlyingType})", 
                     underlyingWriter.GetType().Name);
                 
                 return queuedWriter;
@@ -335,7 +341,9 @@ public class Program
         services.AddTransient<ICircuitBreaker, CircuitBreaker>();
         services.AddSingleton<ConfigChangeNotifier>();
         services.AddSingleton<ProxyEventInitializer>();
-        services.AddSingleton<IBackendService, Backends>();
+        services.AddSingleton<Backends>();
+        services.AddSingleton<IBackendService>(sp => sp.GetRequiredService<Backends>());
+        services.AddHostedService<Backends>(sp => sp.GetRequiredService<Backends>());
         services.AddSingleton<Server>();
         services.AddSingleton<ConcurrentSignal<RequestData>>();
         services.AddSingleton<IConcurrentPriQueue<RequestData>, ConcurrentPriQueue<RequestData>>();
@@ -407,13 +415,13 @@ public class Program
         }
         catch (Exception ex)
         {
-            startupLogger.LogWarning(ex, "[CONFIG] Failed to register EventHeaders '{EventDataType}'.", eventdataclass);
+            startupLogger.LogWarning(ex, "[CONFIGS] Failed to register EventHeaders '{EventDataType}'.", eventdataclass);
         }
         finally
         {
             if (!registered)
             {
-                startupLogger.LogWarning("[CONFIG] EventHeaders '{EventDataType}' not found or invalid. Falling back to CommonEventHeaders.", eventdataclass);
+                startupLogger.LogWarning("[CONFIGS] EventHeaders '{EventDataType}' not found or invalid. Falling back to CommonEventHeaders.", eventdataclass);
                 services.AddSingleton<ICommonEventData, CommonEventHeaders>();
             }
         }
@@ -427,7 +435,7 @@ public class Program
             enabledLoggers = new HashSet<string>(
                 eventLoggersRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
                 StringComparer.OrdinalIgnoreCase);
-            startupLogger.LogInformation("[CONFIG] EVENT_LOGGERS: {EventLoggers}", string.Join(", ", enabledLoggers));
+            startupLogger.LogInformation("[CONFIGS] EVENT_LOGGERS: {EventLoggers}", string.Join(", ", enabledLoggers));
         }
         else
         {
@@ -435,7 +443,7 @@ public class Program
             {
                 backendOptions.LogToFile ? "file" : "eventhub"
             };
-            startupLogger.LogInformation("[CONFIG] EVENT_LOGGERS not set, falling back to legacy: {EventLoggers}", string.Join(", ", enabledLoggers));
+            startupLogger.LogInformation("[CONFIGS] EVENT_LOGGERS not set, falling back to legacy: {EventLoggers}", string.Join(", ", enabledLoggers));
         }
 
         foreach (var loggername in enabledLoggers)
@@ -458,7 +466,7 @@ public class Program
                     var loggerType = typeof(Program).Assembly.GetType(loggername, throwOnError: false);
                     if (loggerType == null || !typeof(IEventClient).IsAssignableFrom(loggerType))
                     {
-                        startupLogger.LogWarning("[CONFIG] Event logger type '{LoggerType}' not found or does not implement IEventClient. Skipping.", loggername);
+                        startupLogger.LogWarning("[CONFIGS] Event logger type '{LoggerType}' not found or does not implement IEventClient. Skipping.", loggername);
                         continue;
                     }
 
@@ -466,7 +474,7 @@ public class Program
                     services.AddSingleton(capturedType, svc =>
                     {
                         var instance = ActivatorUtilities.CreateInstance(svc, capturedType);
-                        startupLogger.LogInformation("[CONFIG] ✓ Instantiated event logger: {LoggerType}", capturedType.Name);
+                        startupLogger.LogInformation("[CONFIGS] ✓ Instantiated event logger: {LoggerType}", capturedType.Name);
                         return instance;
                     });
 
@@ -475,11 +483,11 @@ public class Program
                         services.AddSingleton<IHostedService>(svc => (IHostedService)svc.GetRequiredService(capturedType));
                     }
 
-                    startupLogger.LogInformation("[CONFIG] Registered event logger: {LoggerType}", loggername);
+                    startupLogger.LogInformation("[CONFIGS] Registered event logger: {LoggerType}", loggername);
                 }
                 catch (Exception ex)
                 {
-                    startupLogger.LogWarning(ex, "[CONFIG] Failed to register event logger '{LoggerType}'. Skipping.", loggername);
+                    startupLogger.LogWarning(ex, "[CONFIGS] Failed to register event logger '{LoggerType}'. Skipping.", loggername);
                 }
             }
         }
