@@ -2,6 +2,68 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
+			"label": "build (Main Solution - .NET 10)",
+			"command": "dotnet",
+			"args": [
+				"build",
+				"${workspaceFolder}/SimpleL7Proxy.sln",
+				"/property:GenerateFullPaths=true",
+				"/consoleloggerparameters:NoSummary"
+			],
+			"type": "process",
+			"group": "build",
+			"problemMatcher": "$msCompile",
+			"presentation": {
+				"reveal": "always",
+				"panel": "shared"
+			}
+		},
+		{
+			"label": "build (Functions - .NET 9)",
+			"command": "dotnet",
+			"args": [
+				"build",
+				"${workspaceFolder}/functions/functions.sln",
+				"/property:GenerateFullPaths=true",
+				"/consoleloggerparameters:NoSummary"
+			],
+			"type": "process",
+			"group": "build",
+			"problemMatcher": "$msCompile",
+			"presentation": {
+				"reveal": "always",
+				"panel": "shared"
+			}
+		},
+		{
+			"label": "Switch to .NET 10 Solution",
+			"command": "echo",
+			"args": [
+				"Switched to .NET 10 (SimpleL7Proxy.sln)"
+			],
+			"type": "shell",
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"showReuseMessage": false
+			}
+		},
+		{
+			"label": "Switch to .NET 9 Solution",
+			"command": "echo",
+			"args": [
+				"Switched to .NET 9 (functions.sln)"
+			],
+			"type": "shell",
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"showReuseMessage": false
+			}
+		},
+		{
 			"label": "clean (functions)",
 			"command": "dotnet",
 			"args": [
@@ -76,6 +138,90 @@
 			"command": "host start",
 			"isBackground": true,
 			"problemMatcher": "$func-dotnet-watch"
+		},
+		{
+			"label": "build SimpleL7Proxy",
+			"type": "shell",
+			"command": "dotnet build src/SimpleL7Proxy/SimpleL7Proxy.csproj /property:GenerateFullPaths=true /consoleloggerparameters:NoSummary"
+		},
+		{
+			"label": "build SimpleL7Proxy",
+			"type": "shell",
+			"command": "dotnet build src/SimpleL7Proxy/SimpleL7Proxy.csproj /property:GenerateFullPaths=true /consoleloggerparameters:NoSummary"
+		},
+		{
+			"label": "build SimpleL7Proxy",
+			"type": "shell",
+			"command": "dotnet build src/SimpleL7Proxy/SimpleL7Proxy.csproj /property:GenerateFullPaths=true /consoleloggerparameters:NoSummary"
+		},
+		{
+			"label": "build SimpleL7Proxy",
+			"type": "shell",
+			"command": "dotnet build src/SimpleL7Proxy/SimpleL7Proxy.csproj /property:GenerateFullPaths=true /consoleloggerparameters:NoSummary"
+		},
+		{
+			"label": "build SimpleL7Proxy",
+			"type": "shell",
+			"command": "dotnet build src/SimpleL7Proxy/SimpleL7Proxy.csproj /property:GenerateFullPaths=true /consoleloggerparameters:NoSummary"
+		},
+		{
+			"label": "build SimpleL7Proxy",
+			"type": "shell",
+			"command": "dotnet build src/SimpleL7Proxy/SimpleL7Proxy.csproj /property:GenerateFullPaths=true /consoleloggerparameters:NoSummary"
+		},
+		{
+			"label": "build SimpleL7Proxy",
+			"type": "shell",
+			"command": "dotnet build src/SimpleL7Proxy/SimpleL7Proxy.csproj /property:GenerateFullPaths=true /consoleloggerparameters:NoSummary"
+		},
+		{
+			"label": "build SimpleL7Proxy only",
+			"type": "shell",
+			"command": "dotnet build \"${workspaceFolder}/src/SimpleL7Proxy/SimpleL7Proxy.csproj\" /property:GenerateFullPaths=true /consoleloggerparameters:NoSummary",
+			"group": "build"
+		},
+		{
+			"label": "build (Main Solution in WSL)",
+			"type": "process",
+			"command": "wsl.exe",
+			"args": [
+				"-d",
+				"Ubuntu-22.04",
+				"--cd",
+				"/mnt/c/Users/nmishr/OneDrive - Microsoft/repos/microsoft/main/SimpleL7Proxy",
+				"dotnet",
+				"build",
+				"SimpleL7Proxy.sln",
+				"/property:GenerateFullPaths=true",
+				"/consoleloggerparameters:NoSummary"
+			],
+			"group": "build",
+			"problemMatcher": "$msCompile",
+			"presentation": {
+				"reveal": "always",
+				"panel": "shared"
+			}
+		},
+		{
+			"label": "build (Functions in WSL)",
+			"type": "process",
+			"command": "wsl.exe",
+			"args": [
+				"-d",
+				"Ubuntu-22.04",
+				"--cd",
+				"/mnt/c/Users/nmishr/OneDrive - Microsoft/repos/microsoft/main/SimpleL7Proxy/functions",
+				"dotnet",
+				"build",
+				"functions.sln",
+				"/property:GenerateFullPaths=true",
+				"/consoleloggerparameters:NoSummary"
+			],
+			"problemMatcher": "$msCompile",
+			"presentation": {
+				"reveal": "always",
+				"panel": "shared"
+			}
 		}
 	]
 }
