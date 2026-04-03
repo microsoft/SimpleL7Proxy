@@ -35,8 +35,8 @@ def _encode_body_lines(lines):
     return b"".join(line.encode('utf-8') for line in lines)
 
 def load_file_cache():
-    """Scan the current directory for .txt files and cache their pre-encoded contents."""
-    for filepath in glob.glob('*.txt'):
+    """Scan the current directory for .txt and .json files and cache their pre-encoded contents."""
+    for filepath in glob.glob('*.txt') + glob.glob('*.json'):
         try:
             with open(filepath, 'r') as f:
                 lines = f.readlines()
@@ -74,6 +74,27 @@ def is_cached_or_exists(filename):
         return True
     return get_cached_data(filename) is not None
 
+import re as _re
+
+def parse_delay(value):
+    """Parse a delay value string and return seconds as a float.
+
+    Supported formats:
+      '1s'    -> 1.0 seconds
+      '1.5s'  -> 1.5 seconds
+      '500ms' -> 0.5 seconds
+      '1000'  -> 1.0 seconds  (bare number = milliseconds)
+    """
+    value = value.strip()
+    m = _re.match(r'^([\d.]+)\s*(s|ms)?$', value, _re.IGNORECASE)
+    if not m:
+        return 0.0
+    num = float(m.group(1))
+    unit = (m.group(2) or 'ms').lower()
+    if unit == 's':
+        return num
+    return num / 1000.0
+
 class MyHandler(http.server.BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
 
@@ -82,19 +103,19 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         super().__init__(*args, **kwargs)
     
     def log_message(self, format, *args):
-        """Override the default log message to include Authorization info"""
+        """Override the default log message to include Authorization and delay info"""
         auth_info = f"[AUTH: {self.gotAuth}]" if self.gotAuth else "[AUTH: None]"
-        # Insert auth info before the request method
+        delay_info = f" [DELAY: {self._delay_secs}s]" if getattr(self, '_delay_secs', 0) > 0 else ""
+        # Insert auth and delay info before the request method
         original_message = format % args
-        # Split the message to insert auth info in the right place
+        # Split the message to insert info in the right place
         parts = original_message.split('"')
         if len(parts) >= 2:
-            # Insert auth info before the quoted request
-            modified_message = f'{parts[0]}{auth_info} "{parts[1]}"'
+            modified_message = f'{parts[0]}{auth_info}{delay_info} "{parts[1]}"'
             if len(parts) > 2:
                 modified_message += '"'.join(parts[2:])
         else:
-            modified_message = f"{original_message} {auth_info}"
+            modified_message = f"{original_message} {auth_info}{delay_info}"
         
         print(f"{self.address_string()} - - [{self.log_date_time_string()}] {modified_message}")
 
@@ -115,6 +136,13 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
 
         parsed_path = urlparse(self.path)
         query_params = parse_qs(parsed_path.query)
+
+        # All endpoints support ?delay=<value> (e.g. 1s, 500ms, 1000). Default 0 (no delay).
+        delay_secs = parse_delay(query_params.get('delay', ['0'])[0])
+        self._delay_secs = delay_secs
+        if delay_secs > 0:
+            time.sleep(delay_secs)
+
         # check if Authorization header is present
         self.gotAuth = ""
         for header, value in self.headers.items():
@@ -221,31 +249,27 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.send_streaming_response("multiline.txt", "MultiLineAllUsage", streaming)
             return
 
-        if parsed_path.path.startswith('/file/'):
-            filename = parsed_path.path[len('/file/'):]
-            print(f"Streaming from cache: {parsed_path.path} -> {filename}")
-            # Make sure the file exists (check cache first)
+        # /file-stream/<name> — chunked streaming response with text/event-stream content type
+        if parsed_path.path.startswith('/file-stream/'):
+            filename = parsed_path.path[len('/file-stream/'):]
             if not is_cached_or_exists(filename):
                 self.send_fixed_response(404, b"File not found")
                 return
-
-            # processor = self.headers.get('X-TokenProcessor', 'MultiLineAllUsage')
-            #sleep_time = random.uniform(.4, .7)  # Random sleep time
-            #time.sleep(sleep_time)
             self.send_streaming_response(filename, processor, streaming)
             return
-        
-        
-        if parsed_path.path.startswith('/file-nodelay/'):
-            filename = parsed_path.path[len('/file-nodelay/'):]
-            print(f"Streaming from cache (no-delay): {parsed_path.path} -> {filename}")
-            # Make sure the file exists (check cache first)
+
+        # /file/<name> — fixed response with content type inferred from file extension
+        if parsed_path.path.startswith('/file/'):
+            filename = parsed_path.path[len('/file/'):]
             if not is_cached_or_exists(filename):
                 self.send_fixed_response(404, b"File not found")
                 return
-
-            # processor = self.headers.get('X-TokenProcessor', 'MultiLineAllUsage')
-            self.send_streaming_response(filename, processor, streaming)
+            import mimetypes
+            body = get_cached_body(filename)
+            content_type, _ = mimetypes.guess_type(filename)
+            if content_type is None:
+                content_type = "application/octet-stream"
+            self.send_fixed_response(200, body, content_type=content_type)
             return
 
         # Default response
