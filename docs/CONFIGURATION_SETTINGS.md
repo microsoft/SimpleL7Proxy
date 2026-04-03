@@ -212,6 +212,7 @@
 | EventLoggers | `EventLoggers` |
 | EventHeaders | `EventHeaders` |
 | LogFileName | `LogFileName` |
+| LogDateTime | `LogDateTime` |
 
 ### EventHub - Configured at startup
 
@@ -221,6 +222,8 @@
 | Name | `EventHubName` |
 | Namespace | `EventHubNamespace` |
 | StartupSeconds | `EventHubStartupSeconds` |
+| MaxReconnectAttempts | `EventHubMaxReconnectAttempts` |
+| MaxUndrainedEvents | `MaxUndrainedEvents` |
 
 ---
 

@@ -39,7 +39,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
     // Active snapshots published to readers (use Volatile.Read/Write for memory ordering)
 
     private Timer? _probeTimer;
-    private readonly BackendOptions _backendOptions;
+    private readonly ProxyConfig _backendOptions;
     private HttpClient? _selfCheckClient;
     private IEventClient? _eventClient;
 
@@ -57,7 +57,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
         IBackendService backends, 
         HealthCheckService healthService, 
         ILogger<ProbeServer> logger, 
-        IOptions<BackendOptions> backendOptions, 
+        IOptions<ProxyConfig> backendOptions, 
         ConfigChangeNotifier configChangeNotifier,
         IEventClient eventClient)
     {
@@ -88,12 +88,12 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
     {
         if (_backendOptions.HealthProbeSidecarEnabled)
         {
-            _logger.LogInformation("[INIT] ✓ Health probe sidecar enabled at {Url}", _backendOptions.HealthProbeSidecarUrl);
+            _logger.LogInformation("[PROBE-E] ✓ External health probe sidecar enabled at {Url}", _backendOptions.HealthProbeSidecarUrl);
             _selfCheckClient = CreateSelfCheckClient();
         }
         else
         {
-            _logger.LogInformation("[INIT] Health probe running in standalone mode (no sidecar)");
+            _logger.LogInformation("[PROBE-L] Local health probe running in standalone mode (no sidecar)");
         }
 
         // Single timer for status updates and optional sidecar push
@@ -108,7 +108,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
                 _ = PushStatusToSidecarAsync(client);
             }
 
-        }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+        }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(10)); // initial delay, interval
 
         FailedAttempts = 0;
     }
@@ -131,7 +131,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
         try
         {
             var url = $"{_backendOptions.HealthProbeSidecarUrl}/internal/update-status?readiness={_readinessStatus}&startup={_startupStatus}";
-            var response = await selfCheckClient.GetAsync(url).ConfigureAwait(false);
+            using var response = await selfCheckClient.GetAsync(url).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 FailedAttempts++;
@@ -156,7 +156,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
     public int EventCount => _activeUndrainedEvents;
 
     // TODO: no need for stopwatch any longer
-    public async Task LivenessResponseAsync(HttpListenerContext lc)
+    public async Task<HttpStatusCode> LivenessResponseAsync(HttpListenerContext lc)
     {
         // Liveness probe check - use pre-allocated objects
         try
@@ -186,10 +186,12 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
             catch { }
             
         }
+        return HttpStatusCode.OK;
     }
 
-    public async Task ReadinessResponseAsync(HttpListenerContext lc)
+    public async Task<HttpStatusCode> ReadinessResponseAsync(HttpListenerContext lc)
     {
+        HttpStatusCode statusCode = HttpStatusCode.OK; // default to 200, may be overridden in switch
         try
         {
             lc.Response.ContentType = "text/plain";
@@ -202,16 +204,20 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
                     lc.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
                     lc.Response.ContentLength64 = s_zeroHostsLength;
                     await lc.Response.OutputStream.WriteAsync(s_zeroHosts, 0, s_zeroHostsLength);
+                    statusCode = HttpStatusCode.ServiceUnavailable;
                     break;
                 case HealthStatusEnum.ReadinessFailedHosts:
                     lc.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
                     lc.Response.ContentLength64 = s_failedHostsLength;
                     await lc.Response.OutputStream.WriteAsync(s_failedHosts, 0, s_failedHostsLength);
+                    statusCode = HttpStatusCode.ServiceUnavailable;
                     break;
                 case HealthStatusEnum.ReadinessReady:
                     lc.Response.StatusCode = (int)HttpStatusCode.OK;
                     lc.Response.ContentLength64 = s_okLength;
                     await lc.Response.OutputStream.WriteAsync(s_okBytes, 0, s_okLength);
+                    statusCode = HttpStatusCode.OK;
+
                     break;
             }
         } finally {
@@ -221,10 +227,12 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
             }
             catch { }
         }
+        return statusCode;
     }
 
-    public async Task StartupResponseAsync(HttpListenerContext lc)
+    public async Task<HttpStatusCode> StartupResponseAsync(HttpListenerContext lc)
     {
+        HttpStatusCode statusCode = HttpStatusCode.OK; // default to 200, may be overridden in switch
         try
         {
             lc.Response.ContentType = "text/plain";
@@ -237,16 +245,19 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
                     lc.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
                     lc.Response.ContentLength64 = s_zeroHostsLength;
                     await lc.Response.OutputStream.WriteAsync(s_zeroHosts, 0, s_zeroHostsLength);
+                    statusCode = HttpStatusCode.ServiceUnavailable;
                     break;
                 case HealthStatusEnum.StartupFailedHosts:
                     lc.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
                     lc.Response.ContentLength64 = s_failedHostsLength;
                     await lc.Response.OutputStream.WriteAsync(s_failedHosts, 0, s_failedHostsLength);
+                    statusCode = HttpStatusCode.ServiceUnavailable;
                     break;
                 case HealthStatusEnum.StartupReady:
                     lc.Response.StatusCode = (int)HttpStatusCode.OK;
                     lc.Response.ContentLength64 = s_okLength;
                     await lc.Response.OutputStream.WriteAsync(s_okBytes, 0, s_okLength);
+                    statusCode = HttpStatusCode.OK;
                     break;
             }
         }
@@ -257,8 +268,8 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
                 lc.Response.Close();
             }
             catch { }
-
         }
+        return statusCode;
     }
 
     /// <summary>
@@ -270,6 +281,10 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
         return base.StopAsync(cancellationToken);
     }
 
+    public void InitVars()
+    {
+        // no config-dependent variables to init for now, but this is a placeholder for future ones
+    }
 
     /// <summary>
     /// Called when HealthProbeSidecar config changes at runtime.
@@ -277,10 +292,10 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
     /// </summary>
     public Task OnConfigChangedAsync(
         IReadOnlyList<ConfigChange> changes,
-        BackendOptions backendOptions,
+        ProxyConfig backendOptions,
         CancellationToken cancellationToken)
     {
-        _logger.LogInformation("[CONFIG] HealthProbeSidecar changed — restarting probe server");
+        _logger.LogInformation("[CONFIGS] HealthProbeSidecar changed — restarting probe server");
         // apply the changes
         StopProbeServer();
         StartProbeServer();

@@ -14,10 +14,10 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
     //private int insertions = 0;
     //private int extractions = 0;
 
-    private readonly BackendOptions _options;
+    private readonly ProxyConfig _options;
 
   
-    public ConcurrentPriQueue(IOptions<BackendOptions> backendOptions, ILogger<ConcurrentPriQueue<T>> logger)
+    public ConcurrentPriQueue(IOptions<ProxyConfig> backendOptions, ILogger<ConcurrentPriQueue<T>> logger)
     {
         ArgumentNullException.ThrowIfNull(backendOptions);
         _options = backendOptions.Value;
@@ -112,10 +112,11 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
         // Continue draining after cancellation so StopAsync can complete cleanly
         while (!cancellationToken.IsCancellationRequested || _priorityQueue.Count > 0)
         {
-            // 40 seems good,  no timeout or 80ms gives reduced performance
             try
             {
-                await _enqueueEvent.WaitAsync(TimeSpan.FromMilliseconds(40), cancellationToken).ConfigureAwait(false); // Wait for an item to be added
+                // // 40 seems good,  no timeout or 80ms gives reduced performance
+                // await _enqueueEvent.WaitAsync(TimeSpan.FromMilliseconds(40), cancellationToken).ConfigureAwait(false); // Wait for an item to be added
+                await _enqueueEvent.WaitAsync(cancellationToken).ConfigureAwait(false); // Signal-driven: wakes on Enqueue Release(), no timer allocations
             }
             catch (OperationCanceledException)
             {
@@ -153,7 +154,6 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
             }
         }
 
-        _logger.LogInformation("SignalWorker: Exiting - queue is empty: " + (_priorityQueue.Count == 0));
 
         // Shutdown
         _taskSignaler.CancelAllTasks();

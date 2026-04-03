@@ -24,13 +24,13 @@ namespace SimpleL7Proxy.Feeder
 {
     public class NormalRequest : IRequestProcessor
     {
-        private readonly BackendOptions _options;
+        private readonly ProxyConfig _options;
         private readonly ILogger<NormalRequest> _logger;
         private readonly IRequestDataBackupService _backupService;
         private readonly IAsyncWorkerFactory _asyncWorkerFactory;
 
 
-        public NormalRequest(IOptions<BackendOptions> options,
+        public NormalRequest(IOptions<ProxyConfig> options,
                             IRequestDataBackupService backupService,
                             IAsyncWorkerFactory asyncWorkerFactory,
                             ILogger<NormalRequest> logger)

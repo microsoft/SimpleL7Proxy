@@ -20,7 +20,7 @@ public class ProbeableHostHealth : BaseHostHealth
     public ProbeableHostHealth(HostConfig hostConfig, ILogger logger)
         : base(hostConfig, logger)
     {
-        logger.LogDebug($"[CONFIG] ✓ Probeable backend host: {hostConfig.Host} | Probe: {hostConfig.ProbePath}");
+        logger.LogDebug($"[CONFIGS] ✓ Probeable backend host: {hostConfig.Host} | Probe: {hostConfig.ProbePath}");
     }
 
     public override bool SupportsProbing => true;

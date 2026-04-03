@@ -36,7 +36,7 @@ public class ProxyWorker : IConfigChangeSubscriber
     private static bool s_debug = false;            // dev time debug flag
     private static IConcurrentPriQueue<RequestData>? s_requestsQueue;
     private readonly IBackendService _backends;
-    private readonly BackendOptions _options;
+    private readonly ProxyConfig _options;
     private readonly ILogger<ProxyWorker> _logger;
     private readonly RequestLifecycleManager _lifecycleManager;
     private readonly EventDataBuilder _eventDataBuilder;
@@ -80,10 +80,8 @@ public class ProxyWorker : IConfigChangeSubscriber
         _lifecycleManager = context.LifecycleManager;
         _eventDataBuilder = context.EventDataBuilder;
         _options = context.BackendOptions;
-        s_backendKeys = _options.DependancyHeaders;
 
-        s_stripRequestHeaders = _options.StripRequestHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
-        s_stripResponseHeaders = _options.StripResponseHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+        InitVars();
 
         _wrkCntxt.ConfigChangeNotifier.Subscribe(
             this,
@@ -99,17 +97,21 @@ public class ProxyWorker : IConfigChangeSubscriber
             options => options.Timeout,
             options => options.AsyncTimeout,
             options => options.AsyncTriggerTimeout);
-}
+    }
+
+    public void InitVars(){
+        s_backendKeys = _options.DependancyHeaders;
+        s_stripRequestHeaders = _options.StripRequestHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+        s_stripResponseHeaders = _options.StripResponseHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+    }
+
 
     public Task OnConfigChangedAsync(
         IReadOnlyList<ConfigChange> changes, 
-        BackendOptions backendOptions, 
+        ProxyConfig backendOptions, 
         CancellationToken cancellationToken)
     {
-        s_backendKeys = backendOptions.DependancyHeaders;
-        s_stripRequestHeaders = backendOptions.StripRequestHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
-        s_stripResponseHeaders = backendOptions.StripResponseHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
-
+        InitVars();
         return Task.CompletedTask;
     }
 
@@ -187,8 +189,6 @@ public class ProxyWorker : IConfigChangeSubscriber
         if (_options.Workers == HealthCheckService.IncrementActiveWorkers(_options.Workers))
         {
             s_readyToWork = true;
-            // Always display
-            _logger.LogInformation("[READY] ✓ All workers ready to work");
         }
 
         // Run until cancellation is requested. (Queue emptiness is handled by the blocking DequeueAsync call.)
@@ -819,8 +819,27 @@ public class ProxyWorker : IConfigChangeSubscriber
 
         // Try the request on each active host, stop if it worked
         // Use helper method to abstract over shared vs per-request iterators
+
+        // TODO: Replace dummy parameters with request header lookup (e.g. request.Headers["x-S7P-IterationMode"])
+        bool loop_once = true;
+        bool loop_for_max_attempts = false;
+
+        // For shared iterators, compute the max attempts for this request so the
+        // circular iterator doesn't spin forever.  Per-request iterators already
+        // track their own limits internally, so we use int.MaxValue for them.
+        int maxSharedAttempts = int.MaxValue;
+        if (sharedIterator != null)
+        {
+            if (loop_once)
+                maxSharedAttempts = matchingHostCount;              // SinglePass: try each host once
+            else if (loop_for_max_attempts)
+                maxSharedAttempts = _options.MaxAttempts;           // MultiPass: use configured max
+            // else: no limit (original circular behaviour)
+        }
+
         BaseHostHealth? host;
-        while (TryGetNextHost(hostIterator, sharedIterator, out host) && host != null)
+        while (request.BackendAttempts < maxSharedAttempts
+            && TryGetNextHost(hostIterator, sharedIterator, out host) && host != null)
         {
             DateTime proxyStartDate = DateTime.UtcNow;
 
@@ -1251,7 +1270,7 @@ public class ProxyWorker : IConfigChangeSubscriber
         ProxyHelperUtils.GenerateErrorMessage(incompleteRequests, out sb, out statusMatches, out currentStatusCode);
 
         // 502 Bad Gateway  or   call status code form all attempts ( if they are the same )
-        lastStatusCode = (statusMatches) ? (HttpStatusCode)currentStatusCode : HttpStatusCode.BadGateway;
+        lastStatusCode = statusMatches ? (HttpStatusCode)currentStatusCode : HttpStatusCode.BadGateway;
         // requestSummary.Type = EventType.ProxyError;
 
         // ASYNC: Synchronize with AsyncWorker if it was started, even for error responses
@@ -1272,19 +1291,68 @@ public class ProxyWorker : IConfigChangeSubscriber
             }
         }
 
-        // Write error response to client (sync HTTP) or blob (async)
-        await WriteExhaustedHostsErrorAsync(request, lastStatusCode, sb.ToString()).ConfigureAwait(false);
+        var errorBodyStr = sb.ToString();
+        var errorBytes = Encoding.UTF8.GetBytes(errorBodyStr);
+        var recordedStatusCode = ProxyHelperUtils.RecordIncompleteRequests(requestSummary, lastStatusCode, "No active hosts were able to handle the request", incompleteRequests);
 
+        if (request.AsyncTriggered)
+        {
+            // TODO: Unify async error path to flow through WriteResponseAsync/StreamResponseAsync
+            // like the non-async path below. For now, write directly via WriteExhaustedHostsErrorAsync.
+            await WriteExhaustedHostsErrorAsync(request, lastStatusCode, errorBodyStr).ConfigureAwait(false);
+
+            return new ProxyData
+            {
+                FullURL = request.FullURL,
+                CalculatedHostLatency = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds,
+                BackendHostname = "No Active Hosts Available",
+                ResponseDate = DateTime.UtcNow,
+                StatusCode = recordedStatusCode,
+                Body = errorBytes,
+            };
+        }
+
+        // Non-async path: build a ProxyData that flows through the normal
+        // WriteResponseAsync → StreamResponseAsync pipeline, so error responses
+        // use the same code path as success responses.
+        var errorContent = new ByteArrayContent(errorBytes);
+        errorContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+        errorContent.Headers.ContentLength = errorBytes.Length;
+
+        var errorHeaders = new WebHeaderCollection
+        {
+            ["x-Request-Queue-Duration"] = (request.DequeueTime - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms",
+            ["x-Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms",
+            ["x-ProxyHost"] = _options.HostName,
+            ["x-MID"] = request.MID,
+            ["Attempts"] = request.BackendAttempts.ToString()
+        };
+
+        var errorResponse = new HttpResponseMessage(lastStatusCode) { Content = errorContent };
+
+        // Set headers on the HTTP context so WriteResponseAsync finds them already applied
+        if (request.Context != null)
+        {
+            request.Context.Response.StatusCode = (int)lastStatusCode;
+            request.Context.Response.Headers = errorHeaders;
+        }
 
         return new ProxyData
         {
             FullURL = request.FullURL,
-
             CalculatedHostLatency = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds,
             BackendHostname = "No Active Hosts Available",
             ResponseDate = DateTime.UtcNow,
-            StatusCode = ProxyHelperUtils.RecordIncompleteRequests(requestSummary, lastStatusCode, "No active hosts were able to handle the request", incompleteRequests),
-            Body = Encoding.UTF8.GetBytes(sb.ToString())
+            StatusCode = recordedStatusCode,
+            Body = errorBytes,
+            BodyResponseMessage = errorResponse,
+            StreamingProcessor = StreamProcessorFactory.DEFAULT_PROCESSOR,
+            Headers = errorHeaders,
+            ContentHeaders = new WebHeaderCollection
+            {
+                ["Content-Type"] = "application/json; charset=utf-8",
+                ["Content-Length"] = errorBytes.Length.ToString()
+            }
         };
     }
 
@@ -1542,7 +1610,7 @@ public class ProxyWorker : IConfigChangeSubscriber
             }
             else if (!request.AsyncTriggered && request.Context != null)
             {
-                _logger.LogInformation("Response Status Code: {StatusCode} for request {Guid}", statusCode, request.Guid);
+                _logger.LogInformation("Response Status Code: '{StatusCode}' for request {Guid}", statusCode, request.Guid);
                 request.Context.Response.StatusCode = (int)statusCode;
                 request.Context.Response.KeepAlive = false;
 

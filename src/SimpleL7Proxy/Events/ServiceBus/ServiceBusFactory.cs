@@ -13,7 +13,7 @@ namespace SimpleL7Proxy.ServiceBus
     public class ServiceBusFactory
     {
         private readonly DefaultCredential _defaultCredential;
-        private readonly IOptionsMonitor<BackendOptions> _optionsMonitor;
+        private readonly IOptionsMonitor<ProxyConfig> _optionsMonitor;
         private readonly ILogger<ServiceBusFactory> _logger;
 
         private readonly ServiceBusClient _client = null!;
@@ -29,7 +29,7 @@ namespace SimpleL7Proxy.ServiceBus
         /// The factory initializes the ServiceBusClient only when AsyncModeEnabled is true in the backend options.
         /// This prevents unnecessary connection creation when async processing is not required.
         /// </remarks>
-        public ServiceBusFactory(IOptionsMonitor<BackendOptions> optionsMonitor, ILogger<ServiceBusFactory> logger, DefaultCredential defaultCredential)
+        public ServiceBusFactory(IOptionsMonitor<ProxyConfig> optionsMonitor, ILogger<ServiceBusFactory> logger, DefaultCredential defaultCredential)
         {
             _optionsMonitor = optionsMonitor ?? throw new ArgumentNullException(nameof(optionsMonitor));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -119,7 +119,7 @@ namespace SimpleL7Proxy.ServiceBus
         {
             try
             {
-                _logger.LogInformation("[INIT] ✓ ServiceBusClient created with managed identity - Namespace: {Namespace}", fullyQualifiedNamespace);
+                _logger.LogInformation("[STARTUP] ✓ ServiceBusClient created with managed identity - Namespace: {Namespace}", fullyQualifiedNamespace);
                 
                 // Use DefaultAzureCredential for managed identity authentication
                 var credential = _defaultCredential.Credential;

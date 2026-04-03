@@ -12,13 +12,13 @@ public class UserPriority : IUserPriorityService
 {
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<Guid, byte>> userRequests = 
         new ConcurrentDictionary<string, ConcurrentDictionary<Guid, byte>>();
-    private readonly BackendOptions _options;
+    private readonly ProxyConfig _options;
     private readonly ILogger<Server> _logger;
     private int total = 0;
 
     public float threshold { get; set; }
     
-    public UserPriority(IOptions<BackendOptions> options, ILogger<Server> logger)
+    public UserPriority(IOptions<ProxyConfig> options, ILogger<Server> logger)
     {
         _options = options.Value;
         _logger = logger;

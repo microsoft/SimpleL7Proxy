@@ -31,7 +31,7 @@ public static class TestHostFactory
 
             var services = new ServiceCollection();
             services.AddLogging(b => b.AddProvider(NullLoggerProvider.Instance));
-            services.Configure<BackendOptions>(opts =>
+            services.Configure<ProxyConfig>(opts =>
             {
                 opts.CircuitBreakerErrorThreshold = 100; // high threshold so CB never trips in tests
                 opts.CircuitBreakerTimeslice = 60;
@@ -61,6 +61,7 @@ public static class TestHostFactory
         // Use direct-mode by default so no probe URL is needed
         var configStr = hostname.Contains(';') ? hostname : $"host={hostname};mode=direct";
         var config = new HostConfig(configStr);
+        config.Activate();
         return new NonProbeableHostHealth(config, logger);
     }
 

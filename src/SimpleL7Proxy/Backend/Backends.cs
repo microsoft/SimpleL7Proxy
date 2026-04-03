@@ -18,7 +18,7 @@ namespace SimpleL7Proxy.Backend;
 // * Check the status of each backend host and measure its latency
 // * Filter the active hosts based on the success rate
 // * Fetch the OAuth2 token and refresh it 100ms minutes before it expires
-public class Backends : IBackendService
+public class Backends : BackgroundService, IBackendService
 {
   private List<BaseHostHealth> _activeHosts;
   private readonly IHostHealthCollection _backendHostCollection;
@@ -29,7 +29,7 @@ public class Backends : IBackendService
   /// </summary>
   private List<BaseHostHealth> _backendHosts => _backendHostCollection.Current.Hosts;
 
-  private readonly BackendOptions _options;
+  private readonly ProxyConfig _options;
   private static readonly bool _debug = false;
 
   private static double _successRate;
@@ -44,6 +44,7 @@ public class Backends : IBackendService
 
   private readonly IEventClient _eventClient;
   private readonly ISharedIteratorRegistry? _sharedIteratorRegistry;
+  private List<Guid> _lastLatencyOrder = new();
 
   // Reusable ProxyEvent instances for backend poller to reduce allocations
   private readonly ProxyEvent _statusEvent = new ProxyEvent(25);  // 4 fixed (Timestamp, LoadBalanceMode, ActiveHostsCount, SuccessRate) + 7*N per host (assumes ~3 hosts)
@@ -53,11 +54,9 @@ public class Backends : IBackendService
   CancellationTokenSource workerCancelTokenSource = new CancellationTokenSource();
   private readonly ILogger<Backends> _logger;
   private static readonly ProxyEvent staticEvent = new ProxyEvent() { Type = EventType.Backend };
-
-  private Task? PollerTask;
   //public Backends(List<BackendHost> hosts, HttpClient client, int interval, int successRate)
   public Backends(
-      IOptions<BackendOptions> options,
+      IOptions<ProxyConfig> options,
       ICircuitBreaker circuitBreaker,
       IHostHealthCollection backendHostCollection, //
       IHostApplicationLifetime appLifetime,               //
@@ -98,41 +97,23 @@ public class Backends : IBackendService
 
     // Hosts are staged and activated by ConfigBootstrapper.RegisterBackends
 
-    _logger.LogDebug("[INIT] Backends service starting");
+    _logger.LogDebug("[STARTUP] Backend health-polling service created");
 
   }
 
   public Task Stop()
   {
-    _logger.LogInformation("[SHUTDOWN] ⏹ Backend stopping");
+    _logger.LogInformation("[SHUTDOWN] ⏹ Backend health poller stopping");
     _cancellationTokenSource.Cancel();
 
-    return PollerTask ?? Task.CompletedTask;
+    return ExecuteTask ?? Task.CompletedTask;
   }
 
 
-  public void Start()
+  protected override async Task ExecuteAsync(CancellationToken stoppingToken)
   {
-    // Start the backend poller task
-    PollerTask = Task.Run(() => Run(), _cancellationToken);
-    PollerTask.ContinueWith(task =>
-    {
-      if (task.Exception != null)
-      {
-        Console.WriteLine($"[BACKENDS-POLLER-ERROR] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} {task.Exception.Flatten()}");
-      }
-    }, TaskContinuationOptions.OnlyOnFaulted);
-
-    // If OAuth is enabled, start token refresh
-
-    _logger.LogInformation("[SERVICE] ✓ Backend service started");
+    await Run();
   }
-
-
-  #region Circuit Breaker
-  // moved from Backends.cs to CircuitBreaker.cs
-
-  #endregion
 
   public List<BaseHostHealth> GetActiveHosts() => _activeHosts;
   public int ActiveHostCount() => _activeHosts.Count;
@@ -147,31 +128,17 @@ public class Backends : IBackendService
   {
     return _backendHostCollection.Current.CatchAllHosts;
   }
-  public async Task WaitForStartup(int timeout)
+  public Task WaitForStartupAsync()
   {
     var start = DateTime.Now;
     var startTimer = DateTime.Now;
-
-    // register all audiences with the token provider
-    _backendHosts.ForEach(host => host.Config.RegisterWithTokenProvider());
 
     // Wait for the backend poller to start or until the timeout is reached. Make sure that if a token is required, it is available.
     var tasksToWait = _backendHosts.Select(host => host.Config.OAuth2Token()).ToArray();
 
     // await all tasks to complete or timeout after 10 seconds
-    var allTasks = Task.WhenAll(tasksToWait);
 
-    var delayTask = Task.Delay(timeout * 1000, _cancellationToken);
-    var completedTask = await Task.WhenAny(allTasks, delayTask).ConfigureAwait(false);
-    if (completedTask == delayTask)
-    {
-      Console.WriteLine($"[BACKENDS-STARTUP-ERROR] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} Backend Token Provider did not initialize tokens in the last {timeout} seconds.");
-      _logger.LogError($"Backend Token Provider did not initialize tokens in the last {timeout} seconds.");
-      throw new Exception("Backend Token Provider did not initialize tokens in time.");
-    }
-
-    _logger.LogInformation($"[SERVICE] ✓ Backend Poller started in {(DateTime.Now - start).TotalSeconds:F3}s");
-
+    return Task.WhenAll(tasksToWait);
   }
 
   private readonly Dictionary<string, bool> currentHostStatus = [];
@@ -179,50 +146,52 @@ public class Backends : IBackendService
   {
     try
     {
-      using (HttpClient _client = CreateHttpClient())
+      using var _client = CreateHttpClient();
+      var intervalTime = TimeSpan.FromMilliseconds(_options.PollInterval).ToString(@"hh\:mm\:ss");
+      var timeoutTime = TimeSpan.FromMilliseconds(_options.PollTimeout).ToString(@"hh\:mm\:ss\.fff");
+      _logger.LogInformation($"[POLLER ] ✓ Backend health poller started — polling every {intervalTime}, healthy threshold: {_successRate}, probe timeout: {timeoutTime}");
+
+      _client.Timeout = TimeSpan.FromMilliseconds(_options.PollTimeout);
+
+      using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(_options.PollInterval));
+      // Run first poll immediately, then wait on timer
+      bool firstRun = true;
+      while (!_cancellationToken.IsCancellationRequested)
       {
-        var intervalTime = TimeSpan.FromMilliseconds(_options.PollInterval).ToString(@"hh\:mm\:ss");
-        var timeoutTime = TimeSpan.FromMilliseconds(_options.PollTimeout).ToString(@"hh\:mm\:ss\.fff");
-        _logger.LogInformation($"[SERVICE] ✓ Backend Poller starting - Interval: {intervalTime} | Success Rate: {_successRate} | Timeout: {timeoutTime}");
-
-        _client.Timeout = TimeSpan.FromMilliseconds(_options.PollTimeout);
-
-        using (var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationToken))
+        try
         {
-          while (!linkedCts.Token.IsCancellationRequested && !_cancellationToken.IsCancellationRequested)
+          if (!firstRun)
           {
-            try
-            {
-              await UpdateHostStatus(_client);
-              FilterActiveHosts();
-
-              if ((DateTime.Now - _lastStatusDisplay).TotalSeconds > 60)
-              {
-                DisplayHostStatus();
-              }
-
-              await Task.Delay(_options.PollInterval, linkedCts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-              _logger.LogInformation("[SHUTDOWN] ⏹ Backend Poller stopping");
+            if (!await timer.WaitForNextTickAsync(_cancellationToken).ConfigureAwait(false))
               break;
-            }
-            catch (Exception e)
-            {
-              _logger.LogError(e, "[BACKENDS] Unexpected error in poller loop - continuing");
-            }
+          }
+          firstRun = false;
+
+          await UpdateHostStatus(_client);
+          FilterActiveHosts();
+
+          if ((DateTime.Now - _lastStatusDisplay).TotalSeconds > 60)
+          {
+            DisplayHostStatus();
           }
         }
-
-        _logger.LogInformation("[SHUTDOWN] ✓ Backend Poller stopped");
+        catch (OperationCanceledException)
+        {
+          _logger.LogInformation("[SHUTDOWN] ⏹ Backend health poller cancelled — draining");
+          break;
+        }
+        catch (Exception e)
+        {
+          _logger.LogError(e, "[POLLER ] ⚠ Backend health poller hit an error — retrying next cycle");
+        }
       }
+
+      _logger.LogInformation("[SHUTDOWN] ✓ Backend health poller stopped");
     }
     catch (Exception ex)
     {
       // Catch any unhandled exceptions to prevent background service from crashing the host
-      Console.WriteLine($"[BACKENDS-RUN-ERROR] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} {ex}");
-      _logger.LogError(ex, "[BACKENDS] CRITICAL: Unhandled exception in backend poller - service stopping");
+      _logger.LogError(ex, "[SERVICE] ✗ Backend health poller crashed — service stopping");
       throw; // Rethrow to let the host know the background service failed, but at least we logged it
     }
   }
@@ -301,7 +270,7 @@ public class Backends : IBackendService
         staticEvent.WriteOutput(eventMessage);
       }
 
-      var request = new HttpRequestMessage(HttpMethod.Get, probeableHost.ProbeUrl);
+      using var request = new HttpRequestMessage(HttpMethod.Get, probeableHost.ProbeUrl);
       if (host.Config.UseOAuth)
       {
         string token = await host.Config.OAuth2Token().ConfigureAwait(false);
@@ -325,6 +294,7 @@ public class Backends : IBackendService
         }
 
         // If the response is successful, add the host to the active hosts
+        _probeEvent["Success"] = response.IsSuccessStatusCode.ToString();
         return response.IsSuccessStatusCode;
       }
       finally
@@ -409,17 +379,22 @@ public class Backends : IBackendService
 
     _activeHosts = newActiveHosts;
 
-    // Invalidate iterator cache only if hosts actually changed
     if (hostsChanged)
     {
       InvalidateIteratorCache();
+      _lastLatencyOrder = newActiveHosts.OrderBy(h => h.CalculatedAverageLatency).Select(h => h.guid).ToList();
     }
-    else
+    else if (string.Equals(_options.LoadBalanceMode, Constants.Latency, StringComparison.OrdinalIgnoreCase))
     {
-      // Even if host list didn't change, invalidate shared iterators
-      // so they get fresh latency ordering on next request
-      _sharedIteratorRegistry?.InvalidateAll();
+      // Only invalidate shared iterators when the latency-based ordering actually changed
+      var newOrder = newActiveHosts.OrderBy(h => h.CalculatedAverageLatency).Select(h => h.guid).ToList();
+      if (!newOrder.SequenceEqual(_lastLatencyOrder))
+      {
+        _sharedIteratorRegistry?.InvalidateAll();
+        _lastLatencyOrder = newOrder;
+      }
     }
+    // For roundrobin/random modes with unchanged host list, no invalidation needed
   }
 
   /// <summary>
@@ -459,7 +434,7 @@ public class Backends : IBackendService
     if (_backendHosts != null)
       foreach (var host in _backendHosts.OrderBy(h => h.AverageLatency()))
       {
-        statusIndicator = host.SuccessRate() >= _successRate ? "Good  " : "Errors";
+        statusIndicator = host.SuccessRate() >= _successRate ? "✓ Active" : "✗ Below threshold";
         var roundedLatency = Math.Round(host.AverageLatency(), 3);
         var successRatePercentage = Math.Round(host.SuccessRate() * 100, 2);
         var hoststatus = host.GetStatus(out int calls, out int errors, out double average);

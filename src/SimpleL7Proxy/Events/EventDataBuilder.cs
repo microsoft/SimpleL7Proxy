@@ -13,9 +13,9 @@ namespace SimpleL7Proxy.Events;
 public class EventDataBuilder
 {
     private readonly ILogger<EventDataBuilder> _logger;
-    private readonly BackendOptions _options;
+    private readonly ProxyConfig _options;
 
-    public EventDataBuilder(ILogger<EventDataBuilder> logger, IOptions<BackendOptions> options)
+    public EventDataBuilder(ILogger<EventDataBuilder> logger, IOptions<ProxyConfig> options)
     {
         _logger = logger;
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));

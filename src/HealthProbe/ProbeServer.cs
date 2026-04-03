@@ -216,11 +216,11 @@ public class ProbeServer : BackgroundService
 
             ReadOnlySpan<byte> data;
 
-            // Check if status updates are stale (no updates in last 10 seconds)
+            // Check if status updates are stale (no updates in last 20 seconds)
             // Skip check if never initialized (timestamp == 0)
-            if (s_lastUpdateTimestamp != 0 && s_lastUpdateTimestamp < Stopwatch.GetTimestamp() - Stopwatch.Frequency * 10)
+            if (s_lastUpdateTimestamp != 0 && s_lastUpdateTimestamp < Stopwatch.GetTimestamp() - Stopwatch.Frequency * 20)
             {
-                // No updates received in last 10 seconds - mark as failed
+                // No updates received in last 20 seconds - mark as failed
                 ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
                 ctx.Response.ContentLength = s_failedHostsLength;
                 data = s_failedHosts;
@@ -268,11 +268,11 @@ public class ProbeServer : BackgroundService
 
             ReadOnlySpan<byte> data;
             
-            // Check if status updates are stale (no updates in last 10 seconds)
+            // Check if status updates are stale (no updates in last 20 seconds)
             // Skip check if never initialized (timestamp == 0)
-            if (s_lastUpdateTimestamp != 0 && s_lastUpdateTimestamp < Stopwatch.GetTimestamp() - Stopwatch.Frequency * 10)
+            if (s_lastUpdateTimestamp != 0 && s_lastUpdateTimestamp < Stopwatch.GetTimestamp() - Stopwatch.Frequency * 20)
             {
-                // No updates received in last 10 seconds - mark as failed
+                // No updates received in last 20 seconds - mark as failed
                 ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
                 ctx.Response.ContentLength = s_failedHostsLength;
                 data = s_failedHosts;
@@ -332,9 +332,9 @@ public class ProbeServer : BackgroundService
             ReadOnlySpan<byte> data;
             
 
-            if (s_lastUpdateTimestamp != 0 && s_lastUpdateTimestamp < Stopwatch.GetTimestamp() - Stopwatch.Frequency * 10)
+            if (s_lastUpdateTimestamp != 0 && s_lastUpdateTimestamp < Stopwatch.GetTimestamp() - Stopwatch.Frequency * 20)
             {
-                // No updates received in last 10 seconds - mark as failed
+                // No updates received in last 20 seconds - mark as failed
                 ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
                 ctx.Response.ContentLength = s_failedHostsLength;
                 data = s_failedHosts;

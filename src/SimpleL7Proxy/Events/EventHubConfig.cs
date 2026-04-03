@@ -9,7 +9,7 @@ public class EventHubConfig {
     public int StartupSeconds { get; } = 10;
     public int MaxReconnectAttempts { get; } = 5;
 
-    public EventHubConfig(BackendOptions options) {
+    public EventHubConfig(ProxyConfig options) {
         ConnectionString = options.EventHubConnectionString;
         EventHubName = options.EventHubName;
         EventHubNamespace = options.EventHubNamespace;
@@ -22,10 +22,8 @@ public class EventHubConfig {
 
         if (!hasConnectionString && !hasNamespace)
         {
-            Console.WriteLine("[CONFIG] EventHubConfig incomplete — need (EVENTHUB_CONNECTIONSTRING + EVENTHUB_NAME) or (EVENTHUB_NAMESPACE + EVENTHUB_NAME). EventHub logging will be disabled.");
+            Console.WriteLine("[CONFIGS] EventHubConfig incomplete — need (EVENTHUB_CONNECTIONSTRING + EVENTHUB_NAME) or (EVENTHUB_NAMESPACE + EVENTHUB_NAME). EventHub logging will be disabled.");
             throw new InvalidOperationException("Incomplete EventHub configuration. Check logs for details.");
         }
-
-        Console.WriteLine($"[CONFIG] EventHubConfig initialized. ConnectionString: {(string.IsNullOrEmpty(ConnectionString) ? "Not Set" : "Set")}, EventHubName: {EventHubName}, EventHubNamespace: {EventHubNamespace}, StartupSeconds: {StartupSeconds}");
     }
 }

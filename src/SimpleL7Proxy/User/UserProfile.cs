@@ -16,7 +16,7 @@ namespace SimpleL7Proxy.User;
 
 public class UserProfile : BackgroundService, IUserProfileService, IConfigChangeSubscriber
 {
-    private readonly BackendOptions _options;
+    private readonly ProxyConfig _options;
 
     private volatile Dictionary<string, Dictionary<string, string>> userProfiles = new Dictionary<string, Dictionary<string, string>>();
     private volatile List<string> suspendedUserProfiles = new List<string>();
@@ -54,7 +54,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
     private const int s_ErrorDelayMs = 3000; // 3 seconds
     private bool _configRequired = false;
 
-    public UserProfile(BackendOptions options, ConfigChangeNotifier configChangeNotifier, ILogger<UserProfile> logger)
+    public UserProfile(ProxyConfig options, ConfigChangeNotifier configChangeNotifier, ILogger<UserProfile> logger)
     {
         ArgumentNullException.ThrowIfNull(options, nameof(options));
         ArgumentNullException.ThrowIfNull(logger, nameof(logger));
@@ -63,10 +63,10 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
         _options = options;
         _logger = logger;
         _userInformation = CreateDefaultAsyncClientInfoCache();
-        _logger.LogInformation("[INIT] UserProfile service starting.  Lookup header: {Header}, Config URL: {ConfigUrl}, Refresh interval: {RefreshInterval}s, Soft-delete TTL: {SoftDeleteTTL} minutes, Required: {Required}",
-            options.UserIDFieldName, options.UserConfigUrl, options.UserConfigRefreshIntervalSecs, options.UserSoftDeleteTTLMinutes, options.UserConfigRequired);
+        _logger.LogInformation("[PROFILE] Required: {required}, Header: {Header}, Interval: {RefreshInterval}s, Soft-delete TTL: {SoftDeleteTTL} min, Config: {ConfigUrl}, Suspended: {SuspendedConfigUrl}, AuthAppID: {AuthAppIDConfigUrl}",
+            options.UserConfigRequired, options.UserIDFieldName, options.UserConfigRefreshIntervalSecs, options.UserSoftDeleteTTLMinutes, options.UserConfigUrl, options.SuspendedUserConfigUrl, options.ValidateAuthAppIDUrl);
 
-        initVars();
+        InitVars();
 
         // Subscribe to config change notifications
         configChangeNotifier.Subscribe(this,
@@ -80,7 +80,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
             options => options.AsyncClientConfigFieldName]);
     }
 
-    public void initVars()
+    public void InitVars()
     {
 
         doUserConfig = _options.UseProfiles && !string.IsNullOrEmpty(_options.UserConfigUrl);
@@ -94,13 +94,13 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
 
     public Task OnConfigChangedAsync(
                 IReadOnlyList<ConfigChange> changes,
-                BackendOptions backendOptions,
+                ProxyConfig backendOptions,
                 CancellationToken cancellationToken)
     {
         _logger.LogInformation("Received config change notification for UserProfile service. Changes: {Changes}",
             string.Join(", ", changes.Select(c => c.ToString())));
 
-        initVars();
+        InitVars();
 
         if (!doUserConfig)
         {
@@ -152,6 +152,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
             {
                 DateTime startTime = DateTime.UtcNow;
                 sb.Clear();
+                sb.Append("[PROFILE] ");
                 bool success = false;
                 bool localIsInitialized = true;
 
@@ -191,14 +192,14 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
 
                     if (!profileConfigStatus.HasData)
                         localIsInitialized = false;
-                    sb.Append($"Profile- {profileConfigStatus}");
+                    sb.Append($"(Profiles) {profileConfigStatus}");
                 }
 
                 if (suspendedTask != null)
                 {
                     var suspendedStatus = await suspendedTask.ConfigureAwait(false);
                     success = success && suspendedStatus.Success;
-                    sb.Append($", Suspended- {suspendedUserConfigStatus}");
+                    sb.Append($", (Suspended) {suspendedUserConfigStatus}");
                 }
 
                 if (authTask != null)
@@ -220,7 +221,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
                     if (!authAppIDsConfigStatus.HasData)
                         localIsInitialized = false;
 
-                    sb.Append($", AuthAppIDs- {authAppIDsConfigStatus}");
+                    sb.Append($", (AuthAppIDs) {authAppIDsConfigStatus}");
                 }
 
                 if (sb.Length > 0)
@@ -377,7 +378,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
         }
     }
 
-    // TODO  make all three the same call
+    // TODO  make all three the same
 
     private async Task<CurrentRequestStatus> ProfileReader(ConfigStatus status, string url, ParsingMode mode)
     {

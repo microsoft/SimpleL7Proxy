@@ -17,7 +17,7 @@ namespace SimpleL7Proxy.ServiceBus
 
     public class ServiceBusRequestService : IHostedService, IServiceBusRequestService
     {
-        private readonly BackendOptions _options;
+        private readonly ProxyConfig _options;
         private readonly ServiceBusFactory _senderFactory;
         private readonly ILogger<ServiceBusRequestService> _logger;
         public static readonly ConcurrentQueue<ServiceBusStatusMessage> _statusQueue = new ConcurrentQueue<ServiceBusStatusMessage>();
@@ -35,7 +35,7 @@ namespace SimpleL7Proxy.ServiceBus
         private int _totalMessagesProcessed = 0;
         private int _totalBatchesSent = 0;
 
-        public ServiceBusRequestService(IOptions<BackendOptions> options, ServiceBusFactory senderFactory, ILogger<ServiceBusRequestService> logger)
+        public ServiceBusRequestService(IOptions<ProxyConfig> options, ServiceBusFactory senderFactory, ILogger<ServiceBusRequestService> logger)
         {
             _options = options.Value;
             _senderFactory = senderFactory ?? throw new ArgumentNullException(nameof(senderFactory));

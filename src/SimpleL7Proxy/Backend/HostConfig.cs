@@ -136,6 +136,9 @@ namespace SimpleL7Proxy.Backend
         if (_serviceProvider == null)
             throw new InvalidOperationException("HostConfig service provider not initialized. Call Initialize first.");
 
+        RegisterWithTokenProvider();
+        OAuth2Token().ConfigureAwait(false).GetAwaiter().GetResult();
+
         _circuitBreaker = _serviceProvider.GetService<ICircuitBreaker>()
             ?? throw new InvalidOperationException("ICircuitBreaker service not registered in DI container.");
 
@@ -177,7 +180,7 @@ namespace SimpleL7Proxy.Backend
     /// </summary>
     public HostConfig(string hostname, string? probepath = "", string? ip = null, string? audience = "")
     {
-      _logger?.LogDebug("[CONFIG] Configuring backend host: {hostname}", hostname);
+      _logger?.LogDebug("[CONFIGS] Configuring backend host: {hostname}", hostname);
       ParsedConfig = TryParseConfig(hostname, probepath, ip, audience);
 
       // parse the host, protocol and port
@@ -210,12 +213,12 @@ namespace SimpleL7Proxy.Backend
 
       if (DirectMode)
       {
-        _logger?.LogDebug("[CONFIG] ✓ Direct host configured: {Host} | Path: {PartialPath}", Host, PartialPath);
+        _logger?.LogDebug("[CONFIGS] ✓ Direct host configured: {Host} | Path: {PartialPath}", Host, PartialPath);
         probepath = String.Empty;
       }
       else
       {
-        _logger?.LogDebug("[CONFIG] ✓ APIM  host configured: {Host} | Probe: /{ProbePath}", Host, ProbePath);
+        _logger?.LogDebug("[CONFIGS] ✓ APIM  host configured: {Host} | Probe: /{ProbePath}", Host, ProbePath);
       }
     }
 
@@ -307,7 +310,7 @@ namespace SimpleL7Proxy.Backend
         result.Hostname = result.Host;
       } else 
       {
-        Console.WriteLine($"Direct mode host detected: {result.Host}");
+        // Console.WriteLine($"Direct mode host detected: {result.Host}");
         result.Hostname = new Uri(result.Host).Host;
         if (string.IsNullOrEmpty(result.Processor))
         {

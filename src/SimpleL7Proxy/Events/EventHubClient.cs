@@ -38,7 +38,7 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
     //public EventHubClient(string connectionString, string eventHubName, ILogger<EventHubClient>? logger = null)
 
     public EventHubClient(CompositeEventClient composite, 
-        IOptions<BackendOptions> options, 
+        IOptions<ProxyConfig> options, 
         ILogger<EventHubClient> logger,
         DefaultCredential defaultCredential)
     {
@@ -89,7 +89,9 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
             workerCancelToken = cancellationTokenSource.Token;
             
             _composite.Add(this);
-            _logger.LogCritical("[SERVICE] ✓ EventHub Client started successfully");
+            var ConnString = string.IsNullOrEmpty(_config.ConnectionString) ? "Not Set" : "Set";
+            _logger.LogInformation("[EVENTHB] ✓ EventHub Client started: ConnectionString: {ConnString}, Name: {EventHubName}, Namespace: {EventHubNamespace}", ConnString, _config.EventHubName, _config.EventHubNamespace);
+                                    
             writerTask = Task.Run(() => EventWriter(workerCancelToken), workerCancelToken);
         }
         catch (OperationCanceledException) {
@@ -135,7 +137,6 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
 
         try
         {
-            _logger.LogInformation("EventHubClient: EventWriter running.");
             while (!token.IsCancellationRequested)
             {
                 if (GetNextBatch(99) > 0)
@@ -251,7 +252,6 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
                 await ConnectAsync().ConfigureAwait(false);
                 _batchData?.Dispose();
                 _batchData = await _producerClient!.CreateBatchAsync().ConfigureAwait(false);
-                Console.WriteLine("EventHubClient: Reconnected successfully.");
 
                 Interlocked.Exchange(ref ReconnectCount, 0);
                 return;
@@ -303,20 +303,32 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
             }
             else
             {
-                // Item exceeds the EventHub batch size limit — drop it to prevent an infinite re-enqueue cycle.
-                Interlocked.Decrement(ref entryCount);
-                _logger.LogError("EventHubClient: Log entry too large for batch, dropping ({Bytes} bytes).", Encoding.UTF8.GetByteCount(log));
+                if (_batchData.Count == 0)
+                {
+                    // Batch is empty and still can't fit — item is genuinely too large. Drop it.
+                    Interlocked.Decrement(ref entryCount);
+                    _logger.LogError("EventHubClient: Log entry too large for batch, dropping ({Bytes} bytes).", Encoding.UTF8.GetByteCount(log));
+                }
+                else
+                {
+                    // Batch is full — put the item back and send what we have
+                    _logBuffer.Enqueue(log);
+                }
+                break;
             }
         }
 
         return _batchData.Count;
     }
 
+    // bool nop=true;
     public void SendData(string? value)
     {
         if (!isRunning || isShuttingDown) return;
 
         if (value == null) return;
+
+        // if ( nop) return;
 
         if (value.StartsWith("\n\n"))
             value = value.Substring(2);
