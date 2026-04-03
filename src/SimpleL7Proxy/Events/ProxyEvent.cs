@@ -178,7 +178,6 @@ namespace SimpleL7Proxy.Events
       catch (Exception ex)
       {
         Console.Error.WriteLine($"Error sending telemetry: {ex.Message}");
-        Console.WriteLine("Stack: " + ex.StackTrace);
       }
     }
 

@@ -315,8 +315,11 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                         _probe["ProbeType"] = probeType;
                         _probe["StatusCode"] = ((int)code).ToString();
                         _probe.SendEvent();
+
+                        // Console.WriteLine($"[PROBE] {probeType} probe received, responded with {code}");
                         continue;
                     }
+                    // Console.WriteLine($"[NOT PROBE] {probePath} received, processing as normal request");
 
                     // Health/ForceGC: log probe event, then fall through to enqueue
                     if (probePath is Constants.Health or Constants.ForceGC)

@@ -283,7 +283,7 @@ public class HealthCheckService
 
                     var gcMemInfo = GC.GetGCMemoryInfo();
                     var process = System.Diagnostics.Process.GetCurrentProcess();
-                    sb.Append("\nMemory Statistics:\n")
+                    sb.Append("\nMemory Statistics before calling GC:\n")
                         .Append("  Total Managed Memory: ")
                         .Append((GC.GetTotalMemory(false) / 1024.0 / 1024.0).ToString("F2"))
                         .Append(" MB\n  Working Set: ")
