@@ -108,7 +108,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
                 _ = PushStatusToSidecarAsync(client);
             }
 
-        }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+        }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(10)); // initial delay, interval
 
         FailedAttempts = 0;
     }
@@ -131,7 +131,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
         try
         {
             var url = $"{_backendOptions.HealthProbeSidecarUrl}/internal/update-status?readiness={_readinessStatus}&startup={_startupStatus}";
-            var response = await selfCheckClient.GetAsync(url).ConfigureAwait(false);
+            using var response = await selfCheckClient.GetAsync(url).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 FailedAttempts++;
