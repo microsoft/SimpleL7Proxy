@@ -12,6 +12,7 @@ SimpleL7Proxy is designed to be highly configurable through environment variable
   - [Logging \& Monitoring Variables](#logging--monitoring-variables)
   - [Async Processing Variables](#async-processing-variables)
   - [Connection Management Variables](#connection-management-variables)
+  - [Azure App Configuration Variables](#azure-app-configuration-variables)
   - [Backend Configuration Variables](#backend-configuration-variables)
   - [User Profile Configuration](#user-profile-configuration)
   - [Additional Configuration Notes](#additional-configuration-notes)
@@ -69,7 +70,7 @@ For production deployments, consider also configuring:
 | **DefaultTTLSecs**            | int | The default time-to-live for a request in seconds.                                                                                                                                               | 300                                      |
 | **DependancyHeaders**         | string | Comma-separated list of headers to track dependency information.                                                                                                      | "Backend-Host, Host-URL..."              |
 | **DisallowedHeaders**         | string | A comma-separated list of headers that should be removed or disallowed when forwarding requests.                                                                                                  | None                                     |
-| **UserIDFieldName**          | string | The header name used to look up user information in configuration files.                                                                               | userId                                   |
+| **UserIDFieldName**          | string | The header name used to look up user information in configuration files. Also accepts the legacy alias **LookupHeaderName** (kept for backward compatibility). | userId                                   |
 | **PriorityKeyHeader**          | string | Name of the header that contains the priority key for determining request priority.                                                                     | S7PPriorityKey                           |
 | **PriorityKeys**              | int array | Comma-separated list of keys for the header 'S7PPriorityKey'. See [Advanced Configuration](ADVANCED_CONFIGURATION.md#priority-management) for examples.  | "12345,234"                                |
 | **PriorityValues**            | int array | Comma-separated list of priorities mapping to **PriorityKeys**. See [Advanced Configuration](ADVANCED_CONFIGURATION.md#priority-management) for examples.   | "1,3"                                      |
@@ -96,10 +97,13 @@ For production deployments, consider also configuring:
 | **EVENTHUB_NAME**             | string | The EventHub name for logging. Required when `eventhub` is in **EVENT_LOGGERS**.                                                                                                                  | None                                     |
 | **EVENTHUB_NAMESPACE**        | string | The EventHub namespace (e.g., `mynamespace` or `mynamespace.servicebus.windows.net`). Used with `DefaultAzureCredential` when **EVENTHUB_CONNECTIONSTRING** is not set. Must also set **EVENTHUB_NAME**. | None                                     |
 | **EVENTHUB_STARTUP_SECONDS**  | int    | Timeout in seconds for the EventHub client to establish a connection during startup. If exceeded, EventHub logging is disabled gracefully (other loggers continue). | 10                                       |
+| **EVENTHUB_MAX_RECONNECT_ATTEMPTS** | int | Maximum number of reconnection attempts for the EventHub client before giving up. | 5                                        |
+| **EVENTHUB_MAX_UNDRAINED_EVENTS** | int   | Maximum number of undrained (buffered) events before the EventHub logger starts dropping. | 100                                      |
 | **LogAllRequestHeaders**        | bool | If true, logs all request headers for each proxied request.                                                                                           | false                                    |
 | **LogAllRequestHeadersExcept**  | string | Comma-separated list of request headers to exclude from logging, even if LogAllRequestHeaders is true.                                                | Authorization                            |
 | **LogAllResponseHeaders**       | bool | If true, logs all response headers for each proxied request.                                                                                          | false                                    |
 | **LogAllResponseHeadersExcept** | string | Comma-separated list of response headers to exclude from logging, even if LogAllResponseHeaders is true.                                               | Api-Key                                  |
+| **LOGDATETIME**                 | bool   | When true, prepends a timestamp to each console log line. Requires restart.                                                                           | false                                    |
 | **LOGFILE_NAME**                | string | Filename for the local log file when `file` is in **EVENT_LOGGERS** (or when **LOGTOFILE**=true in legacy mode).                                      | eventslog.json                           |
 | **LOGTOFILE**                   | bool   | **Legacy.** When **EVENT_LOGGERS** is not set: `true` enables file logging, `false` enables EventHub logging. Prefer **EVENT_LOGGERS** for new deployments. | false                                    |
 | **LogHeaders**                  | string | Comma-separated list of specific headers to log for debugging.                                                                                        | (empty)                                  |
@@ -142,12 +146,21 @@ For production deployments, consider also configuring:
 | **IgnoreSSLCert**             | bool | Toggles SSL certificate validation. If true, accepts self-signed certificates.                                     | false                                    |
 | **KeepAliveIdleTimeoutSecs**  | int | The idle timeout (in seconds) for pooled HTTP connections before they are closed.                                  | 1200 (20 minutes)                        |
 | **KeepAliveInitialDelaySecs** | int | Initial delay in seconds before sending TCP keep-alive probes.                                                    | 60                                       |
-| **KeepAlivePingDelaySecs**    | int | The delay (in seconds) before sending a TCP keep-alive probe on an idle connection.                                | 30                                       |
 | **KeepAlivePingIntervalSecs** | int | Interval in seconds between TCP keep-alive probes.                                                                | 60                                       |
-| **KeepAlivePingTimeoutSecs**  | int | The timeout (in seconds) to wait for a response to a TCP keep-alive probe before closing the connection.           | 30                                       |
 | **MultiConnIdleTimeoutSecs**  | int | Idle timeout in seconds for pooled HTTP/2 connections.                                                            | 300                                      |
 | **MultiConnLifetimeSecs**     | int | Lifetime in seconds for pooled HTTP/2 connections.                                                                | 3600                                     |
 | **MultiConnMaxConns**         | int | Maximum number of HTTP/2 connections per server.                                                                  | 4000                                     |
+
+## Azure App Configuration Variables
+
+These variables connect SimpleL7Proxy to [Azure App Configuration](https://learn.microsoft.com/azure/azure-app-configuration/overview) for centralized, hot-reloadable configuration management.
+
+| Variable                       | Type | Description                                                                                                         | Default                                  |
+| ----------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| **AZURE_APPCONFIG_ENDPOINT**  | string | The endpoint URL of your Azure App Configuration store (e.g. `https://myappconfig.azconfig.io`). When set, the proxy uses `DefaultAzureCredential` to authenticate. Mutually exclusive with `AZURE_APPCONFIG_CONNECTION_STRING`. | (empty — App Config disabled)            |
+| **AZURE_APPCONFIG_CONNECTION_STRING** | string | Connection string for the Azure App Configuration store. Use when managed identity is not available. Mutually exclusive with `AZURE_APPCONFIG_ENDPOINT`. | (empty — App Config disabled)            |
+| **AZURE_APPCONFIG_LABEL**     | string | Label filter applied when reading settings from the App Configuration store (e.g. `production`). Leave empty to read unlabeled settings. | (empty — no label filter)                |
+| **AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS** | int | How often (in seconds) the proxy polls App Configuration for setting changes. | 30                                       |
 
 ## Backend Configuration Variables
 
@@ -172,7 +185,7 @@ For production deployments, consider also configuring:
 | **Timeout**                   | int | Connection timeout (in milliseconds) for each backend request. If exceeded, SimpleL7Proxy tries the next available host. | 1200000 (20 mins)                        |
 | **UseOAuth**                  | bool | Enables or disables OAuth token fetching for outgoing requests.                                                  | false                                    |
 | **UseOAuthGov**               | bool | If true, uses the government cloud OAuth endpoint for token acquisition.                                         | false                                    |
-| **UseSharedIterators**        | bool | When true, requests to the same path share the same host iterator for fair round-robin distribution.             | false                                    |
+| **UseSharedIterators**        | bool | When true, requests to the same path share the same host iterator for fair round-robin distribution.             | true                                     |
 | **SharedIteratorTTLSeconds**  | int  | How long (in seconds) an unused shared iterator lives before cleanup.                                            | 60                                       |
 | **SharedIteratorCleanupIntervalSeconds** | int | How often (in seconds) to run cleanup of stale shared iterators.                                        | 30                                       |
 | **MaxEvents**                 | int  | Maximum number of events the proxy can store in memory.                                                          | 100000                                   |
