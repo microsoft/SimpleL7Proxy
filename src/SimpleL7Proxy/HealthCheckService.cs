@@ -15,7 +15,7 @@ using SimpleL7Proxy.Proxy;
 
 using Shared.HealthProbe;
 
-namespace SimpleL7Proxy.Proxy;
+namespace SimpleL7Proxy;
 
 /// <summary>
 /// Optimized health check service that handles probe endpoints (/health, /readiness, /startup, /liveness).
@@ -579,7 +579,7 @@ public class HealthCheckService
 
         if (isReady && firstHealthCheck)
         {
-            _logger.LogInformation("[-READY-] ✓ All workers ready to work");
+            _logger.LogInformation("[-READY-] ✓ Workers ready, Profiles ready, Backends ready");
             firstHealthCheck = false;
         }
 
