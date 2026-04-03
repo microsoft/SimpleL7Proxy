@@ -35,8 +35,9 @@ def _encode_body_lines(lines):
     return b"".join(line.encode('utf-8') for line in lines)
 
 def load_file_cache():
-    """Scan the current directory for .txt and .json files and cache their pre-encoded contents."""
-    for filepath in glob.glob('*.txt') + glob.glob('*.json'):
+    """Scan the current directory for .txt files and cache their pre-encoded contents.
+    .json files are always read fresh from disk to support live editing."""
+    for filepath in glob.glob('*.txt'):
         try:
             with open(filepath, 'r') as f:
                 lines = f.readlines()
@@ -46,32 +47,55 @@ def load_file_cache():
             print(f"Cached: {filepath} ({len(lines)} lines, {total_bytes} bytes across {len(_file_cache[filepath])} chunks)")
         except Exception as e:
             print(f"Warning: could not cache {filepath}: {e}")
+    for filepath in glob.glob('*.json'):
+        if os.path.isfile(filepath):
+            print(f"Found:  {filepath} (will be read fresh on each request)")
+
+def _is_json(filename):
+    return filename.lower().endswith('.json')
+
+def _read_file_fresh(filename):
+    """Read a file from disk and return (chunked_data, body_bytes) or None."""
+    try:
+        with open(filename, 'r') as f:
+            lines = f.readlines()
+        return _encode_chunked_lines(lines), _encode_body_lines(lines)
+    except FileNotFoundError:
+        return None
 
 def get_cached_data(filename):
-    """Return pre-encoded chunked data for a file, loading on demand if not cached."""
+    """Return pre-encoded chunked data for a file.
+    .json files are always re-read from disk; .txt files use the cache."""
+    if _is_json(filename):
+        result = _read_file_fresh(filename)
+        return result[0] if result else None
     if filename not in _file_cache:
-        try:
-            with open(filename, 'r') as f:
-                lines = f.readlines()
-            _file_cache[filename] = _encode_chunked_lines(lines)
-            _body_cache[filename] = _encode_body_lines(lines)
-            total_bytes = sum(len(chunk) for chunk in _file_cache[filename])
-            print(f"Cached on demand: {filename} ({len(lines)} lines, {total_bytes} bytes across {len(_file_cache[filename])} chunks)")
-        except FileNotFoundError:
+        result = _read_file_fresh(filename)
+        if result is None:
             return None
+        _file_cache[filename] = result[0]
+        _body_cache[filename] = result[1]
+        total_bytes = sum(len(chunk) for chunk in _file_cache[filename])
+        print(f"Cached on demand: {filename} ({total_bytes} bytes across {len(_file_cache[filename])} chunks)")
     return _file_cache[filename]
 
 def get_cached_body(filename):
-    """Return the full cached response body without chunk framing."""
+    """Return the full response body without chunk framing.
+    .json files are always re-read from disk."""
+    if _is_json(filename):
+        result = _read_file_fresh(filename)
+        return result[1] if result else None
     if filename not in _body_cache:
         if get_cached_data(filename) is None:
             return None
     return _body_cache[filename]
 
 def is_cached_or_exists(filename):
-    """Check if a file is cached or exists on disk (caching it if found)."""
+    """Check if a file is cached or exists on disk."""
     if filename in _file_cache:
         return True
+    if _is_json(filename):
+        return os.path.isfile(filename)
     return get_cached_data(filename) is not None
 
 import re as _re

@@ -63,8 +63,8 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
         _options = options;
         _logger = logger;
         _userInformation = CreateDefaultAsyncClientInfoCache();
-        _logger.LogInformation("[PROFILE] UserProfile service starting. Lookup header: {Header}, Config URL: {ConfigUrl}, Refresh interval: {RefreshInterval}s, Soft-delete TTL: {SoftDeleteTTL} minutes, Required: {Required}",
-            options.UserIDFieldName, options.UserConfigUrl, options.UserConfigRefreshIntervalSecs, options.UserSoftDeleteTTLMinutes, options.UserConfigRequired);
+        _logger.LogInformation("[PROFILE] Required: {required}, Header: {Header}, Interval: {RefreshInterval}s, Soft-delete TTL: {SoftDeleteTTL} min, Config: {ConfigUrl}, Suspended: {SuspendedConfigUrl}, AuthAppID: {AuthAppIDConfigUrl}",
+            options.UserConfigRequired, options.UserIDFieldName, options.UserConfigRefreshIntervalSecs, options.UserSoftDeleteTTLMinutes, options.UserConfigUrl, options.SuspendedUserConfigUrl, options.ValidateAuthAppIDUrl);
 
         InitVars();
 
