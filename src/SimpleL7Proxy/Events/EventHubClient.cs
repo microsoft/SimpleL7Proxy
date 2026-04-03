@@ -303,20 +303,32 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
             }
             else
             {
-                // Item exceeds the EventHub batch size limit — drop it to prevent an infinite re-enqueue cycle.
-                Interlocked.Decrement(ref entryCount);
-                _logger.LogError("EventHubClient: Log entry too large for batch, dropping ({Bytes} bytes).", Encoding.UTF8.GetByteCount(log));
+                if (_batchData.Count == 0)
+                {
+                    // Batch is empty and still can't fit — item is genuinely too large. Drop it.
+                    Interlocked.Decrement(ref entryCount);
+                    _logger.LogError("EventHubClient: Log entry too large for batch, dropping ({Bytes} bytes).", Encoding.UTF8.GetByteCount(log));
+                }
+                else
+                {
+                    // Batch is full — put the item back and send what we have
+                    _logBuffer.Enqueue(log);
+                }
+                break;
             }
         }
 
         return _batchData.Count;
     }
 
+    // bool nop=true;
     public void SendData(string? value)
     {
         if (!isRunning || isShuttingDown) return;
 
         if (value == null) return;
+
+        // if ( nop) return;
 
         if (value.StartsWith("\n\n"))
             value = value.Substring(2);
