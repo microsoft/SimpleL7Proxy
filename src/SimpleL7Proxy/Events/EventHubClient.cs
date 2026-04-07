@@ -137,9 +137,16 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
 
         try
         {
+            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
+            var lastSendTime = DateTime.UtcNow;
             while (!token.IsCancellationRequested)
             {
-                if (GetNextBatch(99) > 0)
+                GetNextBatch(99);
+
+                var elapsed = DateTime.UtcNow - lastSendTime;
+                var shouldFlush = _batchData.Count >= 10 || (elapsed.TotalSeconds >= 2 && _batchData.Count > 0);
+
+                if (shouldFlush)
                 {
                     try
                     {
@@ -147,6 +154,7 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
                         _pendingItems.Clear();
                         _batchData.Dispose();
                         _batchData = await _producerClient.CreateBatchAsync(token).ConfigureAwait(false);
+                        lastSendTime = DateTime.UtcNow;
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
@@ -159,13 +167,14 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
                         }
                         _pendingItems.Clear();
                         await ReconnectAsync(cancellationToken: token).ConfigureAwait(false);
+                        lastSendTime = DateTime.UtcNow;
                         continue;
                     }
                 }
 
                 if (!beginShutdown)
                 {
-                    await Task.Delay(500, token).ConfigureAwait(false);
+                    await timer.WaitForNextTickAsync(token).ConfigureAwait(false);
                 }
             }
             _logger.LogInformation("[SHUTDOWN] ✓ EventHubClient exiting");
@@ -273,7 +282,6 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
         if (_batchData is null)
             return 0;
 
-        _pendingItems.Clear();
         int initialCount = count;
 
         for (int i = 0; i < initialCount; i++)

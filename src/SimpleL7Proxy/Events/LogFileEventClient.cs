@@ -85,13 +85,14 @@ public class LogFileEventClient : IEventClient, IHostedService
         isRunning = true;
         try
         {
+            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
             while (!token.IsCancellationRequested)
             {
                 LogNextBatch(99);
 
                 if (!beginShutdown)
                 {
-                    await Task.Delay(500, token).ConfigureAwait(false); // Wait for 1/2 second
+                    await timer.WaitForNextTickAsync(token).ConfigureAwait(false);
                 }
             }
             Console.WriteLine("[SHUTDOWN] ✓ LogFileEventClient exiting");
