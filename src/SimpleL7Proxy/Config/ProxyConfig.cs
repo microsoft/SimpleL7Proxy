@@ -284,7 +284,7 @@ public class ProxyConfig
     [ConfigOption("Transport:MultiConnLifetimeSecs", ConfigName = "MultiConnLifetimeSecs", Mode = ConfigMode.Hidden)]
     public int MultiConnLifetimeSecs { get; set; } = 3600;
     [ConfigOption("Transport:MultiConnIdleTimeoutSecs", ConfigName = "MultiConnIdleTimeoutSecs", Mode = ConfigMode.Hidden)]
-    public int MultiConnIdleTimeoutSecs { get; set; } = 300;
+    public int MultiConnIdleTimeoutSecs { get; set; } = 30;
     [ConfigOption("Transport:MultiConnMaxConns", ConfigName = "MultiConnMaxConns", Mode = ConfigMode.Hidden)]
     public int MultiConnMaxConns { get; set; } = 4000;
 
@@ -299,6 +299,8 @@ public class ProxyConfig
     public string ReplicaName { get; set; } = "";
     [ConfigOption("Metadata:Revision", ConfigName = "CONTAINER_APP_REVISION", Mode = ConfigMode.Hidden)]
     public string Revision { get; set; } = "revisionID";
+    [ConfigOption("Metadata:GC2InternalSecs", ConfigName = "GC2InternalSecs", Mode = ConfigMode.Cold)]
+    public int GC2InternalSecs { get; set; } = 300; // 5 minutes
 
     // ── Runtime-derived (no attribute) ──
     public HttpClient? Client { get; set; }
