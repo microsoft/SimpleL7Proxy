@@ -105,12 +105,9 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
             options => options.UserIDFieldName,
             options => options.UserProfileHeader,
             options => options.ValidateHeaders,
-            // options => options.Port,  COLD option, requires full restart to take effect
             options => options.Timeout,
-            // options => options.UseProfiles,
             options => options.AsyncModeEnabled,
             options => options.DefaultPriority,
-            // options => options.IDStr,
             options => options.ValidateAuthAppID,
             options => options.ValidateAuthAppIDHeader,
             options => options.DisallowedHeaders,
@@ -120,9 +117,14 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
             options => options.TimeoutHeader,
             options => options.DefaultTTLSecs,
             options => options.TTLHeader,
-            // options => options.CircuitBreakerTimeslice,   display only
             options => options.MaxQueueLength,
             options => options.PollInterval
+
+            // COLD OPTIONS (require restart, so not subscribed for live updates):
+            // options => options.Port,  
+            // options => options.UseProfiles,
+            // options => options.IDStr,
+            // options => options.CircuitBreakerTimeslice,   display only
             ]);
 
         InitVars();
@@ -264,6 +266,11 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
 
         _probe.Type = EventType.Probe;
 
+        // Hoist TCS + cancellation registration outside the loop — the TCS stays
+        // incomplete until cancellation fires, so one instance serves all iterations.
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var ctr = cancellationToken.Register(() => tcs.TrySetResult());
+
         while (!cancellationToken.IsCancellationRequested)
         {
             ProxyEvent ed = null!;
@@ -273,13 +280,8 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                 // Use the CancellationToken to asynchronously wait for an HTTP request.
                 var getContextTask = _httpListener.GetContextAsync();
 
-                // call GetContextAsync in a way that it can be cancelled
-                var completedTask = await Task.WhenAny(getContextTask, Task.Delay(Timeout.Infinite, cancellationToken)).ConfigureAwait(false);
+                var completedTask = await Task.WhenAny(getContextTask, tcs.Task).ConfigureAwait(false);
 
-                //  control to allow other tasks to run .. doesn't make sense here
-                // await Task.Yield();
-
-                // Cancel the delay task immedietly if the getContextTask completes first
                 if (completedTask == getContextTask)
                 {
                     var lc = await getContextTask.ConfigureAwait(false);
@@ -317,11 +319,11 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                     // Console.WriteLine($"[NOT PROBE] {probePath} received, processing as normal request");
 
                     // Health/ForceGC: log probe event, then fall through to enqueue
-                    if (probePath is Constants.Health or Constants.ForceGC)
+                    if (probePath is Constants.Health or Constants.HealthDetail or Constants.ForceGC)
                     {
                         isprobe = true;
                         _probe.Uri = lc.Request.Url!;
-                        _probe["ProbeType"] = probePath == Constants.Health ? "Health" : "ForceGC";
+                        _probe["ProbeType"] = probePath == Constants.Health ? "Health" : probePath == Constants.HealthDetail ? "HealthDetail" : "ForceGC";
                         _probe["StatusCode"] = ((int)HttpStatusCode.OK).ToString();
                         _probe.SendEvent();
                     }
