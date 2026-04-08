@@ -405,7 +405,8 @@ public class HealthCheckService
                         if (_eventClient != null)
                         {
                             _stringBuilder.Append(_eventClient.ClientType)
-                                .Append(" (").Append(_eventClient.Count).Append(" items)");
+                                .Append(" (").Append(_eventClient.Count).Append(" items, ")
+                                .Append(_eventClient.FlushedLastMinute).Append(" flushed/min)");
                         }
                         else
                         {
@@ -521,7 +522,7 @@ public class HealthCheckService
                       .Append("─── Components ────────────────────────────────────────────────────\n")
                       .Append(" Workers      : ").Append(_getWorkerState()).Append('\n')
                       .Append(" Request Queue: ").Append(_requestsQueue?.thrdSafeCount.ToString() ?? "N/A").Append('\n')
-                      .Append(" Event Client : ").Append(_eventClient != null ? _eventClient.ClientType + " (" + _eventClient.Count + " items)" : "Disabled").Append('\n');
+                      .Append(" Event Client : ").Append(_eventClient != null ? _eventClient.ClientType + " (" + _eventClient.Count + " items, " + _eventClient.FlushedLastMinute + " flushed/min)" : "Disabled").Append('\n');
 
                     // Blob Storage - inline
                     sb.Append(" Blob Storage : ");

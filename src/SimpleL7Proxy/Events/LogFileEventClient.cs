@@ -26,6 +26,9 @@ public class LogFileEventClient : IEventClient, IHostedService
     public bool IsRunning { get => isRunning; set => isRunning = value; }
     public int GetEntryCount() => entryCount;
     private static int entryCount = 0;
+    private int _flushedThisMinute;
+    private int _flushedLastMinute;
+    private long _currentMinuteTicks;
 
     private readonly CompositeEventClient _composite;
     private readonly StringBuilder _sb = new();
@@ -49,6 +52,7 @@ public class LogFileEventClient : IEventClient, IHostedService
     }
 
     public int Count => _logBuffer.Count;
+    public int FlushedLastMinute => Volatile.Read(ref _flushedLastMinute);
     public string ClientType => "LogFile";
 
     public bool IsHealthy()
@@ -137,6 +141,19 @@ public class LogFileEventClient : IEventClient, IHostedService
             writer.Write(_sb);
             writer.Flush();
             Interlocked.Add(ref entryCount, -drained);
+
+            // Track events flushed per wall-clock minute
+            var nowMinute = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMinute;
+            if (nowMinute != _currentMinuteTicks)
+            {
+                _flushedLastMinute = _flushedThisMinute;
+                _flushedThisMinute = drained;
+                _currentMinuteTicks = nowMinute;
+            }
+            else
+            {
+                _flushedThisMinute += drained;
+            }
         }
         return drained;
     }

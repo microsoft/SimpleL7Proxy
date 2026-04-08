@@ -34,6 +34,10 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
 
     private static int entryCount = 0;
     public static int ReconnectCount = 0;
+    private readonly int _halfMaxEvents;
+    private int _flushedThisMinute;
+    private int _flushedLastMinute;
+    private long _currentMinuteTicks;
 
     //public EventHubClient(string connectionString, string eventHubName, ILogger<EventHubClient>? logger = null)
 
@@ -55,12 +59,14 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
         }
 
 
+        _halfMaxEvents = BackendOptions.MaxEvents / 2;
         _composite = composite ?? throw new ArgumentNullException(nameof(composite));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         // All initialization happens in StartAsync
     }
 
     public int Count => _logBuffer.Count;
+    public int FlushedLastMinute => Volatile.Read(ref _flushedLastMinute);
     public string ClientType => isRunning ? "EventHub" : "EventHub (Disabled)";
 
     public bool IsHealthy()
@@ -141,20 +147,39 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
             var lastSendTime = DateTime.UtcNow;
             while (!token.IsCancellationRequested)
             {
-                GetNextBatch(99);
+                bool highPressure = entryCount > _halfMaxEvents;
+                int dequeueSize = highPressure ? int.MaxValue : 99;
+
+                GetNextBatch(dequeueSize);
 
                 var elapsed = DateTime.UtcNow - lastSendTime;
-                var shouldFlush = _batchData.Count >= 10 || (elapsed.TotalSeconds >= 2 && _batchData.Count > 0);
+                var shouldFlush = highPressure
+                    ? _batchData.Count > 0
+                    : _batchData.Count >= 10 || (elapsed.TotalSeconds >= 2 && _batchData.Count > 0);
 
                 if (shouldFlush)
                 {
                     try
                     {
+                        var flushedCount = _batchData.Count;
                         await _producerClient.SendAsync(_batchData, token).ConfigureAwait(false);
                         _pendingItems.Clear();
                         _batchData.Dispose();
                         _batchData = await _producerClient.CreateBatchAsync(token).ConfigureAwait(false);
                         lastSendTime = DateTime.UtcNow;
+
+                        // Track events flushed per wall-clock minute
+                        var nowMinute = lastSendTime.Ticks / TimeSpan.TicksPerMinute;
+                        if (nowMinute != _currentMinuteTicks)
+                        {
+                            _flushedLastMinute = _flushedThisMinute;
+                            _flushedThisMinute = flushedCount;
+                            _currentMinuteTicks = nowMinute;
+                        }
+                        else
+                        {
+                            _flushedThisMinute += flushedCount;
+                        }
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
@@ -172,7 +197,7 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
                     }
                 }
 
-                if (!beginShutdown)
+                if (!beginShutdown && entryCount <= _halfMaxEvents)
                 {
                     await timer.WaitForNextTickAsync(token).ConfigureAwait(false);
                 }

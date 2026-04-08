@@ -258,11 +258,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         // Only enable async mode if configured AND blob storage is available (not using NullBlobWriter)
         bool doAsync = _options.AsyncModeEnabled && !(_blobWriter is NullBlobWriter);
         int maxEvents = _options.MaxEvents;
-        int maxEvents_90Percent = (int)(maxEvents * .9);
-        int maxEvents_80Percent = (int)(maxEvents * .8);
-        int maxEvents_70Percent = (int)(maxEvents * .7);
-        int maxEvents_60Percent = (int)(maxEvents * .6);
-        int maxEvents_50Percent = (int)(maxEvents * .5);
+        int halfMaxEvents = maxEvents / 2;
 
         _probe.Type = EventType.Probe;
 
@@ -270,6 +266,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         // incomplete until cancellation fires, so one instance serves all iterations.
         var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var ctr = cancellationToken.Register(() => tcs.TrySetResult());
+        var ptimer = new PeriodicTimer(TimeSpan.FromMilliseconds(100));
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -304,6 +301,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                         _probe.Uri = lc.Request.Url!;
                         _probe["ProbeType"] = probeType;
                         _probe["StatusCode"] = ((int)code).ToString();
+                        _probe.Status = code; 
                         _probe.SendEvent();
 
                         if (initialStartup )
@@ -318,14 +316,10 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                     }
                     // Console.WriteLine($"[NOT PROBE] {probePath} received, processing as normal request");
 
-                    // Health/ForceGC: log probe event, then fall through to enqueue
+                    // Health/HealthDetail/ForceGC: mark as probe, enqueue for worker to handle and log
                     if (probePath is Constants.Health or Constants.HealthDetail or Constants.ForceGC)
                     {
                         isprobe = true;
-                        _probe.Uri = lc.Request.Url!;
-                        _probe["ProbeType"] = probePath == Constants.Health ? "Health" : probePath == Constants.HealthDetail ? "HealthDetail" : "ForceGC";
-                        _probe["StatusCode"] = ((int)HttpStatusCode.OK).ToString();
-                        _probe.SendEvent();
                     }
                     
                     int priority = _options.DefaultPriority;
@@ -363,13 +357,12 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                     if (!_isShuttingDown)
                     {
                         int eventCount = _probeServer.EventCount;
-                        if ( eventCount > maxEvents_50Percent) {
-                            int cnt =     eventCount > maxEvents_90Percent ? 1000
-                                        : eventCount > maxEvents_80Percent ? 500
-                                        : eventCount > maxEvents_70Percent ? 300
-                                        : eventCount > maxEvents_60Percent ? 200
-                                        : 100;
-                            await Task.Delay(cnt);
+                        if (eventCount > halfMaxEvents) {
+                            int ticks = eventCount / 100;
+
+                            // add a delay in case the number of events is high
+                            for (int i = 0; i < ticks; i++)
+                                await ptimer.WaitForNextTickAsync(cancellationToken);
                         }
 
                         if ( eventCount > maxEvents)
