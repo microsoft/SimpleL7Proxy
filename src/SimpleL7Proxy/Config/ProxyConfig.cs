@@ -284,7 +284,7 @@ public class ProxyConfig
     [ConfigOption("Transport:MultiConnLifetimeSecs", ConfigName = "MultiConnLifetimeSecs", Mode = ConfigMode.Hidden)]
     public int MultiConnLifetimeSecs { get; set; } = 3600;
     [ConfigOption("Transport:MultiConnIdleTimeoutSecs", ConfigName = "MultiConnIdleTimeoutSecs", Mode = ConfigMode.Hidden)]
-    public int MultiConnIdleTimeoutSecs { get; set; } = 30;
+    public int MultiConnIdleTimeoutSecs { get; set; } = 300;
     [ConfigOption("Transport:MultiConnMaxConns", ConfigName = "MultiConnMaxConns", Mode = ConfigMode.Hidden)]
     public int MultiConnMaxConns { get; set; } = 4000;
 
