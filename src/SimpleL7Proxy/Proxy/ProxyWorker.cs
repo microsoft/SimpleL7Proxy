@@ -696,7 +696,7 @@ public class ProxyWorker : IConfigChangeSubscriber
     {
         int hostCount = _backends.ActiveHostCount();
         bool hasFailedHosts = _backends.CheckFailedStatusAsync(true).Result;
-        _wrkCntxt.HealthCheckService.BuildHealthResponse(req.Path, hostCount, hasFailedHosts, out int probeStatus, out string probeMessage);
+        _wrkCntxt.HealthCheckService.BuildHealthResponse(req.Path, hostCount, hasFailedHosts, req.Timestamp, out int probeStatus, out string probeMessage);
 
         lcontext.Response.StatusCode = probeStatus;
         lcontext.Response.ContentType = "text/plain";

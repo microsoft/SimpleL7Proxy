@@ -90,7 +90,8 @@ public static class ConfigParser
         ("LOGTOFILE", "LogToFile"),
         ("LOGFILE_NAME", "LogFileName"),
         ("LOGDATETIME", "LogDateTime"),
-
+        ("ReuseEvents", "ReuseEvents"),
+        
         // ── EventHub ──
         ("EVENTHUB_CONNECTIONSTRING", "EventHubConnectionString"),
         ("EVENTHUB_NAME", "EventHubName"),
