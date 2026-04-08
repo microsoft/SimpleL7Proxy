@@ -4,6 +4,14 @@ using SimpleL7Proxy.Backend.Iterators;
 
 namespace SimpleL7Proxy.Config;
 
+// Each parameter is available to use as a config setting with the following metadata:
+// ConfigName is only needed when the env var / config key differs from the
+// C# property name.  When omitted, the property name is used as-is.
+//
+// Mode (defaults to Warm):
+//   Warm   — hot-reloaded from App Configuration (~30 s), no restart needed.
+//   Cold   — published to App Configuration but requires a restart to take effect.
+//   Hidden — runtime-derived, parsed, or sensitive; never published to App Configuration.
 public class ProxyConfig
 {
     // ════════════════════════════════════════════════════════════════════
@@ -59,6 +67,9 @@ public class ProxyConfig
     public bool LogAllResponseHeaders { get; set; } = false;
     [ConfigOption("Logging:LogAllResponseHeadersExcept")]
     public List<string> LogAllResponseHeadersExcept { get; set; } = ["Api-Key"];
+
+    [ConfigOption("Logging:ReuseEvents",  Mode = ConfigMode.Cold)]
+    public bool ReuseEvents { get; set; } = false;
 
     // ── Priority ──
     [ConfigOption("Priority:DefaultPriority")]

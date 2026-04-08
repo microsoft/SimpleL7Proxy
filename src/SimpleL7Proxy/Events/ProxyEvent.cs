@@ -114,6 +114,22 @@ namespace SimpleL7Proxy.Events
     {
     }
 
+    /// <summary>
+    /// Resets this instance to its default state so it can be returned to a pool.
+    /// </summary>
+    public void Reset()
+    {
+      Clear();
+      Type = EventType.Console;
+      Status = 0;
+      Uri = LOCALHOSTURI;
+      MID = "";
+      ParentId = "";
+      Method = "GET";
+      Duration = TimeSpan.Zero;
+      Exception = null;
+    }
+
     public ProxyEvent(ProxyEvent other) : base(other)
     {
       if (other == null) throw new ArgumentNullException(nameof(other));

@@ -4,6 +4,7 @@ using System.IO;
 using System.Net;
 using System.Threading.Tasks;
 
+using Microsoft.Extensions.ObjectPool;
 using Shared.RequestAPI.Models;
 using SimpleL7Proxy.BackupAPI;
 using SimpleL7Proxy.Config;
@@ -24,6 +25,56 @@ public class RequestData : IDisposable, IAsyncDisposable
     public static IBackupAPIService? BackupAPIService { get; private set; }
     public static IUserPriorityService? UserPriorityService { get; private set; }
     public static ProxyConfig? BackendOptionsStatic { get; private set; }
+
+
+    // STATIC POOL FOR PROXYEVENT OBJECTS TO REDUCE ALLOCATIONS
+    // Pool of ProxyEvent (EventData) objects to reduce allocations
+    private const int EventDataPoolSize = 1000;
+    private static readonly ObjectPool<ProxyEvent> _eventDataPool =
+        new DefaultObjectPool<ProxyEvent>(new ProxyEventPooledObjectPolicy(), EventDataPoolSize);
+    private static int _eventDataPoolCheckedOut;
+    public static int EventDataPoolCheckedOut => Volatile.Read(ref _eventDataPoolCheckedOut);
+    public static int EventDataPoolMaxSize => EventDataPoolSize;
+
+    private sealed class ProxyEventPooledObjectPolicy : PooledObjectPolicy<ProxyEvent>
+    {
+        public override ProxyEvent Create() => new ProxyEvent();
+
+        public override bool Return(ProxyEvent obj)
+        {
+            obj.Reset();
+            Interlocked.Decrement(ref _eventDataPoolCheckedOut);
+            return true;
+        }
+    }
+
+    private static ProxyEvent RentEventFromPool()
+    {
+        var ev = _eventDataPool.Get();
+        Interlocked.Increment(ref _eventDataPoolCheckedOut);
+        return ev;
+    }
+
+    private static void ReturnEventToPool(ProxyEvent ev)
+    {
+        _eventDataPool.Return(ev);
+    }
+
+    private static ProxyEvent RentEventBypass()
+    {
+        return new ProxyEvent();
+    }
+
+    private static void ReturnEventBypass(ProxyEvent ev)
+    {
+       ev.Clear();
+    }
+
+    // Delegate pointers — set once during initialization based on ReuseEvents config
+    private static Func<ProxyEvent> RentEvent = RentEventFromPool;
+    private static Action<ProxyEvent> ReturnEvent = ReturnEventToPool;
+
+
 
     // -- ASYNC RELATED PARAMS --
 
@@ -147,7 +198,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     public int Priority2 { get; set; }
     public int Timeout { get; set; }  // calculated timeout in milliseconds
     public List<Dictionary<string, string>> incompleteRequests = new();
-    public ProxyEvent EventData = new();
+    public ProxyEvent EventData;
     public Stream? OutputStream { get; set; }
     public Stream? Body { get; private set; }
     public string ExpireReason { get; set; } = "";
@@ -172,6 +223,23 @@ public class RequestData : IDisposable, IAsyncDisposable
         BackupAPIService ??= backupAPIService;
         UserPriorityService ??= userPriorityService;
         BackendOptionsStatic ??= backendOptions;
+
+        if ( backendOptions.ReuseEvents )
+        {
+            RentEvent = RentEventFromPool;
+            ReturnEvent = ReturnEventToPool;
+
+            // Pre-allocate pool objects so the first N requests don't pay allocation cost
+            for (int i = 0; i < EventDataPoolSize; i++)
+            {
+                ReturnEventToPool(RentEventFromPool());
+            }
+        }
+        else
+        {
+            RentEvent = RentEventBypass;
+            ReturnEvent = ReturnEventBypass;
+        }
     }
 
     /// <summary>
@@ -179,6 +247,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     /// </summary>
     public RequestData()
     {
+        EventData = RentEvent();
         Path = string.Empty;
         Method = string.Empty;
         Headers = new WebHeaderCollection();
@@ -200,6 +269,7 @@ public class RequestData : IDisposable, IAsyncDisposable
             throw new ArgumentNullException("RequestData");
         }
 
+        EventData = RentEvent();
         Path = path;
         Timestamp = enqueueTime;
         EnqueueTime = enqueueTime;
@@ -260,6 +330,7 @@ public class RequestData : IDisposable, IAsyncDisposable
             throw new ArgumentNullException("RequestData");
         }
 
+        EventData = RentEvent();
         Path = context.Request.Url.PathAndQuery;
         Method = context.Request.HttpMethod;
         Headers = (WebHeaderCollection)context.Request.Headers;
@@ -362,6 +433,8 @@ public class RequestData : IDisposable, IAsyncDisposable
     public void Cleanup()
     {
         EventData.SendEvent();
+        ReturnEvent(EventData);
+        EventData = null!;
 
         if (BackendOptionsStatic?.UseProfiles == true)
         {
