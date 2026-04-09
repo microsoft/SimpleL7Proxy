@@ -54,7 +54,7 @@ public class ProxyConfig
     [ConfigOption("Logging:LogToConsole")]
     public List<string> LogToConsole { get; set; } = ["*"];   
     [ConfigOption("Logging:LogToEvents")]
-    public List<string> LogToEvents { get; set; } = ["async","backend","circuitbreaker","custom","exception","profile","proxy","enqueued","auth"];
+    public List<string> LogToEvents { get; set; } = ["async","backend","probe","circuitbreaker","custom","exception","profile","proxy","enqueued","auth"];
     [ConfigOption("Logging:LogToAI")]
     public List<string> LogToAI { get; set; } = ["*"];
     [ConfigOption("Logging:LogHeaders")]
