@@ -257,7 +257,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         bool doUserProfile = _options.UseProfiles;
         // Only enable async mode if configured AND blob storage is available (not using NullBlobWriter)
         bool doAsync = _options.AsyncModeEnabled && !(_blobWriter is NullBlobWriter);
-        int maxEvents = _options.MaxEvents;
+        int maxEvents = _options.MaxUndrainedEvents;
         int halfMaxEvents = maxEvents / 2;
 
         _probe.Type = EventType.Probe;
@@ -716,8 +716,8 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                 ed["ErrorWritingResponse"] = msg;
                             }
 
-                            if ( !_isShuttingDown)
-                                _staticEvent.WriteOutput($"Pri: {priority} Stat: {notEnquedCode} Path: {rd.Path}");
+                            // if ( !_isShuttingDown)
+                            //     _staticEvent.WriteOutput($"Pri: {priority} Stat: {notEnquedCode} Path: {rd.Path}");
                         }
 
                         ed.SendEvent();
