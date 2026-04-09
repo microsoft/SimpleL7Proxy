@@ -8,6 +8,7 @@ public class LogTargetAttr
 {
     public bool Async;
     public bool BackendRequest;
+    public bool Probe;
     public bool CircuitBreakerError;
     public bool Console;
     public bool CustomEvent;
@@ -23,7 +24,8 @@ public class LogTargetAttr
     public bool IsEnabled(EventType type) => type switch
     {
         EventType.AsyncProcessing                                => Async,
-        EventType.Backend or EventType.Poller or EventType.Probe => BackendRequest,
+        EventType.Backend or EventType.Poller                    => BackendRequest,
+        EventType.Probe                                          => Probe,
         EventType.CircuitBreakerError                            => CircuitBreakerError,
         EventType.Console                                        => Console,
         EventType.CustomEvent                                    => CustomEvent,
@@ -51,6 +53,7 @@ public class LogTargetAttr
         {
             Async            = all || set!.Contains("async"),
             BackendRequest   = all || set!.Contains("backend"),
+            Probe            = all || set!.Contains("probe"),
             CircuitBreakerError = all || set!.Contains("circuitbreaker"),
             Console          = all || set!.Contains("console"),
             CustomEvent      = all || set!.Contains("custom"),

@@ -190,6 +190,11 @@ namespace SimpleL7Proxy.Events
           AddDefaultProperties(eventParams);
           _eventClient.SendData(ConvertToJson(this, eventParams));
         }
+
+        if (logToConsole)
+        {
+          Console.WriteLine($"Event: {Type}, MID: {MID}, Uri: {Uri}, Status: {(int)Status}, Duration: {Duration.TotalMilliseconds}ms");
+        }
       }
       catch (Exception ex)
       {
@@ -376,7 +381,7 @@ namespace SimpleL7Proxy.Events
       try
       {
         // Log the data to the console
-        if (!string.IsNullOrEmpty(data))
+        if (!string.IsNullOrEmpty(data) && ConAttr.IsEnabled(EventType.Console))
         {
           Console.WriteLine(data);
           this["Message"] = data;
