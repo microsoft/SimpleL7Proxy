@@ -710,6 +710,19 @@ public class ProxyWorker : IConfigChangeSubscriber
             healthMessage,
             0,
             healthMessage.Length).ConfigureAwait(false);
+
+        // Log probe telemetry (moved from Server.Run to ensure single-log per probe)
+        var eventData = req.EventData;
+        eventData.Type = EventType.Probe;
+        eventData.Uri = lcontext.Request.Url!;
+        eventData.Status = (HttpStatusCode)probeStatus;
+        eventData["ProbeType"] = req.Path switch {
+            Constants.Health => "Health",
+            Constants.HealthDetail => "HealthDetail",
+            _ => "ForceGC"
+        };
+        eventData["StatusCode"] = probeStatus.ToString();
+        eventData.SendEvent();
     }
 
 
