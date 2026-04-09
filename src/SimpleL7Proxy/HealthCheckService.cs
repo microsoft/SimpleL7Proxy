@@ -373,7 +373,7 @@ public class HealthCheckService
                             .Append("─── Probes ────────────────────────────────────────────────────\n")
                             .Append(" /startup   : ").Append(startupStatus == HealthStatusEnum.StartupReady ? "200 OK" : "503 " + startupStatus).Append('\n')
                             .Append(" /readiness : ").Append(readinessStatus == HealthStatusEnum.ReadinessReady ? "200 OK" : "503 " + readinessStatus).Append('\n')
-                            .Append(" Undrained  : ").Append(undrainedEvents).Append('\n');
+                            .Append(" Undrained  : ").Append(undrainedEvents).Append(" / ").Append(_options.MaxUndrainedEvents).Append('\n');
 
                         // Workers
                         _stringBuilder
@@ -522,7 +522,7 @@ public class HealthCheckService
                       .Append("─── Components ────────────────────────────────────────────────────\n")
                       .Append(" Workers      : ").Append(_getWorkerState()).Append('\n')
                       .Append(" Request Queue: ").Append(_requestsQueue?.thrdSafeCount.ToString() ?? "N/A").Append('\n')
-                      .Append(" Event Client : ").Append(_eventClient != null ? _eventClient.ClientType + " (" + _eventClient.Count + " items, " + _eventClient.FlushedLastMinute + " flushed/min)" : "Disabled").Append('\n');
+                      .Append(" Event Client : ").Append(_eventClient != null ? _eventClient.ClientType + " (" + _eventClient.Count + " / " + _options.MaxUndrainedEvents + " items, " + _eventClient.FlushedLastMinute + " flushed/min)" : "Disabled").Append('\n');
 
                     // Blob Storage - inline
                     sb.Append(" Blob Storage : ");
@@ -573,7 +573,8 @@ public class HealthCheckService
 
                     // Backend hosts
                     sb.Append('\n')
-                      .Append("─── Backend Hosts ─────────────────────────────────────────────────\n");
+                      .Append("─── Backend Hosts ─────────────────────────────────────────────────\n")
+                      .Append(" Poller Interval: ").Append(_options.PollInterval).Append(" ms\n");
                     var hosts = _backends.GetHosts();
                     if (hosts.Count > 0)
                     {
