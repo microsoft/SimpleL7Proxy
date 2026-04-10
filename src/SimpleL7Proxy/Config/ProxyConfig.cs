@@ -4,6 +4,14 @@ using SimpleL7Proxy.Backend.Iterators;
 
 namespace SimpleL7Proxy.Config;
 
+// Each parameter is available to use as a config setting with the following metadata:
+// ConfigName is only needed when the env var / config key differs from the
+// C# property name.  When omitted, the property name is used as-is.
+//
+// Mode (defaults to Warm):
+//   Warm   — hot-reloaded from App Configuration (~30 s), no restart needed.
+//   Cold   — published to App Configuration but requires a restart to take effect.
+//   Hidden — runtime-derived, parsed, or sensitive; never published to App Configuration.
 public class ProxyConfig
 {
     // ════════════════════════════════════════════════════════════════════
@@ -37,7 +45,7 @@ public class ProxyConfig
     public string LoadBalanceMode { get; set; } = Constants.Latency;
 
     // ── Server ──
-    [ConfigOption("Server:IterationMode")]
+    [ConfigOption("LoadBalancing:IterationMode")]
     public IterationModeEnum IterationMode { get; set; } = IterationModeEnum.SinglePass;
     [ConfigOption("Server:Timeout")]
     public int Timeout { get; set; } = 60*20*1000; // 20 minutes
@@ -46,7 +54,7 @@ public class ProxyConfig
     [ConfigOption("Logging:LogToConsole")]
     public List<string> LogToConsole { get; set; } = ["*"];   
     [ConfigOption("Logging:LogToEvents")]
-    public List<string> LogToEvents { get; set; } = ["async","backend","circuitbreaker","custom","exception","profile","proxy","enqueued","auth"];
+    public List<string> LogToEvents { get; set; } = ["async","backend","probe","circuitbreaker","custom","exception","profile","proxy","enqueued","auth"];
     [ConfigOption("Logging:LogToAI")]
     public List<string> LogToAI { get; set; } = ["*"];
     [ConfigOption("Logging:LogHeaders")]
@@ -59,6 +67,9 @@ public class ProxyConfig
     public bool LogAllResponseHeaders { get; set; } = false;
     [ConfigOption("Logging:LogAllResponseHeadersExcept")]
     public List<string> LogAllResponseHeadersExcept { get; set; } = ["Api-Key"];
+
+    [ConfigOption("Logging:ReuseEvents",  Mode = ConfigMode.Cold)]
+    public bool ReuseEvents { get; set; } = false;
 
     // ── Priority ──
     [ConfigOption("Priority:DefaultPriority")]
@@ -98,35 +109,6 @@ public class ProxyConfig
     [ConfigOption("Sentinel")]
     public string Sentinel { get; set; } = ""; // used for app configrefresh
 
-
-    // ── User ──
-    [ConfigOption("User:SuspendedUserConfigUrl")]
-    public string SuspendedUserConfigUrl { get; set; } = ""; // e.g. "file:suspended.json" or "http://configservice/suspended"
-    [ConfigOption("User:UniqueUserHeaders")]
-    public List<string> UniqueUserHeaders { get; set; } = ["X-UserID"];
-    [ConfigOption("User:UserConfigUrl")]
-    public string UserConfigUrl { get; set; } = ""; // e.g. "file:users.json" or "http://configservice/users"
-    [ConfigOption("User:UserIDFieldName")]
-    public string UserIDFieldName { get; set; } = "userId";
-    [ConfigOption("User:UserPriorityThreshold")]
-    public float UserPriorityThreshold { get; set; } = 0.1f;
-    [ConfigOption("User:UserProfileHeader")]
-    public string UserProfileHeader { get; set; } = "X-UserProfile";
-    [ConfigOption("User:UseProfiles")]
-    public bool UseProfiles { get; set; } = false;
-
-    // ── Validation ──
-    [ConfigOption("Validation:ValidateHeaders")]
-    public Dictionary<string, string> ValidateHeaders { get; set; } = [];
-    [ConfigOption("Validation:ValidateAuthAppID")]
-    public bool ValidateAuthAppID { get; set; } = false;
-    [ConfigOption("Validation:ValidateAuthAppIDUrl")]
-    public string ValidateAuthAppIDUrl { get; set; } = ""; // e.g. "file:authappids.json" or "http://configservice/authappids"
-    [ConfigOption("Validation:ValidateAuthAppFieldName")]
-    public string ValidateAuthAppFieldName { get; set; } = "authAppID";
-    [ConfigOption("Validation:ValidateAuthAppIDHeader")]
-    public string ValidateAuthAppIDHeader { get; set; } = "X-MS-CLIENT-PRINCIPAL-ID";
-
     // ════════════════════════════════════════════════════════════════════
     // Cold — published to App Configuration, requires restart
     // ════════════════════════════════════════════════════════════════════
@@ -152,8 +134,6 @@ public class ProxyConfig
     // ── Server ──
     [ConfigOption("Server:MaxQueueLength", Mode = ConfigMode.Cold)]
     public int MaxQueueLength { get; set; } = 1000;
-    [ConfigOption("Server:MaxEvents", Mode = ConfigMode.Cold)]
-    public int MaxEvents { get; set; } = 100000;
     [ConfigOption("Server:PollInterval", Mode = ConfigMode.Cold)]
     public int PollInterval { get; set; } = 15000;
     [ConfigOption("Server:PollTimeout", Mode = ConfigMode.Cold)]
@@ -175,18 +155,45 @@ public class ProxyConfig
     public int SharedIteratorCleanupIntervalSeconds { get; set; } = 30;
 
     // ── Storage ──
-    [ConfigOption("Storage:Enabled", ConfigName = "StorageDbEnabled", Mode = ConfigMode.Cold)]
+    [ConfigOption("Async:Storage:Enabled", ConfigName = "StorageDbEnabled", Mode = ConfigMode.Cold)]
     public bool StorageDbEnabled { get; set; } = false;
-    [ConfigOption("Storage:ContainerName", ConfigName = "StorageDbContainerName", Mode = ConfigMode.Cold)]
+    [ConfigOption("Async:Storage:ContainerName", ConfigName = "StorageDbContainerName", Mode = ConfigMode.Cold)]
     public string StorageDbContainerName { get; set; } = "Requests";
 
-    // ── User ──
-    [ConfigOption("User:UserConfigRequired", Mode = ConfigMode.Cold)]
+    // ── User ── COLD --
+    [ConfigOption("Profiles:User:ConfigRequired", Mode = ConfigMode.Cold)]
     public bool UserConfigRequired { get; set; } = false;
-    [ConfigOption("User:UserConfigRefreshIntervalSecs", Mode = ConfigMode.Cold)]
+    [ConfigOption("Profiles:RefreshIntervalSecs", Mode = ConfigMode.Cold)]
     public int UserConfigRefreshIntervalSecs { get; set; } = 3600; // 1 hour
-    [ConfigOption("User:UserSoftDeleteTTLMinutes", Mode = ConfigMode.Cold)]
+    [ConfigOption("Profiles:SoftDeleteTTLMinutes", Mode = ConfigMode.Cold)]
     public int UserSoftDeleteTTLMinutes { get; set; } = 360; // 6 hours
+    // ── User ── WARM --
+    [ConfigOption("Profiles:SuspendedUser:ConfigUrl")]
+    public string SuspendedUserConfigUrl { get; set; } = ""; // e.g. "file:suspended.json" or "http://configservice/suspended"
+    [ConfigOption("Profiles:UniqueUserHeaders")]
+    public List<string> UniqueUserHeaders { get; set; } = ["X-UserID"];
+    [ConfigOption("Profiles:User:UserConfigUrl")]
+    public string UserConfigUrl { get; set; } = ""; // e.g. "file:users.json" or "http://configservice/users"
+    [ConfigOption("Profiles:UserIDFieldName")]
+    public string UserIDFieldName { get; set; } = "userId";
+    [ConfigOption("Profiles:UserPriorityThreshold")]
+    public float UserPriorityThreshold { get; set; } = 0.1f;
+    [ConfigOption("Profiles:UserProfileHeader")]
+    public string UserProfileHeader { get; set; } = "X-UserProfile";
+    [ConfigOption("Profiles:User:UseProfiles")]
+    public bool UseProfiles { get; set; } = false;
+        // ── Validation ──
+    [ConfigOption("Profiles:Headers:ValidateHeaders")]
+    public Dictionary<string, string> ValidateHeaders { get; set; } = [];
+    [ConfigOption("Profiles:Auth:ValidateAppIDEnabled")]
+    public bool ValidateAuthAppID { get; set; } = false;
+    [ConfigOption("Profiles:Auth:ConfigUrl")]
+    public string ValidateAuthAppIDUrl { get; set; } = ""; // e.g. "file:authappids.json" or "http://configservice/authappids"
+    [ConfigOption("Profiles:Auth:ValidateFieldName")]
+    public string ValidateAuthAppFieldName { get; set; } = "authAppID";
+    [ConfigOption("Profiles:Auth:ValidateAppIDHeader")]
+    public string ValidateAuthAppIDHeader { get; set; } = "X-MS-CLIENT-PRINCIPAL-ID";
+
 
     // ── Logging / Telemetry ──
     [ConfigOption("Logging:AppInsightsConnectionString", ConfigName = "APPINSIGHTS_CONNECTIONSTRING", Mode = ConfigMode.Cold)]
@@ -299,6 +306,8 @@ public class ProxyConfig
     public string ReplicaName { get; set; } = "";
     [ConfigOption("Metadata:Revision", ConfigName = "CONTAINER_APP_REVISION", Mode = ConfigMode.Hidden)]
     public string Revision { get; set; } = "revisionID";
+    [ConfigOption("Metadata:GC2InternalSecs", ConfigName = "GC2InternalSecs", Mode = ConfigMode.Cold)]
+    public int GC2InternalSecs { get; set; } = 300; // 5 minutes
 
     // ── Runtime-derived (no attribute) ──
     public HttpClient? Client { get; set; }

@@ -85,6 +85,9 @@ public class Program
         //        var serviceProvider = frameworkHost.Services;
         // Perform static initialization after building the host to ensure correct singleton usage
         var serviceProvider = frameworkHost.Services;
+        // Initialize static logger for all stream processors
+        var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
+        var logger = loggerFactory.CreateLogger("StreamProcessor");
 
         var options = serviceProvider.GetRequiredService<IOptions<ProxyConfig>>();
         Banner.Display(options.Value);
@@ -96,10 +99,7 @@ public class Program
         var telemetryClient = serviceProvider.GetService<TelemetryClient>();
         var backendTokenProvider = serviceProvider.GetRequiredService<BackendTokenProvider>();
 
-        // Initialize static logger for all stream processors
-        var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
-        var streamProcessorLogger = loggerFactory.CreateLogger("StreamProcessor");
-        BaseStreamProcessor.SetLogger(streamProcessorLogger);
+        BaseStreamProcessor.SetLogger(logger);
 
         // Initialize ProxyEvent with BackendOptions
 
@@ -107,7 +107,7 @@ public class Program
         serviceProvider.GetRequiredService<ProxyEventInitializer>();
 
         // Initialize HostConfig with all required dependencies including service provider for circuit breaker DI
-        HostConfig.Initialize(backendTokenProvider, startupLogger, serviceProvider);
+        HostConfig.Initialize(backendTokenProvider, logger, serviceProvider);
 
         // Register backends after DI container is built and HostConfig is initialized
         var hostCollection = serviceProvider.GetRequiredService<IHostHealthCollection>();
@@ -126,7 +126,7 @@ public class Program
             if (options.Value.AsyncModeEnabled)
             {
 
-                startupLogger.LogInformation("[STARTUP] ✓ Async mode enabled - Initializing ServiceBus and AsyncWorker services");
+                logger.LogInformation("[STARTUP] ✓ Async mode enabled - Initializing ServiceBus and AsyncWorker services");
                 var serviceBusRequestService = serviceProvider.GetRequiredService<IServiceBusRequestService>();
                 var backupAPIService = serviceProvider.GetRequiredService<IBackupAPIService>();
                 var userPriority = serviceProvider.GetRequiredService<IUserPriorityService>();
@@ -145,7 +145,7 @@ public class Program
         }
         catch (Exception ex)
         {
-            startupLogger.LogError(ex, "[ERROR] ✗ ServiceBus initialization failed");
+            logger.LogError(ex, "[ERROR] ✗ ServiceBus initialization failed");
         }
 
         // Log confirmation once all IHostedService.StartAsync calls have completed.
@@ -158,7 +158,7 @@ public class Program
 
             await healthCheck.ConfigureAwait(false); // Ensure backend startup monitoring completes before logging startup success
 
-            startupLogger.LogInformation("[STARTUP] ✓ All hosted services started — active event loggers: {Loggers}",
+            logger.LogInformation("[STARTUP] ✓ All hosted services started — active event loggers: {Loggers}",
                 composite.ClientType);
         });
 
@@ -168,12 +168,12 @@ public class Program
         }
         catch (OperationCanceledException)
         {
-            startupLogger.LogDebug("[SHUTDOWN] Application shutdown requested");
+            logger.LogDebug("[SHUTDOWN] Application shutdown requested");
         }
         catch (Exception e)
         {
             // Log full exception details including inner exceptions
-            startupLogger.LogError(e, "[ERROR] ✗ Unexpected startup error: {Message}", e.Message);
+            logger.LogError(e, "[ERROR] ✗ Unexpected startup error: {Message}", e.Message);
             
             var pe = new ProxyEvent();
             pe.Type = EventType.Exception;
@@ -194,10 +194,10 @@ public class Program
         catch (Exception ex)
         {
             //nop - Shutdown may have completed already or may have timed out, in which case we just exit
-            startupLogger.LogWarning(ex, "[SHUTDOWN] Coordinated shutdown did not complete gracefully");
+            logger.LogWarning(ex, "[SHUTDOWN] Coordinated shutdown did not complete gracefully");
         }
 
-        startupLogger.LogInformation("[SHUTDOWN] ✅ SimpleL7Proxy Service Stopped.  Version: {Version}  Runtime: {Runtime}", Banner.VERSION, DateTime.UtcNow - StartTime);
+        logger.LogInformation("[SHUTDOWN] ✅ SimpleL7Proxy Service Stopped.  Version: {Version}  Runtime: {Runtime}", Banner.VERSION, DateTime.UtcNow - StartTime);
     }
 
     private static void ConfigureLogging(ILoggingBuilder logging)
@@ -341,9 +341,9 @@ public class Program
         services.AddTransient<ICircuitBreaker, CircuitBreaker>();
         services.AddSingleton<ConfigChangeNotifier>();
         services.AddSingleton<ProxyEventInitializer>();
-        services.AddSingleton<Backends>();
-        services.AddSingleton<IBackendService>(sp => sp.GetRequiredService<Backends>());
-        services.AddHostedService<Backends>(sp => sp.GetRequiredService<Backends>());
+        services.AddSingleton<EndpointMonitorService>();
+        services.AddSingleton<IEndpointMonitorService>(sp => sp.GetRequiredService<EndpointMonitorService>());
+        services.AddHostedService<EndpointMonitorService>(sp => sp.GetRequiredService<EndpointMonitorService>());
         services.AddSingleton<Server>();
         services.AddSingleton<ConcurrentSignal<RequestData>>();
         services.AddSingleton<IConcurrentPriQueue<RequestData>, ConcurrentPriQueue<RequestData>>();

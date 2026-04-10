@@ -32,7 +32,7 @@ public class CoordinatedShutdownService : IHostedService
     private readonly IServiceBusRequestService _serviceBusRequestService;
     private readonly IBackupAPIService _backupAPIService;
     private readonly IConcurrentPriQueue<RequestData> _queue;
-    private readonly IBackendService _backends;
+    private readonly IEndpointMonitorService _backends;
     private readonly IAsyncFeeder _asyncFeeder;
     private readonly IRequeueWorker _requeueWorker;
     private readonly BlobWriteQueue? _blobWriteQueue;
@@ -47,7 +47,7 @@ public class CoordinatedShutdownService : IHostedService
         IOptions<ProxyConfig> backendOptions,
         IConcurrentPriQueue<RequestData> queue,
         BackendTokenProvider backendTokenProvider,
-        IBackendService backends,
+        IEndpointMonitorService backends,
         IEventClient? eventClient,
         IServiceBusRequestService serviceBusRequestService,
         IAsyncFeeder asyncFeeder,

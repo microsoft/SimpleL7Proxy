@@ -5,7 +5,7 @@ namespace SimpleL7Proxy.Backend;
 /// <summary>
 /// Interface for backend services supporting both DirectBackend and APIMBackend types.
 /// </summary>
-public interface IBackendService
+public interface IEndpointMonitorService
 {
   List<BaseHostHealth> GetHosts();
   List<BaseHostHealth> GetActiveHosts();

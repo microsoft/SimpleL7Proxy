@@ -52,6 +52,15 @@ public class CompositeEventClient : IEventClient
     }
   }
 
+  public int FlushedLastMinute
+  {
+    get
+    {
+      var snapshot = _frozen;
+      return snapshot.Count == 0 ? 0 : snapshot.Keys.Sum(c => c.FlushedLastMinute);
+    }
+  }
+
   public bool IsHealthy()
   {
     foreach (var client in _frozen.Keys)

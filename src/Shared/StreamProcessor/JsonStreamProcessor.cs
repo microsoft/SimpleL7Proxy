@@ -67,7 +67,7 @@ namespace SimpleL7Proxy.StreamProcessor
                 _logger?.LogDebug("Opening source stream for reading");
                 using var sourceStream = await sourceContent.ReadAsStreamAsync().ConfigureAwait(false);
                 using var reader = new StreamReader(sourceStream);
-                var writer = new StreamWriter(outputStream, bufferSize: 4096, leaveOpen: true);
+                var writer = new StreamWriter(outputStream, new System.Text.UTF8Encoding(false), bufferSize: 4096, leaveOpen: true);
                 await using (writer.ConfigureAwait(false))
                 {
                     string? currentLine;

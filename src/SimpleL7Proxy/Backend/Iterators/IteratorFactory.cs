@@ -27,7 +27,7 @@ public static class IteratorFactory
     /// <param name="requestPath">The normalized request path (e.g., /openai/v1/chat) to filter hosts by</param>
     /// <returns>An iterator configured for single-pass iteration</returns>
     public static IHostIterator CreateSinglePassIterator(
-        IBackendService backendService,
+        IEndpointMonitorService backendService,
         string loadBalanceMode,
         string requestPath,
         out string modifiedPath)
@@ -46,7 +46,7 @@ public static class IteratorFactory
     /// <param name="requestPath">The normalized request path (e.g., /openai/v1/chat) to filter hosts by</param>
     /// <returns>An iterator configured for multi-pass iteration with retry limit</returns>
     public static IHostIterator CreateMultiPassIterator(
-        IBackendService backendService,
+        IEndpointMonitorService backendService,
         string loadBalanceMode,
         int maxAttempts,
         string requestPath,
@@ -61,7 +61,7 @@ public static class IteratorFactory
     /// Filters hosts based on the request path.
     /// </summary>
     private static IHostIterator CreateIteratorInternal(
-        IBackendService backendService,
+        IEndpointMonitorService backendService,
         string loadBalanceMode,
         IterationModeEnum mode,
         int maxAttempts,
@@ -132,7 +132,7 @@ public static class IteratorFactory
     /// Gets cached active hosts. Cache is invalidated only when explicitly requested
     /// by the backend service when host list changes.
     /// </summary>
-    private static List<BaseHostHealth>? GetCachedActiveHosts(IBackendService backendService)
+    private static List<BaseHostHealth>? GetCachedActiveHosts(IEndpointMonitorService backendService)
     {
         // Fast path: read the cached value without locking
         var cached = _cachedActiveHosts;
@@ -201,7 +201,7 @@ public static class IteratorFactory
     /// <param name="modifiedPath">Output: the path with matched prefix removed</param>
     /// <returns>A SharedHostIterator configured for circular iteration</returns>
     public static SharedHostIterator CreateSharedIterator(
-        IBackendService backendService,
+        IEndpointMonitorService backendService,
         string loadBalanceMode,
         string requestPath,
         out string modifiedPath)
@@ -241,7 +241,7 @@ public static class IteratorFactory
     /// <param name="modifiedPath">Output: the path with matched prefix removed</param>
     /// <returns>List of filtered and ordered hosts</returns>
     public static List<BaseHostHealth> GetFilteredHosts(
-        IBackendService backendService,
+        IEndpointMonitorService backendService,
         string loadBalanceMode,
         string requestPath,
         out string modifiedPath)
