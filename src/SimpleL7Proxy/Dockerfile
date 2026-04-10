@@ -23,7 +23,9 @@ WORKDIR /app/SimpleL7Proxy
 RUN dotnet publish -c Release -o /app/out
 
 # Use ASP.NET Core runtime image
-FROM mcr.microsoft.com/dotnet/aspnet:10.0
+#FROM mcr.microsoft.com/dotnet/aspnet:10.0
+#FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled
 
 # Set the working directory.
 WORKDIR /app
@@ -38,6 +40,10 @@ COPY SimpleL7Proxy/auth.json .
 # Expose port 443 for the application.
 EXPOSE 443
 EXPOSE 9000
+
+# GC tuning: Workstation GC returns memory to OS more aggressively
+ENV DOTNET_GCConserveMemory=9
+ENV DOTNET_gcServer=0
 
 # Define the command to run your app using `dotnet`
 ENTRYPOINT ["dotnet", "SimpleL7Proxy.dll", "--urls", "http://*:443"]
