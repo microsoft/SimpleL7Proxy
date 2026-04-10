@@ -5,11 +5,11 @@ HealthProbe Sidecar:
 * Refactor to remove allocations
 
 Proxy:
-* loggers: Replace Delay(500) with an internval timer to reduce unnecessary object creation
+* loggers: Replace Delay(500) with an interval timer to reduce unnecessary object creation
 * Cache 1000 ProxyEvent objects to reuse instances to reduce object churn configured via ReuseEvents boolean
 * Add /healthdetail for more memory details to health probe
 * Clean up /health details to make it more readable
-* Add memory GC collecter to healthcheck timer configurable via GC2InternalSecs 
+* Add memory GC collector to healthcheck timer configurable via GC2InternalSecs 
 * Remove unnecessary Infinite delay task from server hot path
 * Use alpine as the base image which offers better memory recovery
 * Bug fix probe logging issue missing the status
