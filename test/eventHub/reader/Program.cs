@@ -4,18 +4,22 @@
 // 3. EVENTHUB_CONSUMER_GROUP
 
 using System;
+using System.Collections.Concurrent;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Azure.Messaging.EventHubs;
 using Azure.Messaging.EventHubs.Consumer;
 
 // https://docs.microsoft.com/en-us/azure/event-hubs/event-hubs-dotnet-standard-getstarted-receive-eph
 
+bool summaryMode = args.Contains("-s");
+
 //Read the environment variables
-string connectionString = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING");
-string eventHubName = Environment.GetEnvironmentVariable("EVENTHUB_NAME");
-string consumerGroup = Environment.GetEnvironmentVariable("EVENTHUB_CONSUMER_GROUP");
-var eventHubNamespace = Environment.GetEnvironmentVariable("EVENTHUB_NAMESPACE");
+string? connectionString = Environment.GetEnvironmentVariable("EVENTHUB_CONNECTIONSTRING");
+string? eventHubName = Environment.GetEnvironmentVariable("EVENTHUB_NAME");
+string? consumerGroup = Environment.GetEnvironmentVariable("EVENTHUB_CONSUMER_GROUP");
+string? eventHubNamespace = Environment.GetEnvironmentVariable("EVENTHUB_NAMESPACE");
 
 // Default consumer group if not specified
 if (string.IsNullOrEmpty(consumerGroup))
@@ -50,7 +54,7 @@ if (!string.IsNullOrEmpty(connectionString) &&
 
 // Read events from the event hub.
 Console.WriteLine("Reading events...");
-EventHubConsumerClient consumerClient = null;
+EventHubConsumerClient? consumerClient = null;
 
 // Configure client options with appropriate timeouts
 var clientOptions = new EventHubConsumerClientOptions
@@ -83,17 +87,73 @@ catch (Exception ex) {
 
 var partitionIds = await consumerClient.GetPartitionIdsAsync();
 
-
-while (true)
+if (summaryMode)
 {
-    foreach (var partitionId in partitionIds)
+    var typeCounts = new ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+    var cts = new CancellationTokenSource();
+
+    // Timer that prints summary every 10 seconds
+    var timerTask = Task.Run(async () =>
     {
-        await foreach (PartitionEvent partitionEvent in consumerClient.ReadEventsFromPartitionAsync(
-            partitionId,
-            EventPosition.Latest))
+        while (!cts.Token.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(10), cts.Token).ConfigureAwait(false);
+            var snapshot = typeCounts.ToArray();
+            if (snapshot.Length == 0)
+            {
+                continue;
+            }
+
+            Console.WriteLine($"\n--- {DateTime.Now:yyyy-MM-dd HH:mm:ss} ---");
+            foreach (var kvp in snapshot.OrderBy(k => k.Key))
+            {
+                Console.WriteLine($"  {kvp.Key}: {kvp.Value}");
+            }
+
+            // Reset counts for next interval
+            typeCounts.Clear();
+        }
+    }, cts.Token);
+
+    // Read events across all partitions
+    try
+    {
+        await foreach (PartitionEvent partitionEvent in consumerClient.ReadEventsAsync(cts.Token))
         {
             var eventBody = Encoding.UTF8.GetString(partitionEvent.Data.Body.ToArray());
-            Console.WriteLine(eventBody);
+            try
+            {
+                using var doc = JsonDocument.Parse(eventBody);
+                var typeValue = "(unknown)";
+                if (doc.RootElement.TryGetProperty("Type", out var typeProp))
+                {
+                    typeValue = typeProp.GetString() ?? "(null)";
+                }
+                typeCounts.AddOrUpdate(typeValue, 1, (_, count) => count + 1);
+            }
+            catch (JsonException)
+            {
+                typeCounts.AddOrUpdate("(parse-error)", 1, (_, count) => count + 1);
+            }
+        }
+    }
+    catch (OperationCanceledException) { }
+
+    cts.Cancel();
+}
+else
+{
+    while (true)
+    {
+        foreach (var partitionId in partitionIds)
+        {
+            await foreach (PartitionEvent partitionEvent in consumerClient.ReadEventsFromPartitionAsync(
+                partitionId,
+                EventPosition.Latest))
+            {
+                var eventBody = Encoding.UTF8.GetString(partitionEvent.Data.Body.ToArray());
+                Console.WriteLine(eventBody);
+            }
         }
     }
 }

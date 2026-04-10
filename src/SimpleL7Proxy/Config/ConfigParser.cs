@@ -22,7 +22,6 @@ public static class ConfigParser
         ("DefaultPriority", "DefaultPriority"),
         ("DefaultTTLSecs", "DefaultTTLSecs"),
         ("MaxQueueLength", "MaxQueueLength"),
-        ("MaxEvents", "MaxEvents"),
         ("MaxAttempts", "MaxAttempts"),
         ("PollInterval", "PollInterval"),
         ("PollTimeout", "PollTimeout"),
@@ -90,7 +89,8 @@ public static class ConfigParser
         ("LOGTOFILE", "LogToFile"),
         ("LOGFILE_NAME", "LogFileName"),
         ("LOGDATETIME", "LogDateTime"),
-
+        ("ReuseEvents", "ReuseEvents"),
+        
         // ── EventHub ──
         ("EVENTHUB_CONNECTIONSTRING", "EventHubConnectionString"),
         ("EVENTHUB_NAME", "EventHubName"),

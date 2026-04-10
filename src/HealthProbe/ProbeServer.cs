@@ -28,11 +28,15 @@ public class ProbeServer : BackgroundService
 
     private static HealthStatusEnum _readinessStatus = HealthStatusEnum.ReadinessZeroHosts;
     private static HealthStatusEnum _startupStatus = HealthStatusEnum.StartupZeroHosts;
+    private static readonly PathString s_readinessPath = new(Constants.Readiness);
+    private static readonly PathString s_startupPath = new(Constants.Startup);
+    private static readonly PathString s_livenessPath = new(Constants.Liveness);
+    private static readonly PathString s_updateStatusPath = new("/internal/update-status");
 
     public ProbeServer(ILogger<ProbeServer> logger)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        
+
         // Read port from environment variable or use default
         var portStr = Environment.GetEnvironmentVariable("HEALTHPROBE_PORT");
         if (!string.IsNullOrEmpty(portStr) && int.TryParse(portStr, out var parsedPort))
@@ -67,16 +71,16 @@ public class ProbeServer : BackgroundService
 
         // Suppress default Kestrel configuration - we configure everything explicitly
         builder.Configuration.Sources.Clear();
-        
+
         // Configure Kestrel for probe server
         builder.WebHost.ConfigureKestrel(options =>
         {
             options.ListenAnyIP(_port);
-            
+
             // Critical: Increase limits to handle probe requests under load
             options.Limits.MaxConcurrentConnections = 1000;
             options.Limits.MaxConcurrentUpgradedConnections = 1000;
-            
+
             // Reduce keep-alive to free up connections faster
             options.Limits.KeepAliveTimeout = TimeSpan.FromSeconds(5);
             options.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(5);
@@ -87,7 +91,7 @@ public class ProbeServer : BackgroundService
         {
             opts.NoDelay = true;     // Disable Nagle for tiny probe responses
             opts.Backlog = 4096;     // Increase accept queue depth under bursty load
-            
+
             // CRITICAL: Use inline I/O completion to avoid ThreadPool queueing
             opts.UnsafePreferInlineScheduling = true;
         });
@@ -102,28 +106,11 @@ public class ProbeServer : BackgroundService
 
         _app = builder.Build();
 
-        // Seed snapshots before starting the timer
-
         // Configure endpoints
         ConfigureEndpoints(_app);
 
         _logger.LogInformation("Probe server starting on port {Port}", _port);
-        
-        // Log all registered endpoints
-        var endpoints = _app.Services.GetService<Microsoft.AspNetCore.Routing.EndpointDataSource>();
-        if (endpoints != null)
-        {
-            foreach (var endpoint in endpoints.Endpoints)
-            {
-                if (endpoint is Microsoft.AspNetCore.Routing.RouteEndpoint routeEndpoint)
-                {
-                    _logger.LogInformation("Registered endpoint: {Method} {Pattern}", 
-                        string.Join(",", routeEndpoint.Metadata.OfType<Microsoft.AspNetCore.Routing.HttpMethodMetadata>().SelectMany(m => m.HttpMethods)),
-                        routeEndpoint.RoutePattern.RawText);
-                }
-            }
-        }
-        
+
         return _app.RunAsync(cancellationToken);
     }
 
@@ -135,7 +122,7 @@ public class ProbeServer : BackgroundService
         if (_app != null)
         {
             _logger.LogInformation("Probe server stopping");
-            
+
             // // Stop health monitor thread
             // if (_healthMonitorCts != null)
             // {
@@ -153,7 +140,7 @@ public class ProbeServer : BackgroundService
             //     }
             //     _healthMonitorCts.Dispose();
             // }
-            
+
             await _app.StopAsync();
             await _app.DisposeAsync();
         }
@@ -167,295 +154,341 @@ public class ProbeServer : BackgroundService
     /// <param name="startupStatus">The new startup status</param>
     public static void UpdateHealthStatus(HealthStatusEnum readinessStatus, HealthStatusEnum startupStatus)
     {
-        var currentReadiness = _readinessStatus;
-        var currentStartup = _startupStatus;
-        if  ( currentReadiness != readinessStatus || currentStartup != startupStatus )
-        {
-            Console.WriteLine($"Health status updated. Readiness: {currentReadiness} -> {readinessStatus}, Startup: {currentStartup} -> {startupStatus}");
-        }
         _readinessStatus = readinessStatus;
         _startupStatus = startupStatus;
-        s_lastUpdateTimestamp = Stopwatch.GetTimestamp();
+        Volatile.Write(ref s_lastUpdateTimestamp, Stopwatch.GetTimestamp());
     }
 
     static readonly byte[] s_okBytes = Encoding.UTF8.GetBytes("OK\n");
-    static readonly int s_okLength = s_okBytes.Length; 
+    static readonly int s_okLength = s_okBytes.Length;
     private static readonly byte[] s_zeroHosts = Encoding.UTF8.GetBytes("Not Healthy.  Active Hosts: 0\n");
     private static readonly int s_zeroHostsLength = s_zeroHosts.Length;
     private static readonly byte[] s_failedHosts = Encoding.UTF8.GetBytes("Not Healthy.  Failed Hosts: True\n");
     private static readonly int s_failedHostsLength = s_failedHosts.Length;
+    private static readonly long s_statusUpdateStaleAfterTicks = Stopwatch.Frequency * 20L;
+    private static readonly Action<ILogger, Exception?> s_missingUpdateStatusParametersLog =
+        LoggerMessage.Define(LogLevel.Warning, new EventId(1, "MissingUpdateStatusParameters"), "Missing update-status query parameters.");
+    private static readonly Action<ILogger, Exception?> s_invalidUpdateStatusParametersLog =
+        LoggerMessage.Define(LogLevel.Warning, new EventId(2, "InvalidUpdateStatusParameters"), "Invalid update-status query parameters.");
 
     // Timestamp of last status update (Stopwatch ticks for minimal overhead)
     // Initialized to 0 to represent uninitialized state
     private static long s_lastUpdateTimestamp = 0;
 
-    static int s_ReadinessCheckCount = 0;
-    static DateTime s_lastReadinessLogTime = DateTime.MinValue;
-    static int s_livenessCheckCount = 0;
-    static DateTime s_lastLivenessLogTime = DateTime.MinValue;
-
     private void ConfigureEndpoints(WebApplication app)
     {
-        // Readiness endpoint - checks if service is ready to accept traffic
-        // CRITICAL: Synchronous handler to avoid ThreadPool dispatch
-        app.MapGet(Constants.Readiness, (HttpContext ctx) =>
+        app.Run(HandleRequestAsync);
+    }
+
+    private Task HandleRequestAsync(HttpContext ctx)
+    {
+        var path = ctx.Request.Path;
+        var method = ctx.Request.Method;
+
+        if (path == s_livenessPath)
         {
-
-            Interlocked.Increment(ref s_ReadinessCheckCount);
-            // once per minute, log the readiness check
-            if ((DateTime.UtcNow - s_lastReadinessLogTime).TotalSeconds >= 60)
+            if (HttpMethods.IsHead(method))
             {
-                s_lastReadinessLogTime = DateTime.UtcNow;
-                Console.WriteLine($"Readiness checks in last minute: {s_ReadinessCheckCount}");
-                Volatile.Write(ref s_ReadinessCheckCount, 0);
-            }
-
-            ctx.Response.ContentType = "text/plain";
-            ctx.Response.Headers["Cache-Control"] = "no-cache";
-            //ctx.Response.Headers["Connection"] = "close";
-
-            ReadOnlySpan<byte> data;
-
-            // Check if status updates are stale (no updates in last 20 seconds)
-            // Skip check if never initialized (timestamp == 0)
-            if (s_lastUpdateTimestamp != 0 && s_lastUpdateTimestamp < Stopwatch.GetTimestamp() - Stopwatch.Frequency * 20)
-            {
-                // No updates received in last 20 seconds - mark as failed
-                ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-                ctx.Response.ContentLength = s_failedHostsLength;
-                data = s_failedHosts;
-            }
-            else
-            {
-                var currentStatus = _readinessStatus;
-                switch (currentStatus)
-                {
-                    case HealthStatusEnum.ReadinessZeroHosts:
-                        ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-                        ctx.Response.ContentLength = s_zeroHostsLength;
-                        data = s_zeroHosts;
-                        break;
-                    case HealthStatusEnum.ReadinessFailedHosts:
-                        ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-                        ctx.Response.ContentLength = s_failedHostsLength;
-                        data = s_failedHosts;
-                        break;
-                    case HealthStatusEnum.ReadinessReady:
-                    default:
-                        ctx.Response.StatusCode = StatusCodes.Status200OK;
-                        ctx.Response.ContentLength = s_okLength;
-                        data = s_okBytes;
-                        break;
-                }
-            }
-            
-            // Synchronous zero-allocation write using PipeWriter
-            var memory = ctx.Response.BodyWriter.GetMemory(data.Length);
-            data.CopyTo(memory.Span);
-            ctx.Response.BodyWriter.Advance(data.Length);
-            ctx.Response.BodyWriter.Complete();
-            
-            return Task.CompletedTask;
-        });
-
-        // Startup endpoint - checks if service has completed initialization
-        // CRITICAL: Synchronous handler to avoid ThreadPool dispatch
-        app.MapGet(Constants.Startup, (HttpContext ctx) =>
-        {
-            ctx.Response.ContentType = "text/plain";
-            ctx.Response.Headers["Cache-Control"] = "no-cache";
-            //ctx.Response.Headers["Connection"] = "close";
-
-            ReadOnlySpan<byte> data;
-            
-            // Check if status updates are stale (no updates in last 20 seconds)
-            // Skip check if never initialized (timestamp == 0)
-            if (s_lastUpdateTimestamp != 0 && s_lastUpdateTimestamp < Stopwatch.GetTimestamp() - Stopwatch.Frequency * 20)
-            {
-                // No updates received in last 20 seconds - mark as failed
-                ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-                ctx.Response.ContentLength = s_failedHostsLength;
-                data = s_failedHosts;
-            }
-            else
-            {
-                var currentStatus = _startupStatus;
-                switch (currentStatus)
-                {
-                    case HealthStatusEnum.StartupZeroHosts:
-                        ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-                        ctx.Response.ContentLength = s_zeroHostsLength;
-                        data = s_zeroHosts;
-                        break;
-                    case HealthStatusEnum.StartupFailedHosts:
-                        ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-                        ctx.Response.ContentLength = s_failedHostsLength;
-                        data = s_failedHosts;
-                        break;
-                    case HealthStatusEnum.StartupReady:
-                    default:
-                        ctx.Response.StatusCode = StatusCodes.Status200OK;
-                        ctx.Response.ContentLength = s_okLength;
-                        data = s_okBytes;
-                        break;
-                }
-            }
-            
-            // Synchronous zero-allocation write using PipeWriter
-            var memory = ctx.Response.BodyWriter.GetMemory(data.Length);
-            data.CopyTo(memory.Span);
-            ctx.Response.BodyWriter.Advance(data.Length);
-            ctx.Response.BodyWriter.Complete();
-            
-            return Task.CompletedTask;
-        });
-
-
-        // Liveness endpoint - checks if service is alive and functioning
-        // CRITICAL: Synchronous handler to avoid ThreadPool dispatch overhead
-        app.MapGet(Constants.Liveness, (HttpContext ctx) =>
-        {
-            Interlocked.Increment(ref s_livenessCheckCount);
-
-            // once per minute, log the liveness check
-            if ((DateTime.UtcNow - s_lastLivenessLogTime).TotalSeconds >= 60)
-            {
-                s_lastLivenessLogTime = DateTime.UtcNow;
-                Console.WriteLine($"Liveness checks in last minute: {s_livenessCheckCount}");
-                Volatile.Write(ref s_livenessCheckCount, 0);
-            }
-
-            ctx.Response.ContentType = "text/plain";
-            ctx.Response.Headers["Cache-Control"] = "no-cache";
-            //ctx.Response.Headers["Connection"] = "close";
-
-            ReadOnlySpan<byte> data;
-            
-
-            if (s_lastUpdateTimestamp != 0 && s_lastUpdateTimestamp < Stopwatch.GetTimestamp() - Stopwatch.Frequency * 20)
-            {
-                // No updates received in last 20 seconds - mark as failed
-                ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-                ctx.Response.ContentLength = s_failedHostsLength;
-                data = s_failedHosts;
-            }
-            else
-            {                
-                ctx.Response.StatusCode = StatusCodes.Status200OK;
-                ctx.Response.ContentLength = s_okLength;
-                data = s_okBytes;
-            }
-                
-            // Synchronous zero-allocation write using PipeWriter - no async dispatch
-            var memory = ctx.Response.BodyWriter.GetMemory(data.Length);
-            data.CopyTo(memory.Span);
-            ctx.Response.BodyWriter.Advance(data.Length);
-            ctx.Response.BodyWriter.Complete();
-
-            return Task.CompletedTask;
-        });
-
-        // Support HEAD method for probe endpoints for compatibility with certain load balancers
-        app.MapMethods(Constants.Liveness, new[] { "HEAD" }, (HttpContext ctx) =>
-        {
-            ctx.Response.ContentType = "text/plain";
-            ctx.Response.Headers["Cache-Control"] = "no-cache";
-           // ctx.Response.Headers["Connection"] = "close";
-            ctx.Response.StatusCode = StatusCodes.Status200OK;
-            ctx.Response.ContentLength = s_okLength;
-            ctx.Response.BodyWriter.Complete();
-            return Task.CompletedTask;
-        });
-        app.MapMethods(Constants.Readiness, new[] { "HEAD" }, (HttpContext ctx) =>
-        {
-            var currentStatus =  _readinessStatus;
-            ctx.Response.ContentType = "text/plain";
-            ctx.Response.Headers["Cache-Control"] = "no-cache";
-            //ctx.Response.Headers["Connection"] = "close";
-            switch (currentStatus)
-            {
-                case HealthStatusEnum.ReadinessZeroHosts:
-                    ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-                    ctx.Response.ContentLength = s_zeroHostsLength;
-                    break;
-                case HealthStatusEnum.ReadinessFailedHosts:
-                    ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-                    ctx.Response.ContentLength = s_failedHostsLength;
-                    break;
-                case HealthStatusEnum.ReadinessReady:
-                    ctx.Response.StatusCode = StatusCodes.Status200OK;
-                    ctx.Response.ContentLength = s_okLength;
-                    break;
-            }
-            ctx.Response.BodyWriter.Complete();
-            return Task.CompletedTask;
-        });
-        app.MapMethods(Constants.Startup, new[] { "HEAD" }, (HttpContext ctx) =>
-        {
-            var currentStatus = _startupStatus;
-            ctx.Response.ContentType = "text/plain";
-            ctx.Response.Headers["Cache-Control"] = "no-cache";
-            //ctx.Response.Headers["Connection"] = "close";
-            switch (currentStatus)
-            {
-                case HealthStatusEnum.StartupZeroHosts:
-                    ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-                    ctx.Response.ContentLength = s_zeroHostsLength;
-                    break;
-                case HealthStatusEnum.StartupFailedHosts:
-                    ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-                    ctx.Response.ContentLength = s_failedHostsLength;
-                    break;
-                case HealthStatusEnum.StartupReady:
-                    ctx.Response.StatusCode = StatusCodes.Status200OK;
-                    ctx.Response.ContentLength = s_okLength;
-                    break;
-            }
-            ctx.Response.BodyWriter.Complete();
-            return Task.CompletedTask;
-        });
-
-        // Update status endpoint - allows proxy to update health status
-        // Query string parameters for zero-allocation direct update
-        app.MapGet("/internal/update-status", (HttpContext ctx) =>
-        {            
-            // Parse query parameters directly - no JSON deserialization overhead
-            if (!ctx.Request.Query.TryGetValue("readiness", out var readinessStr) ||
-                !ctx.Request.Query.TryGetValue("startup", out var startupStr))
-            {
-                _logger.LogWarning("Missing query parameters. Readiness: {Readiness}, Startup: {Startup}", 
-                    ctx.Request.Query.ContainsKey("readiness"), ctx.Request.Query.ContainsKey("startup"));
-                ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
-                ctx.Response.ContentType = "text/plain";
-                ctx.Response.BodyWriter.Complete();
+                WriteLivenessHeadResponse(ctx.Response);
                 return Task.CompletedTask;
             }
 
-            if (!Enum.TryParse<HealthStatusEnum>(readinessStr, out var readiness) ||
-                !Enum.TryParse<HealthStatusEnum>(startupStr, out var startup))
+            if (HttpMethods.IsGet(method))
             {
-                _logger.LogWarning("Invalid enum values. Readiness: {ReadinessStr}, Startup: {StartupStr}", 
-                    readinessStr, startupStr);
+                WriteLivenessGetResponse(ctx.Response);
+                return Task.CompletedTask;
+            }
+
+            return WriteMethodNotAllowed(ctx.Response, "GET, HEAD");
+        }
+
+        if (path == s_readinessPath)
+        {
+            if (HttpMethods.IsHead(method))
+            {
+                WriteReadinessHeadResponse(ctx.Response);
+                return Task.CompletedTask;
+            }
+
+            if (HttpMethods.IsGet(method))
+            {
+                WriteReadinessGetResponse(ctx.Response);
+                return Task.CompletedTask;
+            }
+
+            return WriteMethodNotAllowed(ctx.Response, "GET, HEAD");
+        }
+
+        if (path == s_startupPath)
+        {
+            if (HttpMethods.IsHead(method))
+            {
+                WriteStartupHeadResponse(ctx.Response);
+                return Task.CompletedTask;
+            }
+
+            if (HttpMethods.IsGet(method))
+            {
+                WriteStartupGetResponse(ctx.Response);
+                return Task.CompletedTask;
+            }
+
+            return WriteMethodNotAllowed(ctx.Response, "GET, HEAD");
+        }
+
+        if (path == s_updateStatusPath)  //  "/internal/update-status"
+        {
+            if (!HttpMethods.IsGet(method))
+            {
+                return WriteMethodNotAllowed(ctx.Response, "GET");
+            }
+
+            if (!TryParseUpdateStatusQuery(ctx.Request.QueryString.Value, out var readiness, out var startup, out var parseResult))
+            {
+                if (parseResult == UpdateStatusParseResult.MissingParameters)
+                {
+                    s_missingUpdateStatusParametersLog(_logger, null);
+                }
+                else
+                {
+                    s_invalidUpdateStatusParametersLog(_logger, null);
+                }
+
                 ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
                 ctx.Response.ContentType = "text/plain";
-                ctx.Response.BodyWriter.Complete();
+                ctx.Response.ContentLength = 0;
                 return Task.CompletedTask;
             }
 
             UpdateHealthStatus(readiness, startup);
-
-            
-            ctx.Response.StatusCode = StatusCodes.Status200OK;
-            ctx.Response.ContentType = "text/plain";
-            ctx.Response.ContentLength = s_okLength;
-            var memory = ctx.Response.BodyWriter.GetMemory(s_okLength);
-            s_okBytes.AsSpan().CopyTo(memory.Span);
-            ctx.Response.BodyWriter.Advance(s_okLength);
-            ctx.Response.BodyWriter.Complete();
-            
+            WriteBodyResponse(ctx.Response, StatusCodes.Status200OK, s_okBytes, s_okLength);
             return Task.CompletedTask;
-        });
+        }
 
-    
+        ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+        ctx.Response.ContentLength = 0;
+        return Task.CompletedTask;
+    }
+
+    // private Task HandleUpdateStatus(HttpContext ctx)
+    // {
+
+    // }
+
+    private static Task WriteMethodNotAllowed(HttpResponse response, string allowHeader)
+    {
+        response.StatusCode = StatusCodes.Status405MethodNotAllowed;
+        response.Headers["Allow"] = allowHeader;
+        response.ContentLength = 0;
+        return Task.CompletedTask;
+    }
+
+    private static void WriteLivenessGetResponse(HttpResponse response)
+    {
+        if (IsStatusUpdateStale())
+        {
+            WriteBodyResponse(response, StatusCodes.Status503ServiceUnavailable, s_failedHosts, s_failedHostsLength);
+            return;
+        }
+
+        WriteBodyResponse(response, StatusCodes.Status200OK, s_okBytes, s_okLength);
+    }
+
+    private static void WriteReadinessGetResponse(HttpResponse response)
+    {
+        if (IsStatusUpdateStale())
+        {
+            WriteBodyResponse(response, StatusCodes.Status503ServiceUnavailable, s_failedHosts, s_failedHostsLength);
+            return;
+        }
+
+        switch (_readinessStatus)
+        {
+            case HealthStatusEnum.ReadinessZeroHosts:
+                WriteBodyResponse(response, StatusCodes.Status503ServiceUnavailable, s_zeroHosts, s_zeroHostsLength);
+                break;
+            case HealthStatusEnum.ReadinessFailedHosts:
+                WriteBodyResponse(response, StatusCodes.Status503ServiceUnavailable, s_failedHosts, s_failedHostsLength);
+                break;
+            case HealthStatusEnum.ReadinessReady:
+            default:
+                WriteBodyResponse(response, StatusCodes.Status200OK, s_okBytes, s_okLength);
+                break;
+        }
+    }
+
+    private static void WriteStartupGetResponse(HttpResponse response)
+    {
+        if (IsStatusUpdateStale())
+        {
+            WriteBodyResponse(response, StatusCodes.Status503ServiceUnavailable, s_failedHosts, s_failedHostsLength);
+            return;
+        }
+
+        switch (_startupStatus)
+        {
+            case HealthStatusEnum.StartupZeroHosts:
+                WriteBodyResponse(response, StatusCodes.Status503ServiceUnavailable, s_zeroHosts, s_zeroHostsLength);
+                break;
+            case HealthStatusEnum.StartupFailedHosts:
+                WriteBodyResponse(response, StatusCodes.Status503ServiceUnavailable, s_failedHosts, s_failedHostsLength);
+                break;
+            case HealthStatusEnum.StartupReady:
+            default:
+                WriteBodyResponse(response, StatusCodes.Status200OK, s_okBytes, s_okLength);
+                break;
+        }
+    }
+
+    private static void WriteLivenessHeadResponse(HttpResponse response)
+    {
+        WriteHeadResponse(response, StatusCodes.Status200OK, s_okLength);
+    }
+
+    private static void WriteReadinessHeadResponse(HttpResponse response)
+    {
+        switch (_readinessStatus)
+        {
+            case HealthStatusEnum.ReadinessZeroHosts:
+                WriteHeadResponse(response, StatusCodes.Status503ServiceUnavailable, s_zeroHostsLength);
+                break;
+            case HealthStatusEnum.ReadinessFailedHosts:
+                WriteHeadResponse(response, StatusCodes.Status503ServiceUnavailable, s_failedHostsLength);
+                break;
+            case HealthStatusEnum.ReadinessReady:
+            default:
+                WriteHeadResponse(response, StatusCodes.Status200OK, s_okLength);
+                break;
+        }
+    }
+
+    private static void WriteStartupHeadResponse(HttpResponse response)
+    {
+        switch (_startupStatus)
+        {
+            case HealthStatusEnum.StartupZeroHosts:
+                WriteHeadResponse(response, StatusCodes.Status503ServiceUnavailable, s_zeroHostsLength);
+                break;
+            case HealthStatusEnum.StartupFailedHosts:
+                WriteHeadResponse(response, StatusCodes.Status503ServiceUnavailable, s_failedHostsLength);
+                break;
+            case HealthStatusEnum.StartupReady:
+            default:
+                WriteHeadResponse(response, StatusCodes.Status200OK, s_okLength);
+                break;
+        }
+    }
+
+    private static void WriteBodyResponse(HttpResponse response, int statusCode, byte[] payload, int payloadLength)
+    {
+        response.StatusCode = statusCode;
+        response.ContentType = "text/plain";
+        response.Headers["Cache-Control"] = "no-cache";
+        response.ContentLength = payloadLength;
+        var destination = response.BodyWriter.GetSpan(payloadLength);
+        payload.AsSpan(0, payloadLength).CopyTo(destination);
+        response.BodyWriter.Advance(payloadLength);
+    }
+
+    private static void WriteHeadResponse(HttpResponse response, int statusCode, int payloadLength)
+    {
+        response.StatusCode = statusCode;
+        response.ContentType = "text/plain";
+        response.Headers["Cache-Control"] = "no-cache";
+        response.ContentLength = payloadLength;
+    }
+
+    private static bool IsStatusUpdateStale()
+    {
+        var lastUpdateTimestamp = Volatile.Read(ref s_lastUpdateTimestamp);
+        return lastUpdateTimestamp != 0 && lastUpdateTimestamp < Stopwatch.GetTimestamp() - s_statusUpdateStaleAfterTicks;
+    }
+
+    private static bool TryParseUpdateStatusQuery(
+        string? queryString,
+        out HealthStatusEnum readiness,
+        out HealthStatusEnum startup,
+        out UpdateStatusParseResult parseResult)
+    {
+        readiness = default;
+        startup = default;
+
+        if (string.IsNullOrEmpty(queryString))
+        {
+            parseResult = UpdateStatusParseResult.MissingParameters;
+            return false;
+        }
+
+        ReadOnlySpan<char> query = queryString.AsSpan();
+        if (!query.IsEmpty && query[0] == '?')
+        {
+            query = query[1..];
+        }
+
+        ReadOnlySpan<char> readinessValue = default;
+        ReadOnlySpan<char> startupValue = default;
+
+        while (!query.IsEmpty)
+        {
+            var ampIndex = query.IndexOf('&');
+            ReadOnlySpan<char> segment;
+            if (ampIndex < 0)
+            {
+                segment = query;
+                query = default;
+            }
+            else
+            {
+                segment = query[..ampIndex];
+                query = query[(ampIndex + 1)..];
+            }
+
+            if (segment.IsEmpty)
+            {
+                continue;
+            }
+
+            var equalsIndex = segment.IndexOf('=');
+            if (equalsIndex <= 0 || equalsIndex == segment.Length - 1)
+            {
+                continue;
+            }
+
+            var name = segment[..equalsIndex];
+            var value = segment[(equalsIndex + 1)..];
+
+            if (name.SequenceEqual("readiness"))
+            {
+                readinessValue = value;
+                continue;
+            }
+
+            if (name.SequenceEqual("startup"))
+            {
+                startupValue = value;
+            }
+        }
+
+        if (readinessValue.IsEmpty || startupValue.IsEmpty)
+        {
+            parseResult = UpdateStatusParseResult.MissingParameters;
+            return false;
+        }
+
+        if (!Enum.TryParse(readinessValue, out readiness) || !Enum.TryParse(startupValue, out startup))
+        {
+            parseResult = UpdateStatusParseResult.InvalidParameters;
+            return false;
+        }
+
+        parseResult = UpdateStatusParseResult.Success;
+        return true;
+    }
+
+    private enum UpdateStatusParseResult
+    {
+        Success,
+        MissingParameters,
+        InvalidParameters
     }
 }

@@ -35,7 +35,7 @@ public class ProxyWorker : IConfigChangeSubscriber
     private readonly CancellationToken _cancellationToken;
     private static bool s_debug = false;            // dev time debug flag
     private static IConcurrentPriQueue<RequestData>? s_requestsQueue;
-    private readonly IBackendService _backends;
+    private readonly IEndpointMonitorService _backends;
     private readonly ProxyConfig _options;
     private readonly ILogger<ProxyWorker> _logger;
     private readonly RequestLifecycleManager _lifecycleManager;
@@ -696,7 +696,7 @@ public class ProxyWorker : IConfigChangeSubscriber
     {
         int hostCount = _backends.ActiveHostCount();
         bool hasFailedHosts = _backends.CheckFailedStatusAsync(true).Result;
-        _wrkCntxt.HealthCheckService.BuildHealthResponse(req.Path, hostCount, hasFailedHosts, out int probeStatus, out string probeMessage);
+        _wrkCntxt.HealthCheckService.BuildHealthResponse(req.Path, hostCount, hasFailedHosts, req.Timestamp, out int probeStatus, out string probeMessage);
 
         lcontext.Response.StatusCode = probeStatus;
         lcontext.Response.ContentType = "text/plain";
@@ -710,6 +710,19 @@ public class ProxyWorker : IConfigChangeSubscriber
             healthMessage,
             0,
             healthMessage.Length).ConfigureAwait(false);
+
+        // Log probe telemetry (moved from Server.Run to ensure single-log per probe)
+        var eventData = req.EventData;
+        eventData.Type = EventType.Probe;
+        eventData.Uri = lcontext.Request.Url!;
+        eventData.Status = (HttpStatusCode)probeStatus;
+        eventData["ProbeType"] = req.Path switch {
+            Constants.Health => "Health",
+            Constants.HealthDetail => "HealthDetail",
+            _ => "ForceGC"
+        };
+        eventData["StatusCode"] = probeStatus.ToString();
+        eventData.SendEvent();
     }
 
 

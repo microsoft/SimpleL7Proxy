@@ -192,14 +192,14 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
 
                     if (!profileConfigStatus.HasData)
                         localIsInitialized = false;
-                    sb.Append($"(Profiles) {profileConfigStatus}");
+                    sb.Append($"User: {profileConfigStatus}");
                 }
 
                 if (suspendedTask != null)
                 {
                     var suspendedStatus = await suspendedTask.ConfigureAwait(false);
                     success = success && suspendedStatus.Success;
-                    sb.Append($", (Suspended) {suspendedUserConfigStatus}");
+                    sb.Append($", Suspended: {suspendedUserConfigStatus}");
                 }
 
                 if (authTask != null)
@@ -221,7 +221,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
                     if (!authAppIDsConfigStatus.HasData)
                         localIsInitialized = false;
 
-                    sb.Append($", (AuthAppIDs) {authAppIDsConfigStatus}");
+                    sb.Append($", Auth: {authAppIDsConfigStatus}");
                 }
 
                 if (sb.Length > 0)
@@ -287,6 +287,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
         public int SoftDeletedProfiles { get; set; }
         public bool HasData => TotalProfiles > 0;
         public bool zeroProfilesOK = false;
+        public bool LastLoadSucceeded { get; set; } = true;
 
 
         public void UpdateConfigStatusByEntries(Dictionary<string, Dictionary<string, string>> entries, bool lastSuccess)
@@ -305,6 +306,8 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
 
         public void UpdateConfigStatus(int count, bool lastSuccess)
         {
+            LastLoadSucceeded = lastSuccess;
+
             if (lastSuccess)
                 LastSuccessfulLoad = DateTime.UtcNow;
 
@@ -326,7 +329,8 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
             {
                 prefix = $"STALE {StaleDuration.Value.TotalSeconds:F0}s";
             }
-            else if ((StaleDuration.HasValue && StaleDuration.Value >= TimeSpan.FromMinutes(5)) ||
+            else if (!LastLoadSucceeded ||
+                    (StaleDuration.HasValue && StaleDuration.Value >= TimeSpan.FromMinutes(5)) ||
                     (!zeroProfilesOK && (TotalProfiles == 0 || ActiveProfiles == 0)))
             {
                 prefix = "DEGRADED";

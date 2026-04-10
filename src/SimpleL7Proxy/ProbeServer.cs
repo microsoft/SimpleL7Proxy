@@ -27,7 +27,7 @@ namespace SimpleL7Proxy;
 /// </summary>
 public class ProbeServer : BackgroundService, IConfigChangeSubscriber
 {
-    private readonly IBackendService _backends;
+    private readonly IEndpointMonitorService _backends;
     private readonly ILogger<ProbeServer> _logger;
     private readonly HealthCheckService _healthService;
 
@@ -54,7 +54,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
 
     private static int FailedAttempts = 0;
     public ProbeServer(
-        IBackendService backends, 
+        IEndpointMonitorService backends, 
         HealthCheckService healthService, 
         ILogger<ProbeServer> logger, 
         IOptions<ProxyConfig> backendOptions, 
@@ -108,6 +108,8 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
                 _ = PushStatusToSidecarAsync(client);
             }
 
+            _healthService.RunPeriodicGC();
+
         }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(10)); // initial delay, interval
 
         FailedAttempts = 0;
@@ -131,7 +133,8 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
         try
         {
             var url = $"{_backendOptions.HealthProbeSidecarUrl}/internal/update-status?readiness={_readinessStatus}&startup={_startupStatus}";
-            using var response = await selfCheckClient.GetAsync(url).ConfigureAwait(false);
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            using var response = await selfCheckClient.SendAsync(request).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 FailedAttempts++;

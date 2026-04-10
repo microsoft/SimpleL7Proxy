@@ -183,10 +183,12 @@ public class AppConfigService : BackgroundService
         {
             var client = GetConfigurationClient();
             var response = await client.GetConfigurationSettingAsync("Warm:Sentinel", _labelFilter, ct);
-            return response.Value?.Value;
+            var value = response.Value?.Value;
+            response.GetRawResponse().Dispose();
+            return value;
         }
         catch (Azure.RequestFailedException ex) when (ex.Status == 404) { return null; }
-        catch (Exception) { return _lastSentinel; } // assume no change on transient error
+        catch (Exception) { return _lastSentinel; }
     }
 
     private ConfigurationClient? _cachedClient;

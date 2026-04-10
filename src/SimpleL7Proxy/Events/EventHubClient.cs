@@ -29,11 +29,14 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
     private volatile bool beginShutdown = false;
     private Task? writerTask;
     private readonly ConcurrentQueue<string> _logBuffer = new();
-    private List<string> _pendingItems = new List<string>();
     // Connection parameters retained for reconnection
 
     private static int entryCount = 0;
     public static int ReconnectCount = 0;
+    private readonly int _eventThreshold;
+    private int _flushedThisMinute;
+    private int _flushedLastMinute;
+    private long _currentMinuteTicks;
 
     //public EventHubClient(string connectionString, string eventHubName, ILogger<EventHubClient>? logger = null)
 
@@ -55,12 +58,14 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
         }
 
 
+        _eventThreshold = BackendOptions.MaxUndrainedEvents / 4; // Start flushing more aggressively at 25% capacity to avoid hitting the max and dropping events
         _composite = composite ?? throw new ArgumentNullException(nameof(composite));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         // All initialization happens in StartAsync
     }
 
     public int Count => _logBuffer.Count;
+    public int FlushedLastMinute => Volatile.Read(ref _flushedLastMinute);
     public string ClientType => isRunning ? "EventHub" : "EventHub (Disabled)";
 
     public bool IsHealthy()
@@ -127,93 +132,187 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
             await writerTask.ConfigureAwait(false);
     }
 
-    public async Task EventWriter(CancellationToken token)
+    public async Task EventWriter(CancellationToken lifetimeToken)
     {
+        var pendingTasks = new List<(Task Task, List<string> Items, int Count, EventDataBatch Batch)>();
+        var pendingItems = new List<string>();
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
+        var lastSendTime = DateTime.UtcNow;
+
         if (_batchData is null || _producerClient is null)
         {
             isRunning = false;
             return;
         }
 
-        try
+        // Phase 1: Normal processing until cancelled
+        while (!lifetimeToken.IsCancellationRequested)
         {
-            while (!token.IsCancellationRequested)
-            {
-                if (GetNextBatch(99) > 0)
-                {
-                    try
-                    {
-                        await _producerClient.SendAsync(_batchData, token).ConfigureAwait(false);
-                        _pendingItems.Clear();
-                        _batchData.Dispose();
-                        _batchData = await _producerClient.CreateBatchAsync(token).ConfigureAwait(false);
-                    }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
-                    {
-                        _logger.LogWarning(ex, "EventHubClient: SendAsync failed, reconnecting.");
-                        // Re-enqueue items from the failed batch so they are not lost
-                        foreach (var item in _pendingItems)
-                        {
-                            _logBuffer.Enqueue(item);
-                            Interlocked.Increment(ref entryCount);
-                        }
-                        _pendingItems.Clear();
-                        await ReconnectAsync(cancellationToken: token).ConfigureAwait(false);
-                        continue;
-                    }
-                }
+            HarvestCompletedSends(pendingTasks);
+            GetNextBatch(99, pendingItems);
 
-                if (!beginShutdown)
+            var elapsed = DateTime.UtcNow - lastSendTime;
+            var shouldFlush = _batchData.Count >= 10 || (elapsed.TotalSeconds >= 2 && _batchData.Count > 0);
+
+            if (shouldFlush)
+            {
+                var (success, newItems) = await FlushBatchAsync(pendingTasks, pendingItems).ConfigureAwait(false);
+                pendingItems = newItems;
+                lastSendTime = DateTime.UtcNow;
+                if (!success)
                 {
-                    await Task.Delay(500, token).ConfigureAwait(false);
+                    await ReconnectAsync(throwOnFailure: true).ConfigureAwait(false);
+                    continue;
                 }
             }
-            _logger.LogInformation("[SHUTDOWN] ✓ EventHubClient exiting");
-        }
-        catch (OperationCanceledException)
-        {
-            // Normal shutdown via cancellation token
-        }
-        finally
-        {
-            isRunning = false;
 
-            while (true)
+            if (!beginShutdown && entryCount <= _eventThreshold)
             {
-                if (GetNextBatch(99) > 0)
+                try
+                {
+                    await timer.WaitForNextTickAsync(lifetimeToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break; // exit,  we're shutting down
+                }
+            }
+        }
+
+        await DrainAndCloseAsync(pendingTasks, pendingItems).ConfigureAwait(false);
+    }
+
+    private async Task DrainAndCloseAsync(List<(Task Task, List<string> Items, int Count, EventDataBatch Batch)> pendingTasks, List<string> pendingItems)
+    {
+        _logger.LogInformation("[SHUTDOWN] ✓ EventHubClient draining remaining items");
+        isRunning = false;
+
+        while (true)
+        {
+            HarvestCompletedSends(pendingTasks);
+            GetNextBatch(99, pendingItems);
+
+            if (_batchData is not null && _batchData.Count > 0)
+            {
+                var (success, newItems) = await FlushBatchAsync(pendingTasks, pendingItems).ConfigureAwait(false);
+                pendingItems = newItems;
+                if (!success)
+                {
+                    try { await ReconnectAsync(throwOnFailure: false).ConfigureAwait(false); }
+                    catch { break; }
+                }
+            }
+            else if (pendingTasks.Count > 0)
+            {
+                // Nothing to batch — wait for all in-flight sends to settle
+                foreach (var (task, items, count, batch) in pendingTasks)
                 {
                     try
                     {
-                        await _producerClient.SendAsync(_batchData).ConfigureAwait(false);
-                        _pendingItems.Clear();
-                        _batchData.Dispose();
-                        _batchData = await _producerClient.CreateBatchAsync().ConfigureAwait(false);
+                        await task.ConfigureAwait(false);
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"EventHubClient: SendAsync failed during shutdown: {ex.Message}");
-                        // Re-enqueue the failed batch items so the reconnected client can retry them.
-                        foreach (var item in _pendingItems)
-                        {
-                            _logBuffer.Enqueue(item);
-                            Interlocked.Increment(ref entryCount);
-                        }
-                        _pendingItems.Clear();
-                        try { await ReconnectAsync(throwOnFailure: false).ConfigureAwait(false); }
-                        catch { break; } // give up draining if reconnect also fails
+                        _logger.LogWarning(ex, "EventHubClient: SendAsync failed during shutdown, re-enqueuing {Count} items.", items.Count);
+                        ReEnqueueItems(items);
+                    }
+                    finally
+                    {
+                        batch.Dispose();
                     }
                 }
-                else
-                {
-                    break;
-                }
+                pendingTasks.Clear();
+                // Loop back — failures may have re-enqueued items to batch
             }
+            else
+            {
+                // Nothing in batch, nothing in-flight — done
+                break;
+            }
+        }
 
-            if (_producerClient is not null)
-                await _producerClient.CloseAsync().ConfigureAwait(false);
+        if (_producerClient is not null)
+            await _producerClient.CloseAsync().ConfigureAwait(false);
+    }
+
+
+    private void ReEnqueueItems(List<string> items)
+    {
+        foreach (var item in items)
+        {
+            _logBuffer.Enqueue(item);
+            Interlocked.Increment(ref entryCount);
         }
     }
 
+    private async Task<(bool Success, List<string> NewPendingItems)> FlushBatchAsync(
+        List<(Task Task, List<string> Items, int Count, EventDataBatch Batch)> pendingTasks,
+        List<string> pendingItems)
+    {
+        var flushedCount = _batchData!.Count;
+        var sentBatch = _batchData;
+        _batchData = null; // Detach — sentBatch is now exclusively owned by the in-flight send
+
+        try
+        {
+            var sendTask = _producerClient!.SendAsync(sentBatch, CancellationToken.None);
+            pendingTasks.Add((sendTask, pendingItems, flushedCount, sentBatch));
+        }
+        catch (Exception ex)
+        {
+            // SendAsync threw synchronously — send never started, safe to re-enqueue and dispose
+            _logger.LogWarning(ex, "EventHubClient: SendAsync failed synchronously, reconnecting.");
+            sentBatch.Dispose();
+            ReEnqueueItems(pendingItems);
+            return (false, new List<string>());
+        }
+
+        // Send is in-flight and tracked in pendingTasks.
+        // HarvestCompletedSends will re-enqueue on failure — do NOT re-enqueue here.
+        try
+        {
+            _batchData = await _producerClient!.CreateBatchAsync(CancellationToken.None).ConfigureAwait(false);
+            return (true, new List<string>());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "EventHubClient: CreateBatchAsync failed after send, reconnecting.");
+            return (false, new List<string>());
+        }
+    }
+
+    // Check pending send tasks for completion, update flush counts, and re-enqueue items for any failed sends
+    private void HarvestCompletedSends(List<(Task Task, List<string> Items, int Count, EventDataBatch Batch)> pendingTasks)
+    {
+        for (int i = pendingTasks.Count - 1; i >= 0; i--)
+        {
+            var (task, items, count, batch) = pendingTasks[i];
+            if (!task.IsCompleted) continue;
+
+            pendingTasks.RemoveAt(i);
+            batch.Dispose();
+            if (task.IsCompletedSuccessfully)
+            {
+                var now = DateTime.UtcNow;
+                var nowMinute = now.Ticks / TimeSpan.TicksPerMinute;
+                if (nowMinute != _currentMinuteTicks)
+                {
+                    _flushedLastMinute = _flushedThisMinute;
+                    _flushedThisMinute = count;
+                    _currentMinuteTicks = nowMinute;
+                }
+                else
+                {
+                    _flushedThisMinute += count;
+                }
+            }
+            else
+            {
+                _logger.LogWarning(task.Exception?.InnerException, "EventHubClient: SendAsync failed, re-enqueuing {Count} items.", items.Count);
+                ReEnqueueItems(items);
+            }
+        }
+    }
 
     private async Task ReconnectAsync(bool throwOnFailure = true, CancellationToken cancellationToken = default)
     {
@@ -268,12 +367,11 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
     }
 
     // Add the log to the batch up to count number at a time
-    private int GetNextBatch(int count)
+    private int GetNextBatch(int count, List<string> pendingItems)
     {
         if (_batchData is null)
             return 0;
 
-        _pendingItems.Clear();
         int initialCount = count;
 
         for (int i = 0; i < initialCount; i++)
@@ -299,7 +397,7 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
             if (_batchData.TryAdd(eventData))
             {
                 Interlocked.Decrement(ref entryCount);
-                _pendingItems.Add(log);
+                pendingItems.Add(log);
             }
             else
             {

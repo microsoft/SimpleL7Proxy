@@ -31,7 +31,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
     private readonly ProxyConfig _options;
     private readonly HttpListener _httpListener;
 
-    private readonly IBackendService _backends;
+    private readonly IEndpointMonitorService _backends;
 
     private readonly IUserPriorityService _userPriority;
     private readonly IUserProfileService _userProfile;
@@ -67,7 +67,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         IUserProfileService userProfile,
         //IServiceBusRequestService serviceBusRequestService,
         IEventClient? eventHubClient,
-        IBackendService backends,
+        IEndpointMonitorService backends,
         IBlobWriter blobWriter,
         HealthCheckService healthService,
         ProbeServer probeServer,
@@ -105,12 +105,9 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
             options => options.UserIDFieldName,
             options => options.UserProfileHeader,
             options => options.ValidateHeaders,
-            // options => options.Port,  COLD option, requires full restart to take effect
             options => options.Timeout,
-            // options => options.UseProfiles,
             options => options.AsyncModeEnabled,
             options => options.DefaultPriority,
-            // options => options.IDStr,
             options => options.ValidateAuthAppID,
             options => options.ValidateAuthAppIDHeader,
             options => options.DisallowedHeaders,
@@ -120,9 +117,14 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
             options => options.TimeoutHeader,
             options => options.DefaultTTLSecs,
             options => options.TTLHeader,
-            // options => options.CircuitBreakerTimeslice,   display only
             options => options.MaxQueueLength,
             options => options.PollInterval
+
+            // COLD OPTIONS (require restart, so not subscribed for live updates):
+            // options => options.Port,  
+            // options => options.UseProfiles,
+            // options => options.IDStr,
+            // options => options.CircuitBreakerTimeslice,   display only
             ]);
 
         InitVars();
@@ -239,6 +241,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         await Run(token);
     }  
 
+    bool initialStartup = true;
     // Continuously listens for incoming HTTP requests and processes them.
     // Requests are enqueued with a priority based on specific headers.
     // The method runs until a cancellation is requested.
@@ -254,14 +257,16 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         bool doUserProfile = _options.UseProfiles;
         // Only enable async mode if configured AND blob storage is available (not using NullBlobWriter)
         bool doAsync = _options.AsyncModeEnabled && !(_blobWriter is NullBlobWriter);
-        int maxEvents = _options.MaxEvents;
-        int maxEvents_90Percent = (int)(maxEvents * .9);
-        int maxEvents_80Percent = (int)(maxEvents * .8);
-        int maxEvents_70Percent = (int)(maxEvents * .7);
-        int maxEvents_60Percent = (int)(maxEvents * .6);
-        int maxEvents_50Percent = (int)(maxEvents * .5);
+        int maxEvents = _options.MaxUndrainedEvents;
+        int halfMaxEvents = maxEvents / 2;
 
         _probe.Type = EventType.Probe;
+
+        // Hoist TCS + cancellation registration outside the loop — the TCS stays
+        // incomplete until cancellation fires, so one instance serves all iterations.
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var ctr = cancellationToken.Register(() => tcs.TrySetResult());
+        var ptimer = new PeriodicTimer(TimeSpan.FromMilliseconds(100));
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -272,13 +277,8 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                 // Use the CancellationToken to asynchronously wait for an HTTP request.
                 var getContextTask = _httpListener.GetContextAsync();
 
-                // call GetContextAsync in a way that it can be cancelled
-                var completedTask = await Task.WhenAny(getContextTask, Task.Delay(Timeout.Infinite, cancellationToken)).ConfigureAwait(false);
+                var completedTask = await Task.WhenAny(getContextTask, tcs.Task).ConfigureAwait(false);
 
-                //  control to allow other tasks to run .. doesn't make sense here
-                // await Task.Yield();
-
-                // Cancel the delay task immedietly if the getContextTask completes first
                 if (completedTask == getContextTask)
                 {
                     var lc = await getContextTask.ConfigureAwait(false);
@@ -301,21 +301,25 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                         _probe.Uri = lc.Request.Url!;
                         _probe["ProbeType"] = probeType;
                         _probe["StatusCode"] = ((int)code).ToString();
+                        _probe.Status = code; 
                         _probe.SendEvent();
 
+                        if (initialStartup )
+                        {
+                            if (code != HttpStatusCode.OK)
+                                _logger.LogInformation("[- PROBE] SERVICE NOT READY: {ProbeType} probe responded with {Code} during startup", probeType, code);
+                            else
+                                initialStartup = false;
+                        }
                         // Console.WriteLine($"[PROBE] {probeType} probe received, responded with {code}");
                         continue;
                     }
                     // Console.WriteLine($"[NOT PROBE] {probePath} received, processing as normal request");
 
-                    // Health/ForceGC: log probe event, then fall through to enqueue
-                    if (probePath is Constants.Health or Constants.ForceGC)
+                    // Health/HealthDetail/ForceGC: mark as probe, enqueue for worker to handle and log
+                    if (probePath is Constants.Health or Constants.HealthDetail or Constants.ForceGC)
                     {
                         isprobe = true;
-                        _probe.Uri = lc.Request.Url!;
-                        _probe["ProbeType"] = probePath == Constants.Health ? "Health" : "ForceGC";
-                        _probe["StatusCode"] = ((int)HttpStatusCode.OK).ToString();
-                        _probe.SendEvent();
                     }
                     
                     int priority = _options.DefaultPriority;
@@ -353,13 +357,12 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                     if (!_isShuttingDown)
                     {
                         int eventCount = _probeServer.EventCount;
-                        if ( eventCount > maxEvents_50Percent) {
-                            int cnt =     eventCount > maxEvents_90Percent ? 1000
-                                        : eventCount > maxEvents_80Percent ? 500
-                                        : eventCount > maxEvents_70Percent ? 300
-                                        : eventCount > maxEvents_60Percent ? 200
-                                        : 100;
-                            await Task.Delay(cnt);
+                        if (eventCount > halfMaxEvents) {
+                            int ticks = eventCount / 100;
+
+                            // add a delay in case the number of events is high
+                            for (int i = 0; i < ticks; i++)
+                                await ptimer.WaitForNextTickAsync(cancellationToken);
                         }
 
                         if ( eventCount > maxEvents)
@@ -713,8 +716,8 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                 ed["ErrorWritingResponse"] = msg;
                             }
 
-                            if ( !_isShuttingDown)
-                                _staticEvent.WriteOutput($"Pri: {priority} Stat: {notEnquedCode} Path: {rd.Path}");
+                            // if ( !_isShuttingDown)
+                            //     _staticEvent.WriteOutput($"Pri: {priority} Stat: {notEnquedCode} Path: {rd.Path}");
                         }
 
                         ed.SendEvent();

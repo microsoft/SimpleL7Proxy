@@ -114,6 +114,22 @@ namespace SimpleL7Proxy.Events
     {
     }
 
+    /// <summary>
+    /// Resets this instance to its default state so it can be returned to a pool.
+    /// </summary>
+    public void Reset()
+    {
+      Clear();
+      Type = EventType.Console;
+      Status = 0;
+      Uri = LOCALHOSTURI;
+      MID = "";
+      ParentId = "";
+      Method = "GET";
+      Duration = TimeSpan.Zero;
+      Exception = null;
+    }
+
     public ProxyEvent(ProxyEvent other) : base(other)
     {
       if (other == null) throw new ArgumentNullException(nameof(other));
@@ -173,6 +189,11 @@ namespace SimpleL7Proxy.Events
           eventParams["MID"] = MID ?? "N/A";
           AddDefaultProperties(eventParams);
           _eventClient.SendData(ConvertToJson(this, eventParams));
+        }
+
+        if (logToConsole)
+        {
+          Console.WriteLine($"Event: {Type}, MID: {MID}, Uri: {Uri}, Status: {(int)Status}, Duration: {Duration.TotalMilliseconds}ms");
         }
       }
       catch (Exception ex)
@@ -360,7 +381,7 @@ namespace SimpleL7Proxy.Events
       try
       {
         // Log the data to the console
-        if (!string.IsNullOrEmpty(data))
+        if (!string.IsNullOrEmpty(data) && ConAttr.IsEnabled(EventType.Console))
         {
           Console.WriteLine(data);
           this["Message"] = data;

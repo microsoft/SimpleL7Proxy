@@ -1,5 +1,4 @@
 using System.Net.Http.Headers;
-using SimpleL7Proxy.Events;
 
 namespace SimpleL7Proxy.StreamProcessor
 {
@@ -20,7 +19,7 @@ namespace SimpleL7Proxy.StreamProcessor
         /// <summary>
         /// No statistics are extracted by the default processor.
         /// </summary>
-        public override void GetStats(ProxyEvent eventData, HttpResponseHeaders headers)
+        public override void GetStats(IDictionary<string, string> eventData, HttpResponseHeaders headers)
         {
             // No stats to collect in default processor
         }

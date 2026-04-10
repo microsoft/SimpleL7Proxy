@@ -1,17 +1,42 @@
 # Release Notes #
 
+2.2.10.6
+HealthProbe Sidecar:
+* Refactor to remove allocations
+
+Proxy:
+* loggers: Replace Delay(500) with an interval timer to reduce unnecessary object creation
+* Cache 1000 ProxyEvent objects to reuse instances to reduce object churn configured via ReuseEvents boolean
+* Add /healthdetail for more memory details to health probe
+* Clean up /health details to make it more readable
+* Add memory GC collector to healthcheck timer configurable via GC2InternalSecs 
+* Remove unnecessary Infinite delay task from server hot path
+* Use alpine as the base image which offers better memory recovery
+* Bug fix probe logging issue missing the status
+* Bug fix for encoding when streaming and encoding was missing
+* Bug fix: failing to load a config file was getting confused with ZeroProfilesOK
+* Misc fixes for logging 
+
+Shared
+* Pulled Stream Processor code into folder
+* Updated to dotnet 10
+
+Proxy:
+* Moved Stream Processor into Shared 
+
 2.2.10.5
 
 * Bug Fix: Start App Insights with app config setting
-* Bug Fix: environment defaults and BackendOptions were getting mixedup 
+* Bug Fix: environment defaults and BackendOptions were getting mixed-up 
 * Bug Fix: Probes not getting logged
 * Bug Fix: Environment variables not being defaulted to
 * Bug Fix: Make sure program does not exit until shutdown completes
-* Make shared_iterator use either singlePass or maxAttempts, default to singlePass.
+* Make shared iterator use either single Pass or maxAttempts, default to single Pass.
 * Don't invalidate shared iterators unless using latency load balancer and the order changed
 * In the case of a 404, use the same response path as a normal response
 * Bug fix: possible loss of event in edge case
 * Don't report ready until: workers, backends, profiles are all ready.
+* Pull out Probe as a seperate loggable property
   
 2.2.10.4
 
