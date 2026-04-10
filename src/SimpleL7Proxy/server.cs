@@ -31,7 +31,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
     private readonly ProxyConfig _options;
     private readonly HttpListener _httpListener;
 
-    private readonly IBackendService _backends;
+    private readonly IEndpointMonitorService _backends;
 
     private readonly IUserPriorityService _userPriority;
     private readonly IUserProfileService _userProfile;
@@ -67,7 +67,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         IUserProfileService userProfile,
         //IServiceBusRequestService serviceBusRequestService,
         IEventClient? eventHubClient,
-        IBackendService backends,
+        IEndpointMonitorService backends,
         IBlobWriter blobWriter,
         HealthCheckService healthService,
         ProbeServer probeServer,

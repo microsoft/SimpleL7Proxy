@@ -18,7 +18,7 @@ namespace SimpleL7Proxy.Backend;
 // * Check the status of each backend host and measure its latency
 // * Filter the active hosts based on the success rate
 // * Fetch the OAuth2 token and refresh it 100ms minutes before it expires
-public class Backends : BackgroundService, IBackendService
+public class EndpointMonitorService : BackgroundService, IEndpointMonitorService
 {
   private List<BaseHostHealth> _activeHosts;
   private readonly IHostHealthCollection _backendHostCollection;
@@ -52,17 +52,17 @@ public class Backends : BackgroundService, IBackendService
 
 
   CancellationTokenSource workerCancelTokenSource = new CancellationTokenSource();
-  private readonly ILogger<Backends> _logger;
+  private readonly ILogger<EndpointMonitorService> _logger;
   private static readonly ProxyEvent staticEvent = new ProxyEvent() { Type = EventType.Backend };
   //public Backends(List<BackendHost> hosts, HttpClient client, int interval, int successRate)
-  public Backends(
+  public EndpointMonitorService(
       IOptions<ProxyConfig> options,
       ICircuitBreaker circuitBreaker,
       IHostHealthCollection backendHostCollection, //
       IHostApplicationLifetime appLifetime,               //
       IEventClient? eventClient,
       CancellationTokenSource cancellationTokenSource,    //
-      ILogger<Backends> logger,
+      ILogger<EndpointMonitorService> logger,
       ISharedIteratorRegistry? sharedIteratorRegistry = null)
   {
     if (options == null) throw new ArgumentNullException(nameof(options));

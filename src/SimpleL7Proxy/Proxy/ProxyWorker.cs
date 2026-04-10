@@ -35,7 +35,7 @@ public class ProxyWorker : IConfigChangeSubscriber
     private readonly CancellationToken _cancellationToken;
     private static bool s_debug = false;            // dev time debug flag
     private static IConcurrentPriQueue<RequestData>? s_requestsQueue;
-    private readonly IBackendService _backends;
+    private readonly IEndpointMonitorService _backends;
     private readonly ProxyConfig _options;
     private readonly ILogger<ProxyWorker> _logger;
     private readonly RequestLifecycleManager _lifecycleManager;

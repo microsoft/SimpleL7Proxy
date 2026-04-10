@@ -24,7 +24,7 @@ namespace SimpleL7Proxy;
 /// </summary>
 public class HealthCheckService
 {
-    private readonly IBackendService _backends;
+    private readonly IEndpointMonitorService _backends;
     private static ProxyConfig _options=null!;
     private readonly IConcurrentPriQueue<RequestData>? _requestsQueue;
     private readonly IUserPriorityService? _userPriority;
@@ -72,7 +72,7 @@ public class HealthCheckService
 
 
     public HealthCheckService(
-        IBackendService backends,
+        IEndpointMonitorService backends,
         IOptions<ProxyConfig> options,
         IConcurrentPriQueue<RequestData>? requestsQueue,
         IUserPriorityService? userPriority,

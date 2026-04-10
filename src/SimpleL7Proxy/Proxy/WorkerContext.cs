@@ -18,7 +18,7 @@ public class WorkerContext
     public EventDataBuilder EventDataBuilder { get; }
     public HealthCheckService HealthCheckService { get; }
     public IAsyncWorkerFactory AsyncWorkerFactory { get; }
-    public IBackendService Backends { get; }
+    public IEndpointMonitorService Backends { get; }
     public IConcurrentPriQueue<RequestData> Queue { get; }
     public IEventClient EventClient { get; }
     public ILogger<ProxyWorker> Logger { get; }
@@ -32,7 +32,7 @@ public class WorkerContext
     public WorkerContext(
         ProxyConfig backendOptions,
         IConcurrentPriQueue<RequestData> queue,
-        IBackendService backends,
+        IEndpointMonitorService backends,
         IUserPriorityService userPriorityService,
         IUserProfileService userProfileService,
         IRequeueWorker requeueWorker,

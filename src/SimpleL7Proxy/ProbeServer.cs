@@ -27,7 +27,7 @@ namespace SimpleL7Proxy;
 /// </summary>
 public class ProbeServer : BackgroundService, IConfigChangeSubscriber
 {
-    private readonly IBackendService _backends;
+    private readonly IEndpointMonitorService _backends;
     private readonly ILogger<ProbeServer> _logger;
     private readonly HealthCheckService _healthService;
 
@@ -54,7 +54,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
 
     private static int FailedAttempts = 0;
     public ProbeServer(
-        IBackendService backends, 
+        IEndpointMonitorService backends, 
         HealthCheckService healthService, 
         ILogger<ProbeServer> logger, 
         IOptions<ProxyConfig> backendOptions, 

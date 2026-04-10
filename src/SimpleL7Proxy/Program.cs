@@ -341,9 +341,9 @@ public class Program
         services.AddTransient<ICircuitBreaker, CircuitBreaker>();
         services.AddSingleton<ConfigChangeNotifier>();
         services.AddSingleton<ProxyEventInitializer>();
-        services.AddSingleton<Backends>();
-        services.AddSingleton<IBackendService>(sp => sp.GetRequiredService<Backends>());
-        services.AddHostedService<Backends>(sp => sp.GetRequiredService<Backends>());
+        services.AddSingleton<EndpointMonitorService>();
+        services.AddSingleton<IEndpointMonitorService>(sp => sp.GetRequiredService<EndpointMonitorService>());
+        services.AddHostedService<EndpointMonitorService>(sp => sp.GetRequiredService<EndpointMonitorService>());
         services.AddSingleton<Server>();
         services.AddSingleton<ConcurrentSignal<RequestData>>();
         services.AddSingleton<IConcurrentPriQueue<RequestData>, ConcurrentPriQueue<RequestData>>();
