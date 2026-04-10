@@ -58,7 +58,7 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
         }
 
 
-        _eventThreshold = BackendOptions.MaxEvents / 4; // Start flushing more aggressively at 25% capacity to avoid hitting the max and dropping events
+        _eventThreshold = BackendOptions.MaxUndrainedEvents / 4; // Start flushing more aggressively at 25% capacity to avoid hitting the max and dropping events
         _composite = composite ?? throw new ArgumentNullException(nameof(composite));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         // All initialization happens in StartAsync
@@ -192,7 +192,7 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
             HarvestCompletedSends(pendingTasks);
             GetNextBatch(99, pendingItems);
 
-            if (_batchData!.Count > 0)
+            if (_batchData is not null && _batchData.Count > 0)
             {
                 var (success, newItems) = await FlushBatchAsync(pendingTasks, pendingItems).ConfigureAwait(false);
                 pendingItems = newItems;
@@ -249,20 +249,34 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
         List<(Task Task, List<string> Items, int Count, EventDataBatch Batch)> pendingTasks,
         List<string> pendingItems)
     {
+        var flushedCount = _batchData!.Count;
+        var sentBatch = _batchData;
+        _batchData = null; // Detach — sentBatch is now exclusively owned by the in-flight send
+
         try
         {
-            var flushedCount = _batchData!.Count;
-            var sentBatch = _batchData;
             var sendTask = _producerClient!.SendAsync(sentBatch, CancellationToken.None);
             pendingTasks.Add((sendTask, pendingItems, flushedCount, sentBatch));
+        }
+        catch (Exception ex)
+        {
+            // SendAsync threw synchronously — send never started, safe to re-enqueue and dispose
+            _logger.LogWarning(ex, "EventHubClient: SendAsync failed synchronously, reconnecting.");
+            sentBatch.Dispose();
+            ReEnqueueItems(pendingItems);
+            return (false, new List<string>());
+        }
 
-            _batchData = await _producerClient.CreateBatchAsync(CancellationToken.None).ConfigureAwait(false);
+        // Send is in-flight and tracked in pendingTasks.
+        // HarvestCompletedSends will re-enqueue on failure — do NOT re-enqueue here.
+        try
+        {
+            _batchData = await _producerClient!.CreateBatchAsync(CancellationToken.None).ConfigureAwait(false);
             return (true, new List<string>());
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "EventHubClient: flush failed, reconnecting.");
-            ReEnqueueItems(pendingItems);
+            _logger.LogWarning(ex, "EventHubClient: CreateBatchAsync failed after send, reconnecting.");
             return (false, new List<string>());
         }
     }
