@@ -270,10 +270,10 @@ public class ProbeServer : BackgroundService
         return Task.CompletedTask;
     }
 
-    private Task HandleUpdateStatus(HttpContext ctx)
-    {
+    // private Task HandleUpdateStatus(HttpContext ctx)
+    // {
 
-    }
+    // }
 
     private static Task WriteMethodNotAllowed(HttpResponse response, string allowHeader)
     {
