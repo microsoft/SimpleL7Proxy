@@ -112,7 +112,8 @@ namespace SimpleL7Proxy.ServiceBus
             finally
             {
                 // Flush all items in batches
-                var cts = new CancellationTokenSource().Token;
+                using var ctsSource = new CancellationTokenSource();
+                var cts = ctsSource.Token;
 
                 var drained = new List<ServiceBusStatusMessage>();
                 while (_statusQueue.TryDequeue(out var statusMessage))
