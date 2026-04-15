@@ -33,6 +33,8 @@ public class ProxyConfig
     // ── Circuit Breaker ──
     [ConfigOption("CircuitBreaker:ErrorThreshold", ConfigName = "CBErrorThreshold")]
     public int CircuitBreakerErrorThreshold { get; set; } = 50;
+    [ConfigOption("CircuitBreaker:SuccessRate", Mode = ConfigMode.Cold)]
+    public int SuccessRate { get; set; } = 80;
     [ConfigOption("CircuitBreaker:Timeslice", ConfigName = "CBTimeslice")]
     public int CircuitBreakerTimeslice { get; set; } = 60;
 
@@ -69,22 +71,14 @@ public class ProxyConfig
     [ConfigOption("Logging:ReuseEvents",  Mode = ConfigMode.Cold)]
     public bool ReuseEvents { get; set; } = false;
 
-    // ── Processing ──
-    [ConfigOption("server:DefaultPriority")]
-    public int DefaultPriority { get; set; } = 2;
-    [ConfigOption("server:DefaultTTLSecs")]
-    public int DefaultTTLSecs { get; set; } = 300;
-    [ConfigOption("Server:GreedyUserThreshold")]
-    public float UserPriorityThreshold { get; set; } = 0.1f;
-    [ConfigOption("server:PriorityKeys")]
-    public List<string> PriorityKeys { get; set; } = ["12345", "234"];
-    [ConfigOption("server:PriorityValues")]
-    public List<int> PriorityValues { get; set; } = [1, 3];
-    [ConfigOption("server:DefaultTimeout")]
-    public int Timeout { get; set; } = 60*20*1000; // 20 minutes
+    // ── Priority ──
     [ConfigOption("Server:UseSharedIterators", Mode = ConfigMode.Hidden)]
     public bool UseSharedIterators { get; set; } = true;
     // ── Request ──
+    [ConfigOption("Request:DefaultTimeout")]
+    public int Timeout { get; set; } = 60*20*1000; // 20 minutes
+    [ConfigOption("Request:DefaultTTLSecs")]
+    public int DefaultTTLSecs { get; set; } = 300;
     [ConfigOption("Request:DependancyHeaders")]
     public List<string> DependancyHeaders { get; set; } = ["Backend-Host", "Host-URL", "Status", "Duration", "Error", "Message", "Request-Date", "backendLog"];
     [ConfigOption("Request:DisallowedHeaders")]
@@ -99,10 +93,18 @@ public class ProxyConfig
     public List<string> UniqueUserHeaders { get; set; } = ["X-UserID"];
     [ConfigOption("Request:Headers:ValidateHeaders")]
     public Dictionary<string, string> ValidateHeaders { get; set; } = [];
-    [ConfigOption("Request:MaxAttempts")]
+    [ConfigOption("LoadBalancing:MultiPass:MaxAttempts")]
     public int MaxAttempts { get; set; } = 10;
     [ConfigOption("Request:RequiredHeaders")]
     public List<string> RequiredHeaders { get; set; } = [];
+    [ConfigOption("Request:Priority:DefaultPriority")]
+    public int DefaultPriority { get; set; } = 2;
+    [ConfigOption("Request:Priority:GreedyUserThreshold")]
+    public float UserPriorityThreshold { get; set; } = 0.1f;
+    [ConfigOption("Request:Priority:PriorityKeys")]
+    public List<string> PriorityKeys { get; set; } = ["12345", "234"];
+    [ConfigOption("Request:Priority:PriorityValues")]
+    public List<int> PriorityValues { get; set; } = [1, 3];
     [ConfigOption("Request:StripRequestHeaders")]
     public List<string> StripRequestHeaders { get; set; } = [];
 
@@ -149,8 +151,6 @@ public class ProxyConfig
     public int PollTimeout { get; set; } = 3000;
     [ConfigOption("Server:Port", Mode = ConfigMode.Cold)]
     public int Port { get; set; } = 80;
-    [ConfigOption("Server:SuccessRate", Mode = ConfigMode.Cold)]
-    public int SuccessRate { get; set; } = 80;
     [ConfigOption("Server:TerminationGracePeriodSeconds", ConfigName = "TERMINATION_GRACE_PERIOD_SECONDS", Mode = ConfigMode.Cold)]
     public int TerminationGracePeriodSeconds { get; set; } = 30;
     [ConfigOption("Server:GC2InternalSecs", ConfigName = "GC2InternalSecs", Mode = ConfigMode.Cold)]
