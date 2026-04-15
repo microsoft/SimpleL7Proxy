@@ -1,78 +1,59 @@
 # Azure App Configuration Integration
 
-This document describes how to use Azure App Configuration for hot-reloading **[Warm]** settings without restarting the proxy.
+Azure App Configuration lets you change **Warm** settings across all proxy instances in ~30 seconds without a restart.
 
-## Overview
+> **TL;DR**
+> - **Warm settings** are hot-reloaded; **Cold settings** require a restart — both live under the `Warm:*` key prefix, distinguished by their label.
+> - **Changing any setting takes effect only after you update `Warm:Sentinel`** — that is the refresh trigger.
+> - **Managed Identity is the recommended auth method**; connection strings work for local development.
 
-The proxy supports three types of configuration settings:
+---
 
-| Type | Behavior | Label in App Config | Example |
-|------|----------|--------------------|---------|
-| **Warm** | Hot-reloaded from Azure App Config | *(none)* or `APPCONFIG_LABEL` | `MaxAttempts`, `LogConsole`, `DefaultPriority` |
-| **Cold** | Read at startup, requires restart | `Cold` | `PollInterval`, `Timeout`, `Workers` |
-| **Hidden** | Not published | — | `AsyncBlobStorageConnectionString` (parsed at runtime) |
+## Reference — Configuration Types
 
-Both Warm and Cold settings are stored under the `Warm:` key prefix (for a single `Select("Warm:*")` query), but are distinguished by their **label**:
-- Warm settings use the deployment label (default: no label)
-- Cold settings always use label `Cold`
+| Type | Label in App Config | Reload | Example settings |
+|------|---------------------|--------|-----------------|
+| **Warm** | *(none)* or `APPCONFIG_LABEL` | ~30 s, no restart | `MaxAttempts`, `DefaultPriority`, `DefaultTTLSecs` |
+| **Cold** | `Cold` | Restart required | `Port`, `Workers`, `Timeout`, `PollInterval` |
+| **Hidden** | — (not published) | Runtime-derived | `AsyncBlobStorageConnectionString` |
 
-This makes it easy to identify which settings require a restart when browsing the Azure portal's Configuration Explorer — just look at the **Label** column.
+All keys share the `Warm:` prefix (single `Select("Warm:*")` query). The **Label** column in Azure Portal's Configuration Explorer immediately shows which settings require a restart.
 
-## Environment Variables
+---
 
-Configure the connection to Azure App Configuration:
+## Reference — Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `AZURE_APPCONFIG_ENDPOINT` | One of these two | — | Managed Identity endpoint (recommended) |
+| `AZURE_APPCONFIG_CONNECTION_STRING` | One of these two | — | Connection string (dev/fallback) |
+| `AZURE_APPCONFIG_LABEL` | No | *(none)* | Label filter for Warm settings |
+| `AZURE_APPCONFIG_REFRESH_SECONDS` | No | `30` | Sentinel poll interval in seconds |
+
+---
+
+## How Refresh Works
+
+```
+Every AZURE_APPCONFIG_REFRESH_SECONDS
+        │
+        ▼
+  Check Warm:Sentinel ──changed?──Yes──► Reload ALL Warm settings → apply live
+                       ──No──────────► Nothing happens (no extra API calls)
+```
+
+**Update `Warm:Sentinel` to any new value to push a config change to all running instances.**
+
+---
+
+## Setting Up
+
+**Rule: Create the resource, assign the role, import your settings, then set the environment variable on the Container App.**
+
+### 1. Create the resource
 
 ```bash
-# Option 1: Managed Identity (recommended for production)
-AZURE_APPCONFIG_ENDPOINT=https://your-appconfig.azconfig.io
-
-# Option 2: Connection String (for development)
-AZURE_APPCONFIG_CONNECTION_STRING=Endpoint=https://...;Id=...;Secret=...
-
-# Optional: Label filter (default: no label)
-AZURE_APPCONFIG_LABEL=Production
-
-# Optional: Refresh interval in seconds (default: 30)
-AZURE_APPCONFIG_REFRESH_SECONDS=30
-```
-
-## Azure App Configuration Key Structure
-
-All settings are stored under the `Warm:` key prefix. **Labels** distinguish the reload mode:
-
-```
-# Warm settings (label = none or APPCONFIG_LABEL) — hot-reloaded
-Warm:MaxAttempts = 3
-Warm:LogConsole = true
-Warm:DefaultPriority = 5
-Warm:Sentinel = 1  # Change this to trigger refresh
-
-# Cold settings (label = Cold) — read at startup only
-Warm:Server:Port = 8000
-Warm:Server:Workers = 100
-Warm:Server:Timeout = 100000
-```
-
-### Sentinel Key Pattern
-
-The `Warm:Sentinel` key is used to trigger configuration refresh:
-
-1. The refresh service polls Azure App Configuration every N seconds
-2. It only checks if `Warm:Sentinel` has changed
-3. If changed, **all** Warm settings are reloaded
-4. This minimizes API calls while allowing instant updates
-
-**To trigger a refresh:** Update `Warm:Sentinel` to any new value (e.g., increment a counter or use a timestamp).
-
-## Setting Up Azure App Configuration
-
-### 1. Create the Resource
-
-```bash
-# Create resource group
 az group create --name rg-proxy --location eastus
-
-# Create App Configuration store
 az appconfig create \
   --name appconfig-proxy \
   --resource-group rg-proxy \
@@ -80,44 +61,42 @@ az appconfig create \
   --sku Standard
 ```
 
-### 2. Assign Managed Identity Access
+### 2. Assign Managed Identity access
 
 ```bash
-# Get the Container App's managed identity
 IDENTITY_ID=$(az containerapp show \
   --name your-proxy-app \
   --resource-group rg-proxy \
   --query identity.principalId -o tsv)
 
-# Get App Configuration resource ID
 APPCONFIG_ID=$(az appconfig show \
   --name appconfig-proxy \
   --resource-group rg-proxy \
   --query id -o tsv)
 
-# Assign App Configuration Data Reader role
 az role assignment create \
   --role "App Configuration Data Reader" \
   --assignee $IDENTITY_ID \
   --scope $APPCONFIG_ID
 ```
 
-### 3. Import Initial Settings
+> [!NOTE]
+> **Default role:** `App Configuration Data Reader` is sufficient — the proxy only reads settings, never writes them.
 
-Create a JSON file with your warm settings:
+> [!TIP]
+> **Troubleshooting:** If the proxy logs authentication failures, confirm the Container App's system-assigned managed identity is enabled and the role assignment has propagated (can take a few minutes).
+
+### 3. Import initial settings
 
 ```json
 {
   "Warm:MaxAttempts": 3,
   "Warm:DefaultPriority": 5,
-  "Warm:LogConsole": true,
-  "Warm:LogProbes": false,
+  "Warm:LogAllRequestHeaders": false,
   "Warm:AcceptableStatusCodes": "[200, 201, 202]",
   "Warm:Sentinel": "1"
 }
 ```
-
-Import to App Configuration:
 
 ```bash
 az appconfig kv import \
@@ -128,7 +107,7 @@ az appconfig kv import \
   --label Production
 ```
 
-### 4. Update Container App Environment
+### 4. Configure the Container App
 
 ```bash
 az containerapp update \
@@ -140,65 +119,69 @@ az containerapp update \
     AZURE_APPCONFIG_REFRESH_SECONDS=30
 ```
 
+> [!WARNING]
+> **Error:** If `AZURE_APPCONFIG_ENDPOINT` is set but the managed identity has no role assignment, the proxy will fail to start. Set `AZURE_APPCONFIG_CONNECTION_STRING` as a fallback during initial setup.
+
+---
+
+## Per-Request Override
+
+**Rule: To change a Warm setting at runtime, update the key value then bump `Warm:Sentinel` — both steps are required.**
+
+```bash
+# 1. Update the setting
+az appconfig kv set \
+  --name appconfig-proxy \
+  --key "Warm:MaxAttempts" \
+  --value "5" \
+  --label Production
+
+# 2. Trigger refresh
+az appconfig kv set \
+  --name appconfig-proxy \
+  --key "Warm:Sentinel" \
+  --value "$(date +%s)" \
+  --label Production
+```
+
+> [!NOTE]
+> All instances pick up the change within `AZURE_APPCONFIG_REFRESH_SECONDS` (default 30 s) — no rolling restart needed.
+
+---
+
 ## Available Warm Settings
 
-These settings can be hot-reloaded:
+| Category | Settings |
+|----------|----------|
+| **Logging** | `LogAllRequestHeaders`, `LogAllRequestHeadersExcept`, `LogAllResponseHeaders`, `LogAllResponseHeadersExcept`, `LogHeaders` |
+| **Request processing** | `MaxAttempts`, `DefaultPriority`, `DefaultTTLSecs`, `TimeoutHeader`, `TTLHeader` |
+| **Validation** | `RequiredHeaders`, `DisallowedHeaders`, `ValidateHeaders`, `ValidateAuthAppID`, `ValidateAuthAppIDUrl`, `ValidateAuthAppIDHeader`, `ValidateAuthAppFieldName` |
+| **User management** | `UserConfigUrl`, `SuspendedUserConfigUrl`, `UserProfileHeader`, `UserIDFieldName`, `UniqueUserHeaders`, `UserPriorityThreshold` |
+| **Priority** | `PriorityKeyHeader`, `PriorityKeys`, `PriorityValues` |
+| **Response** | `AcceptableStatusCodes`, `StripResponseHeaders`, `StripRequestHeaders` |
+| **Async (timing)** | `AsyncTimeout`, `AsyncTTLSecs`, `AsyncTriggerTimeout`, `AsyncClientRequestHeader`, `AsyncClientConfigFieldName` |
 
-### Logging
-- `LogConsole` - Enable console logging
-- `LogConsoleEvent` - Enable console event logging  
-- `LogPoller` - Log poller activity
-- `LogProbes` - Log health probe activity
-- `LogHeaders` - Headers to include in logs
-- `LogAllRequestHeaders` - Log all request headers
-- `LogAllRequestHeadersExcept` - Exclude specific request headers
-- `LogAllResponseHeaders` - Log all response headers
-- `LogAllResponseHeadersExcept` - Exclude specific response headers
+---
 
-### Request Processing
-- `MaxAttempts` - Maximum retry attempts
-- `DefaultPriority` - Default request priority
-- `DefaultTTLSecs` - Default time-to-live
-- `TimeoutHeader` - Header containing timeout value
-- `TTLHeader` - Header containing TTL value
+## Worked Example
 
-### Validation
-- `RequiredHeaders` - Headers that must be present
-- `DisallowedHeaders` - Headers that are not allowed
-- `ValidateHeaders` - Header validation rules
-- `ValidateAuthAppID` - Enable app ID validation
-- `ValidateAuthAppIDUrl` - URL for app ID validation
-- `ValidateAuthAppFieldName` - Field name for app ID
-- `ValidateAuthAppIDHeader` - Header containing app ID
+> **Goal:** Raise `MaxAttempts` from 3 to 5 on a live deployment without restarting.
 
-### User Management
-- `UserConfigUrl` - URL for user configuration
-- `SuspendedUserConfigUrl` - URL for suspended users
-- `UserProfileHeader` - Header containing user profile
-- `UserIDFieldName` - Field name for user ID
-- `UniqueUserHeaders` - Headers that identify unique users
-- `UserPriorityThreshold` - Priority threshold for users
+| Step | Command | Expected result |
+|------|---------|----------------|
+| Check current value | `az appconfig kv show --name appconfig-proxy --key "Warm:MaxAttempts" --label Production` | `"value": "3"` |
+| Update setting | `az appconfig kv set ... --key "Warm:MaxAttempts" --value "5"` | Setting saved |
+| Bump sentinel | `az appconfig kv set ... --key "Warm:Sentinel" --value "$(date +%s)"` | Refresh triggered |
+| Wait ≤30 s | — | Proxy logs: `✓ Warm settings applied successfully` |
+| Verify | Send a request that exercises retries | Proxy now retries up to 5 times |
 
-### Priority
-- `PriorityKeyHeader` - Header containing priority key
-- `PriorityKeys` - List of priority keys
-- `PriorityValues` - Priority values for each key
+**No deployment or restart is needed — the sentinel bump propagates to every running instance within the poll interval.**
 
-### Response Handling
-- `AcceptableStatusCodes` - Status codes to accept
-- `StripResponseHeaders` - Headers to remove from response
-- `StripRequestHeaders` - Headers to remove from request
+---
 
-### Async Settings (timing only)
-- `AsyncTimeout` - Async operation timeout
-- `AsyncTTLSecs` - Async TTL in seconds
-- `AsyncTriggerTimeout` - Trigger timeout
-- `AsyncClientRequestHeader` - Client async header
-- `AsyncClientConfigFieldName` - Config field name
+## Monitoring
 
-## Monitoring Refresh
-
-The proxy logs configuration refresh activity:
+The proxy emits these log entries around refresh:
 
 ```
 [CONFIG] ✓ Azure App Configuration initialized with Warm settings refresh
@@ -208,51 +191,13 @@ The proxy logs configuration refresh activity:
 [CONFIG] ✓ Warm settings applied successfully
 ```
 
-## Troubleshooting
+> [!TIP]
+> **Troubleshooting:** If `changes detected` never appears after a sentinel update, verify the label filter (`AZURE_APPCONFIG_LABEL`) matches the label used when importing the keys.
 
-### Settings Not Refreshing
+---
 
-1. Check the sentinel key was updated:
-   ```bash
-   az appconfig kv show --name appconfig-proxy --key "Warm:Sentinel"
-   ```
+## Related Documentation
 
-2. Verify the label filter matches:
-   ```bash
-   az appconfig kv list --name appconfig-proxy --label Production
-   ```
-
-3. Check proxy logs for refresh errors
-
-### Authentication Failures
-
-1. Verify managed identity is enabled on the Container App
-2. Check role assignment is correct (App Configuration Data Reader)
-3. Ensure the endpoint URL is correct
-
-### Performance Considerations
-
-- Default refresh interval is 30 seconds
-- Only the sentinel key is checked on each poll
-- Full refresh only occurs when sentinel changes
-- Consider longer intervals for production (60-120 seconds)
-
-## Example: Changing MaxAttempts at Runtime
-
-```bash
-# Update the setting
-az appconfig kv set \
-  --name appconfig-proxy \
-  --key "Warm:MaxAttempts" \
-  --value "5" \
-  --label Production
-
-# Trigger refresh by updating sentinel
-az appconfig kv set \
-  --name appconfig-proxy \
-  --key "Warm:Sentinel" \
-  --value "$(date +%s)" \
-  --label Production
-```
-
-Within 30 seconds (or your configured interval), all proxy instances will pick up the new value without restart.
+- [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md) — Full list of all settings and their reload types
+- [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md) — All environment variables
+- [DEVELOPMENT.md](DEVELOPMENT.md) — Local development setup

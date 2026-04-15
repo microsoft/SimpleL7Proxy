@@ -22,6 +22,7 @@ public class AppConfigService : BackgroundService
     private readonly DefaultCredential _defaultCredential;
     private readonly TimeSpan _refreshInterval;
     private bool _isInitialized = false;
+    private DateTime _lastRefreshTime = DateTime.MinValue;
 
     // App Config key path → config name (e.g. "Logging:LogConsole" → "LogConsole").
     // Built once from static descriptors; never changes.
@@ -44,6 +45,13 @@ public class AppConfigService : BackgroundService
     private ProxyConfig _options = null!;
     public static ProxyConfig DEFAULT_OPTIONS { get; set; } = null!;
 
+    public String Status()
+    {
+        if (_lastRefreshTime == DateTime.MinValue)
+            return "AppConfigService not initialized";
+            
+        return $"Label: {_labelFilter} Last Refresh: {_lastRefreshTime}, Last Sentinel: {_lastSentinel}";
+    }
 
     public AppConfigService(ILogger<AppConfigService> logger, ProxyConfig backendOptions, DefaultCredential defaultCredential)
     {
@@ -198,9 +206,17 @@ public class AppConfigService : BackgroundService
 
         try
         {
+            // Disable distributed tracing and logging on the client used for periodic polling.
+            // Each sentinel check goes through the Azure SDK HTTP pipeline, which creates
+            // Activity objects that Application Insights converts into DependencyTelemetry.
+            // At short refresh intervals this promotes ~10 KB/cycle into Gen2.
+            var options = new ConfigurationClientOptions();
+            options.Diagnostics.IsDistributedTracingEnabled = false;
+            options.Diagnostics.IsLoggingEnabled = false;
+
             _cachedClient = !string.IsNullOrEmpty(_endpoint)
-                ? new ConfigurationClient(new Uri(_endpoint), _defaultCredential.Credential)
-                : new ConfigurationClient(_connectionString!);
+                ? new ConfigurationClient(new Uri(_endpoint), _defaultCredential.Credential, options)
+                : new ConfigurationClient(_connectionString!, options);
         }
         catch (Exception ex)
         {
@@ -253,7 +269,9 @@ public class AppConfigService : BackgroundService
 
                 target[resolvedKey] = value;
             }
+            
 
+            _lastRefreshTime = DateTime.UtcNow;
             return (warm, cold);
         }
         catch (Exception ex)

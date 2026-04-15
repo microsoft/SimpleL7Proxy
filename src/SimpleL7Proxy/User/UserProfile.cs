@@ -52,8 +52,12 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
 
     private int NormalDelayMs;
     private const int s_ErrorDelayMs = 3000; // 3 seconds
+    private const int s_ConfigDelayMs = 30*1000; // 30 seconds
     private bool _configRequired = false;
 
+    private PeriodicTimer _timer =null!;   // these are defined in InitVars()
+    private PeriodicTimer _ErrorTimer =null!;
+    private PeriodicTimer _waitingConfigTimer = null!;
     public UserProfile(ProxyConfig options, ConfigChangeNotifier configChangeNotifier, ILogger<UserProfile> logger)
     {
         ArgumentNullException.ThrowIfNull(options, nameof(options));
@@ -66,6 +70,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
         _logger.LogInformation("[PROFILE] Required: {required}, Header: {Header}, Interval: {RefreshInterval}s, Soft-delete TTL: {SoftDeleteTTL} min, Config: {ConfigUrl}, Suspended: {SuspendedConfigUrl}, AuthAppID: {AuthAppIDConfigUrl}",
             options.UserConfigRequired, options.UserIDFieldName, options.UserConfigRefreshIntervalSecs, options.UserSoftDeleteTTLMinutes, options.UserConfigUrl, options.SuspendedUserConfigUrl, options.ValidateAuthAppIDUrl);
 
+        _waitingConfigTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(s_ConfigDelayMs));
         InitVars();
 
         // Subscribe to config change notifications
@@ -90,6 +95,18 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
 
         NormalDelayMs = _options.UserConfigRefreshIntervalSecs * 1000; // Configurable interval
         _configRequired = _options.UserConfigRequired;
+        if (_timer != null)
+        {
+            _timer.Dispose();
+        }
+
+        if (_ErrorTimer != null)
+        {
+            _ErrorTimer.Dispose();
+        }
+
+        _timer = new PeriodicTimer(TimeSpan.FromMilliseconds(NormalDelayMs));
+        _ErrorTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(s_ErrorDelayMs));
     }
 
     public Task OnConfigChangedAsync(
@@ -150,7 +167,13 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
         {
             try
             {
-                DateTime startTime = DateTime.UtcNow;
+                if (!doUserConfig && !doSuspendedUserConfig && !doAuthAppIDConfig )
+                {
+                    await _waitingConfigTimer.WaitForNextTickAsync(_cancellationTokenSource.Token).ConfigureAwait(false);
+                    isInitialized = true;
+                    continue;
+                }
+
                 sb.Clear();
                 sb.Append("[PROFILE] ");
                 bool success = false;
@@ -224,23 +247,16 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
                     sb.Append($", Auth: {authAppIDsConfigStatus}");
                 }
 
-                if (sb.Length > 0)
-                    _logger.LogInformation(sb.ToString());
-
-                if (profileTask == null && suspendedTask == null && authTask == null)
-                {
-                    success = true; // No configs to load means we're ready by default
-                }
-
-                int baseDelay = success ? NormalDelayMs : s_ErrorDelayMs;
-                int elapsedMs = (int)(DateTime.UtcNow - startTime).TotalMilliseconds;
-                int remainingDelay = Math.Max(0, baseDelay - elapsedMs);
+                _logger.LogInformation(sb.ToString());
 
                 // initilized if:  no errors && hasData  || users not required
                 isInitialized = !_configRequired || localIsInitialized;
                 // Console.WriteLine($"[PROFILE-DEBUG] Load {(success ? "succeeded" : "failed")}, Initialized: {isInitialized}, LocalIsInitialized: {localIsInitialized}");
 
-                await Task.Delay(remainingDelay, stoppingToken).ConfigureAwait(false);
+                if (success)
+                    await _timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false);
+                else
+                    await _ErrorTimer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false);
             }
             catch (TaskCanceledException) when (stoppingToken.IsCancellationRequested)
             {

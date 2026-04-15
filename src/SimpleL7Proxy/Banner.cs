@@ -12,7 +12,7 @@ public static class Banner
 {
   public const string VERSION = Constants.VERSION;
 
-  public static void Display(ProxyConfig options)
+  public static void Display(ProxyConfig options, string ConfigStatus)
   {
     Console.WriteLine("=======================================================================================");
     Console.WriteLine(" #####                                 #       ####### ");
@@ -24,5 +24,6 @@ public static class Banner
     Console.WriteLine(" #####   # #    # #      ###### ###### #######   #     #      #    #  ####  #    #   #");
     Console.WriteLine("=======================================================================================");
     Console.WriteLine($"Version: {VERSION}  LogLevel: {options.LogLevel}  ContainerApp: {options.ContainerApp}  Replica: {options.ReplicaName}");
+    Console.WriteLine($"[AppConfig] {ConfigStatus}");
   }
 }

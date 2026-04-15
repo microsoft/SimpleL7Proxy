@@ -33,6 +33,7 @@ public class HealthCheckService
     private readonly IServiceBusRequestService? _serviceBusRequestService;
     private readonly IBlobWriter? _blobWriter;
     private readonly IUserProfileService? _userProfileService;
+    private readonly AppConfigService _appConfigService;
     private readonly Func<string> _getWorkerState;
     private readonly ILogger<HealthCheckService> _logger;
 
@@ -78,7 +79,7 @@ public class HealthCheckService
         IUserPriorityService? userPriority,
         IEventClient? eventClient,
         ILogger<HealthCheckService> logger,
-
+        AppConfigService appConfigService,
         IServiceBusRequestService? serviceBusRequestService = null,
         IBlobWriter? blobWriter = null,
         IBackupAPIService? backupAPIService = null,
@@ -86,6 +87,7 @@ public class HealthCheckService
     {
         _backends = backends ?? throw new ArgumentNullException(nameof(backends));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+        _appConfigService = appConfigService ?? throw new ArgumentNullException(nameof(appConfigService));
         _requestsQueue = requestsQueue;
         _userPriority = userPriority;
         _userProfileService = userProfileService;
@@ -264,41 +266,6 @@ public class HealthCheckService
         }
     }
 
-    // public async Task HealthResponseAsync(HttpListenerContext lc)
-    // {
-    //     int hostCount = _backends.ActiveHostCount();
-    //     bool hasFailedHosts = _backends.CheckFailedStatus();
-    //     BuildHealthResponse(hostCount, hasFailedHosts, out int probeStatus, out string probeMessage);
-
-    //     try
-    //     {
-    //         lc.Response.ContentType = "text/plain";
-    //         lc.Response.Headers["Cache-Control"] = "no-cache";
-    //         lc.Response.Headers["Connection"] = "close";
-
-    //         switch (probeStatus)
-    //         {
-    //             case 200:
-    //                 lc.Response.StatusCode = (int)HttpStatusCode.OK;
-    //                 break;
-    //             default:
-    //                 lc.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
-    //                 break;
-    //         }
-
-    //         lc.Response.ContentLength64 = probeMessage.Length;
-    //         await lc.Response.OutputStream.WriteAsync(Encoding.UTF8.GetBytes(probeMessage), 0, probeMessage.Length);
-    //     }
-    //     finally
-    //     {
-    //         try
-    //         {
-    //             lc.Response.Close();
-    //         }
-    //         catch { }
-    //     }   
-    // }
-
     public void BuildHealthResponse(string path, int hostCount, bool hasFailedHosts, DateTime requestTimestamp, out int probeStatus, out string probeMessage)
     {
         using var process = System.Diagnostics.Process.GetCurrentProcess();
@@ -311,7 +278,8 @@ public class HealthCheckService
             .Append("  Elapsed: ").Append(elapsedMs.ToString("F1")).Append(" ms").Append('\n')
             .Append("  Hosts: ").Append(hostCount)
             .Append(hasFailedHosts ? " [FAILED]" : " [OK]")
-            .Append("  NextGC: ").Append(gcRemaining > TimeSpan.Zero ? gcRemaining.TotalSeconds.ToString("F0") + "s" : "ready");
+            .Append("  NextGC: ").Append(gcRemaining > TimeSpan.Zero ? gcRemaining.TotalSeconds.ToString("F0") + "s" : "ready")
+            .Append("  AppConfig Status: ").Append(_appConfigService.Status());
 
         switch (path)
         {
@@ -615,7 +583,7 @@ public class HealthCheckService
     public (HealthStatusEnum, HealthStatusEnum, int) GetStatus()
     {
         int hostCount = _backends.ActiveHostCount();
-        bool hasFailed = _backends.CheckFailedStatusAsync(true).Result; // this call will not block
+        bool hasFailed = _backends.CheckFailedStatusAsync(true).Result; 
         bool profilesReady = _userProfileService?.ServiceIsReady() ?? true; // if user profile service is not configured, consider it ready
 
         int activeEvents = _eventClient?.Count ?? 0;
