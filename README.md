@@ -66,52 +66,6 @@ chmod +x .azure/setup.sh .azure/deploy.sh
 
 ---
 
-## Key Defaults
-
-| Setting | Default | Unit | Config key | Reload |
-|---|---|---|---|---|
-| Port | 80 | — | `Server:Port` | Cold |
-| Workers | 10 | threads | `Server:Workers` | Cold |
-| Max queue depth | 1 000 | requests | `Server:MaxQueueLength` | Cold |
-| Default priority | 2 | — | `server:DefaultPriority` | Warm |
-| Sync timeout | 20 min | ms | `server:DefaultTimeout` | Warm |
-| Request TTL | 300 | s | `server:DefaultTTLSecs` | Warm |
-| Async result TTL | 24 h | s | `Async:TTLSecs` | Warm |
-| Async trigger timeout | 10 s | ms | `Async:TriggerTimeout` | Warm |
-
-**Units used:** timeout values are in **milliseconds** in config; TTL values are in **seconds**.
-
----
-
-## Worked Example — Timeout vs TTL
-
-A request arrives at `t = 0` with no override headers.
-
-| Step | Value | Source |
-|---|---|---|
-| `DefaultTTLSecs` | 300 s | proxy config |
-| Request expires at | `t + 300 s` | set on enqueue |
-| `Timeout` | 20 min (1 200 000 ms) | proxy config |
-| Backend call deadline | `t + 20 min` | set on dequeue |
-| Effective deadline | **t + 5 min** | TTL wins (shorter) |
-
-A client can override both per-request via `S7PTimeout` (ms) and `S7PTTL` (s) headers. **If the TTL expires before the request is dequeued, the proxy returns 412.**
-
----
-
-## Common Errors
-
-| Code | Meaning | Fix |
-|---|---|---|
-| 400 | `InvalidTTL` — `S7PTTL` header value is not a valid integer | Send a numeric TTL, e.g. `S7PTTL: 120` |
-| 403 | Unknown App ID or missing user profile | Add the Entra GUID to `auth.json`; verify `ValidateAuthAppIDUrl` is reachable |
-| 412 | Request TTL expired before dequeue | Increase `DefaultTTLSecs` or reduce queue depth |
-| 417 | Required header missing or value not in allowlist | Check `RequiredHeaders` and per-user `ValidateHeaders` rules |
-| 429 | Queue full, circuit breaker open, or no active backends | Scale workers, check circuit breaker, or add backends |
-| 503 | All backends failed | Check backend health; review circuit breaker timeslice |
-
----
-
 ## Documentation
 
 **New here?** Start with [Quick Start](#quick-start) → [Overview](docs/OVERVIEW.md) → [Advanced Configuration](docs/ADVANCED_CONFIGURATION.md).
