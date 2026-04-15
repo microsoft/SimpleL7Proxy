@@ -90,7 +90,7 @@ public class Program
         var logger = loggerFactory.CreateLogger("StreamProcessor");
 
         var options = serviceProvider.GetRequiredService<IOptions<ProxyConfig>>();
-        Banner.Display(options.Value);
+        Banner.Display(options.Value, appConfigBootstrap.Status());
 
         appConfigBootstrap.Notifier       = serviceProvider.GetRequiredService<ConfigChangeNotifier>();
         appConfigBootstrap.HostCollection = serviceProvider.GetRequiredService<IHostHealthCollection>();
