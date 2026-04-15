@@ -38,6 +38,11 @@ namespace SimpleL7Proxy.Events
       ProxyEvent.ConAttr   = LogTargetAttr.From(options.Value.LogToConsole);
       ProxyEvent.EventAttr = LogTargetAttr.From(options.Value.LogToEvents);
       ProxyEvent.AIAttr    = LogTargetAttr.From(options.Value.LogToAI);
+
+      // Console.WriteLine($"INIT  --- : ConAttr: {string.Join(", ", options.Value.LogToConsole)} - {ProxyEvent.ConAttr.ToString()}"); 
+      // Console.WriteLine($"INIT  --- : EventAttr: {string.Join(", ", options.Value.LogToEvents)} - {ProxyEvent.EventAttr.ToString()}"); 
+      // Console.WriteLine($"INIT  --- : AIAttr: {string.Join(", ", options.Value.LogToAI)} - {ProxyEvent.AIAttr.ToString()}"); 
+
     }
 
     public Task OnConfigChangedAsync(
@@ -160,6 +165,7 @@ namespace SimpleL7Proxy.Events
           switch (Type)
           {
             case EventType.BackendRequest:
+            case EventType.Poller:
               TrackDependancy();
               break;
 
@@ -193,7 +199,23 @@ namespace SimpleL7Proxy.Events
 
         if (logToConsole)
         {
-          Console.WriteLine($"Event: {Type}, MID: {MID}, Uri: {Uri}, Status: {(int)Status}, Duration: {Duration.TotalMilliseconds}ms");
+          StringBuilder sb = new StringBuilder();
+          switch (Type)
+          {
+            case EventType.Exception:
+            case EventType.ServerError:
+            case EventType.ProxyError:
+              Console.WriteLine("Sending event data to the console .. type: " + Type);
+              break;
+
+            default:
+              foreach (var kvp in this)
+              {
+                sb.Append($"{kvp.Key}: {kvp.Value} ");
+              }
+              Console.WriteLine($"[{Type}]: {sb} ");
+              break;
+          }
         }
       }
       catch (Exception ex)
