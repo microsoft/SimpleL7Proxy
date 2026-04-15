@@ -47,8 +47,6 @@ public class ProxyConfig
     // ── Server ──
     [ConfigOption("LoadBalancing:IterationMode")]
     public IterationModeEnum IterationMode { get; set; } = IterationModeEnum.SinglePass;
-    [ConfigOption("Server:Timeout")]
-    public int Timeout { get; set; } = 60*20*1000; // 20 minutes
 
     // ── Logging ──
     [ConfigOption("Logging:LogToConsole")]
@@ -56,7 +54,7 @@ public class ProxyConfig
     [ConfigOption("Logging:LogToEvents")]
     public List<string> LogToEvents { get; set; } = ["async","backend","probe","circuitbreaker","custom","exception","profile","proxy","enqueued","auth"];
     [ConfigOption("Logging:LogToAI")]
-    public List<string> LogToAI { get; set; } = ["*"];
+    public List<string> LogToAI { get; set; } = [""];
     [ConfigOption("Logging:LogHeaders")]
     public List<string> LogHeaders { get; set; } = [];
     [ConfigOption("Logging:LogAllRequestHeaders")]
@@ -71,33 +69,42 @@ public class ProxyConfig
     [ConfigOption("Logging:ReuseEvents",  Mode = ConfigMode.Cold)]
     public bool ReuseEvents { get; set; } = false;
 
-    // ── Priority ──
-    [ConfigOption("Priority:DefaultPriority")]
+    // ── Processing ──
+    [ConfigOption("server:DefaultPriority")]
     public int DefaultPriority { get; set; } = 2;
-    [ConfigOption("Priority:DefaultTTLSecs")]
+    [ConfigOption("server:DefaultTTLSecs")]
     public int DefaultTTLSecs { get; set; } = 300;
-    [ConfigOption("Priority:PriorityKeyHeader")]
-    public string PriorityKeyHeader { get; set; } = "S7PPriorityKey";
-    [ConfigOption("Priority:PriorityKeys")]
+    [ConfigOption("Server:GreedyUserThreshold")]
+    public float UserPriorityThreshold { get; set; } = 0.1f;
+    [ConfigOption("server:PriorityKeys")]
     public List<string> PriorityKeys { get; set; } = ["12345", "234"];
-    [ConfigOption("Priority:PriorityValues")]
+    [ConfigOption("server:PriorityValues")]
     public List<int> PriorityValues { get; set; } = [1, 3];
-
+    [ConfigOption("server:DefaultTimeout")]
+    public int Timeout { get; set; } = 60*20*1000; // 20 minutes
+    [ConfigOption("Server:UseSharedIterators", Mode = ConfigMode.Hidden)]
+    public bool UseSharedIterators { get; set; } = true;
     // ── Request ──
     [ConfigOption("Request:DependancyHeaders")]
     public List<string> DependancyHeaders { get; set; } = ["Backend-Host", "Host-URL", "Status", "Duration", "Error", "Message", "Request-Date", "backendLog"];
     [ConfigOption("Request:DisallowedHeaders")]
     public List<string> DisallowedHeaders { get; set; } = [];
+    [ConfigOption("Request:Headers:PriorityKeyHeader")]
+    public string PriorityKeyHeader { get; set; } = "S7PPriorityKey";
+    [ConfigOption("Request:Headers:TimeoutHeader")]
+    public string TimeoutHeader { get; set; } = "S7PTimeout";
+    [ConfigOption("Request:Headers:TTLHeader")]
+    public string TTLHeader { get; set; } = "S7PTTL";
+    [ConfigOption("Request:Headers:UniqueUserHeaders")]
+    public List<string> UniqueUserHeaders { get; set; } = ["X-UserID"];
+    [ConfigOption("Request:Headers:ValidateHeaders")]
+    public Dictionary<string, string> ValidateHeaders { get; set; } = [];
     [ConfigOption("Request:MaxAttempts")]
     public int MaxAttempts { get; set; } = 10;
     [ConfigOption("Request:RequiredHeaders")]
     public List<string> RequiredHeaders { get; set; } = [];
     [ConfigOption("Request:StripRequestHeaders")]
     public List<string> StripRequestHeaders { get; set; } = [];
-    [ConfigOption("Request:TimeoutHeader")]
-    public string TimeoutHeader { get; set; } = "S7PTimeout";
-    [ConfigOption("Request:TTLHeader")]
-    public string TTLHeader { get; set; } = "S7PTTL";
 
     // ── Response ──
     [ConfigOption("Response:AcceptableStatusCodes")]
@@ -134,6 +141,8 @@ public class ProxyConfig
     // ── Server ──
     [ConfigOption("Server:MaxQueueLength", Mode = ConfigMode.Cold)]
     public int MaxQueueLength { get; set; } = 1000;
+    [ConfigOption("Server:MaxUndrainedEvents", ConfigName = "EVENTHUB_MAX_UNDRAINED_EVENTS", Mode = ConfigMode.Cold)]
+    public int MaxUndrainedEvents { get; set; } = 100;
     [ConfigOption("Server:PollInterval", Mode = ConfigMode.Cold)]
     public int PollInterval { get; set; } = 15000;
     [ConfigOption("Server:PollTimeout", Mode = ConfigMode.Cold)]
@@ -144,6 +153,8 @@ public class ProxyConfig
     public int SuccessRate { get; set; } = 80;
     [ConfigOption("Server:TerminationGracePeriodSeconds", ConfigName = "TERMINATION_GRACE_PERIOD_SECONDS", Mode = ConfigMode.Cold)]
     public int TerminationGracePeriodSeconds { get; set; } = 30;
+    [ConfigOption("Server:GC2InternalSecs", ConfigName = "GC2InternalSecs", Mode = ConfigMode.Cold)]
+    public int GC2InternalSecs { get; set; } = 300; // 5 minutes
     [ConfigOption("Server:Workers", Mode = ConfigMode.Cold)]
     public int Workers { get; set; } = 10;
 
@@ -161,7 +172,7 @@ public class ProxyConfig
     public string StorageDbContainerName { get; set; } = "Requests";
 
     // ── User ── COLD --
-    [ConfigOption("Profiles:User:ConfigRequired", Mode = ConfigMode.Cold)]
+    [ConfigOption("Profiles:User:ConfigRequired")]
     public bool UserConfigRequired { get; set; } = false;
     [ConfigOption("Profiles:RefreshIntervalSecs", Mode = ConfigMode.Cold)]
     public int UserConfigRefreshIntervalSecs { get; set; } = 3600; // 1 hour
@@ -170,21 +181,15 @@ public class ProxyConfig
     // ── User ── WARM --
     [ConfigOption("Profiles:SuspendedUser:ConfigUrl")]
     public string SuspendedUserConfigUrl { get; set; } = ""; // e.g. "file:suspended.json" or "http://configservice/suspended"
-    [ConfigOption("Profiles:UniqueUserHeaders")]
-    public List<string> UniqueUserHeaders { get; set; } = ["X-UserID"];
     [ConfigOption("Profiles:User:UserConfigUrl")]
     public string UserConfigUrl { get; set; } = ""; // e.g. "file:users.json" or "http://configservice/users"
-    [ConfigOption("Profiles:UserIDFieldName")]
+    [ConfigOption("Profiles:User:IDFieldName")]
     public string UserIDFieldName { get; set; } = "userId";
-    [ConfigOption("Profiles:UserPriorityThreshold")]
-    public float UserPriorityThreshold { get; set; } = 0.1f;
-    [ConfigOption("Profiles:UserProfileHeader")]
+    [ConfigOption("Profiles:User:ProfileHeader")]
     public string UserProfileHeader { get; set; } = "X-UserProfile";
     [ConfigOption("Profiles:User:UseProfiles")]
     public bool UseProfiles { get; set; } = false;
         // ── Validation ──
-    [ConfigOption("Profiles:Headers:ValidateHeaders")]
-    public Dictionary<string, string> ValidateHeaders { get; set; } = [];
     [ConfigOption("Profiles:Auth:ValidateAppIDEnabled")]
     public bool ValidateAuthAppID { get; set; } = false;
     [ConfigOption("Profiles:Auth:ConfigUrl")]
@@ -206,18 +211,16 @@ public class ProxyConfig
     public string LogFileName { get; set; } = "eventslog.json";
 
     // ── EventHub ──
-    [ConfigOption("EventHub:ConnectionString", ConfigName = "EVENTHUB_CONNECTIONSTRING", Mode = ConfigMode.Cold)]
+    [ConfigOption("Logging:EventHub:ConnectionString", ConfigName = "EVENTHUB_CONNECTIONSTRING", Mode = ConfigMode.Cold)]
     public string EventHubConnectionString { get; set; } = "";
-    [ConfigOption("EventHub:Name", ConfigName = "EVENTHUB_NAME", Mode = ConfigMode.Cold)]
+    [ConfigOption("Logging:EventHub:Name", ConfigName = "EVENTHUB_NAME", Mode = ConfigMode.Cold)]
     public string EventHubName { get; set; } = "";
-    [ConfigOption("EventHub:Namespace", ConfigName = "EVENTHUB_NAMESPACE", Mode = ConfigMode.Cold)]
+    [ConfigOption("Logging:EventHub:Namespace", ConfigName = "EVENTHUB_NAMESPACE", Mode = ConfigMode.Cold)]
     public string EventHubNamespace { get; set; } = "";
-    [ConfigOption("EventHub:StartupSeconds", ConfigName = "EVENTHUB_STARTUP_SECONDS", Mode = ConfigMode.Cold)]
+    [ConfigOption("Logging:EventHub:StartupSeconds", ConfigName = "EVENTHUB_STARTUP_SECONDS", Mode = ConfigMode.Cold)]
     public int EventHubStartupSeconds { get; set; } = 10;
-    [ConfigOption("EventHub:MaxReconnectAttempts", ConfigName = "EVENTHUB_MAX_RECONNECT_ATTEMPTS", Mode = ConfigMode.Cold)]
+    [ConfigOption("Logging:EventHub:MaxReconnectAttempts", ConfigName = "EVENTHUB_MAX_RECONNECT_ATTEMPTS", Mode = ConfigMode.Cold)]
     public int EventHubMaxReconnectAttempts { get; set; } = 5;
-    [ConfigOption("EventHub:MaxUndrainedEvents", ConfigName = "EVENTHUB_MAX_UNDRAINED_EVENTS", Mode = ConfigMode.Cold)]
-    public int MaxUndrainedEvents { get; set; } = 100;
 
     // ════════════════════════════════════════════════════════════════════
     // Hidden — not published (runtime-derived / parsed / composite)
@@ -261,14 +264,6 @@ public class ProxyConfig
     [ConfigOption("Logging:LogDateTime", ConfigName = "LOGDATETIME", Mode = ConfigMode.Cold)]
     public bool LogDateTime { get; set; } = false;
 
-    // ── Shared Iterators ──
-    /// <summary>
-    /// When true, requests to the same path share the same host iterator,
-    /// ensuring fair round-robin distribution across concurrent requests.
-    /// </summary>
-    [ConfigOption("Server:UseSharedIterators", Mode = ConfigMode.Hidden)]
-    public bool UseSharedIterators { get; set; } = true;
-
     // ── App Config ──
     [ConfigOption("AppConfig:Endpoint", ConfigName = "AZURE_APPCONFIG_ENDPOINT", Mode = ConfigMode.Hidden)]
     public string? AppConfigEndpoint { get; set; }
@@ -306,8 +301,6 @@ public class ProxyConfig
     public string ReplicaName { get; set; } = "";
     [ConfigOption("Metadata:Revision", ConfigName = "CONTAINER_APP_REVISION", Mode = ConfigMode.Hidden)]
     public string Revision { get; set; } = "revisionID";
-    [ConfigOption("Metadata:GC2InternalSecs", ConfigName = "GC2InternalSecs", Mode = ConfigMode.Cold)]
-    public int GC2InternalSecs { get; set; } = 300; // 5 minutes
 
     // ── Runtime-derived (no attribute) ──
     public HttpClient? Client { get; set; }

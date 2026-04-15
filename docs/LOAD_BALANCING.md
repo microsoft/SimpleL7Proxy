@@ -1,243 +1,164 @@
 # Load Balancing & Backend Selection
 
-SimpleL7Proxy uses a sophisticated multi-stage algorithm to select the optimal backend for each request. This document explains how backends are chosen, filtered, and iterated.
+The proxy selects backends through a three-stage pipeline on every request: filter by path → order by load-balance mode → gate by circuit breaker.
 
-## Algorithm Overview
-
-```
-REQUEST ARRIVES
-       │
-       ▼
-┌──────────────────────────┐
-│ 1. Filter hosts by path  │  → Specific path hosts OR catch-all hosts
-└──────────────────────────┘
-       │
-       ▼
-┌──────────────────────────┐
-│ 2. Create Iterator       │  → RoundRobin / Latency / Random
-│    (LoadBalanceMode)     │
-└──────────────────────────┘
-       │
-       ▼
-┌──────────────────────────┐
-│ 3. FOR EACH HOST:        │
-│    ├─ Circuit breaker OK?│  → Skip if OPEN
-│    ├─ TTL not expired?   │  → 412 if expired
-│    ├─ Send request       │
-│    └─ Success? → RETURN  │
-└──────────────────────────┘
-       │
-       ▼ (all hosts failed)
-┌──────────────────────────┐
-│ 429s collected? → Requeue│
-│ Else → 503 Service       │
-│         Unavailable      │
-└──────────────────────────┘
-```
+> **TL;DR**
+> - **Specific-path hosts always win** — if any configured host matches the request path, catch-all hosts are never tried.
+> - **`LoadBalanceMode`** controls host order (round-robin / latency / random); **`IterationMode`** controls how many attempts are made.
+> - **A `429` with `S7PREQUEUE`** requeues the request; any other non-2xx advances to the next host; TTL expiry stops iteration with `412`.
 
 ---
 
-## Stage 1: Path-Based Host Filtering
+## Reference — All Settings
 
-Before load balancing, hosts are filtered based on the request path. The proxy maintains two categories of hosts:
-
-| Category | Description | Example Path |
-|----------|-------------|--------------|
-| **Specific Path Hosts** | Hosts with explicit path prefixes | `/api/v1/*`, `/chat/*`, `/embeddings` |
-| **Catch-All Hosts** | Hosts that handle any path | `/` or `/*` |
-
-### Matching Rules
-
-1. **Specific paths take precedence**: If any host's path matches the request, only those hosts are used.
-2. **Path prefix is stripped by default**: When forwarding to a matched host, the matching prefix is removed from the request path. This can be disabled per-host with `stripprefix=false` (see [BACKEND_HOSTS.md](BACKEND_HOSTS.md#controlling-path-prefix-stripping)).
-3. **Catch-all fallback**: If no specific path matches, catch-all hosts are used with the original path.
-
-### Example
-
-```
-Configured Hosts:
-  Host1: path=/api/v1     → https://api-v1.internal
-  Host2: path=/api/v2     → https://api-v2.internal
-  Host3: path=/           → https://default.internal
-
-Request: GET /api/v1/users/123
-
-Result (stripprefix=true, default):
-  - Matches Host1 (specific path /api/v1)
-  - Forwarded as: GET /users/123 to https://api-v1.internal
-  - Host2 and Host3 are NOT considered
-
-Result (if Host1 had stripprefix=false):
-  - Matches Host1 (specific path /api/v1)
-  - Forwarded as: GET /api/v1/users/123 to https://api-v1.internal
-  - Original path is preserved
-```
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LoadBalanceMode` | `random` | Host ordering: `roundrobin`, `latency`, or `random` |
+| `IterationMode` | `SinglePass` | Retry strategy: `SinglePass` or `MultiPass` |
+| `MaxAttempts` | `30` | Max total attempts (MultiPass only) |
+| `UseSharedIterators` | `false` | Share iterator state across concurrent requests to the same path |
+| `SharedIteratorTTLSeconds` | `300` | Seconds before an unused shared iterator is discarded |
+| `SharedIteratorCleanupIntervalSeconds` | `60` | How often expired shared iterators are cleaned up |
 
 ---
 
-## Stage 2: Load Balance Mode
+## Request Flow
 
-Once hosts are filtered, an iterator is created based on the configured `LoadBalanceMode`.
+```
+Request arrives
+      │
+      ▼
+┌─────────────────────────────────────────────────────┐
+│ 1. PATH FILTER                                      │
+│    Specific-path hosts match?  ──Yes──► use them    │
+│                                ──No───► use catch-all│
+└─────────────────────────────────────────────────────┘
+      │
+      ▼
+┌─────────────────────────────────────────────────────┐
+│ 2. ITERATOR  (LoadBalanceMode)                      │
+│    roundrobin → global counter order                │
+│    latency    → sorted lowest avg latency first     │
+│    random     → shuffled each request               │
+└─────────────────────────────────────────────────────┘
+      │
+      ▼
+┌─────────────────────────────────────────────────────┐
+│ 3. FOR EACH HOST  (IterationMode / MaxAttempts)     │
+│    circuit OPEN?  ──Yes──► skip, next host          │
+│    TTL expired?   ──Yes──► 412, stop                │
+│    send request                                     │
+│    2xx?           ──Yes──► return to client ✓       │
+│    429+S7PREQUEUE ──────► collect, try next host    │
+│    other failure  ──────► try next host             │
+└─────────────────────────────────────────────────────┘
+      │
+      ▼  (all hosts exhausted)
+  All 429+S7PREQUEUE? → requeue with shortest retry-after
+  Else               → 503 Service Unavailable
+```
 
-### Available Modes
+**The circuit-breaker gate means an OPEN host is never attempted, so `MaxAttempts` counts only hosts actually tried.**
 
-| Mode | Environment Variable | Behavior |
-|------|---------------------|----------|
-| **Round Robin** | `LoadBalanceMode=roundrobin` | Uses a **global counter** shared across all workers. Each request gets the "next" host, ensuring fair distribution. |
-| **Latency** | `LoadBalanceMode=latency` | Hosts are **sorted by average latency** (lowest first). Fastest hosts are tried first. |
-| **Random** | `LoadBalanceMode=random` | Hosts are **shuffled randomly** for each request. All hosts are tried but in unpredictable order. |
+---
 
-### Configuration
+## Selecting a Backend
+
+**Rule: The path filter runs first; within the matched set, `LoadBalanceMode` determines which host is tried first.**
 
 ```bash
-# Default is random
-LoadBalanceMode=latency
+LoadBalanceMode=latency   # try fastest host first
+# Hosts sorted by average response time, lowest first
 ```
 
-### When to Use Each Mode
+| Mode | Best for |
+|------|----------|
+| `roundrobin` | Homogeneous backends; fair distribution |
+| `latency` | Backends with measurably different response times |
+| `random` | Avoiding predictable traffic patterns |
 
-| Scenario | Recommended Mode |
-|----------|------------------|
-| All backends have equal capacity | `roundrobin` |
-| Backends have different response times | `latency` |
-| Want to avoid predictable patterns | `random` |
-| Testing/debugging specific hosts | `roundrobin` with single host |
+> [!NOTE]
+> **Default:** `LoadBalanceMode=random`. Path prefix is stripped before forwarding unless `stripprefix=false` is set on the host (see [BACKEND_HOSTS.md](BACKEND_HOSTS.md#controlling-path-prefix-stripping)).
+
+> [!TIP]
+> **Troubleshooting:** If a specific host is never reached, verify its configured path prefix matches the inbound request path; a mismatch silently excludes it from the candidate set.
 
 ---
 
-## Stage 3: Iteration Mode
+## Retrying Across Backends
 
-The iteration mode controls how many times the proxy attempts to reach backends before giving up.
-
-| Mode | Environment Variable | Behavior |
-|------|---------------------|----------|
-| **SinglePass** | `IterationMode=SinglePass` | Try each matching host **once**. If all fail → error. |
-| **MultiPass** | `IterationMode=MultiPass` | Retry across all hosts up to `MaxAttempts` total. Will cycle through hosts multiple times. |
-
-### Configuration
+**Rule: `SinglePass` tries each host once; `MultiPass` cycles through all hosts up to `MaxAttempts` total.**
 
 ```bash
-IterationMode=SinglePass
-MaxAttempts=30  # Only used in MultiPass mode
+IterationMode=MultiPass
+MaxAttempts=7
+# 3 hosts → up to 2 full passes + 1 extra attempt
 ```
 
-### Example: MultiPass with 3 Hosts
+> [!NOTE]
+> **Default:** `IterationMode=SinglePass`. `MaxAttempts` is ignored in SinglePass mode.
 
-```
-Hosts: [A, B, C]
-MaxAttempts: 7
+> [!TIP]
+> **Troubleshooting:** Seeing more failures than expected? A low `MaxAttempts` combined with many OPEN circuits can exhaust the attempt budget before a healthy host is reached — check circuit-breaker state with `LogHeaders=true`.
 
-Attempt 1: Host A → 503 (fail)
-Attempt 2: Host B → 503 (fail)
-Attempt 3: Host C → 503 (fail)
-Attempt 4: Host A → 503 (fail)  # Second pass begins
-Attempt 5: Host B → 503 (fail)
-Attempt 6: Host C → 503 (fail)
-Attempt 7: Host A → 200 (success!) ✓
-```
+### Shared Iterators
+
+Set `UseSharedIterators=true` when many concurrent requests target the same path and you need strict round-robin fairness across them. Each path then maintains a single shared counter instead of per-request counters.
 
 ---
 
-## Stage 4: Shared vs Per-Request Iterators
+## Handling Responses
 
-Control whether concurrent requests share iterator state or each get their own.
-
-| Setting | Behavior |
-|---------|----------|
-| `UseSharedIterators=false` (default) | Each request gets its **own iterator**. Simple but may cause uneven distribution under high concurrency. |
-| `UseSharedIterators=true` | Requests to the **same path** share an iterator. Ensures fair distribution across concurrent requests. |
-
-### When to Use Shared Iterators
-
-- **High concurrency**: Many simultaneous requests to the same path
-- **Fair distribution required**: Need to ensure all backends get equal traffic
-- **Round-robin mode**: Most beneficial when combined with `roundrobin`
-
-### Configuration
-
-```bash
-UseSharedIterators=true
-SharedIteratorTTLSeconds=300          # How long to keep unused iterators
-SharedIteratorCleanupIntervalSeconds=60  # Cleanup frequency
-```
-
----
-
-## Stage 5: Per-Host Circuit Breaker Check
-
-Before sending a request to each host, the circuit breaker status is checked.
-
-```
-FOR EACH HOST in iterator:
-    └─ CheckFailedStatus() ──[OPEN]──► SKIP (continue to next host)
-                            └─[CLOSED]──► Proceed with request
-```
-
-- **OPEN circuit**: Host is skipped immediately, no request sent
-- **CLOSED circuit**: Request is attempted
-- **All circuits OPEN**: Returns `503 Service Unavailable`
-
-See [CIRCUIT_BREAKER.md](CIRCUIT_BREAKER.md) for detailed circuit breaker configuration.
-
----
-
-## Response Handling
-
-After sending a request, the response determines the next action:
+**Rule: Only `2xx` returns to the client; everything else either retries, requeues, or stops.**
 
 | Response | Action |
 |----------|--------|
-| `2xx` (Success) | Return response to client ✓ |
+| `2xx` | Return to client |
 | `3xx`, `404`, `5xx` | Try next host |
-| `429` with `S7PREQUEUE` header | Collect for potential requeue, try next host |
-| `412` (Precondition Failed) | Request TTL expired, stop iteration |
+| `429` + `S7PREQUEUE` header | Collect; try next host. If **all** hosts return this, requeue with shortest `retry-after`. |
+| `412` Precondition Failed | TTL expired — stop, no further retries |
+| All hosts exhausted (non-429) | `503 Service Unavailable` |
 
-### Requeue Behavior
+> [!WARNING]
+> **Error:** `412` means the request's TTL expired during iteration. Increase `DefaultTTLSecs` or reduce backend latency — adding more `MaxAttempts` will not help once TTL is gone.
 
-If all hosts return `429` with the `S7PREQUEUE` header, the request is requeued with a delay based on the shortest `retry-after` value.
+---
+
+## Worked Example
+
+> **Setup:** 3 hosts (`A avg 200 ms`, `B avg 80 ms`, `C avg 150 ms`), `LoadBalanceMode=latency`, `IterationMode=MultiPass`, `MaxAttempts=5`.
+
+| Attempt | Host tried (latency order) | Response | Action |
+|---------|---------------------------|----------|--------|
+| 1 | B (80 ms — fastest) | 503 | try next |
+| 2 | C (150 ms) | circuit OPEN | skip (no attempt counted) |
+| 3 | A (200 ms) | 503 | try next |
+| 4 | B (second pass) | 200 | **return to client** |
+
+**Attempts used: 4 of 5. Host C's open circuit was skipped without spending an attempt budget entry.**
 
 ---
 
 ## Monitoring & Diagnostics
 
-### Logging
-
-Enable debug logging to see backend selection:
+Enable header logging to trace backend selection:
 
 ```bash
 LogHeaders=true
 ```
 
-Log output includes:
-- Which hosts matched the path
-- Which host was selected
-- Circuit breaker status for skipped hosts
-- Attempt count and duration
+Key response headers to inspect:
 
-### Metrics
-
-Key metrics to monitor:
-- `BackendAttempts`: Number of hosts tried per request
-- `Backend-Host`: Which host ultimately served the request
-- `Total-Latency`: End-to-end request duration
-
----
-
-## Configuration Summary
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `LoadBalanceMode` | `random` | Algorithm: `roundrobin`, `latency`, or `random` |
-| `IterationMode` | `SinglePass` | Retry strategy: `SinglePass` or `MultiPass` |
-| `MaxAttempts` | `30` | Max total attempts (MultiPass only) |
-| `UseSharedIterators` | `false` | Share iterators across concurrent requests |
-| `SharedIteratorTTLSeconds` | `300` | TTL for unused shared iterators |
-| `SharedIteratorCleanupIntervalSeconds` | `60` | Cleanup interval for expired iterators |
+| Header | Meaning |
+|--------|---------|
+| `Backend-Host` | Host that ultimately served the request |
+| `BackendAttempts` | Number of hosts tried |
+| `Total-Latency` | End-to-end request duration |
 
 ---
 
 ## Related Documentation
 
-- [BACKEND_HOSTS.md](BACKEND_HOSTS.md) - Host configuration and connection strings
-- [CIRCUIT_BREAKER.md](CIRCUIT_BREAKER.md) - Circuit breaker configuration
-- [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md) - All configuration options
+- [BACKEND_HOSTS.md](BACKEND_HOSTS.md) — Host configuration and path prefixes
+- [CIRCUIT_BREAKER.md](CIRCUIT_BREAKER.md) — Circuit breaker configuration
+- [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md) — All configuration options

@@ -444,6 +444,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                     rd.Path = "/" + rd.Path;
                                 rd.Headers["S7Path"] = rd.Path; // Copy path
                                 // Lookup the user profile and add the headers to the request
+                                Console.WriteLine($"Looking up? {doUserProfile}  user profile for {rd.Headers[_options.UserProfileHeader]}");
                                 if (doUserProfile)
                                 {
                                     var requestUser = rd.Headers[_options.UserProfileHeader];
@@ -474,6 +475,14 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                                 "User profile not found: " + requestUser + "\n"
                                             );
                                         }
+                                    } 
+                                    else if ( _options.UserConfigRequired)
+                                    {
+                                        throw new ProxyErrorException(
+                                            ProxyErrorException.ErrorType.UnknownProfile,
+                                            HttpStatusCode.Forbidden,
+                                            "User profile not found: " + requestUser + "\n"
+                                        );
                                     }
                                 }
 

@@ -9,6 +9,7 @@ public class LogTargetAttr
     public bool Async;
     public bool BackendRequest;
     public bool Probe;
+    public bool Poller;
     public bool CircuitBreakerError;
     public bool Console;
     public bool CustomEvent;
@@ -24,14 +25,15 @@ public class LogTargetAttr
     public bool IsEnabled(EventType type) => type switch
     {
         EventType.AsyncProcessing                                => Async,
-        EventType.Backend or EventType.Poller                    => BackendRequest,
+        EventType.Backend or EventType.BackendRequest            => BackendRequest,
+        EventType.Poller                                         => Poller,
         EventType.Probe                                          => Probe,
         EventType.CircuitBreakerError                            => CircuitBreakerError,
         EventType.Console                                        => Console,
         EventType.CustomEvent                                    => CustomEvent,
         EventType.Exception or EventType.ServerError             => Exception,
         EventType.ProfileError                                   => ProfileError,
-        EventType.ProxyError or EventType.BackendRequest
+        EventType.ProxyError 
             or EventType.ProxyRequest or EventType.ProxyRequestExpired
             or EventType.ProxyRequestRequeued                    => ProxyRequest,
         EventType.ProxyRequestEnqueued                           => ProxyRequestEnqueued,
@@ -54,6 +56,7 @@ public class LogTargetAttr
             Async            = all || set!.Contains("async"),
             BackendRequest   = all || set!.Contains("backend"),
             Probe            = all || set!.Contains("probe"),
+            Poller           = all || set!.Contains("poller"),  
             CircuitBreakerError = all || set!.Contains("circuitbreaker"),
             Console          = all || set!.Contains("console"),
             CustomEvent      = all || set!.Contains("custom"),
@@ -64,4 +67,10 @@ public class LogTargetAttr
             Authentication   = all || set!.Contains("auth"),
         };
     }
+
+    public string ToString()
+    {
+        return $"Async: {Async}, BackendRequest: {BackendRequest}, Probe: {Probe}, CircuitBreakerError: {CircuitBreakerError}, Console: {Console}, CustomEvent: {CustomEvent}, Exception: {Exception}, ProfileError: {ProfileError}, ProxyRequest: {ProxyRequest}, ProxyRequestEnqueued: {ProxyRequestEnqueued}, Authentication: {Authentication}";
+    }
+
 }
