@@ -1,168 +1,157 @@
 # Backend Host Configuration
 
-SimpleL7Proxy supports defining backend hosts using two methods: a strictly environment-variable-based legacy method and a more flexible connection-string-based method. You can configure up to 9 backend hosts using variables `Host1` through `Host9`.
+Configure up to 9 backend hosts (`Host1`…`Host9`) using a semicolon-separated connection string, or the simpler legacy per-variable format.
 
-## Configuration Methods
+> **TL;DR**
+> - **Connection string format is recommended** — all per-host options in one variable.
+> - **`mode=direct` skips health probes entirely** — the host is always considered healthy; use it for serverless/on-demand backends.
+> - **The health poller runs every `PollInterval` ms** and drops hosts below `SuccessRate`% from the active pool until they recover.
 
-### 1. Advanced Connection String (Recommended)
+---
 
-This method allows you to define all properties for a single host within the `HostN` environment variable itself. It uses a semicolon-separated key=value format.
+## Reference — Connection String Keys
 
-**Format:**
-`Host1="host=https://api.backend.com;probe=/health;mode=apim"`
+> **Units:** all timeouts in milliseconds unless noted. Delimiters: `;` or `,` (both accepted).
 
-**Supported Keys:**
+| Key | Default | Description |
+|-----|---------|-------------|
+| `host` | *(required)* | Backend base URL. Protocol defaults to `https://` if omitted. Trailing slashes are stripped. |
+| `probe` | `echo/resource?param1=sample` | Health probe path. Ignored when `mode=direct`. |
+| `path` | `/` | Path prefix used for routing. Requests matching this prefix are sent to this host. |
+| `mode` | *(standard)* | Set to `direct` to disable probing and assume the host is always healthy. |
+| `ipaddress` | *(empty)* | Override DNS — force all requests to this IP. |
+| `processor` | *(empty)* | Custom stream processor name. Required and auto-defaulted in `direct` mode. |
+| `usemi` / `useoauth` | `false` | Attach a Managed Identity / OAuth2 Bearer token to every request and probe. |
+| `audience` | *(empty)* | OAuth token audience. Required when `usemi=true`. |
+| `stripprefix` / `strippathprefix` | `true` | Strip the matched `path` prefix before forwarding. Set `false` to preserve the full original path. |
+| `retryafter` / `useretryafter` | `true` | Honour the `Retry-After` header returned by the backend. |
 
-| Key | Description | Default |
-|-----|-------------|---------|
-| **host** | The base URL of the backend service. | (Required) |
-| **probe** | The path to the health probe endpoint (e.g., `/health`, `/status`). | `echo/resource?param1=sample` |
-| **ipaddress** | Overrides the DNS resolution by forcing a specific IP address for requests. | (Empty) |
-| **mode** | Connectivity mode. Use `direct` to skip APIM-style handling and probes, or omit for standard proxying. | Standard/APIM |
-| **path** | A partial path to append to requests or match against (depending on internal routing logic). | `/` |
-| **processor** | Specifies a custom request processor if available. | (Empty) |
-| **useoauth** / **usemi** | If `true`, enables Managed Identity/OAuth authentication for this host. | `false` |
-| **audience** | The expected audience claim for OAuth tokens. | (Empty) |
-| **stripprefix** / **strippathprefix** | If `true`, the matched path prefix is stripped when forwarding to the backend. If `false`, the original request path is preserved. | `true` |
-| **retryafter** | If `true`, respects the `Retry-After` header from the backend. | `true` |
+> [!WARNING]
+> An **unrecognised key** in the connection string throws `UriFormatException` at startup and prevents the proxy from starting.
 
-**Examples:**
+---
 
-*   **Standard Service with Health Check:**
-    ```bash
-    Host1="host=https://my-api.internal;probe=/api/health"
-    ```
+## Configuring Hosts
 
-*   **Service with IP Override (No DNS):**
-    ```bash
-    Host2="host=https://my-api.internal;ipaddress=10.0.1.5;probe=/health"
-    ```
-
-*   **Direct Mode (No Health Probes):**
-    Useful for simple forwarding or testing where active health checking is not required.
-    ```bash
-    Host3="host=https://simple-service.internal;mode=direct"
-    ```
-
-*   **Authenticated Service:**
-    ```bash
-    Host4="host=https://secure-api.internal;usemi=true;audience=api://my-app-id"
-    ```
-
-### 3. Direct Mode (Serverless/On-Demand)
-
-Direct Mode is designed for backends where active health probing is undesirable (e.g., Azure Container Apps, Azure Functions, or other serverless endpoints that scale to zero). By disabling probes, you avoid waking up the service unnecessarily.
-
-**Mechanism:**
-*   **No Active Probing**: The proxy will **never** send health probe requests to the backend.
-*   **Always Healthy**: The host is assumed to be 100% available (`SuccessRate = 1.0`).
-*   **Latency Load Balancing**: Since no probe latency is recorded, the "Average Latency" for these hosts defaults to 0. This means they will effectively be treated equally (Round Robin) amongst themselves and prioritized over high-latency probed hosts.
-
-**Required Keys:**
-To enable this mode, your connection string **must** include:
-*   `mode=direct`
-*   `host`
-*   `path` (The base path to route to)
-*   `processor` (If a specific request processor logic is required, otherwise standard)
-
-**Example:**
-```bash
-Host5="host=https://my-func.azurewebsites.net;mode=direct;path=/api/v1;processor=OpenAI"
-```
-
-### 4. Legacy Simple Configuration
-
-This method splits configuration across multiple environment variables (`HostN`, `Probe_pathN`, `IPN`). It is simpler but less flexible than the connection string format.
-
-| Variable | Description |
-|----------|-------------|
-| **HostN** | The base URL. Example: `https://api.backend.com` |
-| **Probe_pathN** | The health probe path. Example: `/health` |
-| **IPN** | (Optional) The IP address to use instead of DNS resolution. |
-
-**Example:**
+**Rule: Use the connection string format for all new hosts — it keeps every option for a host in one variable.**
 
 ```bash
-Host1="https://api.backend.com"
-Probe_path1="/health"
-IP1="10.0.1.5"
+# Minimal — standard probed host
+Host1="host=https://api.backend.com;probe=/health"
+
+# Path-routed host (strip prefix, default)
+Host2="host=https://chat-service.internal;path=/chat;probe=/health"
+
+# Preserve full path (backend owns its own routing)
+Host3="host=https://passthrough.internal;path=/api/v1;stripprefix=false"
+
+# Authenticated host (Managed Identity)
+Host4="host=https://secure-api.internal;usemi=true;audience=api://my-app-id;probe=/health"
+
+# Direct mode — serverless, no probing
+Host5="host=https://my-func.azurewebsites.net;mode=direct;path=/api/v1"
+
+# IP override — skip DNS
+Host6="host=https://api.backend.com;ipaddress=10.0.1.5;probe=/health"
 ```
 
-## Mixing Methods
+> [!NOTE]
+> **Legacy format** (`Host1=https://...`, `Probe_path1=/health`, `IP1=10.0.1.5`) is still supported but cannot express `path`, `mode`, `usemi`, or other per-host options. Do not mix legacy and connection-string keys for the same host number.
 
-You can mix methods across different hosts (e.g., `Host1` uses a connection string, `Host2` uses the legacy format), but you should not mix definitions for the *same* host number. If `Host1` is a connection string, `Probe_path1` and `IP1` will be ignored.
+---
+
+## Direct Mode
+
+**Rule: Use `mode=direct` for any backend that scales to zero — the proxy will never probe it, so it will never wake it unnecessarily.**
+
+```bash
+Host5="host=https://my-func.azurewebsites.net;mode=direct;path=/api/v1"
+```
+
+In direct mode:
+- No health probe is ever sent.
+- The host is always treated as healthy (`SuccessRate = 1.0`).
+- Average latency defaults to `0`, so direct-mode hosts sort first in `latency` load-balance mode.
+- `processor` is auto-set to the default stream processor if not specified.
+
+> [!TIP]
+> **Troubleshooting:** If a direct-mode host starts returning errors, the circuit breaker still tracks failures per request — the host will be excluded once it breaches `CBErrorThreshold`.
 
 ---
 
 ## Path-Based Routing
 
-The `path` parameter in the connection string controls which requests are routed to each host.
+**Rule: Specific-path hosts always win over catch-all hosts; within matched hosts the load balancer decides.**
 
-### How Path Matching Works
-
-1. **Specific paths take precedence**: Hosts with explicit paths (e.g., `/api/v1`) are matched before catch-all hosts.
-2. **Path prefix is stripped by default**: When forwarding to a matched host, the matching prefix is removed from the request path. This behavior can be disabled per-host by setting `stripprefix=false` in the connection string.
-3. **Catch-all fallback**: Hosts with `path=/` or no path specified handle requests that don't match any specific path.
-
-### Path Matching Examples
-
-**Configuration:**
 ```bash
 Host1="host=https://chat-service.internal;path=/chat"
 Host2="host=https://embed-service.internal;path=/embeddings"
-Host3="host=https://default-service.internal;path=/"
+Host3="host=https://default-service.internal"   # catch-all (path=/)
 ```
 
-**Request Routing:**
-
-| Incoming Request | Matched Host | Forwarded Path |
-|-----------------|--------------|----------------|
+| Incoming request | Matched host | Forwarded path (`stripprefix=true`) |
+|------------------|--------------|--------------------------------------|
 | `GET /chat/completions` | Host1 | `GET /completions` |
 | `POST /embeddings/create` | Host2 | `POST /create` |
 | `GET /models` | Host3 | `GET /models` |
-| `GET /chat` | Host1 | `GET /` |
 
-### Path Configuration Options
+Path matching rules:
+1. Hosts with an explicit `path` prefix are checked first.
+2. `/`, `/*`, or empty `path` is a catch-all and is tried only when no specific path matches.
+3. Wildcards (`/api/*`) match the same as the bare prefix (`/api`).
 
-| Path Value | Behavior |
-|------------|----------|
-| `/api/v1` | Matches requests starting with `/api/v1`, strips prefix |
-| `/api/v1/*` | Same as above (wildcard is implicit) |
-| `/` | Catch-all, matches any path, no stripping |
-| `/*` | Same as `/` |
-| (empty) | Same as `/` |
+> [!NOTE]
+> **`stripprefix=false`** preserves the full original request path on the forwarded request. Use this when the backend application handles its own sub-routing under the same prefix.
 
-### Controlling Path Prefix Stripping
+---
 
-By default, when a request matches a host's path prefix, that prefix is removed before forwarding (`stripprefix=true`). You can disable this per-host so the original request path is preserved.
+## Health Polling
 
-**Configuration:**
-```bash
-# Default: prefix is stripped
-Host1="host=https://chat-service.internal;path=/chat"
+**Rule: The poller runs every `PollInterval` ms; a host is active only while its rolling success rate is ≥ `SuccessRate`%.**
 
-# Prefix preserved: backend receives the full original path
-Host2="host=https://passthrough-service.internal;path=/api/v1;stripprefix=false"
+```
+Every PollInterval ms:
+  For each probed host:
+    GET <ProbeUrl>  (timeout = PollTimeout ms)
+    ├── 2xx  → AddCallSuccess(true)  → latency recorded
+    └── else → AddCallSuccess(false) → latency not recorded
+
+FilterActiveHosts:
+  active = hosts where SuccessRate() >= threshold
+  if latency order changed → invalidate shared iterator cache
 ```
 
-**Routing comparison:**
+| Config | Default | Description |
+|--------|---------|-------------|
+| `PollInterval` | `15000` ms | How often each host is probed |
+| `PollTimeout` | `3000` ms | Max wait for a probe response |
+| `SuccessRate` | `80` % | Minimum rolling success rate to stay active |
 
-| Incoming Request | Host Config | `stripprefix` | Forwarded Path |
-|-----------------|-------------|---------------|----------------|
-| `GET /chat/completions` | `path=/chat` | `true` (default) | `GET /completions` |
-| `GET /api/v1/users` | `path=/api/v1` | `true` (default) | `GET /users` |
-| `GET /api/v1/users` | `path=/api/v1;stripprefix=false` | `false` | `GET /api/v1/users` |
-| `GET /chat` | `path=/chat` | `true` (default) | `GET /` |
-| `GET /chat` | `path=/chat;stripprefix=false` | `false` | `GET /chat` |
+> [!NOTE]
+> Direct-mode hosts skip `GetHostStatus` entirely — they always return `true` and are included in `FilterActiveHosts` unconditionally.
 
-This is useful when the backend expects the full path including the routing prefix — for example, when the backend application handles its own path-based routing.
+> [!TIP]
+> **Troubleshooting:** If all hosts fall below the threshold the proxy returns `503`. Lower `SuccessRate` or increase `PollTimeout` if backends are slow but functional.
 
-### Best Practices
+---
 
-1. **Use specific paths for service isolation**: Route different AI models or API versions to dedicated backends.
-2. **Always have a catch-all**: Include at least one host with `path=/` to handle unexpected routes.
-3. **Avoid overlapping paths**: If you have `/api` and `/api/v1`, the more specific path (`/api/v1`) should be tried first.
-4. **Use `stripprefix=false` when backends own their routing**: If the backend expects the full original path (e.g., it has its own `/api/v1` routes), disable prefix stripping.
+## Worked Example
 
-See [LOAD_BALANCING.md](LOAD_BALANCING.md) for details on how hosts are selected after path filtering.
+> **Setup:** 3 hosts, `LoadBalanceMode=latency`, `SuccessRate=80`, `PollInterval=15000`.
+
+| Host | Probe result | Rolling rate | Active? | Avg latency |
+|------|-------------|--------------|---------|-------------|
+| `chat-service` | 9/10 success | 90% | Yes | 120 ms |
+| `embed-service` | 6/10 success | 60% | **No** | — |
+| `func-direct` | `mode=direct` | always 100% | Yes | 0 ms |
+
+**In latency mode, `func-direct` (0 ms) is tried first, then `chat-service` (120 ms). `embed-service` is excluded until its rolling rate recovers above 80%.**
+
+---
+
+## Related Documentation
+
+- [LOAD_BALANCING.md](LOAD_BALANCING.md) — How hosts are ordered and retried per request
+- [CIRCUIT_BREAKER.md](CIRCUIT_BREAKER.md) — Per-request failure tracking and circuit state
+- [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md) — `PollInterval`, `PollTimeout`, `SuccessRate` config keys
 

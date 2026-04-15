@@ -1,74 +1,133 @@
-# Circuit Breaker & Resilience
+# Circuit Breaker
 
-SimpleL7Proxy implements a robust, self-healing **Circuit Breaker** pattern to prevent cascading failures when backend services become unstable. Instead of continuously hammering a failing service (which makes outages worse), the proxy "breaks the circuit" and stops sending traffic to that specific host for a period of time.
+The circuit breaker stops traffic to a failing backend host automatically, then restores it once recent failures drop back below the threshold — no manual intervention required.
 
-## Support Logic
+> **TL;DR**
+> - **Open circuit = host skipped** — the load balancer moves on to the next host without counting an attempt.
+> - **Auto-recovery** — old failures age out of the sliding window; the circuit closes itself when the count drops below `CBErrorThreshold`.
+> - **Progressive delays** — as failures accumulate toward the threshold, the proxy adds a small artificial delay (100–500 ms) to slow traffic before fully opening the circuit.
 
-The circuit breaker operates on a **Sliding Time Window** principle.
+---
 
-1.  **Tracking**: Every request to a backend is monitored.
-2.  **Failure Detection**: If a request returns a status code **not** in the `AcceptableStatusCodes` list (e.g., 500, 502, 503) or throws a network exception, it is recorded as a failure.
-3.  **Threshold Check**: The proxy counts the number of failures that occurred within the last `CBTimeslice` seconds.
-4.  **Tripping**: If the count of recent failures exceeds `CBErrorThreshold`, the circuit **Opens** (breaks).
-5.  **Blocking**: While Open, the host is marked as "Unhealthy." The Load Balancer will skip this host and route traffic to other healthy backends.
-6.  **Recovery (Auto-Healing)**: As time passes, failure timestamps fall out of the `CBTimeslice` window. Once the count drops below the threshold, the circuit **Closes** automatically, and traffic resumes.
+## Reference — Settings
 
-## Configuration
+| Config name | Default | Description |
+|-------------|---------|-------------|
+| `CBErrorThreshold` | `50` | Number of failures inside the window that opens the circuit |
+| `CBTimeslice` | `60` s | Sliding window width — failures older than this are discarded |
+| `AcceptableStatusCodes` | `[200,202,400,401,403,404,408,410,412,417]` | HTTP codes **not** counted as failures |
 
-Control the sensitivity of the circuit breaker using these environment variables:
+> [!NOTE]
+> `CBErrorThreshold` and `CBTimeslice` are **Warm** settings — change them in Azure App Configuration and bump `Sentinel`; no restart needed.
 
-| Variable | Default | Description |
-| :--- | :--- | :--- |
-| **`CBErrorThreshold`** | `50` | The number of errors required to trip the circuit. Lower values make it more sensitive. |
-| **`CBTimeslice`** | `60` | The sliding window duration (in seconds). Errors older than this are ignored. |
-| **`AcceptableStatusCodes`** | `200, 202, 401...` | List of HTTP codes considered "Success". Anything else counts towards the error threshold. |
+---
 
-### Example Scenarios
+## How the Circuit Breaker Works
 
-*   **Fast Failover**: Set `CBErrorThreshold=5` and `CBTimeslice=10`. The proxy will stop using a host almost immediately after a burst of 5 errors.
-*   **Tolerant**: Set `CBErrorThreshold=100`. Useful for "flaky" non-critical backends where you strictly prefer retries over disabling the host.
+```
+Request to host
+      │
+      ▼
+CheckFailedStatusAsync()
+      │
+      ├── failures in window < threshold?
+      │       │
+      │       ├── count ≥ 50% threshold → add delay (100–500 ms), then CLOSED → proceed
+      │       └── count < 50% threshold → CLOSED → proceed immediately
+      │
+      └── failures in window ≥ threshold?
+              │
+              └── prune expired entries → still ≥ threshold?
+                      ├── Yes → OPEN → return true (host skipped by load balancer)
+                      └── No  → CLOSED → proceed (circuit self-heals)
+
+TrackStatus(code, wasFailure, state) — called after every backend response
+      │
+      └── code not in AcceptableStatusCodes OR wasFailure=true
+              └── enqueue failure timestamp → emit CircuitBreakerError event
+```
+
+**Progressive delay thresholds (not configurable):**
+
+| Failure count | Delay added |
+|---------------|-------------|
+| ≥ 50% of threshold | 100 ms |
+| ≥ 60% | 200 ms |
+| ≥ 70% | 300 ms |
+| ≥ 80% | 400 ms |
+| ≥ 90% | 500 ms |
+
+---
+
+## Configuring the Circuit Breaker
+
+**Rule: Lower `CBErrorThreshold` for fast failover; raise it for flaky backends you want to tolerate.**
+
+```bash
+# Fast failover — opens after 5 errors in 10 s
+CBErrorThreshold=5
+CBTimeslice=10
+
+# Tolerant — absorbs bursts before opening
+CBErrorThreshold=100
+CBTimeslice=60
+```
+
+> [!NOTE]
+> **Default:** `CBErrorThreshold=50`, `CBTimeslice=60`. At defaults, the circuit opens after 50 failures within the last 60 seconds.
+
+> [!TIP]
+> **Troubleshooting:** If hosts are opening too aggressively, check whether transient `5xx` codes are in `AcceptableStatusCodes`. Adding `503` to that list means 503 responses will not count as failures.
+
+---
 
 ## Global Safety Net
 
-The proxy monitors the state of **all** circuit breakers. If **all** configured backends are tripped (meaning the entire backend tier is down), the proxy returns a `503 Service Unavailable` to the client immediately, protecting the proxy itself from resource exhaustion.
+**Rule: When every registered circuit breaker is OPEN simultaneously, the proxy returns `503` immediately without trying any host.**
+
+`AreAllCircuitBreakersBlocked()` returns `true` when `blockedCount >= totalCount`. This prevents resource exhaustion when the entire backend tier is down.
+
+> [!WARNING]
+> **Error:** `503 Service Unavailable` with all circuit breakers OPEN means every backend has hit its failure threshold. Address the backend health issue — raising thresholds is a workaround, not a fix.
+
+---
+
+## Worked Example
+
+> **Setup:** `CBErrorThreshold=10`, `CBTimeslice=30`. Three hosts A, B, C.
+
+| Time | Event | Window failures | Circuit state |
+|------|-------|-----------------|---------------|
+| 0 s | Startup | 0 | CLOSED |
+| 5 s | 8 failures from Host A | 8 | CLOSED + 400 ms delay (80%) |
+| 10 s | 2 more failures | 10 | **OPEN** — Host A skipped |
+| 10 s | Requests route to B, C | — | B=CLOSED, C=CLOSED |
+| 40 s | All 10 failures age out of 30 s window | 0 | **Auto-CLOSED** — Host A back in pool |
+
+**Host A rejoins the active pool automatically once all its failures age out of the `CBTimeslice` window — no restart or manual reset needed.**
 
 ---
 
 ## Integration with Load Balancing
 
-The circuit breaker is checked **per-host** during the backend selection loop. This means:
-
-1. **A single tripped host doesn't block the request** - the proxy simply skips to the next host in the iterator.
-2. **Healthy hosts continue receiving traffic** - only the failing host is isolated.
-3. **Automatic recovery** - as the circuit closes, traffic resumes without manual intervention.
-
-### Request Flow with Circuit Breaker
+During iteration the load balancer calls `CheckFailedStatusAsync()` before sending to each host:
 
 ```
-FOR EACH HOST in load balancer:
-    │
-    ├─ CheckFailedStatus() ──[OPEN]──► SKIP (log and continue to next host)
-    │                        
-    └─[CLOSED]──► Send request to host
-                      │
-                      ├─[Success]──► Return response ✓
-                      │
-                      └─[Failure]──► Record failure, try next host
-                                     (may trip circuit if threshold exceeded)
+FOR EACH HOST in iterator:
+    CheckFailedStatusAsync()
+        OPEN  → skip (no attempt counted)
+        CLOSED → send request
+                  success → return to client ✓
+                  failure → TrackStatus() → try next host
 ```
 
-### Example Scenario
+See [LOAD_BALANCING.md](LOAD_BALANCING.md) for how hosts are ordered and how `MaxAttempts` interacts with skipped hosts.
 
-```
-Hosts: [A, B, C]
-Circuit Breaker Status: A=OPEN, B=CLOSED, C=CLOSED
+---
 
-Request arrives:
-  1. Iterator selects Host A → Circuit OPEN → SKIP
-  2. Iterator selects Host B → Circuit CLOSED → Send request → 200 OK ✓
-  
-Result: Request succeeds despite Host A being unhealthy
-```
+## Related Documentation
 
-See [LOAD_BALANCING.md](LOAD_BALANCING.md) for details on how hosts are selected and iterated.
+- [BACKEND_HOSTS.md](BACKEND_HOSTS.md) — Per-host configuration and health polling
+- [LOAD_BALANCING.md](LOAD_BALANCING.md) — Iterator and retry settings
+- [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md) — Full settings reference
 
