@@ -39,7 +39,7 @@ public class BlobWriter
                 UsesMI = true
             };
 
-            Console.WriteLine($"[INIT] ✓ BlobServiceClient created successfully with managed identity - URI: {storageAccountUri}");
+            // Console.WriteLine($"[INIT] ✓ BlobServiceClient created successfully with managed identity - URI: {storageAccountUri}");
             return blobWriter;
         }
         catch (Exception ex)
