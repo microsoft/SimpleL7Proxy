@@ -1,6 +1,6 @@
 using SimpleL7Proxy;
 
-namespace SimpleL7Proxy.ServiceBus
+namespace SimpleL7Proxy.Async.ServiceBus
 {
 
     public interface IServiceBusRequestService

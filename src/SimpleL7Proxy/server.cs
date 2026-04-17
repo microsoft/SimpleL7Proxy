@@ -9,13 +9,13 @@ using Microsoft.Extensions.Hosting;
 using System.Diagnostics;
 using System.Threading;
 using SimpleL7Proxy.Backend;
-using SimpleL7Proxy.BlobStorage;
+using SimpleL7Proxy.Async.BlobStorage;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.Proxy;
-using SimpleL7Proxy.ServiceBus;
+using SimpleL7Proxy.Async.ServiceBus;
 using System.Text;
 
 using Shared.HealthProbe;
@@ -444,7 +444,6 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                     rd.Path = "/" + rd.Path;
                                 rd.Headers["S7Path"] = rd.Path; // Copy path
                                 // Lookup the user profile and add the headers to the request
-                                Console.WriteLine($"Looking up? {doUserProfile}  user profile for {rd.Headers[_options.UserProfileHeader]}");
                                 if (doUserProfile)
                                 {
                                     var requestUser = rd.Headers[_options.UserProfileHeader];

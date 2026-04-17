@@ -10,10 +10,10 @@ using Azure.Messaging.ServiceBus;
 
 using SimpleL7Proxy.Config;
 using Shared.RequestAPI.Models;
-using SimpleL7Proxy.ServiceBus;
+using SimpleL7Proxy.Async.ServiceBus;
 
 
-namespace SimpleL7Proxy.BackupAPI
+namespace SimpleL7Proxy.Async.BackupAPI
 {
     public class BackupAPIService : IHostedService, IBackupAPIService, IShutdownParticipant
     {
@@ -26,7 +26,7 @@ namespace SimpleL7Proxy.BackupAPI
         private bool isShuttingDown = false;
         private Task? writerTask;
         CancellationTokenSource? _cancellationTokenSource;
-        private readonly ServiceBusFactory _senderFactory;
+        private readonly IServiceBusFactory _senderFactory;
 
         // Statistics tracking - events sent per minute for the last 10 minutes
         // Single instance, no locking needed - updated only by FeederTask
@@ -42,7 +42,7 @@ namespace SimpleL7Proxy.BackupAPI
         private const int MaxDrainPerCycle = 50; // max messages to drain from queue per cycle
         private static readonly TimeSpan FlushIntervalMs = TimeSpan.FromMilliseconds(1000);    // small delay to coalesce bursts (when not shutting down)
 
-        public BackupAPIService(IOptions<ProxyConfig> options, ServiceBusFactory senderFactory,ILogger<BackupAPIService> logger)
+        public BackupAPIService(IOptions<ProxyConfig> options, IServiceBusFactory senderFactory,ILogger<BackupAPIService> logger)
         {
             _options = options.Value;
             _senderFactory = senderFactory;

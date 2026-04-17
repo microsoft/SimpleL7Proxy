@@ -8,9 +8,9 @@ using System.Collections.Generic;
 
 using SimpleL7Proxy.Config;
 
-namespace SimpleL7Proxy.ServiceBus
+namespace SimpleL7Proxy.Async.ServiceBus
 {
-    public class ServiceBusFactory
+    public class ServiceBusFactory : IServiceBusFactory
     {
         private readonly DefaultCredential _defaultCredential;
         private readonly IOptionsMonitor<ProxyConfig> _optionsMonitor;
@@ -49,7 +49,8 @@ namespace SimpleL7Proxy.ServiceBus
                             !fullyQualifiedNamespace.EndsWith(".servicebus.windows.net", StringComparison.OrdinalIgnoreCase))
                         {
                             options.AsyncModeEnabled = false; // Disable async mode if namespace is not set
-                            _logger.LogCritical("Async mode disabled due to missing or invalid AsyncSBNamespace configuration.");
+                            // _logger.LogCritical("[SERVBUS] - Async mode disabled due to missing or invalid AsyncSBNamespace configuration.");
+                            InitStatus = "Failed: Invalid Namespace";
                         }
 
                         _client = CreateServiceBusClientWithManagedIdentity(fullyQualifiedNamespace);
@@ -61,7 +62,8 @@ namespace SimpleL7Proxy.ServiceBus
                             !connectionString.Contains("Endpoint=", StringComparison.OrdinalIgnoreCase))
                         {
                             options.AsyncModeEnabled = false; // Disable async mode if connection string is not set
-                            _logger.LogCritical("Async mode disabled due to missing or invalid AsyncSBConnectionString configuration.");
+                            // _logger.LogCritical("[SERVBUS] - Async mode disabled due to missing or invalid AsyncSBConnectionString configuration.");
+                            InitStatus = "Failed: Invalid Connection String";
                         }
                         else
                         {
@@ -73,9 +75,12 @@ namespace SimpleL7Proxy.ServiceBus
             {
                 _logger!.LogError(ex, "Failed to initialize ServiceBusSenderFactory");
                 options.AsyncModeEnabled = false; // Disable async mode if initialization fails
-                _logger.LogCritical("Async mode disabled due to initialization failure.");
+                // _logger.LogCritical("[SERVBUS] - Async mode disabled due to initialization failure.");
+                InitStatus = $"Failed: {ex.Message}";
             }
         }
+
+        public string InitStatus {get; set;} = "Disabled";
 
         /// <summary>
         /// Creates a ServiceBusClient using connection string authentication.
@@ -92,12 +97,14 @@ namespace SimpleL7Proxy.ServiceBus
         {
             try
             {
-                _logger.LogInformation("Creating ServiceBusClient with connection string authentication.");
+                InitStatus = "with CS";
+                // _logger.LogInformation("Creating ServiceBusClient with connection string authentication.");
                 return new ServiceBusClient(connectionString);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to create ServiceBusClient with connection string: {Message}", ex.Message);
+                InitStatus = $"Failed: {ex.Message}";
                 throw;
             }
         }
@@ -119,7 +126,8 @@ namespace SimpleL7Proxy.ServiceBus
         {
             try
             {
-                _logger.LogInformation("[STARTUP] ✓ ServiceBusClient created with managed identity - Namespace: {Namespace}", fullyQualifiedNamespace);
+                InitStatus = "with MI";
+                // _logger.LogInformation("[STARTUP] ✓ ServiceBusClient created with managed identity - Namespace: {Namespace}", fullyQualifiedNamespace);
                 
                 // Use DefaultAzureCredential for managed identity authentication
                 var credential = _defaultCredential.Credential;
@@ -128,6 +136,7 @@ namespace SimpleL7Proxy.ServiceBus
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to create ServiceBusClient with managed identity: {Message}", ex.Message);
+                InitStatus = $"Failed: {ex.Message}";
                 throw;
             }
         }

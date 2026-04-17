@@ -1,7 +1,7 @@
 using Shared.RequestAPI.Models;
 using SimpleL7Proxy;
 
-namespace SimpleL7Proxy.BackupAPI
+namespace SimpleL7Proxy.Async.BackupAPI
 {
 
     public interface IBackupAPIService

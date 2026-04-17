@@ -1,99 +1,91 @@
 # Async Operation Configuration
 
-## Environment Variables Reference
+**The proxy can process requests asynchronously, returning a 202 immediately and delivering results via Azure Blob Storage with status updates over Azure Service Bus.**
 
-For the complete list of Async-related environment variables and their default values, please refer to the **Async Processing Variables** section in [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md#async-processing-variables).
+**TL;DR:**
+- Set `AsyncModeEnabled=true`, configure `AsyncBlobStorageConfig` and `AsyncSBConfig`
+- Each client needs a user profile with async enabled, a blob container, and a Service Bus topic
+- Requests opt in via the `AsyncClientRequestHeader` header
 
-This document describes how to configure the proxy for asynchronous operation mode. When enabled, the proxy can handle requests asynchronously, providing status updates via Azure Service Bus and storing request/response data in Azure Blob Storage.
+For the complete list of Async-related environment variables and their default values, see [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md#async-processing-variables).
 
-## Overview
+## Configuration Reference
 
-To enable async operation, the proxy requires the following configuration changes:
+| Setting | Mode | Default | Description |
+|---|---|---|---|
+| `AsyncModeEnabled` | Cold | `false` | Master switch for async processing |
+| `AsyncClientRequestHeader` | Warm | `S7PAsyncMode` | Request header clients send to opt in |
+| `AsyncClientConfigFieldName` | Warm | `async-config` | User profile field containing client async config |
+| `AsyncTimeout` | Warm | `1800000` (30 min) | Max async request lifetime (ms) |
+| `AsyncTriggerTimeout` | Warm | `10000` (10 s) | Time before a request upgrades to async (ms) |
+| `AsyncTTLSecs` | Warm | `86400` (24 h) | Blob SAS token lifetime (seconds) |
+| `AsyncBlobStorageConfig` | Cold | `uri=https://mystorageaccount.blob.core.windows.net,mi=true` | Composite blob storage connection |
+| `AsyncBlobWorkerCount` | Cold | `2` | Number of background blob write workers |
+| `AsyncSBConfig` | Cold | `cs=...,ns=...,q=requeststatus,mi=false` | Composite Service Bus connection |
+| `StorageDbContainerName` | Cold | `Requests` | Default blob container name |
+| `AsyncClassNames` | Cold | _(empty — uses built-in defaults)_ | Override interface→class DI mappings |
 
-1. **Async Mode** - Enable the async processing feature
-2. **Azure Service Bus** - For sending status notifications to clients
-3. **Azure Blob Storage** - For storing request and response data
-4. **User profile fields** - Configuration parameters needed for each client.
-5. **Request Headers** - Each request must include appropriate headers to enable async processing
+> [!NOTE]
+> **Warm** settings are hot-reloaded via App Configuration (~30 s). **Cold** settings require a restart.
 
-All configuration is done via environment variables.
+## Enabling Async Mode
 
-## 1. Enable Async Mode
-
-Async needs to be enabled in three places:  the proxy, the profile and the request.  The proxy setting enables systemwide async handling.  The user profile setting allows specific clients and the request setting enables it at a specific request.   In the proxy, set the following environment variables to enable async processing:
+Async must be enabled in three places: the **proxy** (system-wide), the **user profile** (per-client), and the **request** (per-call header).
 
 ```bash
-AsyncClientRequestHeader=AsyncMode
 AsyncModeEnabled=true
-AsyncTimeout=<milliseconds for request timeout>
-AsyncTriggerTimeout=<milliseconds before async is enabled for the request>
-AsyncClientConfigFieldname=<profile field name that contains the client's configuration>
+AsyncClientRequestHeader=S7PAsyncMode
+AsyncTriggerTimeout=10000
+AsyncTimeout=1800000
+AsyncClientConfigFieldName=async-config
 ```
 
-**Configuration Details:**
+- **AsyncTriggerTimeout**: Fast requests complete normally. After this timeout, the request upgrades to async — a 202 response is returned immediately with details on how to retrieve the result.
+- **AsyncTimeout**: Maximum time an async request is allowed to run before the proxy abandons it.
 
-- **AsyncClientRequestHeader**: The header name that clients send to enable async processing for a request. If the header is missing or set to false, async mode will not be triggered.
+## Azure Service Bus Configuration
 
-- **AsyncTimeout**: Maximum time (in milliseconds) an async request is allowed to run. Similar to the standard `Timeout` parameter, this controls when the proxy server will abandon a request that has been upgraded to async.
+The proxy sends real-time status updates to client Service Bus topics as requests are processed. Each client reads only from their designated topic.
 
-- **AsyncTriggerTimeout**: Time (in milliseconds) after which a request becomes async. Fast-running requests will complete normally. After this timeout, the request is converted to async mode and an immediate response is sent to the caller with details on how to access the data when processing completes.
+### Composite Config Format
 
-
-
-## 2. Azure Service Bus Configuration
-
-### Proxy
-
-The proxy uses Azure Service Bus to send real-time status updates to client applications as requests are being processed. Sending these messages requires both a Service Bus namespace and a topic. The proxy can write to all topics, but each client can only read from their designated topic. On the proxy side, there are two authentication methods available shown below:
-
-#### Option A: Connection String Authentication
-
-For development or when using Service Bus access keys:
+All Service Bus settings are supplied via a single composite string:
 
 ```bash
-AsyncSBConnectionString=<service-bus-connection-string>
+AsyncSBConfig=cs=<connection-string>,ns=<namespace>,q=<queue>,mi=<true|false>
 ```
 
-#### Option B: Managed Identity Authentication (Recommended)
+| Field | Description |
+|---|---|
+| `cs` | Connection string (used when `mi=false`) |
+| `ns` | Fully-qualified Service Bus namespace (used when `mi=true`) |
+| `q` | Queue/topic name for status messages |
+| `mi` | `true` to use Managed Identity, `false` for connection string |
 
-For production environments, use managed identity for enhanced security:
+> [!TIP]
+> **Use Managed Identity in production** — set `mi=true` and provide `ns`.
 
-```bash
-AsyncSBUseMI=true
-AsyncSBNamespace=<fully-qualified-namespace>
-```
+**Required Azure RBAC Roles** (for Managed Identity):
+- **Azure Service Bus Data Sender** — send messages to queues and topics
+- **Azure Service Bus Data Owner** — alternative with full data access
 
-**Requirements:**
-- The connection string must have permissions to send messages to the configured topic
-- The Service Bus namespace must allow message sending operations
-- Each client should have their own topic configured for status updates
+### Client-Side
 
-**Required Azure RBAC Roles:**
+Clients need RBAC permission and a subscription to their topic. The topic name is specified in the user profile under the `AsyncClientConfigFieldName` field.
 
-The managed identity (system-assigned or user-assigned) must be granted these roles on the Service Bus namespace:
+#### Status Events
 
-- **Azure Service Bus Data Sender** - Send messages to queues and topics (more restrictive)
-- **Azure Service Bus Data Owner** - Full access to Service Bus data operations (alternative to Data Sender)  
+| Event | Description |
+|---|---|
+| `InQueue` | Request enqueued for processing |
+| `RetryAfterDelay` | Request will delay before requeue |
+| `ReQueued` | Request has been requeued |
+| `Processing` | Request is being sent downstream |
+| `Processed` | Complete — blob URIs available |
+| `Failed` | Request failed |
+| `Expired` | Request expired |
 
-### Clients
-
-Clients will need RBAC permission and a subscription to their topic to be able to read messages from the proxy.  This topic name is specified in the user profile under the **AsyncClientConfigFieldName** parameter so that the proxy knows where to send messages. 
-
-#### Event Types
-
-The following events are published to the Service Bus topic:
-
-- **InQueue** - The message was enqueued for processing.
-- **RetryAfterDelay** - The message will delay for a period of time before being requeued.
-- **ReQueued** - The message has been requeued for processing.
-- **Processing** - The message is being processed (sent downstream)
-- **Processed** - The message was successfully processed; blob URIs are available
-- **Failed** - The message failed to process
-- **Expired** - The message has expired
-
-#### Sample Code
-
-This sample uses managed identity to read from Service Bus:
+#### Sample Client Code
 
 ```csharp
 using Azure.Messaging.ServiceBus;
@@ -127,127 +119,117 @@ async Task ErrorHandler(ProcessErrorEventArgs args)
 }
 ```
 
-## 3. Azure Blob Storage Configuration
+## Azure Blob Storage Configuration
 
-Azure Blob Storage is used to store request headers, request body data, and response data. There are two authentication methods available:
-
-### Option A: Connection String Authentication
-
-For development or when using storage account keys:
+Azure Blob Storage stores request headers, request body data, and response data. All settings are supplied via a single composite string:
 
 ```bash
-AsyncBlobStorageConnectionString=<storage-account-connection-string>
+AsyncBlobStorageConfig=uri=<storage-account-uri>,mi=<true|false>
 ```
 
-### Option B: Managed Identity Authentication (Recommended)
+| Field | Description |
+|---|---|
+| `uri` | Blob storage account URI (e.g. `https://mystorage.blob.core.windows.net`) |
+| `mi` | `true` to use Managed Identity, `false` for connection string |
 
-For production environments, use managed identity for enhanced security:
+When `mi=false`, provide a connection string in the `uri` field instead.
+
+> [!WARNING]
+> Each client should have their own blob container with RBAC access. The `AsyncTTLSecs` setting controls how long SAS tokens remain valid.
+
+**Required Azure RBAC Roles** (for Managed Identity):
+- **Storage Blob Data Contributor** — read, write, and delete blob data
+- **Storage Blob Delegator** — generate user delegation SAS tokens
+- **Storage Account Contributor** — manage storage account properties
+
+### Blob Write Queue
+
+The proxy uses a background write queue for blob operations. Configure the worker count with:
 
 ```bash
-AsyncBlobStorageUseMI=true
-AsyncBlobStorageAccountUri=https://<storage-account-name>.blob.core.windows.net
+AsyncBlobWorkerCount=2
 ```
 
-**Requirements:**
-- The connection string must include account keys with full storage permissions
-- The storage account must allow blob creation and SAS token generation
-- Each client should have their own container and have access assigned to it.
-- Each client can have their own TTL for blob lifetime.  
+## User Profile Configuration
 
-**Required Azure RBAC Roles:**
+Each user's profile must include an async config field (named by `AsyncClientConfigFieldName`):
 
-The managed identity (system-assigned or user-assigned) must be granted these roles on the storage account:
-
-- **Storage Blob Data Contributor** - Read, write, and delete blob data
-- **Storage Blob Delegator** - Generate user delegation SAS tokens
-- **Storage Account Contributor** - Manage storage account properties
-
-## 4. User Profile Configuration
-
-The following parameters need to be defined for each user in the user profile:
-
-```bash
-<AsyncClientConfigFieldname>=enabled=<true|false, containername=<container-name>, topic=<topic-name>, timeout
-# this field containes four sub-fields:
-# enabled:  determines if the client is allowed to process asynchronously.
-# container name: The blob container name that the client has access to. Async processed results are stored here.
-# timeout: The number of seconds that blobs will be available via a sas token.
-# topic: The topic name that status updates for this user will be sent to. The client will need a subscription to this topic to read.
+```
+<AsyncClientConfigFieldName>=enabled=<true|false>,containername=<name>,topic=<name>,timeout=<seconds>
 ```
 
-Each user's client service principal will need to be granted access to the Blob container and the Service Bus topic. 
+| Sub-field | Description |
+|---|---|
+| `enabled` | Whether this client can use async processing |
+| `containername` | Blob container for storing this client's results |
+| `topic` | Service Bus topic for status updates |
+| `timeout` | SAS token lifetime in seconds |
 
+Each client's service principal needs RBAC access to both the blob container and the Service Bus topic.
 
-## 5. Client Request Configuration
+## Client Request Configuration
 
-### Enable Async Processing Per Request
+Clients opt in per request by sending the configured header:
 
-Each incoming request must include a header to enable async processing:
-
-```bash
-<AsyncClientRequestHeader>: true
-```
-
-**Usage:** Clients must send requests with the header set to `"true"`:
 ```http
-curl https://proxy.domain.com/do_something -H "AsyncMode: true" 
+curl https://proxy.domain.com/do_something -H "S7PAsyncMode: true"
 ```
 
-## Complete Configuration Example
+## Async Class Name Overrides
 
-### Development Environment (Connection String)
-```bash
-# Enable async mode
-AsyncModeEnabled=true
+The proxy registers async service implementations via DI using the `AsyncClassNames` config. The format is a comma-separated list of `Interface:ClassName` pairs. When empty (default), built-in defaults are used:
 
-# Service Bus
-AsyncSBConnectionString=Endpoint=sb://myservicebus.servicebus.windows.net/;SharedAccessKeyName=...
-
-# Blob Storage (Connection String)
-AsyncBlobStorageConnectionString=DefaultEndpointsProtocol=https;AccountName=mystorage;AccountKey=...
-
-# User Profile
-AsyncClientConfigFieldname=async-config
-
-# Client Header
-AsyncClientRequestHeader=AsyncMode
+```
+IServiceBusFactory:ServiceBusFactory, IServiceBusRequestService:ServiceBusRequestService,
+IBackupAPIService:BackupAPIService, IBlobWriterFactory:BlobWriterFactory
 ```
 
-### Production Environment (Managed Identity)
+At startup, each entry is validated:
+- The interface and class must exist in the assembly
+- The class must implement the interface
+- The class must be in the same namespace as the interface
+- All required interfaces from the built-in defaults must be present
+
+> [!NOTE]
+> Invalid entries are skipped with a warning. Missing required interfaces are logged as warnings.
+
+## Complete Configuration Examples
+
+### Development (Connection String)
 ```bash
-# Enable async mode
 AsyncModeEnabled=true
+AsyncSBConfig=cs=Endpoint=sb://myservicebus.servicebus.windows.net/;SharedAccessKeyName=...,ns=,q=requeststatus,mi=false
+AsyncBlobStorageConfig=uri=DefaultEndpointsProtocol=https;AccountName=mystorage;AccountKey=...,mi=false
+AsyncClientConfigFieldName=async-config
+AsyncClientRequestHeader=S7PAsyncMode
+```
 
-# Service Bus (Managed Identity)
-AsyncSBUseMI=true
-AsyncSBNamespace=myservicebus.servicebus.windows.net
-
-# Blob Storage (Managed Identity)
-AsyncBlobStorageUseMI=true
-AsyncBlobStorageAccountUri=https://mystorage.blob.core.windows.net
-
-# User Profile
-AsyncClientConfigFieldname=async-config
-
-# Client Header
-AsyncClientRequestHeader=AsyncMode
+### Production (Managed Identity)
+```bash
+AsyncModeEnabled=true
+AsyncSBConfig=cs=,ns=myservicebus.servicebus.windows.net,q=requeststatus,mi=true
+AsyncBlobStorageConfig=uri=https://mystorage.blob.core.windows.net,mi=true
+AsyncClientConfigFieldName=async-config
+AsyncClientRequestHeader=S7PAsyncMode
 ```
 
 ## Security Considerations
 
-1. **Use Managed Identity in production** for enhanced security and credential management
-2. **Limit storage account access** using RBAC roles instead of connection strings
-3. **Configure appropriate blob retention policies** to manage storage costs
-4. **Use Azure Key Vault** to store sensitive connection strings if managed identity isn't available
+1. **Use Managed Identity in production** for credential management
+2. **Limit storage access** using RBAC instead of connection strings
+3. **Configure blob retention** via `AsyncTTLSecs` to manage storage costs
+4. **Use Azure Key Vault** for connection strings if Managed Identity is unavailable
 
 ## Troubleshooting
 
-### Common Issues
-
-1. **"Failed to create SAS token"** - Ensure the managed identity has the Storage Blob Delegator role
-2. **"BlobContainerClient not initialized"** - Check that InitClientAsync was called after AsyncWorker construction
-3. **Service Bus connection failures** - Verify the connection string has send permissions for the topic
-4. **Access denied errors** - Confirm RBAC roles are assigned to the correct managed identity
+| Symptom | Cause |
+|---|---|
+| "Failed to create SAS token" | Managed identity missing Storage Blob Delegator role |
+| "BlobContainerClient not initialized" | `InitClientAsync` not called after AsyncWorker construction |
+| Service Bus connection failures | Connection string lacks send permissions for the topic |
+| Access denied errors | RBAC roles not assigned to the correct managed identity |
+| `[ASYNC] Invalid AsyncClasses entry` | Class not found, doesn't implement interface, or wrong namespace |
+| `[ASYNC] Required interface missing` | `AsyncClassNames` override is missing a required interface |
 5. **Network access** - Confirm that the networking for the Storage account allows your applications to have access.
 
 ### Detailed Error Messages and Solutions

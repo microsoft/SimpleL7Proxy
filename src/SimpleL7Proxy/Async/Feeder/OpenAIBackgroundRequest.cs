@@ -13,13 +13,13 @@ using System.Security.Policy;
 
 using SimpleL7Proxy.Config;
 using Shared.RequestAPI.Models;
-using SimpleL7Proxy.ServiceBus;
+using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Queue;
 
-namespace SimpleL7Proxy.Feeder
+namespace SimpleL7Proxy.Async.Feeder
 {
     public class OpenAIBackgroundRequest : IRequestProcessor
     {

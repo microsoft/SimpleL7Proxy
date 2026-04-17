@@ -20,11 +20,11 @@ using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.StreamProcessor;
 using SimpleL7Proxy.User;
 //using SimpleL7Proxy.EventGrid;
-using SimpleL7Proxy.ServiceBus;
-using SimpleL7Proxy.BlobStorage;
+using SimpleL7Proxy.Async.ServiceBus;
+using SimpleL7Proxy.Async.BlobStorage;
 using SimpleL7Proxy.DTO;
-using SimpleL7Proxy.BackupAPI;
-using SimpleL7Proxy.Feeder;
+using SimpleL7Proxy.Async.BackupAPI;
+using SimpleL7Proxy.Async.Feeder;
 
 using System.Net;
 using System.Text;
@@ -82,85 +82,8 @@ public class Program
             });
 
         var frameworkHost = hostBuilder.Build();
-        //        var serviceProvider = frameworkHost.Services;
-        // Perform static initialization after building the host to ensure correct singleton usage
         var serviceProvider = frameworkHost.Services;
-        // Initialize static logger for all stream processors
-        var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
-        var logger = loggerFactory.CreateLogger("StreamProcessor");
-
-        var options = serviceProvider.GetRequiredService<IOptions<ProxyConfig>>();
-        Banner.Display(options.Value, appConfigBootstrap.Status());
-
-        appConfigBootstrap.Notifier       = serviceProvider.GetRequiredService<ConfigChangeNotifier>();
-        appConfigBootstrap.HostCollection = serviceProvider.GetRequiredService<IHostHealthCollection>();
-
-        var eventClient = serviceProvider.GetService<IEventClient>();
-        var telemetryClient = serviceProvider.GetService<TelemetryClient>();
-        var backendTokenProvider = serviceProvider.GetRequiredService<BackendTokenProvider>();
-
-        BaseStreamProcessor.SetLogger(logger);
-
-        // Initialize ProxyEvent with BackendOptions
-
-        var commonEventData = serviceProvider.GetRequiredService<ICommonEventData>();
-        serviceProvider.GetRequiredService<ProxyEventInitializer>();
-
-        // Initialize HostConfig with all required dependencies including service provider for circuit breaker DI
-        HostConfig.Initialize(backendTokenProvider, logger, serviceProvider);
-
-        // Register backends after DI container is built and HostConfig is initialized
-        var hostCollection = serviceProvider.GetRequiredService<IHostHealthCollection>();
-
-        ConfigFactory.RegisterBackends(options.Value, null, appConfigBootstrap.WarmSettings, hostCollection);
-
-        // Start backend health polling + token acquisition now that hosts are registered
-        var healthService = serviceProvider.GetRequiredService<HealthCheckService>();
-        Task healthCheck= healthService.BeginStartupMonitoring();
-
-        // Async
-        try
-        {
-            //ServiceBusRequestService? serviceBusService = null;
-
-            if (options.Value.AsyncModeEnabled)
-            {
-
-                logger.LogInformation("[STARTUP] ✓ Async mode enabled - Initializing ServiceBus and AsyncWorker services");
-                var serviceBusRequestService = serviceProvider.GetRequiredService<IServiceBusRequestService>();
-                var backupAPIService = serviceProvider.GetRequiredService<IBackupAPIService>();
-                var userPriority = serviceProvider.GetRequiredService<IUserPriorityService>();
-                RequestData.InitializeServiceBusRequestService(serviceBusRequestService, backupAPIService, userPriority, options.Value);
-                
-                // Manually start BackupAPIService (not registered as IHostedService for controlled shutdown)
-                await backupAPIService.StartAsync(CancellationToken.None);
-
-                //_ = serviceBusService.StartAsync(CancellationToken.None);
-
-                // AsyncWorker.Initialize(
-                //     serviceProvider.GetRequiredService<BlobWriter>(),
-                //     serviceProvider.GetRequiredService<ILogger<AsyncWorker>>()
-                // );
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "[ERROR] ✗ ServiceBus initialization failed");
-        }
-
-        // Log confirmation once all IHostedService.StartAsync calls have completed.
-        // This fires after the framework has started every hosted service (including event loggers).
-        var appLifetime = serviceProvider.GetRequiredService<IHostApplicationLifetime>();
-        appLifetime.ApplicationStarted.Register(async () =>
-        {
-            var composite = serviceProvider.GetRequiredService<CompositeEventClient>();
-            ConfigFactory.OutputEnvVars(options.Value);
-
-            await healthCheck.ConfigureAwait(false); // Ensure backend startup monitoring completes before logging startup success
-
-            logger.LogInformation("[STARTUP] ✓ All hosted services started — active event loggers: {Loggers}",
-                composite.ClientType);
-        });
+        var logger = InitializeRuntime(serviceProvider, appConfigBootstrap);
 
         try
         {
@@ -209,6 +132,47 @@ public class Program
         logging.AddConsoleFormatter<CustomConsoleFormatter, SimpleConsoleFormatterOptions>();
         logging.SetMinimumLevel(logLevel);
         logging.AddFilter("Microsoft.Hosting.Lifetime", LogLevel.Warning);
+    }
+
+    private static ILogger InitializeRuntime(IServiceProvider serviceProvider, AppConfigService appConfigBootstrap)
+    {
+        var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
+        var logger = loggerFactory.CreateLogger("StreamProcessor");
+
+        var options = serviceProvider.GetRequiredService<IOptions<ProxyConfig>>();
+        Banner.Display(options.Value, appConfigBootstrap.Status());
+
+        appConfigBootstrap.Notifier       = serviceProvider.GetRequiredService<ConfigChangeNotifier>();
+        appConfigBootstrap.HostCollection = serviceProvider.GetRequiredService<IHostHealthCollection>();
+
+        var backendTokenProvider = serviceProvider.GetRequiredService<BackendTokenProvider>();
+
+        BaseStreamProcessor.SetLogger(logger);
+
+        serviceProvider.GetRequiredService<ICommonEventData>();
+        serviceProvider.GetRequiredService<ProxyEventInitializer>();
+
+        HostConfig.Initialize(backendTokenProvider, logger, serviceProvider);
+
+        var hostCollection = serviceProvider.GetRequiredService<IHostHealthCollection>();
+        ConfigFactory.RegisterBackends(options.Value, null, appConfigBootstrap.WarmSettings, hostCollection);
+
+        var healthService = serviceProvider.GetRequiredService<HealthCheckService>();
+        Task healthCheck = healthService.BeginStartupMonitoring();
+
+        var appLifetime = serviceProvider.GetRequiredService<IHostApplicationLifetime>();
+        appLifetime.ApplicationStarted.Register(async () =>
+        {
+            var composite = serviceProvider.GetRequiredService<CompositeEventClient>();
+            ConfigFactory.OutputEnvVars(options.Value);
+
+            await healthCheck.ConfigureAwait(false);
+
+            logger.LogInformation("[STARTUP] ✓ All hosted services started — active event loggers: {Loggers}",
+                composite.ClientType);
+        });
+
+        return logger;
     }
 
     private static void ConfigureAppInsights(IServiceCollection services, ProxyConfig options, ILogger startupLogger)
@@ -266,69 +230,13 @@ public class Program
         services.AddSingleton<WorkerContext>();
 
         if (backendOptions.AsyncModeEnabled)
-        {
-            services.AddSingleton<IBlobWriterFactory, BlobWriterFactory>();
-            // Create the underlying BlobWriter (not registered as IBlobWriter)
-            services.AddSingleton<BlobWriter>(provider =>
-            {
-                var factory = provider.GetRequiredService<IBlobWriterFactory>();
-                var blobWriter = factory.CreateBlobWriter() as BlobWriter;
-                var logger = provider.GetRequiredService<ILogger<Program>>();
-                logger.LogInformation("[STARTUP] ✓ Underlying BlobWriter created: {BlobWriterType}", blobWriter?.GetType().Name ?? "Unknown");
-                return blobWriter!;
-            });
-
-            // Configure BlobWriteQueue options
-            services.AddSingleton(provider => 
-            {
-                return new BlobWriteQueueOptions
-                {
-                    WorkerCount = backendOptions.AsyncBlobWorkerCount,
-                    MaxQueueSize = 10000,
-                    BatchWaitTimeMs = 100,
-                    MaxBatchSize = 25,
-                    EnableBatching = true,
-                    EnableDeduplication = true,  // Disable deduplication - write all operations
-                    MetricsIntervalSeconds = 30
-                };
-            });
-
-
-            // Register BlobWriteQueue as singleton (started/stopped explicitly by CoordinatedShutdownService)
-            services.AddSingleton<BlobWriteQueue>();
-
-            // Register QueuedBlobWriter as the IBlobWriter implementation (wraps BlobWriter)
-            services.AddSingleton<IBlobWriter>(provider =>
-            {
-                var underlyingWriter = provider.GetRequiredService<BlobWriter>();
-                var queue = provider.GetRequiredService<BlobWriteQueue>();
-                var logger = provider.GetRequiredService<ILogger<QueuedBlobWriter>>();
-                
-                // Enable queue for writes - set to false to disable queuing
-                var queuedWriter = new QueuedBlobWriter(underlyingWriter, queue, logger, useQueueForWrites: true);
-                
-                var programLogger = provider.GetRequiredService<ILogger<Program>>();
-                programLogger.LogInformation("[STARTUP] ✓ QueuedBlobWriter initialized (wrapping {UnderlyingType})", 
-                    underlyingWriter.GetType().Name);
-                
-                return queuedWriter;
-            });
-
-            services.AddTransient<IAsyncWorkerFactory, AsyncWorkerFactory>();
-            services.AddSingleton<IAsyncFeeder, AsyncFeeder>();
-            services.AddHostedService(sp => (AsyncFeeder)sp.GetRequiredService<IAsyncFeeder>());
-        }
+            RegisterAsyncDI(services, startupLogger, backendOptions);
         else {
             services.AddTransient<IAsyncWorkerFactory, NullAsyncWorkerFactory>();
             services.AddSingleton<IBlobWriter, NullBlobWriter>();
             services.AddSingleton<IRequestDataBackupService, NullRequestDataBackupService>();
             services.AddSingleton<IAsyncFeeder, NullAsyncFeeder>();
         }
-        // services.AddSingleton<BlobWriter>(provider =>
-        // {
-        //     var optionsMonitor = provider.GetRequiredService<IOptionsMonitor<BackendOptions>>();
-        //     return new BlobWriter(optionsMonitor);
-        // });
 
         services.AddSingleton<IUserPriorityService, UserPriority>();
         services.AddSingleton<UserProfile>();
@@ -365,9 +273,8 @@ public class Program
 
         // ASYNC RELATED
         // Add storage service registration
-        services.AddSingleton<IRequestDataBackupService, RequestDataBackupService>();
-
         services.AddSingleton<ServiceBusFactory>();
+        services.AddSingleton<IServiceBusFactory>(sp => sp.GetRequiredService<ServiceBusFactory>());
         services.AddSingleton<ServiceBusRequestService>();
         services.AddSingleton<IServiceBusRequestService>(sp => sp.GetRequiredService<ServiceBusRequestService>());
 
@@ -379,8 +286,6 @@ public class Program
         services.AddSingleton<OpenAIBackgroundRequest>();
 
         // services.AddSingleton<IRequestProcessor, NormalRequest>();
-
-
         // Stream processor factory - optimized singleton for high-throughput scenarios
         services.AddSingleton<StreamProcessorFactory>();
 
@@ -393,6 +298,119 @@ public class Program
         services.AddTransient(source => new CancellationTokenSource());
         services.AddSingleton<CoordinatedShutdownService>();
         services.AddHostedService<CoordinatedShutdownService>(sp => sp.GetRequiredService<CoordinatedShutdownService>());
+    }
+
+    private static void RegisterAsyncDI(IServiceCollection services, ILogger startupLogger, ProxyConfig backendOptions)
+    {
+        const string asyncClassesRaw =
+            "IServiceBusFactory:ServiceBusFactory, IServiceBusRequestService:ServiceBusRequestService, " +
+            "IBackupAPIService:BackupAPIService, IBlobWriterFactory:BlobWriterFactory";
+
+            // "IBlobWriter:QueuedBlobWriter, IAsyncFeeder:AsyncFeeder, " +
+            // "IRequestProcessor:NormalRequest, IRequestProcessor:OpenAIBackgroundRequest";
+
+        var assembly = typeof(Program).Assembly;
+        var assemblyTypes = assembly.GetTypes();
+        var asyncClasses = new Dictionary<string, string>();
+        var classConfig = backendOptions.AsyncClassNames == "" ? asyncClassesRaw : backendOptions.AsyncClassNames;
+
+        // validate that each classname listed implements the corresponding interface and in same namespace.
+        foreach (var entry in classConfig.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = entry.Split(':', 2);
+            if (parts.Length != 2) continue;
+
+            var interfaceName = parts[0].Trim();
+            var className = parts[1].Trim();
+
+            var interfaceType = Array.Find(assemblyTypes, t => t.Name == interfaceName && t.IsInterface);
+            var classType = Array.Find(assemblyTypes, t => t.Name == className && !t.IsAbstract);
+
+            if (classType == null || interfaceType == null || !interfaceType.IsAssignableFrom(classType)
+                || classType.Namespace != interfaceType.Namespace)
+            {
+                startupLogger.LogWarning("[ASYNC] Invalid AsyncClasses entry '{Entry}': class or interface not found, or class does not implement interface.", entry);
+                continue;
+            }
+
+            asyncClasses[interfaceName] = className;
+        }
+
+        // Verify that all interfaces from the default raw list are present in classConfig
+        var requiredInterfaces = new HashSet<string>(
+            asyncClassesRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(e => e.Split(':', 2)[0].Trim()));
+        var missingInterfaces = requiredInterfaces.Except(asyncClasses.Keys);
+        foreach (var missing in missingInterfaces)
+            startupLogger.LogWarning("[ASYNC] Required interface '{InterfaceName}' is missing from AsyncClasses config.", missing);
+
+        // Register each validated interface→class mapping as singleton
+        foreach (var kvp in asyncClasses)
+        {
+            var iType = Array.Find(assemblyTypes, t => t.Name == kvp.Key && t.IsInterface)!;
+            var cType = Array.Find(assemblyTypes, t => t.Name == kvp.Value && !t.IsAbstract)!;
+            services.AddSingleton(iType, cType);
+        }
+
+        services.AddSingleton<IBlobWriter, QueuedBlobWriter>();
+        services.AddSingleton<IAsyncFeeder, AsyncFeeder>();
+        services.AddSingleton<IRequestProcessor, NormalRequest>();
+        services.AddSingleton<IRequestProcessor, OpenAIBackgroundRequest>();
+
+        // BlobWriter infrastructure — QueuedBlobWriter wraps BlobWriter (circular IBlobWriter dep),
+        // so these must remain as explicit factory registrations and override the dictionary entry.
+        services.AddSingleton<BlobWriter>(provider =>
+        {
+            var factory = provider.GetRequiredService<IBlobWriterFactory>();
+            var blobWriter = factory.CreateBlobWriter() as BlobWriter;
+            var logger = provider.GetRequiredService<ILogger<Program>>();
+            logger.LogInformation("[STARTUP] ✓ BlobWriter initialized: {BlobWriterType} (Status: {Status})", blobWriter?.GetType().Name ?? "Unknown", factory.InitStatus);
+            return blobWriter!;
+        });
+
+        services.AddSingleton(provider =>
+        {
+            return new BlobWriteQueueOptions
+            {
+                WorkerCount = backendOptions.AsyncBlobWorkerCount,
+                MaxQueueSize = 10000,
+                BatchWaitTimeMs = 100,
+                MaxBatchSize = 25,
+                EnableBatching = true,
+                EnableDeduplication = true,
+                MetricsIntervalSeconds = 30
+            };
+        });
+
+        services.AddSingleton<BlobWriteQueue>();
+
+        // Override dictionary's simple IBlobWriter registration — QueuedBlobWriter needs
+        // the concrete BlobWriter (not IBlobWriter) to avoid circular dependency.
+        services.AddSingleton<IBlobWriter>(provider =>
+        {
+            var underlyingWriter = provider.GetRequiredService<BlobWriter>();
+            var queue = provider.GetRequiredService<BlobWriteQueue>();
+            var logger = provider.GetRequiredService<ILogger<QueuedBlobWriter>>();
+
+            var queuedWriter = new QueuedBlobWriter(underlyingWriter, queue, logger, useQueueForWrites: true);
+
+            var programLogger = provider.GetRequiredService<ILogger<Program>>();
+            programLogger.LogInformation("[STARTUP] ✓ QueuedBlobWriter initialized (wrapping {UnderlyingType})",
+                underlyingWriter.GetType().Name);
+
+            return queuedWriter;
+        });
+
+        services.AddTransient<IAsyncWorkerFactory, AsyncWorkerFactory>();
+        if (asyncClasses.ContainsKey("IAsyncFeeder"))
+            services.AddHostedService(sp => (AsyncFeeder)sp.GetRequiredService<IAsyncFeeder>());
+
+        services.AddSingleton<IRequestDataBackupService, RequestDataBackupService>();
+
+        // Initialize RequestData static references once all async singletons are resolvable.
+        // This runs at first resolution time via a hosted-service initializer that fires before
+        // the proxy starts accepting traffic (Server/WorkerFactory come after this in registration order).
+        // services.AddHostedService<AsyncInitializer>();
     }
 
     private static void RegisterEventHeaders(IServiceCollection services, ILogger startupLogger, ProxyConfig backendOptions)

@@ -1,10 +1,10 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-using SimpleL7Proxy.BlobStorage;
+using SimpleL7Proxy.Async.BlobStorage;
 using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.Config;
-using SimpleL7Proxy.BackupAPI;
+using SimpleL7Proxy.Async.BackupAPI;
 
 namespace SimpleL7Proxy.Proxy
 {

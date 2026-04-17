@@ -3,7 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 
-using SimpleL7Proxy.BlobStorage;
+using SimpleL7Proxy.Async.BlobStorage;
 
 namespace SimpleL7Proxy.DTO
 {

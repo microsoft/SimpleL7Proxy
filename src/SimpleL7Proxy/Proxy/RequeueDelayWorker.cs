@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 
 using SimpleL7Proxy.Queue;
-using SimpleL7Proxy.ServiceBus;
+using SimpleL7Proxy.Async.ServiceBus;
 using Shared.RequestAPI.Models;
 
 

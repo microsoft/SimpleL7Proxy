@@ -19,16 +19,16 @@ public class ProxyConfig
     // ════════════════════════════════════════════════════════════════════
 
     // ── Async ──
-    [ConfigOption("Async:ClientRequestHeader", ConfigName = "AsyncClientRequestHeader")]
-    public string AsyncClientRequestHeader { get; set; } = "AsyncMode";
     [ConfigOption("Async:ClientConfigFieldName", ConfigName = "AsyncClientConfigFieldName")]
     public string AsyncClientConfigFieldName { get; set; } = "async-config";
+    [ConfigOption("Request:Headers:AsyncMode", ConfigName = "AsyncClientRequestHeader")]
+    public string AsyncClientRequestHeader { get; set; } = "S7PAsyncMode";
     [ConfigOption("Async:Timeout", ConfigName = "AsyncTimeout")]
     public double AsyncTimeout { get; set; } = 30 * 60000; // 30 minutes
-    [ConfigOption("Async:TTLSecs", ConfigName = "AsyncTTLSecs")]
-    public int AsyncTTLSecs { get; set; } = 24 * 60 * 60; // 24 hours
     [ConfigOption("Async:TriggerTimeout", ConfigName = "AsyncTriggerTimeout")]
     public int AsyncTriggerTimeout { get; set; } = 10000; // 10 seconds
+    [ConfigOption("Async:TTLSecs", ConfigName = "AsyncTTLSecs")]
+    public int AsyncTTLSecs { get; set; } = 24 * 60 * 60; // 24 hours
 
     // ── Circuit Breaker ──
     [ConfigOption("CircuitBreaker:ErrorThreshold", ConfigName = "CBErrorThreshold")]
@@ -41,22 +41,14 @@ public class ProxyConfig
     public string HealthProbeSidecar { get; set; } = "Enabled=false;url=http://localhost:9000";
 
     // ── Load Balancing ──
-    [ConfigOption("LoadBalancing:Mode")]
-    public string LoadBalanceMode { get; set; } = Constants.Latency;
-
-    // ── Server ──
     [ConfigOption("LoadBalancing:IterationMode")]
     public IterationModeEnum IterationMode { get; set; } = IterationModeEnum.SinglePass;
+    [ConfigOption("LoadBalancing:Mode")]
+    public string LoadBalanceMode { get; set; } = Constants.Latency;
+    [ConfigOption("LoadBalancing:MultiPass:MaxAttempts")]
+    public int MaxAttempts { get; set; } = 10;
 
     // ── Logging ──
-    [ConfigOption("Logging:LogToConsole")]
-    public List<string> LogToConsole { get; set; } = ["*"];   
-    [ConfigOption("Logging:LogToEvents")]
-    public List<string> LogToEvents { get; set; } = ["async","backend","probe","circuitbreaker","custom","exception","profile","proxy","enqueued","auth"];
-    [ConfigOption("Logging:LogToAI")]
-    public List<string> LogToAI { get; set; } = [""];
-    [ConfigOption("Logging:LogHeaders")]
-    public List<string> LogHeaders { get; set; } = [];
     [ConfigOption("Logging:LogAllRequestHeaders")]
     public bool LogAllRequestHeaders { get; set; } = false;
     [ConfigOption("Logging:LogAllRequestHeadersExcept")]
@@ -65,26 +57,42 @@ public class ProxyConfig
     public bool LogAllResponseHeaders { get; set; } = false;
     [ConfigOption("Logging:LogAllResponseHeadersExcept")]
     public List<string> LogAllResponseHeadersExcept { get; set; } = ["Api-Key"];
+    [ConfigOption("Logging:LogHeaders")]
+    public List<string> LogHeaders { get; set; } = [];
+    [ConfigOption("Logging:LogToAI")]
+    public List<string> LogToAI { get; set; } = [""];
+    [ConfigOption("Logging:LogToConsole")]
+    public List<string> LogToConsole { get; set; } = ["*"];
+    [ConfigOption("Logging:LogToEvents")]
+    public List<string> LogToEvents { get; set; } = ["async","backend","probe","circuitbreaker","custom","exception","profile","proxy","enqueued","auth"];
 
-    [ConfigOption("Logging:ReuseEvents",  Mode = ConfigMode.Cold)]
-    public bool ReuseEvents { get; set; } = false;
+    // ── Profiles ──
+    [ConfigOption("Profiles:Auth:ConfigUrl")]
+    public string ValidateAuthAppIDUrl { get; set; } = ""; // e.g. "file:authappids.json" or "http://configservice/authappids"
+    [ConfigOption("Profiles:Auth:ValidateAppIDEnabled")]
+    public bool ValidateAuthAppID { get; set; } = false;
+    [ConfigOption("Profiles:Auth:ValidateAppIDHeader")]
+    public string ValidateAuthAppIDHeader { get; set; } = "X-MS-CLIENT-PRINCIPAL-ID";
+    [ConfigOption("Profiles:Auth:ValidateFieldName")]
+    public string ValidateAuthAppFieldName { get; set; } = "authAppID";
+    [ConfigOption("Profiles:SuspendedUser:ConfigUrl")]
+    public string SuspendedUserConfigUrl { get; set; } = ""; // e.g. "file:suspended.json" or "http://configservice/suspended"
+    [ConfigOption("Profiles:User:ConfigRequired")]
+    public bool UserConfigRequired { get; set; } = false;
+    [ConfigOption("Profiles:User:IDFieldName")]
+    public string UserIDFieldName { get; set; } = "userId";
+    [ConfigOption("Profiles:User:ProfileHeader")]
+    public string UserProfileHeader { get; set; } = "X-UserProfile";
+    [ConfigOption("Profiles:User:UseProfiles")]
+    public bool UseProfiles { get; set; } = false;
+    [ConfigOption("Profiles:User:UserConfigUrl")]
+    public string UserConfigUrl { get; set; } = ""; // e.g. "file:users.json" or "http://configservice/users"
 
-    // ── Processing ──
-    [ConfigOption("server:DefaultPriority")]
-    public int DefaultPriority { get; set; } = 2;
-    [ConfigOption("server:DefaultTTLSecs")]
-    public int DefaultTTLSecs { get; set; } = 300;
-    [ConfigOption("Server:GreedyUserThreshold")]
-    public float UserPriorityThreshold { get; set; } = 0.1f;
-    [ConfigOption("server:PriorityKeys")]
-    public List<string> PriorityKeys { get; set; } = ["12345", "234"];
-    [ConfigOption("server:PriorityValues")]
-    public List<int> PriorityValues { get; set; } = [1, 3];
-    [ConfigOption("server:DefaultTimeout")]
-    public int Timeout { get; set; } = 60*20*1000; // 20 minutes
-    [ConfigOption("Server:UseSharedIterators", Mode = ConfigMode.Hidden)]
-    public bool UseSharedIterators { get; set; } = true;
     // ── Request ──
+    [ConfigOption("Request:DefaultTimeout")]
+    public int Timeout { get; set; } = 60*20*1000; // 20 minutes
+    [ConfigOption("Request:DefaultTTLSecs")]
+    public int DefaultTTLSecs { get; set; } = 300;
     [ConfigOption("Request:DependancyHeaders")]
     public List<string> DependancyHeaders { get; set; } = ["Backend-Host", "Host-URL", "Status", "Duration", "Error", "Message", "Request-Date", "backendLog"];
     [ConfigOption("Request:DisallowedHeaders")]
@@ -99,8 +107,14 @@ public class ProxyConfig
     public List<string> UniqueUserHeaders { get; set; } = ["X-UserID"];
     [ConfigOption("Request:Headers:ValidateHeaders")]
     public Dictionary<string, string> ValidateHeaders { get; set; } = [];
-    [ConfigOption("Request:MaxAttempts")]
-    public int MaxAttempts { get; set; } = 10;
+    [ConfigOption("Request:Priority:DefaultPriority")]
+    public int DefaultPriority { get; set; } = 2;
+    [ConfigOption("Request:Priority:GreedyUserThreshold")]
+    public float UserPriorityThreshold { get; set; } = 0.1f;
+    [ConfigOption("Request:Priority:PriorityKeys")]
+    public List<string> PriorityKeys { get; set; } = ["12345", "234"];
+    [ConfigOption("Request:Priority:PriorityValues")]
+    public List<int> PriorityValues { get; set; } = [1, 3];
     [ConfigOption("Request:RequiredHeaders")]
     public List<string> RequiredHeaders { get; set; } = [];
     [ConfigOption("Request:StripRequestHeaders")]
@@ -112,7 +126,7 @@ public class ProxyConfig
     [ConfigOption("Response:StripResponseHeaders")]
     public List<string> StripResponseHeaders { get; set; } = [];
 
-    // Sentinel --
+    // ── Sentinel ──
     [ConfigOption("Sentinel")]
     public string Sentinel { get; set; } = ""; // used for app configrefresh
 
@@ -121,24 +135,66 @@ public class ProxyConfig
     // ════════════════════════════════════════════════════════════════════
 
     // ── Async ──
-    [ConfigOption("Async:BlobStorageConfig", ConfigName = "AsyncBlobStorageConfig", Mode = ConfigMode.Cold)]
+    [ConfigOption("Async:Storage:BlobConfig", ConfigName = "AsyncBlobStorageConfig", Mode = ConfigMode.Cold)]
     public string AsyncBlobStorageConfig { get; set; } = "uri=https://mystorageaccount.blob.core.windows.net,mi=true";
-    [ConfigOption("Async:SBConfig", ConfigName = "AsyncSBConfig", Mode = ConfigMode.Cold)]
-    public string AsyncSBConfig { get; set; } = "cs=example-sb-connection-string,ns=example-namespace,q=requeststatus,mi=false";
-    [ConfigOption("Async:BlobWorkerCount", ConfigName = "AsyncBlobWorkerCount", Mode = ConfigMode.Cold)]
+    [ConfigOption("Async:Storage:Workers", ConfigName = "AsyncBlobWorkerCount", Mode = ConfigMode.Cold)]
     public int AsyncBlobWorkerCount { get; set; } = 2;
-    [ConfigOption("Async:ModeEnabled", ConfigName = "AsyncModeEnabled", Mode = ConfigMode.Cold)]
-    public bool AsyncModeEnabled { get; set; } = false;
+    [ConfigOption("Async:ClassNames", ConfigName = "AsyncClassNames", Mode = ConfigMode.Cold)]
+    public string AsyncClassNames { get; set; } = "";
+    [ConfigOption("Async:Enabled", ConfigName = "AsyncModeEnabled", Mode = ConfigMode.Cold)]
+    public bool AsyncModeEnabled { get; set;  } = false;
+    [ConfigOption("Async:ServiceBus:Config", ConfigName = "AsyncSBConfig", Mode = ConfigMode.Cold)]
+    public string AsyncSBConfig { get; set; } = "cs=example-sb-connection-string,ns=example-namespace,q=requeststatus,mi=false";
+    [ConfigOption("Async:Storage:ContainerName", ConfigName = "StorageDbContainerName", Mode = ConfigMode.Cold)]
+    public string StorageDbContainerName { get; set; } = "Requests";
+    // [ConfigOption("Async:Storage:Enabled", ConfigName = "StorageDbEnabled", Mode = ConfigMode.Cold)]
+    // public bool StorageDbEnabled { get; set; } = false;
+
+    // ── Circuit Breaker ──
+    [ConfigOption("CircuitBreaker:SuccessRate", Mode = ConfigMode.Cold)]
+    public int SuccessRate { get; set; } = 80;
+
+    // ── Logging ──
+    [ConfigOption("Logging:AppInsightsConnectionString", ConfigName = "APPINSIGHTS_CONNECTIONSTRING", Mode = ConfigMode.Cold)]
+    public string AppInsightsConnectionString { get; set; } = "";
+    [ConfigOption("Logging:EventData", ConfigName = "EVENT_HEADERS", Mode = ConfigMode.Cold)]
+    public string EventHeaders { get; set; } = "SimpleL7Proxy.Events.CommonEventHeaders";
+    [ConfigOption("Logging:EventHub:ConnectionString", ConfigName = "EVENTHUB_CONNECTIONSTRING", Mode = ConfigMode.Cold)]
+    public string EventHubConnectionString { get; set; } = "";
+    [ConfigOption("Logging:EventHub:MaxReconnectAttempts", ConfigName = "EVENTHUB_MAX_RECONNECT_ATTEMPTS", Mode = ConfigMode.Cold)]
+    public int EventHubMaxReconnectAttempts { get; set; } = 5;
+    [ConfigOption("Logging:EventHub:Name", ConfigName = "EVENTHUB_NAME", Mode = ConfigMode.Cold)]
+    public string EventHubName { get; set; } = "";
+    [ConfigOption("Logging:EventHub:Namespace", ConfigName = "EVENTHUB_NAMESPACE", Mode = ConfigMode.Cold)]
+    public string EventHubNamespace { get; set; } = "";
+    [ConfigOption("Logging:EventHub:StartupSeconds", ConfigName = "EVENTHUB_STARTUP_SECONDS", Mode = ConfigMode.Cold)]
+    public int EventHubStartupSeconds { get; set; } = 10;
+    [ConfigOption("Logging:EventLoggers", ConfigName = "EVENT_LOGGERS", Mode = ConfigMode.Cold)]
+    public string EventLoggers { get; set; } = "file";
+    [ConfigOption("Logging:LogDateTime", ConfigName = "LOGDATETIME", Mode = ConfigMode.Cold)]
+    public bool LogDateTime { get; set; } = false;
+    [ConfigOption("Logging:LogFileName", ConfigName = "LOGFILE_NAME", Mode = ConfigMode.Cold)]
+    public string LogFileName { get; set; } = "eventslog.json";
+    [ConfigOption("Logging:ReuseEvents", Mode = ConfigMode.Cold)]
+    public bool ReuseEvents { get; set; } = false;
+
+    // ── Profiles ──
+    [ConfigOption("Profiles:RefreshIntervalSecs", Mode = ConfigMode.Cold)]
+    public int UserConfigRefreshIntervalSecs { get; set; } = 3600; // 1 hour
+    [ConfigOption("Profiles:SoftDeleteTTLMinutes", Mode = ConfigMode.Cold)]
+    public int UserSoftDeleteTTLMinutes { get; set; } = 360; // 6 hours
 
     // ── Security ──
+    [ConfigOption("Security:IgnoreSSLCert", ConfigName = "IgnoreSSLCert", Mode = ConfigMode.Cold)]
+    public bool IgnoreSSLCert { get; set; } = false;
     [ConfigOption("Security:OAuthAudience", Mode = ConfigMode.Cold)]
     public string OAuthAudience { get; set; } = "";
     [ConfigOption("Security:UseOAuth", Mode = ConfigMode.Cold)]
     public bool UseOAuth { get; set; } = false;
-    [ConfigOption("Security:IgnoreSSLCert", ConfigName = "IgnoreSSLCert", Mode = ConfigMode.Cold)]
-    public bool IgnoreSSLCert { get; set; } = false;
 
     // ── Server ──
+    [ConfigOption("Server:GC2InternalSecs", ConfigName = "GC2InternalSecs", Mode = ConfigMode.Cold)]
+    public int GC2InternalSecs { get; set; } = 300; // 5 minutes
     [ConfigOption("Server:MaxQueueLength", Mode = ConfigMode.Cold)]
     public int MaxQueueLength { get; set; } = 1000;
     [ConfigOption("Server:MaxUndrainedEvents", ConfigName = "EVENTHUB_MAX_UNDRAINED_EVENTS", Mode = ConfigMode.Cold)]
@@ -149,78 +205,16 @@ public class ProxyConfig
     public int PollTimeout { get; set; } = 3000;
     [ConfigOption("Server:Port", Mode = ConfigMode.Cold)]
     public int Port { get; set; } = 80;
-    [ConfigOption("Server:SuccessRate", Mode = ConfigMode.Cold)]
-    public int SuccessRate { get; set; } = 80;
-    [ConfigOption("Server:TerminationGracePeriodSeconds", ConfigName = "TERMINATION_GRACE_PERIOD_SECONDS", Mode = ConfigMode.Cold)]
-    public int TerminationGracePeriodSeconds { get; set; } = 30;
-    [ConfigOption("Server:GC2InternalSecs", ConfigName = "GC2InternalSecs", Mode = ConfigMode.Cold)]
-    public int GC2InternalSecs { get; set; } = 300; // 5 minutes
-    [ConfigOption("Server:Workers", Mode = ConfigMode.Cold)]
-    public int Workers { get; set; } = 10;
-
-    /// <summary>How long (in seconds) an unused shared iterator lives before cleanup.</summary>
-    [ConfigOption("Server:SharedIteratorTTLSeconds", Mode = ConfigMode.Cold)]
-    public int SharedIteratorTTLSeconds { get; set; } = 60;
     /// <summary>How often (in seconds) to run cleanup of stale shared iterators.</summary>
     [ConfigOption("Server:SharedIteratorCleanupIntervalSeconds", Mode = ConfigMode.Cold)]
     public int SharedIteratorCleanupIntervalSeconds { get; set; } = 30;
-
-    // ── Storage ──
-    [ConfigOption("Async:Storage:Enabled", ConfigName = "StorageDbEnabled", Mode = ConfigMode.Cold)]
-    public bool StorageDbEnabled { get; set; } = false;
-    [ConfigOption("Async:Storage:ContainerName", ConfigName = "StorageDbContainerName", Mode = ConfigMode.Cold)]
-    public string StorageDbContainerName { get; set; } = "Requests";
-
-    // ── User ── COLD --
-    [ConfigOption("Profiles:User:ConfigRequired")]
-    public bool UserConfigRequired { get; set; } = false;
-    [ConfigOption("Profiles:RefreshIntervalSecs", Mode = ConfigMode.Cold)]
-    public int UserConfigRefreshIntervalSecs { get; set; } = 3600; // 1 hour
-    [ConfigOption("Profiles:SoftDeleteTTLMinutes", Mode = ConfigMode.Cold)]
-    public int UserSoftDeleteTTLMinutes { get; set; } = 360; // 6 hours
-    // ── User ── WARM --
-    [ConfigOption("Profiles:SuspendedUser:ConfigUrl")]
-    public string SuspendedUserConfigUrl { get; set; } = ""; // e.g. "file:suspended.json" or "http://configservice/suspended"
-    [ConfigOption("Profiles:User:UserConfigUrl")]
-    public string UserConfigUrl { get; set; } = ""; // e.g. "file:users.json" or "http://configservice/users"
-    [ConfigOption("Profiles:User:IDFieldName")]
-    public string UserIDFieldName { get; set; } = "userId";
-    [ConfigOption("Profiles:User:ProfileHeader")]
-    public string UserProfileHeader { get; set; } = "X-UserProfile";
-    [ConfigOption("Profiles:User:UseProfiles")]
-    public bool UseProfiles { get; set; } = false;
-        // ── Validation ──
-    [ConfigOption("Profiles:Auth:ValidateAppIDEnabled")]
-    public bool ValidateAuthAppID { get; set; } = false;
-    [ConfigOption("Profiles:Auth:ConfigUrl")]
-    public string ValidateAuthAppIDUrl { get; set; } = ""; // e.g. "file:authappids.json" or "http://configservice/authappids"
-    [ConfigOption("Profiles:Auth:ValidateFieldName")]
-    public string ValidateAuthAppFieldName { get; set; } = "authAppID";
-    [ConfigOption("Profiles:Auth:ValidateAppIDHeader")]
-    public string ValidateAuthAppIDHeader { get; set; } = "X-MS-CLIENT-PRINCIPAL-ID";
-
-
-    // ── Logging / Telemetry ──
-    [ConfigOption("Logging:AppInsightsConnectionString", ConfigName = "APPINSIGHTS_CONNECTIONSTRING", Mode = ConfigMode.Cold)]
-    public string AppInsightsConnectionString { get; set; } = "";
-    [ConfigOption("Logging:EventLoggers", ConfigName = "EVENT_LOGGERS", Mode = ConfigMode.Cold)]
-    public string EventLoggers { get; set; } = "file";
-    [ConfigOption("Logging:EventData", ConfigName = "EVENT_HEADERS", Mode = ConfigMode.Cold)]
-    public string EventHeaders { get; set; } = "SimpleL7Proxy.Events.CommonEventHeaders";
-    [ConfigOption("Logging:LogFileName", ConfigName = "LOGFILE_NAME", Mode = ConfigMode.Cold)]
-    public string LogFileName { get; set; } = "eventslog.json";
-
-    // ── EventHub ──
-    [ConfigOption("Logging:EventHub:ConnectionString", ConfigName = "EVENTHUB_CONNECTIONSTRING", Mode = ConfigMode.Cold)]
-    public string EventHubConnectionString { get; set; } = "";
-    [ConfigOption("Logging:EventHub:Name", ConfigName = "EVENTHUB_NAME", Mode = ConfigMode.Cold)]
-    public string EventHubName { get; set; } = "";
-    [ConfigOption("Logging:EventHub:Namespace", ConfigName = "EVENTHUB_NAMESPACE", Mode = ConfigMode.Cold)]
-    public string EventHubNamespace { get; set; } = "";
-    [ConfigOption("Logging:EventHub:StartupSeconds", ConfigName = "EVENTHUB_STARTUP_SECONDS", Mode = ConfigMode.Cold)]
-    public int EventHubStartupSeconds { get; set; } = 10;
-    [ConfigOption("Logging:EventHub:MaxReconnectAttempts", ConfigName = "EVENTHUB_MAX_RECONNECT_ATTEMPTS", Mode = ConfigMode.Cold)]
-    public int EventHubMaxReconnectAttempts { get; set; } = 5;
+    /// <summary>How long (in seconds) an unused shared iterator lives before cleanup.</summary>
+    [ConfigOption("Server:SharedIteratorTTLSeconds", Mode = ConfigMode.Cold)]
+    public int SharedIteratorTTLSeconds { get; set; } = 60;
+    [ConfigOption("Server:TerminationGracePeriodSeconds", ConfigName = "TERMINATION_GRACE_PERIOD_SECONDS", Mode = ConfigMode.Cold)]
+    public int TerminationGracePeriodSeconds { get; set; } = 30;
+    [ConfigOption("Server:Workers", Mode = ConfigMode.Cold)]
+    public int Workers { get; set; } = 10;
 
     // ════════════════════════════════════════════════════════════════════
     // Hidden — not published (runtime-derived / parsed / composite)
@@ -229,6 +223,10 @@ public class ProxyConfig
     // ── Security ──
     [ConfigOption("Security:UseOAuthGov", Mode = ConfigMode.Hidden)]
     public bool UseOAuthGov { get; set; } = false;
+
+    // ── Server ──
+    [ConfigOption("Server:UseSharedIterators", Mode = ConfigMode.Hidden)]
+    public bool UseSharedIterators { get; set; } = true;
 
     // ── Parsed from AsyncBlobStorageConfig ──
     [ParsedConfig("AsyncBlobStorageConfig")]
@@ -260,9 +258,6 @@ public class ProxyConfig
     public string LogLevel { get; set; } = "Information";
     [ConfigOption("Logging:LogToFile", ConfigName = "LOGTOFILE", Mode = ConfigMode.Hidden)]
     public bool LogToFile { get; set; } = false;
-
-    [ConfigOption("Logging:LogDateTime", ConfigName = "LOGDATETIME", Mode = ConfigMode.Cold)]
-    public bool LogDateTime { get; set; } = false;
 
     // ── App Config ──
     [ConfigOption("AppConfig:Endpoint", ConfigName = "AZURE_APPCONFIG_ENDPOINT", Mode = ConfigMode.Hidden)]

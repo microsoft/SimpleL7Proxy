@@ -1,6 +1,6 @@
 # Backend Host Configuration
 
-Configure up to 9 backend hosts (`Host1`…`Host9`) using a semicolon-separated connection string, or the simpler legacy per-variable format.
+Configure any number of backend hosts (`Host1`…`Host9`) using a semicolon-separated connection string, or the simpler legacy per-variable format.
 
 > **TL;DR**
 > - **Connection string format is recommended** — all per-host options in one variable.
