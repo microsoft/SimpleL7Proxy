@@ -343,12 +343,14 @@ namespace SimpleL7Proxy.Proxy
                 // wait state... can be cancelled by Terminate
                 if (AsyncTimeout > 10)
                 {
+                    // during this time the downstream request is processing
                     await Task.Delay(AsyncTimeout, _cancellationTokenSource.Token).ConfigureAwait(false);
                 }
 
                 _logger.LogTrace("[AsyncWorker:{Guid}] Delay complete, initializing async processing", _requestData.Guid);
                 //_logger.LogInformation($"AsyncWorker: Delayed for {AsyncTimeout} ms");
-                // Atomically set to running (1) only if not started (0)
+
+                // Atomically set to running (1) only if not started (0)  [ ITETCOBO:  aboted or ACTIVE !! ]
                 if (Interlocked.CompareExchange(ref _beginStartup, 1, 0) == 0)
                 {
 
@@ -702,7 +704,7 @@ namespace SimpleL7Proxy.Proxy
         /// <returns><c>true</c> if the operation completed successfully (either terminated or waited); otherwise, <c>false</c>.</returns>
         public async Task<bool> Synchronize()
         {
-            // If it has not already entered startup, abort it and cancel the token
+            // If it has not already entered startup, abort it and cancel the token     [ ITETCOBO:  ABORTED or active!! ] 
             if (Interlocked.CompareExchange(ref _beginStartup, -1, 0) == 0)
             {
                 _cancellationTokenSource?.Cancel();
@@ -733,6 +735,8 @@ namespace SimpleL7Proxy.Proxy
             return _beginStartup == 1;
         }
 
+
+        // cleanup action
         public async Task AbortAsync()
         {
             if (Interlocked.CompareExchange(ref _beginStartup, -1, 0) == 0)
