@@ -10,7 +10,7 @@ using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.Async.ServiceBus
 {
-    public class ServiceBusFactory
+    public class ServiceBusFactory : IServiceBusFactory
     {
         private readonly DefaultCredential _defaultCredential;
         private readonly IOptionsMonitor<ProxyConfig> _optionsMonitor;

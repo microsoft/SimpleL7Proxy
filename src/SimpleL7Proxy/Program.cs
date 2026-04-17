@@ -274,6 +274,7 @@ public class Program
         // ASYNC RELATED
         // Add storage service registration
         services.AddSingleton<ServiceBusFactory>();
+        services.AddSingleton<IServiceBusFactory>(sp => sp.GetRequiredService<ServiceBusFactory>());
         services.AddSingleton<ServiceBusRequestService>();
         services.AddSingleton<IServiceBusRequestService>(sp => sp.GetRequiredService<ServiceBusRequestService>());
 

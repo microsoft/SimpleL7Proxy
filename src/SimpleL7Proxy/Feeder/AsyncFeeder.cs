@@ -48,7 +48,7 @@ namespace SimpleL7Proxy.Feeder
         private bool isShuttingDown = false;
         private Task? readerTask;
         CancellationTokenSource? _cancellationTokenSource;
-        private readonly ServiceBusFactory _senderFactory;
+        private readonly IServiceBusFactory _senderFactory;
         private readonly ConcurrentDictionary<Guid, Task> _activeHandlers = new();
         private static long counter = 0;
 
@@ -81,7 +81,7 @@ namespace SimpleL7Proxy.Feeder
                             IUserPriorityService userPriority,
                             IUserProfileService userProfile,
                             IRequestDataBackupService requestBackupService,
-                            ServiceBusFactory senderFactory,
+                            IServiceBusFactory senderFactory,
                             NormalRequest normalRequest,
                             OpenAIBackgroundRequest openAIRequest,
                             IConcurrentPriQueue<RequestData> requestsQueue,
