@@ -24,7 +24,7 @@ using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.Async.BlobStorage;
 using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.Async.BackupAPI;
-using SimpleL7Proxy.Feeder;
+using SimpleL7Proxy.Async.Feeder;
 
 using System.Net;
 using System.Text;

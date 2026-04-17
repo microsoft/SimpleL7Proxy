@@ -11,7 +11,7 @@ using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.Async.BackupAPI;
-using SimpleL7Proxy.Feeder;
+using SimpleL7Proxy.Async.Feeder;
 
 namespace SimpleL7Proxy;
 
