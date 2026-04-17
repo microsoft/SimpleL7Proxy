@@ -59,7 +59,7 @@ public static class ConfigParser
         ("AsyncModeEnabled", "AsyncModeEnabled"),
         ("LogAllRequestHeaders", "LogAllRequestHeaders"),
         ("LogAllResponseHeaders", "LogAllResponseHeaders"),
-        ("StorageDbEnabled", "StorageDbEnabled"),
+        // ("StorageDbEnabled", "StorageDbEnabled"),
         ("UseOAuth", "UseOAuth"),
         ("UseOAuthGov", "UseOAuthGov"),
         ("UseProfiles", "UseProfiles"),
@@ -159,55 +159,6 @@ public static class ConfigParser
 
         return opts;
     }
-
-    // Apply in this order
-    // 1. Default value from .cs file
-    // 2. Value from environment variable (if set)
-    // 3. Value from environment variable alias (if set) 
-    // 4. Value from App Configuration (if set)
-    // public static BackendOptions ParseOptions(Dictionary<string, string> dict)
-    // {
-    //     EnvVars.Clear();
-
-    //     // calculated values based on logic
-    //     var opts = new BackendOptions();
-
-    //     foreach (var (envVarName, propertyName) in SimpleFields)
-    //     {
-    //         // for all options, uses either the environment or default value
-    //         opts.ApplyFieldFromEnv(dict, s_defaults, envVarName, propertyName);
-    //     }
-
-    //     opts.AcceptableStatusCodes = ReadEnvironmentVariableOrDefault(dict, "AcceptableStatusCodes", s_defaults.AcceptableStatusCodes);
-    //     opts.IterationMode = ReadEnvironmentVariableOrDefault(dict, "IterationMode", s_defaults.IterationMode);
-
-    //     var defaultPriorityWorkers = string.Join(",", s_defaults.PriorityWorkers.Select(kvp => $"{kvp.Key}:{kvp.Value}"));
-    //     opts.PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault(dict, "PriorityWorkers", defaultPriorityWorkers)));
-
-    //     var defaultValidateHeaders = string.Join(",", s_defaults.ValidateHeaders.Select(kvp => $"{kvp.Key}={kvp.Value}"));
-    //     opts.ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault(dict, "ValidateHeaders", defaultValidateHeaders)));
-
-    //     ApplyAsyncServiceBusOverrides(dict, opts, s_defaults);
-    //     ApplyAsyncBlobStorageOverrides(dict, opts, s_defaults);
-
-    //     // IDStr is derived from the prefix + HostName (already resolved via SimpleFields).
-    //     opts.IDStr = $"{opts.IDStr}-{opts.HostName}-";
-
-    //     ApplyDerivedSettingsFromConfigNames(
-    //         opts,
-    //         nameof(BackendOptions.HealthProbeSidecar),
-    //         nameof(BackendOptions.LoadBalanceMode),
-    //         nameof(BackendOptions.PriorityKeys),
-    //         nameof(BackendOptions.PriorityValues),
-    //         nameof(BackendOptions.ValidateHeaders));
-
-    //     return opts;
-    // }
-
-    // public static IReadOnlyDictionary<string, string> GetParsedEnvVars()
-    // {
-    //     return new Dictionary<string, string>(EnvVars, StringComparer.OrdinalIgnoreCase);
-    // }
 
     /// <summary>
     /// <summary>
