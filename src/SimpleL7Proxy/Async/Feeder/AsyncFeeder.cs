@@ -13,14 +13,14 @@ using System.Security.Policy;
 
 using SimpleL7Proxy.Config;
 using Shared.RequestAPI.Models;
-using SimpleL7Proxy.ServiceBus;
+using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Queue;
 using System.Runtime.Intrinsics.Arm;
 
-namespace SimpleL7Proxy.Feeder
+namespace SimpleL7Proxy.Async.Feeder
 {
 
     public class NullAsyncFeeder : IAsyncFeeder
@@ -48,7 +48,7 @@ namespace SimpleL7Proxy.Feeder
         private bool isShuttingDown = false;
         private Task? readerTask;
         CancellationTokenSource? _cancellationTokenSource;
-        private readonly ServiceBusFactory _senderFactory;
+        private readonly IServiceBusFactory _senderFactory;
         private readonly ConcurrentDictionary<Guid, Task> _activeHandlers = new();
         private static long counter = 0;
 
@@ -81,7 +81,7 @@ namespace SimpleL7Proxy.Feeder
                             IUserPriorityService userPriority,
                             IUserProfileService userProfile,
                             IRequestDataBackupService requestBackupService,
-                            ServiceBusFactory senderFactory,
+                            IServiceBusFactory senderFactory,
                             NormalRequest normalRequest,
                             OpenAIBackgroundRequest openAIRequest,
                             IConcurrentPriQueue<RequestData> requestsQueue,

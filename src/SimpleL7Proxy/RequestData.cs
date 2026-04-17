@@ -6,13 +6,13 @@ using System.Threading.Tasks;
 
 using Microsoft.Extensions.ObjectPool;
 using Shared.RequestAPI.Models;
-using SimpleL7Proxy.BackupAPI;
+using SimpleL7Proxy.Async.BackupAPI;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.Events;
-using SimpleL7Proxy.Feeder;
+using SimpleL7Proxy.Async.Feeder;
 using SimpleL7Proxy.Proxy;
-using SimpleL7Proxy.ServiceBus;
+using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.User;
 
 

@@ -1,12 +1,23 @@
 <!--
-	- Policies are applied in the order they appear.
-	- Position <base/> inside a section to inherit policies from the outer scope.
-	- Comments within policies are not preserved.
+=============================================================================
+Azure API Policy Template
+=============================================================================
+Version:	 2.0.1
+Mode:	 Standard
+Updated:	 2026-02-13
+ 
+KEY CHANGES:
+- Added context window exceeded error handling (routes to PAYGO, skips PTU)
+- Bugfix to support appropriate retries for streaming
+- Added affinity support, bugfix for 200 empty response
+- Added priority-based backend selection and retry logic.
+- Implemented dynamic backend throttling and retry-after handling.
+- Fix for Concurrency Limit configuration to use string values.
+- fix for handling context length exceeded errors properly.
+=============================================================================
 -->
-<!-- Add policies as children to the <inbound>, <outbound>, <backend>, and <on-error> elements -->
 <policies>
-	<!-- Throttle, authorize, validate, cache, or transform the requests, return 408, 429 on timeout and concurrency limits, error body on 400 -->
-	<!-- Policy Date: 11/26/2025 -->
+	<!-- Policy Date: 11/12/2025  Affinity, temp/perm errors, outofbound error fix -->
 	<inbound>
 		<base />
 		<cache-lookup-value key="@("listBackends-" + context.Api.Id)" variable-name="listBackends" />
@@ -155,6 +166,7 @@
 			});
 			return arr;
 		}" />
+		<set-variable name="contextWindowExceeded" value="@(false)" />
 
 		<set-variable name="activityLog" value="@{
 			// Initialize or reuse
@@ -257,9 +269,10 @@
 
 				JArray priorityBackendIndxs = (JArray)context.Variables["PriBackendIndxs"];
 				int backendCallCount = context.Variables.GetValueOrDefault<int>("backendCallCounter", 0);
-				
-				// Only check backend affinity on the first call
-				if (backendCallCount == 0) {
+				bool contextWindowExceeded = context.Variables.GetValueOrDefault<bool>("contextWindowExceeded", false);
+ 
+				// Only check backend affinity on the first call and if no context window error
+				if (backendCallCount == 0 && !contextWindowExceeded) {
 					int affinityBackendIdx = context.Variables.GetValueOrDefault<int>("RequestAffinityBackendIdx", -1);
 
 					// Check if we have a valid affinity backend and it's in our priority list
@@ -280,6 +293,12 @@
 				// Find the lowest priority available backends
 				foreach (int i in priorityBackendIndxs) {
 					JObject backend = (JObject)backends[i];
+					
+					// Skip PTU backends if context window exceeded
+					if (contextWindowExceeded && backend.Value<string>("ModelType") == "PTU") {
+						continue;
+					}
+					
 					if (!backend.Value<bool>("isThrottling")) {
 						int priority = backend.Value<int>("priority");
 						if (priority < lowestPriority) {
@@ -473,6 +492,26 @@
 					}" />
 				</when>
 			</choose>
+			<!-- Set contextWindowExceeded flag separately after checking isPermError -->
+			<set-variable name="contextWindowExceeded" value="@{
+				if (context.Response == null) { return context.Variables.GetValueOrDefault<bool>("contextWindowExceeded", false); }
+				
+				int statusCode = context.Response.StatusCode;
+				
+				if (statusCode == 400) {
+					try {
+						var body = context.Response.Body.As<JObject>(preserveContent: true);
+						var errorCode = body["error"]?["code"]?.ToString();
+						
+						if (errorCode == "context_length_exceeded") {
+							return true;
+						}
+					} catch { }
+				}
+				
+				// Keep existing value if not a context window error
+				return context.Variables.GetValueOrDefault<bool>("contextWindowExceeded", false);
+			}" />
 			
 			<choose>
 				<when condition="@(context.Variables.GetValueOrDefault<bool>("isTempError", true) )">
@@ -522,9 +561,14 @@
 			<set-variable name="unThrottledBackends" value="@{
 				var backends = context.Variables.GetValueOrDefault<JArray>("listBackends", new JArray());
 				var priorityBackendIndxs = (JArray)context.Variables["PriBackendIndxs"];
+				bool contextWindowExceeded = context.Variables.GetValueOrDefault<bool>("contextWindowExceeded", false);
 				int count=0;
 				foreach (int i in priorityBackendIndxs) {
 					JObject backend = (JObject)backends[i];
+					// Skip PTU backends if context window exceeded
+					if (contextWindowExceeded && backend.Value<string>("ModelType") == "PTU") {
+						continue;
+					}
 					if (!backend.Value<bool>("isThrottling")) {
 						count++;
 					}

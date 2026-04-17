@@ -1,4 +1,4 @@
-namespace SimpleL7Proxy.ServiceBus
+namespace SimpleL7Proxy.Async.ServiceBus
 {
     public enum ServiceBusMessageStatusEnum
     {

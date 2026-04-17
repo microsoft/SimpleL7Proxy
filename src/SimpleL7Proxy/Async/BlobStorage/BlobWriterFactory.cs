@@ -5,7 +5,7 @@ using Microsoft.Extensions.Options;
 
 using SimpleL7Proxy.Config;
 
-namespace SimpleL7Proxy.BlobStorage
+namespace SimpleL7Proxy.Async.BlobStorage
 {
     /// <summary>
     /// Factory for creating BlobWriter instances.
@@ -13,6 +13,7 @@ namespace SimpleL7Proxy.BlobStorage
     public interface IBlobWriterFactory
     {
         IBlobWriter CreateBlobWriter();
+        string InitStatus { get; }
     }
 
     public class BlobWriterFactory : IBlobWriterFactory
@@ -32,25 +33,27 @@ namespace SimpleL7Proxy.BlobStorage
             _optionsMonitor = optionsMonitor;
             _logger = logger;
             _nullBlobWriterLogger = nullBlobWriterLogger;
-            _logger.LogDebug("Starting BlobWriter factory");
         }
+
+        public string InitStatus { get; private set; }
 
         public IBlobWriter CreateBlobWriter()
         {
+            // Console.WriteLine($"BlobWriterFactory: Creating BlobWriter with  AsyncModeEnabled={_optionsMonitor.CurrentValue.AsyncModeEnabled}  AsyncBlobStorageUseMI={_optionsMonitor.CurrentValue.AsyncBlobStorageUseMI}  AsyncBlobStorageAccountUri={_optionsMonitor.CurrentValue.AsyncBlobStorageAccountUri}  AsyncBlobStorageConnectionString={(string.IsNullOrEmpty(_optionsMonitor.CurrentValue.AsyncBlobStorageConnectionString) ? "NOT SET" : "SET")}");
             if (!_optionsMonitor.CurrentValue.AsyncModeEnabled)
             {
-                _logger.LogInformation("[STARTUP] ✓ BlobWriter: Async mode disabled - using NullBlobWriter");
+                InitStatus = "Disabled";
             }
             else if (_optionsMonitor.CurrentValue.AsyncBlobStorageUseMI)
             {
                 var uri = _optionsMonitor.CurrentValue.AsyncBlobStorageAccountUri;
                 if (string.IsNullOrEmpty(uri) || !uri.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
                 {
-                    _logger.LogWarning("[STARTUP] ⚠ BlobWriter: AsyncBlobStorageAccountUri not set - using NullBlobWriter");
+                    InitStatus = "MI, no URI";
                 }
                 else
                 {
-                    _logger.LogInformation("[STARTUP] ✓ BlobWriter created with managed identity - URI: {Uri}", uri);
+                    InitStatus = $"MI, {uri}";
                     return CreateBlobWriterWithManagedIdentity(uri);
                 }
             }
@@ -59,19 +62,19 @@ namespace SimpleL7Proxy.BlobStorage
                 var connectionString = _optionsMonitor.CurrentValue.AsyncBlobStorageConnectionString;
                 if (string.IsNullOrEmpty(connectionString))
                 {
-                    _logger.LogWarning("[STARTUP] ⚠ BlobWriter: Connection string not provided - using NullBlobWriter");
+                    InitStatus = "CS, not set";
                 }
                 else
                 {
 
                     try
                     {
-                        _logger.LogInformation("[STARTUP] ✓ BlobWriter: Creating with connection string");
+                        InitStatus = "CS";
                         return CreateBlobWriterWithConnectionString(connectionString);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "[STARTUP] ✗ BlobWriter: Failed to create BlobServiceClient - using NullBlobWriter");
+                        InitStatus = $"CS, error: {ex.Message}";
                     }
                 }
             }
@@ -92,13 +95,14 @@ namespace SimpleL7Proxy.BlobStorage
                 var blobServiceClient = new BlobServiceClient(blobServiceUri, credential);
                 var blobWriter = new BlobWriter(blobServiceClient, _logger);
                 blobWriter.UsesMI = true; // Set on BlobWriter, not BlobServiceClient
-                _logger.LogInformation("[STARTUP] ✓ BlobServiceClient created successfully with managed identity - URI: {Uri}", storageAccountUri);
+                //_logger.LogInformation("[STARTUP] ✓ BlobServiceClient created successfully with managed identity - URI: {Uri}", storageAccountUri);
 
                 return blobWriter;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Failed to create BlobServiceClient with managed identity: {ex.Message}");
+                InitStatus = $"MI, error: {ex.Message}";
                 return new NullBlobWriter(_nullBlobWriterLogger);
             }
         }
@@ -115,6 +119,7 @@ namespace SimpleL7Proxy.BlobStorage
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Failed to create BlobServiceClient with connection string: {ex.Message}");
+                InitStatus = $"CS, error: {ex.Message}";
                 return new NullBlobWriter(_nullBlobWriterLogger);
             }
         }

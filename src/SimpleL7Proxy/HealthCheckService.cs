@@ -4,13 +4,13 @@ using System.Net;
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Options;
 using SimpleL7Proxy.Backend;
-using SimpleL7Proxy.BlobStorage;
+using SimpleL7Proxy.Async.BlobStorage;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Queue;
-using SimpleL7Proxy.ServiceBus;
+using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Events;
-using SimpleL7Proxy.BackupAPI;
+using SimpleL7Proxy.Async.BackupAPI;
 using SimpleL7Proxy.Proxy;
 
 using Shared.HealthProbe;
@@ -115,11 +115,11 @@ public class HealthCheckService
         {
             await _backends.WaitForStartupAsync().ConfigureAwait(false);
             backendsStarted = true;
-             _logger.LogInformation("[STARTUP] ✓ Backend startup completed successfully.");
+             _logger.LogInformation("[STARTUP] ✓ HealthCheck Ready");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[STARTUP] ✗ Backend startup failed — {Message}", ex.Message);
+            _logger.LogError(ex, "[STARTUP] ✗ HealthCheck failed — {Message}", ex.Message);
             throw;
         }
     }

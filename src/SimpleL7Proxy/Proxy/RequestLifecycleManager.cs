@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
-using SimpleL7Proxy.ServiceBus;
+using SimpleL7Proxy.Async.ServiceBus;
 using Shared.RequestAPI.Models;
 
 namespace SimpleL7Proxy.Proxy;

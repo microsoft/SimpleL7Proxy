@@ -7,7 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
-namespace SimpleL7Proxy.BlobStorage
+namespace SimpleL7Proxy.Async.BlobStorage
 {
     /// <summary>
     /// A transparent stream that captures writes and queues them for batched blob storage.

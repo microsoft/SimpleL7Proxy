@@ -12,7 +12,7 @@ using System.Collections.Concurrent;
 
 // Review DISPOSAL_ARCHITECTURE.MD in the root for details on disposal flow
 
-namespace SimpleL7Proxy.BlobStorage
+namespace SimpleL7Proxy.Async.BlobStorage
 {
     /// <summary>
     /// Provides methods for writing to Azure Blob Storage.

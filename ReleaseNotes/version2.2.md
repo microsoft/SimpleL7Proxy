@@ -1,5 +1,15 @@
 # Release Notes #
 
+2.2.10.7
+
+Proxy:
+* Disable distributed telemetry for app config
+* Reorder configuration to make more sense int app config
+* Generalize startup for Async services
+* Bug fix possible empty profile lines on console when no configs are setup
+* Bug fix console logging should obey LogToConsole attribute
+* Pull out Poller as a seperate loggable filter
+
 2.2.10.6
 HealthProbe Sidecar:
 * Refactor to remove allocations

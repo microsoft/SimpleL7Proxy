@@ -1,4 +1,4 @@
-namespace SimpleL7Proxy.BlobStorage
+namespace SimpleL7Proxy.Async.BlobStorage
 {
     /// <summary>
     /// Interface for blob storage operations.

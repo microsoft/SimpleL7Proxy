@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace SimpleL7Proxy.BlobStorage
+namespace SimpleL7Proxy.Async.BlobStorage
 {
     /// <summary>
     /// Configuration options for the blob write queue.
