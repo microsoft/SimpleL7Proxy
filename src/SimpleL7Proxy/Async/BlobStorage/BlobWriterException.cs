@@ -1,4 +1,4 @@
-namespace SimpleL7Proxy.BlobStorage
+namespace SimpleL7Proxy.Async.BlobStorage
 {
     using System;
     using System.Collections.Concurrent;

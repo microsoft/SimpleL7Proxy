@@ -12,7 +12,7 @@ using Azure.Messaging.ServiceBus;
 using SimpleL7Proxy.Config;
 
 
-namespace SimpleL7Proxy.ServiceBus
+namespace SimpleL7Proxy.Async.ServiceBus
 {
 
     public class ServiceBusRequestService : IHostedService, IServiceBusRequestService

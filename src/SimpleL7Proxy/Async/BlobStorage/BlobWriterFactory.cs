@@ -5,7 +5,7 @@ using Microsoft.Extensions.Options;
 
 using SimpleL7Proxy.Config;
 
-namespace SimpleL7Proxy.BlobStorage
+namespace SimpleL7Proxy.Async.BlobStorage
 {
     /// <summary>
     /// Factory for creating BlobWriter instances.

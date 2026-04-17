@@ -10,7 +10,7 @@ using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.User;
-using SimpleL7Proxy.ServiceBus;
+using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.StreamProcessor;
 using Shared.RequestAPI.Models;
 using System.Collections.Frozen;

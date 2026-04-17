@@ -10,11 +10,11 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
 using SimpleL7Proxy;
-using SimpleL7Proxy.BlobStorage;
+using SimpleL7Proxy.Async.BlobStorage;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.DTO;
-using SimpleL7Proxy.ServiceBus;
+using SimpleL7Proxy.Async.ServiceBus;
 using Shared.RequestAPI.Models;
 // using SimpleL7Proxy.BackupAPI;
 

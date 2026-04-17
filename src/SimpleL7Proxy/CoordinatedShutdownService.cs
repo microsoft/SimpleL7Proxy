@@ -4,13 +4,13 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using SimpleL7Proxy.Backend;
-using SimpleL7Proxy.BlobStorage;
+using SimpleL7Proxy.Async.BlobStorage;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Queue;
-using SimpleL7Proxy.ServiceBus;
-using SimpleL7Proxy.BackupAPI;
+using SimpleL7Proxy.Async.ServiceBus;
+using SimpleL7Proxy.Async.BackupAPI;
 using SimpleL7Proxy.Feeder;
 
 namespace SimpleL7Proxy;
@@ -28,7 +28,7 @@ public class CoordinatedShutdownService : IHostedService
     private readonly Server _server;
     private readonly BackendTokenProvider _backendTokenProvider;
     private readonly ProxyConfig _options;
-    private readonly IEventClient? _eventClient;
+    // private readonly IEventClient? _eventClient;
     private readonly IServiceBusRequestService _serviceBusRequestService;
     private readonly IBackupAPIService _backupAPIService;
     private readonly IConcurrentPriQueue<RequestData> _queue;
@@ -48,7 +48,7 @@ public class CoordinatedShutdownService : IHostedService
         IConcurrentPriQueue<RequestData> queue,
         BackendTokenProvider backendTokenProvider,
         IEndpointMonitorService backends,
-        IEventClient? eventClient,
+        // IEventClient? eventClient,
         IServiceBusRequestService serviceBusRequestService,
         IAsyncFeeder asyncFeeder,
         IBackupAPIService backupAPIService,
@@ -63,7 +63,7 @@ public class CoordinatedShutdownService : IHostedService
         _server = server;
         _queue = queue;
         _backends = backends;
-        _eventClient = eventClient;
+        // _eventClient = eventClient;
         _serviceBusRequestService = serviceBusRequestService;
         _backupAPIService = backupAPIService;
         _asyncFeeder = asyncFeeder;
