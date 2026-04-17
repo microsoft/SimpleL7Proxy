@@ -302,8 +302,63 @@ public class Program
 
     private static void RegisterAsyncDI(IServiceCollection services, ILogger startupLogger, ProxyConfig backendOptions)
     {
-        services.AddSingleton<IBlobWriterFactory, BlobWriterFactory>();
-        // Create the underlying BlobWriter (not registered as IBlobWriter)
+        const string asyncClassesRaw =
+            "IServiceBusFactory:ServiceBusFactory, IServiceBusRequestService:ServiceBusRequestService, " +
+            "IBackupAPIService:BackupAPIService, IBlobWriterFactory:BlobWriterFactory";
+
+            // "IBlobWriter:QueuedBlobWriter, IAsyncFeeder:AsyncFeeder, " +
+            // "IRequestProcessor:NormalRequest, IRequestProcessor:OpenAIBackgroundRequest";
+
+        var assembly = typeof(Program).Assembly;
+        var assemblyTypes = assembly.GetTypes();
+        var asyncClasses = new Dictionary<string, string>();
+        var classConfig = backendOptions.AsyncClassNames == "" ? asyncClassesRaw : backendOptions.AsyncClassNames;
+
+        // validate that each classname listed implements the corresponding interface and in same namespace.
+        foreach (var entry in classConfig.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = entry.Split(':', 2);
+            if (parts.Length != 2) continue;
+
+            var interfaceName = parts[0].Trim();
+            var className = parts[1].Trim();
+
+            var interfaceType = Array.Find(assemblyTypes, t => t.Name == interfaceName && t.IsInterface);
+            var classType = Array.Find(assemblyTypes, t => t.Name == className && !t.IsAbstract);
+
+            if (classType == null || interfaceType == null || !interfaceType.IsAssignableFrom(classType)
+                || classType.Namespace != interfaceType.Namespace)
+            {
+                startupLogger.LogWarning("[ASYNC] Invalid AsyncClasses entry '{Entry}': class or interface not found, or class does not implement interface.", entry);
+                continue;
+            }
+
+            asyncClasses[interfaceName] = className;
+        }
+
+        // Verify that all interfaces from the default raw list are present in classConfig
+        var requiredInterfaces = new HashSet<string>(
+            asyncClassesRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(e => e.Split(':', 2)[0].Trim()));
+        var missingInterfaces = requiredInterfaces.Except(asyncClasses.Keys);
+        foreach (var missing in missingInterfaces)
+            startupLogger.LogWarning("[ASYNC] Required interface '{InterfaceName}' is missing from AsyncClasses config.", missing);
+
+        // Register each validated interface→class mapping as singleton
+        foreach (var kvp in asyncClasses)
+        {
+            var iType = Array.Find(assemblyTypes, t => t.Name == kvp.Key && t.IsInterface)!;
+            var cType = Array.Find(assemblyTypes, t => t.Name == kvp.Value && !t.IsAbstract)!;
+            services.AddSingleton(iType, cType);
+        }
+
+        services.AddSingleton<IBlobWriter, QueuedBlobWriter>();
+        services.AddSingleton<IAsyncFeeder, AsyncFeeder>();
+        services.AddSingleton<IRequestProcessor, NormalRequest>();
+        services.AddSingleton<IRequestProcessor, OpenAIBackgroundRequest>();
+
+        // BlobWriter infrastructure — QueuedBlobWriter wraps BlobWriter (circular IBlobWriter dep),
+        // so these must remain as explicit factory registrations and override the dictionary entry.
         services.AddSingleton<BlobWriter>(provider =>
         {
             var factory = provider.GetRequiredService<IBlobWriterFactory>();
@@ -313,7 +368,6 @@ public class Program
             return blobWriter!;
         });
 
-        // Configure BlobWriteQueue options
         services.AddSingleton(provider =>
         {
             return new BlobWriteQueueOptions
@@ -328,10 +382,10 @@ public class Program
             };
         });
 
-        // Register BlobWriteQueue as singleton (started/stopped explicitly by CoordinatedShutdownService)
         services.AddSingleton<BlobWriteQueue>();
 
-        // Register QueuedBlobWriter as the IBlobWriter implementation (wraps BlobWriter)
+        // Override dictionary's simple IBlobWriter registration — QueuedBlobWriter needs
+        // the concrete BlobWriter (not IBlobWriter) to avoid circular dependency.
         services.AddSingleton<IBlobWriter>(provider =>
         {
             var underlyingWriter = provider.GetRequiredService<BlobWriter>();
@@ -348,8 +402,8 @@ public class Program
         });
 
         services.AddTransient<IAsyncWorkerFactory, AsyncWorkerFactory>();
-        services.AddSingleton<IAsyncFeeder, AsyncFeeder>();
-        services.AddHostedService(sp => (AsyncFeeder)sp.GetRequiredService<IAsyncFeeder>());
+        if (asyncClasses.ContainsKey("IAsyncFeeder"))
+            services.AddHostedService(sp => (AsyncFeeder)sp.GetRequiredService<IAsyncFeeder>());
 
         services.AddSingleton<IRequestDataBackupService, RequestDataBackupService>();
 
