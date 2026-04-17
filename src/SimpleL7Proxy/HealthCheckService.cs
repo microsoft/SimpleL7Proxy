@@ -115,11 +115,11 @@ public class HealthCheckService
         {
             await _backends.WaitForStartupAsync().ConfigureAwait(false);
             backendsStarted = true;
-             _logger.LogInformation("[STARTUP] ✓ Backend startup completed successfully.");
+             _logger.LogInformation("[STARTUP] ✓ HealthCheck Ready");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[STARTUP] ✗ Backend startup failed — {Message}", ex.Message);
+            _logger.LogError(ex, "[STARTUP] ✗ HealthCheck failed — {Message}", ex.Message);
             throw;
         }
     }
