@@ -136,7 +136,7 @@ public class ProxyConfig
 
     // ── Async ──
     [ConfigOption("Async:Storage:BlobConfig", ConfigName = "AsyncBlobStorageConfig", Mode = ConfigMode.Cold)]
-    public string AsyncBlobStorageConfig { get; set; } = "uri=https://mystorageaccount.blob.core.windows.net,mi=true";
+    public string AsyncBlobStorageConfig { get; set; } = "";//"uri=https://mystorageaccount.blob.core.windows.net,mi=true";
     [ConfigOption("Async:Storage:Workers", ConfigName = "AsyncBlobWorkerCount", Mode = ConfigMode.Cold)]
     public int AsyncBlobWorkerCount { get; set; } = 2;
     [ConfigOption("Async:ClassNames", ConfigName = "AsyncClassNames", Mode = ConfigMode.Cold)]

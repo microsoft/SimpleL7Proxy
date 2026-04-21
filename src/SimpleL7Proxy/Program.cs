@@ -304,7 +304,7 @@ public class Program
     {
         const string asyncClassesRaw =
             "IServiceBusFactory:ServiceBusFactory, IServiceBusRequestService:ServiceBusRequestService, " +
-            "IBackupAPIService:BackupAPIService, IBlobWriterFactory:BlobWriterFactory";
+            "IBackupAPIService:BackupAPIService, IBlobWriterFactory:BlobWriterFactory, IBlobWriter:BlobWriter";
 
             // "IBlobWriter:QueuedBlobWriter, IAsyncFeeder:AsyncFeeder, " +
             // "IRequestProcessor:NormalRequest, IRequestProcessor:OpenAIBackgroundRequest";
@@ -410,7 +410,7 @@ public class Program
         // Initialize RequestData static references once all async singletons are resolvable.
         // This runs at first resolution time via a hosted-service initializer that fires before
         // the proxy starts accepting traffic (Server/WorkerFactory come after this in registration order).
-        // services.AddHostedService<AsyncInitializer>();
+        services.AddHostedService<AsyncInitializer>();
     }
 
     private static void RegisterEventHeaders(IServiceCollection services, ILogger startupLogger, ProxyConfig backendOptions)
