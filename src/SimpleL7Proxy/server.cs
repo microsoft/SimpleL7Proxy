@@ -200,6 +200,19 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
             try { await ExecuteTask.ConfigureAwait(false); }
             catch (OperationCanceledException) { /* expected */ }
         }
+
+        // Explicitly release the listener so the port is available on the next startup.
+        try
+        {
+            if (_httpListener.IsListening)
+            {
+                _httpListener.Stop();
+            }
+        }
+        finally
+        {
+            _httpListener.Close();
+        }
     }
 
     // public ConcurrentPriQueue<RequestData> Queue() {

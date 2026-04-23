@@ -111,7 +111,14 @@ echo "# Primary backend host and probe" >> "$local_config_file"
 # Ensure Host1 is exported here so child processes see it and it won't be overridden by seeded defaults
 echo "export Host1=$Host1" >> "$local_config_file"
 echo "export Probe_path1=$Probe_path1" >> "$local_config_file"
+# Extract backend port from Host1
+backend1_port=$(printf "%s" "$Host1" | sed -n 's|.*:\([0-9]*\)$|\1|p')
+if [ -z "$backend1_port" ]; then
+  backend1_port="3000"
+fi
+echo "export BACKEND1_PORT=$backend1_port" >> "$local_config_file"
 # Export port (queried by the script) so the dynamic section contains all interactive values
+echo "# Proxy listening port" >> "$local_config_file"
 echo "export Port=$proxy_port" >> "$local_config_file"
 
 # Look for defaults file in env-templates and append its exported vars to the env file
@@ -184,8 +191,8 @@ EOF
     dotnet_dir="$script_dir/../test/nullserver/dotnet"
   sed -e "s|{{PY_DIR}}|$py_dir|g" \
     -e "s|{{DOTNET_DIR}}|$dotnet_dir|g" \
-    -e "s|{{START_CMD_PY}}|source $local_config_file && python3 stream_server.py --port \$BACKEND1_PORT|g" \
-    -e "s|{{START_CMD_DOTNET}}|source $local_config_file && dotnet run --urls http://localhost:\$BACKEND1_PORT|g" \
+    -e "s|{{START_CMD_PY}}|source $local_config_file \&\& python3 stream_server.py --port \$BACKEND1_PORT|g" \
+    -e "s|{{START_CMD_DOTNET}}|source $local_config_file \&\& dotnet run --urls http://localhost:\$BACKEND1_PORT|g" \
     "$script_dir/scenarios/null_server.txt" | sed 's/^/  /'
   # Print proxy run instructions using template
   sed -e "s|{{LOCAL_CONFIG_FILE}}|$local_config_file|g" "$script_dir/scenarios/proxy_run.txt" | sed 's/^/  /'
@@ -197,7 +204,7 @@ cat <<EOF
   After both have started, you can run some quick commands to test.
 
   Quick test examples (after starting server/proxy):
-    curl -v http://localhost:\$BACKEND1_PORT\$Probe_path1
+    curl -v http://localhost:\$Port\$Probe_path1
     curl -v \$Host1\$Probe_path1
 EOF
 
