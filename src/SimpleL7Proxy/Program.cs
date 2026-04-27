@@ -407,7 +407,8 @@ public class Program
         services.AddSingleton<IRequestDataBackupService, RequestDataBackupService>();
         services.AddSingleton<IAsyncRequestStore, AsyncRequestStore>();
         services.AddSingleton<AsyncWorkerContext>();
-        services.AddHostedService<TemplateLoader>();
+        services.AddSingleton<TemplateLoader>();
+        services.AddHostedService<TemplateLoader>(sp => sp.GetRequiredService<TemplateLoader>());
 
         if (asyncClasses.ContainsKey("IAsyncFeeder"))
             services.AddHostedService(sp => (AsyncFeeder)sp.GetRequiredService<IAsyncFeeder>());

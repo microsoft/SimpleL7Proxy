@@ -41,6 +41,7 @@ namespace SimpleL7Proxy.Proxy
         private readonly IAsyncRequestStore _requestStore;
         private readonly ILogger<AsyncWorker> _logger;
         private readonly ProxyConfig _options;
+        private readonly SimpleL7Proxy.Async.TemplateLoader? _messages;
         // private readonly IBackupAPIService _backupAPIService;
         public  bool ShouldReprocess { get; set; } = false; 
         public string ErrorMessage { get; set; } = "";
@@ -106,6 +107,7 @@ namespace SimpleL7Proxy.Proxy
                    context.Logger,
                    context.Options)
         {
+            _messages = context.Messages;
         }
 
         /// <summary>
@@ -426,17 +428,28 @@ namespace SimpleL7Proxy.Proxy
                         return;
                     }
 
-                    AsyncMessage Statusmessage = new()
-                    {
-                        Status = 202,
-                        Message = "Your request has been accepted for async processing. The final result will be available at the blob URIs. Use OAuth for authentication.",
-                        MID = _requestData.MID,
-                        UserId = _requestData.UserID,
-                        Guid = _requestData.Guid.ToString(),
-                        DataBlobUri = _dataBlobUri,
-                        HeaderBlobUri = _headerBlobUri,
-                        Timestamp = DateTime.UtcNow
-                    };
+                    AsyncMessage Statusmessage =
+                        _messages?.GetMergedMessage(
+                            SimpleL7Proxy.AsyncMessageKind.Welcome,
+                            _requestData.Guid.ToString(),
+                            _requestData.MID)
+                        ?? new AsyncMessage
+                        {
+                            Status = 202,
+                            Message = "Your request has been accepted for async processing. The final result will be available at the blob URIs. Use OAuth for authentication.",
+                            MID = _requestData.MID,
+                            UserId = _requestData.UserID,
+                            Guid = _requestData.Guid.ToString(),
+                            DataBlobUri = _dataBlobUri,
+                            HeaderBlobUri = _headerBlobUri,
+                            Timestamp = DateTime.UtcNow,
+                        };
+
+                    // Override dynamic fields — the template's blob URIs are placeholders.
+                    Statusmessage.UserId        = _requestData.UserID;
+                    Statusmessage.DataBlobUri   = _dataBlobUri;
+                    Statusmessage.HeaderBlobUri = _headerBlobUri;
+                    Statusmessage.Timestamp     = DateTime.UtcNow;
 
                     try
                     {
