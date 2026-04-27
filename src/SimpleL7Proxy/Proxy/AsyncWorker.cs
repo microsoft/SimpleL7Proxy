@@ -303,11 +303,11 @@ namespace SimpleL7Proxy.Proxy
         /// Gets or creates the data output stream lazily. Only creates the blob when first accessed.
         /// </summary>
         /// <returns>The output stream for writing response data.</returns>
-        public async Task<Stream> GetOrCreateDataStreamAsync()
+        public async Task<Stream> GetResponseDataStreamAsync()
         {
             if (_requestData.OutputStream == null)
             {
-                //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.GetOrCreateDataStream | Action: LazyCreate | Guid: {Guid} | DataBlob: {DataBlob}", _requestData.Guid, dataBlobName);
+                //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.GetResponseDataStream | Action: LazyCreate | Guid: {Guid} | DataBlob: {DataBlob}", _requestData.Guid, dataBlobName);
                 
                 try
                 {
@@ -316,7 +316,7 @@ namespace SimpleL7Proxy.Proxy
                         _dataQueuedStream = qbs;
                     _requestData.OutputStream = new BufferedStream(dataStream);
                     
-                    //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.GetOrCreateDataStream | Action: Created | Guid: {Guid}", _requestData.Guid);
+                    //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.GetResponseDataStream | Action: Created | Guid: {Guid}", _requestData.Guid);
                 }
                 catch (Exception ex)
                 {
@@ -437,7 +437,7 @@ namespace SimpleL7Proxy.Proxy
                         
                         // CRITICAL: Clear the OutputStream after sending 202 response
                         // The client connection is now closed, so the original OutputStream is invalid.
-                        // GetOrCreateDataStreamAsync() checks if OutputStream is null to decide whether
+                        // GetResponseDataStreamAsync() checks if OutputStream is null to decide whether
                         // to create a new blob stream. Without this, it would return the closed client
                         // stream instead of creating a blob stream, causing data to be lost.
                         _requestData.OutputStream = null;
@@ -489,17 +489,6 @@ namespace SimpleL7Proxy.Proxy
             return _requestStore.BackupRequestAsync(_requestData);
         }
 
-        public Task UpdateBackup()
-        {
-            return PersistRequestStateAsync();
-        }
-
-        public Task<Stream> GetResponseDataStreamAsync()
-            => GetOrCreateDataStreamAsync();
-
-        public Task<bool> SaveResponseHeadersAsync(HttpStatusCode status, WebHeaderCollection headers)
-            => WriteHeaders(status, headers);
-
         /// <summary>
         /// Waits for all queued blob write operations (data + headers) to be physically
         /// written to Azure Storage. Call this BEFORE sending a "Completed" status so the
@@ -526,7 +515,7 @@ namespace SimpleL7Proxy.Proxy
         /// <param name="status">The HTTP status code to write.</param>
         /// <param name="headers">The HTTP headers to write.</param>
         /// <returns>True if headers were successfully written; otherwise, false.</returns>
-        public async Task<bool> WriteHeaders(HttpStatusCode status, WebHeaderCollection headers)
+        public async Task<bool> SaveResponseHeadersAsync(HttpStatusCode status, WebHeaderCollection headers)
         {
             const int MaxRetryAttempts = 5;
             const int BaseRetryDelayMs = 500;
@@ -538,7 +527,7 @@ namespace SimpleL7Proxy.Proxy
                     // Create or recreate the stream if needed
                     if (_hos == null)
                     {
-                        //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.WriteHeaders | Action: RecreateStream | Guid: {Guid} | UserId: {UserId} | HeaderBlob: {HeaderBlob} | Attempt: {Attempt}/{MaxAttempts}", 
+                        //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.SaveResponseHeaders | Action: RecreateStream | Guid: {Guid} | UserId: {UserId} | HeaderBlob: {HeaderBlob} | Attempt: {Attempt}/{MaxAttempts}", 
                         //    _requestData.Guid, _userId, headerBlobName, attempt + 1, MaxRetryAttempts);
                         
                         var stream = await _requestStore.OpenWriteStreamAsync(_userId, headerBlobName)
@@ -554,7 +543,7 @@ namespace SimpleL7Proxy.Proxy
                         _hos = stream;
                         if (stream is QueuedBlobStream qbs)
                             _headerQueuedStream = qbs;
-                        //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.WriteHeaders | Action: RecreateStream-Complete | Guid: {Guid}", _requestData.Guid);
+                        //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.SaveResponseHeaders | Action: RecreateStream-Complete | Guid: {Guid}", _requestData.Guid);
                     }
 
                     // Convert WebHeaderCollection to Dictionary<string, string> for proper JSON serialization
