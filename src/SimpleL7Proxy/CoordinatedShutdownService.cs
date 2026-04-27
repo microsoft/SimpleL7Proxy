@@ -145,7 +145,7 @@ public class CoordinatedShutdownService : IHostedService
             }
             else
             {
-                _logger.LogInformation("[SHUTDOWN] ✓ All tasks completed");
+                _logger.LogInformation("[SHUTDOWN] ⏹ ✓ All tasks completed");
             }
             await _queue!.StopAsync().ConfigureAwait(false);
 
