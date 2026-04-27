@@ -1,4 +1,4 @@
-namespace SimpleL7Proxy.Proxy
+namespace SimpleL7Proxy.Async
 {
     /// <summary>
     /// Represents an asynchronous worker that performs a task and disappears after completion.

@@ -1,7 +1,7 @@
 using SimpleL7Proxy.Async.BlobStorage;
 using SimpleL7Proxy.DTO;
 
-namespace SimpleL7Proxy.Proxy;
+namespace SimpleL7Proxy.Async;
 
 public class AsyncRequestStore : IAsyncRequestStore
 {

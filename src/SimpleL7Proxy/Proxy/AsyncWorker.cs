@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
 using SimpleL7Proxy;
+using SimpleL7Proxy.Async;
 using SimpleL7Proxy.Async.BlobStorage;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
@@ -91,6 +92,20 @@ namespace SimpleL7Proxy.Proxy
 
             _cancellationTokenSource = new CancellationTokenSource();
 
+        }
+
+        /// <summary>
+        /// Convenience constructor that pulls construction-time dependencies from a shared
+        /// <see cref="AsyncWorkerContext"/>.  Preferred over the multi-arg ctor — callers
+        /// inject the singleton context once and forward it on each <c>new AsyncWorker</c>.
+        /// </summary>
+        public AsyncWorker(RequestData data, int AsyncTriggerTimeout, AsyncWorkerContext context)
+            : this(data,
+                   AsyncTriggerTimeout,
+                   (context ?? throw new ArgumentNullException(nameof(context))).RequestStore,
+                   context.Logger,
+                   context.Options)
+        {
         }
 
         /// <summary>

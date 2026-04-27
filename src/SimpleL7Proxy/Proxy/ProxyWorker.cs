@@ -1874,7 +1874,7 @@ public class ProxyWorker : IConfigChangeSubscriber
             {
                 var timeLeft = _options.AsyncTriggerTimeout - (int)(DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds;
                 timeLeft = Math.Max(1, timeLeft);
-                request.asyncWorker = await _wrkCntxt.AsyncWorkerFactory.CreateAsync(request, timeLeft).ConfigureAwait(false);
+                request.asyncWorker = new AsyncWorker(request, timeLeft, _wrkCntxt.AsyncWorkerContext!);
                 _ = request.asyncWorker.StartAsync();
             }
 

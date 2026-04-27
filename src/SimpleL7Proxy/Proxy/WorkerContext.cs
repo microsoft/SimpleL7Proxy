@@ -1,5 +1,6 @@
 namespace SimpleL7Proxy.Proxy;
 
+using SimpleL7Proxy.Async;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Queue;
@@ -17,7 +18,7 @@ public class WorkerContext
     public ConfigChangeNotifier ConfigChangeNotifier { get; }
     public EventDataBuilder EventDataBuilder { get; }
     public HealthCheckService HealthCheckService { get; }
-    public IAsyncWorkerFactory AsyncWorkerFactory { get; }
+    public AsyncWorkerContext? AsyncWorkerContext { get; }
     public IEndpointMonitorService Backends { get; }
     public IConcurrentPriQueue<RequestData> Queue { get; }
     public IEventClient EventClient { get; }
@@ -38,12 +39,12 @@ public class WorkerContext
         IRequeueWorker requeueWorker,
         IEventClient eventClient,
         ILogger<ProxyWorker> logger,
-        IAsyncWorkerFactory asyncWorkerFactory,
         StreamProcessorFactory streamProcessorFactory,
         RequestLifecycleManager lifecycleManager,
         EventDataBuilder eventDataBuilder,
         HealthCheckService healthCheckService,
         ConfigChangeNotifier configChangeNotifier,
+        AsyncWorkerContext? asyncWorkerContext = null,
         ISharedIteratorRegistry? sharedIteratorRegistry = null)
     {
 
@@ -55,7 +56,6 @@ public class WorkerContext
         ArgumentNullException.ThrowIfNull(requeueWorker);
         ArgumentNullException.ThrowIfNull(eventClient);
         ArgumentNullException.ThrowIfNull(logger);
-        ArgumentNullException.ThrowIfNull(asyncWorkerFactory);
         ArgumentNullException.ThrowIfNull(streamProcessorFactory);
         ArgumentNullException.ThrowIfNull(lifecycleManager);
         ArgumentNullException.ThrowIfNull(eventDataBuilder);
@@ -71,7 +71,7 @@ public class WorkerContext
         RequeueWorker = requeueWorker;
         EventClient = eventClient;
         Logger = logger;
-        AsyncWorkerFactory = asyncWorkerFactory;
+        AsyncWorkerContext = asyncWorkerContext;
         StreamProcessorFactory = streamProcessorFactory;
         LifecycleManager = lifecycleManager;
         EventDataBuilder = eventDataBuilder;

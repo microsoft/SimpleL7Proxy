@@ -1,6 +1,6 @@
 using System.IO;
 
-namespace SimpleL7Proxy.Proxy;
+namespace SimpleL7Proxy.Async;
 
 public interface IAsyncRequestStore
 {
