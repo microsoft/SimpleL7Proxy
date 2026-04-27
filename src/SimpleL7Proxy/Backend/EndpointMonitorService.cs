@@ -186,7 +186,7 @@ public class EndpointMonitorService : BackgroundService, IEndpointMonitorService
         }
       }
 
-      _logger.LogInformation("[SHUTDOWN] ✓ Backend health poller stopped");
+      _logger.LogInformation("[SHUTDOWN] ⏹ Backend health poller stopped");
     }
     catch (Exception ex)
     {

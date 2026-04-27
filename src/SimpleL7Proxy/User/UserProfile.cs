@@ -258,7 +258,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
                 else
                     await _ErrorTimer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false);
             }
-            catch (TaskCanceledException) when (stoppingToken.IsCancellationRequested)
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested || _cancellationTokenSource.IsCancellationRequested)
             {
                 break;
             }

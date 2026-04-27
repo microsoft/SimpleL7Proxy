@@ -138,7 +138,7 @@ namespace SimpleL7Proxy.Async.ServiceBus
                 }
             }
 
-            _logger.LogInformation("[SHUTDOWN] ✓ ServiceBusRequestService stopped");
+            _logger.LogInformation("[SHUTDOWN] ⏹  ServiceBusRequestService stopped");
         }
 
         DateTime _lastDrainTime = DateTime.UtcNow;

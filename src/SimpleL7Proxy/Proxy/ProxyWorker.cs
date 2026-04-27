@@ -579,7 +579,7 @@ public class ProxyWorker : IConfigChangeSubscriber
 
         HealthCheckService.DecrementActiveWorkers(_id);
 
-        _logger.LogInformation("[SHUTDOWN] ✓ Worker {IdStr} stopped", _idStr);
+        _logger.LogInformation("[SHUTDOWN] ⏹ Worker {IdStr} stopped", _idStr);
 
     }
 
