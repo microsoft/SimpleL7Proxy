@@ -1,0 +1,10 @@
+{
+  "Message": "Your request has been accepted for async processing. The final result will be available at the blob URIs. Use OAuth for authentication.",
+  "UserId": "defaultUser",
+  "MID": "%MID%",
+  "Guid": "%GUID%",
+  "Status": 202,
+  "Timestamp": "%TIMESTAMP%",
+  "DataBlobUri": "https://nvmtrstgacct.blob.core.windows.net/data/%GUID%",
+  "HeaderBlobUri": "https://nvmtrstgacct.blob.core.windows.net/data/%GUID%-Headers"
+}

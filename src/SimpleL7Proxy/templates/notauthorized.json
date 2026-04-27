@@ -1,0 +1,10 @@
+{
+  "Message": "Sorry, you do not have authorization to access this resource.",
+  "UserId": "defaultUser",
+  "MID": "%MID%",
+  "Guid": "%GUID%",
+  "Status": 425,
+  "Timestamp": "%TIMESTAMP%",
+  "DataBlobUri": "https://nvmtrstgacct.blob.core.windows.net/data/%GUID%",
+  "HeaderBlobUri": "https://nvmtrstgacct.blob.core.windows.net/data/%GUID%-Headers"
+}
