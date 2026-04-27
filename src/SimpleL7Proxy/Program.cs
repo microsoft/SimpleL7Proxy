@@ -406,6 +406,7 @@ public class Program
             services.AddHostedService(sp => (AsyncFeeder)sp.GetRequiredService<IAsyncFeeder>());
 
         services.AddSingleton<IRequestDataBackupService, RequestDataBackupService>();
+        services.AddSingleton<IAsyncRequestStore, AsyncRequestStore>();
 
         // Initialize RequestData static references once all async singletons are resolvable.
         // This runs at first resolution time via a hosted-service initializer that fires before

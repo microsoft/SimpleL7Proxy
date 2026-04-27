@@ -219,7 +219,7 @@ public class RequestLifecycleManager
             // Mark as BackgroundProcessing to trigger periodic polling
             _logger.LogDebug("Updating async worker for background GUID: {Guid}, BackgroundRequestId: {BackgroundRequestId}",
                 request.Guid, processor.BackgroundRequestId);
-            await request.asyncWorker.UpdateBackup().ConfigureAwait(false);
+            await request.asyncWorker.PersistRequestStateAsync().ConfigureAwait(false);
             request.BackgroundRequestCompleted = false;
         }
         else if (processor.BackgroundCompleted)
