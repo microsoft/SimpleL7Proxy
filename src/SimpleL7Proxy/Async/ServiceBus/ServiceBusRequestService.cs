@@ -309,11 +309,10 @@ namespace SimpleL7Proxy.Async.ServiceBus
             isShuttingDown = true;
             if (isRunning)
             {
-                _logger.LogInformation("[SHUTDOWN] ⏹ ServiceBusRequestService stopping");
-                _logger.LogInformation("[SHUTDOWN] ⏳ ServiceBusRequestService flushing {events} events before stopping", _statusQueue.Count);
                 while (isRunning && _statusQueue.Count > 0)
                 {
-                    await Task.Delay(100).ConfigureAwait(false);
+                    _logger.LogInformation("[SHUTDOWN] ⏳ ServiceBusRequestService - {events} need to be flushed", _statusQueue.Count);
+                    await Task.Delay(1000).ConfigureAwait(false);
                 }
 
                 _cancellationTokenSource?.Cancel();
