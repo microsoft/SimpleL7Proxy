@@ -96,6 +96,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
         private readonly List<Task> _workers;
         private readonly CancellationTokenSource _shutdownCts;
         private readonly CancellationTokenSource _metricsLoopCts;
+        private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
         private readonly ILogger<BlobWriteQueue> _logger;
         private readonly BlobWriteQueueOptions _options;
         private readonly BlobWriter _blobWriter;
@@ -108,6 +109,8 @@ namespace SimpleL7Proxy.Async.BlobStorage
         private long _totalQueueTimeMs = 0;
         private long _totalProcessTimeMs = 0;
         private volatile bool _isShuttingDown = false;
+        private bool _isStarted = false;
+        private Task? _stopTask;
 
         public BlobWriteQueue(
             BlobWriter blobWriter,
@@ -215,22 +218,68 @@ namespace SimpleL7Proxy.Async.BlobStorage
             }
         }
 
-        public Task StartAsync(CancellationToken cancellationToken)
+        public async Task StartAsync(CancellationToken cancellationToken)
         {
-            _logger.LogInformation("[BlobWr-Q] Starting {WorkerCount} workers", _options.WorkerCount);
-
-            for (int i = 0; i < _options.WorkerCount; i++)
+            if (_isStarted || _stopTask is not null)
             {
-                int workerId = i;
-                _workers.Add(Task.Run(() => WorkerLoop(workerId, _shutdownCts.Token), _shutdownCts.Token));
+                return;
             }
 
-            _workers.Add(Task.Run(() => MetricsLoop(_metricsLoopCts.Token), _metricsLoopCts.Token));
+            await _lifecycleLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                if (_isStarted || _stopTask is not null)
+                {
+                    return;
+                }
 
-            return Task.CompletedTask;
+                _logger.LogInformation("[BlobWr-Q] Starting {WorkerCount} workers", _options.WorkerCount);
+
+                for (int i = 0; i < _options.WorkerCount; i++)
+                {
+                    int workerId = i;
+                    _workers.Add(Task.Run(() => WorkerLoop(workerId, _shutdownCts.Token), _shutdownCts.Token));
+                }
+
+                _workers.Add(Task.Run(() => MetricsLoop(_metricsLoopCts.Token), _metricsLoopCts.Token));
+                _isStarted = true;
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
         }
 
         public async Task StopAsync(CancellationToken cancellationToken)
+        {
+            Task? stopTask;
+
+            await _lifecycleLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                if (_stopTask is not null)
+                {
+                    stopTask = _stopTask;
+                }
+                else if (!_isStarted)
+                {
+                    return;
+                }
+                else
+                {
+                    _stopTask = StopCoreAsync();
+                    stopTask = _stopTask;
+                }
+            }
+            finally
+            {
+                _lifecycleLock.Release();
+            }
+
+            await stopTask.ConfigureAwait(false);
+        }
+
+        private async Task StopCoreAsync()
         {            
             // Signal shutdown to MetricsLoop (will increase frequency)
             _isShuttingDown = true;
@@ -247,7 +296,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
             // DO NOT cancel _shutdownCts - let ALL blob operations complete
             var shutdownTimeout = TimeSpan.FromSeconds(60); // Allow time for blob operations to complete
             
-            _logger.LogInformation("[BlobWr-Q] Waiting for workers to complete (timeout: {Timeout}s)...", shutdownTimeout.TotalSeconds);
+            _logger.LogInformation("[BlobWr-Q] ⏳ Waiting for workers to complete (timeout: {Timeout}s)...", shutdownTimeout.TotalSeconds);
             
             try
             {
@@ -261,7 +310,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
                 
                 if (completedTask != workerTask)
                 {
-                    _logger.LogWarning("[BlobWr-Q] Shutdown timeout reached - {Timeout}s", shutdownTimeout.TotalSeconds);
+                    _logger.LogWarning("[BlobWr-Q] ❌ Shutdown timeout reached - {Timeout}s", shutdownTimeout.TotalSeconds);
                     // DO NOT cancel _shutdownCts - we need blob operations to complete
                     // Just wait a bit more for cleanup
                     try
@@ -274,7 +323,6 @@ namespace SimpleL7Proxy.Async.BlobStorage
                 {
                     // Workers completed normally
                     await workerTask.ConfigureAwait(false);
-                    _logger.LogDebug("[BlobWr-Q] All workers completed gracefully");
                 }
                 
                 // NOW stop MetricsLoop (it was last to run)
@@ -300,10 +348,12 @@ namespace SimpleL7Proxy.Async.BlobStorage
             var avgProcessTime = _operationsCompleted > 0 ? _totalProcessTimeMs / _operationsCompleted : 0;
 
             _logger.LogInformation(
-                "[BlobWr-Q] Stopped - Queued: {Queued}, Completed: {Completed}, Failed: {Failed}, " +
+                "[BlobWr-Q] ⏹  Stopped - Queued: {Queued}, Completed: {Completed}, Failed: {Failed}, " +
                 "Batches: {Batches}, AvgQueueTime: {AvgQueue}ms, AvgProcessTime: {AvgProcess}ms",
                 _operationsQueued, _operationsCompleted, _operationsFailed, _batchesExecuted,
                 avgQueueTime, avgProcessTime);
+
+            _isStarted = false;
         }
 
         private async Task WorkerLoop(int workerId, CancellationToken cancellationToken)
@@ -696,6 +746,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
         {
             _shutdownCts?.Dispose();
             _metricsLoopCts?.Dispose();
+            _lifecycleLock.Dispose();
             GC.SuppressFinalize(this);
         }
     }
