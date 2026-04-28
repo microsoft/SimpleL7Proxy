@@ -205,6 +205,7 @@ public class CoordinatedShutdownService : IHostedService
         catch (Exception ex)
         {
             _logger.LogError(ex, "[SHUTDOWN] ❌ Shutdown failed");
+            _logger.LogInformation(ex.StackTrace);
         }
         finally
         {
