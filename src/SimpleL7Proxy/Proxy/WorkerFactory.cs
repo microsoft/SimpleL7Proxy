@@ -63,12 +63,11 @@ public class WorkerFactory : BackgroundService
       _workers.Add(new(wrkrNum, workerPriority, _context, _internalCancellationTokenSource.Token));
     }
 
+    _logger.LogInformation($"[WORKER] ✓ Total: {_workers.Count} | Priority distribution: {string.Join(",", workerPriorities)}");
     foreach (var pw in _workers)
       _tasks.Add(Task.Run(() => pw.TaskRunnerAsync(), cancellationToken));
 
     await Task.WhenAll(_tasks).ConfigureAwait(false);
-
-    _logger.LogInformation($"[WORKER] ✓ Total: {_workers.Count} | Priority distribution: {string.Join(",", workerPriorities)}");
 
     return;
   }
