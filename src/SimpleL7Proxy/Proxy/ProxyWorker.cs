@@ -1167,7 +1167,7 @@ public class ProxyWorker : IConfigChangeSubscriber
             catch (TaskCanceledException) when (_isEvictingAsyncRequest)
             {
                 TriggerHostCB = false;
-                _logger.LogWarning("[Worker:{Id}] Request {Guid} was intentionally expelled to prioritize a new async request.", _id, request.Guid);
+                _logger.LogWarning("[Worker:{Id}] Request {Guid} was intentionally expelled.", _id, request.Guid);
                 // Handle async expel case - request being evicted from memory
                 if (request.asyncWorker != null)
                 {
@@ -1247,7 +1247,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                     hostIterator?.RecordResult(host, SuccessfulRequest);
 
                 // Track host status for circuit breaker
-                if (intCode != 412 && intCode != 429)
+                if (intCode != 412 && intCode != 429 && !_isEvictingAsyncRequest)
                     host.Config.TrackStatus(intCode, TriggerHostCB, "Attempt-" + request.BackendAttempts);
 
                 if (!SuccessfulRequest)
