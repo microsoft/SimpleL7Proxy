@@ -1,10 +1,10 @@
 {
   "Message": "Sorry, you do not have authorization to access this resource.",
-  "UserId": "defaultUser",
+  "UserId": "%USERID%",
   "MID": "%MID%",
   "Guid": "%GUID%",
   "Status": 425,
   "Timestamp": "%TIMESTAMP%",
-  "DataBlobUri": "https://nvmtrstgacct.blob.core.windows.net/data/%GUID%",
-  "HeaderBlobUri": "https://nvmtrstgacct.blob.core.windows.net/data/%GUID%-Headers"
+  "DataBlobUri": "%BLOBURI%/%BLOBCONTAINER%/%GUID%",
+  "HeaderBlobUri": "%BLOBURI%/%BLOBCONTAINER%/%GUID%-Headers"
 }

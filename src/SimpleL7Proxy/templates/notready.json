@@ -1,10 +1,10 @@
 {
-  "Message": "Your request has been accepted for async processing. The final result will be available at the blob URIs. Use OAuth for authentication.",
-  "UserId": "defaultUser",
+  "Message": "Your request is still processing. Intentional delay added to response: %DELAY_S% seconds",
+  "UserId": "%USERID%",
   "MID": "%MID%",
   "Guid": "%GUID%",
-  "Status": 202,
+  "Status": 425,
   "Timestamp": "%TIMESTAMP%",
-  "DataBlobUri": "https://nvmtrstgacct.blob.core.windows.net/data/%GUID%",
-  "HeaderBlobUri": "https://nvmtrstgacct.blob.core.windows.net/data/%GUID%-Headers"
+  "DataBlobUri": "%BLOBURI%/%BLOBCONTAINER%/%GUID%",
+  "HeaderBlobUri": "%BLOBURI%/%BLOBCONTAINER%/%GUID%-Headers"
 }
