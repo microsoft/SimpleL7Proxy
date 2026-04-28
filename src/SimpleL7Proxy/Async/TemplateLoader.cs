@@ -15,16 +15,6 @@ using SimpleL7Proxy.User;
 namespace SimpleL7Proxy.Async;
 
 /// <summary>
-/// Identifies a canned message template loaded from the "templates" blob container.
-/// </summary>
-public enum AsyncMessageKind
-{
-    Welcome,
-    NotReady,
-    NotAuthorized,
-}
-
-/// <summary>
 /// One-shot hosted service that wires up <see cref="RequestData"/> static references
 /// for async-mode processing and loads canned message templates from blob storage.
 /// Runs during the hosted-service startup phase so that all dependencies are ready
@@ -38,12 +28,12 @@ public sealed class TemplateLoader : IHostedService
     /// <summary>
     /// Mapping of message kind → blob name within the templates container.
     /// </summary>
-    private static readonly FrozenDictionary<AsyncMessageKind, string> s_blobNames =
-        new Dictionary<AsyncMessageKind, string>
+    private static readonly FrozenDictionary<AsyncResponseTypeEnum, string> s_blobNames =
+        new Dictionary<AsyncResponseTypeEnum, string>
         {
-            [AsyncMessageKind.Welcome]       = "welcome.json",
-            [AsyncMessageKind.NotReady]      = "notready.json",
-            [AsyncMessageKind.NotAuthorized] = "notauthorized.json",
+            [AsyncResponseTypeEnum.Welcome]       = "welcome.json",
+            [AsyncResponseTypeEnum.NotReady]      = "notready.json",
+            [AsyncResponseTypeEnum.NotAuthorized] = "notauthorized.json",
         }.ToFrozenDictionary();
 
     private readonly IServiceBusRequestService _serviceBusRequestService;
@@ -53,7 +43,7 @@ public sealed class TemplateLoader : IHostedService
     private readonly ProxyConfig _options;
     private readonly ILogger<TemplateLoader> _logger;
 
-    private readonly Dictionary<AsyncMessageKind, string> _templates = new();
+    private readonly Dictionary<AsyncResponseTypeEnum, string> _templates = new();
 
     public TemplateLoader(
         IServiceBusRequestService serviceBusRequestService,
@@ -80,7 +70,7 @@ public sealed class TemplateLoader : IHostedService
     /// Returns the loaded template body for <paramref name="kind"/>, or an empty string
     /// if the blob was missing or failed to load.
     /// </summary>
-    private string GetTemplate(AsyncMessageKind kind)
+    private string GetTemplate(AsyncResponseTypeEnum kind)
         => _templates.TryGetValue(kind, out var body) ? body : string.Empty;
 
     /// <summary>
@@ -94,7 +84,7 @@ public sealed class TemplateLoader : IHostedService
     /// <param name="mid">Message id; replaces every <c>%MID%</c>.</param>
     /// <returns>The merged <see cref="AsyncMessage"/>, or <c>null</c> if the template was
     /// not loaded or could not be parsed.</returns>
-    public AsyncMessage? GetMergedMessage(AsyncMessageKind kind, string guid, string mid)
+    public AsyncMessage? GetMergedMessage(AsyncResponseTypeEnum kind, string guid, string mid)
     {
         var template = GetTemplate(kind);
         if (string.IsNullOrEmpty(template))
@@ -152,13 +142,17 @@ public sealed class TemplateLoader : IHostedService
             return;
         }
 
+        List<int> status = new(); 
         foreach (var (kind, blobName) in s_blobNames)
         {
-            await LoadTemplateAsync(kind, blobName, cancellationToken).ConfigureAwait(false);
+            status.Add(await LoadTemplateAsync(kind, blobName, cancellationToken).ConfigureAwait(false));
         }
+
+        _logger.LogInformation("[STARTUP] ✓ Loaded {Count} templates from '{Container}' ({Status})",
+            status.Count, TemplatesContainer, string.Join(", ", status));
     }
 
-    private async Task LoadTemplateAsync(AsyncMessageKind kind, string blobName, CancellationToken cancellationToken)
+    private async Task<int> LoadTemplateAsync(AsyncResponseTypeEnum kind, string blobName, CancellationToken cancellationToken)
     {
         try
         {
@@ -166,21 +160,20 @@ public sealed class TemplateLoader : IHostedService
             {
                 _logger.LogWarning("[STARTUP] Template blob '{Container}/{Blob}' ({Kind}) not found",
                     TemplatesContainer, blobName, kind);
-                return;
+                return -1;
             }
 
             using var stream = await _blobWriter.ReadBlobAsStreamAsync(TemplatesUserId, blobName).ConfigureAwait(false);
             using var reader = new StreamReader(stream);
             var body = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
             _templates[kind] = body;
-
-            _logger.LogInformation("[STARTUP] ✓ Loaded template {Kind} from '{Container}/{Blob}' ({Length} bytes)",
-                kind, TemplatesContainer, blobName, body.Length);
+            return body.Length;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[STARTUP] Failed to load template {Kind} from '{Container}/{Blob}'",
                 kind, TemplatesContainer, blobName);
+            return -1;
         }
     }
 }

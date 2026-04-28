@@ -430,7 +430,7 @@ namespace SimpleL7Proxy.Proxy
 
                     AsyncMessage Statusmessage =
                         _messages?.GetMergedMessage(
-                            SimpleL7Proxy.AsyncMessageKind.Welcome,
+                            AsyncResponseTypeEnum.Welcome,
                             _requestData.Guid.ToString(),
                             _requestData.MID)
                         ?? new AsyncMessage
