@@ -177,7 +177,7 @@ public class EndpointMonitorService : BackgroundService, IEndpointMonitorService
         }
         catch (OperationCanceledException)
         {
-          _logger.LogInformation("[SHUTDOWN] ⏹ Backend health poller cancelled — draining");
+          _logger.LogInformation("[SHUTDOWN] ⏹  Backend health poller cancelled — draining");
           break;
         }
         catch (Exception e)
@@ -186,7 +186,7 @@ public class EndpointMonitorService : BackgroundService, IEndpointMonitorService
         }
       }
 
-      _logger.LogInformation("[SHUTDOWN] ⏹ Backend health poller stopped");
+      _logger.LogInformation("[SHUTDOWN] ⏹  Backend health poller stopped");
     }
     catch (Exception ex)
     {
