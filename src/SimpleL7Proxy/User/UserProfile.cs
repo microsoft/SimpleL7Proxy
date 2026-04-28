@@ -147,7 +147,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
         _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         stoppingToken.Register(() =>
         {
-            _logger.LogInformation("[SHUTDOWN] ⏹ User Profile Reader stopping");
+            _logger.LogInformation("[SHUTDOWN] ⏹  User Profile Reader stopping");
         });
 
         // // Initialize User Profiles

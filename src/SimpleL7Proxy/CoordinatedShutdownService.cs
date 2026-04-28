@@ -145,7 +145,7 @@ public class CoordinatedShutdownService : IHostedService
             }
             else
             {
-                _logger.LogInformation("[SHUTDOWN] ⏹ ✓ All tasks completed");
+                _logger.LogInformation("[SHUTDOWN] ⏹  All tasks completed");
             }
             await _queue!.StopAsync().ConfigureAwait(false);
 
@@ -168,7 +168,7 @@ public class CoordinatedShutdownService : IHostedService
             // Same pattern as IHostedService — register as IShutdownParticipant in DI, get discovered here.
             foreach (var participant in _shutdownParticipants.OrderBy(p => p.ShutdownOrder))
             {
-                _logger.LogInformation("[SHUTDOWN] ⏹ Shutting down {Service} (order {Order})",
+                _logger.LogInformation("[SHUTDOWN] ⏹  Shutting down {Service} (order {Order})",
                     participant.GetType().Name, participant.ShutdownOrder);
                 await participant.ShutdownAsync(cancellationToken).ConfigureAwait(false);
             }
@@ -189,7 +189,7 @@ public class CoordinatedShutdownService : IHostedService
             // are guaranteed to be done at this point, so no more enqueues will happen
             if (_blobWriteQueue != null)
             {
-                _logger.LogInformation("[SHUTDOWN] ⏹ Stopping BlobWriteQueue (final flush)");
+                _logger.LogInformation("[SHUTDOWN] ⏹  Stopping BlobWriteQueue (final flush)");
                 await _blobWriteQueue.StopAsync(CancellationToken.None).ConfigureAwait(false);
                 // Dispose underlying BlobWriter after the queue has flushed
                 _blobWriter?.Dispose();

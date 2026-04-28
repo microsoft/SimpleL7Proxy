@@ -149,7 +149,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
             }
 
             _logger.LogInformation(
-                "[BlobWriteQueue] Initialized - Workers: {Workers}, MaxQueue: {MaxQueue}, Batching: {Batching}, " +
+                "[BlobWr-Q] Initialized - Workers: {Workers}, MaxQueue: {MaxQueue}, Batching: {Batching}, " +
                 "BatchSize: {BatchSize}, BatchWait: {BatchWait}ms",
                 _options.WorkerCount,
                 _options.MaxQueueSize == 0 ? "Unbounded" : _options.MaxQueueSize.ToString(),
@@ -194,7 +194,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
                 
                 if (delayMs > 0)
                 {
-                    _logger.LogDebug("[BlobWriteQueue] Back-pressure: queue depth {Depth} - delaying {Delay}ms", queueDepth, delayMs);
+                    _logger.LogDebug("[BlobWr-Q] Back-pressure: queue depth {Depth} - delaying {Delay}ms", queueDepth, delayMs);
                     await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
                 }
                 
@@ -202,14 +202,14 @@ namespace SimpleL7Proxy.Async.BlobStorage
                 Interlocked.Increment(ref _operationsQueued);
 
                 _logger.LogTrace(
-                    "[BlobWriteQueue] Enqueued {OperationId} to Worker-{WorkerId} - Container: {Container}, Blob: {Blob}, Size: {Size}B",
+                    "[BlobWr-Q] Enqueued {OperationId} to Worker-{WorkerId} - Container: {Container}, Blob: {Blob}, Size: {Size}B",
                     operation.OperationId, workerId, operation.ContainerName, operation.BlobName, operation.Data.Length);
 
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[BlobWriteQueue] Failed to enqueue operation {OperationId}", operation.OperationId);
+                _logger.LogError(ex, "[BlobWr-Q] Failed to enqueue operation {OperationId}", operation.OperationId);
                 operation.SetException(ex);
                 return false;
             }
@@ -217,7 +217,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
 
         public Task StartAsync(CancellationToken cancellationToken)
         {
-            _logger.LogInformation("[BlobWriteQueue] Starting {WorkerCount} workers", _options.WorkerCount);
+            _logger.LogInformation("[BlobWr-Q] Starting {WorkerCount} workers", _options.WorkerCount);
 
             for (int i = 0; i < _options.WorkerCount; i++)
             {
@@ -231,9 +231,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
         }
 
         public async Task StopAsync(CancellationToken cancellationToken)
-        {
-            _logger.LogInformation("[BlobWriteQueue] Stopping...");
-            
+        {            
             // Signal shutdown to MetricsLoop (will increase frequency)
             _isShuttingDown = true;
             
@@ -249,7 +247,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
             // DO NOT cancel _shutdownCts - let ALL blob operations complete
             var shutdownTimeout = TimeSpan.FromSeconds(60); // Allow time for blob operations to complete
             
-            _logger.LogInformation("[BlobWriteQueue] Waiting for workers to complete (timeout: {Timeout}s)...", shutdownTimeout.TotalSeconds);
+            _logger.LogInformation("[BlobWr-Q] Waiting for workers to complete (timeout: {Timeout}s)...", shutdownTimeout.TotalSeconds);
             
             try
             {
@@ -263,7 +261,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
                 
                 if (completedTask != workerTask)
                 {
-                    _logger.LogWarning("[BlobWriteQueue] Shutdown timeout reached - {Timeout}s", shutdownTimeout.TotalSeconds);
+                    _logger.LogWarning("[BlobWr-Q] Shutdown timeout reached - {Timeout}s", shutdownTimeout.TotalSeconds);
                     // DO NOT cancel _shutdownCts - we need blob operations to complete
                     // Just wait a bit more for cleanup
                     try
@@ -276,7 +274,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
                 {
                     // Workers completed normally
                     await workerTask.ConfigureAwait(false);
-                    _logger.LogDebug("[BlobWriteQueue] All workers completed gracefully");
+                    _logger.LogDebug("[BlobWr-Q] All workers completed gracefully");
                 }
                 
                 // NOW stop MetricsLoop (it was last to run)
@@ -291,18 +289,18 @@ namespace SimpleL7Proxy.Async.BlobStorage
             }
             catch (OperationCanceledException) 
             {
-                _logger.LogDebug("[BlobWriteQueue] Shutdown cancelled");
+                _logger.LogDebug("[BlobWr-Q] Shutdown cancelled");
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[BlobWriteQueue] Error during shutdown");
+                _logger.LogWarning(ex, "[BlobWr-Q] Error during shutdown");
             }
 
             var avgQueueTime = _operationsCompleted > 0 ? _totalQueueTimeMs / _operationsCompleted : 0;
             var avgProcessTime = _operationsCompleted > 0 ? _totalProcessTimeMs / _operationsCompleted : 0;
 
             _logger.LogInformation(
-                "[BlobWriteQueue] Stopped - Queued: {Queued}, Completed: {Completed}, Failed: {Failed}, " +
+                "[BlobWr-Q] Stopped - Queued: {Queued}, Completed: {Completed}, Failed: {Failed}, " +
                 "Batches: {Batches}, AvgQueueTime: {AvgQueue}ms, AvgProcessTime: {AvgProcess}ms",
                 _operationsQueued, _operationsCompleted, _operationsFailed, _batchesExecuted,
                 avgQueueTime, avgProcessTime);
@@ -638,7 +636,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
                 {
                     // During shutdown, log more frequently to show progress
                     var delay = _isShuttingDown 
-                        ? TimeSpan.FromSeconds(2) 
+                        ? TimeSpan.FromSeconds(.5) 
                         : TimeSpan.FromSeconds(_options.MetricsIntervalSeconds);
                     
                     await Task.Delay(delay, cancellationToken)
@@ -673,7 +671,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
                     if (failed > 0)
                     {
                         _logger.LogWarning(
-                            "[BlobWriteQueue] Δ Queued: +{DeltaQueued}, Completed: +{DeltaCompleted}, Failed: +{DeltaFailed} (total: {TotalFailed}), " +
+                            "[BlobWr-Q] Δ Queued: +{DeltaQueued}, Completed: +{DeltaCompleted}, Failed: +{DeltaFailed} (total: {TotalFailed}), " +
                             "Batches: +{DeltaBatches} | Remaining: {Remaining}, AvgQueue: {AvgQueue}ms, AvgProcess: {AvgProcess}ms",
                             deltaQueued, deltaCompleted, deltaFailed, failed,
                             deltaBatches, remaining, avgQueueTime, avgProcessTime);
@@ -681,7 +679,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
                     else
                     {
                         _logger.LogInformation(
-                            "[BlobWriteQueue] Δ Queued: +{DeltaQueued}, Completed: +{DeltaCompleted}, " +
+                            "[BlobWr-Q] Δ Queued: +{DeltaQueued}, Completed: +{DeltaCompleted}, " +
                             "Batches: +{DeltaBatches} | Remaining: {Remaining}, AvgQueue: {AvgQueue}ms, AvgProcess: {AvgProcess}ms",
                             deltaQueued, deltaCompleted,
                             deltaBatches, remaining, avgQueueTime, avgProcessTime);

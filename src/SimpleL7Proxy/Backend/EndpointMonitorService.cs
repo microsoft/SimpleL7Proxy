@@ -103,7 +103,7 @@ public class EndpointMonitorService : BackgroundService, IEndpointMonitorService
 
   public Task Stop()
   {
-    _logger.LogInformation("[SHUTDOWN] ⏹ Backend health poller stopping");
+    _logger.LogInformation("[SHUTDOWN] ⏹  Backend health poller stopping");
     _cancellationTokenSource.Cancel();
 
     return ExecuteTask ?? Task.CompletedTask;
