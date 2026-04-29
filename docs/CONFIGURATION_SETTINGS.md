@@ -32,7 +32,7 @@ Startup
 
 | Env Var / Config Name | Property | Default | Description |
 |----------------------|----------|---------|-------------|
-| `AsyncClientRequestHeader` | `AsyncClientRequestHeader` | `AsyncMode` | Request header that enables async mode |
+| `AsyncClientRequestHeader` | `AsyncClientRequestHeader` | `S7PAsyncMode` | Request header that enables async mode |
 | `AsyncClientConfigFieldName` | `AsyncClientConfigFieldName` | `async-config` | JSON field in async client config |
 | `AsyncTimeout` | `AsyncTimeout` | `1800000` ms (30 min) | Max backend processing time in async mode |
 | `AsyncTTLSecs` | `AsyncTTLSecs` | `86400` s (24 h) | Async result blob retention |
@@ -275,6 +275,6 @@ These are never set via config — the proxy computes them at startup from other
 ## Related Documentation
 
 - [AZURE_APP_CONFIGURATION.md](AZURE_APP_CONFIGURATION.md) — Setting up hot-reload with App Configuration
-- [DEVELOPMENT.md](DEVELOPMENT.md) — Local dev setup and minimal required config
+- [BEGINNERDEVELOPMENT.md](BEGINNERDEVELOPMENT.md) — Local dev setup and minimal required config
 - [TIMEOUTS.md](TIMEOUTS.md) — How TTL, Timeout, and AsyncTimeout interact
 - [LOAD_BALANCING.md](LOAD_BALANCING.md) — LoadBalanceMode, IterationMode, and retry settings

@@ -28,14 +28,14 @@ All keys share the `Warm:` prefix (single `Select("Warm:*")` query). The **Label
 | `AZURE_APPCONFIG_ENDPOINT` | One of these two | — | Managed Identity endpoint (recommended) |
 | `AZURE_APPCONFIG_CONNECTION_STRING` | One of these two | — | Connection string (dev/fallback) |
 | `AZURE_APPCONFIG_LABEL` | No | *(none)* | Label filter for Warm settings |
-| `AZURE_APPCONFIG_REFRESH_SECONDS` | No | `30` | Sentinel poll interval in seconds |
+| `AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS` | No | `30` | Sentinel poll interval in seconds |
 
 ---
 
 ## How Refresh Works
 
 ```
-Every AZURE_APPCONFIG_REFRESH_SECONDS
+Every AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS
         │
         ▼
   Check Warm:Sentinel ──changed?──Yes──► Reload ALL Warm settings → apply live
@@ -116,11 +116,76 @@ az containerapp update \
   --set-env-vars \
     AZURE_APPCONFIG_ENDPOINT=https://appconfig-proxy.azconfig.io \
     AZURE_APPCONFIG_LABEL=Production \
-    AZURE_APPCONFIG_REFRESH_SECONDS=30
+    AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS=30
 ```
 
 > [!WARNING]
 > **Error:** If `AZURE_APPCONFIG_ENDPOINT` is set but the managed identity has no role assignment, the proxy will fail to start. Set `AZURE_APPCONFIG_CONNECTION_STRING` as a fallback during initial setup.
+
+---
+
+## Automating Setup with the Deploy Script
+
+**Instead of manual steps 1–4, use `deployment/AppConfiguration/deploy.sh` to automate everything at once.**
+
+### What the script does
+
+The script:
+1. **Discovers all publishable settings** — parses `src/SimpleL7Proxy/Config/ProxyConfig.cs` for `[ConfigOption(...)]` decorations
+2. **Reads current values** — fetches live env vars from a running Container App (fallback to local shell variables)
+3. **Creates Warm and Cold prefixed keys** — all settings appear under `Warm:*` and `Cold:*` prefixes in App Configuration
+4. **Seeds the full catalog** — ensures every publishable setting is visible in the portal so operators can see all options at a glance
+5. **Sets up the sentinel** — initializes `Warm:Sentinel=1` as the refresh trigger
+6. **Assigns the role** — grants the Container App's managed identity `App Configuration Data Reader` access
+
+### When to use it
+
+- **Initial deployment:** After `azd provision` creates the Container App and App Configuration, run this script to seed all settings at once.
+- **Migration:** Moving from environment-variable–only config to App Configuration? This script reads your current Container App env vars and imports them.
+- **Catalog sync:** Proxy code added new settings? Re-run the script to discover and publish them automatically.
+
+### How to run
+
+```bash
+cd deployment/AppConfiguration
+cp deploy.parameters.example.sh deploy.parameters.sh
+```
+
+Edit `deploy.parameters.sh` with your resource details:
+
+```bash
+CONTAINER_APP_NAME="your-proxy-app"
+CONTAINER_APP_RESOURCE_GROUP="rg-proxy"
+APPCONFIG_NAME="appconfig-proxy"
+RESOURCE_GROUP="rg-proxy"
+LOCATION="eastus"
+APPCONFIG_SKU="standard"
+APPCONFIG_LABEL="Production"
+AZURE_APPCONFIG_REFRESH_SECONDS=30
+```
+
+Run the script:
+
+```bash
+./deploy.sh
+```
+
+**Output:**
+- All keys published to App Configuration under `Warm:*` and `Cold:*` prefixes
+- Managed identity role assignment configured
+- Container App environment variables (`AZURE_APPCONFIG_ENDPOINT`, `AZURE_APPCONFIG_LABEL`, `AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS`) set automatically if `UPDATE_CONTAINER_APP_ENV=true` (default)
+
+> [!NOTE]
+> **Container App restart:** The script does NOT restart the Container App automatically. After the first run, either manually restart via `az containerapp update --name ... --force-deploy` or allow the next `.azure/deploy.sh` invocation to pick up the updated environment variables.
+
+### Worked Example — Automated Setup
+
+| Step | Command | Result |
+|------|---------|--------|
+| After `azd provision` | `cd deployment/AppConfiguration && ./deploy.sh` | All proxy settings discovered and seeded; role assigned |
+| Check portal | Azure Portal → App Configuration → Configuration Explorer | 30+ keys visible under `Warm:*` and `Cold:*`; `Warm:Sentinel=1` present |
+| Restart Container App | `az containerapp update --name your-proxy-app --resource-group rg-proxy --force-deploy` | Container App pulls settings from App Configuration; logs show `✓ Azure App Configuration initialized` |
+| Change a Warm setting | Portal: edit `Warm:MaxAttempts=5` → Update `Warm:Sentinel=$(date +%s)` | All instances refresh within 30 s; no restart needed |
 
 ---
 
@@ -145,7 +210,7 @@ az appconfig kv set \
 ```
 
 > [!NOTE]
-> All instances pick up the change within `AZURE_APPCONFIG_REFRESH_SECONDS` (default 30 s) — no rolling restart needed.
+> All instances pick up the change within `AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS` (default 30 s) — no rolling restart needed.
 
 ---
 
@@ -200,4 +265,4 @@ The proxy emits these log entries around refresh:
 
 - [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md) — Full list of all settings and their reload types
 - [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md) — All environment variables
-- [DEVELOPMENT.md](DEVELOPMENT.md) — Local development setup
+- [BEGINNERDEVELOPMENT.md](BEGINNERDEVELOPMENT.md) — Local development setup
