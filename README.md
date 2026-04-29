@@ -91,6 +91,7 @@ chmod +x .azure/setup.sh .azure/deploy.sh
 | Container Deployment | [docs/CONTAINER_DEPLOYMENT.md](docs/CONTAINER_DEPLOYMENT.md) |
 | Development & Testing | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
 | Response Codes | [docs/RESPONSE_CODES.md](docs/RESPONSE_CODES.md) |
+| Troubleshooting (Quick Diagnosis TOC) | [docs/TroubleshootTOC.md](docs/TroubleshootTOC.md) |
 
 ---
 

@@ -7,6 +7,8 @@ Get SimpleL7Proxy running locally in under five minutes using the automated setu
 > - **Minimum config:** set `Host1`, `Port`, and `Workers`; everything else has a working default.
 > - **Debugging:** add `LogAllRequestHeaders=true` and `LogAllResponseHeaders=true` to see all headers in the log.
 
+> Need issue-driven guidance? Start at [TroubleshootTOC.md](TroubleshootTOC.md).
+
 ---
 
 ## Reference — Key Development Settings
