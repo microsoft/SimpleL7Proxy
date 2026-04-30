@@ -7,7 +7,6 @@ Build a Docker image from the `src/` directory and run it locally or deploy it t
 > - **Probe paths are in the Host connection string** — use `Host1=host=https://api.example.com;probe=/health` (not separate `Probe_path1=` variables).
 > - **Fastest path to Azure:** run `.azure/setup.sh` → `azd provision` → `.azure/deploy.sh`.
 
----
 
 ## Container Ports
 
@@ -78,6 +77,22 @@ docker build -t simplel7proxy:latest -f SimpleL7Proxy/Dockerfile .
 
 ---
 
+## Building without Docker (Remote ACR Build)
+
+If Docker is not available locally (corporate restrictions, CI/CD runners, etc.), build directly in Azure Container Registry:
+
+```bash
+# From repo root
+export ACR=myregistry  # Your ACR name, without .azurecr.io
+export VERSION=v2.2.11 # Or read from Constants.cs
+
+az acr build
+--registry $ACR
+--image simple-l7-proxy:$VERSION
+--file src/SimpleL7Proxy/Dockerfile
+src
+```
+
 ## Running Locally with Docker
 
 ### Minimal run
@@ -146,7 +161,8 @@ This is the recommended path for provisioning all required Azure resources (ACR,
 
 - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
 - [Azure Developer CLI (azd)](https://learn.microsoft.com/en-us/azure/developer/azure-developer-cli/install-azd)
-- Docker
+- Docker (optional; only needed for local image builds)
+- For no-Docker environments, use the remote ACR build workflow in [Building without Docker (Remote ACR Build)](#building-without-docker-remote-acr-build)
 
 ### Step 1 — Setup
 

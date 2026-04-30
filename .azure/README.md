@@ -6,7 +6,7 @@ This guide helps you deploy the SimpleL7Proxy service to Azure using the Azure D
 
 1. [Azure Developer CLI (AZD)](https://learn.microsoft.com/en-us/azure/developer/azure-developer-cli/install-azd)
 2. [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
-3. [Docker](https://www.docker.com/products/docker-desktop/)
+3. [Docker](https://www.docker.com/products/docker-desktop/)(optional; only needed for local container builds)
 
 ## Deployment Steps
 
@@ -57,6 +57,13 @@ This command will deploy the Azure infrastructure defined in the Bicep templates
 - Virtual Network (if enabled)
 
 ### 4. Build and Deploy the Application
+
+Important
+Current deployment scripts are Docker-based.
+
+deploy.sh and deploy.ps1 build and push images using local Docker.
+deploy.sh expects images already built by Docker-based build scripts.
+If Docker is unavailable, use remote ACR build commands from CONTAINER_DEPLOYMENT.md and then update/deploy using the resulting image tags.
 
 #### For Windows:
 

@@ -6,7 +6,7 @@ Deploy a multi-container Azure Container App with a health probe sidecar pattern
 
 - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli) installed
 - Access to an Azure Container Registry (ACR)
-- Docker installed (for building images)
+- Docker installed (optional; only needed for building images locally)
 
 ## Quick Start
 
@@ -40,6 +40,13 @@ export HOST1="host=https://your-api.azure-api.net;mode=apim;path=/;probe=/health
 ```
 
 ### 2. Build Images
+
+Important
+Current deployment scripts are Docker-based.
+
+deploy.sh and deploy.ps1 build and push images using local Docker.
+deploy.sh expects images already built by Docker-based build scripts.
+If Docker is unavailable, use remote ACR build commands from CONTAINER_DEPLOYMENT.md and then update/deploy using the resulting image tags.
 
 ```bash
 cd ../../src/SimpleL7Proxy && ./build.sh
