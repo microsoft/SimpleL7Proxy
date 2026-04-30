@@ -36,11 +36,19 @@
 ## Prerequisites
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
-- [Docker](https://docs.docker.com/get-docker/) (container builds)
+- [Docker](https://docs.docker.com/get-docker/) (optional; only needed for local container builds)
 - [Azure Developer CLI (azd)](https://learn.microsoft.com/en-us/azure/developer/azure-developer-cli/install-azd) (cloud deployment)
+- [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli) (required for remote ACR builds)
 - Azure subscription with Container Apps; optionally AI Foundry / APIM
 
 ## Quick Start
+
+Important
+Current deployment scripts are Docker-based.
+
+deploy.sh and deploy.ps1 build and push images using local Docker.
+deploy.sh expects images already built by Docker-based build scripts.
+If Docker is unavailable, use remote ACR build commands from CONTAINER_DEPLOYMENT.md and then update/deploy using the resulting image tags.
 
 **Local (2 commands):**
 ```bash
@@ -61,9 +69,9 @@ chmod +x .azure/setup.sh .azure/deploy.sh
 ./.azure/setup.sh && azd provision && ./.azure/deploy.sh
 ```
 
+> No local Docker available? Use the remote ACR build workflow in [docs/CONTAINER_DEPLOYMENT.md](docs/CONTAINER_DEPLOYMENT.md).
 > See [Getting Started — Local Development](docs/BEGINNER_DEVELOPMENT.md) for the fastest setup paths.  
-> See [Container Deployment](docs/CONTAINER_DEPLOYMENT.md) for VNET and high-performance variants.
-
+> 
 ---
 
 ## Local Development Paths
