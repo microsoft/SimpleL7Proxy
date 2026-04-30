@@ -1,0 +1,10 @@
+{
+  "Message": "Sorry, you do not have authorization to access this resource.",
+  "UserId": "%USERID%",
+  "MID": "%MID%",
+  "Guid": "%GUID%",
+  "Status": 425,
+  "Timestamp": "%TIMESTAMP%",
+  "DataBlobUri": "%BLOBURI%/%BLOBCONTAINER%/%GUID%",
+  "HeaderBlobUri": "%BLOBURI%/%BLOBCONTAINER%/%GUID%-Headers"
+}

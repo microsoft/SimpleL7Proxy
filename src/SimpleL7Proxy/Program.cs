@@ -13,6 +13,7 @@ using SimpleL7Proxy.Backend.Iterators;
 
 using Azure.Messaging.ServiceBus;
 
+using SimpleL7Proxy.Async;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Proxy;
@@ -232,10 +233,12 @@ public class Program
         if (backendOptions.AsyncModeEnabled)
             RegisterAsyncDI(services, startupLogger, backendOptions);
         else {
-            services.AddTransient<IAsyncWorkerFactory, NullAsyncWorkerFactory>();
             services.AddSingleton<IBlobWriter, NullBlobWriter>();
             services.AddSingleton<IRequestDataBackupService, NullRequestDataBackupService>();
             services.AddSingleton<IAsyncFeeder, NullAsyncFeeder>();
+            // AsyncWorkerContext, IAsyncRequestStore, and TemplateLoader are intentionally
+            // not registered when async mode is disabled — WorkerContext.AsyncWorkerContext
+            // resolves to null and is never read because request.runAsync stays false.
         }
 
         services.AddSingleton<IUserPriorityService, UserPriority>();
@@ -304,7 +307,7 @@ public class Program
     {
         const string asyncClassesRaw =
             "IServiceBusFactory:ServiceBusFactory, IServiceBusRequestService:ServiceBusRequestService, " +
-            "IBackupAPIService:BackupAPIService, IBlobWriterFactory:BlobWriterFactory";
+            "IBackupAPIService:BackupAPIService, IBlobWriterFactory:BlobWriterFactory, IBlobWriter:BlobWriter";
 
             // "IBlobWriter:QueuedBlobWriter, IAsyncFeeder:AsyncFeeder, " +
             // "IRequestProcessor:NormalRequest, IRequestProcessor:OpenAIBackgroundRequest";
@@ -401,16 +404,14 @@ public class Program
             return queuedWriter;
         });
 
-        services.AddTransient<IAsyncWorkerFactory, AsyncWorkerFactory>();
+        services.AddSingleton<IRequestDataBackupService, RequestDataBackupService>();
+        services.AddSingleton<IAsyncRequestStore, AsyncRequestStore>();
+        services.AddSingleton<AsyncWorkerContext>();
+        services.AddSingleton<TemplateLoader>();
+        services.AddHostedService<TemplateLoader>(sp => sp.GetRequiredService<TemplateLoader>());
+
         if (asyncClasses.ContainsKey("IAsyncFeeder"))
             services.AddHostedService(sp => (AsyncFeeder)sp.GetRequiredService<IAsyncFeeder>());
-
-        services.AddSingleton<IRequestDataBackupService, RequestDataBackupService>();
-
-        // Initialize RequestData static references once all async singletons are resolvable.
-        // This runs at first resolution time via a hosted-service initializer that fires before
-        // the proxy starts accepting traffic (Server/WorkerFactory come after this in registration order).
-        // services.AddHostedService<AsyncInitializer>();
     }
 
     private static void RegisterEventHeaders(IServiceCollection services, ILogger startupLogger, ProxyConfig backendOptions)

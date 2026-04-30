@@ -54,6 +54,8 @@ namespace SimpleL7Proxy.Async.BlobStorage
 
         public override async Task FlushAsync(CancellationToken cancellationToken)
         {
+            HarvestCompletedPendingWrites();
+
             if (_disposed || _buffer.Length == 0)
                 return;
 
@@ -133,6 +135,8 @@ namespace SimpleL7Proxy.Async.BlobStorage
         /// </summary>
         public async Task WaitForPendingWritesAsync(CancellationToken cancellationToken = default)
         {
+            HarvestCompletedPendingWrites();
+
             if (_pendingWrites.Count == 0)
                 return;
 
@@ -142,6 +146,17 @@ namespace SimpleL7Proxy.Async.BlobStorage
 
             await Task.WhenAll(_pendingWrites).WaitAsync(cancellationToken).ConfigureAwait(false);
             _pendingWrites.Clear();
+        }
+
+        private void HarvestCompletedPendingWrites()
+        {
+            for (int i = _pendingWrites.Count - 1; i >= 0; i--)
+            {
+                if (_pendingWrites[i].IsCompletedSuccessfully)
+                {
+                    _pendingWrites.RemoveAt(i);
+                }
+            }
         }
 
         public override int Read(byte[] buffer, int offset, int count) =>

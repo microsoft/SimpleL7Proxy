@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
 using SimpleL7Proxy;
+using SimpleL7Proxy.Async;
 using SimpleL7Proxy.Async.BlobStorage;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
@@ -37,10 +38,10 @@ namespace SimpleL7Proxy.Proxy
         private string _dataBlobUri { get; set; } = "";
         private Stream? _hos { get; set; } = null!;
         private string _userId { get; set; } = "";
-        private readonly IBlobWriter _blobWriter;
+        private readonly IAsyncRequestStore _requestStore;
         private readonly ILogger<AsyncWorker> _logger;
-        private readonly IRequestDataBackupService _requestBackupService;
         private readonly ProxyConfig _options;
+        private readonly SimpleL7Proxy.Async.TemplateLoader? _messages;
         // private readonly IBackupAPIService _backupAPIService;
         public  bool ShouldReprocess { get; set; } = false; 
         public string ErrorMessage { get; set; } = "";
@@ -65,17 +66,16 @@ namespace SimpleL7Proxy.Proxy
         /// Initializes a new instance of the <see cref="AsyncWorker"/> class.
         /// </summary>
         /// <param name="data">The request data.</param>
-        /// <param name="blobWriter">The blob writer instance.</param>
+        /// <param name="requestStore">The async request store instance.</param>
         /// <param name="logger">The logger instance.</param>
         public AsyncWorker(RequestData data, int AsyncTriggerTimeout, 
-            IBlobWriter blobWriter, 
-            ILogger<AsyncWorker> logger, 
-            IRequestDataBackupService requestBackupService, ProxyConfig backendOptions)
+            IAsyncRequestStore requestStore,
+            ILogger<AsyncWorker> logger,
+            ProxyConfig backendOptions)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _requestData = data ?? throw new ArgumentNullException(nameof(data));
-            _blobWriter = blobWriter ?? throw new ArgumentNullException(nameof(blobWriter));
-            _requestBackupService = requestBackupService ?? throw new ArgumentNullException(nameof(requestBackupService));
+            _requestStore = requestStore ?? throw new ArgumentNullException(nameof(requestStore));
             _options = backendOptions ?? throw new ArgumentNullException(nameof(backendOptions));
             // _backupAPIService = backupAPIService ?? throw new ArgumentNullException(nameof(backupAPIService));
             _userId = data.profileUserId;
@@ -96,12 +96,27 @@ namespace SimpleL7Proxy.Proxy
         }
 
         /// <summary>
+        /// Convenience constructor that pulls construction-time dependencies from a shared
+        /// <see cref="AsyncWorkerContext"/>.  Preferred over the multi-arg ctor — callers
+        /// inject the singleton context once and forward it on each <c>new AsyncWorker</c>.
+        /// </summary>
+        public AsyncWorker(RequestData data, int AsyncTriggerTimeout, AsyncWorkerContext context)
+            : this(data,
+                   AsyncTriggerTimeout,
+                   (context ?? throw new ArgumentNullException(nameof(context))).RequestStore,
+                   context.Logger,
+                   context.Options)
+        {
+            _messages = context.Messages;
+        }
+
+        /// <summary>
         /// Initializes the blob client asynchronously. This must be called after construction.
         /// </summary>
         /// <returns>A task that represents the asynchronous initialization operation.</returns>
         public async Task<bool> InitializeAsync()
         {
-            var result = await _blobWriter.InitClientAsync(_userId, _requestData.BlobContainerName).ConfigureAwait(false);
+            var result = await _requestStore.InitializeClientAsync(_userId, _requestData.BlobContainerName).ConfigureAwait(false);
             if (!result)
             {
                 ErrorMessage = "Failed to initialize BlobWriter for AsyncWorker.";
@@ -142,8 +157,8 @@ namespace SimpleL7Proxy.Proxy
                 SetBlobNames(isBackground);
                 
                 // Generate base blob URIs (OAuth will handle authentication - no SAS tokens)
-                _dataBlobUri = _blobWriter.GetBlobUri(_userId, dataBlobName);
-                _headerBlobUri = _blobWriter.GetBlobUri(_userId, headerBlobName);
+                _dataBlobUri = _requestStore.GetBlobUri(_userId, dataBlobName);
+                _headerBlobUri = _requestStore.GetBlobUri(_userId, headerBlobName);
                 
                 _logger.LogDebug("[AsyncWorker:{Guid}] Base blob URIs configured - OAuth authentication required", _requestData.Guid);
 
@@ -193,8 +208,8 @@ namespace SimpleL7Proxy.Proxy
                 SetBlobNames(isBackground: true);
                 
                 // Always use OAuth (consistent with StartAsync and PrepareResponseStreamsAsync)
-                _dataBlobUri = _blobWriter.GetBlobUri(_userId, dataBlobName);
-                _headerBlobUri = _blobWriter.GetBlobUri(_userId, headerBlobName);
+                _dataBlobUri = _requestStore.GetBlobUri(_userId, dataBlobName);
+                _headerBlobUri = _requestStore.GetBlobUri(_userId, headerBlobName);
                 
                 _logger.LogDebug("[AsyncWorker:{Guid}] Base blob URIs configured - OAuth authentication required", _requestData.Guid);
                 
@@ -245,8 +260,8 @@ namespace SimpleL7Proxy.Proxy
                 // _requestData.Guid, _userId, dataBlobName, headerBlobName, isBackground);
 
             // Create both blobs in parallel
-            var dataStreamTask = _blobWriter.CreateBlobAndGetOutputStreamAsync(_userId, dataBlobName);
-            var headerStreamTask = _blobWriter.CreateBlobAndGetOutputStreamAsync(_userId, headerBlobName);
+            var dataStreamTask = _requestStore.OpenWriteStreamAsync(_userId, dataBlobName);
+            var headerStreamTask = _requestStore.OpenWriteStreamAsync(_userId, headerBlobName);
 
             await Task.WhenAll(dataStreamTask, headerStreamTask).ConfigureAwait(false);
 
@@ -270,8 +285,8 @@ namespace SimpleL7Proxy.Proxy
                 try
                 {
                     _logger.LogDebug("[AsyncWorker:{Guid}] Generating SAS tokens for blobs", _requestData.Guid);
-                    _dataBlobUri = await _blobWriter.GenerateSasTokenAsync(_userId, dataBlobName, TimeSpan.FromSeconds(_requestData.AsyncBlobAccessTimeoutSecs));
-                    _headerBlobUri = await _blobWriter.GenerateSasTokenAsync(_userId, headerBlobName, TimeSpan.FromSeconds(_requestData.AsyncBlobAccessTimeoutSecs));
+                    _dataBlobUri = await _requestStore.GenerateSasTokenAsync(_userId, dataBlobName, TimeSpan.FromSeconds(_requestData.AsyncBlobAccessTimeoutSecs));
+                    _headerBlobUri = await _requestStore.GenerateSasTokenAsync(_userId, headerBlobName, TimeSpan.FromSeconds(_requestData.AsyncBlobAccessTimeoutSecs));
                     _logger.LogTrace("[AsyncWorker:{Guid}] SAS tokens generated successfully", _requestData.Guid);
                     
                     if (addToResponseHeaders && _requestData.Context != null)
@@ -290,8 +305,8 @@ namespace SimpleL7Proxy.Proxy
             else
             {
                 _logger.LogDebug("[AsyncWorker:{Guid}] SAS token generation skipped - providing base blob URIs", _requestData.Guid);
-                _dataBlobUri = _blobWriter.GetBlobUri(_userId, dataBlobName);
-                _headerBlobUri = _blobWriter.GetBlobUri(_userId, headerBlobName);
+                _dataBlobUri = _requestStore.GetBlobUri(_userId, dataBlobName);
+                _headerBlobUri = _requestStore.GetBlobUri(_userId, headerBlobName);
                 
                 if (addToResponseHeaders && _requestData.Context != null)
                 {
@@ -305,20 +320,20 @@ namespace SimpleL7Proxy.Proxy
         /// Gets or creates the data output stream lazily. Only creates the blob when first accessed.
         /// </summary>
         /// <returns>The output stream for writing response data.</returns>
-        public async Task<Stream> GetOrCreateDataStreamAsync()
+        public async Task<Stream> GetResponseDataStreamAsync()
         {
             if (_requestData.OutputStream == null)
             {
-                //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.GetOrCreateDataStream | Action: LazyCreate | Guid: {Guid} | DataBlob: {DataBlob}", _requestData.Guid, dataBlobName);
+                //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.GetResponseDataStream | Action: LazyCreate | Guid: {Guid} | DataBlob: {DataBlob}", _requestData.Guid, dataBlobName);
                 
                 try
                 {
-                    var dataStream = await _blobWriter.CreateBlobAndGetOutputStreamAsync(_userId, dataBlobName);
+                    var dataStream = await _requestStore.OpenWriteStreamAsync(_userId, dataBlobName);
                     if (dataStream is QueuedBlobStream qbs)
                         _dataQueuedStream = qbs;
                     _requestData.OutputStream = new BufferedStream(dataStream);
                     
-                    //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.GetOrCreateDataStream | Action: Created | Guid: {Guid}", _requestData.Guid);
+                    //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.GetResponseDataStream | Action: Created | Guid: {Guid}", _requestData.Guid);
                 }
                 catch (Exception ex)
                 {
@@ -382,14 +397,14 @@ namespace SimpleL7Proxy.Proxy
                         SetBlobNames(isBackground: false);
                         
                         // Generate base blob URIs (OAuth will handle authentication - no SAS tokens)
-                        _dataBlobUri = _blobWriter.GetBlobUri(_userId, dataBlobName);
-                        _headerBlobUri = _blobWriter.GetBlobUri(_userId, headerBlobName);
+                        _dataBlobUri = _requestStore.GetBlobUri(_userId, dataBlobName);
+                        _headerBlobUri = _requestStore.GetBlobUri(_userId, headerBlobName);
                         
                         _logger.LogDebug("[AsyncWorker:{Guid}] Base blob URIs configured - OAuth authentication required", _requestData.Guid);
 
                         operation = "Backup Request";
                         // Backup the request data
-                        await UpdateBackup().ConfigureAwait(false);
+                        await PersistRequestStateAsync().ConfigureAwait(false);
 
                     }
                     catch (Exception ex)
@@ -403,6 +418,7 @@ namespace SimpleL7Proxy.Proxy
                             Type = EventType.Exception,
                             ["Error"] = ErrorMessage,
                             ["Operation"] = operation,
+                            ["StackTrace"] = ex.StackTrace ?? string.Empty,
                             Exception = ex
                         };
 
@@ -412,17 +428,28 @@ namespace SimpleL7Proxy.Proxy
                         return;
                     }
 
-                    AsyncMessage Statusmessage = new()
-                    {
-                        Status = 202,
-                        Message = "Your request has been accepted for async processing. The final result will be available at the blob URIs. Use OAuth for authentication.",
-                        MID = _requestData.MID,
-                        UserId = _requestData.UserID,
-                        Guid = _requestData.Guid.ToString(),
-                        DataBlobUri = _dataBlobUri,
-                        HeaderBlobUri = _headerBlobUri,
-                        Timestamp = DateTime.UtcNow
-                    };
+                    AsyncMessage Statusmessage =
+                        _messages?.GetMergedMessage(
+                            AsyncResponseTypeEnum.Welcome,
+                            _requestData.Guid.ToString(),
+                            _requestData.MID)
+                        ?? new AsyncMessage
+                        {
+                            Status = 202,
+                            Message = "Your request has been accepted for async processing. The final result will be available at the blob URIs. Use OAuth for authentication.",
+                            MID = _requestData.MID,
+                            UserId = _requestData.UserID,
+                            Guid = _requestData.Guid.ToString(),
+                            DataBlobUri = _dataBlobUri,
+                            HeaderBlobUri = _headerBlobUri,
+                            Timestamp = DateTime.UtcNow,
+                        };
+
+                    // Override dynamic fields — the template's blob URIs are placeholders.
+                    Statusmessage.UserId        = _requestData.UserID;
+                    Statusmessage.DataBlobUri   = _dataBlobUri;
+                    Statusmessage.HeaderBlobUri = _headerBlobUri;
+                    Statusmessage.Timestamp     = DateTime.UtcNow;
 
                     try
                     {
@@ -438,7 +465,7 @@ namespace SimpleL7Proxy.Proxy
                         
                         // CRITICAL: Clear the OutputStream after sending 202 response
                         // The client connection is now closed, so the original OutputStream is invalid.
-                        // GetOrCreateDataStreamAsync() checks if OutputStream is null to decide whether
+                        // GetResponseDataStreamAsync() checks if OutputStream is null to decide whether
                         // to create a new blob stream. Without this, it would return the closed client
                         // stream instead of creating a blob stream, causing data to be lost.
                         _requestData.OutputStream = null;
@@ -485,9 +512,9 @@ namespace SimpleL7Proxy.Proxy
 
         }
 
-        public Task UpdateBackup()
+        public Task PersistRequestStateAsync()
         {
-            return _requestBackupService.BackupAsync(_requestData);
+            return _requestStore.BackupRequestAsync(_requestData);
         }
 
         /// <summary>
@@ -516,7 +543,7 @@ namespace SimpleL7Proxy.Proxy
         /// <param name="status">The HTTP status code to write.</param>
         /// <param name="headers">The HTTP headers to write.</param>
         /// <returns>True if headers were successfully written; otherwise, false.</returns>
-        public async Task<bool> WriteHeaders(HttpStatusCode status, WebHeaderCollection headers)
+        public async Task<bool> SaveResponseHeadersAsync(HttpStatusCode status, WebHeaderCollection headers)
         {
             const int MaxRetryAttempts = 5;
             const int BaseRetryDelayMs = 500;
@@ -528,10 +555,10 @@ namespace SimpleL7Proxy.Proxy
                     // Create or recreate the stream if needed
                     if (_hos == null)
                     {
-                        //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.WriteHeaders | Action: RecreateStream | Guid: {Guid} | UserId: {UserId} | HeaderBlob: {HeaderBlob} | Attempt: {Attempt}/{MaxAttempts}", 
+                        //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.SaveResponseHeaders | Action: RecreateStream | Guid: {Guid} | UserId: {UserId} | HeaderBlob: {HeaderBlob} | Attempt: {Attempt}/{MaxAttempts}", 
                         //    _requestData.Guid, _userId, headerBlobName, attempt + 1, MaxRetryAttempts);
                         
-                        var stream = await _blobWriter.CreateBlobAndGetOutputStreamAsync(_userId, headerBlobName)
+                        var stream = await _requestStore.OpenWriteStreamAsync(_userId, headerBlobName)
                             .ConfigureAwait(false);
 
                         if (stream == null)
@@ -544,7 +571,7 @@ namespace SimpleL7Proxy.Proxy
                         _hos = stream;
                         if (stream is QueuedBlobStream qbs)
                             _headerQueuedStream = qbs;
-                        //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.WriteHeaders | Action: RecreateStream-Complete | Guid: {Guid}", _requestData.Guid);
+                        //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.SaveResponseHeaders | Action: RecreateStream-Complete | Guid: {Guid}", _requestData.Guid);
                     }
 
                     // Convert WebHeaderCollection to Dictionary<string, string> for proper JSON serialization
@@ -758,7 +785,7 @@ namespace SimpleL7Proxy.Proxy
             //     _logger.LogError("Worker was started but no RequestAPIDocument was found to update.");
             // }
 
-            await UpdateBackup();            
+            await PersistRequestStateAsync();
             await DisposeAsync().ConfigureAwait(false);
         }
 

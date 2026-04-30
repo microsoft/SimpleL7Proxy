@@ -27,17 +27,17 @@ namespace SimpleL7Proxy.Async.Feeder
         private readonly ProxyConfig _options;
         private readonly ILogger<NormalRequest> _logger;
         private readonly IRequestDataBackupService _backupService;
-        private readonly IAsyncWorkerFactory _asyncWorkerFactory;
+        private readonly AsyncWorkerContext _asyncWorkerContext;
 
 
         public NormalRequest(IOptions<ProxyConfig> options,
                             IRequestDataBackupService backupService,
-                            IAsyncWorkerFactory asyncWorkerFactory,
+                            AsyncWorkerContext asyncWorkerContext,
                             ILogger<NormalRequest> logger)
         {
             _options = options.Value;
             _backupService = backupService;
-            _asyncWorkerFactory = asyncWorkerFactory;
+            _asyncWorkerContext = asyncWorkerContext;
             _logger = logger;
         }
 
@@ -66,7 +66,7 @@ namespace SimpleL7Proxy.Async.Feeder
 
             _logger.LogDebug("Creating async worker for request {Guid} URL: {FullURL} UserId: {UserID} ",
                 request.Guid, request.FullURL, request.UserID);
-            request.asyncWorker = await _asyncWorkerFactory.CreateAsync(request, 0).ConfigureAwait(false);
+            request.asyncWorker = new AsyncWorker(request, 0, _asyncWorkerContext);
 
             // let asyncworker restore the blob streams
             await request.asyncWorker.PrepareResponseStreamsAsync();

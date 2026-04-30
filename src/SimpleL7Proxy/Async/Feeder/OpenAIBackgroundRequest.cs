@@ -27,17 +27,17 @@ namespace SimpleL7Proxy.Async.Feeder
         private readonly ProxyConfig _options;
         private readonly ILogger<OpenAIBackgroundRequest> _logger;
         private readonly IRequestDataBackupService _backupService;
-        private readonly IAsyncWorkerFactory _asyncWorkerFactory;
+        private readonly AsyncWorkerContext _asyncWorkerContext;
 
 
         public OpenAIBackgroundRequest(IOptions<ProxyConfig> options,
                             IRequestDataBackupService backupService,
-                            IAsyncWorkerFactory asyncWorkerFactory,
+                            AsyncWorkerContext asyncWorkerContext,
                             ILogger<OpenAIBackgroundRequest> logger)
         {
             _options = options.Value;
             _backupService = backupService;
-            _asyncWorkerFactory = asyncWorkerFactory;
+            _asyncWorkerContext = asyncWorkerContext;
             _logger = logger;
         }
 
@@ -66,7 +66,7 @@ namespace SimpleL7Proxy.Async.Feeder
             request.IsBackgroundCheck = true;
             request.runAsync = true;
             request.AsyncTriggered = true;
-            request.asyncWorker = await _asyncWorkerFactory.CreateAsync(request, 0).ConfigureAwait(false);
+            request.asyncWorker = new AsyncWorker(request, 0, _asyncWorkerContext);
 
             // Initialize for background check - blobs will be created lazily when first written to
             await request.asyncWorker.InitializeForBackgroundCheck();
