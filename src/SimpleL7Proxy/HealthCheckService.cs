@@ -32,6 +32,7 @@ public class HealthCheckService
     private readonly IBackupAPIService? _backupAPIService;
     private readonly IServiceBusRequestService? _serviceBusRequestService;
     private readonly IBlobWriter? _blobWriter;
+    private readonly BlobWorkerPump? _blobWriteQueue;
     private readonly IUserProfileService? _userProfileService;
     private readonly AppConfigService _appConfigService;
     private readonly Func<string> _getWorkerState;
@@ -71,7 +72,6 @@ public class HealthCheckService
     private DateTime _lastFinalizerDrain = DateTime.UtcNow;
     private static TimeSpan s_finalizerDrainInterval;
 
-
     public HealthCheckService(
         IEndpointMonitorService backends,
         IOptions<ProxyConfig> options,
@@ -82,6 +82,7 @@ public class HealthCheckService
         AppConfigService appConfigService,
         IServiceBusRequestService? serviceBusRequestService = null,
         IBlobWriter? blobWriter = null,
+        BlobWorkerPump? blobWriteQueue = null,
         IBackupAPIService? backupAPIService = null,
         IUserProfileService? userProfileService = null)
     {
@@ -94,6 +95,7 @@ public class HealthCheckService
         _eventClient = eventClient;
         _serviceBusRequestService = serviceBusRequestService;
         _blobWriter = blobWriter;
+        _blobWriteQueue = blobWriteQueue;
         _backupAPIService = backupAPIService;
         _getWorkerState = GetWorkerState;
         _logger = logger;
@@ -335,13 +337,14 @@ public class HealthCheckService
                             .Append(' ').Append(shared).Append('\n');
 
                         // Probes
-                        var (startupStatus, readinessStatus, undrainedEvents) = GetStatus();
+                        var (startupStatus, readinessStatus, undrainedEvents, blobQueueDepth) = GetStatus();
                         _stringBuilder
                             .Append('\n')
                             .Append("─── Probes ────────────────────────────────────────────────────\n")
                             .Append(" /startup   : ").Append(startupStatus == HealthStatusEnum.StartupReady ? "200 OK" : "503 " + startupStatus).Append('\n')
                             .Append(" /readiness : ").Append(readinessStatus == HealthStatusEnum.ReadinessReady ? "200 OK" : "503 " + readinessStatus).Append('\n')
-                            .Append(" Undrained  : ").Append(undrainedEvents).Append(" / ").Append(_options.MaxUndrainedEvents).Append('\n');
+                            .Append(" Undrained  : ").Append(undrainedEvents).Append(" / ").Append(_options.MaxUndrainedEvents).Append('\n')
+                            .Append(" Blob Queue : ").Append(blobQueueDepth).Append(" / ").Append(_options.AsyncBlobMaxQueue).Append('\n');
 
                         // Workers
                         _stringBuilder
@@ -580,7 +583,7 @@ public class HealthCheckService
 
     // Method to get overall health status for probes, used by ProbeServer
     // Returns a tuple of (startupStatus, readinessStatus, activeUndrainedEvents) for more detailed monitoring
-    public (HealthStatusEnum, HealthStatusEnum, int) GetStatus()
+    public (HealthStatusEnum, HealthStatusEnum, int, int) GetStatus()
     {
         int hostCount = _backends.ActiveHostCount();
         bool hasFailed = _backends.CheckFailedStatusAsync(true).Result; 
@@ -589,7 +592,9 @@ public class HealthCheckService
         int activeEvents = _eventClient?.Count ?? 0;
         bool tooManyEvents = activeEvents > _options.MaxUndrainedEvents;
         bool eventsAreHealthy = _eventClient?.IsHealthy() == true;
-        var isReady = IsReadyToWork && backendsStarted && profilesReady && !tooManyEvents;
+        int blobQueueDepth = _blobWriteQueue?.QueueDepth ?? 0;
+        bool blobQueueHealthy = blobQueueDepth <= _options.AsyncBlobMaxQueue;
+        var isReady = IsReadyToWork && backendsStarted && profilesReady && !tooManyEvents && blobQueueHealthy;
 
         if (isReady && firstHealthCheck)
         {
@@ -602,24 +607,24 @@ public class HealthCheckService
 
         if (!isReady)
         {
-            return (HealthStatusEnum.StartupZeroHosts, HealthStatusEnum.ReadinessZeroHosts, activeEvents);
+            return (HealthStatusEnum.StartupZeroHosts, HealthStatusEnum.ReadinessZeroHosts, activeEvents, blobQueueDepth);
         }
 
         if (hostCount == 0)
         {
-            return (HealthStatusEnum.StartupZeroHosts, HealthStatusEnum.ReadinessZeroHosts, activeEvents);
+            return (HealthStatusEnum.StartupZeroHosts, HealthStatusEnum.ReadinessZeroHosts, activeEvents, blobQueueDepth);
         }
 
         if (hasFailed)
         {
-            return (HealthStatusEnum.StartupFailedHosts, HealthStatusEnum.ReadinessFailedHosts, activeEvents);
+            return (HealthStatusEnum.StartupFailedHosts, HealthStatusEnum.ReadinessFailedHosts, activeEvents, blobQueueDepth);
         }
 
         if (!eventsAreHealthy)
         {
-            return (HealthStatusEnum.StartupFailedHosts, HealthStatusEnum.ReadinessFailedHosts, activeEvents);
+            return (HealthStatusEnum.StartupFailedHosts, HealthStatusEnum.ReadinessFailedHosts, activeEvents, blobQueueDepth);
         }
 
-        return (HealthStatusEnum.StartupReady, HealthStatusEnum.ReadinessReady, activeEvents);
+        return (HealthStatusEnum.StartupReady, HealthStatusEnum.ReadinessReady, activeEvents, blobQueueDepth);
     }
 }
