@@ -137,8 +137,9 @@ public sealed class TemplateLoader : IHostedService
     {
         if (!_blobWriter.IsInitialized)
         {
-            _logger.LogWarning("[STARTUP] BlobWriter not initialized; skipping load of '{Container}' templates",
+            _logger.LogWarning("[STARTUP] BlobWriter not initialized; skipping load of '{Container}' templates and disabling async mode",
                 TemplatesContainer);
+            _options.AsyncModeEnabled = false;
             return;
         }
 
@@ -148,8 +149,9 @@ public sealed class TemplateLoader : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[STARTUP] Failed to initialize templates container '{Container}'",
-                TemplatesContainer);
+            _logger.LogError("[STARTUP] Failed to initialize templates container '{Container}': {Message}. Disabling async mode.",
+                TemplatesContainer, ex.Message);
+            _options.AsyncModeEnabled = false;
             return;
         }
 

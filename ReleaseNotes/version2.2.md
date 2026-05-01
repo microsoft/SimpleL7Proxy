@@ -13,6 +13,11 @@ Proyx:
 * Don't trigger Async if AsyncBlobMaxQueue is exceeded
 * Bug fix:  don't cache the streaming response when writing to a blob
 * Optimize the blob writer for throughput for streaming and file writing
+* If the templates folder is not readable, turn off async mode
+* Bug fix: storage account by connection was not working
+
+Deployment:
+* Create a deployment script to configure storage account
   
 2.2.10.7
 

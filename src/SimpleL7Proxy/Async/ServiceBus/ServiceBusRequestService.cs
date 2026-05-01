@@ -89,8 +89,8 @@ namespace SimpleL7Proxy.Async.ServiceBus
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[ServiceBus:{Guid}] Failed to enqueue status update - UserId: {UserId}, Status: {Status}", 
-                    message.Guid, message.MID, message.SBStatus);
+                _logger.LogError(ex, "[ServiceBus:{Guid}] Failed to enqueue status update - UserId: {UserId}, Status: {Status}, Topic: {Topic}, Error: {Error}",
+                    message.Guid, message.MID, message.SBStatus, message.SBTopicName, ex.Message);
                 return false; // Enqueue failed
             }
         }
