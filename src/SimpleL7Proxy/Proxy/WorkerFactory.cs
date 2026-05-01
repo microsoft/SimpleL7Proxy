@@ -67,8 +67,26 @@ public class WorkerFactory : BackgroundService
     foreach (var pw in _workers)
       _tasks.Add(Task.Run(() => pw.TaskRunnerAsync(), cancellationToken));
 
-    await Task.WhenAll(_tasks).ConfigureAwait(false);
-
+    await _shutdownSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+    
+    // Wait for all workers to complete with periodic logging
+    var allTasksCompletion = Task.WhenAll(_tasks);
+    var logInterval = TimeSpan.FromSeconds(.5);
+    
+    while (!allTasksCompletion.IsCompleted)
+    {
+      var completedTask = await Task.WhenAny(allTasksCompletion, Task.Delay(logInterval, cancellationToken))
+        .ConfigureAwait(false);
+      
+      if (completedTask != allTasksCompletion)
+      {
+        _logger.LogInformation("[WORKER] ⏳ Waiting for {count} workers to complete...", _tasks.Count(t => !t.IsCompleted));
+      }
+    }
+    
+    await allTasksCompletion.ConfigureAwait(false);
+    
+    _logger.LogInformation("[WORKER] ✓ All {count} workers have completed.", _tasks.Count);
     return;
   }
 
@@ -80,9 +98,12 @@ public class WorkerFactory : BackgroundService
     }
   }
 
+  private static readonly SemaphoreSlim _shutdownSemaphore = new(0,1);
   public static void RequestWorkerShutdown()
   {
     _internalCancellationTokenSource.Cancel();
+    _shutdownSemaphore.Release();
+
   }
 
   public static List<Task> GetAllTasks()
