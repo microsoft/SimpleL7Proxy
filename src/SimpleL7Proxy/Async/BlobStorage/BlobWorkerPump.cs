@@ -51,8 +51,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
         /// Data to write. Uses ReadOnlyMemory to avoid copying.
         /// </summary>
         public ReadOnlyMemory<byte> Data { get; init; }
-        
-        public int Priority { get; init; } = 0;
+
         public DateTime EnqueuedAt { get; } = DateTime.UtcNow;
 
         private readonly TaskCompletionSource<BlobWriteResult> _completionSource = new();
@@ -90,21 +89,23 @@ namespace SimpleL7Proxy.Async.BlobStorage
     /// Each worker independently batches operations for the same container.
     /// Operations for the same blob are routed to the same worker via hashing.
     /// </summary>
-    public class BlobWriteQueue : IHostedService, IDisposable
+    public class BlobWorkerPump : IHostedService, IDisposable
     {
         private readonly Channel<BlobWriteOperation>[] _workerChannels;
         private readonly List<Task> _workers;
         private readonly CancellationTokenSource _shutdownCts;
         private readonly CancellationTokenSource _metricsLoopCts;
         private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
-        private readonly ILogger<BlobWriteQueue> _logger;
+        private readonly ILogger<BlobWorkerPump> _logger;
         private readonly BlobWriteQueueOptions _options;
-        private readonly BlobWriter _blobWriter;
+        private readonly IBlobWriter _blobWriter;
 
         // Metrics
         private long _operationsQueued = 0;
         private long _operationsCompleted = 0;
         private long _operationsFailed = 0;
+        private long _operationsDeduplicated = 0;
+        private long _operationsInFlight = 0;
         private long _batchesExecuted = 0;
         private long _totalQueueTimeMs = 0;
         private long _totalProcessTimeMs = 0;
@@ -112,12 +113,18 @@ namespace SimpleL7Proxy.Async.BlobStorage
         private bool _isStarted = false;
         private Task? _stopTask;
 
-        public BlobWriteQueue(
-            BlobWriter blobWriter,
+        /// <summary>
+        /// Gets the total queue depth across all worker channels.
+        /// Can be used by health checks to monitor queue pressure.
+        /// </summary>
+        public int QueueDepth => (int)_workerChannels.Sum(ch => ch.Reader.Count);
+
+        public BlobWorkerPump(
+            IBlobWriterFactory blobWriterFactory,
             BlobWriteQueueOptions options,
-            ILogger<BlobWriteQueue> logger)
+            ILogger<BlobWorkerPump> logger)
         {
-            _blobWriter = blobWriter ?? throw new ArgumentNullException(nameof(blobWriter));
+            _blobWriter = blobWriterFactory?.CreateBlobWriter() ?? throw new ArgumentNullException(nameof(blobWriterFactory));
             _options = options ?? throw new ArgumentNullException(nameof(options));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _shutdownCts = new CancellationTokenSource();
@@ -184,23 +191,6 @@ namespace SimpleL7Proxy.Async.BlobStorage
             try
             {
                 var workerId = GetWorkerForBlob(operation.ContainerName, operation.BlobName);
-                
-                // Back-pressure: graduated delays based on queue depth to slow down producers
-                var queueDepth = _workerChannels[workerId].Reader.Count;
-                int delayMs = queueDepth switch
-                {
-                    >= 150 => 300,
-                    >= 100 => 200,
-                    >= 50 => 100,
-                    _ => 0
-                };
-                
-                if (delayMs > 0)
-                {
-                    _logger.LogDebug("[BlobWr-Q] Back-pressure: queue depth {Depth} - delaying {Delay}ms", queueDepth, delayMs);
-                    await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
-                }
-                
                 await _workerChannels[workerId].Writer.WriteAsync(operation, cancellationToken).ConfigureAwait(false);
                 Interlocked.Increment(ref _operationsQueued);
 
@@ -296,7 +286,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
             // DO NOT cancel _shutdownCts - let ALL blob operations complete
             var shutdownTimeout = TimeSpan.FromSeconds(60); // Allow time for blob operations to complete
             
-            _logger.LogInformation("[BlobWr-Q] ⏳ Waiting for workers to complete (timeout: {Timeout}s)...", shutdownTimeout.TotalSeconds);
+            _logger.LogInformation("[BlobWr-Q] ⏳ Waiting for blob workers to complete (timeout: {Timeout}s)...", shutdownTimeout.TotalSeconds);
             
             try
             {
@@ -344,13 +334,40 @@ namespace SimpleL7Proxy.Async.BlobStorage
                 _logger.LogWarning(ex, "[BlobWr-Q] Error during shutdown");
             }
 
+            // Diagnostic: Collect any unflushed blob names still in channels
+            var unflushedBlobs = new List<string>();
+            try
+            {
+                foreach (var channel in _workerChannels)
+                {
+                    while (channel.Reader.TryRead(out var operation))
+                    {
+                        unflushedBlobs.Add($"{operation.ContainerName}/{operation.BlobName}");
+                    }
+                }
+            }
+            catch { /* Safely ignore any channel read errors */ }
+
+            // Log diagnostic info about unflushed blobs
+            if (unflushedBlobs.Count > 0)
+            {
+                _logger.LogWarning("[BlobWr-Q] ⚠️  Found {UnflushedCount} unflushed blob operations at shutdown:", unflushedBlobs.Count);
+                for (int i = 0; i < unflushedBlobs.Count && i < 50; i++) // Limit to first 50 to avoid log spam
+                {
+                    _logger.LogWarning("[BlobWr-Q]   - {BlobName}", unflushedBlobs[i]);
+                }
+                if (unflushedBlobs.Count > 50)
+                {
+                    _logger.LogWarning("[BlobWr-Q]   ... and {RemainingCount} more", unflushedBlobs.Count - 50);
+                }
+            }
+
             var avgQueueTime = _operationsCompleted > 0 ? _totalQueueTimeMs / _operationsCompleted : 0;
             var avgProcessTime = _operationsCompleted > 0 ? _totalProcessTimeMs / _operationsCompleted : 0;
 
             _logger.LogInformation(
-                "[BlobWr-Q] ⏹  Stopped - Queued: {Queued}, Completed: {Completed}, Failed: {Failed}, " +
-                "Batches: {Batches}, AvgQueueTime: {AvgQueue}ms, AvgProcessTime: {AvgProcess}ms",
-                _operationsQueued, _operationsCompleted, _operationsFailed, _batchesExecuted,
+                "[BlobWr-Q] ⏹  Stopped Σ Q={Queued} C={Completed} D={Dedup} Fail={Failed} B={Batches}  ║ avg q/p {AvgQueue}/{AvgProcess} ms",
+                _operationsQueued, _operationsCompleted, _operationsDeduplicated, _operationsFailed, _batchesExecuted,
                 avgQueueTime, avgProcessTime);
 
             _isStarted = false;
@@ -367,6 +384,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
 
                 await foreach (var operation in _workerChannels[workerId].Reader.ReadAllAsync(cancellationToken))
                 {
+                    Interlocked.Increment(ref _operationsInFlight);
                     try
                     {
                         if (_options.EnableBatching)
@@ -393,6 +411,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
                         });
 
                         Interlocked.Increment(ref _operationsFailed);
+                        Interlocked.Decrement(ref _operationsInFlight);
                     }
                 }
 
@@ -420,15 +439,14 @@ namespace SimpleL7Proxy.Async.BlobStorage
 
             try
             {
-                // BlobWriter already caches container clients, no need to init
-                var stream = await _blobWriter.CreateBlobAndGetOutputStreamAsync(
+                // Queue is small-blob-only: payload is fully materialized in memory, so use
+                // BlockBlobClient.UploadAsync (1 round-trip). Large/streamed payloads bypass
+                // the queue via AsyncStreamingStore → BlobClient.OpenWriteAsync.
+                await _blobWriter.UploadBlobAsync(
                     operation.ContainerName,
-                    operation.BlobName)
-                    .ConfigureAwait(false);
-
-                await stream.WriteAsync(operation.Data, cancellationToken).ConfigureAwait(false);
-                await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
-                await stream.DisposeAsync().ConfigureAwait(false);
+                    operation.BlobName,
+                    operation.Data,
+                    cancellationToken).ConfigureAwait(false);
 
                 sw.Stop();
 
@@ -440,6 +458,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
                 });
 
                 Interlocked.Increment(ref _operationsCompleted);
+                Interlocked.Decrement(ref _operationsInFlight);
                 Interlocked.Add(ref _totalQueueTimeMs, (long)queueTime.TotalMilliseconds);
                 Interlocked.Add(ref _totalProcessTimeMs, sw.ElapsedMilliseconds);
 
@@ -463,6 +482,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
                 });
 
                 Interlocked.Increment(ref _operationsFailed);
+                Interlocked.Decrement(ref _operationsInFlight);
             }
         }
 
@@ -496,6 +516,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
                     {
                         if (_workerChannels[workerId].Reader.TryRead(out var nextOperation))
                         {
+                            Interlocked.Increment(ref _operationsInFlight);
                             if (nextOperation.ContainerName == containerName)
                             {
                                 batchBuffer.Add(nextOperation);
@@ -526,6 +547,9 @@ namespace SimpleL7Proxy.Async.BlobStorage
                 // Single operation, no batching benefit
                 await ProcessSingleOperationAsync(batchBuffer[0], workerId, cancellationToken).ConfigureAwait(false);
             }
+
+            // Clear so the shutdown flush in WorkerLoop doesn't re-execute these already-completed ops
+            batchBuffer.Clear();
         }
 
         private async Task ExecuteBatchAsync(
@@ -574,7 +598,9 @@ namespace SimpleL7Proxy.Async.BlobStorage
                                 QueueTime = DateTime.UtcNow - dupOp.EnqueuedAt
                             });
                             
-                            Interlocked.Increment(ref _operationsCompleted);
+                            // Counted as Dedup only (disjoint from Completed)
+                            Interlocked.Increment(ref _operationsDeduplicated);
+                            Interlocked.Decrement(ref _operationsInFlight);
                         }
                     }
                 }
@@ -592,14 +618,12 @@ namespace SimpleL7Proxy.Async.BlobStorage
 
                     try
                     {
-                        var stream = await _blobWriter.CreateBlobAndGetOutputStreamAsync(
+                        // Queue is small-blob-only: 1-RT UploadAsync for fully-materialized payloads.
+                        await _blobWriter.UploadBlobAsync(
                             operation.ContainerName,
-                            operation.BlobName)
-                            .ConfigureAwait(false);
-
-                        await stream.WriteAsync(operation.Data, cancellationToken).ConfigureAwait(false);
-                        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
-                        await stream.DisposeAsync().ConfigureAwait(false);
+                            operation.BlobName,
+                            operation.Data,
+                            cancellationToken).ConfigureAwait(false);
 
                         opSw.Stop();
 
@@ -611,6 +635,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
                         });
 
                         Interlocked.Increment(ref _operationsCompleted);
+                        Interlocked.Decrement(ref _operationsInFlight);
                         Interlocked.Add(ref _totalQueueTimeMs, (long)queueTime.TotalMilliseconds);
                         Interlocked.Add(ref _totalProcessTimeMs, opSw.ElapsedMilliseconds);
                     }
@@ -633,6 +658,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
                         });
 
                         Interlocked.Increment(ref _operationsFailed);
+                        Interlocked.Decrement(ref _operationsInFlight);
                     }
                 });
 
@@ -668,6 +694,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
                     });
 
                     Interlocked.Increment(ref _operationsFailed);
+                    Interlocked.Decrement(ref _operationsInFlight);
                 }
             }
         }
@@ -676,6 +703,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
         private long _lastQueued = 0;
         private long _lastCompleted = 0;
         private long _lastFailed = 0;
+        private long _lastDeduplicated = 0;
         private long _lastBatches = 0;
 
         private async Task MetricsLoop(CancellationToken cancellationToken)
@@ -696,43 +724,52 @@ namespace SimpleL7Proxy.Async.BlobStorage
                     var queued = Interlocked.Read(ref _operationsQueued);
                     var completed = Interlocked.Read(ref _operationsCompleted);
                     var failed = Interlocked.Read(ref _operationsFailed);
+                    var deduplicated = Interlocked.Read(ref _operationsDeduplicated);
                     var batches = Interlocked.Read(ref _batchesExecuted);
 
                     // Calculate deltas since last report
                     var deltaQueued = queued - _lastQueued;
                     var deltaCompleted = completed - _lastCompleted;
                     var deltaFailed = failed - _lastFailed;
+                    var deltaDeduplicated = deduplicated - _lastDeduplicated;
                     var deltaBatches = batches - _lastBatches;
 
-                    // Skip if nothing happened since last report
-                    if (deltaQueued == 0 && deltaCompleted == 0 && deltaFailed == 0)
+                    var remaining = _workerChannels.Sum(ch => ch.Reader.Count);
+                    var inFlight = Interlocked.Read(ref _operationsInFlight);
+
+                    // Suppress redundant lines: if no counters moved AND nothing is queued or
+                    // in flight, the snapshot is identical to the last one — don't log it.
+                    if (deltaQueued == 0 && deltaCompleted == 0 && deltaFailed == 0
+                        && deltaDeduplicated == 0 && deltaBatches == 0
+                        && remaining == 0 && inFlight == 0)
+                    {
                         continue;
+                    }
 
                     // Update snapshots
                     _lastQueued = queued;
                     _lastCompleted = completed;
                     _lastFailed = failed;
+                    _lastDeduplicated = deduplicated;
                     _lastBatches = batches;
 
-                    var remaining = _workerChannels.Sum(ch => ch.Reader.Count);
                     var avgQueueTime = completed > 0 ? _totalQueueTimeMs / completed : 0;
                     var avgProcessTime = completed > 0 ? _totalProcessTimeMs / completed : 0;
 
+                    // DIAGNOSTIC: Log queue depth + in-flight (dequeued but not yet completed)
                     if (failed > 0)
                     {
                         _logger.LogWarning(
-                            "[BlobWr-Q] Δ Queued: +{DeltaQueued}, Completed: +{DeltaCompleted}, Failed: +{DeltaFailed} (total: {TotalFailed}), " +
-                            "Batches: +{DeltaBatches} | Remaining: {Remaining}, AvgQueue: {AvgQueue}ms, AvgProcess: {AvgProcess}ms",
-                            deltaQueued, deltaCompleted, deltaFailed, failed,
-                            deltaBatches, remaining, avgQueueTime, avgProcessTime);
+                            "[BlobWr-Q] Δ Q+{DeltaQueued} C+{DeltaCompleted} Dup+{DeltaDeduplicated} Fail+{DeltaFailed} Bch+{DeltaBatches} (failed total: {TotalFailed})  ║ depth {Remaining} / inflight {InFlight}  ║ avg q/p {AvgQueue}/{AvgProcess} ms",
+                            deltaQueued, deltaCompleted, deltaDeduplicated, deltaFailed, deltaBatches, failed,
+                            remaining, inFlight, avgQueueTime, avgProcessTime);
                     }
                     else
                     {
                         _logger.LogInformation(
-                            "[BlobWr-Q] Δ Queued: +{DeltaQueued}, Completed: +{DeltaCompleted}, " +
-                            "Batches: +{DeltaBatches} | Remaining: {Remaining}, AvgQueue: {AvgQueue}ms, AvgProcess: {AvgProcess}ms",
-                            deltaQueued, deltaCompleted,
-                            deltaBatches, remaining, avgQueueTime, avgProcessTime);
+                            "[BlobWr-Q] Δ Q+{DeltaQueued} C+{DeltaCompleted} Dup+{DeltaDeduplicated} Bch+{DeltaBatches}  ║ depth {Remaining} / inflight {InFlight}  ║ avg q/p {AvgQueue}/{AvgProcess} ms",
+                            deltaQueued, deltaCompleted, deltaDeduplicated, deltaBatches,
+                            remaining, inFlight, avgQueueTime, avgProcessTime);
                     }
                 }
                 catch (OperationCanceledException)
