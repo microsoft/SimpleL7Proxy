@@ -8,12 +8,12 @@ using SimpleL7Proxy.Messaging;
 
 namespace SimpleL7Proxy.Events;
 
-public class LogFileEventClient : IEventClient, IHostedService, IBatchMessageTransport<List<BatchMessageEnvelope>>
+public class LogFileEventClient : IEventClient, IHostedService, IBatchMessageTransport<List<BatchMessageEnvelope>, BatchMessageEnvelope>
 {
-    private IBatchMessageTransport<List<BatchMessageEnvelope>> BatchTransport => this;
+    private IBatchMessageTransport<List<BatchMessageEnvelope>, BatchMessageEnvelope> BatchTransport => this;
 
     private bool isRunning = false;
-    private readonly BatchMessagePump<List<BatchMessageEnvelope>> _pump;
+    private readonly BatchMessagePump<List<BatchMessageEnvelope>, BatchMessageEnvelope> _pump;
     private const string DefaultDestination = "file";
 
     public bool IsRunning { get => _pump.IsRunning || isRunning; set => isRunning = value; }
@@ -23,19 +23,19 @@ public class LogFileEventClient : IEventClient, IHostedService, IBatchMessageTra
     private readonly StringBuilder _sb = new();
     private static Stream log = null!;
     private static StreamWriter writer = null!;
-    
-    public LogFileEventClient(string filename, CompositeEventClient composite, IOptions<ProxyConfig> options )
+
+    public LogFileEventClient(string filename, CompositeEventClient composite, IOptions<ProxyConfig> options)
     {
         var proxyOptions = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _composite = composite ?? throw new ArgumentNullException(nameof(composite));
-        // create file stream to a log file
+
         log = new FileStream(filename, FileMode.OpenOrCreate, FileAccess.Write);
         writer = new StreamWriter(log)
         {
-            AutoFlush = true
+            AutoFlush = true,
         };
 
-        _pump = new BatchMessagePump<List<BatchMessageEnvelope>>(
+        _pump = new BatchMessagePump<List<BatchMessageEnvelope>, BatchMessageEnvelope>(
             destination: DefaultDestination,
             transport: this,
             createBatchAsync: cancellationToken => BatchTransport.CreateBatchAsync(DefaultDestination, cancellationToken),
@@ -57,7 +57,6 @@ public class LogFileEventClient : IEventClient, IHostedService, IBatchMessageTra
     {
         return _pump.IsRunning && !_pump.IsShuttingDown;
     }
-
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -82,7 +81,6 @@ public class LogFileEventClient : IEventClient, IHostedService, IBatchMessageTra
         return Task.CompletedTask;
     }
 
-
     public async Task StopTimerAsync()
     {
         if (!_pump.IsRunning && !isRunning)
@@ -103,31 +101,34 @@ public class LogFileEventClient : IEventClient, IHostedService, IBatchMessageTra
 
     public void SendData(string? value)
     {
-        _pump.Enqueue(value);
+        if (value != null)
+        {
+            _pump.Enqueue(new BatchMessageEnvelope(DefaultDestination, value));
+        }
     }
 
-    Task IBatchMessageTransport<List<BatchMessageEnvelope>>.OpenAsync(CancellationToken cancellationToken)
+    Task IBatchMessageTransport<List<BatchMessageEnvelope>, BatchMessageEnvelope>.OpenAsync(CancellationToken cancellationToken)
     {
         return Task.CompletedTask;
     }
 
-    ValueTask<List<BatchMessageEnvelope>> IBatchMessageTransport<List<BatchMessageEnvelope>>.CreateBatchAsync(string destination, CancellationToken cancellationToken)
+    ValueTask<List<BatchMessageEnvelope>> IBatchMessageTransport<List<BatchMessageEnvelope>, BatchMessageEnvelope>.CreateBatchAsync(string destination, CancellationToken cancellationToken)
     {
         return ValueTask.FromResult(new List<BatchMessageEnvelope>());
     }
 
-    bool IBatchMessageTransport<List<BatchMessageEnvelope>>.TryAdd(List<BatchMessageEnvelope> batch, BatchMessageEnvelope message)
+    bool IBatchMessageTransport<List<BatchMessageEnvelope>, BatchMessageEnvelope>.TryAdd(List<BatchMessageEnvelope> batch, BatchMessageEnvelope message)
     {
         batch.Add(message);
         return true;
     }
 
-    int IBatchMessageTransport<List<BatchMessageEnvelope>>.GetCount(List<BatchMessageEnvelope> batch)
+    int IBatchMessageTransport<List<BatchMessageEnvelope>, BatchMessageEnvelope>.GetCount(List<BatchMessageEnvelope> batch)
     {
         return batch.Count;
     }
 
-    Task IBatchMessageTransport<List<BatchMessageEnvelope>>.SendAsync(string destination, List<BatchMessageEnvelope> batch, CancellationToken cancellationToken)
+    Task IBatchMessageTransport<List<BatchMessageEnvelope>, BatchMessageEnvelope>.SendAsync(string destination, List<BatchMessageEnvelope> batch, CancellationToken cancellationToken)
     {
         _sb.Clear();
         foreach (var message in batch)
@@ -140,12 +141,12 @@ public class LogFileEventClient : IEventClient, IHostedService, IBatchMessageTra
         return Task.CompletedTask;
     }
 
-    void IBatchMessageTransport<List<BatchMessageEnvelope>>.DisposeBatch(List<BatchMessageEnvelope> batch)
+    void IBatchMessageTransport<List<BatchMessageEnvelope>, BatchMessageEnvelope>.DisposeBatch(List<BatchMessageEnvelope> batch)
     {
         batch.Clear();
     }
 
-    Task IBatchMessageTransport<List<BatchMessageEnvelope>>.CloseAsync(CancellationToken cancellationToken)
+    Task IBatchMessageTransport<List<BatchMessageEnvelope>, BatchMessageEnvelope>.CloseAsync(CancellationToken cancellationToken)
     {
         writer.Flush();
         writer.Dispose();

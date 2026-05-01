@@ -13,8 +13,8 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
     private bool _disposed = false;
 
     private readonly EventHubConfig? _config;
-    private readonly IBatchMessageTransport<EventDataBatch>? _transport;
-    private readonly BatchMessagePump<EventDataBatch>? _pump;
+    private readonly IBatchMessageTransport<EventDataBatch, BatchMessageEnvelope>? _transport;
+    private readonly BatchMessagePump<EventDataBatch, BatchMessageEnvelope>? _pump;
     private readonly ILogger<EventHubClient> _logger;
     private readonly CompositeEventClient _composite;
     private const string DefaultDestination = "eventhub";
@@ -45,7 +45,7 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
         {
             var transport = new EventHubBatchTransport(_config, defaultCredential, _logger);
             _transport = transport;
-            _pump = new BatchMessagePump<EventDataBatch>(
+            _pump = new BatchMessagePump<EventDataBatch, BatchMessageEnvelope>(
                 destination: DefaultDestination,
                 transport: transport,
                 createBatchAsync: cancellationToken => transport.CreateBatchAsync(DefaultDestination, cancellationToken),
@@ -127,7 +127,10 @@ public class EventHubClient : IEventClient, IHostedService, IDisposable
 
     public void SendData(string? value)
     {
-        _pump?.Enqueue(value);
+        if (value != null)
+        {
+            _pump?.Enqueue(new BatchMessageEnvelope(DefaultDestination, value));
+        }
     }
 
     private async ValueTask<EventDataBatch> RecoverBatchAsync(CancellationToken cancellationToken)

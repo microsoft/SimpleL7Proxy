@@ -3,24 +3,47 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 
+using SimpleL7Proxy.Async;
 using SimpleL7Proxy.Async.BlobStorage;
 
 namespace SimpleL7Proxy.DTO
 {
     public class RequestDataBackupService : IRequestDataBackupService
     {
-        private readonly IBlobWriter _blobWriter;
+        private readonly IAsyncFileStore _requestStore;
         private readonly ILogger<RequestDataBackupService> _logger;
 
-        public RequestDataBackupService(IBlobWriter blobWriter, ILogger<RequestDataBackupService> logger)
+        // Single-flight init for the Server backup container. The storage layer is
+        // user-agnostic, so this service owns initialization of Constants.Server.
+        private Task<bool>? _serverInitTask;
+        private readonly object _serverInitLock = new();
+
+        public RequestDataBackupService(IAsyncFileStore requestStore, ILogger<RequestDataBackupService> logger)
         {
             _logger = logger;
             _logger.LogDebug("[STARTUP] BackupAPI Service starting");
-            _blobWriter = blobWriter;
+            _requestStore = requestStore;
+        }
+
+        private Task<bool> EnsureServerContainerInitializedAsync()
+        {
+            var existing = _serverInitTask;
+            if (existing != null && !existing.IsFaulted && !existing.IsCanceled)
+                return existing;
+
+            lock (_serverInitLock)
+            {
+                if (_serverInitTask == null || _serverInitTask.IsFaulted || _serverInitTask.IsCanceled)
+                {
+                    _serverInitTask = _requestStore.InitializeClientAsync(Constants.Server);
+                }
+                return _serverInitTask;
+            }
         }
 
         public async Task RestoreIntoAsync(RequestData rdata)
         {
+            await EnsureServerContainerInitializedAsync().ConfigureAwait(false);
             string blobname = rdata.Guid.ToString();
             
             _logger.LogTrace($"[BLOB-TRACE] BackupService.RestoreIntoAsync | Action: Start | Guid: {rdata.Guid} | Container: {Constants.Server} | Blob: {blobname} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
@@ -28,7 +51,7 @@ namespace SimpleL7Proxy.DTO
             try
             {
                 // Console.WriteLine("RequestDataBackupService: Reading blob from " + Constants.Server + " with name " + blobname);
-                using Stream stream = await _blobWriter.ReadBlobAsStreamAsync(Constants.Server, blobname);
+                using Stream stream = await _requestStore.ReadBlobAsStreamAsync(Constants.Server, blobname);
                 var streamReader = new StreamReader(stream);
                 var json = await streamReader.ReadToEndAsync();
                 var data = RequestDataConverter.DeserializeWithVersionHandling(json);
@@ -46,10 +69,10 @@ namespace SimpleL7Proxy.DTO
 
                 // read body bytes if present
                 var bodyBlobName = blobname + ".body";
-                if (await _blobWriter.BlobExistsAsync(Constants.Server, bodyBlobName))
+                if (await _requestStore.BlobExistsAsync(Constants.Server, bodyBlobName))
                 {
                     //_logger.LogTrace($"[BLOB-TRACE] BackupService.RestoreIntoAsync | Action: ReadBody | Guid: {rdata.Guid} | Container: {Constants.Server} | Blob: {bodyBlobName} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
-                    using Stream bodyStream = await _blobWriter.ReadBlobAsStreamAsync(Constants.Server, bodyBlobName);
+                    using Stream bodyStream = await _requestStore.ReadBlobAsStreamAsync(Constants.Server, bodyBlobName);
                     var bodyStreamReader = new StreamReader(bodyStream);
                     var datastr = await bodyStreamReader.ReadToEndAsync();
                     rdata.setBody(Encoding.UTF8.GetBytes(datastr));
@@ -86,6 +109,7 @@ namespace SimpleL7Proxy.DTO
 
         public async Task BackupAsync(RequestData requestData)
         {
+            await EnsureServerContainerInitializedAsync().ConfigureAwait(false);
             var operation = "Creating blob";
 
             //_logger.LogTrace($"[BLOB-TRACE] BackupService.BackupAsync | Action: Start | Guid: {requestData.Guid} | Container: {Constants.Server} | Blob: {requestData.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
@@ -104,19 +128,14 @@ namespace SimpleL7Proxy.DTO
                 var jsonBytes = System.Text.Encoding.UTF8.GetBytes(json);
 
                 operation = "Writing to blob";
-                await using (var stream = await _blobWriter.CreateBlobAndGetOutputStreamAsync(Constants.Server, requestData.Guid.ToString()))
-                await using (var writer = new BufferedStream(stream))
-                {
-                    await writer.WriteAsync(jsonBytes, 0, jsonBytes.Length);
-                    await writer.FlushAsync();
-                    _logger.LogTrace($"[BLOB-TRACE] BackupService.BackupAsync | Action: Written | Guid: {requestData.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
-                }
+                await _requestStore.WriteAsync(Constants.Server, requestData.Guid.ToString(), jsonBytes).ConfigureAwait(false);
+                _logger.LogTrace($"[BLOB-TRACE] BackupService.BackupAsync | Action: Written | Guid: {requestData.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
 
                 // Only write out the body bytes blob the first time.. The body does not change on retries 
                 if (requestData.BodyBytes != null)
                 {
                     var bodyBlobName = requestData.Guid.ToString() + ".body";
-                    var exists = await _blobWriter.BlobExistsAsync(Constants.Server, bodyBlobName);
+                    var exists = await _requestStore.BlobExistsAsync(Constants.Server, bodyBlobName);
                     if (exists)
                     {
                         _logger.LogTrace($"[BLOB-TRACE] BackupService.BackupAsync | Action: BodyExists-Skip | Guid: {requestData.Guid} | Blob: {bodyBlobName} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
@@ -125,13 +144,8 @@ namespace SimpleL7Proxy.DTO
                     }
 
                     _logger.LogTrace($"[BLOB-TRACE] BackupService.BackupAsync | Action: WriteBody | Guid: {requestData.Guid} | Container: {Constants.Server} | Blob: {bodyBlobName} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
-                    await using (var stream = await _blobWriter.CreateBlobAndGetOutputStreamAsync(Constants.Server, bodyBlobName))
-                    await using (var writer = new BufferedStream(stream))
-                    {
-                        await writer.WriteAsync(requestData.BodyBytes, 0, requestData.BodyBytes.Length);
-                        await writer.FlushAsync();
-                        _logger.LogTrace($"[BLOB-TRACE] BackupService.BackupAsync | Action: WriteBody-Complete | Guid: {requestData.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
-                    }
+                    await _requestStore.WriteAsync(Constants.Server, bodyBlobName, requestData.BodyBytes).ConfigureAwait(false);
+                    _logger.LogTrace($"[BLOB-TRACE] BackupService.BackupAsync | Action: WriteBody-Complete | Guid: {requestData.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
 
                 }
                 
@@ -150,8 +164,9 @@ namespace SimpleL7Proxy.DTO
         {
             try
             {
+                await EnsureServerContainerInitializedAsync().ConfigureAwait(false);
                 _logger.LogCritical($"RequestDataBackupService: Deleting backup for blob {blobname}");
-                await _blobWriter.DeleteBlobAsync(Constants.Server, blobname);
+                await _requestStore.DeleteBlobAsync(Constants.Server, blobname);
                 return true;
             }
             catch (Exception ex)

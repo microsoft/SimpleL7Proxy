@@ -7,7 +7,7 @@ using SimpleL7Proxy.Messaging;
 
 namespace SimpleL7Proxy.Events;
 
-internal sealed class EventHubBatchTransport : IBatchMessageTransport<EventDataBatch>
+internal sealed class EventHubBatchTransport : IBatchMessageTransport<EventDataBatch, BatchMessageEnvelope>
 {
     private readonly EventHubConfig _config;
     private readonly DefaultCredential _defaultCredential;

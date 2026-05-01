@@ -11,17 +11,17 @@ internal sealed class BatchMessagePumpOptions
     public TimeSpan ShutdownDrainTimeout { get; init; } = TimeSpan.FromSeconds(30);
 }
 
-internal sealed class BatchMessagePump<TBatch> : IDisposable
+internal sealed class BatchMessagePump<TBatch, TItem> : IDisposable
     where TBatch : class
 {
     private static readonly TimeSpan NormalWaitInterval = TimeSpan.FromMilliseconds(500);
 
     private readonly string _destination;
-    private readonly IBatchMessageTransport<TBatch> _transport;
+    private readonly IBatchMessageTransport<TBatch, TItem> _transport;
     private readonly Func<CancellationToken, ValueTask<TBatch>> _createBatchAsync;
     private readonly Func<CancellationToken, ValueTask<TBatch>> _recoverBatchAsync;
     private readonly BatchMessagePumpOptions _options;
-    private readonly ConcurrentQueue<BatchMessageEnvelope> _queue = new();
+    private readonly ConcurrentQueue<TItem> _queue = new();
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private readonly SemaphoreSlim _startLock = new(1, 1);
 
@@ -38,7 +38,7 @@ internal sealed class BatchMessagePump<TBatch> : IDisposable
 
     public BatchMessagePump(
         string destination,
-        IBatchMessageTransport<TBatch> transport,
+        IBatchMessageTransport<TBatch, TItem> transport,
         Func<CancellationToken, ValueTask<TBatch>> createBatchAsync,
         Func<CancellationToken, ValueTask<TBatch>> recoverBatchAsync,
         BatchMessagePumpOptions? options = null)
@@ -65,20 +65,24 @@ internal sealed class BatchMessagePump<TBatch> : IDisposable
         _beginShutdown = true;
     }
 
-    public void Enqueue(string? value)
+    public void Enqueue(TItem? item)
     {
-        if (value == null || !_isRunning || _isShuttingDown)
+        if (item == null || !_isRunning || _isShuttingDown)
         {
             return;
         }
 
-        if (value.StartsWith("\n\n", StringComparison.Ordinal))
+        // For string items, trim leading newlines (backward compatibility)
+        if (item is string str)
         {
-            value = value.Substring(2);
+            if (str.StartsWith("\n\n", StringComparison.Ordinal))
+            {
+                item = (TItem)(object)str.Substring(2);
+            }
         }
 
         Interlocked.Increment(ref _entryCount);
-        _queue.Enqueue(new BatchMessageEnvelope(_destination, value));
+        _queue.Enqueue(item);
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -128,8 +132,8 @@ internal sealed class BatchMessagePump<TBatch> : IDisposable
 
     private async Task RunAsync(CancellationToken lifetimeToken)
     {
-        var pendingTasks = new List<(Task Task, List<BatchMessageEnvelope> Items, int Count, TBatch Batch)>();
-        var pendingItems = new List<BatchMessageEnvelope>();
+        var pendingTasks = new List<(Task Task, List<TItem> Items, int Count, TBatch Batch)>();
+        var pendingItems = new List<TItem>();
         using var timer = new PeriodicTimer(NormalWaitInterval);
         var lastSendTime = DateTime.UtcNow;
 
@@ -181,8 +185,8 @@ internal sealed class BatchMessagePump<TBatch> : IDisposable
     }
 
     private async Task DrainAndCloseAsync(
-        List<(Task Task, List<BatchMessageEnvelope> Items, int Count, TBatch Batch)> pendingTasks,
-        List<BatchMessageEnvelope> pendingItems)
+        List<(Task Task, List<TItem> Items, int Count, TBatch Batch)> pendingTasks,
+        List<TItem> pendingItems)
     {
         while (true)
         {
@@ -240,9 +244,9 @@ internal sealed class BatchMessagePump<TBatch> : IDisposable
         }
     }
 
-    private async Task<(bool Success, List<BatchMessageEnvelope> NewPendingItems)> FlushBatchAsync(
-        List<(Task Task, List<BatchMessageEnvelope> Items, int Count, TBatch Batch)> pendingTasks,
-        List<BatchMessageEnvelope> pendingItems)
+    private async Task<(bool Success, List<TItem> NewPendingItems)> FlushBatchAsync(
+        List<(Task Task, List<TItem> Items, int Count, TBatch Batch)> pendingTasks,
+        List<TItem> pendingItems)
     {
         if (_batch is not { } sentBatch)
         {
@@ -261,14 +265,14 @@ internal sealed class BatchMessagePump<TBatch> : IDisposable
         {
             _transport.DisposeBatch(sentBatch);
             ReEnqueueItems(pendingItems);
-            return (false, new List<BatchMessageEnvelope>());
+            return (false, new List<TItem>());
         }
 
         _batch = await _createBatchAsync(CancellationToken.None).ConfigureAwait(false);
-        return (true, new List<BatchMessageEnvelope>());
+        return (true, new List<TItem>());
     }
 
-    private void HarvestCompletedSends(List<(Task Task, List<BatchMessageEnvelope> Items, int Count, TBatch Batch)> pendingTasks)
+    private void HarvestCompletedSends(List<(Task Task, List<TItem> Items, int Count, TBatch Batch)> pendingTasks)
     {
         for (int i = pendingTasks.Count - 1; i >= 0; i--)
         {
@@ -291,7 +295,7 @@ internal sealed class BatchMessagePump<TBatch> : IDisposable
         }
     }
 
-    private void FillCurrentBatch(int count, List<BatchMessageEnvelope> pendingItems)
+    private void FillCurrentBatch(int count, List<TItem> pendingItems)
     {
         if (_batch is not { } currentBatch)
         {
@@ -325,7 +329,7 @@ internal sealed class BatchMessagePump<TBatch> : IDisposable
         }
     }
 
-    private void ReEnqueueItems(List<BatchMessageEnvelope> items)
+    private void ReEnqueueItems(List<TItem> items)
     {
         foreach (var item in items)
         {
