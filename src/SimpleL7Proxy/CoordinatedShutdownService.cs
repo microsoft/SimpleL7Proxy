@@ -35,8 +35,7 @@ public class CoordinatedShutdownService : IHostedService
     private readonly IEndpointMonitorService _backends;
     private readonly IAsyncFeeder _asyncFeeder;
     private readonly IRequeueWorker _requeueWorker;
-    private readonly BlobWriteQueue? _blobWriteQueue;
-    private readonly BlobWriter? _blobWriter;
+    private readonly BlobWorkerPump? _blobWriteQueue;
     private readonly IEnumerable<IShutdownParticipant> _shutdownParticipants;
     private readonly ProbeServer _probeServer;
     private readonly CompositeEventClient _compositeEventClient;
@@ -69,8 +68,7 @@ public class CoordinatedShutdownService : IHostedService
         _asyncFeeder = asyncFeeder;
         _backendTokenProvider = backendTokenProvider;
         _requeueWorker = requeueWorker;
-        _blobWriteQueue = serviceProvider.GetService<BlobWriteQueue>();
-        _blobWriter = serviceProvider.GetService<BlobWriter>();
+        _blobWriteQueue = serviceProvider.GetService<BlobWorkerPump>();
         _shutdownParticipants = serviceProvider.GetServices<IShutdownParticipant>();
         _probeServer = probeServer;
         _options = backendOptions.Value;
@@ -191,8 +189,8 @@ public class CoordinatedShutdownService : IHostedService
             {
                 _logger.LogInformation("[SHUTDOWN] ⏹  Stopping BlobWriteQueue (final flush)");
                 await _blobWriteQueue.StopAsync(CancellationToken.None).ConfigureAwait(false);
-                // Dispose underlying BlobWriter after the queue has flushed
-                _blobWriter?.Dispose();
+                // Underlying BlobWriter instances (in QueuedBlobWriter and AsyncStreamingStore)
+                // are DI singletons — the host disposes them on container shutdown.
             }
 
             // Health probes are stopped at the VERY END so the container orchestrator

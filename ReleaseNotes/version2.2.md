@@ -1,5 +1,19 @@
 # Release Notes #
+2.2.11.0
 
+Proyx:
+* Code restructure for Async work
+* Streamline event draining process for SB and file logger
+* Refactor blob writer methods
+* Load async templates at startup
+* Bug fix: don't activate ciruit breaker on async shutdown
+* Cleanup async shutdown
+* Bug fix: possible loss of async Queue message
+* Add configurations for AsyncBlobMaxQueue and AsyncStreamingBufferSizeBytes
+* Don't trigger Async if AsyncBlobMaxQueue is exceeded
+* Bug fix:  don't cache the streaming response when writing to a blob
+* Optimize the blob writer for throughput for streaming and file writing
+  
 2.2.10.7
 
 Proxy:

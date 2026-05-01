@@ -153,6 +153,7 @@ public class Program
         serviceProvider.GetRequiredService<ICommonEventData>();
         serviceProvider.GetRequiredService<ProxyEventInitializer>();
 
+
         HostConfig.Initialize(backendTokenProvider, logger, serviceProvider);
 
         var hostCollection = serviceProvider.GetRequiredService<IHostHealthCollection>();
@@ -160,6 +161,17 @@ public class Program
 
         var healthService = serviceProvider.GetRequiredService<HealthCheckService>();
         Task healthCheck = healthService.BeginStartupMonitoring();
+
+        // Initialize AsyncWorker static dependencies (only if async mode is enabled)
+        if (options.Value.AsyncModeEnabled)
+        {
+            var fileStore = serviceProvider.GetRequiredService<IAsyncFileStore>();
+            var streamingStore = serviceProvider.GetRequiredService<IAsyncStreamingStore>();
+            var asyncWorkerLogger = loggerFactory.CreateLogger<AsyncWorker>();
+            var probeService = serviceProvider.GetRequiredService<ProbeServer>();
+            var messages = serviceProvider.GetRequiredService<TemplateLoader>();
+            AsyncWorker.Initialize(fileStore, streamingStore, asyncWorkerLogger, messages, options.Value, probeService);
+        }
 
         var appLifetime = serviceProvider.GetRequiredService<IHostApplicationLifetime>();
         appLifetime.ApplicationStarted.Register(async () =>
@@ -305,11 +317,28 @@ public class Program
 
     private static void RegisterAsyncDI(IServiceCollection services, ILogger startupLogger, ProxyConfig backendOptions)
     {
+        // ─────────────────────────────────────────────────────────────────────────────
+        // Async DI map (interface → implementation), resolved by reflection below.
+        //
+        // IBlobWriter → QueuedBlobWriter is the canonical binding for async mode:
+        // every consumer that takes IBlobWriter (TemplateLoader, Server,
+        // HealthCheckService, AsyncFileStore, …) gets the queued decorator, so all
+        // small-blob writes flow through the BlobWriteQueue automatically.
+        //
+        // The non-async branch in ConfigureDI binds IBlobWriter → NullBlobWriter.
+        // These are the ONLY two bindings of IBlobWriter in the app — keep it that
+        // way. Adding a second binding here will silently shadow the queued path
+        // for whichever consumer DI happens to resolve last.
+        //
+        // AsyncStreamingStore is the deliberate exception: it does NOT take
+        // IBlobWriter. It calls IBlobWriterFactory.CreateBlobWriter() to get a raw
+        // BlobWriter so multi-GB response bodies bypass the queue.
+        // ─────────────────────────────────────────────────────────────────────────────
         const string asyncClassesRaw =
             "IServiceBusFactory:ServiceBusFactory, IServiceBusRequestService:ServiceBusRequestService, " +
-            "IBackupAPIService:BackupAPIService, IBlobWriterFactory:BlobWriterFactory, IBlobWriter:BlobWriter";
+            "IBackupAPIService:BackupAPIService, IBlobWriterFactory:BlobWriterFactory, IBlobWriter:QueuedBlobWriter";
 
-            // "IBlobWriter:QueuedBlobWriter, IAsyncFeeder:AsyncFeeder, " +
+            // "IAsyncFeeder:AsyncFeeder, " +
             // "IRequestProcessor:NormalRequest, IRequestProcessor:OpenAIBackgroundRequest";
 
         var assembly = typeof(Program).Assembly;
@@ -355,22 +384,12 @@ public class Program
             services.AddSingleton(iType, cType);
         }
 
-        services.AddSingleton<IBlobWriter, QueuedBlobWriter>();
         services.AddSingleton<IAsyncFeeder, AsyncFeeder>();
         services.AddSingleton<IRequestProcessor, NormalRequest>();
         services.AddSingleton<IRequestProcessor, OpenAIBackgroundRequest>();
 
-        // BlobWriter infrastructure — QueuedBlobWriter wraps BlobWriter (circular IBlobWriter dep),
-        // so these must remain as explicit factory registrations and override the dictionary entry.
-        services.AddSingleton<BlobWriter>(provider =>
-        {
-            var factory = provider.GetRequiredService<IBlobWriterFactory>();
-            var blobWriter = factory.CreateBlobWriter() as BlobWriter;
-            var logger = provider.GetRequiredService<ILogger<Program>>();
-            logger.LogInformation("[STARTUP] ✓ BlobWriter initialized: {BlobWriterType} (Status: {Status})", blobWriter?.GetType().Name ?? "Unknown", factory.InitStatus);
-            return blobWriter!;
-        });
-
+        // BlobWriteQueue tuning (worker count, batch size, dedup) — consumed by
+        // BlobWriteQueue's ctor below.
         services.AddSingleton(provider =>
         {
             return new BlobWriteQueueOptions
@@ -385,27 +404,20 @@ public class Program
             };
         });
 
-        services.AddSingleton<BlobWriteQueue>();
+        services.AddSingleton<BlobWorkerPump>();
 
-        // Override dictionary's simple IBlobWriter registration — QueuedBlobWriter needs
-        // the concrete BlobWriter (not IBlobWriter) to avoid circular dependency.
-        services.AddSingleton<IBlobWriter>(provider =>
-        {
-            var underlyingWriter = provider.GetRequiredService<BlobWriter>();
-            var queue = provider.GetRequiredService<BlobWriteQueue>();
-            var logger = provider.GetRequiredService<ILogger<QueuedBlobWriter>>();
-
-            var queuedWriter = new QueuedBlobWriter(underlyingWriter, queue, logger, useQueueForWrites: true);
-
-            var programLogger = provider.GetRequiredService<ILogger<Program>>();
-            programLogger.LogInformation("[STARTUP] ✓ QueuedBlobWriter initialized (wrapping {UnderlyingType})",
-                underlyingWriter.GetType().Name);
-
-            return queuedWriter;
-        });
+        // Two-store split (both backed by the existing IBlobWriter → QueuedBlobWriter mapping above):
+        //   AsyncFileStore     → small one-shot blobs through the BlobWriteQueue (headers,
+        //                        status messages, server-scope request snapshots). 1-RT
+        //                        UploadAsync per item.
+        //   AsyncStreamingStore → large/streamed response bodies bypassing the queue. Owns
+        //                        a dedicated raw BlobWriter (from IBlobWriterFactory) whose
+        //                        write path is BlobClient.OpenWriteAsync (~4 MiB transfer
+        //                        buffer, no full-payload buffering — safe for multi-GB).
+        services.AddSingleton<IAsyncFileStore, AsyncFileStore>();
+        services.AddSingleton<IAsyncStreamingStore, AsyncStreamingStore>();
 
         services.AddSingleton<IRequestDataBackupService, RequestDataBackupService>();
-        services.AddSingleton<IAsyncRequestStore, AsyncRequestStore>();
         services.AddSingleton<AsyncWorkerContext>();
         services.AddSingleton<TemplateLoader>();
         services.AddHostedService<TemplateLoader>(sp => sp.GetRequiredService<TemplateLoader>());
