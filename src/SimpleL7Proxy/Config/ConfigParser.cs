@@ -14,6 +14,8 @@ public static class ConfigParser
     private static readonly (string envVar, string property)[] SimpleFields =
     [
         ("AsyncBlobWorkerCount", "AsyncBlobWorkerCount"),
+        ("AsyncBlobMaxQueue", "AsyncBlobMaxQueue"),
+        ("AsyncStreamingBufferSizeBytes", "AsyncStreamingBufferSizeBytes"),
         ("AsyncClassNames", "AsyncClassNames"),
         ("AsyncClientConfigFieldName", "AsyncClientConfigFieldName"),
         ("AsyncClientRequestHeader", "AsyncClientRequestHeader"),
@@ -678,6 +680,17 @@ public static class ConfigParser
             return (connectionString, accountUri, useMI);
         }
 
+        // Accept a raw Azure Storage connection string copied from the portal, e.g.
+        // "DefaultEndpointsProtocol=https;AccountName=acct;AccountKey=...;EndpointSuffix=core.windows.net".
+        // These use ';' as separators (no commas), so the cs/uri/mi composite parser would
+        // otherwise treat the whole thing as a single positional value.
+        if (LooksLikeRawConnectionString(config))
+        {
+            connectionString = config.Trim();
+            accountUri = TryDeriveBlobEndpointFromConnectionString(connectionString) ?? accountUri;
+            return (connectionString, accountUri, useMI: false);
+        }
+
         var parts = config.Split(',').Select(p => p.Trim()).ToArray();
         var keyAliases = new Dictionary<string, string[]>
         {
@@ -702,6 +715,52 @@ public static class ConfigParser
         }
 
         return (connectionString, accountUri, useMI);
+    }
+
+    private static bool LooksLikeRawConnectionString(string value)
+    {
+        // Heuristic: a raw storage connection string contains semicolon-delimited
+        // key=value pairs and at least one of the well-known keys.
+        if (value.IndexOf(';') < 0) return false;
+        return value.Contains("AccountName=", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("DefaultEndpointsProtocol=", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("BlobEndpoint=", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("SharedAccessSignature=", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? TryDeriveBlobEndpointFromConnectionString(string connectionString)
+    {
+        string? accountName = null;
+        string? endpointSuffix = null;
+        string? protocol = null;
+        string? blobEndpoint = null;
+
+        foreach (var raw in connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var idx = raw.IndexOf('=');
+            if (idx <= 0) continue;
+            var key = raw[..idx].Trim();
+            var val = raw[(idx + 1)..].Trim();
+
+            if (key.Equals("AccountName", StringComparison.OrdinalIgnoreCase)) accountName = val;
+            else if (key.Equals("EndpointSuffix", StringComparison.OrdinalIgnoreCase)) endpointSuffix = val;
+            else if (key.Equals("DefaultEndpointsProtocol", StringComparison.OrdinalIgnoreCase)) protocol = val;
+            else if (key.Equals("BlobEndpoint", StringComparison.OrdinalIgnoreCase)) blobEndpoint = val;
+        }
+
+        if (!string.IsNullOrEmpty(blobEndpoint))
+        {
+            return blobEndpoint!.EndsWith('/') ? blobEndpoint : blobEndpoint + "/";
+        }
+
+        if (!string.IsNullOrEmpty(accountName))
+        {
+            var scheme = string.IsNullOrEmpty(protocol) ? "https" : protocol;
+            var suffix = string.IsNullOrEmpty(endpointSuffix) ? "core.windows.net" : endpointSuffix;
+            return $"{scheme}://{accountName}.blob.{suffix}/";
+        }
+
+        return null;
     }
 
     /// <summary>

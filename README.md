@@ -36,11 +36,19 @@
 ## Prerequisites
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
-- [Docker](https://docs.docker.com/get-docker/) (container builds)
+- [Docker](https://docs.docker.com/get-docker/) (optional; only needed for local container builds)
 - [Azure Developer CLI (azd)](https://learn.microsoft.com/en-us/azure/developer/azure-developer-cli/install-azd) (cloud deployment)
+- [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli) (required for remote ACR builds)
 - Azure subscription with Container Apps; optionally AI Foundry / APIM
 
 ## Quick Start
+
+Important
+Current deployment scripts are Docker-based.
+
+deploy.sh and deploy.ps1 build and push images using local Docker.
+deploy.sh expects images already built by Docker-based build scripts.
+If Docker is unavailable, use remote ACR build commands from CONTAINER_DEPLOYMENT.md and then update/deploy using the resulting image tags.
 
 **Local (2 commands):**
 ```bash
@@ -61,8 +69,29 @@ chmod +x .azure/setup.sh .azure/deploy.sh
 ./.azure/setup.sh && azd provision && ./.azure/deploy.sh
 ```
 
-> See [Development & Testing](docs/DEVELOPMENT.md) for local mock backends.  
-> See [Container Deployment](docs/CONTAINER_DEPLOYMENT.md) for VNET and high-performance variants.
+> No local Docker available? Use the remote ACR build workflow in [docs/CONTAINER_DEPLOYMENT.md](docs/CONTAINER_DEPLOYMENT.md).
+> See [Getting Started — Local Development](docs/BEGINNER_DEVELOPMENT.md) for the fastest setup paths.  
+> 
+---
+
+## Local Development Paths
+
+**Fastest: Port + Backend Only**
+```bash
+export Port=8080
+export Host1=http://localhost:3000
+dotnet run
+```
+
+**Second-fastest: Azure App Configuration**
+```bash
+export AZURE_APPCONFIG_ENDPOINT=https://your-appconfig.azconfig.io
+export AZURE_APPCONFIG_LABEL=dev
+dotnet run
+```
+
+→ **Need mock backends?** See [DUMMY_BACKEND.md](docs/DUMMY_BACKEND.md) for null server and Python HTTP server setups.  
+→ **Need help diagnosing?** See [TroubleshootTOC.md](docs/TroubleshootTOC.md) for issue-driven guidance.
 
 ---
 
@@ -89,8 +118,11 @@ chmod +x .azure/setup.sh .azure/deploy.sh
 | AI Foundry Integration | [docs/AI_FOUNDRY_INTEGRATION.md](docs/AI_FOUNDRY_INTEGRATION.md) |
 | APIM Policy | [APIM-Policy/readme.md](APIM-Policy/readme.md) |
 | Container Deployment | [docs/CONTAINER_DEPLOYMENT.md](docs/CONTAINER_DEPLOYMENT.md) |
-| Development & Testing | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
+| Getting Started — Local Development | [docs/BEGINNER_DEVELOPMENT.md](docs/BEGINNER_DEVELOPMENT.md) |
+| Advanced Development & Tuning | [docs/ADVANCED_DEVELOPMENT.md](docs/ADVANCED_DEVELOPMENT.md) |
+| Mock Backends for Testing | [docs/DUMMY_BACKEND.md](docs/DUMMY_BACKEND.md) |
 | Response Codes | [docs/RESPONSE_CODES.md](docs/RESPONSE_CODES.md) |
+| Troubleshooting (Quick Diagnosis TOC) | [docs/TroubleshootTOC.md](docs/TroubleshootTOC.md) |
 
 ---
 

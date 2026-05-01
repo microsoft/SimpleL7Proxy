@@ -4,6 +4,8 @@ SimpleL7Proxy is a high-performance, intelligent Layer 7 router engineered to op
 
 Unlike proprietary gateways, SimpleL7Proxy is a **fully open-source, self-hosted solution,** offering unparalleled customization for data residency, sovereign cloud requirements (GCC High), and bespoke enterprise logic.
 
+> Need help diagnosing issues quickly? Start at [TroubleshootTOC.md](TroubleshootTOC.md).
+
 ## Core Value Propositions
 
 | Challenge | Enterprise-Grade Solution |

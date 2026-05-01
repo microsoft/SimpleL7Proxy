@@ -16,7 +16,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
     internal class QueuedBlobStream : Stream
     {
         private readonly MemoryStream _buffer;
-        private readonly BlobWriteQueue _queue;
+        private readonly BlobWorkerPump _queue;
         private readonly string _containerName;
         private readonly string _blobName;
         private readonly ILogger _logger;
@@ -24,7 +24,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
         private readonly List<Task<BlobWriteResult>> _pendingWrites = new();
 
         public QueuedBlobStream(
-            BlobWriteQueue queue,
+            BlobWorkerPump queue,
             string containerName,
             string blobName,
             ILogger logger)
@@ -46,14 +46,14 @@ namespace SimpleL7Proxy.Async.BlobStorage
             set => throw new NotSupportedException();
         }
 
-        public override void Flush()
-        {
-            // Synchronous flush - just ensure buffer is flushed
-            _buffer.Flush();
-        }
+        // Stream.Flush is abstract; this is a no-op because writes go through FlushAsync
+        // which is the path that actually enqueues the buffered data.
+        public override void Flush() { }
 
         public override async Task FlushAsync(CancellationToken cancellationToken)
         {
+            HarvestCompletedPendingWrites();
+
             if (_disposed || _buffer.Length == 0)
                 return;
 
@@ -65,32 +65,12 @@ namespace SimpleL7Proxy.Async.BlobStorage
             _buffer.SetLength(0);
             _buffer.Position = 0;
             
-#if TEST_BLOB_SHUTDOWN
-            // TEST: Enqueue 100 copies to test shutdown flushing behavior
-            for (int i = 0; i < 100; i++)
-            {
-                var operation = new BlobWriteOperation
-                {
-                    ContainerName = _containerName,
-                    BlobName = $"{_blobName}-{i}",
-                    Data = new ReadOnlyMemory<byte>(data),
-                    Priority = 0
-                };
 
-                await _queue.EnqueueAsync(operation, cancellationToken).ConfigureAwait(false);
-                _pendingWrites.Add(operation.GetResultAsync());
-            }
-            
-            _logger.LogTrace(
-                "[QueuedBlobStream] Enqueued 100 copies ({Size}B each) for {Container}/{Blob}",
-                data.Length, _containerName, _blobName);
-#else
             var operation = new BlobWriteOperation
             {
                 ContainerName = _containerName,
                 BlobName = _blobName,
                 Data = new ReadOnlyMemory<byte>(data),
-                Priority = 0
             };
 
             await _queue.EnqueueAsync(operation, cancellationToken).ConfigureAwait(false);
@@ -99,7 +79,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
             _logger.LogTrace(
                 "[QueuedBlobStream] Enqueued {Size}B for {Container}/{Blob}",
                 data.Length, _containerName, _blobName);
-#endif
+
         }
 
         public override void Write(byte[] buffer, int offset, int count)
@@ -133,6 +113,8 @@ namespace SimpleL7Proxy.Async.BlobStorage
         /// </summary>
         public async Task WaitForPendingWritesAsync(CancellationToken cancellationToken = default)
         {
+            HarvestCompletedPendingWrites();
+
             if (_pendingWrites.Count == 0)
                 return;
 
@@ -142,6 +124,17 @@ namespace SimpleL7Proxy.Async.BlobStorage
 
             await Task.WhenAll(_pendingWrites).WaitAsync(cancellationToken).ConfigureAwait(false);
             _pendingWrites.Clear();
+        }
+
+        private void HarvestCompletedPendingWrites()
+        {
+            for (int i = _pendingWrites.Count - 1; i >= 0; i--)
+            {
+                if (_pendingWrites[i].IsCompletedSuccessfully)
+                {
+                    _pendingWrites.RemoveAt(i);
+                }
+            }
         }
 
         public override int Read(byte[] buffer, int offset, int count) =>
@@ -160,11 +153,16 @@ namespace SimpleL7Proxy.Async.BlobStorage
 
             if (disposing)
             {
-                // Synchronously flush on dispose - this will queue the operation
-                // The caller should have called FlushAsync before disposing ideally
+                // Sync Dispose path: do NOT flush here. Flushing would block on
+                // _queue.EnqueueAsync via sync-over-async, risking thread-pool
+                // starvation under load. All production callers go through
+                // DisposeAsync (await using). Any data still in the buffer at
+                // this point is dropped — fail-fast for the misuse case.
                 if (_buffer.Length > 0)
                 {
-                    FlushAsync(CancellationToken.None).GetAwaiter().GetResult();
+                    _logger.LogWarning(
+                        "[QueuedBlobStream] Sync Dispose called with {Bytes}B unflushed for {Container}/{Blob}; data discarded — use await using instead.",
+                        _buffer.Length, _containerName, _blobName);
                 }
                 _buffer.Dispose();
             }
@@ -198,75 +196,69 @@ namespace SimpleL7Proxy.Async.BlobStorage
     public class QueuedBlobWriter : IBlobWriter
     {
         private readonly IBlobWriter _underlyingWriter;
-        private readonly BlobWriteQueue _queue;
+        private readonly BlobWorkerPump _queue;
         private readonly ILogger<QueuedBlobWriter> _logger;
-        private readonly bool _useQueueForWrites;
 
         public QueuedBlobWriter(
-            IBlobWriter underlyingWriter,
-            BlobWriteQueue queue,
-            ILogger<QueuedBlobWriter> logger,
-            bool useQueueForWrites = true)
+            IBlobWriterFactory blobWriterFactory,
+            BlobWorkerPump queue,
+            ILogger<QueuedBlobWriter> logger)
         {
-            _underlyingWriter = underlyingWriter ?? throw new ArgumentNullException(nameof(underlyingWriter));
+            _underlyingWriter = blobWriterFactory?.CreateBlobWriter() ?? throw new ArgumentNullException(nameof(blobWriterFactory));
             _queue = queue ?? throw new ArgumentNullException(nameof(queue));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _useQueueForWrites = useQueueForWrites;
 
             _logger.LogInformation(
-                "[QueuedBlobWriter] Initialized - QueuedWrites: {UseQueue}, Underlying: {UnderlyingType}",
-                _useQueueForWrites, _underlyingWriter.GetType().Name);
+                "[QueuedBlobWriter] Initialized - Underlying: {UnderlyingType}",
+                _underlyingWriter.GetType().Name);
         }
 
         /// <summary>
-        /// Creates a blob output stream. If queuing is enabled, returns a QueuedBlobStream
-        /// that buffers writes and enqueues them. Otherwise, returns the direct stream.
+        /// Returns a QueuedBlobStream that buffers writes and enqueues them on FlushAsync.
         /// </summary>
-        public async Task<Stream> CreateBlobAndGetOutputStreamAsync(string userId, string blobName)
+        public async Task<Stream> CreateBlobAndGetOutputStreamAsync(string containerName, string blobName, CancellationToken cancellationToken = default)
         {
-            if (_useQueueForWrites)
-            {
-                // Ensure container is initialized first
-                await _underlyingWriter.InitClientAsync(userId, userId).ConfigureAwait(false);
+            // Ensure container is initialized first
+            await _underlyingWriter.InitClientAsync(containerName).ConfigureAwait(false);
 
-                // Return a queued stream that buffers and enqueues writes
-                _logger.LogTrace(
-                    "[QueuedBlobWriter] Creating queued stream for {Container}/{Blob}",
-                    userId, blobName);
+            _logger.LogTrace(
+                "[QueuedBlobWriter] Creating queued stream for {Container}/{Blob}",
+                containerName, blobName);
 
-                return new QueuedBlobStream(_queue, userId, blobName, _logger);
-            }
-            else
-            {
-                // Pass through to underlying writer
-                return await _underlyingWriter.CreateBlobAndGetOutputStreamAsync(userId, blobName)
-                    .ConfigureAwait(false);
-            }
+            return new QueuedBlobStream(_queue, containerName, blobName, _logger);
         }
 
         // Pass-through methods - these don't benefit from queuing
 
-        public Task<bool> BlobExistsAsync(string userId, string blobName) =>
-            _underlyingWriter.BlobExistsAsync(userId, blobName);
+        public Task UploadBlobAsync(string containerName, string blobName, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default) =>
+            _underlyingWriter.UploadBlobAsync(containerName, blobName, data, cancellationToken);
 
-        public Task<Stream> ReadBlobAsStreamAsync(string userId, string blobName) =>
-            _underlyingWriter.ReadBlobAsStreamAsync(userId, blobName);
+        public Task<bool> BlobExistsAsync(string containerName, string blobName) =>
+            _underlyingWriter.BlobExistsAsync(containerName, blobName);
 
-        public Task<bool> DeleteBlobAsync(string userId, string blobName) =>
-            _underlyingWriter.DeleteBlobAsync(userId, blobName);
+        public Task<Stream> ReadBlobAsStreamAsync(string containerName, string blobName) =>
+            _underlyingWriter.ReadBlobAsStreamAsync(containerName, blobName);
 
-        public Task<string> GenerateSasTokenAsync(string userId, string blobName, TimeSpan expiryTime) =>
-            _underlyingWriter.GenerateSasTokenAsync(userId, blobName, expiryTime);
+        public Task<bool> DeleteBlobAsync(string containerName, string blobName) =>
+            _underlyingWriter.DeleteBlobAsync(containerName, blobName);
 
-        public string GetBlobUri(string userId, string blobName) =>
-            _underlyingWriter.GetBlobUri(userId, blobName);
+        // public Task<string> GenerateSasTokenAsync(string containerName, string blobName, TimeSpan expiryTime) =>
+        //     _underlyingWriter.GenerateSasTokenAsync(containerName, blobName, expiryTime);
 
-        public Task<bool> InitClientAsync(string userId, string containerName) =>
-            _underlyingWriter.InitClientAsync(userId, containerName);
+        public string GetBlobUri(string containerName, string blobName) =>
+            _underlyingWriter.GetBlobUri(containerName, blobName);
+
+        public Task<bool> InitClientAsync(string containerName) =>
+            _underlyingWriter.InitClientAsync(containerName);
 
         public bool IsInitialized => _underlyingWriter.IsInitialized;
 
         public string GetConnectionInfo() =>
             _underlyingWriter.GetConnectionInfo() + " (Queued)";
+
+        public void Dispose()
+        {
+            _underlyingWriter?.Dispose();
+        }
     }
 }

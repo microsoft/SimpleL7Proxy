@@ -84,6 +84,8 @@ export HOST1="host=https://my-api.azure-api.net;mode=apim;path=/;probe=/status-0
 
 ### Step 2 — Build both images
 
+Option A: Local Docker build (fast local iteration)
+
 Both build scripts read `ACR` from `deploy.parameters.sh` automatically.
 
 ```bash
@@ -101,6 +103,16 @@ Each script:
 2. Logs in to ACR via `az acr login`
 3. Builds from `src/` (includes `Shared/`)
 4. Pushes `$ACR.azurecr.io/myproxy:<ver>` and `$ACR.azurecr.io/healthprobe:<ver>` respectively
+
+Option B: Remote ACR build (no Docker required)
+
+Use Option B in corporate/restricted environments or CI/CD runners where Docker is unavailable.
+
+```bash
+# Run from repo root
+az acr build --registry $ACR --image myproxy:latest --file src/SimpleL7Proxy/Dockerfile src
+az acr build --registry $ACR --image healthprobe:latest --file src/HealthProbe/Dockerfile src
+```
 
 ### Step 3 — Create the Container App and assign RBAC
 

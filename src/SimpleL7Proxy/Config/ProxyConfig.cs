@@ -136,9 +136,19 @@ public class ProxyConfig
 
     // ── Async ──
     [ConfigOption("Async:Storage:BlobConfig", ConfigName = "AsyncBlobStorageConfig", Mode = ConfigMode.Cold)]
-    public string AsyncBlobStorageConfig { get; set; } = "uri=https://mystorageaccount.blob.core.windows.net,mi=true";
+    public string AsyncBlobStorageConfig { get; set; } = "";//"uri=https://mystorageaccount.blob.core.windows.net,mi=true";
     [ConfigOption("Async:Storage:Workers", ConfigName = "AsyncBlobWorkerCount", Mode = ConfigMode.Cold)]
     public int AsyncBlobWorkerCount { get; set; } = 2;
+    [ConfigOption("Async:Storage:MaxQueue", ConfigName = "AsyncBlobMaxQueue", Mode = ConfigMode.Cold)]
+    public int AsyncBlobMaxQueue { get; set; } = 200;
+    /// <summary>
+    /// Transfer buffer size used by <c>BlobClient.OpenWriteAsync</c> in the streaming-store
+    /// path (large/streamed response bodies). Larger buffer = fewer StageBlock round trips
+    /// but more memory per concurrent worker. 0 = use SDK default (~4 MiB). Typical tuning:
+    /// 8388608 (8 MiB) or 16777216 (16 MiB) for gigabyte-scale payloads.
+    /// </summary>
+    [ConfigOption("Async:Storage:StreamingBufferSizeBytes", ConfigName = "AsyncStreamingBufferSizeBytes", Mode = ConfigMode.Cold)]
+    public long AsyncStreamingBufferSizeBytes { get; set; } = 0;
     [ConfigOption("Async:ClassNames", ConfigName = "AsyncClassNames", Mode = ConfigMode.Cold)]
     public string AsyncClassNames { get; set; } = "";
     [ConfigOption("Async:Enabled", ConfigName = "AsyncModeEnabled", Mode = ConfigMode.Cold)]
