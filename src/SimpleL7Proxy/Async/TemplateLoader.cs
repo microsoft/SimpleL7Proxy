@@ -23,7 +23,6 @@ namespace SimpleL7Proxy.Async;
 public sealed class TemplateLoader : IHostedService
 {
     private const string TemplatesContainer = "templates";
-    private const string TemplatesUserId = "templates";
 
     /// <summary>
     /// Mapping of message kind → blob name within the templates container.
@@ -43,7 +42,7 @@ public sealed class TemplateLoader : IHostedService
     private readonly ProxyConfig _options;
     private readonly ILogger<TemplateLoader> _logger;
 
-    private readonly Dictionary<AsyncResponseTypeEnum, string> _templates = new();
+    private readonly Dictionary<AsyncResponseTypeEnum, AsyncMessage> _templates = new();
 
     public TemplateLoader(
         IServiceBusRequestService serviceBusRequestService,
@@ -67,44 +66,56 @@ public sealed class TemplateLoader : IHostedService
     };
 
     /// <summary>
-    /// Returns the loaded template body for <paramref name="kind"/>, or an empty string
-    /// if the blob was missing or failed to load.
+    /// Returns a rendered <see cref="AsyncMessage"/> for <paramref name="kind"/>.
+    /// Placeholder substitution (<c>%GUID%</c>, <c>%MID%</c>, <c>%TIMESTAMP%</c>,
+    /// <c>%USERID%</c>, <c>%DATA_BLOB_URI%</c>, <c>%HEADER_BLOB_URI%</c>) is applied
+    /// only to the <see cref="AsyncMessage.Message"/> field. All other fields are
+    /// taken from the caller-supplied values when provided, otherwise from the
+    /// loaded template literal.
     /// </summary>
-    private string GetTemplate(AsyncResponseTypeEnum kind)
-        => _templates.TryGetValue(kind, out var body) ? body : string.Empty;
-
-    /// <summary>
-    /// Renders the template for <paramref name="kind"/>, substituting <c>%GUID%</c>,
-    /// <c>%MID%</c>, and <c>%TIMESTAMP%</c> placeholders, and deserializes it as an
-    /// <see cref="AsyncMessage"/>. Other placeholders (e.g. <c>%DELAY_S%</c>) are left
-    /// untouched for the caller to fill before this is called.
-    /// </summary>
-    /// <param name="kind">Which template to render.</param>
-    /// <param name="guid">Request GUID; replaces every <c>%GUID%</c>.</param>
-    /// <param name="mid">Message id; replaces every <c>%MID%</c>.</param>
-    /// <returns>The merged <see cref="AsyncMessage"/>, or <c>null</c> if the template was
-    /// not loaded or could not be parsed.</returns>
-    public AsyncMessage? GetMergedMessage(AsyncResponseTypeEnum kind, string guid, string mid)
+    public AsyncMessage GetMergedMessage(
+        AsyncResponseTypeEnum kind,
+        string guid,
+        string mid,
+        string? userId = null,
+        string? dataBlobUri = null,
+        string? headerBlobUri = null)
     {
-        var template = GetTemplate(kind);
-        if (string.IsNullOrEmpty(template))
-            return null;
+        if (!_templates.TryGetValue(kind, out var template))
+            throw new InvalidOperationException($"Template for {kind} was not loaded.");
 
-        var merged = template
-            .Replace("%GUID%", guid ?? string.Empty, StringComparison.Ordinal)
-            .Replace("%MID%", mid ?? string.Empty, StringComparison.Ordinal)
-            .Replace("%TIMESTAMP%", DateTime.UtcNow.ToString("o"), StringComparison.Ordinal);
+        return new AsyncMessage
+        {
+            Message       = SubstituteMessage(template.Message, guid, mid, userId, dataBlobUri, headerBlobUri),
+            UserId        = userId        ?? template.UserId        ?? string.Empty,
+            MID           = mid           ?? template.MID           ?? string.Empty,
+            Guid          = guid          ?? template.Guid          ?? string.Empty,
+            Status        = template.Status,
+            Timestamp     = DateTime.UtcNow,
+            DataBlobUri   = dataBlobUri   ?? template.DataBlobUri   ?? string.Empty,
+            HeaderBlobUri = headerBlobUri ?? template.HeaderBlobUri ?? string.Empty,
+        };
+    }
 
-        try
-        {
-            return JsonSerializer.Deserialize<AsyncMessage>(merged, s_jsonOptions);
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogError(ex, "[TEMPLATE] Failed to deserialize merged template {Kind} for GUID {Guid}",
-                kind, guid);
-            return null;
-        }
+    private static string SubstituteMessage(
+        string message,
+        string? guid, string? mid, string? userId,
+        string? dataBlobUri, string? headerBlobUri)
+    {
+        if (string.IsNullOrEmpty(message)) return string.Empty;
+        if (message.IndexOf('%') < 0) return message;          // fast path
+
+        var sb = new System.Text.StringBuilder(message.Length + 64);
+        sb.Append(message);
+
+        if (guid          is { Length: > 0 } && message.Contains("%GUID%"))            sb.Replace("%GUID%", guid);
+        if (mid           is { Length: > 0 } && message.Contains("%MID%"))             sb.Replace("%MID%", mid);
+        if (userId        is { Length: > 0 } && message.Contains("%USERID%"))          sb.Replace("%USERID%", userId);
+        if (dataBlobUri   is { Length: > 0 } && message.Contains("%DATA_BLOB_URI%"))   sb.Replace("%DATA_BLOB_URI%", dataBlobUri);
+        if (headerBlobUri is { Length: > 0 } && message.Contains("%HEADER_BLOB_URI%")) sb.Replace("%HEADER_BLOB_URI%", headerBlobUri);
+        if (message.Contains("%TIMESTAMP%"))                                           sb.Replace("%TIMESTAMP%", DateTime.UtcNow.ToString("o"));
+
+        return sb.ToString();
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -133,7 +144,7 @@ public sealed class TemplateLoader : IHostedService
 
         try
         {
-            await _blobWriter.InitClientAsync(TemplatesUserId, TemplatesContainer).ConfigureAwait(false);
+            await _blobWriter.InitClientAsync(TemplatesContainer).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -142,38 +153,75 @@ public sealed class TemplateLoader : IHostedService
             return;
         }
 
-        List<int> status = new(); 
-        foreach (var (kind, blobName) in s_blobNames)
-        {
-            status.Add(await LoadTemplateAsync(kind, blobName, cancellationToken).ConfigureAwait(false));
-        }
+        var loadTasks = s_blobNames
+            .Select(kvp => LoadTemplateAsync(kvp.Key, kvp.Value, cancellationToken))
+            .ToList();
+        var results = await Task.WhenAll(loadTasks).ConfigureAwait(false);
+        var successfulTemplates = results.Where(r => r.success).Select(r => r.name).ToList();
 
-        _logger.LogInformation("[STARTUP] ✓ Loaded {Count} templates from '{Container}' ({Status})",
-            status.Count, TemplatesContainer, string.Join(", ", status));
+        _logger.LogInformation("[STARTUP] ✓ Loaded {Count} templates from '{Container}': {Templates}",
+            successfulTemplates.Count, TemplatesContainer, string.Join(", ", successfulTemplates));
     }
 
-    private async Task<int> LoadTemplateAsync(AsyncResponseTypeEnum kind, string blobName, CancellationToken cancellationToken)
+    private async Task<(string name, bool success)> LoadTemplateAsync(AsyncResponseTypeEnum kind, string blobName, CancellationToken cancellationToken)
     {
         try
         {
-            if (!await _blobWriter.BlobExistsAsync(TemplatesUserId, blobName).ConfigureAwait(false))
+            string? body = null;
+
+            if (!await _blobWriter.BlobExistsAsync(TemplatesContainer, blobName).ConfigureAwait(false))
             {
-                _logger.LogWarning("[STARTUP] Template blob '{Container}/{Blob}' ({Kind}) not found",
+                _logger.LogWarning("[STARTUP] Template blob '{Container}/{Blob}' ({Kind}) not found, attempting to load from templates folder",
                     TemplatesContainer, blobName, kind);
-                return -1;
+
+                // Fallback to reading from templates folder
+                var templatePath = Path.Combine("templates", blobName);
+                if (File.Exists(templatePath))
+                {
+                    body = await File.ReadAllTextAsync(templatePath, cancellationToken).ConfigureAwait(false);
+                    _logger.LogInformation("[STARTUP] Loaded template {Kind} from file system: {Path}",
+                        kind, templatePath);
+                }
+                else
+                {
+                    _logger.LogWarning("[STARTUP] Template file not found at '{Path}' ({Kind})",
+                        templatePath, kind);
+                    return (blobName, false);
+                }
+            }
+            else
+            {
+                using var stream = await _blobWriter.ReadBlobAsStreamAsync(TemplatesContainer, blobName).ConfigureAwait(false);
+                using var reader = new StreamReader(stream);
+                body = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            using var stream = await _blobWriter.ReadBlobAsStreamAsync(TemplatesUserId, blobName).ConfigureAwait(false);
-            using var reader = new StreamReader(stream);
-            var body = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
-            _templates[kind] = body;
-            return body.Length;
+            try
+            {
+                var parsed = JsonSerializer.Deserialize<AsyncMessage>(body, s_jsonOptions);
+                if (parsed == null)
+                {
+                    _logger.LogError("[STARTUP] Template {Kind} from '{Container}/{Blob}' deserialized to null",
+                        kind, TemplatesContainer, blobName);
+                    return (blobName, false);
+                }
+
+                _templates[kind] = parsed;
+                return (blobName, true);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogError(ex, "[STARTUP] Failed to deserialize template {Kind} from '{Container}/{Blob}'",
+                    kind, TemplatesContainer, blobName);
+                _logger.LogInformation(ex.StackTrace);
+                return (blobName, false);
+            }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[STARTUP] Failed to load template {Kind} from '{Container}/{Blob}'",
                 kind, TemplatesContainer, blobName);
-            return -1;
+            return (blobName, false);
         }
     }
 }

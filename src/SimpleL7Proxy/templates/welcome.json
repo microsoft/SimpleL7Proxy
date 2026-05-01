@@ -4,7 +4,6 @@
   "MID": "%MID%",
   "Guid": "%GUID%",
   "Status": 202,
-  "Timestamp": "%TIMESTAMP%",
   "DataBlobUri": "%BLOBURI%/%BLOBCONTAINER%/%GUID%",
   "HeaderBlobUri": "%BLOBURI%/%BLOBCONTAINER%/%GUID%-Headers"
 }
