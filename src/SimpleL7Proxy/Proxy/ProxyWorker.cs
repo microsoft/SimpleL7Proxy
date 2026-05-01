@@ -579,7 +579,7 @@ public class ProxyWorker : IConfigChangeSubscriber
 
         HealthCheckService.DecrementActiveWorkers(_id);
 
-        _logger.LogInformation("[SHUTDOWN] ⏹  Worker {IdStr} stopped", _idStr);
+        //_logger.LogInformation("[SHUTDOWN] ⏹  Worker {IdStr} stopped", _idStr);
 
     }
 
@@ -926,6 +926,29 @@ public class ProxyWorker : IConfigChangeSubscriber
                 requestState = "Cache Body";
                 // Read the body stream once and reuse it
                 byte[] bodyBytes = await request.CacheBodyAsync().ConfigureAwait(false);
+
+                if (request.runAsync &&
+                    !request.AsyncTriggered &&
+                    !request.Requeued &&
+                    request.BackendAttempts == 1)
+                {
+                    requestState = "Persist Request Before Send";
+
+                    // Persist the request as soon as the body has been materialized so
+                    // rehydration still has the original payload if the process stops
+                    // after the first backend send but before the async trigger fires.
+                    var preSendAsyncWorker = request.asyncWorker;
+                    if (preSendAsyncWorker == null)
+                    {
+                        var timeLeft = _options.AsyncTriggerTimeout - (int)(DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds;
+                        timeLeft = Math.Max(1, timeLeft);
+                        preSendAsyncWorker = new AsyncWorker(request, timeLeft, _wrkCntxt.AsyncWorkerContext!);
+                        request.asyncWorker = preSendAsyncWorker;
+                        _ = preSendAsyncWorker.StartAsync();
+                    }
+
+                    await preSendAsyncWorker.PersistRequestStateAsync().ConfigureAwait(false);
+                }
 
                 requestState = "Create Backend Request";
 
