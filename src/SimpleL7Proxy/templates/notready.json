@@ -1,0 +1,9 @@
+{
+  "Message": "Your request is still processing. Intentional delay added to response: %DELAY_S% seconds",
+  "UserId": "%USERID%",
+  "MID": "%MID%",
+  "Guid": "%GUID%",
+  "Status": 425,
+  "DataBlobUri": "%BLOBURI%/%BLOBCONTAINER%/%GUID%",
+  "HeaderBlobUri": "%BLOBURI%/%BLOBCONTAINER%/%GUID%-Headers"
+}

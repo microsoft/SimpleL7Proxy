@@ -154,7 +154,7 @@ public class ProxyWorker : IConfigChangeSubscriber
     /// │  │    └─ WriteResponseAsync() ──► StreamResponseAsync()                      │  │
     /// │  │                                                                           │  │
     /// │  │ 7. FINALIZE                                                               │  │
-    /// │  │    └─ FinalizeStatus() + asyncWorker?.UpdateBackup()                      │  │
+    /// │  │    └─ FinalizeStatus() + asyncWorker?.PersistRequestStateAsync()          │  │
     /// │  └───────────────────────────────────────────────────────────────────────────┘  │
     /// │                                          │                                      │
     /// │  EXCEPTION HANDLERS:                     │                                      │
@@ -373,7 +373,10 @@ public class ProxyWorker : IConfigChangeSubscriber
                         }
 
                         _lifecycleManager.FinalizeStatus(incomingRequest, isSuccessfulResponse);
-                        incomingRequest.asyncWorker?.UpdateBackup();
+                        if (incomingRequest.asyncWorker != null)
+                        {
+                            await incomingRequest.asyncWorker.PersistRequestStateAsync().ConfigureAwait(false);
+                        }
                     }
                     // Background check requests skip ShouldFinalize but still need
                     // Completed status after blob writes confirm
@@ -383,7 +386,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                     {
                         await incomingRequest.asyncWorker.WaitForBlobWritesAsync().ConfigureAwait(false);
                         _lifecycleManager.FinalizeBackgroundCheckStatus(incomingRequest);
-                        incomingRequest.asyncWorker?.UpdateBackup();
+                        await incomingRequest.asyncWorker.PersistRequestStateAsync().ConfigureAwait(false);
                     }
 
                 }
@@ -576,7 +579,7 @@ public class ProxyWorker : IConfigChangeSubscriber
 
         HealthCheckService.DecrementActiveWorkers(_id);
 
-        _logger.LogInformation("[SHUTDOWN] ✓ Worker {IdStr} stopped", _idStr);
+        //_logger.LogInformation("[SHUTDOWN] ⏹  Worker {IdStr} stopped", _idStr);
 
     }
 
@@ -924,6 +927,29 @@ public class ProxyWorker : IConfigChangeSubscriber
                 // Read the body stream once and reuse it
                 byte[] bodyBytes = await request.CacheBodyAsync().ConfigureAwait(false);
 
+                if (request.runAsync &&
+                    !request.AsyncTriggered &&
+                    !request.Requeued &&
+                    request.BackendAttempts == 1)
+                {
+                    requestState = "Persist Request Before Send";
+
+                    // Persist the request as soon as the body has been materialized so
+                    // rehydration still has the original payload if the process stops
+                    // after the first backend send but before the async trigger fires.
+                    var preSendAsyncWorker = request.asyncWorker;
+                    if (preSendAsyncWorker == null)
+                    {
+                        var timeLeft = _options.AsyncTriggerTimeout - (int)(DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds;
+                        timeLeft = Math.Max(1, timeLeft);
+                        preSendAsyncWorker = new AsyncWorker(request, timeLeft, _wrkCntxt.AsyncWorkerContext!);
+                        request.asyncWorker = preSendAsyncWorker;
+                        _ = preSendAsyncWorker.StartAsync();
+                    }
+
+                    await preSendAsyncWorker.PersistRequestStateAsync().ConfigureAwait(false);
+                }
+
                 requestState = "Create Backend Request";
 
                 using (ByteArrayContent bodyContent = new(bodyBytes))
@@ -1164,7 +1190,7 @@ public class ProxyWorker : IConfigChangeSubscriber
             catch (TaskCanceledException) when (_isEvictingAsyncRequest)
             {
                 TriggerHostCB = false;
-                _logger.LogWarning("[Worker:{Id}] Request {Guid} was intentionally expelled to prioritize a new async request.", _id, request.Guid);
+                _logger.LogWarning("[Worker:{Id}] Request {Guid} was intentionally expelled.", _id, request.Guid);
                 // Handle async expel case - request being evicted from memory
                 if (request.asyncWorker != null)
                 {
@@ -1244,7 +1270,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                     hostIterator?.RecordResult(host, SuccessfulRequest);
 
                 // Track host status for circuit breaker
-                if (intCode != 412 && intCode != 429)
+                if (intCode != 412 && intCode != 429 && !_isEvictingAsyncRequest)
                     host.Config.TrackStatus(intCode, TriggerHostCB, "Attempt-" + request.BackendAttempts);
 
                 if (!SuccessfulRequest)
@@ -1404,7 +1430,7 @@ public class ProxyWorker : IConfigChangeSubscriber
         if (request.AsyncTriggered && !request.IsBackgroundCheck)
         {
             _logger.LogDebug("[GetProxyResponseAsync:{Guid}] Writing headers to AsyncWorker blob", request.Guid);
-            if (!await request.asyncWorker!.WriteHeaders(proxyResponse.StatusCode, pr.Headers))
+            if (!await request.asyncWorker!.SaveResponseHeadersAsync(proxyResponse.StatusCode, pr.Headers))
             {
                 throw new ProxyErrorException(ProxyErrorException.ErrorType.AsyncWorkerError,
                                             HttpStatusCode.InternalServerError, "Failed to write headers to async worker");
@@ -1606,12 +1632,12 @@ public class ProxyWorker : IConfigChangeSubscriber
                     ["Attempts"] = request.BackendAttempts.ToString()
                 };
 
-                await request.asyncWorker.WriteHeaders(statusCode, errorHeaders);
+                await request.asyncWorker.SaveResponseHeadersAsync(statusCode, errorHeaders);
 
                 var errorBytes = Encoding.UTF8.GetBytes(errorBody);
                 if (request.IsBackgroundCheck)
                 {
-                    var outputStream = await request.asyncWorker.GetOrCreateDataStreamAsync();
+                    var outputStream = await request.asyncWorker.GetResponseDataStreamAsync();
                     await outputStream.WriteAsync(errorBytes).ConfigureAwait(false);
                     await outputStream.FlushAsync().ConfigureAwait(false);
                 }
@@ -1749,7 +1775,7 @@ public class ProxyWorker : IConfigChangeSubscriber
             {
                 destinationType = "async blob";
                 needsFlush = true;                      // QueuedBlobStream requires FlushAsync to enqueue data
-                destination = await request.asyncWorker.GetOrCreateDataStreamAsync().ConfigureAwait(false);
+                destination = await request.asyncWorker.GetResponseDataStreamAsync().ConfigureAwait(false);
             }
             else if (request.OutputStream != null)
             {
@@ -1841,12 +1867,12 @@ public class ProxyWorker : IConfigChangeSubscriber
         ProxyHelperUtils.CopyResponseHeaders(proxyResponse, pr);
         if (pr.Headers != null && request.asyncWorker != null)
         {
-            await request.asyncWorker.WriteHeaders(proxyResponse.StatusCode!, pr.Headers);
+            await request.asyncWorker.SaveResponseHeadersAsync(proxyResponse.StatusCode!, pr.Headers);
         }
 
         if (request.asyncWorker != null)
         {
-            var outputStream = await request.asyncWorker.GetOrCreateDataStreamAsync();
+            var outputStream = await request.asyncWorker.GetResponseDataStreamAsync();
             memoryBuffer.Position = 0;
             await memoryBuffer.CopyToAsync(outputStream).ConfigureAwait(false);
             await outputStream.FlushAsync().ConfigureAwait(false);
@@ -1871,7 +1897,7 @@ public class ProxyWorker : IConfigChangeSubscriber
             {
                 var timeLeft = _options.AsyncTriggerTimeout - (int)(DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds;
                 timeLeft = Math.Max(1, timeLeft);
-                request.asyncWorker = await _wrkCntxt.AsyncWorkerFactory.CreateAsync(request, timeLeft).ConfigureAwait(false);
+                request.asyncWorker = new AsyncWorker(request, timeLeft, _wrkCntxt.AsyncWorkerContext!);
                 _ = request.asyncWorker.StartAsync();
             }
 

@@ -5,9 +5,8 @@ Build a Docker image from the `src/` directory and run it locally or deploy it t
 > **TL;DR**
 > - **Build from `src/`** — the Dockerfile requires `Shared/` and `SimpleL7Proxy/` side-by-side; build context must be `src/`.
 > - **Probe paths are in the Host connection string** — use `Host1=host=https://api.example.com;probe=/health` (not separate `Probe_path1=` variables).
-> - **Fastest path to Azure:** run `.azure/setup.sh` → `azd provision` → `.azure/deploy.sh`.
+> - **Fastest path to Azure:** (1) `.azure/setup.sh` (check prerequisites, choose scenario), (2) `azd provision` (create Container App + App Configuration + ACR), (3) `deployment/AppConfiguration/deploy.sh` (seed App Configuration from your config), (4) `.azure/deploy.sh` (build image, push to ACR, update Container App).
 
----
 
 ## Container Ports
 
@@ -18,6 +17,107 @@ Build a Docker image from the `src/` directory and run it locally or deploy it t
 
 > [!NOTE]
 > Port 443 carries plain HTTP inside the container. TLS termination is done by the Azure Container Apps ingress or an upstream load balancer.
+
+---
+
+## Deployment Workflow — From Code to Production
+
+**Full end-to-end path with automated scripts:**
+
+### Step 1: Run setup and provision infrastructure
+
+```bash
+# From repo root
+.azure/setup.sh
+```
+
+**What it does:**
+- Checks prerequisites (azd, Azure CLI)
+- Authenticates to Azure and selects subscription
+- Guides you through selecting a deployment scenario (local-with-cloud, full-cloud, secure-vnet)
+- Initializes AZD environment
+
+**Output:** `.azure/.env` file with resource names and subscription ID.
+
+---
+
+### Step 2: Provision Azure resources (Container App, App Configuration, ACR)
+
+```bash
+azd provision
+```
+
+**What it does:**
+- Creates resource group, Container App, Azure Container Registry, App Configuration store
+- Sets up managed identity for Container App
+- Configures networking based on your scenario selection
+- Exports deployment variables to `.azure/.env` for downstream scripts
+
+**Time:** ~5–10 minutes.
+
+---
+
+### Step 3: Seed App Configuration with proxy settings
+
+```bash
+cd deployment/AppConfiguration
+cp deploy.parameters.example.sh deploy.parameters.sh
+# Edit deploy.parameters.sh with your resource names
+./deploy.sh
+```
+
+**What it does:**
+- Discovers all publishable settings from `src/SimpleL7Proxy/Config/ProxyConfig.cs` (marked with `[ConfigOption(...)]`)
+- Reads current values from the running Container App (or falls back to local shell variables)
+- Seeds App Configuration with all discovered keys in both **Warm** (hot-reload) and **Cold** (restart) modes
+- Publishes them under prefixes `Warm:*` and `Cold:*` so you can toggle reload behavior instantly from the portal
+- Sets up the `Warm:Sentinel` key as the refresh trigger
+
+**Parameters required:**
+- `CONTAINER_APP_NAME`: deployed Container App name
+- `CONTAINER_APP_RESOURCE_GROUP`: resource group containing the Container App
+- `APPCONFIG_NAME`: App Configuration store name
+- `RESOURCE_GROUP`: resource group for App Configuration (usually same as Container App)
+- `LOCATION`: Azure region
+
+**Output:** All settings now visible in Azure Portal **App Configuration > Configuration Explorer**; operators can modify Warm settings without restarting.
+
+---
+
+### Step 4: Build, push image, and update Container App
+
+```bash
+.azure/deploy.sh
+```
+
+**What it does:**
+- Extracts Docker image name and version from `src/SimpleL7Proxy/Constants.cs`
+- Logs in to ACR (from AZD environment)
+- Builds Docker image from `src/` directory (correct context)
+- Pushes image to ACR with version tags (e.g., `simple-l7-proxy:1.0.0`, `simple-l7-proxy:latest`)
+- **Optionally:** applies an environment template (Standard Production, High Performance, Cost Optimized, High Availability)
+- Updates running Container App to the new image
+- Restarts container with updated configuration
+
+**Output:** Container App running latest image; all Warm settings hot-reloaded within ~30 seconds; Cold settings require a second restart.
+
+---
+
+## Workflow Summary (for quick reference)
+
+```
+.azure/setup.sh
+     ↓ (authenticate, select scenario)
+azd provision
+     ↓ (create resources)
+cd deployment/AppConfiguration && ./deploy.sh
+     ↓ (seed all proxy settings into App Config)
+.azure/deploy.sh
+     ↓ (build, push, deploy)
+✅ Proxy running in Azure with App Configuration hot-reload enabled
+```
+
+**Key takeaway:** After the first deployment, you can change Warm settings in the Azure Portal **without restarting**; just update `Warm:Sentinel` to trigger a refresh cycle.
 
 ---
 
@@ -77,6 +177,22 @@ docker build -t simplel7proxy:latest -f SimpleL7Proxy/Dockerfile .
 > Running `docker build` from the repository root (not `src/`) will fail — `COPY Shared/` will not resolve.
 
 ---
+
+## Building without Docker (Remote ACR Build)
+
+If Docker is not available locally (corporate restrictions, CI/CD runners, etc.), build directly in Azure Container Registry:
+
+```bash
+# From repo root
+export ACR=myregistry  # Your ACR name, without .azurecr.io
+export VERSION=v2.2.11 # Or read from Constants.cs
+
+az acr build
+--registry $ACR
+--image simple-l7-proxy:$VERSION
+--file src/SimpleL7Proxy/Dockerfile
+src
+```
 
 ## Running Locally with Docker
 
@@ -146,7 +262,8 @@ This is the recommended path for provisioning all required Azure resources (ACR,
 
 - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
 - [Azure Developer CLI (azd)](https://learn.microsoft.com/en-us/azure/developer/azure-developer-cli/install-azd)
-- Docker
+- Docker (optional; only needed for local image builds)
+- For no-Docker environments, use the remote ACR build workflow in [Building without Docker (Remote ACR Build)](#building-without-docker-remote-acr-build)
 
 ### Step 1 — Setup
 

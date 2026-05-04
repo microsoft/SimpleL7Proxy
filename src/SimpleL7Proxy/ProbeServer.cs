@@ -34,11 +34,15 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
     private static HealthStatusEnum _readinessStatus = HealthStatusEnum.ReadinessZeroHosts;
     private static HealthStatusEnum _startupStatus = HealthStatusEnum.StartupZeroHosts;
     private static int _activeUndrainedEvents = 0;
-
-
+    private static int _blobQueueDepth = 0;
+    
     // Active snapshots published to readers (use Volatile.Read/Write for memory ordering)
 
     private Timer? _probeTimer;
+    private int _tickCounter = 0;
+    private int _tickCounter2 = 0;
+    private const int SidecarPushTickInterval = 5; // push every 5 timer ticks (5s when timer interval is 1s)
+    private const int GCTickInterval = 10; // check for GC cleanup 60 ticks
     private readonly ProxyConfig _backendOptions;
     private HttpClient? _selfCheckClient;
     private IEventClient? _eventClient;
@@ -99,18 +103,23 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
         // Single timer for status updates and optional sidecar push
         _probeTimer = new Timer(_ =>
         {
-            (_startupStatus, _readinessStatus, _activeUndrainedEvents) = _healthService.GetStatus();
+            (_startupStatus, _readinessStatus, _activeUndrainedEvents, _blobQueueDepth) = _healthService.GetStatus();
 
-            // Push to sidecar if enabled (fire-and-forget async to avoid blocking threadpool)
+            // Push to sidecar if enabled, throttled to once per SidecarPushTickInterval ticks
             var client = _selfCheckClient;
-            if (client != null)
+            if (client != null && ++_tickCounter >= SidecarPushTickInterval)
             {
+                _tickCounter = 0;
                 _ = PushStatusToSidecarAsync(client);
             }
 
-            _healthService.RunPeriodicGC();
+            // Run periodic GC check every GCTickInterval ticks
+            if ( ++_tickCounter2 >= GCTickInterval) {
+                _tickCounter2 = 0;
+                _healthService.RunPeriodicGC();
+            }
 
-        }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(10)); // initial delay, interval
+        }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(1)); // initial delay, interval
 
         FailedAttempts = 0;
     }
@@ -156,6 +165,7 @@ public class ProbeServer : BackgroundService, IConfigChangeSubscriber
         }
     }
 
+    public int BlobQueueDepth => _blobQueueDepth;
     public int EventCount => _activeUndrainedEvents;
 
     // TODO: no need for stopwatch any longer

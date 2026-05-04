@@ -35,8 +35,7 @@ public class CoordinatedShutdownService : IHostedService
     private readonly IEndpointMonitorService _backends;
     private readonly IAsyncFeeder _asyncFeeder;
     private readonly IRequeueWorker _requeueWorker;
-    private readonly BlobWriteQueue? _blobWriteQueue;
-    private readonly BlobWriter? _blobWriter;
+    private readonly BlobWorkerPump? _blobWriteQueue;
     private readonly IEnumerable<IShutdownParticipant> _shutdownParticipants;
     private readonly ProbeServer _probeServer;
     private readonly CompositeEventClient _compositeEventClient;
@@ -69,8 +68,7 @@ public class CoordinatedShutdownService : IHostedService
         _asyncFeeder = asyncFeeder;
         _backendTokenProvider = backendTokenProvider;
         _requeueWorker = requeueWorker;
-        _blobWriteQueue = serviceProvider.GetService<BlobWriteQueue>();
-        _blobWriter = serviceProvider.GetService<BlobWriter>();
+        _blobWriteQueue = serviceProvider.GetService<BlobWorkerPump>();
         _shutdownParticipants = serviceProvider.GetServices<IShutdownParticipant>();
         _probeServer = probeServer;
         _options = backendOptions.Value;
@@ -145,7 +143,7 @@ public class CoordinatedShutdownService : IHostedService
             }
             else
             {
-                _logger.LogInformation("[SHUTDOWN] ✓ All tasks completed");
+                _logger.LogInformation("[SHUTDOWN] ⏹  All tasks completed");
             }
             await _queue!.StopAsync().ConfigureAwait(false);
 
@@ -168,7 +166,7 @@ public class CoordinatedShutdownService : IHostedService
             // Same pattern as IHostedService — register as IShutdownParticipant in DI, get discovered here.
             foreach (var participant in _shutdownParticipants.OrderBy(p => p.ShutdownOrder))
             {
-                _logger.LogInformation("[SHUTDOWN] ⏹ Shutting down {Service} (order {Order})",
+                _logger.LogInformation("[SHUTDOWN] ⏹  Shutting down {Service} (order {Order})",
                     participant.GetType().Name, participant.ShutdownOrder);
                 await participant.ShutdownAsync(cancellationToken).ConfigureAwait(false);
             }
@@ -189,10 +187,10 @@ public class CoordinatedShutdownService : IHostedService
             // are guaranteed to be done at this point, so no more enqueues will happen
             if (_blobWriteQueue != null)
             {
-                _logger.LogInformation("[SHUTDOWN] ⏹ Stopping BlobWriteQueue (final flush)");
+                _logger.LogInformation("[SHUTDOWN] ⏹  Stopping BlobWriteQueue (final flush)");
                 await _blobWriteQueue.StopAsync(CancellationToken.None).ConfigureAwait(false);
-                // Dispose underlying BlobWriter after the queue has flushed
-                _blobWriter?.Dispose();
+                // Underlying BlobWriter instances (in QueuedBlobWriter and AsyncStreamingStore)
+                // are DI singletons — the host disposes them on container shutdown.
             }
 
             // Health probes are stopped at the VERY END so the container orchestrator
@@ -205,6 +203,7 @@ public class CoordinatedShutdownService : IHostedService
         catch (Exception ex)
         {
             _logger.LogError(ex, "[SHUTDOWN] ❌ Shutdown failed");
+            _logger.LogInformation(ex.StackTrace);
         }
         finally
         {

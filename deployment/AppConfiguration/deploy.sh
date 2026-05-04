@@ -228,7 +228,7 @@ mapfile -t CONFIG_ENTRIES < <(
                 if ($0 ~ /^[[:space:]]*\[/) continue;
 
                 if ($0 ~ /^[[:space:]]*public[[:space:]]+/) {
-                    if (match($0, /^[[:space:]]*public[[:space:]]+[^ ]+[[:space:]]+([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*\{/, p)) {
+                    if (match($0, /^[[:space:]]*public[[:space:]].*[[:space:]]([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*\{/, p)) {
                         prop = p[1];
                         # Extract default value from "} = VALUE;" pattern
                         defVal = "";
@@ -277,6 +277,9 @@ SET_COUNT=0
 DEFAULT_COUNT=0
 WARM_COUNT=0
 COLD_COUNT=0
+
+# Accumulate env var → default value mappings for JSON output
+declare -a ENV_DEFAULT_ENTRIES
 
 # Build a single JSON file for batch import (all keys, single label).
 IMPORT_JSON_FILE="$(mktemp)"
@@ -355,6 +358,9 @@ for entry in "${CONFIG_ENTRIES[@]}"; do
     if [ "${SOURCE}" = "cs-default" ] || [ "${SOURCE}" = "placeholder" ]; then
         DEFAULT_COUNT=$((DEFAULT_COUNT + 1))
     fi
+
+    # Record env var name and its default value for final JSON output
+    ENV_DEFAULT_ENTRIES+=("${ENV_NAME}|${CS_DEFAULT}")
 done
 
 # Add Sentinel and RefreshSeconds to the import batch (always Warm)
@@ -401,3 +407,31 @@ echo -e "${GREEN}Label: ${APPCONFIG_LABEL:-(none)}${NC}"
 echo -e "${GREEN}Config keys published: ${SET_COUNT} (Warm: ${WARM_COUNT}, Cold: ${COLD_COUNT})${NC}"
 echo -e "${GREEN}  of which ${DEFAULT_COUNT} used C# default or '${DEFAULT_PLACEHOLDER}' placeholder${NC}"
 echo -e "${GREEN}======================================${NC}"
+
+# ----------------------------------------------------------------------------
+# Output JSON mapping: ENVIRONMENT_VARIABLE → default value
+# ----------------------------------------------------------------------------
+echo ""
+echo -e "${YELLOW}Environment Variable Defaults (JSON):${NC}"
+ENV_JSON="{"
+ENV_JSON_FIRST=true
+for edentry in "${ENV_DEFAULT_ENTRIES[@]}"; do
+    ED_NAME="$(echo "${edentry}" | cut -d'|' -f1)"
+    ED_DEFAULT="$(echo "${edentry}" | cut -d'|' -f2-)"
+    # Use null for empty defaults
+    if [ -z "${ED_DEFAULT}" ]; then
+        ED_JSON_VAL="null"
+    else
+        # Escape for JSON
+        ED_ESCAPED="$(printf '%s' "${ED_DEFAULT}" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+        ED_JSON_VAL="\"${ED_ESCAPED}\""
+    fi
+    if [ "${ENV_JSON_FIRST}" = true ]; then
+        ENV_JSON_FIRST=false
+    else
+        ENV_JSON+=","
+    fi
+    ENV_JSON+="$(printf '\n  "%s": %s' "${ED_NAME}" "${ED_JSON_VAL}")"
+done
+ENV_JSON+=$'\n}'
+echo "${ENV_JSON}"

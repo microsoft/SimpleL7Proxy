@@ -17,7 +17,6 @@ namespace SimpleL7Proxy.Async.BlobStorage
         public string Guid { get; set; } = "N/A";
         public string MID { get; set; } = "N/A";
         public string Operation { get; set; } = "N/A";
-        public string UserId { get; set; } = "N/A";
         public BlobWriterException(string message) : base(message) { }
         public BlobWriterException(string message, Exception innerException) : base(message, innerException) { }
 

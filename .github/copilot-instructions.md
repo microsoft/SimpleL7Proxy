@@ -58,6 +58,20 @@ If the user wants to author a new one, help them.
 Ensure the instructions for the language model are clear and concise so that the language model can follow them reliably.
 The prompts are located in the `src/prompts.ts` file.
 
+## Documentation Standards
+
+When updating or creating documentation in the `docs/` folder, apply all five steps below.
+
+1. **Lead with the answer.** Open with a one-line purpose sentence and a 3-item TL;DR. Put the single most important rule first (e.g., "Earliest expiration wins"). This mirrors readable docs that answer the question before explaining it.
+
+2. **Make units and defaults consistent and visible.** Consolidate all defaults, units, config keys, and reload types into a single reference table near the top. Add a one-line "Units used in this doc" note where units differ across settings. Remove duplicate tables scattered through the doc.
+
+3. **Reorganize by reader task, not by config key.** Create short sections named after what the reader is trying to do (e.g., *Selecting a Backend*, *Retrying Across Backends*, *Per-Request Overrides*). Each section must contain: a bolded one-sentence rule, a 3-line code/config example, and a short troubleshooting callout.
+
+4. **Use one annotated diagram and one worked example.** Replace multiple separate diagrams with a single annotated flow covering the full pipeline. Follow it with a step-by-step worked example table using concrete numbers that shows how the settings interact to produce the effective outcome.
+
+5. **Shorten prose and use callouts.** Convert long paragraphs into 2–3 sentence blocks. Use GitHub Markdown callouts (`[!NOTE]`, `[!TIP]`, `[!WARNING]`) for defaults, override behavior, and errors. Bold the single most important sentence in each subsection.
+
 ## Learning Journal
 
 IMPORTANT: At the beginning of EVERY session, you MUST read the file `COPILOT_LEARNINGS.md` in the root of the repository. This file contains lessons learned from previous sessions and best practices to follow. This is critical for maintaining continuity between sessions and avoiding repeated mistakes.
@@ -65,4 +79,11 @@ IMPORTANT: At the beginning of EVERY session, you MUST read the file `COPILOT_LE
 If the file exists, read it completely before starting any work. Apply the lessons and best practices from this file in all your interactions. If you make any mistakes or learn new lessons during the session, update this file with new learnings before ending the session.
 
 If the file doesn't exist, create it and document any important lessons learned during the session.
+
+## Change Control
+
+- **Do NOT create new classes, methods, or files without explicit user permission.** Always describe the proposed approach and wait for approval before proceeding.
+- **Do NOT rename, remove, or change existing variables, fields, or properties** without explicit user approval.
+- When a change requires modifications outside the immediate scope of what was requested, ask first.
+- When the user says "undo", revert ALL changes from the last action, not just some.
 

@@ -181,7 +181,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
     {
         _isShuttingDown = true;
         _cancellationTokenSource?.Cancel();
-        _logger.LogInformation("[SHUTDOWN] ⏹ Server stopped accepting new requests (probes still active)");
+        _logger.LogInformation("[SHUTDOWN] ⏹  Server stopped accepting new requests (probes still active)");
     }
 
     /// <summary>
@@ -192,13 +192,26 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
     public async Task StopProbes(CancellationToken cancellationToken)
     {
         _probesCts?.Cancel();
-        _logger.LogInformation("[SHUTDOWN] ⏹ Health probe serving stopped");
+        _logger.LogInformation("[SHUTDOWN] ⏹  Health probe serving stopped");
 
         // Wait for the Run() loop to actually exit
         if (ExecuteTask != null)
         {
             try { await ExecuteTask.ConfigureAwait(false); }
             catch (OperationCanceledException) { /* expected */ }
+        }
+
+        // Explicitly release the listener so the port is available on the next startup.
+        try
+        {
+            if (_httpListener.IsListening)
+            {
+                _httpListener.Stop();
+            }
+        }
+        finally
+        {
+            _httpListener.Close();
         }
     }
 
@@ -261,6 +274,8 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         int halfMaxEvents = maxEvents / 2;
 
         _probe.Type = EventType.Probe;
+
+        _logger.LogInformation("SERVER --- ASYNC MODE IS " + (doAsync ? "ENABLED" : "DISABLED") + " --- BlobWriter: " + _blobWriter.GetType().Name);
 
         // Hoist TCS + cancellation registration outside the loop — the TCS stays
         // incomplete until cancellation fires, so one instance serves all iterations.
@@ -568,9 +583,11 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                 // ASYNC: Determine if the request is allowed async operation
                                 if (doAsync && bool.TryParse(rd.Headers[_options.AsyncClientRequestHeader], out var asyncEnabled) && asyncEnabled)
                                 {
+                                    // Console.WriteLine($"[ASYNC] Request {rd.MID} has async header enabled, checking user profile for async config...------");
                                     var clientInfo = _userProfile.GetAsyncParams(rd.profileUserId);
                                     if (clientInfo != null)
                                     {
+                                        // Console.WriteLine($"[ASYNC] Async config found for user {rd.profileUserId}: Container={clientInfo.ContainerName}, Topic={clientInfo.SBTopicName}, Timeout={clientInfo.AsyncBlobAccessTimeoutSecs}s, GenerateSAS={clientInfo.GenerateSasTokens} -----");
                                         rd.runAsync = true;
                                         rd.AsyncBlobAccessTimeoutSecs = clientInfo.AsyncBlobAccessTimeoutSecs;
                                         rd.BlobContainerName = clientInfo.ContainerName;
@@ -629,6 +646,12 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                 rd.CalculateExpiration(_options.DefaultTTLSecs, _options.TTLHeader);
                                 ed["DefaultTimeout"] = rd.defaultTimeout.ToString();
 
+                                // Publish Queued before handing the request to workers so it cannot race with Processing.
+                                if (rd.runAsync)
+                                {
+                                    rd.SBStatus = ServiceBusMessageStatusEnum.Queued;
+                                }
+
                                 // Enqueue the request
                                 if (!_requestsQueue.Enqueue(rd, priority, userPriorityBoost, rd.EnqueueTime))
                                 {
@@ -637,12 +660,11 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
 
                                     retrymsg = ed["Message"] = "Failed to enqueue request";
                                     logmsg = "Failed to enqueue request  => 429:";
-                                }
 
-                                // ASYNC: If the request is allowed to run async, set the status
-                                if (!notEnqued && doAsync)
-                                {
-                                    rd.SBStatus = ServiceBusMessageStatusEnum.Queued;
+                                    if (rd.runAsync)
+                                    {
+                                        rd.SBStatus = ServiceBusMessageStatusEnum.Failed;
+                                    }
                                 }
 
                             }

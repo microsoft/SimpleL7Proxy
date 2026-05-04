@@ -127,7 +127,7 @@ For production deployments, consider also configuring:
 | **AsyncBlobStorageUseMI**     | bool | Use Managed Identity for Blob Storage (parsed from AsyncBlobStorageConfig).                              | false                                    |
 | **AsyncBlobWorkerCount**      | int | Number of workers for async blob processing.                                                                     | 2                                        |
 | **AsyncClientConfigFieldName**  | string | User profile field name that designates the client configuration. It contains enabled, containername, topic, timeout.                         | async-config                            |
-| **AsyncClientRequestHeader**  | string | Header indicating async mode is requested.                                                               | AsyncMode                                |
+| **AsyncClientRequestHeader**  | string | Header indicating async mode is requested.                                                               | S7PAsyncMode                             |
 | **AsyncModeEnabled**          | bool | Enables or disables async processing mode. Requires restart.                                             | false                                    |
 | **AsyncSBConfig**             | string | Composite connection string for Azure Service Bus. Format: `cs=<conn-string>,ns=<namespace>,q=<queue>,mi=<true/false>`. Parsed into individual SB settings. | cs=example-sb-connection-string,ns=example-namespace,q=requeststatus,mi=false |
 | **AsyncSBConnectionString**   | string | Azure Service Bus connection string (parsed from AsyncSBConfig).                                                   | example-sb-connection-string             |

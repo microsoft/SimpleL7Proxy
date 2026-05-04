@@ -1,4 +1,5 @@
 using System.Reflection.Metadata.Ecma335;
+using Azure.Core;
 using Azure.Storage.Blobs;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -20,13 +21,18 @@ namespace SimpleL7Proxy.Async.BlobStorage
     {
         private readonly DefaultCredential _defaultCredential;
         private readonly IOptionsMonitor<ProxyConfig> _optionsMonitor;
-        private readonly ILogger<BlobWriter> _logger;
+        private readonly ILogger<AzureBlobWriter> _logger;
         private readonly ILogger<NullBlobWriter> _nullBlobWriterLogger;
+
+        // Shared BlobServiceClient — owns the HTTP connection pool. Created once on first call
+        // so that all IBlobWriter instances (QueuedBlobWriter, BlobWriteQueue, etc.) share the same pool.
+        private BlobServiceClient? _sharedBlobServiceClient;
+        private bool _usesMI;
 
         public BlobWriterFactory(
             DefaultCredential defaultCredential,
             IOptionsMonitor<ProxyConfig> optionsMonitor,
-            ILogger<BlobWriter> logger,
+            ILogger<AzureBlobWriter> logger,
             ILogger<NullBlobWriter> nullBlobWriterLogger)
         {
             _defaultCredential = defaultCredential;
@@ -54,7 +60,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
                 else
                 {
                     InitStatus = $"MI, {uri}";
-                    return CreateBlobWriterWithManagedIdentity(uri);
+                    return CreateBlobWriterFromSharedClient(() => CreateBlobServiceClientWithManagedIdentity(uri), useMI: true);
                 }
             }
             else
@@ -66,11 +72,10 @@ namespace SimpleL7Proxy.Async.BlobStorage
                 }
                 else
                 {
-
                     try
                     {
                         InitStatus = "CS";
-                        return CreateBlobWriterWithConnectionString(connectionString);
+                        return CreateBlobWriterFromSharedClient(() => CreateBlobServiceClientWithConnectionString(connectionString), useMI: false);
                     }
                     catch (Exception ex)
                     {
@@ -82,46 +87,62 @@ namespace SimpleL7Proxy.Async.BlobStorage
             return new NullBlobWriter(_nullBlobWriterLogger);
         }
 
-        private IBlobWriter CreateBlobWriterWithManagedIdentity(string storageAccountUri)
+        // Returns a BlobWriter backed by the shared BlobServiceClient, creating it on first call.
+        private IBlobWriter CreateBlobWriterFromSharedClient(Func<BlobServiceClient> clientFactory, bool useMI)
+        {
+            if (_sharedBlobServiceClient == null)
+            {
+                _sharedBlobServiceClient = clientFactory();
+                _usesMI = useMI;
+            }
+            var writer = new AzureBlobWriter(_sharedBlobServiceClient, _logger, _optionsMonitor);
+            writer.UsesMI = _usesMI;
+            return writer;
+        }
+
+        private BlobServiceClient CreateBlobServiceClientWithManagedIdentity(string storageAccountUri)
         {
             try
             {
-                Uri blobServiceUri;
-
-                blobServiceUri = new Uri(storageAccountUri);
-
-                // Use DefaultAzureCredential for managed identity
+                var blobServiceUri = new Uri(storageAccountUri);
                 var credential = _defaultCredential.Credential;
-                var blobServiceClient = new BlobServiceClient(blobServiceUri, credential);
-                var blobWriter = new BlobWriter(blobServiceClient, _logger);
-                blobWriter.UsesMI = true; // Set on BlobWriter, not BlobServiceClient
-                //_logger.LogInformation("[STARTUP] ✓ BlobServiceClient created successfully with managed identity - URI: {Uri}", storageAccountUri);
-
-                return blobWriter;
+                return new BlobServiceClient(blobServiceUri, credential, BuildClientOptions());
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Failed to create BlobServiceClient with managed identity: {ex.Message}");
                 InitStatus = $"MI, error: {ex.Message}";
-                return new NullBlobWriter(_nullBlobWriterLogger);
+                throw;
             }
         }
 
-        private IBlobWriter CreateBlobWriterWithConnectionString(string connectionString)
+        private BlobServiceClient CreateBlobServiceClientWithConnectionString(string connectionString)
         {
             try
             {
-                var blobServiceClient = new BlobServiceClient(connectionString);
-                var blobWriter = new BlobWriter(blobServiceClient, _logger);
-                blobWriter.UsesMI = false; // Set to false for connection string authentication
-                return blobWriter;
+                return new BlobServiceClient(connectionString, BuildClientOptions());
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Failed to create BlobServiceClient with connection string: {ex.Message}");
                 InitStatus = $"CS, error: {ex.Message}";
-                return new NullBlobWriter(_nullBlobWriterLogger);
+                throw;
             }
+        }
+
+        // Tightened retry / timeout policy for high-throughput small-blob writes.
+        // SDK defaults (3 retries, 800ms initial backoff, 60s max, 100s network timeout) are tuned
+        // for large-blob workloads and add seconds of latency on the first transient error. We
+        // shorten them so a stuck call fails fast and the BlobWriteQueue worker can move on.
+        private static BlobClientOptions BuildClientOptions()
+        {
+            var options = new BlobClientOptions();
+            options.Retry.MaxRetries = 3;
+            options.Retry.Mode = RetryMode.Exponential;
+            options.Retry.Delay = TimeSpan.FromMilliseconds(200);
+            options.Retry.MaxDelay = TimeSpan.FromSeconds(5);
+            options.Retry.NetworkTimeout = TimeSpan.FromSeconds(15);
+            return options;
         }
     }
 
