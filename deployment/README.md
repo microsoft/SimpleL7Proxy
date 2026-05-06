@@ -1,6 +1,11 @@
-# Deployment Guide
+# SimpleL7Proxy — Production Reference Deployment on Azure
 
-This folder contains deployment packages for SimpleL7Proxy on Azure. Each package automates provisioning and configuration of infrastructure and application settings.
+- **Reference architecture** for private, VNet-integrated L7 proxying on Azure
+- **Secure by default** — no public ingress, managed identity only
+- **Designed for production automation and repeatability** (Bash + Bicep, idempotent)
+- **Opinionated defaults; extensible when needed**
+
+This folder contains the deployment packages that implement the reference. Each package automates provisioning and configuration of infrastructure and application settings.
 
 ## Who this guide is for
 
@@ -18,6 +23,26 @@ This folder contains deployment packages for SimpleL7Proxy on Azure. Each packag
 - Optional health probe, async processing, and APIM integration
 
 ![Target architecture](arch.png)
+
+---
+
+## Architecture overview
+
+**Request flow (simplified):**
+
+1. A client inside the VNet sends a request to an internal DNS name.
+2. Private DNS resolves the name to the internal ACA ingress.
+3. The request lands in the SimpleL7Proxy container.
+4. The proxy resolves backend configuration from **Azure App Configuration**.
+5. Optional async payloads are stored in **Azure Blob Storage**.
+6. The response is returned synchronously, or retrieved asynchronously by the client.
+
+**Control plane vs data plane:**
+
+- **Control plane** — App Configuration, Azure Container Registry, deployment scripts, managed identity / RBAC. Changes here govern *how* the proxy behaves.
+- **Data plane** — ACA environment, VNet, proxy traffic, Private DNS, backend calls. This is the *runtime* path serving requests.
+
+Keeping these planes separated is what makes backend changes possible **without redeploying** the proxy (see [Day-2 Operations](DAY2_OPERATIONS.md)).
 
 ---
 
@@ -62,6 +87,8 @@ Once deployed, see **[Day-2 Operations](DAY2_OPERATIONS.md)** for guidance on up
 ---
 
 ## Recommended Deployment Path
+
+> **This path represents the intended production deployment. Deviations should be explicit and justified.**
 
 Follow this sequence for a complete, production-ready deployment:
 
@@ -126,6 +153,12 @@ cp build.parameters.example.sh build.parameters.sh
 - Image URI: `myregistry.azurecr.io/simple-l7-proxy:v<VERSION>` (version auto-detected from Constants.cs)
 - Ready for ACA deployment
 
+> **Why this matters**
+>
+> - Image tags are **immutable and versioned from source** — the tag *is* the build identity.
+> - **No `latest` drift** in production; every revision references an explicit `vX.Y.Z`.
+> - Enables **deterministic rollbacks** — shift ACA traffic back to the previous revision; the image bytes are guaranteed to be unchanged.
+
 **To see the actual image version:**
 ```bash
 cd ContainerImage
@@ -159,8 +192,10 @@ Deploys SimpleL7Proxy as a containerized application within the VNet.
 
 Choose one of two approaches:
 
-#### Option 4a: Proxy Only (Simple)
+#### Option 4a: Development / Simple Path
 Deploy just the SimpleL7Proxy container.
+
+> ❌ **Not recommended for production environments requiring health monitoring.** Use Option 4b instead.
 
 ```bash
 cd ACA
@@ -186,7 +221,7 @@ cp deploy.parameters.example.sh deploy.parameters.sh
 
 ---
 
-#### Option 4b: Proxy + HealthProbe Sidecar (Recommended)
+#### Option 4b: Production Path (Recommended)
 Deploy SimpleL7Proxy with an integrated HealthProbe sidecar container for monitoring.
 
 ```bash
@@ -250,6 +285,7 @@ cp deploy.parameters.example.sh deploy.parameters.sh
 - Clients can use readable names instead of Azure-generated FQDNs
 - Stays within your VNet (no public exposure)
 - Easy to add more records as you add services
+- **This decouples application configuration from platform-generated endpoints, enabling safer redeployments and easier failover.**
 
 **Deployment time:** ~2 minutes
 
@@ -273,6 +309,12 @@ cp deploy.parameters.example.sh deploy.parameters.sh
 - Configuration read permissions for the ACA managed identity
 
 **Note:** SimpleL7Proxy pulls these settings at runtime.
+
+**Failure behavior**
+
+- Proxy **fails fast** if required keys are missing — the container will not enter a serving state with an incomplete config.
+- Invalid backend configurations result in **request-level failures**, not container crashes — the proxy stays up and continues serving other backends.
+- **Configuration updates do not require a redeploy** — changes are picked up on the configured refresh interval.
 
 **Deployment time:** ~3-5 minutes
 
@@ -303,9 +345,17 @@ See [APIM-Policy/README.md](../APIM-Policy/README.md)
 
 ## Deployment Scenarios
 
+Each scenario maps to a well-known [Azure Architecture Center](https://learn.microsoft.com/azure/architecture/patterns/) pattern:
+
+| Scenario | Architectural pattern |
+|---|---|
+| Async response handling | [Claim Check](https://learn.microsoft.com/azure/architecture/patterns/claim-check) / [Async Request-Reply](https://learn.microsoft.com/azure/architecture/patterns/async-request-reply) |
+| APIM in front of the proxy | [Gateway Routing](https://learn.microsoft.com/azure/architecture/patterns/gateway-routing) / Policy enforcement |
+| Multi-tenant deployments | Shared runtime, isolated config (per-tenant App Configuration keys) |
+
 Choose the path that matches your use case. All scenarios reference **Step 4**, where you select either:
-- **Option 4a** — Proxy only (simple)
-- **Option 4b** — Proxy + HealthProbe sidecar (recommended for production)
+- **Option 4a** — Development / Simple Path
+- **Option 4b** — Production Path (Recommended)
 
 ### Scenario: Single Proxy with Health Monitoring (Recommended)
 **Packages needed:** VNet (Step 2) → ContainerImage (Step 3) → ACA with Sidecar (Step 4b) → DNS (Step 5) → AppConfiguration (Step 6)
@@ -417,7 +467,9 @@ deployment/
 
 ---
 
-## Common Tasks
+## Day-2 Operations and Common Tasks
+
+For a deeper treatment of running SimpleL7Proxy in production — backend updates without redeploy, version rollouts, scaling, failure modes, and where logs live — see **[Day-2 Operations](DAY2_OPERATIONS.md)**.
 
 ### View Deployment Status
 ```bash
@@ -452,6 +504,15 @@ az group delete --resource-group "rg-myapp-network"
 ---
 
 ## Troubleshooting
+
+> **Diagnostic ordering rule — always start in this order:**
+>
+> 1. **Container App logs** — is the proxy running and what is it saying?
+> 2. **Image availability** — can ACA pull the tag from ACR?
+> 3. **Network reachability** — can the proxy reach its backends from the ACA subnet?
+> 4. **DNS resolution** — do internal names resolve correctly inside the VNet?
+>
+> Following this order isolates *where* the failure is before debugging *what* it is.
 
 ### "deploy.parameters.sh not found"
 Copy the example file:
