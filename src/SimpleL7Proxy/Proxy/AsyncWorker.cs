@@ -33,7 +33,7 @@ namespace SimpleL7Proxy.Proxy
         private RequestData _requestData { get; set; }
         private string _headerBlobUri { get; set; } = "";
         private string _dataBlobUri { get; set; } = "";
-        private Stream? _hos { get; set; } = null!;
+
         private string _userId { get; set; } = "";
         private IRequestDataBackupService? _backupService;
         public  bool ShouldReprocess { get; set; } = false; 
@@ -380,7 +380,9 @@ namespace SimpleL7Proxy.Proxy
 
                         operation = "Backup Request";
                         // Backup the request data
-                        await PersistRequestStateAsync().ConfigureAwait(false);
+
+                        // may need to bring this back if we want lost some metadata between graceful shutdown and recovery
+                        // await PersistRequestStateAsync().ConfigureAwait(false);
 
                     }
                     catch (Exception ex)
@@ -503,9 +505,7 @@ namespace SimpleL7Proxy.Proxy
                 _requestData.OutputStream = null;
             }
 
-            // Header stream goes through the BlobWriteQueue — wait for the enqueued operation
-            // to land in storage.
-            await _fileStore.CompleteWriteStreamAsync(_hos, cancellationToken).ConfigureAwait(false);
+
         }
 
         /// <summary>
@@ -520,13 +520,6 @@ namespace SimpleL7Proxy.Proxy
         {
             try
             {
-                if (_hos == null)
-                {
-                    // Headers are small and one-shot — go through the queued/UploadAsync path.
-                    _hos = await _fileStore.OpenWriteStreamAsync(_requestData.BlobContainerName, headerBlobName)
-                        .ConfigureAwait(false);
-                }
-
                 var headersDictionary = new Dictionary<string, string>(headers.Count);
                 foreach (string headerName in headers.AllKeys)
                 {
@@ -547,15 +540,14 @@ namespace SimpleL7Proxy.Proxy
                 byte[] serializedMessage = Encoding.UTF8.GetBytes(
                     JsonSerializer.Serialize(headerMessage, SerializeOptions) + "\n");
 
-                await _hos.WriteAsync(serializedMessage).ConfigureAwait(false);
-                await _hos.FlushAsync().ConfigureAwait(false);
+                await _fileStore.WriteAsync(_requestData.BlobContainerName, headerBlobName,
+                    new ReadOnlyMemory<byte>(serializedMessage)).ConfigureAwait(false);
                 return true;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[AsyncWorker:{Guid}] Failed to write headers - Blob: {HeaderBlob} - Type: {ExceptionType}",
                     _requestData.Guid, headerBlobName, ex.GetType().FullName);
-                await ResetStreamAsync().ConfigureAwait(false);
                 return false;
             }
         }
@@ -565,32 +557,6 @@ namespace SimpleL7Proxy.Proxy
         /// </summary>
         private async Task ResetStreamAsync()
         {
-            // Reset header output stream
-            if (_hos != null)
-            {
-                //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.ResetStream | Action: Reset | Guid: {Guid}", _requestData.Guid);
-                try
-                {
-                    await _hos.FlushAsync().ConfigureAwait(false);
-                    _hos.Dispose();
-                    //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.ResetStream | Action: Disposed | Guid: {Guid}", _requestData.Guid);
-                }
-                catch (ObjectDisposedException)
-                {
-                    //_logger.LogInformation("[BLOB-TRACE] AsyncWorker.ResetStream | Action: AlreadyDisposed | Guid: {Guid}", _requestData.Guid);
-                    // Stream was already disposed, ignore
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "[BLOB-TRACE] AsyncWorker.ResetStream | Action: Error | Guid: {Guid} | Error: {ErrorMessage}", 
-                        _requestData.Guid, ex.Message);
-                }
-                finally
-                {
-                    _hos = null;
-                }
-            }
-            
             // Reset data output stream - CRITICAL: must flush and close to commit blob data
             if (_requestData?.OutputStream != null)
             {

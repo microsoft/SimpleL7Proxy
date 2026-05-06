@@ -34,12 +34,6 @@ public interface IAsyncFileStore
     /// </summary>
     Task WriteAsync(string containerName, string blobName, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default);
 
-    /// <summary>Opens a write stream for a small blob. Backed by the BlobWriteQueue.</summary>
-    Task<Stream> OpenWriteStreamAsync(string containerName, string blobName);
-
-    /// <summary>Flushes and waits for any queued writes on the supplied stream to complete.</summary>
-    Task CompleteWriteStreamAsync(Stream? stream, CancellationToken cancellationToken = default);
-
     Task<bool>   BlobExistsAsync(string containerName, string blobName);
     Task<Stream> ReadBlobAsStreamAsync(string containerName, string blobName);
     Task<bool>   DeleteBlobAsync(string containerName, string blobName);
