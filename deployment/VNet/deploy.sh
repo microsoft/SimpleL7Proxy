@@ -5,22 +5,31 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PARENT_PARAMS="${SCRIPT_DIR}/../deploy.parameters.sh"
+PARENT_EXAMPLE="${SCRIPT_DIR}/../deploy.parameters.example.sh"
 
-if [ -f "${SCRIPT_DIR}/deploy.parameters.sh" ]; then
-    echo "Sourcing deploy.parameters.sh..."
+if [ -f "${PARENT_PARAMS}" ]; then
+    echo "Sourcing ${PARENT_PARAMS}..."
+    # shellcheck disable=SC1091
+    source "${PARENT_PARAMS}"
+elif [ -f "${SCRIPT_DIR}/deploy.parameters.sh" ]; then
+    echo "Sourcing legacy deploy.parameters.sh..."
     # shellcheck disable=SC1091
     source "${SCRIPT_DIR}/deploy.parameters.sh"
-elif [ -f "${SCRIPT_DIR}/deploy.parameters.example.sh" ]; then
+elif [ -f "${PARENT_EXAMPLE}" ]; then
     echo "deploy.parameters.sh not found."
-    echo "Copy deploy.parameters.example.sh to deploy.parameters.sh and update values."
-    echo "Example: cp deploy.parameters.example.sh deploy.parameters.sh"
+    echo "Copy ${PARENT_EXAMPLE} to ${PARENT_PARAMS} and update values."
+    echo "Example: cp ${PARENT_EXAMPLE} ${PARENT_PARAMS}"
     exit 1
 fi
+
+# Map consolidated variable names to those expected by this script
+RESOURCE_GROUP="${RESOURCE_GROUP:-${NETWORK_RESOURCE_GROUP:-}}"
 
 # ----------------------------------------------------------------------------
 # Required parameters
 # ----------------------------------------------------------------------------
-RESOURCE_GROUP="${RESOURCE_GROUP:?'RESOURCE_GROUP must be set'}"
+RESOURCE_GROUP="${RESOURCE_GROUP:?'RESOURCE_GROUP (or NETWORK_RESOURCE_GROUP) must be set'}"
 LOCATION="${LOCATION:?'LOCATION must be set'}"
 VNET_NAME="${VNET_NAME:?'VNET_NAME must be set'}"
 VNET_ADDRESS_PREFIX="${VNET_ADDRESS_PREFIX:?'VNET_ADDRESS_PREFIX must be set'}"

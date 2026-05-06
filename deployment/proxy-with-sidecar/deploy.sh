@@ -5,12 +5,20 @@
 
 set -e
 
-# Source parameters file if it exists
+# Source parameters file - prefer consolidated parent file
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/deploy.parameters.sh" ]; then
-    echo "Sourcing deploy.parameters.sh..."
+PARENT_PARAMS="${SCRIPT_DIR}/../deploy.parameters.sh"
+if [ -f "${PARENT_PARAMS}" ]; then
+    echo "Sourcing ${PARENT_PARAMS}..."
+    # shellcheck disable=SC1091
+    source "${PARENT_PARAMS}"
+elif [ -f "$SCRIPT_DIR/deploy.parameters.sh" ]; then
+    echo "Sourcing legacy deploy.parameters.sh..."
     source "$SCRIPT_DIR/deploy.parameters.sh"
 fi
+
+# Map consolidated variable names to those expected by this script
+RESOURCE_GROUP="${RESOURCE_GROUP:-${CONTAINER_APP_RESOURCE_GROUP:-}}"
 
 # Configuration Variables (use environment variables if set, otherwise use defaults)
 RESOURCE_GROUP="${RESOURCE_GROUP:-TR-apim}"

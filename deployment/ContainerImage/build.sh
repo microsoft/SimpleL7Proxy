@@ -6,21 +6,35 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PARENT_PARAMS="${SCRIPT_DIR}/../deploy.parameters.sh"
+PARENT_EXAMPLE="${SCRIPT_DIR}/../deploy.parameters.example.sh"
 
-if [ -f "${SCRIPT_DIR}/build.parameters.sh" ]; then
-    echo "Sourcing build.parameters.sh..."
+if [ -f "${PARENT_PARAMS}" ]; then
+    echo "Sourcing ${PARENT_PARAMS}..."
+    # shellcheck disable=SC1091
+    source "${PARENT_PARAMS}"
+elif [ -f "${SCRIPT_DIR}/build.parameters.sh" ]; then
+    # Backwards-compat fallback
+    echo "Sourcing legacy build.parameters.sh..."
     # shellcheck disable=SC1091
     source "${SCRIPT_DIR}/build.parameters.sh"
-elif [ -f "${SCRIPT_DIR}/build.parameters.example.sh" ]; then
-    echo "build.parameters.sh not found."
-    echo "Copy build.parameters.example.sh to build.parameters.sh and update values."
-    echo "Example: cp build.parameters.example.sh build.parameters.sh"
+elif [ -f "${PARENT_EXAMPLE}" ]; then
+    echo "deploy.parameters.sh not found."
+    echo "Copy ${PARENT_EXAMPLE} to ${PARENT_PARAMS} and update values."
+    echo "Example: cp ${PARENT_EXAMPLE} ${PARENT_PARAMS}"
     exit 1
+fi
+
+# Map consolidated variable names to those expected by this script.
+# build.sh wants the bare repo name (e.g. "simple-l7-proxy"), not the full
+# registry/repo:tag reference. Prefer PROXY_IMAGE_NAME when set.
+if [ -n "${PROXY_IMAGE_NAME:-}" ]; then
+    IMAGE_NAME="${PROXY_IMAGE_NAME}"
 fi
 
 # Required parameters
 ACR_NAME="${ACR_NAME:?'ACR_NAME must be set'}"
-IMAGE_NAME="${IMAGE_NAME:?'IMAGE_NAME must be set'}"
+IMAGE_NAME="${IMAGE_NAME:?'IMAGE_NAME (or PROXY_IMAGE_NAME) must be set'}"
 
 # Optional
 BUILD_METHOD="${BUILD_METHOD:-remote}"  # remote (default) or local
@@ -117,11 +131,14 @@ elif [ "${BUILD_METHOD}" = "remote" ]; then
     ACR_SERVER="${ACR_NAME}.azurecr.io"
     
     echo -e "${YELLOW}Starting remote build in ACR...${NC}"
-    az acr build \
-        --registry "${ACR_NAME}" \
-        --image "${IMAGE_NAME}:${VERSION}" \
-        --file "src/${DOCKERFILE_PATH}" \
-        "${REPO_ROOT}/src"
+    (
+        cd "${REPO_ROOT}/src"
+        az acr build \
+            --registry "${ACR_NAME}" \
+            --image "${IMAGE_NAME}:${VERSION}" \
+            --file "${DOCKERFILE_PATH}" \
+            .
+    )
     
     echo -e "${GREEN}✓ Remote build complete${NC}"
 else
