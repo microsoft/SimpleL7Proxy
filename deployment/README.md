@@ -2,6 +2,65 @@
 
 This folder contains deployment packages for SimpleL7Proxy on Azure. Each package automates provisioning and configuration of infrastructure and application settings.
 
+## Who this guide is for
+
+**Audience**
+
+- Platform / infra engineers deploying on Azure
+- App teams consuming SimpleL7Proxy in private VNets
+- **Not** intended for public internet deployments (intentionally internal-only)
+
+**What you'll have at the end**
+
+- A private, VNet-integrated L7 proxy running on Azure Container Apps
+- A private DNS name resolvable inside your network
+- A declarative, repeatable deployment using Bash + Bicep
+- Optional health probe, async processing, and APIM integration
+
+![Target architecture](arch.png)
+
+---
+
+## Security model (by design)
+
+**Built in:**
+
+- ✅ No public ingress (internal-only ACA)
+- ✅ Managed Identity (no secrets in scripts)
+- ✅ Private DNS + VNet isolation
+- ✅ App Configuration access scoped to identity
+- ✅ ACR access via identity (not admin creds)
+
+**Intentionally not covered (expected upstream or out of scope):**
+
+- TLS termination — expected upstream (APIM, gateway, or client)
+- Public exposure
+- WAF
+
+---
+
+## Choose your path
+
+### Quick start (10–15 min)
+
+For trying SimpleL7Proxy with minimal setup:
+
+1. **Prereq**
+2. **VNet**
+3. **ContainerImage**
+4. **ACA** (Option 4a)
+
+👉 Skip DNS, AppConfig, and Blob for now
+👉 Use the internal FQDN directly
+
+### Production deployment (recommended)
+
+Follow the full **Recommended Deployment Path** below for a hardened, end-to-end deployment with private DNS, App Configuration, observability, and optional APIM integration.
+
+Once deployed, see **[Day-2 Operations](DAY2_OPERATIONS.md)** for guidance on updating backends, rolling out new versions, scaling, failure modes, and where logs live.
+
+---
+
 ## Recommended Deployment Path
 
 Follow this sequence for a complete, production-ready deployment:
@@ -76,6 +135,12 @@ cd ContainerImage
 **Build Methods:**
 - **Remote (Recommended)** — ACR builds, no Docker required (~3-5 min); works anywhere
 - **Local** — Docker on your machine (~5-10 min); useful for development
+
+> **Image versioning — safe for production pipelines**
+>
+> - Image tags are **automatically derived from source code** (`src/SimpleL7Proxy/Constants.cs`)
+> - Deployments reference **immutable tags** (`vX.Y.Z`) — never `latest`
+> - Re-running the ACA deployment is **safe and reproducible** — the same source produces the same tag
 
 **Prerequisites (Remote Build - Default):**
 - Azure CLI installed and authenticated
