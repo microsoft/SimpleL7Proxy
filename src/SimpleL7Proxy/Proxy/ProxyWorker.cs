@@ -1923,25 +1923,29 @@ public class ProxyWorker : IConfigChangeSubscriber
 
             if (!headerExists)
             {
-                var dataExists = await blobWriter.BlobExistsAsync(container, dataBlobName).ConfigureAwait(false);
-                if (dataExists)
+                _logger.LogDebug("[FetchAsync:{Guid}] Result not ready — returning NotReady template", guid);
+
+                var templateLoader = _wrkCntxt.AsyncWorkerContext?.Messages;
+                byte[] msg;
+                if (templateLoader != null)
                 {
-                    _logger.LogDebug("[FetchAsync:{Guid}] Data blob exists but no header blob yet — still processing", guid);
-                    context.Response.StatusCode = 202;
-                    var msg = Encoding.UTF8.GetBytes("{\"status\":\"processing\",\"guid\":\"" + guid + "\"}");
-                    context.Response.ContentType = "application/json";
-                    context.Response.ContentLength64 = msg.Length;
-                    await context.Response.OutputStream.WriteAsync(msg).ConfigureAwait(false);
+                    var notReady = templateLoader.GetMergedMessage(
+                        AsyncResponseTypeEnum.NotReady,
+                        guid,
+                        request.MID,
+                        userId);
+                    context.Response.StatusCode = notReady.Status;
+                    msg = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(notReady));
                 }
                 else
                 {
-                    _logger.LogDebug("[FetchAsync:{Guid}] No blobs found — not found or expired", guid);
-                    context.Response.StatusCode = 404;
-                    var msg = Encoding.UTF8.GetBytes("{\"error\":\"not found or expired\",\"guid\":\"" + guid + "\"}");
-                    context.Response.ContentType = "application/json";
-                    context.Response.ContentLength64 = msg.Length;
-                    await context.Response.OutputStream.WriteAsync(msg).ConfigureAwait(false);
+                    context.Response.StatusCode = 202;
+                    msg = Encoding.UTF8.GetBytes("{\"status\":\"processing\",\"guid\":\"" + guid + "\"}");
                 }
+
+                context.Response.ContentType = "application/json";
+                context.Response.ContentLength64 = msg.Length;
+                await context.Response.OutputStream.WriteAsync(msg).ConfigureAwait(false);
                 context.Response.Close();
                 return;
             }

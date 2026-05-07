@@ -203,13 +203,30 @@ curl https://proxy.domain.com/do_something \
 
 | Response | Meaning |
 |---|---|
-| `202 {"status":"processing","guid":"..."}` | Backend is still running — poll again later |
+| `425` NotReady template (see below) | Result not yet available — poll again later |
 | `200` with original headers and body | Request complete — full response returned |
-| `404 {"error":"not found or expired"}` | GUID unknown or result has expired |
 | `503` | Blob storage unavailable |
 
 > [!NOTE]
 > The fetch call bypasses the backend entirely — it reads directly from blob storage and returns immediately. There is no need to hit a separate `/async-fetch` endpoint.
+
+#### NotReady response body
+
+When the result is not yet available the proxy returns the `notready.json` template (HTTP `425`):
+
+```json
+{
+  "Message": "Your request is still processing. Intentional delay added to response: <delay> seconds",
+  "UserId": "<user-id>",
+  "MID": "<request-mid>",
+  "Guid": "<guid>",
+  "Status": 425,
+  "DataBlobUri": "<storage-uri>/<container>/<guid>",
+  "HeaderBlobUri": "<storage-uri>/<container>/<guid>-Headers"
+}
+```
+
+The template is loaded from the `templates` blob container at startup and can be customised by uploading a modified `notready.json` to that container. See [Template Customisation](#template-customisation) below.
 
 ## Async Class Name Overrides
 
@@ -249,6 +266,35 @@ AsyncClientConfigFieldName=async-config
 AsyncClientRequestHeader=S7PAsyncMode
 ```
 
+## Template Customisation
+
+The proxy uses JSON templates stored in a `templates` blob container to build certain responses. Templates are loaded once at startup.
+
+| Template file | Used when |
+|---|---|
+| `notready.json` | GUID polled but result not yet available (HTTP `425`) |
+| `welcome.json` | Initial async submission response (HTTP `202`) |
+| `notauthorized.json` | Client not authorised for async (HTTP `403`) |
+
+### Supported placeholders
+
+| Placeholder | Replaced with |
+|---|---|
+| `%GUID%` | The async request GUID |
+| `%MID%` | The internal request message ID |
+| `%USERID%` | The user ID from the request profile |
+| `%DELAY_S%` | Configured delay in seconds |
+| `%BLOBURI%` | Storage account base URI |
+| `%BLOBCONTAINER%` | User's blob container name |
+
+### Customising a template
+
+1. Edit the template JSON (e.g. `notready.json`)
+2. Upload it to the `templates` container in your storage account
+3. Restart the proxy (templates are loaded at startup, not hot-reloaded)
+
+The `Status` field in the template controls the HTTP response code returned to the client.
+
 ## Security Considerations
 
 1. **Use Managed Identity in production** for credential management
@@ -260,8 +306,9 @@ AsyncClientRequestHeader=S7PAsyncMode
 
 | Symptom | Cause |
 |---|---|
-| `202` on submit but `404` on every poll | Backend hasn't written the result blob yet — wait and retry |
-| `404` immediately on first poll | Profile `containername` doesn't match the container used at submit time |
+| `425` on every poll, never `200` | Backend is still running or blob was never written — check backend logs |
+| `425` with wrong `Guid`/`UserId` in body | Profile `containername` or `UserIDFieldName` mismatch — verify user profile config |
+| Plain `202` instead of `425` template | `TemplateLoader` not initialised — check `templates` container exists in storage and async mode is enabled |
 | `503` on fetch | Blob storage unavailable or `InitClientAsync` failed for that container |
 | "Failed to create SAS token" | Managed identity missing Storage Blob Delegator role |
 | "BlobContainerClient not initialized" | `InitClientAsync` not called after AsyncWorker construction |
