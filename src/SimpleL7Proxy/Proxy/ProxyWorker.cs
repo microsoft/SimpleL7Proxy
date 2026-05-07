@@ -10,6 +10,7 @@ using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.User;
+using SimpleL7Proxy.Async;
 using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.StreamProcessor;
 using Shared.RequestAPI.Models;
@@ -262,6 +263,14 @@ public class ProxyWorker : IConfigChangeSubscriber
                         continue;
                     }
 
+
+                    // ASYNC FETCH: return stored blob response without hitting the backend
+                    if (incomingRequest.IsFetchAsync)
+                    {
+                        await HandleFetchAsyncResponseAsync(incomingRequest).ConfigureAwait(false);
+                        HealthCheckService.EnterState(_id, WorkerState.Cleanup);
+                        continue;
+                    }
 
                     // Set the initial status based on request type
                     _lifecycleManager.TransitionToProcessing(incomingRequest);
@@ -1879,6 +1888,109 @@ public class ProxyWorker : IConfigChangeSubscriber
         }
     }
 
+
+    private async Task HandleFetchAsyncResponseAsync(RequestData request)
+    {
+        var context = request.Context!;
+        var guid = request.FetchGuid;
+        var userId = request.profileUserId;
+        var container = request.BlobContainerName;
+
+        var blobWriter = _wrkCntxt.BlobWriter;
+
+        _logger.LogInformation("[FetchAsync:{Guid}] Fetching async response - UserId: {UserId}, Container: {Container}",
+            guid, userId, container);
+
+        try
+        {
+            var initialized = await blobWriter.InitClientAsync(container).ConfigureAwait(false);
+            if (!initialized)
+            {
+                _logger.LogWarning("[FetchAsync:{Guid}] Failed to initialize blob client", guid);
+                context.Response.StatusCode = 503;
+                var msg = Encoding.UTF8.GetBytes("{\"error\":\"Blob storage unavailable\"}");
+                context.Response.ContentType = "application/json";
+                context.Response.ContentLength64 = msg.Length;
+                await context.Response.OutputStream.WriteAsync(msg).ConfigureAwait(false);
+                context.Response.Close();
+                return;
+            }
+
+            var headerBlobName = guid + "-Headers";
+            var dataBlobName   = guid;
+
+            var headerExists = await blobWriter.BlobExistsAsync(container, headerBlobName).ConfigureAwait(false);
+
+            if (!headerExists)
+            {
+                var dataExists = await blobWriter.BlobExistsAsync(container, dataBlobName).ConfigureAwait(false);
+                if (dataExists)
+                {
+                    _logger.LogDebug("[FetchAsync:{Guid}] Data blob exists but no header blob yet — still processing", guid);
+                    context.Response.StatusCode = 202;
+                    var msg = Encoding.UTF8.GetBytes("{\"status\":\"processing\",\"guid\":\"" + guid + "\"}");
+                    context.Response.ContentType = "application/json";
+                    context.Response.ContentLength64 = msg.Length;
+                    await context.Response.OutputStream.WriteAsync(msg).ConfigureAwait(false);
+                }
+                else
+                {
+                    _logger.LogDebug("[FetchAsync:{Guid}] No blobs found — not found or expired", guid);
+                    context.Response.StatusCode = 404;
+                    var msg = Encoding.UTF8.GetBytes("{\"error\":\"not found or expired\",\"guid\":\"" + guid + "\"}");
+                    context.Response.ContentType = "application/json";
+                    context.Response.ContentLength64 = msg.Length;
+                    await context.Response.OutputStream.WriteAsync(msg).ConfigureAwait(false);
+                }
+                context.Response.Close();
+                return;
+            }
+
+            using var headerStream = await blobWriter.ReadBlobAsStreamAsync(container, headerBlobName).ConfigureAwait(false);
+            using var headerReader = new StreamReader(headerStream);
+            var headerJson = await headerReader.ReadToEndAsync().ConfigureAwait(false);
+            var asyncHeaders = JsonSerializer.Deserialize<AsyncHeaders>(headerJson);
+
+            if (asyncHeaders == null)
+            {
+                _logger.LogError("[FetchAsync:{Guid}] Failed to deserialize header blob", guid);
+                context.Response.StatusCode = 500;
+                context.Response.Close();
+                return;
+            }
+
+            if (int.TryParse(asyncHeaders.Status, out var statusCode))
+                context.Response.StatusCode = statusCode;
+            else
+                context.Response.StatusCode = 200;
+
+            foreach (var kv in asyncHeaders.Headers)
+            {
+                try { context.Response.Headers[kv.Key] = kv.Value; }
+                catch { /* skip restricted headers */ }
+            }
+
+            context.Response.Headers["x-async-guid"]   = guid;
+            context.Response.Headers["x-async-source"] = "blob-fetch";
+
+            using var dataStream = await blobWriter.ReadBlobAsStreamAsync(container, dataBlobName).ConfigureAwait(false);
+            await dataStream.CopyToAsync(context.Response.OutputStream).ConfigureAwait(false);
+            await context.Response.OutputStream.FlushAsync().ConfigureAwait(false);
+            context.Response.Close();
+
+            _logger.LogInformation("[FetchAsync:{Guid}] Fetch complete - StatusCode: {StatusCode}", guid, context.Response.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[FetchAsync:{Guid}] Error fetching async response", guid);
+            try
+            {
+                context.Response.StatusCode = 500;
+                context.Response.Close();
+            }
+            catch { /* already closed */ }
+        }
+    }
 
     // cts is returned to the caller who disposes of it
     private async Task<(CancellationTokenSource, double)> SetupAsyncWorkerAndTimeout(RequestData request)

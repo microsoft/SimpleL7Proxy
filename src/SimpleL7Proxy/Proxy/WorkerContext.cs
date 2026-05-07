@@ -1,6 +1,7 @@
 namespace SimpleL7Proxy.Proxy;
 
 using SimpleL7Proxy.Async;
+using SimpleL7Proxy.Async.BlobStorage;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Queue;
@@ -19,6 +20,7 @@ public class WorkerContext
     public EventDataBuilder EventDataBuilder { get; }
     public HealthCheckService HealthCheckService { get; }
     public AsyncWorkerContext? AsyncWorkerContext { get; }
+    public IBlobWriter BlobWriter { get; }
     public IEndpointMonitorService Backends { get; }
     public IConcurrentPriQueue<RequestData> Queue { get; }
     public IEventClient EventClient { get; }
@@ -39,6 +41,7 @@ public class WorkerContext
         IRequeueWorker requeueWorker,
         IEventClient eventClient,
         ILogger<ProxyWorker> logger,
+        IBlobWriter blobWriter,
         StreamProcessorFactory streamProcessorFactory,
         RequestLifecycleManager lifecycleManager,
         EventDataBuilder eventDataBuilder,
@@ -71,6 +74,7 @@ public class WorkerContext
         RequeueWorker = requeueWorker;
         EventClient = eventClient;
         Logger = logger;
+        BlobWriter = blobWriter;
         AsyncWorkerContext = asyncWorkerContext;
         StreamProcessorFactory = streamProcessorFactory;
         LifecycleManager = lifecycleManager;
