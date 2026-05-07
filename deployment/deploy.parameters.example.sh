@@ -136,7 +136,7 @@ export CA_BLOB_ROLE="Storage Blob Data Contributor"
 # -----------------------------------------------------------------------------
 export APPCONFIG_NAME="myapp-appcfg"
 export APPCONFIG_SKU="standard"
-export APPCONFIG_LABEL=""
+export APPCONFIG_LABEL="prod"
 export AZURE_APPCONFIG_REFRESH_SECONDS="30"
 export UPDATE_CONTAINER_APP_ENV="true"
 

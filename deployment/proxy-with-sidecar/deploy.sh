@@ -124,13 +124,9 @@ if [ -n "$REGISTRY_SERVER" ]; then
     BICEP_PARAMS="$BICEP_PARAMS registryServer=$REGISTRY_SERVER"
 fi
 
-# Add Host1 configuration
-if [ -n "$HOST1" ]; then
-    BICEP_PARAMS="$BICEP_PARAMS host1=$HOST1"
-else
-    echo -e "${RED}Error: HOST1 must be set${NC}"
-    exit 1
-fi
+# Note: Host1, Workers, Port, AsyncModeEnabled, HealthProbeSidecar are now
+# served from Azure App Configuration (Step 6). They are no longer baked
+# into the Container App env vars.
 
 # Check if Container App exists and grant ACR pull permission to its managed identity
 echo -e "${YELLOW}Checking if Container App exists for ACR role assignment...${NC}"

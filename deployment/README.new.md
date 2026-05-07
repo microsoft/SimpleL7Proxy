@@ -53,19 +53,19 @@ cp deploy.parameters.example.sh deploy.parameters.sh
 
 ### Required edits
 
-| Variable | Used by | Purpose |
-|---|---|---|
-| `LOCATION` | all | Azure region (e.g. `eastus`) |
-| `NETWORK_RESOURCE_GROUP` | VNet, DNS, ACA env | RG that holds VNet, subnets, DNS zone, and the ACA environment |
-| `CONTAINER_APP_RESOURCE_GROUP` | ACA, BlobStorage, AppConfiguration | RG that holds the Container App. Often the same as `NETWORK_RESOURCE_GROUP` |
-| `STORAGE_RESOURCE_GROUP` | BlobStorage | RG for the storage account (only needed for async workflows) |
-| `APPCONFIG_RESOURCE_GROUP` | AppConfiguration | RG for the App Configuration store |
-| `ACR_NAME` | ContainerImage, ACA | Existing Azure Container Registry name (no `.azurecr.io` suffix) |
-| `PROXY_IMAGE_NAME` | ContainerImage, ACA | Repository name within ACR for the proxy image |
-| `HEALTH_IMAGE_NAME` | ContainerImage, proxy-with-sidecar | Repository name within ACR for the health-probe image |
-| `CONTAINER_APP_NAME` | ACA, proxy-with-sidecar, BlobStorage, AppConfiguration | Name of the Container App |
-| `ACA_ENVIRONMENT_NAME` | ACA | Container Apps Environment name (VNet-integrated) |
-| `HOST1` | ACA, proxy-with-sidecar | Primary backend descriptor: `host=<url>;mode=apim;path=/;probe=/health` |
+| Variable | Used by | Suggested value | Purpose |
+|---|---|---|---|
+| `LOCATION` | all | `eastus` | Azure region |
+| `NETWORK_RESOURCE_GROUP` | VNet, DNS, ACA env | `rg-myapp-network` | RG that holds VNet, subnets, DNS zone, and the ACA environment |
+| `CONTAINER_APP_RESOURCE_GROUP` | ACA, BlobStorage, AppConfiguration | `rg-myapp-prod` | RG that holds the Container App. Often the same as `NETWORK_RESOURCE_GROUP` |
+| `STORAGE_RESOURCE_GROUP` | BlobStorage | `rg-myapp-storage` | RG for the storage account (only needed for async workflows) |
+| `APPCONFIG_RESOURCE_GROUP` | AppConfiguration | `rg-myapp-appconfig` | RG for the App Configuration store |
+| `ACR_NAME` | ContainerImage, ACA | *(your ACR)* | Existing Azure Container Registry name (no `.azurecr.io` suffix) |
+| `PROXY_IMAGE_NAME` | ContainerImage, ACA | `simple-l7-proxy` | Repository name within ACR for the proxy image |
+| `HEALTH_IMAGE_NAME` | ContainerImage, proxy-with-sidecar | `healthprobe` | Repository name within ACR for the health-probe image |
+| `CONTAINER_APP_NAME` | ACA, proxy-with-sidecar, BlobStorage, AppConfiguration | `ca-myapp-proxy` | Name of the Container App |
+| `ACA_ENVIRONMENT_NAME` | ACA | `cae-myapp` | Container Apps Environment name (VNet-integrated) |
+| `HOST1` | ACA, proxy-with-sidecar | `host=https://your-api.azure-api.net;mode=apim;path=/;probe=/health` | Primary backend descriptor |
 
 ### VNet and subnets
 
