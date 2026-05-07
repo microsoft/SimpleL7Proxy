@@ -98,34 +98,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
             var client = _blobServiceClient.GetBlobContainerClient(containerName);
 
             // Ensure the container exists once at init time, rather than on every write.
-            // Retry on 409 ContainerBeingDeleted: Azure keeps the container in a "deleting" state
-            // for up to ~30 seconds after deletion; CreateIfNotExistsAsync does not handle this
-            // variant of 409 (only ContainerAlreadyExists is suppressed by the SDK).
-            const int maxRetries = 6;
-            const int retryDelayMs = 5000;
-            for (int attempt = 1; attempt <= maxRetries; attempt++)
-            {
-                try
-                {
-                    await client.CreateIfNotExistsAsync().ConfigureAwait(false);
-                    return client;
-                }
-                catch (Azure.RequestFailedException ex)
-                    when (ex.Status == 409 &&
-                          string.Equals(ex.ErrorCode, "ContainerBeingDeleted", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (attempt == maxRetries)
-                    {
-                        _logger.LogError(ex, "BlobWriter: Container '{ContainerName}' is still being deleted after {Retries} retries. Giving up.", containerName, maxRetries);
-                        throw;
-                    }
-                    _logger.LogWarning("BlobWriter: Container '{ContainerName}' is being deleted (attempt {Attempt}/{MaxRetries}). Retrying in {DelayMs}ms...",
-                        containerName, attempt, maxRetries, retryDelayMs);
-                    await Task.Delay(retryDelayMs).ConfigureAwait(false);
-                }
-            }
-
-            // Unreachable - loop always returns or throws, but satisfies compiler
+            await client.CreateIfNotExistsAsync().ConfigureAwait(false);
             return client;
         }
 

@@ -14,7 +14,7 @@ For the complete list of Async-related environment variables and their default v
 | Setting | Mode | Default | Description |
 |---|---|---|---|
 | `AsyncModeEnabled` | Cold | `false` | Master switch for async processing |
-| `AsyncClientRequestHeader` | Warm | `S7PAsyncMode` | Request header clients send to opt in |
+| `AsyncClientRequestHeader` | Warm | `S7PAsyncMode` | Header used for both async submission (`true`) and result fetching (GUID value) |
 | `AsyncClientConfigFieldName` | Warm | `async-config` | User profile field containing client async config |
 | `AsyncTimeout` | Warm | `1800000` (30 min) | Max async request lifetime (ms) |
 | `AsyncTriggerTimeout` | Warm | `10000` (10 s) | Time before a request upgrades to async (ms) |
@@ -169,11 +169,47 @@ Each client's service principal needs RBAC access to both the blob container and
 
 ## Client Request Configuration
 
-Clients opt in per request by sending the configured header:
+A **single header** drives both async submission and result fetching. The header name is configured by `AsyncClientRequestHeader` (default: `S7PAsyncMode`).
+
+### Submitting an async request
+
+Send the header with the value `true`:
 
 ```http
-curl https://proxy.domain.com/do_something -H "S7PAsyncMode: true"
+curl https://proxy.domain.com/do_something \
+  -H "x-tr-chat-profile-name: <profile-id>" \
+  -H "S7PAsyncMode: true"
 ```
+
+The proxy returns `202 Accepted` with a JSON body containing the GUID to use for polling:
+
+```json
+{
+  "status": "processing",
+  "guid": "a9a9a817-1234-5678-abcd-ef0123456789",
+  "message": "Your request has been accepted for async processing. Set the 'S7PAsyncMode' header to the GUID below to retrieve the result when ready."
+}
+```
+
+### Fetching the result
+
+Poll using the same header, setting its value to the GUID returned above:
+
+```http
+curl https://proxy.domain.com/do_something \
+  -H "x-tr-chat-profile-name: <profile-id>" \
+  -H "S7PAsyncMode: a9a9a817-1234-5678-abcd-ef0123456789"
+```
+
+| Response | Meaning |
+|---|---|
+| `202 {"status":"processing","guid":"..."}` | Backend is still running — poll again later |
+| `200` with original headers and body | Request complete — full response returned |
+| `404 {"error":"not found or expired"}` | GUID unknown or result has expired |
+| `503` | Blob storage unavailable |
+
+> [!NOTE]
+> The fetch call bypasses the backend entirely — it reads directly from blob storage and returns immediately. There is no need to hit a separate `/async-fetch` endpoint.
 
 ## Async Class Name Overrides
 
@@ -224,6 +260,9 @@ AsyncClientRequestHeader=S7PAsyncMode
 
 | Symptom | Cause |
 |---|---|
+| `202` on submit but `404` on every poll | Backend hasn't written the result blob yet — wait and retry |
+| `404` immediately on first poll | Profile `containername` doesn't match the container used at submit time |
+| `503` on fetch | Blob storage unavailable or `InitClientAsync` failed for that container |
 | "Failed to create SAS token" | Managed identity missing Storage Blob Delegator role |
 | "BlobContainerClient not initialized" | `InitClientAsync` not called after AsyncWorker construction |
 | Service Bus connection failures | Connection string lacks send permissions for the topic |
