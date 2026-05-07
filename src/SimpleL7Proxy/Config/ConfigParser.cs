@@ -50,6 +50,7 @@ public static class ConfigParser
         ("PriorityKeys", "PriorityKeys"),
         ("PriorityValues", "PriorityValues"),
         ("RequiredHeaders", "RequiredHeaders"),
+        ("RequestPreprocessorPlugins", "RequestPreprocessorPlugins"),
         ("SharedIteratorCleanupIntervalSeconds", "SharedIteratorCleanupIntervalSeconds"),
         ("SharedIteratorTTLSeconds", "SharedIteratorTTLSeconds"),
         ("StorageDbContainerName", "StorageDbContainerName"),
@@ -385,6 +386,11 @@ public static class ConfigParser
         return ReadEnvironmentVariableOrDefaultCore(env, variableName, defaultValue);
     }
 
+    public static long ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, long defaultValue)
+    {
+        return ReadEnvironmentVariableOrDefaultCore(env, variableName, defaultValue);
+    }
+
     public static int[] ReadEnvironmentVariableOrDefault(Dictionary<string, string> env, string variableName, int[] defaultValues)
     {
         return ReadEnvironmentVariableOrDefaultCore(env, variableName, defaultValues);
@@ -426,6 +432,23 @@ public static class ConfigParser
             if (TryEvaluateMathExpression(envValue ?? string.Empty, out var mathResult))
             {
                 return (int)mathResult;
+            }
+            return defaultValue;
+        }
+
+        return value;
+    }
+
+    private static long ReadEnvironmentVariableOrDefaultCore(Dictionary<string, string> env, string variableName, long defaultValue)
+    {
+        var envValue = env.GetValueOrDefault(variableName);
+        if (envValue?.Trim() == ConfigMetadata.DefaultPlaceholder) envValue = null;
+
+        if (!long.TryParse(envValue, out var value))
+        {
+            if (TryEvaluateMathExpression(envValue ?? string.Empty, out var mathResult))
+            {
+                return (long)mathResult;
             }
             return defaultValue;
         }

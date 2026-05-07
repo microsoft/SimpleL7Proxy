@@ -213,6 +213,8 @@ public class ProxyConfig
     public int PollInterval { get; set; } = 15000;
     [ConfigOption("Server:PollTimeout", Mode = ConfigMode.Cold)]
     public int PollTimeout { get; set; } = 3000;
+    [ConfigOption("Server:RequestPreprocessorPlugins", ConfigName = "RequestPreprocessorPlugins", Mode = ConfigMode.Cold)]
+    public string RequestPreprocessorPlugins { get; set; } = "";
     [ConfigOption("Server:Port", Mode = ConfigMode.Cold)]
     public int Port { get; set; } = 80;
     /// <summary>How often (in seconds) to run cleanup of stale shared iterators.</summary>
@@ -368,6 +370,8 @@ public class ProxyConfig
         {
             _ when type == typeof(int)
                 => ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, Convert.ToInt32(currentValue)),
+            _ when type == typeof(long)
+                => ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, Convert.ToInt64(currentValue)),
             _ when type == typeof(double)
                 => ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, Convert.ToInt32(currentValue)),
             _ when type == typeof(float)
