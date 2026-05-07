@@ -75,16 +75,13 @@ public class CoordinatedShutdownService : IHostedService
         _compositeEventClient = serviceProvider.GetRequiredService<CompositeEventClient>();
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public Task StartAsync(CancellationToken cancellationToken)
     {
-        // Start services explicitly since they're no longer registered as IHostedService
-        // (we control their shutdown ordering in StopAsync)
-        if (_blobWriteQueue != null)
-            await _blobWriteQueue.StartAsync(cancellationToken).ConfigureAwait(false);
-        await _probeServer.StartAsync(cancellationToken).ConfigureAwait(false);
-
-        if (_serviceBusRequestService is IHostedService sbHosted)
-            await sbHosted.StartAsync(cancellationToken).ConfigureAwait(false);
+        // Lifecycle of the explicitly-started services (ProbeServer, BlobWorkerPump,
+        // ServiceBusRequestService, BackupAPIService) is owned by Program.Main —
+        // see the explicit StartAsync block right after InitializeRuntime. Stop
+        // ordering for those services is still coordinated below in StopAsync.
+        return Task.CompletedTask;
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
