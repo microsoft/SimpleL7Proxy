@@ -1,386 +1,248 @@
-# Deployment Guide
+# SimpleL7Proxy — Deployment
 
-This folder contains deployment packages for SimpleL7Proxy on Azure. Each package automates provisioning and configuration of infrastructure and application settings.
-
-## Recommended Deployment Path
-
-Follow this sequence for a complete, production-ready deployment:
-
-### Step 1: Prerequisites ⚙️
-Start here to ensure your environment has everything needed.
-
-```bash
-cd Prereq
-cat README.md       # Review all requirements
-./validate.sh       # Run validation (if available)
-```
-
-**What you'll verify:**
-- Azure CLI installed and authenticated
-- Bash shell available
-- Required tools (jq, Python)
-- Azure subscription access
-
-[→ Learn more](Prereq/README.md)
+![Target architecture](arch.png)
 
 ---
 
-### Step 2: Virtual Network (VNet) 🌐
-Creates the foundation network with subnets for all services.
+## Overview
+
+This guide targets platform and infrastructure engineers deploying SimpleL7Proxy on Azure, as well as application teams consuming the proxy within private VNets. Public internet deployments are out of scope.
+
+Completing all steps results in a private, VNet‑integrated Layer‑7 proxy running on Azure Container Apps, exposed via a private DNS name resolvable within the VNet. Deployment is automated using Bash scripts and Bicep and is fully idempotent. Optional extensions include health probing, asynchronous processing, and Azure API Management integration.
+
+---
+
+## Deployment Steps
+
+**Production path:**  Step 1 → Step 2 → Step 3 → Step 4 → Step 5 → Step 6 → [Step 7 if async or APIM]  
+
+> **Dev/test only — do not use in production:** Step 1 → Step 2 → Step 3 → Step [4a](ACA/README.md) (proxy only, no health monitoring)
+
+
+### Step 1: Prerequisites
+
+```bash
+cd Prereq
+./validate.sh
+```
+
+**Requires:** `az` (authenticated), `jq`, `python3`, Bash
+
+**If this fails:**
+- `az: command not found` → https://aka.ms/installazurecli
+- `jq: command not found` → `apt install jq` / `brew install jq`
+- auth error → `az login && az account set -s <id>`
+
+---
+
+### Step 2: Virtual Network
 
 ```bash
 cd VNet
 cp deploy.parameters.example.sh deploy.parameters.sh
-# Edit deploy.parameters.sh with your values
+# Set RESOURCE_GROUP, LOCATION; change CIDR only if 10.40.0.0/16 overlaps existing VNets
 ./deploy.sh
 ```
 
-**What gets created:**
-- Virtual Network (default: `vnet-myapp`, `10.40.0.0/16`)
-- **ACA subnet** (`snet-aca`, `10.40.0.0/23`) — for Container Apps
-- **ClientVM subnet** (`snet-clientvm`, `10.40.2.0/24`) — for testing/admin clients
-- **Azure Functions subnet** (`snet-azurefunctions`, `10.40.3.0/24`) — optional backend
-- **APIM subnet** (`snet-apim`, `10.40.4.0/24`) — optional API gateway
-- **PrivateEndpoints subnet** (`snet-privateendpoints`, `10.40.5.0/24`) — for service integrations
+**Defaults:**
+- `vnet-myapp` / `10.40.0.0/16`
+- `snet-aca` `10.40.0.0/23` · `snet-clientvm` `10.40.2.0/24` · `snet-azurefunctions` `10.40.3.0/24` · `snet-apim` `10.40.4.0/24` · `snet-privateendpoints` `10.40.5.0/24`
 
-**Deployment time:** ~2-3 minutes
+**Change only if:** CIDR overlaps existing VNets; naming convention differs from `vnet-myapp` / `snet-*`
 
-[→ Learn more](VNet/README.md)
+**If this fails:**
+- `Subnet address prefix overlaps` → change CIDR and re-run
+- `ResourceGroupNotFound` → `az group create -n <rg> -l <region>`
+- ACA subnet delegation missing → `az network vnet subnet show -n snet-aca --vnet-name <vnet> -g <rg> --query delegations`
+
+[→ Details](VNet/README.md)
 
 ---
 
-### Step 3: Build Container Image 🐳
-Builds the SimpleL7Proxy container image and pushes it to Azure Container Registry.
+### Step 3: Build Container Image
 
 ```bash
 cd ContainerImage
 cp build.parameters.example.sh build.parameters.sh
-# Edit build.parameters.sh (defaults use ACR remote build)
-# - Set ACR_NAME to your registry
-# - Leave BUILD_METHOD as "remote" or change to "local" if you have Docker
+# Set ACR_NAME; leave BUILD_METHOD=remote (no Docker needed)
 ./build.sh
+./get-version.sh   # confirm resolved tag
 ```
 
-**What happens:**
-- Extracts version from `src/SimpleL7Proxy/Constants.cs`
-- Builds Docker image in Azure Container Registry (no Docker needed locally)
-- Image URI: `myregistry.azurecr.io/simple-l7-proxy:v<VERSION>` (version auto-detected from Constants.cs)
-- Ready for ACA deployment
+**Defaults:**
+- `BUILD_METHOD=remote` — build runs in ACR, no local Docker
+- Tag: `<ACR_NAME>.azurecr.io/simple-l7-proxy:v<VERSION>` from `src/SimpleL7Proxy/Constants.cs`
 
-**To see the actual image version:**
-```bash
-cd ContainerImage
-./get-version.sh   # Shows the actual version (e.g., v1.2.3)
-```
+**Change only if:** `BUILD_METHOD=local` for local Docker iteration — **dev/test only, do not use in production**
 
-**Build Methods:**
-- **Remote (Recommended)** — ACR builds, no Docker required (~3-5 min); works anywhere
-- **Local** — Docker on your machine (~5-10 min); useful for development
+**If this fails:**
+- 404 → `ACR_NAME` wrong: `az acr list -o table`
+- 403 → `az role assignment create --role AcrPush --assignee <upn> --scope <acr-id>`
+- empty tag → set version in `Constants.cs`, re-run `./get-version.sh`
 
-**Prerequisites (Remote Build - Default):**
-- Azure CLI installed and authenticated
-- Azure Container Registry created
-
-**Prerequisites (Local Build - Optional):**
-- Docker installed and running
-- Authenticated to ACR: `az acr login --name myregistry`
-
-[→ Learn more](ContainerImage/README.md)
+[→ Details](ContainerImage/README.md)
 
 ---
 
-### Step 4: Azure Container Apps (ACA) 📦
-Deploys SimpleL7Proxy as a containerized application within the VNet.
+### Step 4: Azure Container Apps
 
-Choose one of two approaches:
-
-#### Option 4a: Proxy Only (Simple)
-Deploy just the SimpleL7Proxy container.
-
-```bash
-cd ACA
-cp deploy.parameters.example.sh deploy.parameters.sh
-# Edit deploy.parameters.sh
-# - Reference VNET values from Step 2
-# - Specify your container image from Step 3
-./deploy.sh
-```
-
-**What gets created:**
-- Container Apps Environment (integrated with the VNet)
-- Container App running SimpleL7Proxy only
-- Internal-only ingress (no public endpoint)
-- System-assigned managed identity (optional)
-- Log Analytics integration (optional)
-
-**Deployment time:** ~5-10 minutes
-
-**When to use:** Simple deployments, custom health probe handling in app code
-
-[→ Learn more](ACA/README.md)
-
----
-
-#### Option 4b: Proxy + HealthProbe Sidecar (Recommended)
-Deploy SimpleL7Proxy with an integrated HealthProbe sidecar container for monitoring.
+Proxy on port 8000 + HealthProbe sidecar on port 9000, VNet-integrated, internal ingress only.
 
 ```bash
 cd proxy-with-sidecar
 cp deploy.parameters.example.sh deploy.parameters.sh
-# Edit deploy.parameters.sh
-# - Update ACR, resource group, app names
-# - Set backend hosts and configuration
+# Set ACR_NAME, RESOURCE_GROUP, APP_NAME, VNET_NAME, SUBNET_ACA_NAME
 ./deploy.sh
 ```
 
-**What gets created:**
-- Container Apps Environment (integrated with the VNet)
-- Container App with two containers:
-  - **SimpleL7Proxy** — Main reverse proxy (port 8000)
-  - **HealthProbe** — Health check sidecar (port 9000)
-- Internal-only ingress (no public endpoint)
-- Both containers share network and resources
-- System-assigned managed identity for ACR
+**Defaults:**
+- `SimpleL7Proxy` port 8000, `HealthProbe` port 9000
+- Internal-only ingress, system-assigned managed identity
+- Version tags from `src/SimpleL7Proxy/Constants.cs` + `src/HealthProbe/Constants.cs`
 
-**What happens automatically:**
-- Extracts version from `src/SimpleL7Proxy/Constants.cs` (for proxy image)
-- Extracts version from `src/HealthProbe/Constants.cs` (for health probe image)
-- Deploys both containers in a single Container App
+**Change only if:** ACR name, resource group, or app name differ from example defaults
 
-**Deployment time:** ~5-10 minutes
-
-**When to use:** Production deployments, built-in health monitoring, multi-container patterns
-
-**Key advantage:** Health probe and proxy run together; health checks are always available on port 9000
-
-[→ Learn more](proxy-with-sidecar/README.md)
-
----
-
-**After deployment (either option), note the internal FQDN:**
+**After deploy — record the internal FQDN:**
 ```
 ca-myapp-proxy.internal.eastus.azurecontainerapps.io
 ```
 
+**If this fails:**
+- Stuck in `Waiting` / image pull error → `az containerapp logs show -n <app> -g <rg> --type system`; verify both tags exist in ACR
+- `SubnetDelegationRequired` → `az network vnet subnet show -n snet-aca --vnet-name <vnet> -g <rg> --query delegations`
+- `AcrPull` denied → `az role assignment create --role AcrPull --assignee <principal-id> --scope <acr-id>`
+
+[→ Details](proxy-with-sidecar/README.md) · [Dev/test proxy-only path](ACA/README.md) (**dev/test only, do not use in production**)
+
 ---
 
-### Step 5: DNS (Optional but Recommended) 🔍
-Sets up private DNS for friendly internal service names.
+### Step 5: DNS
+
+CNAME short name → ACA FQDN; private DNS zone linked to the VNet. Decouples client config from platform-generated FQDNs that change on redeploy.
 
 ```bash
 cd DNS
 cp deploy.parameters.example.sh deploy.parameters.sh
-# Edit deploy.parameters.sh
-# - Reference VNET from Step 2
-# - Add the ACA internal FQDN from Step 4
+# Set VNET_NAME, DNS_ZONE_NAME (e.g. internal.contoso.com), ACA_FQDN
 ./deploy.sh
 ```
 
-**What gets created:**
-- Private DNS zone (e.g., `internal.contoso.com`)
-- CNAME record mapping short name to ACA FQDN
-- Optional records for APIM or other services
+**Change only if:** additional A/CNAME records needed; zone name conflicts with an existing private zone in the VNet
 
-**Why use this?**
-- Clients can use readable names instead of Azure-generated FQDNs
-- Stays within your VNet (no public exposure)
-- Easy to add more records as you add services
+**If this fails:**
+- Names don't resolve → VNet link missing: `az network private-dns link vnet list -g <rg> -z <zone>`
+- `ZoneAlreadyExists` → reuse existing zone or choose a different name
+- Wrong CNAME target → `az network private-dns record-set cname show -g <rg> -z <zone> -n <record>`
 
-**Deployment time:** ~2 minutes
-
-[→ Learn more](DNS/README.md)
+[→ Details](DNS/README.md)
 
 ---
 
-### Step 6: Application Configuration 🛠️
-Configures SimpleL7Proxy settings (backend hosts, timeouts, load balancing, etc.).
+### Step 6: App Configuration
+
+Proxy reads backend URLs, priorities, timeouts, and weights from this store at runtime — no redeploy needed for config changes.
 
 ```bash
 cd AppConfiguration
 cp deploy.parameters.example.sh deploy.parameters.sh
-# Edit deploy.parameters.sh with proxy settings
+# Set backend URLs, priorities, timeouts
 ./deploy.sh
 ```
 
-**What gets created/configured:**
-- Azure App Configuration store
-- Key-value settings for SimpleL7Proxy (backend URLs, priorities, etc.)
-- Configuration read permissions for the ACA managed identity
+**Defaults:**
+- New App Configuration store
+- `App Configuration Data Reader` role on ACA managed identity
+- Keys: backend URLs, priorities, timeouts, load-balancing weights
 
-**Note:** SimpleL7Proxy pulls these settings at runtime.
+**Change only if:** reusing existing store (set store name, skip creation); values differ from example parameters
 
-**Deployment time:** ~3-5 minutes
+**Breaks if misconfigured:**
+- Missing required keys → proxy fails fast on startup
+- Wrong identity role → proxy cannot read config; container exits on startup
+- Config store in wrong region/subscription → managed identity token exchange fails
 
-[→ Learn more](AppConfiguration/README.md)
+**If this fails:**
+- Container exits on startup → `az containerapp logs show -n <app> -g <rg>` — look for `KeyNotFoundException`
+- `Forbidden` at runtime → `az role assignment list --assignee <principal-id> --scope <store-id>`
+- Config not picked up → verify `AZURE_APP_CONFIG_ENDPOINT` env var matches store URL
+
+[→ Details](AppConfiguration/README.md)
 
 ---
 
-### Step 7 (Optional): Additional Services
+### Step 7a: Blob Storage (async workflows only)
 
-Depending on your scenario, you may need:
-
-#### BlobStorage
-Enables async response storage or request/response logging.
+Run before enabling async in App Configuration. Skip for sync-only deployments.
 
 ```bash
 cd BlobStorage
 ./deploy.sh
 ```
 
-[→ Learn more](BlobStorage/README.md)
+**Defaults:**
+- New Storage Account (LRS, Standard)
+- `Storage Blob Data Contributor` role on ACA managed identity
 
-#### APIM Policy Deployment
-Deploys API policies and routes through Azure API Management.
+**Change only if:** reusing existing account; container name differs from default
 
-See [APIM-Policy/README.md](../APIM-Policy/README.md)
+**If this fails:**
+- 500 on async requests → `az role assignment list --assignee <principal-id> --scope <storage-id>`
+- `BlobServiceProperties` error → storage account name taken globally; change in `deploy.parameters.sh`
+- Blobs not written → container name in App Configuration must match container created here
 
----
-
-## Deployment Scenarios
-
-Choose the path that matches your use case. All scenarios reference **Step 4**, where you select either:
-- **Option 4a** — Proxy only (simple)
-- **Option 4b** — Proxy + HealthProbe sidecar (recommended for production)
-
-### Scenario: Single Proxy with Health Monitoring (Recommended)
-**Packages needed:** VNet (Step 2) → ContainerImage (Step 3) → ACA with Sidecar (Step 4b) → DNS (Step 5) → AppConfiguration (Step 6)
-
-Best for: Production deployments, built-in health probe, monitoring.
-
-### Scenario: Multi-tenant with Async Processing
-**Packages needed:** VNet (Step 2) → ContainerImage (Step 3) → ACA with Sidecar (Step 4b) → DNS (Step 5) → AppConfiguration (Step 6) → BlobStorage (Step 7)
-
-Best for: Multiple clients, async response handling, audit logging.
-
-### Scenario: API Gateway Pattern
-**Packages needed:** VNet (Step 2) → ContainerImage (Step 3) → ACA with Sidecar (Step 4b) → DNS (Step 5) → AppConfiguration (Step 6) → APIM (Step 7)
-
-Best for: API governance, rate limiting, policy enforcement.
-
-### Scenario: Simple Testing/Development
-**Packages needed:** VNet (Step 2) → ContainerImage (Step 3) → ACA Simple (Step 4a)
-
-Best for: Quick testing, no health probe needed, minimal setup. Skip DNS (Step 5) for now; use internal FQDN directly.
+[→ Details](BlobStorage/README.md)
 
 ---
 
-## Quick Reference: File Organization
+### Step 7b: APIM Policy (API gateway only)
 
-```
-deployment/
-├── Prereq/                    # Prerequisites verification
-│   ├── README.md
-│   └── validate.sh
-│
-├── VNet/                      # Virtual Network + Subnets
-│   ├── deploy.parameters.example.sh
-│   ├── deploy.sh
-│   └── README.md
-│
-├── ContainerImage/            # Container Image Build
-│   ├── build.parameters.example.sh
-│   ├── build.sh
-│   └── README.md
-│
-├── ACA/                       # Container Apps (Simple)
-│   ├── deploy.parameters.example.sh
-│   ├── deploy.sh
-│   └── README.md
-│
-├── proxy-with-sidecar/        # Container Apps with HealthProbe Sidecar
-│   ├── deploy.parameters.example.sh
-│   ├── deploy.sh
-│   ├── setup.sh
-│   ├── script.bicep
-│   ├── script.json
-│   └── README.md
-│
-├── DNS/                       # Private DNS Zone
-│   ├── deploy.parameters.example.sh
-│   ├── deploy.sh
-│   └── README.md
-│
-├── AppConfiguration/          # Proxy Configuration Store
-│   ├── deploy.parameters.example.sh
-│   ├── deploy.sh
-│   └── README.md
-│
-├── BlobStorage/               # Async Storage (Optional)
-│   ├── deploy.sh
-│   └── README.md
-│
-└── README.md                  # This file
-```
+Run after APIM is provisioned in `snet-apim`. Skip if APIM is not in the topology.
+
+**Requires:** APIM instance in `snet-apim`; ACA FQDN reachable from that subnet
+
+**If this fails:**
+- 502 from APIM → APIM cannot reach ACA FQDN; check NSG rules and subnet routing
+- Policy rejected → validate XML against APIM policy schema
+
+[→ Details](../APIM-Policy/README.md)
 
 ---
 
-## Deployment Checklist
+## Scenarios
 
-- [ ] **Prerequisites**
-  - [ ] Azure CLI installed (`az --version`)
-  - [ ] Authenticated to Azure (`az login`)
-  - [ ] Bash shell available
-  - [ ] Required tools: jq, Python3
-
-- [ ] **Before VNet**
-  - [ ] Decide on CIDR range (default: `10.40.0.0/16`)
-  - [ ] Have resource group name ready
-  - [ ] Choose Azure region
-
-- [ ] **Before Build**
-  - [ ] Source code ready (`src/SimpleL7Proxy/Constants.cs` has version)
-  - [ ] Container Registry created in Azure
-  - [ ] Azure CLI installed and authenticated
-  - [ ] Docker installed (optional, only for local build method)
-
-- [ ] **Before ACA (Choose Step 4a OR 4b)**
-  - [ ] VNet deployed
-  - [ ] Container image built and pushed to ACR
-  - [ ] Image URI ready (e.g., `myregistry.azurecr.io/simple-l7-proxy:latest`)
-  - [ ] For **Step 4b (Sidecar)** only:
-    - [ ] Both `src/SimpleL7Proxy/Constants.cs` and `src/HealthProbe/Constants.cs` have versions
-    - [ ] `deploy.sh` will auto-extract both versions for dual-container deployment
-
-- [ ] **Before DNS**
-  - [ ] ACA deployed (to get internal FQDN)
-  - [ ] Decide on DNS zone name
-
-- [ ] **Before AppConfiguration**
-  - [ ] ACA deployed
-  - [ ] Backend host URLs finalized
-  - [ ] Proxy settings known (timeouts, priorities, etc.)
+| Scenario | Steps | Pattern |
+|---|---|---|
+| Single proxy with health monitoring | 1 → 2 → 3 → 4 → 5 → 6 | — |
+| Multi-tenant with async processing | 1 → 2 → 3 → 4 → 5 → 6 → 7a | [Claim Check](https://learn.microsoft.com/azure/architecture/patterns/claim-check) / [Async Request-Reply](https://learn.microsoft.com/azure/architecture/patterns/async-request-reply) |
+| API gateway | 1 → 2 → 3 → 4 → 5 → 6 → 7b | [Gateway Routing](https://learn.microsoft.com/azure/architecture/patterns/gateway-routing) |
+| Multi-tenant, isolated config | 1 → 2 → 3 → 4 → 5 → 6 | Shared runtime, per-tenant App Configuration keys |
+| Dev/test (**do not use in production**) | 1 → 2 → 3 → [4a](ACA/README.md) | — |
 
 ---
 
-## Common Tasks
+## Day-2 Operations
 
-### View Deployment Status
+[Full reference →](DAY2_OPERATIONS.md)
+
+### Check status
 ```bash
-# List all resources in the resource group
 az resource list --resource-group "rg-myapp-network" -o table
-
-# View ACA details
-az containerapp show --resource-group "rg-myapp-network" \
-    --name "ca-myapp-proxy"
+az containerapp show --resource-group "rg-myapp-network" --name "ca-myapp-proxy"
 ```
 
-### Update Proxy Configuration
-Re-run the AppConfiguration deployment with updated parameters:
+### Update backend config (no redeploy)
 ```bash
-cd AppConfiguration
-./deploy.sh   # Reads updated deploy.parameters.sh
+cd AppConfiguration && ./deploy.sh
 ```
 
-### Re-run a Deployment (Idempotent)
-All scripts are safe to run multiple times. They update existing resources to match current parameters:
+### Roll new proxy version
 ```bash
-cd ACA
-./deploy.sh   # Updates image, CPU, memory, replicas
+cd ContainerImage && ./build.sh
+cd ../proxy-with-sidecar && ./deploy.sh
 ```
 
-### Delete Resources
+### Delete all resources
 ```bash
-# Delete entire resource group (all resources inside)
 az group delete --resource-group "rg-myapp-network"
 ```
 
@@ -388,74 +250,60 @@ az group delete --resource-group "rg-myapp-network"
 
 ## Troubleshooting
 
-### "deploy.parameters.sh not found"
-Copy the example file:
+**Check in this order:**
+1. `az containerapp logs show -n <app> -g <rg>` — container output
+2. `az acr repository show-tags -n <acr> --repository simple-l7-proxy` — tag exists
+3. TCP reachability to backend from inside `snet-aca` (curl/nc from client VM)
+4. `nslookup <dns-name>` from inside the VNet
+
+### `deploy.parameters.sh not found`
 ```bash
 cp deploy.parameters.example.sh deploy.parameters.sh
 ```
 
-### "Could not find subnet in VNet"
-- Verify `VNET_NAME` and `SUBNET_ACA_NAME` match VNet deployment
-- Check resource group is correct
-- Confirm VNet was deployed successfully
+### Subnet not found
+```bash
+az network vnet subnet list --vnet-name <vnet> -g <rg> -o table
+```
 
-### "Container App failed to start"
-- Check image exists in ACR: `az acr repository list --name myregistry`
-- Verify image name format: `registry.azurecr.io/repo:tag`
-- Check ACA logs: `az containerapp logs show --resource-group ... --name ...`
+### Container App failed to start
+```bash
+az containerapp logs show -n <app> -g <rg> --type system
+az acr repository show-tags -n <acr> --repository simple-l7-proxy
+```
 
-### "DNS records not resolving"
-- Confirm VNet is linked to DNS zone
-- Test from inside the VNet (not from public internet)
-- Check record names and types with: `az network private-dns record-set list --zone-name ... --resource-group ...`
-
----
-
-## Next Steps
-
-After deployment:
-
-1. **Build and push container image** (if not already done)
-   - Run `cd ContainerImage && ./build.sh`
-   - Or use remote ACR build if Docker not available
-   - See [ContainerImage/README.md](ContainerImage/README.md) for details
-   
-2. **Test connectivity**
-   - Deploy a client VM in the ClientVM subnet
-   - Test access to ACA using its internal FQDN or DNS name
-
-3. **Configure backend hosts**
-   - Update AppConfiguration with your backend URLs
-   - Test end-to-end proxy functionality
-
-4. **Enable monitoring**
-   - Configure Application Insights in ACA deployment
-   - Set up alerts in Azure Monitor
-
-5. **Scale and optimize**
-   - Monitor ACA metrics (CPU, memory, request count)
-   - Adjust replica settings and resource allocation
-
-6. **Document your deployment**
-   - Save your parameter files (without secrets)
-   - Document custom settings and decisions
+### DNS not resolving
+```bash
+az network private-dns link vnet list -g <rg> -z <zone>
+az network private-dns record-set list -g <rg> -z <zone> -o table
+```
 
 ---
 
-## Need Help?
+## File layout
 
-- [Deployment Prerequisites](Prereq/README.md) — Verify your environment
-- [VNet Deployment](VNet/README.md) — Network setup
-- [ACA Deployment](ACA/README.md) — Container Apps
-- [DNS Deployment](DNS/README.md) — Private DNS setup
-- [AppConfiguration Deployment](AppConfiguration/README.md) — Proxy settings
-- [Main Documentation](../docs/) — Architecture, design, troubleshooting
+```
+deployment/
+├── Prereq/
+├── VNet/
+├── ContainerImage/
+├── ACA/                   # dev/test only
+├── proxy-with-sidecar/    # production
+├── DNS/
+├── AppConfiguration/
+├── BlobStorage/
+└── README.md
+```
 
 ---
 
-## Support
+## References
 
-For issues, questions, or contributions:
-- Check the [troubleshooting guide](../docs/TroubleshootTOC.md)
-- Review [configuration documentation](../docs/CONFIGURATION_SETTINGS.md)
-- See [advanced deployment scenarios](../docs/ADVANCED_DEVELOPMENT.md)
+- [Day-2 Operations](DAY2_OPERATIONS.md)
+- [App Configuration keys](../docs/AZURE_APP_CONFIGURATION.md)
+- [Backend hosts](../docs/BACKEND_HOSTS.md)
+- [Health checking](../docs/HEALTH_CHECKING.md)
+- [Troubleshooting](../docs/TroubleshootTOC.md)
+- [Configuration reference](../docs/CONFIGURATION_SETTINGS.md)
+- [Advanced scenarios](../docs/ADVANCED_DEVELOPMENT.md)
+

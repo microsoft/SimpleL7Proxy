@@ -8,16 +8,51 @@
 # Set values here ONCE and they will be used everywhere.
 
 # =============================================================================
-# Azure Container Registry - SET THIS FIRST (used for build AND deployment)
+# EDIT THE VALUES BELOW FOR YOUR ENVIRONMENT
 # =============================================================================
+# Azure Container Registry
 export ACR="myregistry"
 
-# Derived values (no need to change these)
-export REGISTRY_SERVER="${ACR}.azurecr.io"
+# Container Image Names (repository names within the ACR, no tag)
+export PROXY_IMAGE_NAME="myproxy"
+export HEALTH_IMAGE_NAME="healthprobe"
+
+# Azure Configuration
+export RESOURCE_GROUP="rg-myapp-prod"
+export LOCATION="eastus"
+export CONTAINER_APP_NAME="myapp"
+export ENVIRONMENT_NAME="myapp-env"
+
+# Backend Host Configuration
+# Format: host=<url>;mode=<mode>;path=<path>;probe=<probe_path>
+export HOST1="host=https://your-api.azure-api.net;mode=apim;path=/;probe=/status-0123456789abcdef"
+
+# Resource Allocation
+export WEB_CPU=0.5
+export WEB_MEMORY=1.0
+export HEALTH_CPU=0.25
+export HEALTH_MEMORY=0.5
+
+# Network Configuration
+export WEB_PORT=8000
+export HEALTH_PORT=9000
+export INGRESS_TYPE="external"  # Options: external, internal
+export ENABLE_HTTPS=true
+export REVISION_MODE="single"  # Options: single, multiple
+
+# Optional manual version overrides
+# (leave blank to auto-extract from Constants.cs)
+export PROXY_VERSION_OVERRIDE=""
+export HEALTHPROBE_VERSION_OVERRIDE=""
 
 # =============================================================================
-# Container Image Versions (auto-extracted from Constants.cs)
 # =============================================================================
+# DERIVED VALUES (auto-computed - no need to edit below this line)
+# =============================================================================
+# =============================================================================
+
+export REGISTRY_SERVER="${ACR}.azurecr.io"
+
 # Get the directory where this script is located
 PARAMS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 REPO_ROOT="${PARAMS_DIR}/../.."
@@ -39,41 +74,10 @@ if [ -f "${REPO_ROOT}/src/HealthProbe/Constants.cs" ]; then
     fi
 fi
 
-# Fallback to manual versions if extraction failed
-export PROXY_VERSION="${PROXY_VERSION:-v1.0.0}"
-export HEALTHPROBE_VERSION="${HEALTHPROBE_VERSION:-v1.0.0}"
+# Apply manual overrides if provided, otherwise use extracted, then default
+export PROXY_VERSION="${PROXY_VERSION_OVERRIDE:-${PROXY_VERSION:-v1.0.0}}"
+export HEALTHPROBE_VERSION="${HEALTHPROBE_VERSION_OVERRIDE:-${HEALTHPROBE_VERSION:-v1.0.0}}"
 
-# Derived image names (no need to change these)
-export WEB_IMAGE="${REGISTRY_SERVER}/myproxy:${PROXY_VERSION}"
-export HEALTH_IMAGE="${REGISTRY_SERVER}/healthprobe:${HEALTHPROBE_VERSION}"
-
-# =============================================================================
-# Azure Configuration
-# =============================================================================
-export RESOURCE_GROUP="rg-myapp-prod"
-export LOCATION="eastus"
-export CONTAINER_APP_NAME="myapp"
-export ENVIRONMENT_NAME="myapp-env"
-
-# =============================================================================
-# Backend Host Configuration
-# =============================================================================
-# Format: host=<url>;mode=<mode>;path=<path>;probe=<probe_path>
-export HOST1="host=https://your-api.azure-api.net;mode=apim;path=/;probe=/status-0123456789abcdef"
-
-# =============================================================================
-# Resource Allocation
-# =============================================================================
-export WEB_CPU=0.5
-export WEB_MEMORY=1.0
-export HEALTH_CPU=0.25
-export HEALTH_MEMORY=0.5
-
-# =============================================================================
-# Network Configuration
-# =============================================================================
-export WEB_PORT=8000
-export HEALTH_PORT=9000
-export INGRESS_TYPE="external"  # Options: external, internal
-export ENABLE_HTTPS=true
-export REVISION_MODE="single"  # Options: single, multiple
+# Full image references
+export WEB_IMAGE="${REGISTRY_SERVER}/${PROXY_IMAGE_NAME}:${PROXY_VERSION}"
+export HEALTH_IMAGE="${REGISTRY_SERVER}/${HEALTH_IMAGE_NAME}:${HEALTHPROBE_VERSION}"
