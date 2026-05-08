@@ -5,7 +5,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-using SimpleL7Proxy.Async.SBQueue;
+using SimpleL7Proxy.Async.ServiceBus.SBQueue;
+using SimpleL7Proxy.Async.ServiceBus.SBTopic;
 using SimpleL7Proxy.Async.BlobStorage;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Async.ServiceBus;

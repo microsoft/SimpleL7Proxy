@@ -1,7 +1,7 @@
 using Shared.RequestAPI.Models;
 using SimpleL7Proxy;
 
-namespace SimpleL7Proxy.Async.SBQueue
+namespace SimpleL7Proxy.Async.ServiceBus.SBQueue
 {
 
     public interface ISBQueueService

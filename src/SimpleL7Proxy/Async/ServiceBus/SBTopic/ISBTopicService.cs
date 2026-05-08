@@ -1,6 +1,6 @@
 using SimpleL7Proxy;
 
-namespace SimpleL7Proxy.Async.ServiceBus
+namespace SimpleL7Proxy.Async.ServiceBus.SBTopic
 {
 
     public interface ISBTopicService

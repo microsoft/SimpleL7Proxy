@@ -12,7 +12,7 @@ using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Messaging;
 
 
-namespace SimpleL7Proxy.Async.ServiceBus
+namespace SimpleL7Proxy.Async.ServiceBus.SBTopic
 {
 
     public class SBTopicService : IHostedService, ISBTopicService, IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>

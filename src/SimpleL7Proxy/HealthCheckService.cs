@@ -10,7 +10,8 @@ using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Events;
-using SimpleL7Proxy.Async.SBQueue;
+using SimpleL7Proxy.Async.ServiceBus.SBQueue;
+using SimpleL7Proxy.Async.ServiceBus.SBTopic;
 using SimpleL7Proxy.Proxy;
 
 using Shared.HealthProbe;

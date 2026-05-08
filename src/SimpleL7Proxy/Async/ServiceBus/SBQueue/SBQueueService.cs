@@ -13,7 +13,7 @@ using Shared.RequestAPI.Models;
 using SimpleL7Proxy.Async.ServiceBus;
 
 
-namespace SimpleL7Proxy.Async.SBQueue
+namespace SimpleL7Proxy.Async.ServiceBus.SBQueue
 {
     public class SBQueueService : IHostedService, ISBQueueService, IShutdownParticipant,
         IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>

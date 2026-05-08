@@ -24,7 +24,8 @@ using SimpleL7Proxy.User;
 using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.Async.BlobStorage;
 using SimpleL7Proxy.DTO;
-using SimpleL7Proxy.Async.SBQueue;
+using SimpleL7Proxy.Async.ServiceBus.SBQueue;
+using SimpleL7Proxy.Async.ServiceBus.SBTopic;
 using SimpleL7Proxy.Async.Feeder;
 
 using System.Net;

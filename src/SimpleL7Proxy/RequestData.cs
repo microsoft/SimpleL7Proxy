@@ -6,7 +6,8 @@ using System.Threading.Tasks;
 
 using Microsoft.Extensions.ObjectPool;
 using Shared.RequestAPI.Models;
-using SimpleL7Proxy.Async.SBQueue;
+using SimpleL7Proxy.Async.ServiceBus.SBQueue;
+using SimpleL7Proxy.Async.ServiceBus.SBTopic;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.Events;
