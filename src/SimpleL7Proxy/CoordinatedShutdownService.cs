@@ -29,7 +29,7 @@ public class CoordinatedShutdownService : IHostedService
     private readonly BackendTokenProvider _backendTokenProvider;
     private readonly ProxyConfig _options;
     // private readonly IEventClient? _eventClient;
-    private readonly IServiceBusRequestService _serviceBusRequestService;
+    private readonly ISBTopicService _sbTopicService;
     private readonly ISBQueueService _sbQueueService;
     private readonly IConcurrentPriQueue<RequestData> _queue;
     private readonly IEndpointMonitorService _backends;
@@ -48,7 +48,7 @@ public class CoordinatedShutdownService : IHostedService
         BackendTokenProvider backendTokenProvider,
         IEndpointMonitorService backends,
         // IEventClient? eventClient,
-        IServiceBusRequestService serviceBusRequestService,
+        ISBTopicService sbTopicService,
         IAsyncFeeder asyncFeeder,
         ISBQueueService sbQueueService,
         IRequeueWorker requeueWorker,
@@ -63,7 +63,7 @@ public class CoordinatedShutdownService : IHostedService
         _queue = queue;
         _backends = backends;
         // _eventClient = eventClient;
-        _serviceBusRequestService = serviceBusRequestService;
+        _sbTopicService = sbTopicService;
         _sbQueueService = sbQueueService;
         _asyncFeeder = asyncFeeder;
         _backendTokenProvider = backendTokenProvider;
@@ -78,7 +78,7 @@ public class CoordinatedShutdownService : IHostedService
     public Task StartAsync(CancellationToken cancellationToken)
     {
         // Lifecycle of the explicitly-started services (ProbeServer, BlobWorkerPump,
-        // ServiceBusRequestService, BackupAPIService) is owned by Program.Main —
+        // SBTopicService, SBQueueService) is owned by Program.Main —
         // see the explicit StartAsync block right after InitializeRuntime. Stop
         // ordering for those services is still coordinated below in StopAsync.
         return Task.CompletedTask;
@@ -176,9 +176,9 @@ public class CoordinatedShutdownService : IHostedService
             // if (_backupAPIService != null)
             //     await _backupAPIService.StopAsync(cancellationToken).ConfigureAwait(false);
 
-            // ServiceBusRequestService is stopped explicitly here for ordering control
-            if (_serviceBusRequestService != null)
-                await _serviceBusRequestService.StopAsync(cancellationToken).ConfigureAwait(false);
+            // SBTopicService is stopped explicitly here for ordering control
+            if (_sbTopicService != null)
+                await _sbTopicService.StopAsync(cancellationToken).ConfigureAwait(false);
 
             // BlobWriteQueue is stopped LAST before probes - all producers (proxy workers, async workers, backup service)
             // are guaranteed to be done at this point, so no more enqueues will happen

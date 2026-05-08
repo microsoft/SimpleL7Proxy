@@ -37,7 +37,7 @@ namespace SimpleL7Proxy.Async.SBQueue
         private int _currentMinuteErrors;
         private DateTime _currentMinuteStart = DateTime.UtcNow;
 
-        // Batch tuning - mirrors ServiceBusRequestService.
+        // Batch tuning - mirrors SBTopicService.
         private const int MaxDrainPerCycle = 50;
         private const int FlushCountThreshold = 10;
         private static readonly TimeSpan FlushIntervalMs = TimeSpan.FromSeconds(1);

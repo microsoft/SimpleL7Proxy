@@ -35,7 +35,7 @@ public sealed class TemplateLoader : IHostedService
             [AsyncResponseTypeEnum.NotAuthorized] = "notauthorized.json",
         }.ToFrozenDictionary();
 
-    private readonly IServiceBusRequestService _serviceBusRequestService;
+    private readonly ISBTopicService _sbTopicService;
     private readonly ISBQueueService _sbQueueService;
     private readonly IUserPriorityService _userPriorityService;
     private readonly IBlobWriter _blobWriter;
@@ -45,14 +45,14 @@ public sealed class TemplateLoader : IHostedService
     private readonly Dictionary<AsyncResponseTypeEnum, AsyncMessage> _templates = new();
 
     public TemplateLoader(
-        IServiceBusRequestService serviceBusRequestService,
+        ISBTopicService sbTopicService,
         ISBQueueService sbQueueService,
         IUserPriorityService userPriorityService,
         IBlobWriter blobWriter,
         IOptions<ProxyConfig> options,
         ILogger<TemplateLoader> logger)
     {
-        _serviceBusRequestService = serviceBusRequestService;
+        _sbTopicService = sbTopicService;
         _sbQueueService = sbQueueService;
         _userPriorityService = userPriorityService;
         _blobWriter = blobWriter;
@@ -121,7 +121,7 @@ public sealed class TemplateLoader : IHostedService
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         RequestData.InitializeServiceBusRequestService(
-            _serviceBusRequestService,
+            _sbTopicService,
             _sbQueueService,
             _userPriorityService,
             _options);

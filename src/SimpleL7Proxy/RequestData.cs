@@ -20,8 +20,8 @@ using SimpleL7Proxy.User;
 // This class represents the request received from the upstream client.
 public class RequestData : IDisposable, IAsyncDisposable  
 {
-    // Static variable to hold the IServiceBusRequestService instance
-    public static IServiceBusRequestService? SBRequestService { get; private set; }
+    // Static variable to hold the ISBTopicService instance
+    public static ISBTopicService? SBTopicService { get; private set; }
     public static ISBQueueService? SBQueueService { get; private set; }
     public static IUserPriorityService? UserPriorityService { get; private set; }
     public static ProxyConfig? BackendOptionsStatic { get; private set; }
@@ -168,7 +168,7 @@ public class RequestData : IDisposable, IAsyncDisposable
             _sbStatus = value;
             if (runAsync)
             {
-                SBRequestService?.updateStatus(this);
+                SBTopicService?.updateStatus(this);
             }
         }
     }
@@ -214,12 +214,12 @@ public class RequestData : IDisposable, IAsyncDisposable
     public WebHeaderCollection Headers { get; private set; }
 
     // Method to initialize the static variable from DI
-    public static void InitializeServiceBusRequestService(IServiceBusRequestService serviceBusRequestService,
+    public static void InitializeServiceBusRequestService(ISBTopicService sbTopicService,
                                                           ISBQueueService sbQueueService,
                                                           IUserPriorityService userPriorityService,
                                                           ProxyConfig backendOptions)
     {
-        SBRequestService ??= serviceBusRequestService;
+        SBTopicService ??= sbTopicService;
         SBQueueService ??= sbQueueService;
         UserPriorityService ??= userPriorityService;
         BackendOptionsStatic ??= backendOptions;

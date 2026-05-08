@@ -3,7 +3,7 @@ using SimpleL7Proxy;
 namespace SimpleL7Proxy.Async.ServiceBus
 {
 
-    public interface IServiceBusRequestService
+    public interface ISBTopicService
     {
         Task StopAsync(CancellationToken cancellationToken);
         bool updateStatus(RequestData message);

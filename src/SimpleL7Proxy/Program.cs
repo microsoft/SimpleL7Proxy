@@ -181,7 +181,7 @@ public class Program
                 await blobPump.StartAsync(default).ConfigureAwait(false);
             }
 
-            if (serviceProvider.GetRequiredService<IServiceBusRequestService>() is IHostedService sbHosted)
+            if (serviceProvider.GetRequiredService<ISBTopicService>() is IHostedService sbHosted)
             {
                 await sbHosted.StartAsync(default).ConfigureAwait(false);
             }
@@ -315,8 +315,8 @@ public class Program
         // Add storage service registration
         services.AddSingleton<ServiceBusFactory>();
         services.AddSingleton<IServiceBusFactory>(sp => sp.GetRequiredService<ServiceBusFactory>());
-        services.AddSingleton<ServiceBusRequestService>();
-        services.AddSingleton<IServiceBusRequestService>(sp => sp.GetRequiredService<ServiceBusRequestService>());
+        services.AddSingleton<SBTopicService>();
+        services.AddSingleton<ISBTopicService>(sp => sp.GetRequiredService<SBTopicService>());
 
         // Note: SBQueueService is NOT registered as IHostedService - its lifecycle is controlled
         // explicitly by CoordinatedShutdownService to ensure proper shutdown ordering
@@ -360,7 +360,7 @@ public class Program
         // BlobWriter so multi-GB response bodies bypass the queue.
         // ─────────────────────────────────────────────────────────────────────────────
         const string asyncClassesRaw =
-            "IServiceBusFactory:ServiceBusFactory, IServiceBusRequestService:ServiceBusRequestService, " +
+            "IServiceBusFactory:ServiceBusFactory, ISBTopicService:SBTopicService, " +
             "ISBQueueService:SBQueueService, IBlobWriterFactory:BlobWriterFactory, IBlobWriter:QueuedBlobWriter";
 
             // "IAsyncFeeder:AsyncFeeder, " +
