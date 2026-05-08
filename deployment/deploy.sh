@@ -32,7 +32,7 @@ run_step() {
 
 step1_prereq()        { ( cd "${SCRIPT_DIR}/Prereq"           && ./validate.sh ); }
 step2_vnet()          { ( cd "${SCRIPT_DIR}/VNet"             && ./deploy.sh   ); }
-step3_image()         { ( cd "${SCRIPT_DIR}/ContainerImage"   && ./build.sh    ); }
+step3_image()         { ( cd "${SCRIPT_DIR}/ContainerImage"   && ./deploy.sh   ); }
 step4_aca()           { ( cd "${SCRIPT_DIR}/proxy-with-sidecar" && ./deploy.sh ); }
 step5_dns()           { ( cd "${SCRIPT_DIR}/DNS"              && ./deploy.sh   ); }
 step6_appconfig()     { ( cd "${SCRIPT_DIR}/AppConfiguration" && ./deploy.sh   ); }
@@ -45,7 +45,7 @@ print_menu() {
     echo -e "${GREEN}========================================${NC}"
     echo "  1) Prerequisites              (Prereq/validate.sh)"
     echo "  2) Virtual Network            (VNet/deploy.sh)"
-    echo "  3) Build Container Image      (ContainerImage/build.sh)"
+    echo "  3) Build Container Image      (ContainerImage/deploy.sh)"
     echo "  4) Azure Container Apps       (proxy-with-sidecar/deploy.sh)"
     echo "  5) Private DNS                (DNS/deploy.sh)"
     echo "  6) App Configuration          (AppConfiguration/deploy.sh)"

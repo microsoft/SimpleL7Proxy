@@ -27,7 +27,7 @@ idempotent):
 ```
 1) Prerequisites              (Prereq/validate.sh)
 2) Virtual Network            (VNet/deploy.sh)
-3) Build Container Image      (ContainerImage/build.sh)
+3) Build Container Image      (ContainerImage/deploy.sh)
 4) Azure Container Apps       (proxy-with-sidecar/deploy.sh)
 5) Private DNS                (DNS/deploy.sh)
 6) App Configuration          (AppConfiguration/deploy.sh)
@@ -163,14 +163,14 @@ These are derived at the bottom of `deploy.parameters.sh`:
 ## Step reference
 
 Each menu entry just `cd`s into the matching folder and runs its
-`deploy.sh` / `build.sh` / `validate.sh`. The detailed READMEs in each
+`deploy.sh` / `validate.sh`. The detailed READMEs in each
 folder explain the underlying behavior.
 
 | # | Folder | Script | What it does |
 |---|---|---|---|
 | 1 | `Prereq/`             | `validate.sh` | Verifies `az`, `jq`, `python3`, Bash, and active Azure login |
 | 2 | `VNet/`               | `deploy.sh`   | Creates VNet + subnets in `NETWORK_RESOURCE_GROUP` |
-| 3 | `ContainerImage/`     | `build.sh`    | Builds proxy image in ACR (or locally) and tags with `Constants.cs` version |
+| 3 | `ContainerImage/`     | `deploy.sh`   | Builds proxy image in ACR (or locally) and tags with `Constants.cs` version |
 | 4 | `proxy-with-sidecar/` | `deploy.sh`   | Deploys ACA env + Container App with proxy + health-probe sidecar |
 | 5 | `DNS/`                | `deploy.sh`   | Creates private DNS zone, VNet link, and CNAME → ACA FQDN |
 | 6 | `AppConfiguration/`   | `deploy.sh`   | Creates App Configuration store and seeds `Warm:*` / `Cold:*` keys |

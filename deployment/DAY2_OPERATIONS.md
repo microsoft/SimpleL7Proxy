@@ -29,7 +29,7 @@ A version bump = a new tag = a new ACA revision.
 2. **Rebuild** the image:
    ```bash
    cd ContainerImage
-   ./build.sh
+   ./deploy.sh
    ```
 3. **Redeploy** ACA (it picks up the new tag from the build output):
    ```bash

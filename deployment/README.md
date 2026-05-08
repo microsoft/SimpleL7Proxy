@@ -63,9 +63,9 @@ cp deploy.parameters.example.sh deploy.parameters.sh
 
 ```bash
 cd ContainerImage
-cp build.parameters.example.sh build.parameters.sh
-# Set ACR_NAME; leave BUILD_METHOD=remote (no Docker needed)
-./build.sh
+# Uses the shared ../deploy.parameters.sh (see Step 0)
+# Set ACR_NAME and PROXY_IMAGE_NAME there; leave BUILD_METHOD=remote (no Docker needed)
+./deploy.sh
 ./get-version.sh   # confirm resolved tag
 ```
 
@@ -237,7 +237,7 @@ cd AppConfiguration && ./deploy.sh
 
 ### Roll new proxy version
 ```bash
-cd ContainerImage && ./build.sh
+cd ContainerImage && ./deploy.sh
 cd ../proxy-with-sidecar && ./deploy.sh
 ```
 

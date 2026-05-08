@@ -4,13 +4,13 @@
 # Consolidated Deployment Parameters for SimpleL7Proxy
 # =============================================================================
 # Copy this file to deploy.parameters.sh in this same folder, edit values,
-# then run any subfolder's deploy.sh / build.sh / setup.sh. They will all
+# then run any subfolder's deploy.sh / setup.sh. They will all
 # read from this single file.
 #
 #   cp deploy.parameters.example.sh deploy.parameters.sh
 #   vi deploy.parameters.sh
 #   ./VNet/deploy.sh
-#   ./ContainerImage/build.sh
+#   ./ContainerImage/deploy.sh
 #   ./ACA/deploy.sh
 #   ...
 #
@@ -43,7 +43,7 @@ export ACR_NAME="myregistry"
 export PROXY_IMAGE_NAME="simple-l7-proxy"
 export HEALTH_IMAGE_NAME="healthprobe"
 
-# Image build settings (used by ContainerImage/build.sh)
+# Image build settings (used by ContainerImage/deploy.sh)
 # Options: "remote" (ACR build service) or "local" (Docker required)
 export BUILD_METHOD="remote"
 export DOCKERFILE_PATH="SimpleL7Proxy/Dockerfile"
