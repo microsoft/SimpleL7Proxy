@@ -1,9 +1,12 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace SimpleL7Proxy.Messaging;
 
 internal readonly record struct BatchMessageEnvelope(string Destination, string Payload);
+
+internal readonly record struct BinaryBatchMessageEnvelope(string Destination, ReadOnlyMemory<byte> Payload);
 
 internal interface IBatchMessageTransport<TBatch, TItem>
 {

@@ -1,10 +1,10 @@
 using Shared.RequestAPI.Models;
 using SimpleL7Proxy;
 
-namespace SimpleL7Proxy.Async.BackupAPI
+namespace SimpleL7Proxy.Async.SBQueue
 {
 
-    public interface IBackupAPIService
+    public interface ISBQueueService
     {
         Task StartAsync(CancellationToken cancellationToken);
         Task StopAsync(CancellationToken cancellationToken);

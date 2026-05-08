@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 using Microsoft.Extensions.ObjectPool;
 using Shared.RequestAPI.Models;
-using SimpleL7Proxy.Async.BackupAPI;
+using SimpleL7Proxy.Async.SBQueue;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.Events;
@@ -22,7 +22,7 @@ public class RequestData : IDisposable, IAsyncDisposable
 {
     // Static variable to hold the IServiceBusRequestService instance
     public static IServiceBusRequestService? SBRequestService { get; private set; }
-    public static IBackupAPIService? BackupAPIService { get; private set; }
+    public static ISBQueueService? SBQueueService { get; private set; }
     public static IUserPriorityService? UserPriorityService { get; private set; }
     public static ProxyConfig? BackendOptionsStatic { get; private set; }
 
@@ -154,7 +154,7 @@ public class RequestData : IDisposable, IAsyncDisposable
                 _requestAPIDocument.status = value;
                 if (runAsync)
                 {
-                    BackupAPIService!.UpdateStatus(_requestAPIDocument);
+                    SBQueueService!.UpdateStatus(_requestAPIDocument);
                 }
             }
         }
@@ -215,12 +215,12 @@ public class RequestData : IDisposable, IAsyncDisposable
 
     // Method to initialize the static variable from DI
     public static void InitializeServiceBusRequestService(IServiceBusRequestService serviceBusRequestService,
-                                                          IBackupAPIService backupAPIService,
+                                                          ISBQueueService sbQueueService,
                                                           IUserPriorityService userPriorityService,
                                                           ProxyConfig backendOptions)
     {
         SBRequestService ??= serviceBusRequestService;
-        BackupAPIService ??= backupAPIService;
+        SBQueueService ??= sbQueueService;
         UserPriorityService ??= userPriorityService;
         BackendOptionsStatic ??= backendOptions;
 

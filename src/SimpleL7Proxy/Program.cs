@@ -24,7 +24,7 @@ using SimpleL7Proxy.User;
 using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.Async.BlobStorage;
 using SimpleL7Proxy.DTO;
-using SimpleL7Proxy.Async.BackupAPI;
+using SimpleL7Proxy.Async.SBQueue;
 using SimpleL7Proxy.Async.Feeder;
 
 using System.Net;
@@ -186,10 +186,10 @@ public class Program
                 await sbHosted.StartAsync(default).ConfigureAwait(false);
             }
 
-            // BackupAPIService is started here so its shutdown can be ordered via IShutdownParticipant.
-            if (serviceProvider.GetRequiredService<IBackupAPIService>() is IHostedService backupHosted)
+            // SBQueueService is started here so its shutdown can be ordered via IShutdownParticipant.
+            if (serviceProvider.GetRequiredService<ISBQueueService>() is IHostedService sbQueueHosted)
             {
-                await backupHosted.StartAsync(default).ConfigureAwait(false);
+                await sbQueueHosted.StartAsync(default).ConfigureAwait(false);
             }
         }
 
@@ -318,9 +318,9 @@ public class Program
         services.AddSingleton<ServiceBusRequestService>();
         services.AddSingleton<IServiceBusRequestService>(sp => sp.GetRequiredService<ServiceBusRequestService>());
 
-        // Note: BackupAPIService is NOT registered as IHostedService - its lifecycle is controlled
+        // Note: SBQueueService is NOT registered as IHostedService - its lifecycle is controlled
         // explicitly by CoordinatedShutdownService to ensure proper shutdown ordering
-        services.AddSingleton<IBackupAPIService, BackupAPIService>();
+        services.AddSingleton<ISBQueueService, SBQueueService>();
 
         services.AddSingleton<NormalRequest>();
         services.AddSingleton<OpenAIBackgroundRequest>();
@@ -361,7 +361,7 @@ public class Program
         // ─────────────────────────────────────────────────────────────────────────────
         const string asyncClassesRaw =
             "IServiceBusFactory:ServiceBusFactory, IServiceBusRequestService:ServiceBusRequestService, " +
-            "IBackupAPIService:BackupAPIService, IBlobWriterFactory:BlobWriterFactory, IBlobWriter:QueuedBlobWriter";
+            "ISBQueueService:SBQueueService, IBlobWriterFactory:BlobWriterFactory, IBlobWriter:QueuedBlobWriter";
 
             // "IAsyncFeeder:AsyncFeeder, " +
             // "IRequestProcessor:NormalRequest, IRequestProcessor:OpenAIBackgroundRequest";

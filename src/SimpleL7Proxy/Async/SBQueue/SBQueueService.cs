@@ -13,19 +13,19 @@ using Shared.RequestAPI.Models;
 using SimpleL7Proxy.Async.ServiceBus;
 
 
-namespace SimpleL7Proxy.Async.BackupAPI
+namespace SimpleL7Proxy.Async.SBQueue
 {
-    public class BackupAPIService : IHostedService, IBackupAPIService, IShutdownParticipant,
-        IBatchMessageTransport<ServiceBusMessageBatch, BatchMessageEnvelope>
+    public class SBQueueService : IHostedService, ISBQueueService, IShutdownParticipant,
+        IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>
     {
         public int ShutdownOrder => 20;
 
         private readonly ProxyConfig _options;
-        private readonly ILogger<BackupAPIService> _logger;
+        private readonly ILogger<SBQueueService> _logger;
         private readonly IServiceBusFactory _senderFactory;
-        private readonly IBatchMessageTransport<ServiceBusMessageBatch, BatchMessageEnvelope> _batchTransport;
+        private readonly IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope> _batchTransport;
 
-        private BatchMessagePump<ServiceBusMessageBatch, BatchMessageEnvelope>? _pump;
+        private BatchMessagePump<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>? _pump;
         private bool _isRunning;
         private bool _isShuttingDown;
 
@@ -42,7 +42,7 @@ namespace SimpleL7Proxy.Async.BackupAPI
         private const int FlushCountThreshold = 10;
         private static readonly TimeSpan FlushIntervalMs = TimeSpan.FromSeconds(1);
 
-        public BackupAPIService(IOptions<ProxyConfig> options, IServiceBusFactory senderFactory, ILogger<BackupAPIService> logger)
+        public SBQueueService(IOptions<ProxyConfig> options, IServiceBusFactory senderFactory, ILogger<SBQueueService> logger)
         {
             _options = options.Value;
             _senderFactory = senderFactory ?? throw new ArgumentNullException(nameof(senderFactory));
@@ -60,7 +60,7 @@ namespace SimpleL7Proxy.Async.BackupAPI
             _logger.LogInformation("[SERVICE] ✓ Backup API service starting...");
 
             var queueName = _options.AsyncSBQueue;
-            _pump = new BatchMessagePump<ServiceBusMessageBatch, BatchMessageEnvelope>(
+            _pump = new BatchMessagePump<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>(
                 destination: queueName,
                 transport: _batchTransport,
                 createBatchAsync: ct => _batchTransport.CreateBatchAsync(queueName, ct),
@@ -93,14 +93,14 @@ namespace SimpleL7Proxy.Async.BackupAPI
             }
 
             _isShuttingDown = true;
-            _logger.LogInformation("[SHUTDOWN] BackupAPIService stopping...");
+            _logger.LogInformation("[SHUTDOWN] SBQueueService stopping...");
 
             if (_pump != null)
             {
                 _pump.BeginShutdown();
                 if (_pump.Count > 0)
                 {
-                    _logger.LogInformation("[SHUTDOWN] ⏳ BackupAPIService - queue {QueueName} has {Events} events to flush",
+                    _logger.LogInformation("[SHUTDOWN] ⏳ SBQueueService - queue {QueueName} has {Events} events to flush",
                         _options.AsyncSBQueue, _pump.Count);
                 }
 
@@ -108,7 +108,7 @@ namespace SimpleL7Proxy.Async.BackupAPI
             }
 
             _isRunning = false;
-            _logger.LogInformation("[SHUTDOWN] ⏹  BackupAPIService stopped");
+            _logger.LogInformation("[SHUTDOWN] ⏹  SBQueueService stopped");
         }
 
         public bool UpdateStatus(RequestAPIDocument message)
@@ -120,17 +120,17 @@ namespace SimpleL7Proxy.Async.BackupAPI
 
             try
             {
-                var payload = JsonSerializer.Serialize(message, jsonOptions);
-                _pump.Enqueue(new BatchMessageEnvelope(_options.AsyncSBQueue, payload));
+                var payload = JsonSerializer.SerializeToUtf8Bytes(message, jsonOptions);
+                _pump.Enqueue(new BinaryBatchMessageEnvelope(_options.AsyncSBQueue, payload));
 
-                _logger.LogInformation("[BackupAPI:{Guid}] Status update enqueued - UserId: {UserId}, Status: {Status}, QueueDepth: {QueueCount}",
+                _logger.LogDebug("[SBQueue:{Guid}] Status update enqueued - UserId: {UserId}, Status: {Status}, QueueDepth: {QueueCount}",
                     message.guid, message.userID, message.status, _pump.Count);
 
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[BackupAPI:{Guid}] Failed to enqueue status update - UserId: {UserId}",
+                _logger.LogError(ex, "[SBQueue:{Guid}] Failed to enqueue status update - UserId: {UserId}",
                     message.guid, message.userID);
                 return false;
             }
@@ -217,36 +217,36 @@ namespace SimpleL7Proxy.Async.BackupAPI
 
         // ---- IBatchMessageTransport implementation ----
 
-        Task IBatchMessageTransport<ServiceBusMessageBatch, BatchMessageEnvelope>.OpenAsync(CancellationToken cancellationToken)
+        Task IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>.OpenAsync(CancellationToken cancellationToken)
         {
             _ = cancellationToken;
             return Task.CompletedTask;
         }
 
-        ValueTask<ServiceBusMessageBatch> IBatchMessageTransport<ServiceBusMessageBatch, BatchMessageEnvelope>.CreateBatchAsync(string destination, CancellationToken cancellationToken)
+        ValueTask<ServiceBusMessageBatch> IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>.CreateBatchAsync(string destination, CancellationToken cancellationToken)
         {
             return _senderFactory.GetQueueSender(destination).CreateMessageBatchAsync(cancellationToken);
         }
 
-        bool IBatchMessageTransport<ServiceBusMessageBatch, BatchMessageEnvelope>.TryAdd(ServiceBusMessageBatch batch, BatchMessageEnvelope message)
+        bool IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>.TryAdd(ServiceBusMessageBatch batch, BinaryBatchMessageEnvelope message)
         {
             var wasEmpty = batch.Count == 0;
             var serviceBusMessage = new ServiceBusMessage(message.Payload);
             var added = batch.TryAddMessage(serviceBusMessage);
             if (!added && wasEmpty)
             {
-                _logger.LogError("[BackupAPI:Batch] Message too large for queue {QueueName}. Dropping message.", message.Destination);
+                _logger.LogError("[SBQueue:Batch] Message too large for queue {QueueName}. Dropping message.", message.Destination);
             }
 
             return added;
         }
 
-        int IBatchMessageTransport<ServiceBusMessageBatch, BatchMessageEnvelope>.GetCount(ServiceBusMessageBatch batch)
+        int IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>.GetCount(ServiceBusMessageBatch batch)
         {
             return batch.Count;
         }
 
-        async Task IBatchMessageTransport<ServiceBusMessageBatch, BatchMessageEnvelope>.SendAsync(string destination, ServiceBusMessageBatch batch, CancellationToken cancellationToken)
+        async Task IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>.SendAsync(string destination, ServiceBusMessageBatch batch, CancellationToken cancellationToken)
         {
             var count = batch.Count;
             try
@@ -254,7 +254,7 @@ namespace SimpleL7Proxy.Async.BackupAPI
                 await _senderFactory.GetQueueSender(destination).SendMessagesAsync(batch, cancellationToken).ConfigureAwait(false);
                 RotateMinuteIfNeeded();
                 _currentMinuteCount += count;
-                _logger.LogInformation("[BackupAPI:Batch] Sent {MessageCount} status updates to queue {QueueName}", count, destination);
+                _logger.LogInformation("[SBQueue:Batch] Sent {MessageCount} status updates to queue {QueueName}", count, destination);
             }
             catch
             {
@@ -264,12 +264,12 @@ namespace SimpleL7Proxy.Async.BackupAPI
             }
         }
 
-        void IBatchMessageTransport<ServiceBusMessageBatch, BatchMessageEnvelope>.DisposeBatch(ServiceBusMessageBatch batch)
+        void IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>.DisposeBatch(ServiceBusMessageBatch batch)
         {
             batch.Dispose();
         }
 
-        Task IBatchMessageTransport<ServiceBusMessageBatch, BatchMessageEnvelope>.CloseAsync(CancellationToken cancellationToken)
+        Task IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>.CloseAsync(CancellationToken cancellationToken)
         {
             _ = cancellationToken;
             return Task.CompletedTask;

@@ -159,12 +159,11 @@ namespace SimpleL7Proxy.Async.ServiceBus
                 throw new ArgumentException("Topic name cannot be null or empty.", nameof(topicName));
             }
 
-            if (!_senders.ContainsKey(topicName))
+            return _senders.GetOrAdd(topicName, name =>
             {
-                _logger.LogDebug("Creating new ServiceBusSender for topic: {topicName}", topicName);
-                _senders[topicName] = _client.CreateSender(topicName);
-            }
-            return _senders[topicName];
+                _logger.LogDebug("Creating new ServiceBusSender for topic: {topicName}", name);
+                return _client.CreateSender(name);
+            });
         }
 
         public ServiceBusSender GetQueueSender(string queueName)
@@ -174,8 +173,11 @@ namespace SimpleL7Proxy.Async.ServiceBus
                 throw new ArgumentException("Queue name cannot be null or empty.", nameof(queueName));
             }
 
-            var sender = _client.CreateSender(queueName);
-            return sender;
+            return _senders.GetOrAdd(queueName, name =>
+            {
+                _logger.LogDebug("Creating new ServiceBusSender for queue: {queueName}", name);
+                return _client.CreateSender(name);
+            });
         }
 
         // return a processor for the specified queue

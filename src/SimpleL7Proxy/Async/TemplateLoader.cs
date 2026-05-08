@@ -5,7 +5,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-using SimpleL7Proxy.Async.BackupAPI;
+using SimpleL7Proxy.Async.SBQueue;
 using SimpleL7Proxy.Async.BlobStorage;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Async.ServiceBus;
@@ -36,7 +36,7 @@ public sealed class TemplateLoader : IHostedService
         }.ToFrozenDictionary();
 
     private readonly IServiceBusRequestService _serviceBusRequestService;
-    private readonly IBackupAPIService _backupAPIService;
+    private readonly ISBQueueService _sbQueueService;
     private readonly IUserPriorityService _userPriorityService;
     private readonly IBlobWriter _blobWriter;
     private readonly ProxyConfig _options;
@@ -46,14 +46,14 @@ public sealed class TemplateLoader : IHostedService
 
     public TemplateLoader(
         IServiceBusRequestService serviceBusRequestService,
-        IBackupAPIService backupAPIService,
+        ISBQueueService sbQueueService,
         IUserPriorityService userPriorityService,
         IBlobWriter blobWriter,
         IOptions<ProxyConfig> options,
         ILogger<TemplateLoader> logger)
     {
         _serviceBusRequestService = serviceBusRequestService;
-        _backupAPIService = backupAPIService;
+        _sbQueueService = sbQueueService;
         _userPriorityService = userPriorityService;
         _blobWriter = blobWriter;
         _options = options.Value;
@@ -122,7 +122,7 @@ public sealed class TemplateLoader : IHostedService
     {
         RequestData.InitializeServiceBusRequestService(
             _serviceBusRequestService,
-            _backupAPIService,
+            _sbQueueService,
             _userPriorityService,
             _options);
 

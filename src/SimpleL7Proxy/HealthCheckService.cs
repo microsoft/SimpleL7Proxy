@@ -10,7 +10,7 @@ using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Events;
-using SimpleL7Proxy.Async.BackupAPI;
+using SimpleL7Proxy.Async.SBQueue;
 using SimpleL7Proxy.Proxy;
 
 using Shared.HealthProbe;
@@ -29,7 +29,7 @@ public class HealthCheckService
     private readonly IConcurrentPriQueue<RequestData>? _requestsQueue;
     private readonly IUserPriorityService? _userPriority;
     private readonly IEventClient? _eventClient;
-    private readonly IBackupAPIService? _backupAPIService;
+    private readonly ISBQueueService? _sbQueueService;
     private readonly IServiceBusRequestService? _serviceBusRequestService;
     private readonly IBlobWriter? _blobWriter;
     private readonly BlobWorkerPump? _blobWriteQueue;
@@ -83,7 +83,7 @@ public class HealthCheckService
         IServiceBusRequestService? serviceBusRequestService = null,
         IBlobWriter? blobWriter = null,
         BlobWorkerPump? blobWriteQueue = null,
-        IBackupAPIService? backupAPIService = null,
+        ISBQueueService? sbQueueService = null,
         IUserProfileService? userProfileService = null)
     {
         _backends = backends ?? throw new ArgumentNullException(nameof(backends));
@@ -96,7 +96,7 @@ public class HealthCheckService
         _serviceBusRequestService = serviceBusRequestService;
         _blobWriter = blobWriter;
         _blobWriteQueue = blobWriteQueue;
-        _backupAPIService = backupAPIService;
+        _sbQueueService = sbQueueService;
         _getWorkerState = GetWorkerState;
         _logger = logger;
 
@@ -386,7 +386,7 @@ public class HealthCheckService
                         _stringBuilder.Append('\n');
                         if (_options.AsyncModeEnabled)
                         {
-                            _stringBuilder.Append(" Backup API      : ").Append(_backupAPIService != null ? "Enabled" : "Disabled").Append('\n')
+                            _stringBuilder.Append(" Backup API      : ").Append(_sbQueueService != null ? "Enabled" : "Disabled").Append('\n')
                                 .Append(" Service Bus     : ").Append(_serviceBusRequestService != null ? "Enabled" : "Disabled").Append('\n')
                                 .Append(" Blob Storage    : ").Append(_blobWriter != null ? "Enabled" : "Disabled").Append('\n');
                         }
@@ -510,10 +510,10 @@ public class HealthCheckService
 
                     // Backup API - inline
                     sb.Append(" Backup API   : ");
-                    if (_backupAPIService != null)
+                    if (_sbQueueService != null)
                     {
-                        var eventStats = _backupAPIService.GetEventStatistics();
-                        var errorStats = _backupAPIService.GetErrorStatistics();
+                        var eventStats = _sbQueueService.GetEventStatistics();
+                        var errorStats = _sbQueueService.GetErrorStatistics();
                         var eventsLast10Min = eventStats.Values.Sum();
                         var errorsLast10Min = errorStats.Values.Sum();
                         var totalAttempts = eventsLast10Min + errorsLast10Min;
