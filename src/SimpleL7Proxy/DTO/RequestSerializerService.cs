@@ -8,17 +8,17 @@ using SimpleL7Proxy.Async.BlobStorage;
 
 namespace SimpleL7Proxy.DTO
 {
-    public class RequestDataBackupService : IRequestDataBackupService
+    public class RequestSerializerService : IRequestSerializerService
     {
         private readonly IAsyncFileStore _requestStore;
-        private readonly ILogger<RequestDataBackupService> _logger;
+        private readonly ILogger<RequestSerializerService> _logger;
 
         // Single-flight init for the Server backup container. The storage layer is
         // user-agnostic, so this service owns initialization of Constants.Server.
         private Task<bool>? _serverInitTask;
         private readonly object _serverInitLock = new();
 
-        public RequestDataBackupService(IAsyncFileStore requestStore, ILogger<RequestDataBackupService> logger)
+        public RequestSerializerService(IAsyncFileStore requestStore, ILogger<RequestSerializerService> logger)
         {
             _logger = logger;
             _logger.LogDebug("[STARTUP] BackupAPI Service starting");
@@ -50,7 +50,7 @@ namespace SimpleL7Proxy.DTO
             
             try
             {
-                // Console.WriteLine("RequestDataBackupService: Reading blob from " + Constants.Server + " with name " + blobname);
+                // Console.WriteLine("RequestSerializerService: Reading blob from " + Constants.Server + " with name " + blobname);
                 using Stream stream = await _requestStore.ReadBlobAsStreamAsync(Constants.Server, blobname);
                 var data = await RequestDataConverter.DeserializeWithVersionHandlingAsync(stream);
 
@@ -163,7 +163,7 @@ namespace SimpleL7Proxy.DTO
             try
             {
                 await EnsureServerContainerInitializedAsync().ConfigureAwait(false);
-                _logger.LogCritical($"RequestDataBackupService: Deleting backup for blob {blobname}");
+                _logger.LogCritical($"RequestSerializerService: Deleting backup for blob {blobname}");
                 await _requestStore.DeleteBlobAsync(Constants.Server, blobname);
                 return true;
             }

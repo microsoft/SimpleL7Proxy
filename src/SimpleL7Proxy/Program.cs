@@ -272,7 +272,7 @@ public class Program
             RegisterAsyncDI(services, startupLogger, backendOptions);
         else {
             services.AddSingleton<IBlobWriter, NullBlobWriter>();
-            services.AddSingleton<IRequestDataBackupService, NullRequestDataBackupService>();
+            services.AddSingleton<IRequestSerializerService, NullRequestSerializerService>();
             services.AddSingleton<IAsyncFeeder, NullAsyncFeeder>();
             // AsyncWorkerContext, IAsyncRequestStore, and TemplateLoader are intentionally
             // not registered when async mode is disabled — WorkerContext.AsyncWorkerContext
@@ -443,7 +443,7 @@ public class Program
         services.AddSingleton<IAsyncFileStore, AsyncFileStore>();
         services.AddSingleton<IAsyncStreamingStore, AsyncStreamingStore>();
 
-        services.AddSingleton<IRequestDataBackupService, RequestDataBackupService>();
+        services.AddSingleton<IRequestSerializerService, RequestSerializerService>();
         services.AddSingleton<AsyncWorkerContext>();
         services.AddSingleton<TemplateLoader>();
         services.AddHostedService<TemplateLoader>(sp => sp.GetRequiredService<TemplateLoader>());

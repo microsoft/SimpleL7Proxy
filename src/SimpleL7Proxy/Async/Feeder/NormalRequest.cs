@@ -26,12 +26,12 @@ namespace SimpleL7Proxy.Async.Feeder
     {
         private readonly ProxyConfig _options;
         private readonly ILogger<NormalRequest> _logger;
-        private readonly IRequestDataBackupService _backupService;
+        private readonly IRequestSerializerService _backupService;
         private readonly AsyncWorkerContext _asyncWorkerContext;
 
 
         public NormalRequest(IOptions<ProxyConfig> options,
-                            IRequestDataBackupService backupService,
+                            IRequestSerializerService backupService,
                             AsyncWorkerContext asyncWorkerContext,
                             ILogger<NormalRequest> logger)
         {

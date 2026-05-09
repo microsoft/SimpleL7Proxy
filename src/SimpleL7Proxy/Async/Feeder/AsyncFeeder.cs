@@ -37,7 +37,7 @@ namespace SimpleL7Proxy.Async.Feeder
         private readonly ProxyConfig _options;
         private readonly ILogger<AsyncFeeder> _logger;
         private readonly IUserProfileService _userProfile;
-        private readonly IRequestDataBackupService _requestBackupService;
+        private readonly IRequestSerializerService _requestBackupService;
 
         private readonly IRequestProcessor _normalRequest;
         private readonly IRequestProcessor _openAIRequest;
@@ -80,7 +80,7 @@ namespace SimpleL7Proxy.Async.Feeder
         public AsyncFeeder(IOptions<ProxyConfig> options,
                             IUserPriorityService userPriority,
                             IUserProfileService userProfile,
-                            IRequestDataBackupService requestBackupService,
+                            IRequestSerializerService requestBackupService,
                             IServiceBusFactory senderFactory,
                             NormalRequest normalRequest,
                             OpenAIBackgroundRequest openAIRequest,
@@ -269,10 +269,10 @@ namespace SimpleL7Proxy.Async.Feeder
 
             try
             {
-                // RequestAPIDocument comes from the status queue, only minimal fields populated
+                // RequestAPIDocument comes from the feeder queue, only minimal fields populated
                 if (requestData is RequestAPIDocument requestMsg)
                 {
-                    // this is either a status check on a background request, or a brand new request
+                    // this is either a background request status check, or a brand new request
                     bool isBackground = requestMsg.isBackground == true && requestMsg.status == RequestAPIStatusEnum.BackgroundProcessing;
 
                     var rd = ConvertDocumentToRequest(requestMsg, isBackground);
