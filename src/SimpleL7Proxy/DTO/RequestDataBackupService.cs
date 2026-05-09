@@ -52,9 +52,7 @@ namespace SimpleL7Proxy.DTO
             {
                 // Console.WriteLine("RequestDataBackupService: Reading blob from " + Constants.Server + " with name " + blobname);
                 using Stream stream = await _requestStore.ReadBlobAsStreamAsync(Constants.Server, blobname);
-                var streamReader = new StreamReader(stream);
-                var json = await streamReader.ReadToEndAsync();
-                var data = RequestDataConverter.DeserializeWithVersionHandling(json);
+                var data = await RequestDataConverter.DeserializeWithVersionHandlingAsync(stream);
 
                 if (data is null)
                 {
@@ -73,9 +71,9 @@ namespace SimpleL7Proxy.DTO
                 {
                     //_logger.LogTrace($"[BLOB-TRACE] BackupService.RestoreIntoAsync | Action: ReadBody | Guid: {rdata.Guid} | Container: {Constants.Server} | Blob: {bodyBlobName} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
                     using Stream bodyStream = await _requestStore.ReadBlobAsStreamAsync(Constants.Server, bodyBlobName);
-                    var bodyStreamReader = new StreamReader(bodyStream);
-                    var datastr = await bodyStreamReader.ReadToEndAsync();
-                    rdata.setBody(Encoding.UTF8.GetBytes(datastr));
+                    using var ms = new MemoryStream();
+                    await bodyStream.CopyToAsync(ms);
+                    rdata.setBody(ms.ToArray());
                     //_logger.LogTrace($"[BLOB-TRACE] BackupService.RestoreIntoAsync | Action: ReadBody-Complete | Guid: {rdata.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
                 }
                 else if (rdata.Body == null)

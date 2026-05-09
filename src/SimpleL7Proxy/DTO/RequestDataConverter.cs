@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
+using System.Threading.Tasks;
 using Shared.RequestAPI.Models;
 
 namespace SimpleL7Proxy.DTO
@@ -77,6 +80,52 @@ namespace SimpleL7Proxy.DTO
             catch (JsonException ex)
             {
                 // Handle JSON deserialization errors
+                Console.WriteLine($"Error deserializing.  operation: {operation},  RequestData: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Stream-based version handler. Buffers the stream once into memory, inspects the
+        /// "version" property, then deserializes directly from the UTF-8 byte buffer —
+        /// avoiding the intermediate UTF-16 string allocation that the string overload
+        /// requires.
+        /// </summary>
+        public static async Task<RequestDataDtoV1?> DeserializeWithVersionHandlingAsync(
+            Stream stream, CancellationToken cancellationToken = default)
+        {
+            var operation = "Buffering stream";
+            try
+            {
+                using var ms = new MemoryStream();
+                await stream.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
+                var buffer = new ReadOnlyMemory<byte>(ms.GetBuffer(), 0, (int)ms.Length);
+
+                operation = "Checking version";
+                using var document = JsonDocument.Parse(buffer);
+                var root = document.RootElement;
+
+                if (root.TryGetProperty("version", out var versionElement))
+                {
+                    operation = "Getting version";
+                    var version = versionElement.GetInt32();
+
+                    switch (version)
+                    {
+                        case 1:
+                            operation = "Deserializing V1";
+                            return JsonSerializer.Deserialize<RequestDataDtoV1>(buffer.Span);
+                        default:
+                            throw new NotSupportedException($"RequestData version {version} is not supported");
+                    }
+                }
+
+                operation = "Deserializing as V1 - default";
+                // If no version, assume V1
+                return JsonSerializer.Deserialize<RequestDataDtoV1>(buffer.Span);
+            }
+            catch (JsonException ex)
+            {
                 Console.WriteLine($"Error deserializing.  operation: {operation},  RequestData: {ex.Message}");
                 return null;
             }
