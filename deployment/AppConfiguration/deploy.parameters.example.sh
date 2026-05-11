@@ -23,7 +23,7 @@ export CONTAINER_APP_RESOURCE_GROUP="rg-myapp-prod"
 # =============================================================================
 export RESOURCE_GROUP="rg-myapp-appconfig"
 export LOCATION="eastus"
-export APPCONFIG_NAME="myapp-appcfg"
+export APPCONFIG_NAME="myapp-appcfg"       # Must be globally unique across Azure
 export APPCONFIG_SKU="standard"
 
 # Label applied to Warm:* keys. Use '\0' for null label.

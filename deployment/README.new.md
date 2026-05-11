@@ -60,12 +60,22 @@ cp deploy.parameters.example.sh deploy.parameters.sh
 | `CONTAINER_APP_RESOURCE_GROUP` | ACA, BlobStorage, AppConfiguration | `rg-myapp-prod` | RG that holds the Container App. Often the same as `NETWORK_RESOURCE_GROUP` |
 | `STORAGE_RESOURCE_GROUP` | BlobStorage | `rg-myapp-storage` | RG for the storage account (only needed for async workflows) |
 | `APPCONFIG_RESOURCE_GROUP` | AppConfiguration | `rg-myapp-appconfig` | RG for the App Configuration store |
-| `ACR_NAME` | ContainerImage, ACA | *(your ACR)* | Existing Azure Container Registry name (no `.azurecr.io` suffix) |
+| `ACR_NAME` | ContainerImage, ACA | `acrsimplel7proxy` | Azure Container Registry name (no `.azurecr.io` suffix). **Must be globally unique across Azure.** Created automatically by Step 3 if it doesn't exist |
 | `PROXY_IMAGE_NAME` | ContainerImage, ACA | `simple-l7-proxy` | Repository name within ACR for the proxy image |
 | `HEALTH_IMAGE_NAME` | ContainerImage, proxy-with-sidecar | `healthprobe` | Repository name within ACR for the health-probe image |
 | `CONTAINER_APP_NAME` | ACA, proxy-with-sidecar, BlobStorage, AppConfiguration | `ca-myapp-proxy` | Name of the Container App |
 | `ACA_ENVIRONMENT_NAME` | ACA | `cae-myapp` | Container Apps Environment name (VNet-integrated) |
 | `HOST1` | ACA, proxy-with-sidecar | `host=https://your-api.azure-api.net;mode=apim;path=/;probe=/health` | Primary backend descriptor |
+
+ > [!NOTE]
+> **ACR auto-creation:** You do not need to create the Azure Container Registry before deploying.
+> Step 3 (`ContainerImage/build.sh`) checks whether `ACR_NAME` exists and creates it automatically
+> if it doesn't (using `ACR_SKU`, defaulting to `Basic`). However, ACR names must be **globally
+> unique** across all of Azure. If the default `acrsimplel7proxy` is taken, append a unique suffix
+> (e.g., `acrsimplel7proxy42`). Verify availability with:
+> ```bash
+> az acr check-name --name <your-acr-name>
+> ```
 
 ### VNet and subnets
 
@@ -87,6 +97,7 @@ Edit only if the defaults overlap with existing networks in your subscription.
 | Variable | Default | Purpose |
 |---|---|---|
 | `BUILD_METHOD` | `remote` | `remote` builds in ACR (no Docker required). `local` requires Docker — **dev/test only** |
+| `ACR_SKU` | `Basic` | SKU for ACR if created by Step 3 (`Basic` / `Standard` / `Premium`) |
 | `DOCKERFILE_PATH` | `SimpleL7Proxy/Dockerfile` | Dockerfile path under `src/` |
 | `PROXY_VERSION_OVERRIDE` | *(empty)* | Override version tag; otherwise auto-extracted from `src/SimpleL7Proxy/Constants.cs` |
 | `HEALTHPROBE_VERSION_OVERRIDE` | *(empty)* | Override health-probe tag; otherwise auto-extracted from `src/HealthProbe/Constants.cs` |
@@ -133,21 +144,38 @@ same Container App.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `STORAGE_ACCOUNT_NAME` | `myappstorage` | Globally unique account name |
+| `STORAGE_ACCOUNT_NAME` | `myappstorage` | Account name. **Must be globally unique across Azure.** Created automatically by Step 7 if it doesn't exist. Use 3-24 lowercase letters and numbers only |
 | `STORAGE_SKU` | `Standard_LRS` | `Standard_LRS` / `Standard_GRS` / `Standard_ZRS` / `Standard_RAGRS` |
 | `CREATE_CONTAINERS` | `true` | Create the blob containers below |
 | `BLOB_CONTAINERS` | `templates simplel7proxy` | Space-separated container names |
 | `CA_BLOB_ROLE` | `Storage Blob Data Contributor` | Role granted to the Container App's managed identity |
 
+> [!NOTE]
+> **Blob Storage auto-creation:** You do not need to create the storage account before deploying.
+> Step 7 (`BlobStorage/deploy.sh`) checks whether `STORAGE_ACCOUNT_NAME` exists in `STORAGE_RESOURCE_GROUP`
+> and creates it automatically if it doesn't. However, storage account names must be **globally unique**
+> across all of Azure and can only contain lowercase letters and numbers. If the default `myappstorage`
+> is taken, append a unique suffix (e.g., `myappstorage42`). Verify availability with:
+> ```bash
+> az storage account check-name --name <yourstorageaccountname>
+> ```
+
 ### App Configuration (Step 6)
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `APPCONFIG_NAME` | `myapp-appcfg` | Store name |
+| `APPCONFIG_NAME` | `myapp-appcfg` | Store name. **Must be globally unique across Azure.** Created automatically by Step 6 if it doesn't exist |
 | `APPCONFIG_SKU` | `standard` | `standard` or `free` |
 | `APPCONFIG_LABEL` | *(empty)* | Optional label for `Warm:*` keys |
 | `AZURE_APPCONFIG_REFRESH_SECONDS` | `30` | Hot-reload interval written to `Warm:RefreshSeconds` |
 | `UPDATE_CONTAINER_APP_ENV` | `true` | Push `AZURE_APPCONFIG_*` env vars onto the Container App |
+
+> [!NOTE]
+> **App Configuration auto-creation:** You do not need to create the App Configuration store before deploying.
+> Step 6 (`AppConfiguration/deploy.sh`) checks whether `APPCONFIG_NAME` exists in `APPCONFIG_RESOURCE_GROUP`
+> and creates it automatically if it doesn't. However, App Configuration names must be **globally unique**
+> across all of Azure. If the default `myapp-appcfg` is taken, append a unique suffix
+> (e.g., `myapp-appcfg42`) and rerun Step 6; Azure validates availability during creation.
 
 ### Auto-computed (do not edit)
 
@@ -170,7 +198,7 @@ folder explain the underlying behavior.
 |---|---|---|---|
 | 1 | `Prereq/`             | `validate.sh` | Verifies `az`, `jq`, `python3`, Bash, and active Azure login |
 | 2 | `VNet/`               | `deploy.sh`   | Creates VNet + subnets in `NETWORK_RESOURCE_GROUP` |
-| 3 | `ContainerImage/`     | `build.sh`    | Builds proxy image in ACR (or locally) and tags with `Constants.cs` version |
+| 3 | `ContainerImage/`     | `build.sh`    | Creates ACR if it doesn't exist, then builds proxy image (or locally) and tags with `Constants.cs` version |
 | 4 | `proxy-with-sidecar/` | `deploy.sh`   | Deploys ACA env + Container App with proxy + health-probe sidecar |
 | 5 | `DNS/`                | `deploy.sh`   | Creates private DNS zone, VNet link, and CNAME → ACA FQDN |
 | 6 | `AppConfiguration/`   | `deploy.sh`   | Creates App Configuration store and seeds `Warm:*` / `Cold:*` keys |
