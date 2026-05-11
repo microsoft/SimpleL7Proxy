@@ -1,6 +1,6 @@
 namespace SimpleL7Proxy.DTO
 {
-    public interface IRequestDataBackupService
+    public interface IRequestSerializerService
     {
         Task BackupAsync(RequestData requestData);
         Task RestoreIntoAsync(RequestData data);

@@ -24,7 +24,8 @@ using SimpleL7Proxy.User;
 using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.Async.BlobStorage;
 using SimpleL7Proxy.DTO;
-using SimpleL7Proxy.Async.BackupAPI;
+using SimpleL7Proxy.Async.ServiceBus.SBQueue;
+using SimpleL7Proxy.Async.ServiceBus.SBTopic;
 using SimpleL7Proxy.Async.Feeder;
 
 using System.Net;
@@ -84,7 +85,7 @@ public class Program
 
         var frameworkHost = hostBuilder.Build();
         var serviceProvider = frameworkHost.Services;
-        var logger = InitializeRuntime(serviceProvider, appConfigBootstrap);
+        var logger = await InitializeRuntimeAsync(serviceProvider, appConfigBootstrap).ConfigureAwait(false);
 
         try
         {
@@ -135,7 +136,7 @@ public class Program
         logging.AddFilter("Microsoft.Hosting.Lifetime", LogLevel.Warning);
     }
 
-    private static ILogger InitializeRuntime(IServiceProvider serviceProvider, AppConfigService appConfigBootstrap)
+    private static async Task<ILogger> InitializeRuntimeAsync(IServiceProvider serviceProvider, AppConfigService appConfigBootstrap)
     {
         var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
         var logger = loggerFactory.CreateLogger("StreamProcessor");
@@ -171,7 +172,31 @@ public class Program
             var probeService = serviceProvider.GetRequiredService<ProbeServer>();
             var messages = serviceProvider.GetRequiredService<TemplateLoader>();
             AsyncWorker.Initialize(fileStore, streamingStore, asyncWorkerLogger, messages, options.Value, probeService);
+
+            // Explicitly start services whose stop ordering is owned by CoordinatedShutdownService.
+            // They're registered as plain singletons (not IHostedService) so the host won't start/stop
+            // them in non-deterministic order — we start them here and stop them in CoordinatedShutdownService.
+            var blobPump = serviceProvider.GetService<BlobWorkerPump>();
+            if (blobPump != null)
+            {
+                await blobPump.StartAsync(default).ConfigureAwait(false);
+            }
+
+            if (serviceProvider.GetRequiredService<ISBTopicService>() is IHostedService sbHosted)
+            {
+                await sbHosted.StartAsync(default).ConfigureAwait(false);
+            }
+
+            // SBQueueService is started here so its shutdown can be ordered via IShutdownParticipant.
+            if (serviceProvider.GetRequiredService<ISBQueueService>() is IHostedService sbQueueHosted)
+            {
+                await sbQueueHosted.StartAsync(default).ConfigureAwait(false);
+            }
         }
+
+        // ProbeServer is always started — must outlive every other service so the
+        // container orchestrator continues to see healthy probes during drain.
+        await serviceProvider.GetRequiredService<ProbeServer>().StartAsync(default).ConfigureAwait(false);
 
         var appLifetime = serviceProvider.GetRequiredService<IHostApplicationLifetime>();
         appLifetime.ApplicationStarted.Register(async () =>
@@ -236,6 +261,7 @@ public class Program
         // Register event headers and event loggers .. needed for AWS
         RegisterEventHeaders(services, startupLogger, backendOptions);
         RegisterEventLoggers(services, startupLogger, backendOptions, backendOptions.EventLoggers);
+        RegisterRequestPreprocessorPlugins(services, startupLogger, backendOptions.RequestPreprocessorPlugins);
 
         // Register refresh services only if App Configuration was reachable.
         appConfigBootstrap.RegisterServices(services, backendOptions);
@@ -246,7 +272,7 @@ public class Program
             RegisterAsyncDI(services, startupLogger, backendOptions);
         else {
             services.AddSingleton<IBlobWriter, NullBlobWriter>();
-            services.AddSingleton<IRequestDataBackupService, NullRequestDataBackupService>();
+            services.AddSingleton<IRequestSerializerService, NullRequestSerializerService>();
             services.AddSingleton<IAsyncFeeder, NullAsyncFeeder>();
             // AsyncWorkerContext, IAsyncRequestStore, and TemplateLoader are intentionally
             // not registered when async mode is disabled — WorkerContext.AsyncWorkerContext
@@ -290,12 +316,12 @@ public class Program
         // Add storage service registration
         services.AddSingleton<ServiceBusFactory>();
         services.AddSingleton<IServiceBusFactory>(sp => sp.GetRequiredService<ServiceBusFactory>());
-        services.AddSingleton<ServiceBusRequestService>();
-        services.AddSingleton<IServiceBusRequestService>(sp => sp.GetRequiredService<ServiceBusRequestService>());
+        services.AddSingleton<SBTopicService>();
+        services.AddSingleton<ISBTopicService>(sp => sp.GetRequiredService<SBTopicService>());
 
-        // Note: BackupAPIService is NOT registered as IHostedService - its lifecycle is controlled
+        // Note: SBQueueService is NOT registered as IHostedService - its lifecycle is controlled
         // explicitly by CoordinatedShutdownService to ensure proper shutdown ordering
-        services.AddSingleton<IBackupAPIService, BackupAPIService>();
+        services.AddSingleton<ISBQueueService, SBQueueService>();
 
         services.AddSingleton<NormalRequest>();
         services.AddSingleton<OpenAIBackgroundRequest>();
@@ -335,8 +361,8 @@ public class Program
         // BlobWriter so multi-GB response bodies bypass the queue.
         // ─────────────────────────────────────────────────────────────────────────────
         const string asyncClassesRaw =
-            "IServiceBusFactory:ServiceBusFactory, IServiceBusRequestService:ServiceBusRequestService, " +
-            "IBackupAPIService:BackupAPIService, IBlobWriterFactory:BlobWriterFactory, IBlobWriter:QueuedBlobWriter";
+            "IServiceBusFactory:ServiceBusFactory, ISBTopicService:SBTopicService, " +
+            "ISBQueueService:SBQueueService, IBlobWriterFactory:BlobWriterFactory, IBlobWriter:QueuedBlobWriter";
 
             // "IAsyncFeeder:AsyncFeeder, " +
             // "IRequestProcessor:NormalRequest, IRequestProcessor:OpenAIBackgroundRequest";
@@ -417,7 +443,7 @@ public class Program
         services.AddSingleton<IAsyncFileStore, AsyncFileStore>();
         services.AddSingleton<IAsyncStreamingStore, AsyncStreamingStore>();
 
-        services.AddSingleton<IRequestDataBackupService, RequestDataBackupService>();
+        services.AddSingleton<IRequestSerializerService, RequestSerializerService>();
         services.AddSingleton<AsyncWorkerContext>();
         services.AddSingleton<TemplateLoader>();
         services.AddHostedService<TemplateLoader>(sp => sp.GetRequiredService<TemplateLoader>());
@@ -521,6 +547,57 @@ public class Program
                     startupLogger.LogWarning(ex, "[CONFIGS] Failed to register event logger '{LoggerType}'. Skipping.", loggername);
                 }
             }
+        }
+    }
+
+    private static void RegisterRequestPreprocessorPlugins(IServiceCollection services, ILogger startupLogger, string? pluginsRaw)
+    {
+        var assembly = typeof(Program).Assembly;
+        var assemblyTypes = assembly.GetTypes();
+        var registeredCount = 0;
+
+        if (!string.IsNullOrWhiteSpace(pluginsRaw))
+        {
+            foreach (var pluginName in pluginsRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                try
+                {
+                    var pluginType = assembly.GetType(pluginName, throwOnError: false)
+                        ?? Array.Find(assemblyTypes, t => t.Name.Equals(pluginName, StringComparison.Ordinal));
+
+                    if (pluginType == null || pluginType.IsAbstract || !typeof(IRequestPreprocessorPlugin).IsAssignableFrom(pluginType))
+                    {
+                        startupLogger.LogWarning("[CONFIGS] Request preprocessor plugin '{PluginType}' not found or invalid. It must be a concrete type implementing IRequestPreprocessorPlugin.", pluginName);
+                        continue;
+                    }
+
+                    var capturedType = pluginType;
+                    services.AddSingleton(typeof(IRequestPreprocessorPlugin), svc =>
+                    {
+                        var instance = (IRequestPreprocessorPlugin)ActivatorUtilities.CreateInstance(svc, capturedType);
+                        startupLogger.LogInformation("[CONFIGS] ✓ Instantiated request preprocessor plugin: {PluginType}", capturedType.FullName ?? capturedType.Name);
+                        return instance;
+                    });
+
+                    if (typeof(IHostedService).IsAssignableFrom(capturedType))
+                    {
+                        services.AddSingleton(typeof(IHostedService), svc => (IHostedService)svc.GetRequiredService(capturedType));
+                    }
+
+                    startupLogger.LogInformation("[CONFIGS] Registered request preprocessor plugin: {PluginType}", pluginName);
+                    registeredCount++;
+                }
+                catch (Exception ex)
+                {
+                    startupLogger.LogWarning(ex, "[CONFIGS] Failed to register request preprocessor plugin '{PluginType}'. Skipping.", pluginName);
+                }
+            }
+        }
+
+        if (registeredCount == 0)
+        {
+            services.AddSingleton<IRequestPreprocessorPlugin, AllowAllRequestPreprocessorPlugin>();
+            startupLogger.LogInformation("[CONFIGS] No request preprocessor plugins configured. Using AllowAllRequestPreprocessorPlugin.");
         }
     }
 

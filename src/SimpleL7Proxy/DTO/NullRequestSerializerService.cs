@@ -1,6 +1,6 @@
 namespace SimpleL7Proxy.DTO;
 
-public class NullRequestDataBackupService : IRequestDataBackupService
+public class NullRequestSerializerService : IRequestSerializerService
 {
     public Task BackupAsync(RequestData requestData)
     {

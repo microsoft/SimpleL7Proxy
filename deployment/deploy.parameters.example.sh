@@ -4,13 +4,13 @@
 # Consolidated Deployment Parameters for SimpleL7Proxy
 # =============================================================================
 # Copy this file to deploy.parameters.sh in this same folder, edit values,
-# then run any subfolder's deploy.sh / build.sh / setup.sh. They will all
+# then run any subfolder's deploy.sh / setup.sh. They will all
 # read from this single file.
 #
 #   cp deploy.parameters.example.sh deploy.parameters.sh
 #   vi deploy.parameters.sh
 #   ./VNet/deploy.sh
-#   ./ContainerImage/build.sh
+#   ./ContainerImage/deploy.sh
 #   ./ACA/deploy.sh
 #   ...
 #
@@ -43,7 +43,7 @@ export ACR_NAME="myregistry"
 export PROXY_IMAGE_NAME="simple-l7-proxy"
 export HEALTH_IMAGE_NAME="healthprobe"
 
-# Image build settings (used by ContainerImage/build.sh)
+# Image build settings (used by ContainerImage/deploy.sh)
 # Options: "remote" (ACR build service) or "local" (Docker required)
 export BUILD_METHOD="remote"
 export DOCKERFILE_PATH="SimpleL7Proxy/Dockerfile"
@@ -139,6 +139,29 @@ export APPCONFIG_SKU="standard"
 export APPCONFIG_LABEL="prod"
 export AZURE_APPCONFIG_REFRESH_SECONDS="30"
 export UPDATE_CONTAINER_APP_ENV="true"
+
+# -----------------------------------------------------------------------------
+# RequestAPI Azure Function (used by RequestAPI/create.sh and RequestAPI/deploy.sh)
+# Flex Consumption, .NET 9 isolated worker.
+# -----------------------------------------------------------------------------
+export REQUESTAPI_RESOURCE_GROUP="rg-myapp"
+export REQUESTAPI_FUNCTION_APP="myapprequestapi"         # globally unique
+export REQUESTAPI_LOCATION="${LOCATION}"
+export REQUESTAPI_STORAGE_ACCOUNT="myapprequestapifn"    # globally unique, 3-24 lowercase
+export REQUESTAPI_APPINSIGHTS_NAME="myapprequestapi-ai"
+export REQUESTAPI_RUNTIME_NAME="dotnet-isolated"
+export REQUESTAPI_RUNTIME_VERSION="9.0"
+export REQUESTAPI_INSTANCE_MEMORY_MB="2048"
+export REQUESTAPI_MAX_INSTANCE_COUNT="100"
+
+# External dependencies the function binds to (must already exist;
+# create.sh assigns RBAC on these but does not create them).
+export REQUESTAPI_SERVICEBUS_NAMESPACE="myapp-sb"
+export REQUESTAPI_SERVICEBUS_QUEUE="requestqueue"
+export REQUESTAPI_SERVICEBUS_FEEDER_QUEUE="feederqueue"
+export REQUESTAPI_COSMOS_ACCOUNT="myapp-cosmos"
+export REQUESTAPI_COSMOS_DATABASE="RequestAPI"
+export REQUESTAPI_COSMOS_CONTAINER="Documents"
 
 # =============================================================================
 # =============================================================================

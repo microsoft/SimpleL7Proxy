@@ -23,14 +23,14 @@ namespace SimpleL7Proxy.Async;
 public sealed class AsyncWorkerContext
 {
     public IAsyncFileStore FileStore { get; }
-    public IRequestDataBackupService BackupService { get; }
+    public IRequestSerializerService BackupService { get; }
     public ILogger<AsyncWorker> Logger { get; }
     public ProxyConfig Options { get; }
     public TemplateLoader Messages { get; }
 
     public AsyncWorkerContext(
         IAsyncFileStore fileStore,
-        IRequestDataBackupService backupService,
+        IRequestSerializerService backupService,
         ILogger<AsyncWorker> logger,
         IOptions<ProxyConfig> options,
         TemplateLoader messages)

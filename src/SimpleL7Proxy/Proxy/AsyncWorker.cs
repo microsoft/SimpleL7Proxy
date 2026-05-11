@@ -35,7 +35,7 @@ namespace SimpleL7Proxy.Proxy
         private string _dataBlobUri { get; set; } = "";
 
         private string _userId { get; set; } = "";
-        private IRequestDataBackupService? _backupService;
+        private IRequestSerializerService? _backupService;
         public  bool ShouldReprocess { get; set; } = false; 
         public string ErrorMessage { get; set; } = "";
         string dataBlobName = "";

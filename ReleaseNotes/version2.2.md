@@ -1,7 +1,27 @@
 # Release Notes #
+
+2.2.11.1
+
+Proxy:
+* Remove intermediate status update to blob
+* Restructure SBQueue and SBTopic codebases
+* Seperate blob writes into at-once and streaming
+
+Deployment:
+* Updates to interactive deployment script
+
+RequestAPI:
+* downgrade to dotnet 10
+
+Shared:
+* pull out parser
+
+Shared-parser:
+* pull in parser from Shared
+
 2.2.11.0
 
-Proyx:
+Proxy:
 * Code restructure for Async work
 * Streamline event draining process for SB and file logger
 * Refactor blob writer methods

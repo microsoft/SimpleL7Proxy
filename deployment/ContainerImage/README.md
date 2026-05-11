@@ -6,9 +6,9 @@ Builds the SimpleL7Proxy container image and pushes it to Azure Container Regist
 
 This folder follows the same deployment convention as other packages:
 
-1. Copy `build.parameters.example.sh` to `build.parameters.sh`
+1. Copy `../deploy.parameters.example.sh` to `../deploy.parameters.sh` (shared by all deployment scripts)
 2. Update values
-3. Run `./build.sh`
+3. Run `./deploy.sh`
 
 ## Prerequisites
 
@@ -30,17 +30,19 @@ This folder follows the same deployment convention as other packages:
 ## Quick Start
 
 ```bash
-cd deployment/ContainerImage
+cd deployment
 
-# 1. Create your parameters file
-cp build.parameters.example.sh build.parameters.sh
+# 1. Create the shared parameters file (used by all deploy/build scripts)
+cp deploy.parameters.example.sh deploy.parameters.sh
 
-# 2. Edit build.parameters.sh (defaults use remote ACR build)
+# 2. Edit deploy.parameters.sh (defaults use remote ACR build)
 #    - Set ACR_NAME to your registry
+#    - Set PROXY_IMAGE_NAME (image repo name)
 #    - Leave BUILD_METHOD as "remote" (no Docker needed)
 
 # 3. Run
-./build.sh
+cd ContainerImage
+./deploy.sh
 ```
 
 The script will:
@@ -51,12 +53,12 @@ The script will:
 
 ## Parameters
 
-All parameters are set in `build.parameters.sh`.
+All parameters are set in the shared `../deploy.parameters.sh`.
 
 | Parameter | Description |
 |---|---|
 | `ACR_NAME` | Azure Container Registry name (without `.azurecr.io`) |
-| `IMAGE_NAME` | Image repository name (e.g., `simple-l7-proxy`) |
+| `PROXY_IMAGE_NAME` | Image repository name (e.g., `simple-l7-proxy`) |
 | `BUILD_METHOD` | `remote` (ACR builds, no Docker) or `local` (Docker on your machine) |
 | `DOCKERFILE_PATH` | Path to Dockerfile relative to `src/` |
 
@@ -67,7 +69,7 @@ All parameters are set in `build.parameters.sh`.
 When `BUILD_METHOD=remote`:
 
 ```bash
-./build.sh
+./deploy.sh
 ```
 
 **What happens:**
@@ -93,7 +95,7 @@ When `BUILD_METHOD=remote`:
 When `BUILD_METHOD=local`:
 
 ```bash
-./build.sh
+./deploy.sh
 ```
 
 **What happens:**
@@ -134,7 +136,7 @@ To see what version will be used for the next build:
 # Output: v1.2.3
 ```
 
-This is useful before running `build.sh` to confirm the version or to communicate to the ACA deployment step what image URI to use.
+This is useful before running `deploy.sh` to confirm the version or to communicate to the ACA deployment step what image URI to use.
 
 ## After Building
 
@@ -146,9 +148,8 @@ VERSION=$(cd ContainerImage && ./get-version.sh)
 
 # Go to ACA folder
 cd ../ACA
-cat ../ContainerImage/build.parameters.sh  # Show the ACR name
-# Edit deploy.parameters.sh with:
-export IMAGE_NAME="myregistry.azurecr.io/simple-l7-proxy:${VERSION}"
+# The shared ../deploy.parameters.sh already defines PROXY_IMAGE
+# (built from ACR_NAME + PROXY_IMAGE_NAME + version), so just run:
 ./deploy.sh
 ```
 

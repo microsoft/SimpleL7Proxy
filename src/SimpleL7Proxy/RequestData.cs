@@ -6,7 +6,8 @@ using System.Threading.Tasks;
 
 using Microsoft.Extensions.ObjectPool;
 using Shared.RequestAPI.Models;
-using SimpleL7Proxy.Async.BackupAPI;
+using SimpleL7Proxy.Async.ServiceBus.SBQueue;
+using SimpleL7Proxy.Async.ServiceBus.SBTopic;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.Events;
@@ -20,9 +21,9 @@ using SimpleL7Proxy.User;
 // This class represents the request received from the upstream client.
 public class RequestData : IDisposable, IAsyncDisposable  
 {
-    // Static variable to hold the IServiceBusRequestService instance
-    public static IServiceBusRequestService? SBRequestService { get; private set; }
-    public static IBackupAPIService? BackupAPIService { get; private set; }
+    // Static variable to hold the ISBTopicService instance
+    public static ISBTopicService? SBTopicService { get; private set; }
+    public static ISBQueueService? SBQueueService { get; private set; }
     public static IUserPriorityService? UserPriorityService { get; private set; }
     public static ProxyConfig? BackendOptionsStatic { get; private set; }
 
@@ -154,7 +155,7 @@ public class RequestData : IDisposable, IAsyncDisposable
                 _requestAPIDocument.status = value;
                 if (runAsync)
                 {
-                    BackupAPIService!.UpdateStatus(_requestAPIDocument);
+                    SBQueueService!.UpdateStatus(_requestAPIDocument);
                 }
             }
         }
@@ -168,7 +169,7 @@ public class RequestData : IDisposable, IAsyncDisposable
             _sbStatus = value;
             if (runAsync)
             {
-                SBRequestService?.updateStatus(this);
+                SBTopicService?.updateStatus(this);
             }
         }
     }
@@ -214,13 +215,13 @@ public class RequestData : IDisposable, IAsyncDisposable
     public WebHeaderCollection Headers { get; private set; }
 
     // Method to initialize the static variable from DI
-    public static void InitializeServiceBusRequestService(IServiceBusRequestService serviceBusRequestService,
-                                                          IBackupAPIService backupAPIService,
+    public static void InitializeServiceBusRequestService(ISBTopicService sbTopicService,
+                                                          ISBQueueService sbQueueService,
                                                           IUserPriorityService userPriorityService,
                                                           ProxyConfig backendOptions)
     {
-        SBRequestService ??= serviceBusRequestService;
-        BackupAPIService ??= backupAPIService;
+        SBTopicService ??= sbTopicService;
+        SBQueueService ??= sbQueueService;
         UserPriorityService ??= userPriorityService;
         BackendOptionsStatic ??= backendOptions;
 

@@ -10,7 +10,8 @@ using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.Async.ServiceBus;
-using SimpleL7Proxy.Async.BackupAPI;
+using SimpleL7Proxy.Async.ServiceBus.SBQueue;
+using SimpleL7Proxy.Async.ServiceBus.SBTopic;
 using SimpleL7Proxy.Async.Feeder;
 
 namespace SimpleL7Proxy;
@@ -29,8 +30,8 @@ public class CoordinatedShutdownService : IHostedService
     private readonly BackendTokenProvider _backendTokenProvider;
     private readonly ProxyConfig _options;
     // private readonly IEventClient? _eventClient;
-    private readonly IServiceBusRequestService _serviceBusRequestService;
-    private readonly IBackupAPIService _backupAPIService;
+    private readonly ISBTopicService _sbTopicService;
+    private readonly ISBQueueService _sbQueueService;
     private readonly IConcurrentPriQueue<RequestData> _queue;
     private readonly IEndpointMonitorService _backends;
     private readonly IAsyncFeeder _asyncFeeder;
@@ -48,9 +49,9 @@ public class CoordinatedShutdownService : IHostedService
         BackendTokenProvider backendTokenProvider,
         IEndpointMonitorService backends,
         // IEventClient? eventClient,
-        IServiceBusRequestService serviceBusRequestService,
+        ISBTopicService sbTopicService,
         IAsyncFeeder asyncFeeder,
-        IBackupAPIService backupAPIService,
+        ISBQueueService sbQueueService,
         IRequeueWorker requeueWorker,
         IServiceProvider serviceProvider,
         ProbeServer probeServer,
@@ -63,8 +64,8 @@ public class CoordinatedShutdownService : IHostedService
         _queue = queue;
         _backends = backends;
         // _eventClient = eventClient;
-        _serviceBusRequestService = serviceBusRequestService;
-        _backupAPIService = backupAPIService;
+        _sbTopicService = sbTopicService;
+        _sbQueueService = sbQueueService;
         _asyncFeeder = asyncFeeder;
         _backendTokenProvider = backendTokenProvider;
         _requeueWorker = requeueWorker;
@@ -75,16 +76,13 @@ public class CoordinatedShutdownService : IHostedService
         _compositeEventClient = serviceProvider.GetRequiredService<CompositeEventClient>();
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public Task StartAsync(CancellationToken cancellationToken)
     {
-        // Start services explicitly since they're no longer registered as IHostedService
-        // (we control their shutdown ordering in StopAsync)
-        if (_blobWriteQueue != null)
-            await _blobWriteQueue.StartAsync(cancellationToken).ConfigureAwait(false);
-        await _probeServer.StartAsync(cancellationToken).ConfigureAwait(false);
-
-        if (_serviceBusRequestService is IHostedService sbHosted)
-            await sbHosted.StartAsync(cancellationToken).ConfigureAwait(false);
+        // Lifecycle of the explicitly-started services (ProbeServer, BlobWorkerPump,
+        // SBTopicService, SBQueueService) is owned by Program.Main —
+        // see the explicit StartAsync block right after InitializeRuntime. Stop
+        // ordering for those services is still coordinated below in StopAsync.
+        return Task.CompletedTask;
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -179,9 +177,9 @@ public class CoordinatedShutdownService : IHostedService
             // if (_backupAPIService != null)
             //     await _backupAPIService.StopAsync(cancellationToken).ConfigureAwait(false);
 
-            // ServiceBusRequestService is stopped explicitly here for ordering control
-            if (_serviceBusRequestService != null)
-                await _serviceBusRequestService.StopAsync(cancellationToken).ConfigureAwait(false);
+            // SBTopicService is stopped explicitly here for ordering control
+            if (_sbTopicService != null)
+                await _sbTopicService.StopAsync(cancellationToken).ConfigureAwait(false);
 
             // BlobWriteQueue is stopped LAST before probes - all producers (proxy workers, async workers, backup service)
             // are guaranteed to be done at this point, so no more enqueues will happen

@@ -13,11 +13,10 @@ if [ -f "${PARENT_PARAMS}" ]; then
     echo "Sourcing ${PARENT_PARAMS}..."
     # shellcheck disable=SC1091
     source "${PARENT_PARAMS}"
-elif [ -f "${SCRIPT_DIR}/build.parameters.sh" ]; then
-    # Backwards-compat fallback
-    echo "Sourcing legacy build.parameters.sh..."
+elif [ -f "${SCRIPT_DIR}/deploy.parameters.sh" ]; then
+    echo "Sourcing legacy deploy.parameters.sh..."
     # shellcheck disable=SC1091
-    source "${SCRIPT_DIR}/build.parameters.sh"
+    source "${SCRIPT_DIR}/deploy.parameters.sh"
 elif [ -f "${PARENT_EXAMPLE}" ]; then
     echo "deploy.parameters.sh not found."
     echo "Copy ${PARENT_EXAMPLE} to ${PARENT_PARAMS} and update values."
@@ -26,7 +25,7 @@ elif [ -f "${PARENT_EXAMPLE}" ]; then
 fi
 
 # Map consolidated variable names to those expected by this script.
-# build.sh wants the bare repo name (e.g. "simple-l7-proxy"), not the full
+# This script wants the bare repo name (e.g. "simple-l7-proxy"), not the full
 # registry/repo:tag reference. Prefer PROXY_IMAGE_NAME when set.
 if [ -n "${PROXY_IMAGE_NAME:-}" ]; then
     IMAGE_NAME="${PROXY_IMAGE_NAME}"
