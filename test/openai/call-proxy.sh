@@ -25,6 +25,7 @@ HOSTMAP["foundry"]="localhost:8000|aif2/openai|"
 HOSTMAP["null"]="localhost:3000||"
 HOSTMAP["aca"]="nvm2-tc26.purpledesert-d46de6cb.eastus.azurecontainerapps.io|aif3/openai|"
 HOSTMAP["aca-resp"]="nvm2-tc26.purpledesert-d46de6cb.eastus.azurecontainerapps.io|resp"
+HOSTMAP["aca7-resp"]="simplel7dev.wittybeach-67bb528b.eastus.azurecontainerapps.io|resp"
 HOSTMAP["local-demo1"]="localhost:8000|aif3/openai|"
 HOSTMAP["local-demo2"]="localhost:8000|resp|"
 # Add more host aliases as needed:
