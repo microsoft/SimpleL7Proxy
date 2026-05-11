@@ -6,7 +6,7 @@
         "Header2": "Value2",
         "fofo": "fofo",
         "internal-fofo2": "fofo2",
-        "AllowedPaths": "/api*, /api2*, /api3*",  
+        "AllowedPaths": "/api*, /*",  
         "async-config": "enabled=true, containername=user123456, topic=status-123456"
     },
     {
