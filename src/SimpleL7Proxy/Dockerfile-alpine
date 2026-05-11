@@ -16,6 +16,7 @@ RUN dotnet restore
 # Copy the rest of the source code
 WORKDIR /app
 COPY Shared/ ./Shared/
+COPY Shared-parser/ ./Shared-parser/
 COPY SimpleL7Proxy/ ./SimpleL7Proxy/
 
 # Build the application from SimpleL7Proxy directory
