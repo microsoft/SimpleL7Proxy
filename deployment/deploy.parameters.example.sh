@@ -39,7 +39,8 @@ export APPCONFIG_RESOURCE_GROUP="rg-myapp-appconfig"
 # -----------------------------------------------------------------------------
 # Azure Container Registry / Images
 # -----------------------------------------------------------------------------
-export ACR_NAME="myregistry"
+export ACR_NAME="acrsimplel7proxy"
+export ACR_SKU="Basic"                   # Basic | Standard | Premium
 export PROXY_IMAGE_NAME="simple-l7-proxy"
 export HEALTH_IMAGE_NAME="healthprobe"
 
@@ -125,7 +126,7 @@ export REVISION_MODE="single"            # single | multiple
 # -----------------------------------------------------------------------------
 # Blob Storage (used by BlobStorage/deploy.sh)
 # -----------------------------------------------------------------------------
-export STORAGE_ACCOUNT_NAME="myappstorage"
+export STORAGE_ACCOUNT_NAME="myappstorage" # Must be globally unique across Azure; lowercase letters and numbers only
 export STORAGE_SKU="Standard_LRS"        # Standard_LRS | Standard_GRS | Standard_ZRS | Standard_RAGRS
 export CREATE_CONTAINERS="true"
 export BLOB_CONTAINERS="templates simplel7proxy"
@@ -134,7 +135,7 @@ export CA_BLOB_ROLE="Storage Blob Data Contributor"
 # -----------------------------------------------------------------------------
 # App Configuration (used by AppConfiguration/deploy.sh)
 # -----------------------------------------------------------------------------
-export APPCONFIG_NAME="myapp-appcfg"
+export APPCONFIG_NAME="myapp-appcfg"       # Must be globally unique across Azure
 export APPCONFIG_SKU="standard"
 export APPCONFIG_LABEL="prod"
 export AZURE_APPCONFIG_REFRESH_SECONDS="30"

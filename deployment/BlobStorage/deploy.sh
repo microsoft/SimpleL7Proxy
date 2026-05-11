@@ -132,7 +132,14 @@ if [ -z "${EXISTING_STORAGE}" ]; then
     NAME_AVAILABLE="$(az storage account check-name --name "${STORAGE_ACCOUNT_NAME}" --query nameAvailable -o tsv)"
     if [ "${NAME_AVAILABLE}" != "true" ]; then
         REASON="$(az storage account check-name --name "${STORAGE_ACCOUNT_NAME}" --query message -o tsv)"
-        echo -e "${RED}Error: storage account name '${STORAGE_ACCOUNT_NAME}' is not available: ${REASON}${NC}"
+        echo -e "${RED}Error: Storage account name '${STORAGE_ACCOUNT_NAME}' is not available.${NC}"
+        echo -e "${YELLOW}${REASON}${NC}"
+        echo -e "${YELLOW}STORAGE_ACCOUNT_NAME must be globally unique across Azure, like ACR_NAME and APPCONFIG_NAME.${NC}"
+        echo -e "${YELLOW}Storage account names must be 3-24 characters and use only lowercase letters and numbers.${NC}"
+        echo -e "${YELLOW}Update deploy.parameters.sh with a unique suffix, for example:${NC}"
+        echo -e "${GREEN}  export STORAGE_ACCOUNT_NAME=\"${STORAGE_ACCOUNT_NAME}${SUBSCRIPTION_ID%%-*}\"${NC}"
+        echo -e "${YELLOW}You can check availability with:${NC}"
+        echo -e "${GREEN}  az storage account check-name --name <yourstorageaccountname>${NC}"
         exit 1
     fi
 
