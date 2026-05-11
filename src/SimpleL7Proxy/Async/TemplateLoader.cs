@@ -5,7 +5,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-using SimpleL7Proxy.Async.BackupAPI;
+using SimpleL7Proxy.Async.ServiceBus.SBQueue;
+using SimpleL7Proxy.Async.ServiceBus.SBTopic;
 using SimpleL7Proxy.Async.BlobStorage;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Async.ServiceBus;
@@ -35,8 +36,8 @@ public sealed class TemplateLoader : IHostedService
             [AsyncResponseTypeEnum.NotAuthorized] = "notauthorized.json",
         }.ToFrozenDictionary();
 
-    private readonly IServiceBusRequestService _serviceBusRequestService;
-    private readonly IBackupAPIService _backupAPIService;
+    private readonly ISBTopicService _sbTopicService;
+    private readonly ISBQueueService _sbQueueService;
     private readonly IUserPriorityService _userPriorityService;
     private readonly IBlobWriter _blobWriter;
     private readonly ProxyConfig _options;
@@ -45,15 +46,15 @@ public sealed class TemplateLoader : IHostedService
     private readonly Dictionary<AsyncResponseTypeEnum, AsyncMessage> _templates = new();
 
     public TemplateLoader(
-        IServiceBusRequestService serviceBusRequestService,
-        IBackupAPIService backupAPIService,
+        ISBTopicService sbTopicService,
+        ISBQueueService sbQueueService,
         IUserPriorityService userPriorityService,
         IBlobWriter blobWriter,
         IOptions<ProxyConfig> options,
         ILogger<TemplateLoader> logger)
     {
-        _serviceBusRequestService = serviceBusRequestService;
-        _backupAPIService = backupAPIService;
+        _sbTopicService = sbTopicService;
+        _sbQueueService = sbQueueService;
         _userPriorityService = userPriorityService;
         _blobWriter = blobWriter;
         _options = options.Value;
@@ -121,8 +122,8 @@ public sealed class TemplateLoader : IHostedService
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         RequestData.InitializeServiceBusRequestService(
-            _serviceBusRequestService,
-            _backupAPIService,
+            _sbTopicService,
+            _sbQueueService,
             _userPriorityService,
             _options);
 

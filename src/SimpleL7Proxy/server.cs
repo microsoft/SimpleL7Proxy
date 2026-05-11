@@ -32,6 +32,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
     private readonly HttpListener _httpListener;
 
     private readonly IEndpointMonitorService _backends;
+    private readonly IRequestPreprocessorPlugin[] _requestPreprocessorPlugins;
 
     private readonly IUserPriorityService _userPriority;
     private readonly IUserProfileService _userProfile;
@@ -68,6 +69,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         //IServiceBusRequestService serviceBusRequestService,
         IEventClient? eventHubClient,
         IEndpointMonitorService backends,
+        IEnumerable<IRequestPreprocessorPlugin> requestPreprocessorPlugins,
         IBlobWriter blobWriter,
         HealthCheckService healthService,
         ProbeServer probeServer,
@@ -88,6 +90,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
 
         _options = backendOptions.Value;
         _backends = backends;
+        _requestPreprocessorPlugins = requestPreprocessorPlugins?.ToArray() ?? [];
         _eventHubClient = eventHubClient;
         _userPriority = userPriority;
         _userProfile = userProfile;
@@ -369,7 +372,27 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                         continue;
                     }
 
-                    if (!_isShuttingDown)
+                    // Give plugins an early chance to enrich RequestData and decide whether
+                    // request processing should continue.
+                    if (_requestPreprocessorPlugins.Length > 0)
+                    {
+                        foreach (var plugin in _requestPreprocessorPlugins)
+                        {
+                            var pluginResult = await plugin.ProcessAsync(rd, cancellationToken).ConfigureAwait(false);
+                            if (!pluginResult.ShouldContinue)
+                            {
+                                notEnqued = true;
+                                notEnquedCode = (int)pluginResult.StatusCode;
+                                retrymsg = ed["Message"] = string.IsNullOrWhiteSpace(pluginResult.Message)
+                                    ? "Request rejected by preprocessor plugin"
+                                    : pluginResult.Message;
+                                logmsg = $"Plugin {plugin.GetType().Name} rejected request => {notEnquedCode}:";
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!notEnqued && !_isShuttingDown)
                     {
                         int eventCount = _probeServer.EventCount;
                         if (eventCount > halfMaxEvents) {
@@ -677,7 +700,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                             }
                         }   // end of allowed to proccess check
                     }
-                    else
+                    else if (!notEnqued)
                     {
                         if (rd.Context is not null)
                         {

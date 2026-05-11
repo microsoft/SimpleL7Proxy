@@ -12,16 +12,16 @@ using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Messaging;
 
 
-namespace SimpleL7Proxy.Async.ServiceBus
+namespace SimpleL7Proxy.Async.ServiceBus.SBTopic
 {
 
-    public class ServiceBusRequestService : IHostedService, IServiceBusRequestService, IBatchMessageTransport<ServiceBusMessageBatch, BatchMessageEnvelope>
+    public class SBTopicService : IHostedService, ISBTopicService, IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>
     {
         private readonly ProxyConfig _options;
         private readonly IServiceBusFactory _senderFactory;
-        private readonly ILogger<ServiceBusRequestService> _logger;
-        private readonly IBatchMessageTransport<ServiceBusMessageBatch, BatchMessageEnvelope> _batchTransport;
-        private readonly ConcurrentDictionary<string, BatchMessagePump<ServiceBusMessageBatch, BatchMessageEnvelope>> _topicPumps = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ILogger<SBTopicService> _logger;
+        private readonly IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope> _batchTransport;
+        private readonly ConcurrentDictionary<string, BatchMessagePump<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>> _topicPumps = new(StringComparer.OrdinalIgnoreCase);
         private bool isRunning = false;
         private bool isShuttingDown = false;
 
@@ -33,7 +33,7 @@ namespace SimpleL7Proxy.Async.ServiceBus
         private int _totalMessagesProcessed = 0;
         private int _totalBatchesSent = 0;
 
-        public ServiceBusRequestService(IOptions<ProxyConfig> options, IServiceBusFactory senderFactory, ILogger<ServiceBusRequestService> logger)
+        public SBTopicService(IOptions<ProxyConfig> options, IServiceBusFactory senderFactory, ILogger<SBTopicService> logger)
         {
             _options = options.Value;
             _senderFactory = senderFactory ?? throw new ArgumentNullException(nameof(senderFactory));
@@ -45,7 +45,7 @@ namespace SimpleL7Proxy.Async.ServiceBus
         {
             if (_options.AsyncModeEnabled)
             {
-                _logger.LogInformation("[SERVICE] ✓ ServiceBusRequestService starting...");
+                _logger.LogInformation("[SERVICE] ✓ SBTopicService starting...");
                 isRunning = true;
             }
             
@@ -63,7 +63,7 @@ namespace SimpleL7Proxy.Async.ServiceBus
             {
                 var topicName = string.IsNullOrWhiteSpace(message.SBTopicName) ? "status" : message.SBTopicName;
                 var pump = _topicPumps.GetOrAdd(topicName, static (key, state) =>
-                    new BatchMessagePump<ServiceBusMessageBatch, BatchMessageEnvelope>(
+                    new BatchMessagePump<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>(
                         destination: key,
                         transport: state.Transport,
                         createBatchAsync: cancellationToken => state.Transport.CreateBatchAsync(key, cancellationToken),
@@ -83,7 +83,7 @@ namespace SimpleL7Proxy.Async.ServiceBus
                 _logger.LogDebug("[ServiceBus:{Guid}] Status update enqueued - UserId: {UserId}, Status: {Status}, Topic: {TopicName}, QueueDepth: {QueueCount}", 
                     message.Guid, message.MID, message.SBStatus, topicName, GetQueueDepth() + 1);
 
-                pump.Enqueue(new BatchMessageEnvelope(topicName, JsonSerializer.Serialize(new ServiceBusStatusMessage(message.Guid, topicName, message.SBStatus.ToString()))));
+                pump.Enqueue(new BinaryBatchMessageEnvelope(topicName, JsonSerializer.SerializeToUtf8Bytes(new ServiceBusStatusMessage(message.Guid, topicName, message.SBStatus.ToString()))));
 
                 return true; // Enqueue succeeded
             }
@@ -133,28 +133,28 @@ namespace SimpleL7Proxy.Async.ServiceBus
             {
                 if (kvp.Value.Count > 0)
                 {
-                    _logger.LogInformation("[SHUTDOWN] ⏳ ServiceBusRequestService - topic {TopicName} has {Events} events to flush", kvp.Key, kvp.Value.Count);
+                    _logger.LogInformation("[SHUTDOWN] ⏳ SBTopicService - topic {TopicName} has {Events} events to flush", kvp.Key, kvp.Value.Count);
                 }
             }
 
             await Task.WhenAll(_topicPumps.Values.Select(static pump => pump.StopAsync())).ConfigureAwait(false);
 
             isRunning = false;
-            _logger.LogInformation("[SHUTDOWN] ⏹  ServiceBusRequestService stopped");
+            _logger.LogInformation("[SHUTDOWN] ⏹  SBTopicService stopped");
         }
 
-        Task IBatchMessageTransport<ServiceBusMessageBatch, BatchMessageEnvelope>.OpenAsync(CancellationToken cancellationToken)
+        Task IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>.OpenAsync(CancellationToken cancellationToken)
         {
             _ = cancellationToken;
             return Task.CompletedTask;
         }
 
-        ValueTask<ServiceBusMessageBatch> IBatchMessageTransport<ServiceBusMessageBatch, BatchMessageEnvelope>.CreateBatchAsync(string destination, CancellationToken cancellationToken)
+        ValueTask<ServiceBusMessageBatch> IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>.CreateBatchAsync(string destination, CancellationToken cancellationToken)
         {
             return _senderFactory.GetSender(destination).CreateMessageBatchAsync(cancellationToken);
         }
 
-        bool IBatchMessageTransport<ServiceBusMessageBatch, BatchMessageEnvelope>.TryAdd(ServiceBusMessageBatch batch, BatchMessageEnvelope message)
+        bool IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>.TryAdd(ServiceBusMessageBatch batch, BinaryBatchMessageEnvelope message)
         {
             var wasEmpty = batch.Count == 0;
             var serviceBusMessage = new ServiceBusMessage(message.Payload);
@@ -167,12 +167,12 @@ namespace SimpleL7Proxy.Async.ServiceBus
             return added;
         }
 
-        int IBatchMessageTransport<ServiceBusMessageBatch, BatchMessageEnvelope>.GetCount(ServiceBusMessageBatch batch)
+        int IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>.GetCount(ServiceBusMessageBatch batch)
         {
             return batch.Count;
         }
 
-        async Task IBatchMessageTransport<ServiceBusMessageBatch, BatchMessageEnvelope>.SendAsync(string destination, ServiceBusMessageBatch batch, CancellationToken cancellationToken)
+        async Task IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>.SendAsync(string destination, ServiceBusMessageBatch batch, CancellationToken cancellationToken)
         {
             await _senderFactory.GetSender(destination).SendMessagesAsync(batch, cancellationToken).ConfigureAwait(false);
             Interlocked.Add(ref _totalMessagesProcessed, batch.Count);
@@ -180,12 +180,12 @@ namespace SimpleL7Proxy.Async.ServiceBus
             _logger.LogTrace("[ServiceBus:Batch] Sent {MessageCount} messages to topic {TopicName}", batch.Count, destination);
         }
 
-        void IBatchMessageTransport<ServiceBusMessageBatch, BatchMessageEnvelope>.DisposeBatch(ServiceBusMessageBatch batch)
+        void IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>.DisposeBatch(ServiceBusMessageBatch batch)
         {
             batch.Dispose();
         }
 
-        Task IBatchMessageTransport<ServiceBusMessageBatch, BatchMessageEnvelope>.CloseAsync(CancellationToken cancellationToken)
+        Task IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>.CloseAsync(CancellationToken cancellationToken)
         {
             _ = cancellationToken;
             return Task.CompletedTask;

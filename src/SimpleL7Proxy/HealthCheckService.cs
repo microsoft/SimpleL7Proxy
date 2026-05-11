@@ -10,7 +10,8 @@ using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Events;
-using SimpleL7Proxy.Async.BackupAPI;
+using SimpleL7Proxy.Async.ServiceBus.SBQueue;
+using SimpleL7Proxy.Async.ServiceBus.SBTopic;
 using SimpleL7Proxy.Proxy;
 
 using Shared.HealthProbe;
@@ -29,8 +30,8 @@ public class HealthCheckService
     private readonly IConcurrentPriQueue<RequestData>? _requestsQueue;
     private readonly IUserPriorityService? _userPriority;
     private readonly IEventClient? _eventClient;
-    private readonly IBackupAPIService? _backupAPIService;
-    private readonly IServiceBusRequestService? _serviceBusRequestService;
+    private readonly ISBQueueService? _sbQueueService;
+    private readonly ISBTopicService? _sbTopicService;
     private readonly IBlobWriter? _blobWriter;
     private readonly BlobWorkerPump? _blobWriteQueue;
     private readonly IUserProfileService? _userProfileService;
@@ -80,10 +81,10 @@ public class HealthCheckService
         IEventClient? eventClient,
         ILogger<HealthCheckService> logger,
         AppConfigService appConfigService,
-        IServiceBusRequestService? serviceBusRequestService = null,
+        ISBTopicService? sbTopicService = null,
         IBlobWriter? blobWriter = null,
         BlobWorkerPump? blobWriteQueue = null,
-        IBackupAPIService? backupAPIService = null,
+        ISBQueueService? sbQueueService = null,
         IUserProfileService? userProfileService = null)
     {
         _backends = backends ?? throw new ArgumentNullException(nameof(backends));
@@ -93,10 +94,10 @@ public class HealthCheckService
         _userPriority = userPriority;
         _userProfileService = userProfileService;
         _eventClient = eventClient;
-        _serviceBusRequestService = serviceBusRequestService;
+        _sbTopicService = sbTopicService;
         _blobWriter = blobWriter;
         _blobWriteQueue = blobWriteQueue;
-        _backupAPIService = backupAPIService;
+        _sbQueueService = sbQueueService;
         _getWorkerState = GetWorkerState;
         _logger = logger;
 
@@ -386,8 +387,8 @@ public class HealthCheckService
                         _stringBuilder.Append('\n');
                         if (_options.AsyncModeEnabled)
                         {
-                            _stringBuilder.Append(" Backup API      : ").Append(_backupAPIService != null ? "Enabled" : "Disabled").Append('\n')
-                                .Append(" Service Bus     : ").Append(_serviceBusRequestService != null ? "Enabled" : "Disabled").Append('\n')
+                            _stringBuilder.Append(" Backup API      : ").Append(_sbQueueService != null ? "Enabled" : "Disabled").Append('\n')
+                                .Append(" Service Bus     : ").Append(_sbTopicService != null ? "Enabled" : "Disabled").Append('\n')
                                 .Append(" Blob Storage    : ").Append(_blobWriter != null ? "Enabled" : "Disabled").Append('\n');
                         }
                         else
@@ -510,10 +511,10 @@ public class HealthCheckService
 
                     // Backup API - inline
                     sb.Append(" Backup API   : ");
-                    if (_backupAPIService != null)
+                    if (_sbQueueService != null)
                     {
-                        var eventStats = _backupAPIService.GetEventStatistics();
-                        var errorStats = _backupAPIService.GetErrorStatistics();
+                        var eventStats = _sbQueueService.GetEventStatistics();
+                        var errorStats = _sbQueueService.GetErrorStatistics();
                         var eventsLast10Min = eventStats.Values.Sum();
                         var errorsLast10Min = errorStats.Values.Sum();
                         var totalAttempts = eventsLast10Min + errorsLast10Min;
@@ -530,9 +531,9 @@ public class HealthCheckService
 
                     // Service Bus - inline
                     sb.Append(" Service Bus  : ");
-                    if (_serviceBusRequestService != null)
+                    if (_sbTopicService != null)
                     {
-                        var sbStats = _serviceBusRequestService.GetStatistics();
+                        var sbStats = _sbTopicService.GetStatistics();
                         sb.Append(sbStats.isEnabled ? "Enabled" : "Disabled")
                           .Append("  Msgs: ").Append(sbStats.totalMessages).Append("  Batches: ").Append(sbStats.totalBatches).Append("  Depth: ").Append(sbStats.queueDepth);
                     }

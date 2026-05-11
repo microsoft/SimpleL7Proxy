@@ -54,9 +54,6 @@ param revisionMode string = 'single'
 @description('Timestamp for generating unique revision suffix')
 param timestamp string = utcNow()
 
-@description('Backend host configuration string (e.g., host=https://myapi.azure-api.net;mode=apim;path=/;probe=/status-0123456789abcdef)')
-param host1 string
-
 var registries = empty(registryServer) ? [] : [
   {
     server: registryServer
@@ -98,26 +95,6 @@ resource updateApp 'Microsoft.App/containerApps@2024-02-02-preview' = {
             {
               name: 'DEPLOY_TIMESTAMP'
               value: timestamp
-            }
-            {
-              name: 'Workers'
-              value: '100'
-            }
-            {
-              name: 'Port'
-              value: '8000'
-            }
-            {
-              name: 'AsyncModeEnabled'
-              value: 'false'
-            }
-            {
-              name: 'Host1'
-              value: host1
-            }
-            {
-              name: 'HealthProbeSidecar'
-              value: 'enabled=true;url=http://localhost:9000'
             }
           ]
           resources: {

@@ -5,12 +5,20 @@
 
 set -e
 
-# Source parameters file if it exists
+# Source parameters file - prefer consolidated parent file
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/deploy.parameters.sh" ]; then
-    echo "Sourcing deploy.parameters.sh..."
+PARENT_PARAMS="${SCRIPT_DIR}/../deploy.parameters.sh"
+if [ -f "${PARENT_PARAMS}" ]; then
+    echo "Sourcing ${PARENT_PARAMS}..."
+    # shellcheck disable=SC1091
+    source "${PARENT_PARAMS}"
+elif [ -f "$SCRIPT_DIR/deploy.parameters.sh" ]; then
+    echo "Sourcing legacy deploy.parameters.sh..."
     source "$SCRIPT_DIR/deploy.parameters.sh"
 fi
+
+# Map consolidated variable names to those expected by this script
+RESOURCE_GROUP="${RESOURCE_GROUP:-${CONTAINER_APP_RESOURCE_GROUP:-}}"
 
 # Configuration Variables (use environment variables if set, otherwise use defaults)
 RESOURCE_GROUP="${RESOURCE_GROUP:-TR-apim}"
@@ -116,13 +124,9 @@ if [ -n "$REGISTRY_SERVER" ]; then
     BICEP_PARAMS="$BICEP_PARAMS registryServer=$REGISTRY_SERVER"
 fi
 
-# Add Host1 configuration
-if [ -n "$HOST1" ]; then
-    BICEP_PARAMS="$BICEP_PARAMS host1=$HOST1"
-else
-    echo -e "${RED}Error: HOST1 must be set${NC}"
-    exit 1
-fi
+# Note: Host1, Workers, Port, AsyncModeEnabled, HealthProbeSidecar are now
+# served from Azure App Configuration (Step 6). They are no longer baked
+# into the Container App env vars.
 
 # Check if Container App exists and grant ACR pull permission to its managed identity
 echo -e "${YELLOW}Checking if Container App exists for ACR role assignment...${NC}"

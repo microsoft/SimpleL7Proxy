@@ -14,24 +14,35 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PARENT_PARAMS="${SCRIPT_DIR}/../deploy.parameters.sh"
+PARENT_EXAMPLE="${SCRIPT_DIR}/../deploy.parameters.example.sh"
 
-if [ -f "${SCRIPT_DIR}/deploy.parameters.sh" ]; then
-    echo "Sourcing deploy.parameters.sh..."
+if [ -f "${PARENT_PARAMS}" ]; then
+    echo "Sourcing ${PARENT_PARAMS}..."
+    # shellcheck disable=SC1091
+    source "${PARENT_PARAMS}"
+elif [ -f "${SCRIPT_DIR}/deploy.parameters.sh" ]; then
+    echo "Sourcing legacy deploy.parameters.sh..."
     # shellcheck disable=SC1091
     source "${SCRIPT_DIR}/deploy.parameters.sh"
-elif [ -f "${SCRIPT_DIR}/deploy.parameters.example.sh" ]; then
+elif [ -f "${PARENT_EXAMPLE}" ]; then
     echo "deploy.parameters.sh not found."
-    echo "Copy deploy.parameters.example.sh to deploy.parameters.sh and update values."
-    echo "Example: cp deploy.parameters.example.sh deploy.parameters.sh"
+    echo "Copy ${PARENT_EXAMPLE} to ${PARENT_PARAMS} and update values."
+    echo "Example: cp ${PARENT_EXAMPLE} ${PARENT_PARAMS}"
     exit 1
 fi
+
+# Map consolidated variable names to those expected by this script
+# Storage account is created in STORAGE_RESOURCE_GROUP; the role assignment
+# targets the Container App in CONTAINER_APP_RESOURCE_GROUP.
+RESOURCE_GROUP="${RESOURCE_GROUP:-${STORAGE_RESOURCE_GROUP:-}}"
 
 # ----------------------------------------------------------------------------
 # Required parameters
 # ----------------------------------------------------------------------------
 CONTAINER_APP_NAME="${CONTAINER_APP_NAME:?'CONTAINER_APP_NAME must be set'}"
 CONTAINER_APP_RESOURCE_GROUP="${CONTAINER_APP_RESOURCE_GROUP:?'CONTAINER_APP_RESOURCE_GROUP must be set'}"
-RESOURCE_GROUP="${RESOURCE_GROUP:?'RESOURCE_GROUP must be set (storage account resource group)'}"
+RESOURCE_GROUP="${RESOURCE_GROUP:?'RESOURCE_GROUP (or STORAGE_RESOURCE_GROUP) must be set'}"
 LOCATION="${LOCATION:?'LOCATION must be set (storage account location)'}"
 STORAGE_ACCOUNT_NAME="${STORAGE_ACCOUNT_NAME:?'STORAGE_ACCOUNT_NAME must be set'}"
 

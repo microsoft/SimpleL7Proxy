@@ -14,8 +14,9 @@
             "Function": "Information",
             "Host.Aggregator": "Information",
             "Azure.Messaging.ServiceBus": "Information",
+            "Microsoft.Azure.Functions.Worker": "Information",
             "Microsoft.Azure.Functions.Worker.ServiceBus": "Information",
-            "RequestAPI.DocumentProcessor": "Debug"
+            "RequestAPI.DocumentProcessor": "Information"
         }
     },
     "extensions": {
