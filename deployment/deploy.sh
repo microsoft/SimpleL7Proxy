@@ -27,7 +27,11 @@ run_step() {
         echo -e "${RED}✗ ${title} failed (exit ${rc})${NC}"
     fi
     echo ""
-    read -r -p "Press Enter to return to the menu..." _
+    local reply
+    read -r -p "Press Enter to return to the menu, or 'q' to quit: " reply
+    case "${reply}" in
+        q|Q|quit|exit) echo "Bye."; exit 0 ;;
+    esac
 }
 
 step1_prereq()        { ( cd "${SCRIPT_DIR}/Prereq"           && ./validate.sh ); }
@@ -37,6 +41,8 @@ step4_aca()           { ( cd "${SCRIPT_DIR}/proxy-with-sidecar" && ./deploy.sh )
 step5_dns()           { ( cd "${SCRIPT_DIR}/DNS"              && ./deploy.sh   ); }
 step6_appconfig()     { ( cd "${SCRIPT_DIR}/AppConfiguration" && ./deploy.sh   ); }
 step7a_blobstorage()  { ( cd "${SCRIPT_DIR}/BlobStorage"      && ./deploy.sh   ); }
+step8_requestapi_create() { ( cd "${SCRIPT_DIR}/RequestAPI"     && ./create.sh   ); }
+step9_requestapi_deploy() { ( cd "${SCRIPT_DIR}/RequestAPI"     && ./deploy.sh   ); }
 
 print_menu() {
     clear 2>/dev/null || true
@@ -50,6 +56,8 @@ print_menu() {
     echo "  5) Private DNS                (DNS/deploy.sh)"
     echo "  6) App Configuration          (AppConfiguration/deploy.sh)"
     echo "  7) Blob Storage  (optional)   (BlobStorage/deploy.sh)"
+    echo "  8) Create RequestAPI Function (RequestAPI/create.sh)"
+    echo "  9) Deploy/Update RequestAPI   (RequestAPI/deploy.sh)"
     echo "  q) Quit"
     echo ""
 }
@@ -65,6 +73,8 @@ while true; do
         5)   run_step "Step 5: Private DNS"             step5_dns          ;;
         6)   run_step "Step 6: App Configuration"       step6_appconfig    ;;
         7)   run_step "Step 7a: Blob Storage"           step7a_blobstorage ;;
+        8)   run_step "Step 8: Create RequestAPI Function App" step8_requestapi_create ;;
+        9)   run_step "Step 9: Deploy/Update RequestAPI"       step9_requestapi_deploy ;;
         q|Q) echo "Bye."; exit 0 ;;
         *)   echo -e "${YELLOW}Invalid option: ${choice}${NC}"; sleep 1 ;;
     esac
