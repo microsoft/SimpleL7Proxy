@@ -163,7 +163,11 @@ public class Program
         var healthService = serviceProvider.GetRequiredService<HealthCheckService>();
         Task healthCheck = healthService.BeginStartupMonitoring();
 
-        // Initialize AsyncWorker static dependencies (only if async mode is enabled)
+        // Initialize AsyncWorker static dependencies (only if async mode is enabled).
+        // SBTopicService, SBQueueService, AsyncFeeder, BlobWorkerPump are all
+        // registered as IHostedService in RegisterAsyncDI — the host starts them
+        // in registration order and stops them in reverse. Per-service shutdown
+        // ordering is handled via IShutdownParticipant in CoordinatedShutdownService.
         if (options.Value.AsyncModeEnabled)
         {
             var fileStore = serviceProvider.GetRequiredService<IAsyncFileStore>();
@@ -172,26 +176,6 @@ public class Program
             var probeService = serviceProvider.GetRequiredService<ProbeServer>();
             var messages = serviceProvider.GetRequiredService<TemplateLoader>();
             AsyncWorker.Initialize(fileStore, streamingStore, asyncWorkerLogger, messages, options.Value, probeService);
-
-            // Explicitly start services whose stop ordering is owned by CoordinatedShutdownService.
-            // They're registered as plain singletons (not IHostedService) so the host won't start/stop
-            // them in non-deterministic order — we start them here and stop them in CoordinatedShutdownService.
-            var blobPump = serviceProvider.GetService<BlobWorkerPump>();
-            if (blobPump != null)
-            {
-                await blobPump.StartAsync(default).ConfigureAwait(false);
-            }
-
-            if (serviceProvider.GetRequiredService<ISBTopicService>() is IHostedService sbHosted)
-            {
-                await sbHosted.StartAsync(default).ConfigureAwait(false);
-            }
-
-            // SBQueueService is started here so its shutdown can be ordered via IShutdownParticipant.
-            if (serviceProvider.GetRequiredService<ISBQueueService>() is IHostedService sbQueueHosted)
-            {
-                await sbQueueHosted.StartAsync(default).ConfigureAwait(false);
-            }
         }
 
         // ProbeServer is always started — must outlive every other service so the
@@ -303,7 +287,7 @@ public class Program
         services.AddSingleton<EventDataBuilder>();
 
         services.AddSingleton<BackendTokenProvider>();
-        services.AddHostedService<BackendTokenProvider>();
+        services.AddHostedService<BackendTokenProvider>(sp => sp.GetRequiredService<BackendTokenProvider>());
         // services.AddSingleton<IBackgroundWorker, BackgroundWorker>();
 
         services.AddHostedService<Server>(provider => provider.GetRequiredService<Server>());
@@ -312,21 +296,18 @@ public class Program
         // it keeps running until the very end of shutdown (container orchestrator needs healthy probes)
         services.AddSingleton<ProbeServer>();
 
-        // ASYNC RELATED
-        // Add storage service registration
-        services.AddSingleton<ServiceBusFactory>();
-        services.AddSingleton<IServiceBusFactory>(sp => sp.GetRequiredService<ServiceBusFactory>());
-        services.AddSingleton<SBTopicService>();
-        services.AddSingleton<ISBTopicService>(sp => sp.GetRequiredService<SBTopicService>());
-
-        // Note: SBQueueService is NOT registered as IHostedService - its lifecycle is controlled
-        // explicitly by CoordinatedShutdownService to ensure proper shutdown ordering
+        // ASYNC RELATED — minimal fallback bindings.
+        // In async mode RegisterAsyncDI registers these via the interface→class loop,
+        // shadowing the entries below. They're kept here so non-async startup can still
+        // construct CoordinatedShutdownService (which takes ISBTopicService + ISBQueueService).
+        // The classes themselves no-op when AsyncModeEnabled=false.
+        services.AddSingleton<IServiceBusFactory, ServiceBusFactory>();
+        services.AddSingleton<ISBTopicService, SBTopicService>();
         services.AddSingleton<ISBQueueService, SBQueueService>();
 
-        services.AddSingleton<NormalRequest>();
+        services.AddSingleton<AsyncRequestHydrator>();
         services.AddSingleton<OpenAIBackgroundRequest>();
 
-        // services.AddSingleton<IRequestProcessor, NormalRequest>();
         // Stream processor factory - optimized singleton for high-throughput scenarios
         services.AddSingleton<StreamProcessorFactory>();
 
@@ -361,11 +342,13 @@ public class Program
         // BlobWriter so multi-GB response bodies bypass the queue.
         // ─────────────────────────────────────────────────────────────────────────────
         const string asyncClassesRaw =
-            "IServiceBusFactory:ServiceBusFactory, ISBTopicService:SBTopicService, " +
-            "ISBQueueService:SBQueueService, IBlobWriterFactory:BlobWriterFactory, IBlobWriter:QueuedBlobWriter";
+            "IServiceBusFactory:ServiceBusFactory, " +
+            "ISBTopicService:SBTopicService, " +
+            "ISBQueueService:SBQueueService, " +
+            "IBlobWriterFactory:BlobWriterFactory, " +
+            "IBlobWriter:QueuedBlobWriter, " +
+            "IAsyncFeeder:AsyncFeeder";
 
-            // "IAsyncFeeder:AsyncFeeder, " +
-            // "IRequestProcessor:NormalRequest, IRequestProcessor:OpenAIBackgroundRequest";
 
         var assembly = typeof(Program).Assembly;
         var assemblyTypes = assembly.GetTypes();
@@ -402,17 +385,24 @@ public class Program
         foreach (var missing in missingInterfaces)
             startupLogger.LogWarning("[ASYNC] Required interface '{InterfaceName}' is missing from AsyncClasses config.", missing);
 
-        // Register each validated interface→class mapping as singleton
+        // Register each validated interface→class mapping as singleton, and
+        // additionally as IHostedService when the class implements one. This lets
+        // the .NET host own start/stop ordering driven by registration order, and
+        // shutdown ordering by IShutdownParticipant (where implemented).
         foreach (var kvp in asyncClasses)
         {
             var iType = Array.Find(assemblyTypes, t => t.Name == kvp.Key && t.IsInterface)!;
             var cType = Array.Find(assemblyTypes, t => t.Name == kvp.Value && !t.IsAbstract)!;
             services.AddSingleton(iType, cType);
-        }
 
-        services.AddSingleton<IAsyncFeeder, AsyncFeeder>();
-        services.AddSingleton<IRequestProcessor, NormalRequest>();
-        services.AddSingleton<IRequestProcessor, OpenAIBackgroundRequest>();
+            if (typeof(IHostedService).IsAssignableFrom(cType))
+            {
+                // AddHostedService<T> uses TryAddEnumerable, which rejects T=IHostedService
+                // because it can't distinguish multiple registrations of the same closed type.
+                // Register IHostedService directly with a factory keyed off the singleton.
+                services.AddSingleton<IHostedService>(sp => (IHostedService)sp.GetRequiredService(iType));
+            }
+        }
 
         // BlobWriteQueue tuning (worker count, batch size, dedup) — consumed by
         // BlobWriteQueue's ctor below.
@@ -431,6 +421,7 @@ public class Program
         });
 
         services.AddSingleton<BlobWorkerPump>();
+        services.AddHostedService(sp => sp.GetRequiredService<BlobWorkerPump>());
 
         // Two-store split (both backed by the existing IBlobWriter → QueuedBlobWriter mapping above):
         //   AsyncFileStore     → small one-shot blobs through the BlobWriteQueue (headers,
@@ -447,9 +438,6 @@ public class Program
         services.AddSingleton<AsyncWorkerContext>();
         services.AddSingleton<TemplateLoader>();
         services.AddHostedService<TemplateLoader>(sp => sp.GetRequiredService<TemplateLoader>());
-
-        if (asyncClasses.ContainsKey("IAsyncFeeder"))
-            services.AddHostedService(sp => (AsyncFeeder)sp.GetRequiredService<IAsyncFeeder>());
     }
 
     private static void RegisterEventHeaders(IServiceCollection services, ILogger startupLogger, ProxyConfig backendOptions)

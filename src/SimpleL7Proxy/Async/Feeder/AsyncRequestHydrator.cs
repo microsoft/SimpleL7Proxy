@@ -22,18 +22,18 @@ using SimpleL7Proxy.Queue;
 
 namespace SimpleL7Proxy.Async.Feeder
 {
-    public class NormalRequest : IRequestProcessor
+    public class AsyncRequestHydrator : IRequestProcessor
     {
         private readonly ProxyConfig _options;
-        private readonly ILogger<NormalRequest> _logger;
+        private readonly ILogger<AsyncRequestHydrator> _logger;
         private readonly IRequestSerializerService _backupService;
         private readonly AsyncWorkerContext _asyncWorkerContext;
 
 
-        public NormalRequest(IOptions<ProxyConfig> options,
+        public AsyncRequestHydrator(IOptions<ProxyConfig> options,
                             IRequestSerializerService backupService,
                             AsyncWorkerContext asyncWorkerContext,
-                            ILogger<NormalRequest> logger)
+                            ILogger<AsyncRequestHydrator> logger)
         {
             _options = options.Value;
             _backupService = backupService;

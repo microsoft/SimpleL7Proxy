@@ -39,7 +39,7 @@ namespace SimpleL7Proxy.Async.Feeder
         private readonly IUserProfileService _userProfile;
         private readonly IRequestSerializerService _requestBackupService;
 
-        private readonly IRequestProcessor _normalRequest;
+        private readonly IRequestProcessor _asyncRequestHydrator;
         private readonly IRequestProcessor _openAIRequest;
         private readonly IUserPriorityService _userPriority;
         private readonly IConcurrentPriQueue<RequestData> _requestsQueue;
@@ -82,7 +82,7 @@ namespace SimpleL7Proxy.Async.Feeder
                             IUserProfileService userProfile,
                             IRequestSerializerService requestBackupService,
                             IServiceBusFactory senderFactory,
-                            NormalRequest normalRequest,
+                            AsyncRequestHydrator asyncRequestHydrator,
                             OpenAIBackgroundRequest openAIRequest,
                             IConcurrentPriQueue<RequestData> requestsQueue,
                             ILogger<AsyncFeeder> logger)
@@ -92,7 +92,7 @@ namespace SimpleL7Proxy.Async.Feeder
             _userProfile = userProfile;
             _requestBackupService = requestBackupService;
             _senderFactory = senderFactory;
-            _normalRequest = normalRequest;
+            _asyncRequestHydrator = asyncRequestHydrator;
             _openAIRequest = openAIRequest;
             _requestsQueue = requestsQueue;
             _logger = logger;
@@ -277,12 +277,12 @@ namespace SimpleL7Proxy.Async.Feeder
                     // this is either a background request status check, or a brand new request
                     bool isBackground = requestMsg.isBackground == true && requestMsg.status == RequestAPIStatusEnum.BackgroundProcessing;
 
-                    var recoveryProcessor = isBackground ? _openAIRequest : _normalRequest;
+                    var recoveryProcessor = isBackground ? _openAIRequest : _asyncRequestHydrator;
                     ConvertDocumentToRequest(requestMsg, isBackground, recoveryProcessor);
                 }
                 else if (requestData is RequestMessage msg)
                 {
-                    await ConvertToNewRequestAsync(msg, _normalRequest).ConfigureAwait(false);
+                    await ConvertToNewRequestAsync(msg, _asyncRequestHydrator).ConfigureAwait(false);
 
                     // Handle simple message
                     _logger.LogInformation("AsyncFeeder: UserID: {UserID}, ID: {Id}", msg.UserID, msg.Id);
