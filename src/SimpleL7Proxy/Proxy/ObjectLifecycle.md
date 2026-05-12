@@ -97,6 +97,52 @@ This document describes the ownership, lifecycle, and disposal responsibilities 
 
 ---
 
+### IBlobWriterFactory / GenericBlobFactory (Singleton)
+
+| Aspect | Details |
+|--------|---------|
+| **Created** | DI container at startup; concrete type resolved via `AsyncClassNames` map (`BlobWriterFactory` for Azure, `S3BlobWriterFactory` stub for S3) |
+| **Owner** | DI container (singleton, app lifetime) |
+| **Role** | Produces `IBlobWriter` (raw, per-call via `CreateBlobWriter()`) and `IQueuedBlobWriter` (singleton via `CreateQueuedBlobWriter()`) |
+| **Disposed** | Not disposed; lives for process lifetime |
+
+> Backend selection is config-driven — swap `IBlobWriterFactory:BlobWriterFactory` → `IBlobWriterFactory:S3BlobWriterFactory` in `AsyncClassNames` to change blob backend without code changes.
+
+---
+
+### IBlobWriter (raw) — `AzureBlobWriter` / `S3BlobWriter` / `NullBlobWriter`
+
+| Aspect | Details |
+|--------|---------|
+| **Created** | `IBlobWriterFactory.CreateBlobWriter()` — fresh instance per call |
+| **Used By** | `AsyncStreamingStore` (multi-GB streams, bypasses queue); wrapped by `QueuedBlobWriter` for small writes |
+| **Disposed** | By the holder (`AsyncStreamingStore` / `QueuedBlobWriter`) — implements `IDisposable` |
+
+> Raw writer is for streaming paths where the caller manages backpressure. Small one-shot writes should go through `IQueuedBlobWriter`.
+
+---
+
+### IQueuedBlobWriter (`QueuedBlobWriter`) — Singleton decorator
+
+| Aspect | Details |
+|--------|---------|
+| **Created** | DI singleton: `sp.GetRequiredService<IBlobWriterFactory>().CreateQueuedBlobWriter()` |
+| **Composes** | Inner raw `IBlobWriter` (from factory) + `BlobWorkerPump` (shared queue) |
+| **Used By** | `AsyncFileStore` (small at-once blobs: headers, status, control payloads) |
+| **Disposed** | Not disposed; singleton for process lifetime. Inner writer disposed transitively if needed. |
+
+---
+
+### BlobWorkerPump (`Lazy<BlobWorkerPump>`)
+
+| Aspect | Details |
+|--------|---------|
+| **Created** | Lazily within `GenericBlobFactory` — `Lazy<BlobWorkerPump>` breaks the DI cycle (pump depends on factory, factory exposes pump through `CreateQueuedBlobWriter`) |
+| **Role** | Background worker loop that drains the shared queue and forwards each write to the raw `IBlobWriter` |
+| **Disposed** | Process lifetime; drained on shutdown |
+
+---
+
 ## Stream Flow Diagram
 
 ```

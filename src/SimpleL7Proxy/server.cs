@@ -41,7 +41,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
     private readonly IConcurrentPriQueue<RequestData> _requestsQueue;// = new ConcurrentPriQueue<RequestData>();
     //private readonly IServiceBusRequestService _serviceBusRequestService;
     private readonly ILogger<Server> _logger;
-    private readonly IBlobWriter _blobWriter;
+    private readonly IQueuedBlobWriter _blobWriter;
     private static bool _isShuttingDown = false;
     private readonly string _priorityHeaderName;
     private readonly HealthCheckService _healthService;
@@ -70,7 +70,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         IEventClient? eventHubClient,
         IEndpointMonitorService backends,
         IEnumerable<IRequestPreprocessorPlugin> requestPreprocessorPlugins,
-        IBlobWriter blobWriter,
+        IQueuedBlobWriter blobWriter,
         HealthCheckService healthService,
         ProbeServer probeServer,
         ConfigChangeNotifier configChangeNotifier,

@@ -4,7 +4,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
 {
     /// <summary>
     /// Null object pattern implementation for when blob storage is disabled. Implements
-    /// <see cref="IQueuedBlobWriter"/> for non-async mode opertion.
+    /// <see cref="IQueuedBlobWriter"/> for non-async mode operation.
     /// </summary>
     public class NullBlobWriter : IQueuedBlobWriter
     {
