@@ -57,7 +57,7 @@ namespace SimpleL7Proxy.Async.ServiceBus.SBQueue
                 return Task.CompletedTask;
             }
 
-            _logger.LogInformation("[SERVICE] ✓ Backup API service starting...");
+            _logger.LogInformation("[SERVICE] ✓ SBQueue service starting...");
 
             var queueName = _options.AsyncSBQueue;
             _pump = new BatchMessagePump<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>(

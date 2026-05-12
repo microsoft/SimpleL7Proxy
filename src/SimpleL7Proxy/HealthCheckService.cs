@@ -387,13 +387,13 @@ public class HealthCheckService
                         _stringBuilder.Append('\n');
                         if (_options.AsyncModeEnabled)
                         {
-                            _stringBuilder.Append(" Backup API      : ").Append(_sbQueueService != null ? "Enabled" : "Disabled").Append('\n')
+                            _stringBuilder.Append(" SBQueue Service : ").Append(_sbQueueService != null ? "Enabled" : "Disabled").Append('\n')
                                 .Append(" Service Bus     : ").Append(_sbTopicService != null ? "Enabled" : "Disabled").Append('\n')
                                 .Append(" Blob Storage    : ").Append(_blobWriter != null ? "Enabled" : "Disabled").Append('\n');
                         }
                         else
                         {
-                            _stringBuilder.Append(" Async Services  : Off (Backup API, Service Bus, Blob Storage)\n");
+                            _stringBuilder.Append(" Async Services  : Off (SBQueue, Service Bus, Blob Storage)\n");
                         }
                         _stringBuilder.Append(" ProxyEvent Pool : ");
                         if (_options.ReuseEvents)
@@ -509,8 +509,8 @@ public class HealthCheckService
                     }
                     sb.Append('\n');
 
-                    // Backup API - inline
-                    sb.Append(" Backup API   : ");
+                    // SBQueue service - inline
+                    sb.Append(" SBQueue      : ");
                     if (_sbQueueService != null)
                     {
                         var eventStats = _sbQueueService.GetEventStatistics();

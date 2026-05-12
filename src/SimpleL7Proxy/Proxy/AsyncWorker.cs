@@ -139,7 +139,7 @@ namespace SimpleL7Proxy.Proxy
         // Re-initializes the blob client
         // Creates new blob streams for both data and headers
         // Sets up output streams
-        // Updates the backup API status
+        // Updates the SBQueue service status
         // Regenerates SAS tokens for access
         // Sets TaskCompletionSource to signal successful restoration
 
