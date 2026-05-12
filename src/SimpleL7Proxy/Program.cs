@@ -255,7 +255,10 @@ public class Program
         if (backendOptions.AsyncModeEnabled)
             RegisterAsyncDI(services, startupLogger, backendOptions);
         else {
-            services.AddSingleton<IBlobWriter, NullBlobWriter>();
+            // No-op writer satisfies the queued-write contract so consumers that
+            // depend on IQueuedBlobWriter can resolve in non-async mode.
+            services.AddSingleton<NullBlobWriter>();
+            services.AddSingleton<IQueuedBlobWriter>(sp => sp.GetRequiredService<NullBlobWriter>());
             services.AddSingleton<IRequestSerializerService, NullRequestSerializerService>();
             services.AddSingleton<IAsyncFeeder, NullAsyncFeeder>();
             // AsyncWorkerContext, IAsyncRequestStore, and TemplateLoader are intentionally
@@ -327,26 +330,23 @@ public class Program
         // ─────────────────────────────────────────────────────────────────────────────
         // Async DI map (interface → implementation), resolved by reflection below.
         //
-        // IBlobWriter → QueuedBlobWriter is the canonical binding for async mode:
-        // every consumer that takes IBlobWriter (TemplateLoader, Server,
-        // HealthCheckService, AsyncFileStore, …) gets the queued decorator, so all
-        // small-blob writes flow through the BlobWriteQueue automatically.
+        // Writer-path bindings (registered explicitly further down, not via this map):
+        //   IQueuedBlobWriter  → QueuedBlobWriter   (small-blob writes funnel through
+        //                                            BlobWriteQueue — used by Server,
+        //                                            AsyncFileStore, HealthCheckService)
+        //   IBlobWriterFactory → BlobWriterFactory  (raw writers for the pump itself
+        //                                            and for AsyncStreamingStore, which
+        //                                            bypasses the queue to stream
+        //                                            multi-GB response bodies)
         //
-        // The non-async branch in ConfigureDI binds IBlobWriter → NullBlobWriter.
-        // These are the ONLY two bindings of IBlobWriter in the app — keep it that
-        // way. Adding a second binding here will silently shadow the queued path
-        // for whichever consumer DI happens to resolve last.
-        //
-        // AsyncStreamingStore is the deliberate exception: it does NOT take
-        // IBlobWriter. It calls IBlobWriterFactory.CreateBlobWriter() to get a raw
-        // BlobWriter so multi-GB response bodies bypass the queue.
+        // No consumer takes IBlobWriter directly — always inject IQueuedBlobWriter or
+        // call IBlobWriterFactory.CreateBlobWriter() at the call site.
         // ─────────────────────────────────────────────────────────────────────────────
         const string asyncClassesRaw =
             "IServiceBusFactory:ServiceBusFactory, " +
             "ISBTopicService:SBTopicService, " +
             "ISBQueueService:SBQueueService, " +
             "IBlobWriterFactory:BlobWriterFactory, " +
-            "IBlobWriter:QueuedBlobWriter, " +
             "IAsyncFeeder:AsyncFeeder";
 
 
@@ -422,11 +422,18 @@ public class Program
 
         services.AddSingleton<BlobWorkerPump>();
         services.AddHostedService(sp => sp.GetRequiredService<BlobWorkerPump>());
+        // Lazy wrapper lets BlobWriterFactory.CreateQueuedBlobWriter() resolve the pump
+        // on demand without forming a DI cycle (BlobWorkerPump itself takes IBlobWriterFactory).
+        services.AddSingleton(sp => new Lazy<BlobWorkerPump>(() => sp.GetRequiredService<BlobWorkerPump>()));
 
-        // Two-store split (both backed by the existing IBlobWriter → QueuedBlobWriter mapping above):
+        // Distinct binding for consumers that explicitly want the queued write path.
+        // Resolved through the factory so the wrapping logic lives in one place.
+        services.AddSingleton<IQueuedBlobWriter>(sp => sp.GetRequiredService<IBlobWriterFactory>().CreateQueuedBlobWriter());
+
+        // Two-store split:
         //   AsyncFileStore     → small one-shot blobs through the BlobWriteQueue (headers,
         //                        status messages, server-scope request snapshots). 1-RT
-        //                        UploadAsync per item.
+        //                        UploadAsync per item. Consumes IQueuedBlobWriter.
         //   AsyncStreamingStore → large/streamed response bodies bypassing the queue. Owns
         //                        a dedicated raw BlobWriter (from IBlobWriterFactory) whose
         //                        write path is BlobClient.OpenWriteAsync (~4 MiB transfer

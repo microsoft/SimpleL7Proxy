@@ -9,20 +9,15 @@ using SimpleL7Proxy.Config;
 namespace SimpleL7Proxy.Async.BlobStorage
 {
     /// <summary>
-    /// Factory for creating BlobWriter instances.
+    /// Azure Blob Storage implementation of <see cref="IBlobWriterFactory"/>.
+    /// Selected by the <c>IBlobWriterFactory:BlobWriterFactory</c> entry in
+    /// <c>AsyncClassNames</c> (the default). Swap to <c>S3BlobWriterFactory</c>
+    /// to target AWS S3 instead.
     /// </summary>
-    public interface IBlobWriterFactory
-    {
-        IBlobWriter CreateBlobWriter();
-        string InitStatus { get; }
-    }
-
-    public class BlobWriterFactory : IBlobWriterFactory
+    public class BlobWriterFactory : GenericBlobFactory
     {
         private readonly DefaultCredential _defaultCredential;
-        private readonly IOptionsMonitor<ProxyConfig> _optionsMonitor;
         private readonly ILogger<AzureBlobWriter> _logger;
-        private readonly ILogger<NullBlobWriter> _nullBlobWriterLogger;
 
         // Shared BlobServiceClient — owns the HTTP connection pool. Created once on first call
         // so that all IBlobWriter instances (QueuedBlobWriter, BlobWriteQueue, etc.) share the same pool.
@@ -33,17 +28,16 @@ namespace SimpleL7Proxy.Async.BlobStorage
             DefaultCredential defaultCredential,
             IOptionsMonitor<ProxyConfig> optionsMonitor,
             ILogger<AzureBlobWriter> logger,
-            ILogger<NullBlobWriter> nullBlobWriterLogger)
+            ILogger<NullBlobWriter> nullBlobWriterLogger,
+            Lazy<BlobWorkerPump> workerPump,
+            ILogger<QueuedBlobWriter> queuedLogger)
+            : base(optionsMonitor, nullBlobWriterLogger, workerPump, queuedLogger)
         {
             _defaultCredential = defaultCredential;
-            _optionsMonitor = optionsMonitor;
             _logger = logger;
-            _nullBlobWriterLogger = nullBlobWriterLogger;
         }
 
-        public string InitStatus { get; private set; }
-
-        public IBlobWriter CreateBlobWriter()
+        public override IBlobWriter CreateBlobWriter()
         {
             // Console.WriteLine($"BlobWriterFactory: Creating BlobWriter with  AsyncModeEnabled={_optionsMonitor.CurrentValue.AsyncModeEnabled}  AsyncBlobStorageUseMI={_optionsMonitor.CurrentValue.AsyncBlobStorageUseMI}  AsyncBlobStorageAccountUri={_optionsMonitor.CurrentValue.AsyncBlobStorageAccountUri}  AsyncBlobStorageConnectionString={(string.IsNullOrEmpty(_optionsMonitor.CurrentValue.AsyncBlobStorageConnectionString) ? "NOT SET" : "SET")}");
             if (!_optionsMonitor.CurrentValue.AsyncModeEnabled)
@@ -84,7 +78,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
                 }
             }
 
-            return new NullBlobWriter(_nullBlobWriterLogger);
+            return CreateNullWriter();
         }
 
         // Returns a BlobWriter backed by the shared BlobServiceClient, creating it on first call.
