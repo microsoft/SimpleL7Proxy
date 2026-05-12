@@ -193,7 +193,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
     /// Decorator for IBlobWriter that transparently queues write operations through BlobWriteQueue.
     /// Reads and metadata operations are passed through directly to the underlying writer.
     /// </summary>
-    public class QueuedBlobWriter : IBlobWriter
+    public class QueuedBlobWriter : IQueuedBlobWriter
     {
         private readonly IBlobWriter _underlyingWriter;
         private readonly BlobWorkerPump _queue;

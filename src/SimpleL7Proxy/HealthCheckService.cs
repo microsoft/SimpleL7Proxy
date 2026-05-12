@@ -32,7 +32,7 @@ public class HealthCheckService
     private readonly IEventClient? _eventClient;
     private readonly ISBQueueService? _sbQueueService;
     private readonly ISBTopicService? _sbTopicService;
-    private readonly IBlobWriter? _blobWriter;
+    private readonly IQueuedBlobWriter? _blobWriter;
     private readonly BlobWorkerPump? _blobWriteQueue;
     private readonly IUserProfileService? _userProfileService;
     private readonly AppConfigService _appConfigService;
@@ -82,7 +82,7 @@ public class HealthCheckService
         ILogger<HealthCheckService> logger,
         AppConfigService appConfigService,
         ISBTopicService? sbTopicService = null,
-        IBlobWriter? blobWriter = null,
+        IQueuedBlobWriter? blobWriter = null,
         BlobWorkerPump? blobWriteQueue = null,
         ISBQueueService? sbQueueService = null,
         IUserProfileService? userProfileService = null)
