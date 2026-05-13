@@ -18,8 +18,10 @@ namespace SimpleL7Proxy.Backend;
 // * Check the status of each backend host and measure its latency
 // * Filter the active hosts based on the success rate
 // * Fetch the OAuth2 token and refresh it 100ms minutes before it expires
-public class EndpointMonitorService : BackgroundService, IEndpointMonitorService
+public class EndpointMonitorService : BackgroundService, IEndpointMonitorService, IReadinessParticipant
 {
+  public ReadinessParticipantEnum Participant => ReadinessParticipantEnum.Backends;
+  public ReadinessRegistry Readiness { get; }
   private List<BaseHostHealth> _activeHosts;
   private readonly IHostHealthCollection _backendHostCollection;
 
@@ -63,6 +65,7 @@ public class EndpointMonitorService : BackgroundService, IEndpointMonitorService
       IEventClient? eventClient,
       CancellationTokenSource cancellationTokenSource,    //
       ILogger<EndpointMonitorService> logger,
+      ReadinessRegistry readiness,
       ISharedIteratorRegistry? sharedIteratorRegistry = null)
   {
     if (options == null) throw new ArgumentNullException(nameof(options));
@@ -75,6 +78,9 @@ public class EndpointMonitorService : BackgroundService, IEndpointMonitorService
     ArgumentNullException.ThrowIfNull(logger, nameof(logger));
     ArgumentNullException.ThrowIfNull(eventClient, nameof(eventClient));
     ArgumentNullException.ThrowIfNull(circuitBreaker, nameof(circuitBreaker));
+    ArgumentNullException.ThrowIfNull(readiness, nameof(readiness));
+
+    Readiness = readiness;
 
     //    appLifetime.ApplicationStopping.Register(OnApplicationStopping);
 
@@ -142,6 +148,7 @@ public class EndpointMonitorService : BackgroundService, IEndpointMonitorService
   }
 
   private readonly Dictionary<string, bool> currentHostStatus = [];
+  private bool _readyOnce;
   private async Task Run()
   {
     try
@@ -169,6 +176,12 @@ public class EndpointMonitorService : BackgroundService, IEndpointMonitorService
 
           await UpdateHostStatus(_client);
           FilterActiveHosts();
+
+          if (!_readyOnce && _activeHosts.Count > 0)
+          {
+            this.RegisterReady();
+            _readyOnce = true;
+          }
 
           if ((DateTime.Now - _lastStatusDisplay).TotalSeconds > 60)
           {

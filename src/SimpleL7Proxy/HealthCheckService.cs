@@ -26,6 +26,7 @@ namespace SimpleL7Proxy;
 public class HealthCheckService
 {
     private readonly IEndpointMonitorService _backends;
+    private readonly ReadinessRegistry _readiness;
     private static ProxyConfig _options=null!;
     private readonly IConcurrentPriQueue<RequestData>? _requestsQueue;
     private readonly IUserPriorityService? _userPriority;
@@ -34,24 +35,18 @@ public class HealthCheckService
     private readonly ISBTopicService? _sbTopicService;
     private readonly IQueuedBlobWriter? _blobWriter;
     private readonly BlobWorkerPump? _blobWriteQueue;
-    private readonly IUserProfileService? _userProfileService;
     private readonly AppConfigService _appConfigService;
     private readonly Func<string> _getWorkerState;
     private readonly ILogger<HealthCheckService> _logger;
 
-    /// <summary>
-    /// Task that completes when backend startup (token acquisition, health polling) succeeds.
-    /// Callers can await this to block until backends are ready.
-    /// Set by <see cref="BeginStartupMonitoring"/>.
-    /// </summary>
-    public Task BackendStartupTask { get; private set; } = Task.CompletedTask;
-
     // Cache for health check responses to reduce allocations
     private readonly StringBuilder _stringBuilder;
 
+    // Flipped to true once ReadinessRegistry signals all participants ready.
+    private volatile bool _systemReady;
+
     // Worker state tracking - using individual fields for better clarity and performance
     private static int _activeWorkers = 0;
-    private static bool _readyToWork = false;
 
     // Track current state per worker ID
     private static readonly ConcurrentDictionary<int, WorkerState?> _workerCurrentState = new();
@@ -67,7 +62,6 @@ public class HealthCheckService
     private static int _cleanupCount = 0;
 
     public static int ActiveWorkers => _activeWorkers;
-    public static bool IsReadyToWork => System.Threading.Volatile.Read(ref _readyToWork);
 
     private int _lastGen2Count = 0;
     private DateTime _lastFinalizerDrain = DateTime.UtcNow;
@@ -81,18 +75,18 @@ public class HealthCheckService
         IEventClient? eventClient,
         ILogger<HealthCheckService> logger,
         AppConfigService appConfigService,
+        ReadinessRegistry readiness,
         ISBTopicService? sbTopicService = null,
         IQueuedBlobWriter? blobWriter = null,
         BlobWorkerPump? blobWriteQueue = null,
-        ISBQueueService? sbQueueService = null,
-        IUserProfileService? userProfileService = null)
+        ISBQueueService? sbQueueService = null)
     {
         _backends = backends ?? throw new ArgumentNullException(nameof(backends));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _appConfigService = appConfigService ?? throw new ArgumentNullException(nameof(appConfigService));
+        _readiness = readiness ?? throw new ArgumentNullException(nameof(readiness));
         _requestsQueue = requestsQueue;
         _userPriority = userPriority;
-        _userProfileService = userProfileService;
         _eventClient = eventClient;
         _sbTopicService = sbTopicService;
         _blobWriter = blobWriter;
@@ -104,27 +98,19 @@ public class HealthCheckService
         // Pre-allocate StringBuilder to reduce allocations
         _stringBuilder = new StringBuilder(512);
         s_finalizerDrainInterval = _options.GC2InternalSecs > 0 ? TimeSpan.FromSeconds(_options.GC2InternalSecs) : TimeSpan.FromMinutes(15);
-    }
 
-    bool firstHealthCheck = true;
-    bool backendsStarted = false;
-    /// <summary>
-    /// Starts backend health polling and token acquisition.
-    /// Call once after backends have been registered (HostConfig.Initialize + RegisterBackends).
-    /// </summary>
-    public async Task BeginStartupMonitoring()
-    {
-        try
-        {
-            await _backends.WaitForStartupAsync().ConfigureAwait(false);
-            backendsStarted = true;
-             _logger.LogInformation("[STARTUP] ✓ HealthCheck Ready");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "[STARTUP] ✗ HealthCheck failed — {Message}", ex.Message);
-            throw;
-        }
+        // Cache the registry's ready signal as a single bool so the hot health-probe path
+        // doesn't need to re-evaluate worker/backend/profile state every call.
+        _ = _readiness.WaitForReadyAsync().ContinueWith(
+            _ =>
+            {
+                var readyList = string.Join(", ", _readiness.Snapshot()
+                    .Where(s => s.IsReady)
+                    .Select(s => s.Participant));
+                _logger.LogInformation("[-READY-] ✓ All participants ready: {Participants}", readyList);
+                _systemReady = true;
+            },
+            TaskScheduler.Default);
     }
 
     /// <summary>
@@ -242,16 +228,12 @@ public class HealthCheckService
     }
 
     /// <summary>
-    /// Increment the active worker count and set ready status if all workers are active
+    /// Increment the active worker count.
     /// </summary>
     public static int IncrementActiveWorkers(int totalWorkers)
     {
-        int count = Interlocked.Increment(ref _activeWorkers);
-        if (totalWorkers == count)
-        {
-            System.Threading.Volatile.Write(ref _readyToWork, true);
-        }
-        return count;
+        _ = totalWorkers;
+        return Interlocked.Increment(ref _activeWorkers);
     }
 
     /// <summary>
@@ -587,24 +569,14 @@ public class HealthCheckService
     public (HealthStatusEnum, HealthStatusEnum, int, int) GetStatus()
     {
         int hostCount = _backends.ActiveHostCount();
-        bool hasFailed = _backends.CheckFailedStatusAsync(true).Result; 
-        bool profilesReady = _userProfileService?.ServiceIsReady() ?? true; // if user profile service is not configured, consider it ready
+        bool hasFailed = _backends.CheckFailedStatusAsync(true).Result;
 
         int activeEvents = _eventClient?.Count ?? 0;
         bool tooManyEvents = activeEvents > _options.MaxUndrainedEvents;
         bool eventsAreHealthy = _eventClient?.IsHealthy() == true;
         int blobQueueDepth = _blobWriteQueue?.QueueDepth ?? 0;
         bool blobQueueHealthy = blobQueueDepth <= _options.AsyncBlobMaxQueue;
-        var isReady = IsReadyToWork && backendsStarted && profilesReady && !tooManyEvents && blobQueueHealthy;
-
-        if (isReady && firstHealthCheck)
-        {
-            _logger.LogInformation("[-READY-] ✓ Workers ready, Profiles ready, Backends ready");
-            firstHealthCheck = false;
-        }
-
-        // Debug logging - remove after fixing
-        // Console.WriteLine($"[STARTUP-DEBUG] IsReadyToWork={isReady}, hasProfile={_userProfileService != null}, hostCount={hostCount}, hasFailed={hasFailed}, activeEvents={activeEvents}");
+        var isReady = _systemReady && !tooManyEvents && blobQueueHealthy;
 
         if (!isReady)
         {

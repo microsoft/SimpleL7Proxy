@@ -89,8 +89,10 @@ namespace SimpleL7Proxy.Async.BlobStorage
     /// Each worker independently batches operations for the same container.
     /// Operations for the same blob are routed to the same worker via hashing.
     /// </summary>
-    public class BlobWorkerPump : IHostedService, IDisposable
+    public class BlobWorkerPump : IHostedService, IDisposable, IReadinessParticipant
     {
+        public ReadinessParticipantEnum Participant => ReadinessParticipantEnum.BlobWriter;
+        public ReadinessRegistry Readiness { get; }
         private readonly Channel<BlobWriteOperation>[] _workerChannels;
         private readonly List<Task> _workers;
         private readonly CancellationTokenSource _shutdownCts;
@@ -122,11 +124,13 @@ namespace SimpleL7Proxy.Async.BlobStorage
         public BlobWorkerPump(
             IBlobWriterFactory blobWriterFactory,
             BlobWriteQueueOptions options,
+            ReadinessRegistry readiness,
             ILogger<BlobWorkerPump> logger)
         {
             _blobWriter = blobWriterFactory?.CreateBlobWriter() ?? throw new ArgumentNullException(nameof(blobWriterFactory));
             _options = options ?? throw new ArgumentNullException(nameof(options));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            Readiness = readiness ?? throw new ArgumentNullException(nameof(readiness));
             _shutdownCts = new CancellationTokenSource();
             _metricsLoopCts = new CancellationTokenSource();
             _workers = new List<Task>();
@@ -233,6 +237,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
 
                 _workers.Add(Task.Run(() => MetricsLoop(_metricsLoopCts.Token), _metricsLoopCts.Token));
                 _isStarted = true;
+                this.RegisterReady();
             }
             finally
             {

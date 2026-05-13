@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Text.Json;
 
@@ -21,8 +22,10 @@ namespace SimpleL7Proxy.Async;
 /// Runs during the hosted-service startup phase so that all dependencies are ready
 /// before Server and WorkerFactory begin accepting traffic.
 /// </summary>
-public sealed class TemplateLoader : IHostedService
+public sealed class TemplateLoader : IHostedService, IReadinessParticipant
 {
+    public ReadinessParticipantEnum Participant => ReadinessParticipantEnum.AsyncTemplates;
+    public ReadinessRegistry Readiness { get; }
     private const string TemplatesContainer = "templates";
 
     /// <summary>
@@ -43,7 +46,8 @@ public sealed class TemplateLoader : IHostedService
     private readonly ProxyConfig _options;
     private readonly ILogger<TemplateLoader> _logger;
 
-    private readonly Dictionary<AsyncResponseTypeEnum, AsyncMessage> _templates = new();
+    // Concurrent: Populates this from multiple parallel tasks. 
+    private readonly ConcurrentDictionary<AsyncResponseTypeEnum, AsyncMessage> _templates = new();
 
     public TemplateLoader(
         ISBTopicService sbTopicService,
@@ -51,6 +55,7 @@ public sealed class TemplateLoader : IHostedService
         IUserPriorityService userPriorityService,
         IAsyncFileStore fileStore,
         IOptions<ProxyConfig> options,
+        ReadinessRegistry readiness,
         ILogger<TemplateLoader> logger)
     {
         _sbTopicService = sbTopicService;
@@ -58,6 +63,7 @@ public sealed class TemplateLoader : IHostedService
         _userPriorityService = userPriorityService;
         _fileStore = fileStore;
         _options = options.Value;
+        Readiness = readiness;
         _logger = logger;
     }
 
@@ -129,7 +135,16 @@ public sealed class TemplateLoader : IHostedService
 
         _logger.LogInformation("[STARTUP] ✓ RequestData async statics initialized");
 
-        await LoadAllTemplatesAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await LoadAllTemplatesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Templates have been loaded (from blob or file) — or load was skipped/failed.
+            // Either way the loader's work is done; close the gate so dependents can proceed.
+            this.RegisterReady();
+        }
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

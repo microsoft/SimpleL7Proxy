@@ -160,8 +160,7 @@ public class Program
         var hostCollection = serviceProvider.GetRequiredService<IHostHealthCollection>();
         ConfigFactory.RegisterBackends(options.Value, null, appConfigBootstrap.WarmSettings, hostCollection);
 
-        var healthService = serviceProvider.GetRequiredService<HealthCheckService>();
-        Task healthCheck = healthService.BeginStartupMonitoring();
+        var readiness = serviceProvider.GetRequiredService<ReadinessRegistry>();
 
         // Initialize AsyncWorker static dependencies (only if async mode is enabled).
         // SBTopicService, SBQueueService, AsyncFeeder, BlobWorkerPump are all
@@ -188,7 +187,7 @@ public class Program
             var composite = serviceProvider.GetRequiredService<CompositeEventClient>();
             ConfigFactory.OutputEnvVars(options.Value);
 
-            await healthCheck.ConfigureAwait(false);
+            await readiness.WaitForReadyAsync().ConfigureAwait(false);
 
             logger.LogInformation("[STARTUP] ✓ All hosted services started — active event loggers: {Loggers}",
                 composite.ClientType);
@@ -285,6 +284,7 @@ public class Program
         services.AddSingleton<IConcurrentPriQueue<RequestData>, ConcurrentPriQueue<RequestData>>();
         //services.AddSingleton<ProxyStreamWriter>();
         services.AddSingleton<IHostHealthCollection, HostCollectionManager>();
+        services.AddSingleton<ReadinessRegistry>();
         services.AddSingleton<HealthCheckService>();
         services.AddSingleton<RequestLifecycleManager>();
         services.AddSingleton<EventDataBuilder>();
@@ -500,7 +500,15 @@ public class Program
 
         foreach (var loggername in enabledLoggers)
         {
-            if (loggername == "file")
+            if (loggername == "none")
+            {
+                startupLogger.LogInformation("[CONFIGS] Event logger 'none' specified, skipping event logger registration.");
+                // No clients will ever call CompositeEventClient.Add() to satisfy the gate,
+                // so close it via a startup hook.
+                services.AddHostedService(svc => new ReadinessMarker(svc.GetRequiredService<CompositeEventClient>()));
+                continue;
+
+            } else if (loggername == "file")
             {
                 services.AddSingleton<LogFileEventClient>(svc =>
                     new LogFileEventClient(backendOptions.LogFileName, svc.GetRequiredService<CompositeEventClient>(), svc.GetRequiredService<IOptions<ProxyConfig>>()));
