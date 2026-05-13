@@ -68,7 +68,7 @@ public class LogTargetAttr
         };
     }
 
-    public string ToString()
+    public override string ToString()
     {
         return $"Async: {Async}, BackendRequest: {BackendRequest}, Probe: {Probe}, CircuitBreakerError: {CircuitBreakerError}, Console: {Console}, CustomEvent: {CustomEvent}, Exception: {Exception}, ProfileError: {ProfileError}, ProxyRequest: {ProxyRequest}, ProxyRequestEnqueued: {ProxyRequestEnqueued}, Authentication: {Authentication}";
     }
