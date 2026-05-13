@@ -48,6 +48,14 @@ namespace SimpleL7Proxy.Async.Feeder
             // restore the request from blob storage, re-create the async streams.
             await DataFromBlob(request);
 
+            // Reset per-attempt counters that were persisted from the prior process.
+            // Without this, the worker's `BackendAttempts < maxSharedAttempts` guard
+            // short-circuits (e.g. SinglePass + 1 host => maxSharedAttempts = 1, but
+            // BackendAttempts is already 1 from before the crash) and the request fails
+            // with 503 "No Active Hosts Available" without ever calling a backend.
+            request.BackendAttempts = 0;
+            // request.incompleteRequests?.Clear();
+
             request.Requeued = true; // mark it as requeued
             request.AsyncHydrated = true; // mark it as hydrated from async
         }
