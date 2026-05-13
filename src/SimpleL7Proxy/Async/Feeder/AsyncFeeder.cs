@@ -43,6 +43,7 @@ namespace SimpleL7Proxy.Async.Feeder
         private readonly IRequestProcessor _openAIRequest;
         private readonly IUserPriorityService _userPriority;
         private readonly IConcurrentPriQueue<RequestData> _requestsQueue;
+        private readonly ReadinessRegistry _readiness;
 
         private readonly SemaphoreSlim _queueSignal = new SemaphoreSlim(0);
         private bool isShuttingDown = false;
@@ -85,6 +86,7 @@ namespace SimpleL7Proxy.Async.Feeder
                             AsyncRequestHydrator asyncRequestHydrator,
                             OpenAIBackgroundRequest openAIRequest,
                             IConcurrentPriQueue<RequestData> requestsQueue,
+                            ReadinessRegistry readiness,
                             ILogger<AsyncFeeder> logger)
         {
             _options = options.Value;
@@ -95,6 +97,7 @@ namespace SimpleL7Proxy.Async.Feeder
             _asyncRequestHydrator = asyncRequestHydrator;
             _openAIRequest = openAIRequest;
             _requestsQueue = requestsQueue;
+            _readiness = readiness;
             _logger = logger;
         }
 
@@ -135,6 +138,18 @@ namespace SimpleL7Proxy.Async.Feeder
         {
 
             _logger.LogInformation("[SERVICE] ✓ AsyncFeeder service starting...");
+
+            // Hold off processing rehydrated requests until workers, backends, and profiles are
+            // ready - otherwise rehydrated requests can race the pipeline and return 503.
+            try
+            {
+                await _readiness.WaitForReadyAsync().WaitAsync(token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("[SERVICE] AsyncFeeder cancelled before ready");
+                return;
+            }
 
             ServiceBusProcessor? processor = null;
 
