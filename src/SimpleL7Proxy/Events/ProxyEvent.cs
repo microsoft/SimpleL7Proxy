@@ -81,6 +81,12 @@ namespace SimpleL7Proxy.Events
     public string? Method { get; set; } = "GET";
     public TimeSpan Duration { get; set; } = TimeSpan.Zero;
     public Exception? Exception { get; set; } = null;
+    /// <summary>
+    /// Optional numeric values emitted as App Insights metrics on the EventTelemetry.
+    /// Use for metric-style events (e.g. <see cref="EventType.Metric"/>) so values are
+    /// queryable/aggregatable in App Insights rather than parsed from string properties.
+    /// </summary>
+    public Dictionary<string, double>? MetricValues { get; set; }
     public static FrozenDictionary<string, string> DefaultParams { get; private set; } = FrozenDictionary<string, string>.Empty;
 
     public static void Initialize(
@@ -133,6 +139,7 @@ namespace SimpleL7Proxy.Events
       Method = "GET";
       Duration = TimeSpan.Zero;
       Exception = null;
+      MetricValues?.Clear();
     }
 
     public ProxyEvent(ProxyEvent other) : base(other)
@@ -260,6 +267,15 @@ namespace SimpleL7Proxy.Events
       var eventTelemetry = new EventTelemetry(eventName);
       eventTelemetry.Metrics["Duration"] = Duration.TotalMilliseconds;
       // eventTelemetry.Name = eventName;
+
+      // Merge any caller-supplied numeric metrics so they are queryable in App Insights.
+      if (MetricValues is not null)
+      {
+        foreach (var kvp in MetricValues)
+        {
+          eventTelemetry.Metrics[kvp.Key] = kvp.Value;
+        }
+      }
 
       // Set operation context if available
       if (!string.IsNullOrEmpty(MID))

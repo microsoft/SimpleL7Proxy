@@ -19,4 +19,5 @@ public enum EventType
     ProxyRequestRequeued,
     ServerError,
     Authentication,
+    Metric
 }
