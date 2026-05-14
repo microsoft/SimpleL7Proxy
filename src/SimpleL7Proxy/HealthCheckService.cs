@@ -18,11 +18,7 @@ using Shared.HealthProbe;
 
 namespace SimpleL7Proxy;
 
-/// <summary>
-/// Optimized health check service that handles probe endpoints (/health, /readiness, /startup, /liveness).
-/// Called multiple times per second, so performance is critical.
-/// Also manages worker state tracking for monitoring and diagnostics.
-/// </summary>
+/// <summary>Serves probe endpoints (/health, /readiness, /startup, /liveness) and tracks per-worker state for diagnostics. Hot path — perf matters.</summary>
 public class HealthCheckService
 {
     private readonly IEndpointMonitorService _backends;
@@ -39,19 +35,19 @@ public class HealthCheckService
     private readonly Func<string> _getWorkerState;
     private readonly ILogger<HealthCheckService> _logger;
 
-    // Cache for health check responses to reduce allocations
+    // Pre-allocated response buffer to avoid per-probe allocations.
     private readonly StringBuilder _stringBuilder;
 
-    // Flipped to true once ReadinessRegistry signals all participants ready.
+    // Set true once ReadinessRegistry signals all participants ready.
     private volatile bool _systemReady;
 
-    // Worker state tracking - using individual fields for better clarity and performance
+    // Worker state tracking — flat fields for hot-path speed.
     private static int _activeWorkers = 0;
 
-    // Track current state per worker ID
+    // Current state per worker id.
     private static readonly ConcurrentDictionary<int, WorkerState?> _workerCurrentState = new();
 
-    // State counters for each worker state (thread-safe via Interlocked operations)
+    // Per-state counters (updated via Interlocked).
     private static int _dequeueingCount = 0;
     private static int _preProcessingCount = 0;
     private static int _proxyingCount = 0;
@@ -99,44 +95,36 @@ public class HealthCheckService
         _stringBuilder = new StringBuilder(512);
         s_finalizerDrainInterval = _options.GC2InternalSecs > 0 ? TimeSpan.FromSeconds(_options.GC2InternalSecs) : TimeSpan.FromMinutes(15);
 
-        // Cache the registry's ready signal as a single bool so the hot health-probe path
-        // doesn't need to re-evaluate worker/backend/profile state every call.
+        // Cache readiness as a single bool so the hot probe path skips per-call evaluation.
         _ = _readiness.WaitForReadyAsync().ContinueWith(
             _ =>
             {
                 var readyList = string.Join(", ", _readiness.Snapshot()
                     .Where(s => s.IsReady)
                     .Select(s => s.Participant));
-                _logger.LogInformation("[-READY-] ✓ All participants ready: {Participants}", readyList);
+                _logger.LogInformation("[-READY-] {Participants}", readyList);
                 _systemReady = true;
             },
             TaskScheduler.Default);
     }
 
-    /// <summary>
-    /// Get the current worker state string for monitoring/debugging
-    /// </summary>
+    /// <summary>Returns a compact one-line snapshot of worker count and per-state counters.</summary>
     public static string GetWorkerState()
     {
         return $"Count: {_activeWorkers} States: [ deq-{_dequeueingCount} pre-{_preProcessingCount} prxy-{_proxyingCount} -[snd-{_sendingCount} rcv-{_receivingCount}]-  wr-{_writingCount} rpt-{_reportingCount} cln-{_cleanupCount} ]";
     }
 
-    /// <summary>
-    /// Enter a worker state. Automatically exits the previous state if the worker was in one.
-    /// </summary>
-    /// <param name="workerId">The unique identifier of the worker</param>
-    /// <param name="newState">The state to enter</param>
+    /// <summary>Enters <paramref name="newState"/> for <paramref name="workerId"/>, auto-exiting any previous state.</summary>
     public static void EnterState(int workerId, WorkerState newState)
     {
         if ( !_options.TrackWorkers) return;
 
-        // Get and update the current state atomically
+        // Atomically swap the worker's current state, exiting the old one in the update callback.
         var oldState = _workerCurrentState.AddOrUpdate(
             workerId,
             newState,
             (_, currentState) =>
             {
-                // Exit the old state if one exists
                 if (currentState.HasValue)
                 {
                     ExitStateInternal(currentState.Value);
@@ -144,23 +132,18 @@ public class HealthCheckService
                 return newState;
             });
 
-        // If this is the first time we're seeing this worker, oldState will be the newState we just set
-        // Otherwise, oldState is the previous value and we've already exited it in the update function
+        // First-seen worker: oldState == newState (just set); otherwise old was already exited above.
         if (oldState.Equals(newState))
         {
-            // First time setting state for this worker - just enter the new state
             EnterStateInternal(newState);
         }
         else
         {
-            // We already exited the old state in the update function, just enter the new state
             EnterStateInternal(newState);
         }
     }
 
-    /// <summary>
-    /// Internal method to increment a state counter
-    /// </summary>
+    /// <summary>Increments the counter for <paramref name="state"/>.</summary>
     private static void EnterStateInternal(WorkerState state)
     {
         switch (state)
@@ -192,10 +175,7 @@ public class HealthCheckService
         }
     }
 
-    /// <summary>
-    /// Exit a worker state (decrements the state counter in a thread-safe manner)
-    /// </summary>
-    /// <param name="state">The state to exit</param>
+    /// <summary>Decrements the counter for <paramref name="state"/>.</summary>
     private static void ExitStateInternal(WorkerState state)
     {
         switch (state)
@@ -227,24 +207,19 @@ public class HealthCheckService
         }
     }
 
-    /// <summary>
-    /// Increment the active worker count.
-    /// </summary>
+    /// <summary>Increments and returns the active-worker count.</summary>
     public static int IncrementActiveWorkers(int totalWorkers)
     {
         _ = totalWorkers;
         return Interlocked.Increment(ref _activeWorkers);
     }
 
-    /// <summary>
-    /// Decrement the active worker count and clean up worker state tracking
-    /// </summary>
-    /// <param name="workerId">The unique identifier of the worker being shut down</param>
+    /// <summary>Decrements active workers and exits <paramref name="workerId"/>'s current state, if any.</summary>
     public static void DecrementActiveWorkers(int workerId)
     {
         Interlocked.Decrement(ref _activeWorkers);
 
-        // Exit the worker's current state if it has one
+        // Exit the worker's current state if it has one.
         if (_workerCurrentState.TryRemove(workerId, out var currentState) && currentState.HasValue)
         {
             ExitStateInternal(currentState.Value);
@@ -310,7 +285,7 @@ public class HealthCheckService
 
             case Constants.Health:
                 {
-                    // Use pre-allocated StringBuilder to reduce allocations
+                    // Pre-allocated StringBuilder, guarded by lock — reused across probe calls.
                     lock (_stringBuilder)
                     {
                         _stringBuilder.Clear();
@@ -551,8 +526,7 @@ public class HealthCheckService
 
     public void RunPeriodicGC()
     {
-        // Periodically drain finalizers to release native memory from recycled HTTP connections.
-        // Only acts when a Gen2 GC has naturally occurred since the last drain — no forced collection.
+        // Drain finalizers periodically to release native memory from recycled HTTP connections — only when a Gen2 GC has naturally occurred (no forced collection).
         var gen2Count = GC.CollectionCount(2);
         if (gen2Count > _lastGen2Count && DateTime.UtcNow - _lastFinalizerDrain >= s_finalizerDrainInterval)
         {
@@ -564,8 +538,7 @@ public class HealthCheckService
 
     }
 
-    // Method to get overall health status for probes, used by ProbeServer
-    // Returns a tuple of (startupStatus, readinessStatus, activeUndrainedEvents) for more detailed monitoring
+    // Overall health status for probes (used by ProbeServer). Returns (startupStatus, readinessStatus, activeUndrainedEvents, blobQueueDepth).
     public (HealthStatusEnum, HealthStatusEnum, int, int) GetStatus()
     {
         int hostCount = _backends.ActiveHostCount();
