@@ -1,5 +1,16 @@
 # Release Notes #
 
+Proxy:
+* bug fix possible 2 versions of TokenProvider
+* bug fix possible race condition with recovery processor
+* Refactor: external consumers now inject IQueuedBlobWriter (or IAsyncFileStore)
+* Refactor: extract IBlobWriterFactory + GenericBlobFactory base to enable pluggable blob backends
+* Update dll's to latest versions: Extensions, Azure, Messaging, Identity
+* Migrate to use ReadinessRegistry for startup checks
+* Improve the blob write stats
+* Bug fix: actually use the queued blob writer
+
+
 2.2.11.1
 
 Proxy:

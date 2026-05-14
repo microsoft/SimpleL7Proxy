@@ -160,10 +160,13 @@ public class Program
         var hostCollection = serviceProvider.GetRequiredService<IHostHealthCollection>();
         ConfigFactory.RegisterBackends(options.Value, null, appConfigBootstrap.WarmSettings, hostCollection);
 
-        var healthService = serviceProvider.GetRequiredService<HealthCheckService>();
-        Task healthCheck = healthService.BeginStartupMonitoring();
+        var readiness = serviceProvider.GetRequiredService<ReadinessRegistry>();
 
-        // Initialize AsyncWorker static dependencies (only if async mode is enabled)
+        // Initialize AsyncWorker static dependencies (only if async mode is enabled).
+        // SBTopicService, SBQueueService, AsyncFeeder, BlobWorkerPump are all
+        // registered as IHostedService in RegisterAsyncDI — the host starts them
+        // in registration order and stops them in reverse. Per-service shutdown
+        // ordering is handled via IShutdownParticipant in CoordinatedShutdownService.
         if (options.Value.AsyncModeEnabled)
         {
             var fileStore = serviceProvider.GetRequiredService<IAsyncFileStore>();
@@ -172,26 +175,6 @@ public class Program
             var probeService = serviceProvider.GetRequiredService<ProbeServer>();
             var messages = serviceProvider.GetRequiredService<TemplateLoader>();
             AsyncWorker.Initialize(fileStore, streamingStore, asyncWorkerLogger, messages, options.Value, probeService);
-
-            // Explicitly start services whose stop ordering is owned by CoordinatedShutdownService.
-            // They're registered as plain singletons (not IHostedService) so the host won't start/stop
-            // them in non-deterministic order — we start them here and stop them in CoordinatedShutdownService.
-            var blobPump = serviceProvider.GetService<BlobWorkerPump>();
-            if (blobPump != null)
-            {
-                await blobPump.StartAsync(default).ConfigureAwait(false);
-            }
-
-            if (serviceProvider.GetRequiredService<ISBTopicService>() is IHostedService sbHosted)
-            {
-                await sbHosted.StartAsync(default).ConfigureAwait(false);
-            }
-
-            // SBQueueService is started here so its shutdown can be ordered via IShutdownParticipant.
-            if (serviceProvider.GetRequiredService<ISBQueueService>() is IHostedService sbQueueHosted)
-            {
-                await sbQueueHosted.StartAsync(default).ConfigureAwait(false);
-            }
         }
 
         // ProbeServer is always started — must outlive every other service so the
@@ -204,7 +187,7 @@ public class Program
             var composite = serviceProvider.GetRequiredService<CompositeEventClient>();
             ConfigFactory.OutputEnvVars(options.Value);
 
-            await healthCheck.ConfigureAwait(false);
+            await readiness.WaitForReadyAsync().ConfigureAwait(false);
 
             logger.LogInformation("[STARTUP] ✓ All hosted services started — active event loggers: {Loggers}",
                 composite.ClientType);
@@ -271,7 +254,10 @@ public class Program
         if (backendOptions.AsyncModeEnabled)
             RegisterAsyncDI(services, startupLogger, backendOptions);
         else {
-            services.AddSingleton<IBlobWriter, NullBlobWriter>();
+            // No-op writer satisfies the queued-write contract so consumers that
+            // depend on IQueuedBlobWriter can resolve in non-async mode.
+            services.AddSingleton<NullBlobWriter>();
+            services.AddSingleton<IQueuedBlobWriter>(sp => sp.GetRequiredService<NullBlobWriter>());
             services.AddSingleton<IRequestSerializerService, NullRequestSerializerService>();
             services.AddSingleton<IAsyncFeeder, NullAsyncFeeder>();
             // AsyncWorkerContext, IAsyncRequestStore, and TemplateLoader are intentionally
@@ -298,12 +284,13 @@ public class Program
         services.AddSingleton<IConcurrentPriQueue<RequestData>, ConcurrentPriQueue<RequestData>>();
         //services.AddSingleton<ProxyStreamWriter>();
         services.AddSingleton<IHostHealthCollection, HostCollectionManager>();
+        services.AddSingleton<ReadinessRegistry>();
         services.AddSingleton<HealthCheckService>();
         services.AddSingleton<RequestLifecycleManager>();
         services.AddSingleton<EventDataBuilder>();
 
         services.AddSingleton<BackendTokenProvider>();
-        services.AddHostedService<BackendTokenProvider>();
+        services.AddHostedService<BackendTokenProvider>(sp => sp.GetRequiredService<BackendTokenProvider>());
         // services.AddSingleton<IBackgroundWorker, BackgroundWorker>();
 
         services.AddHostedService<Server>(provider => provider.GetRequiredService<Server>());
@@ -312,21 +299,18 @@ public class Program
         // it keeps running until the very end of shutdown (container orchestrator needs healthy probes)
         services.AddSingleton<ProbeServer>();
 
-        // ASYNC RELATED
-        // Add storage service registration
-        services.AddSingleton<ServiceBusFactory>();
-        services.AddSingleton<IServiceBusFactory>(sp => sp.GetRequiredService<ServiceBusFactory>());
-        services.AddSingleton<SBTopicService>();
-        services.AddSingleton<ISBTopicService>(sp => sp.GetRequiredService<SBTopicService>());
-
-        // Note: SBQueueService is NOT registered as IHostedService - its lifecycle is controlled
-        // explicitly by CoordinatedShutdownService to ensure proper shutdown ordering
+        // ASYNC RELATED — minimal fallback bindings.
+        // In async mode RegisterAsyncDI registers these via the interface→class loop,
+        // shadowing the entries below. They're kept here so non-async startup can still
+        // construct CoordinatedShutdownService (which takes ISBTopicService + ISBQueueService).
+        // The classes themselves no-op when AsyncModeEnabled=false.
+        services.AddSingleton<IServiceBusFactory, ServiceBusFactory>();
+        services.AddSingleton<ISBTopicService, SBTopicService>();
         services.AddSingleton<ISBQueueService, SBQueueService>();
 
-        services.AddSingleton<NormalRequest>();
+        services.AddSingleton<AsyncRequestHydrator>();
         services.AddSingleton<OpenAIBackgroundRequest>();
 
-        // services.AddSingleton<IRequestProcessor, NormalRequest>();
         // Stream processor factory - optimized singleton for high-throughput scenarios
         services.AddSingleton<StreamProcessorFactory>();
 
@@ -346,26 +330,25 @@ public class Program
         // ─────────────────────────────────────────────────────────────────────────────
         // Async DI map (interface → implementation), resolved by reflection below.
         //
-        // IBlobWriter → QueuedBlobWriter is the canonical binding for async mode:
-        // every consumer that takes IBlobWriter (TemplateLoader, Server,
-        // HealthCheckService, AsyncFileStore, …) gets the queued decorator, so all
-        // small-blob writes flow through the BlobWriteQueue automatically.
+        // Writer-path bindings (registered explicitly further down, not via this map):
+        //   IQueuedBlobWriter  → QueuedBlobWriter   (small-blob writes funnel through
+        //                                            BlobWriteQueue — used by Server,
+        //                                            AsyncFileStore, HealthCheckService)
+        //   IBlobWriterFactory → BlobWriterFactory  (raw writers for the pump itself
+        //                                            and for AsyncStreamingStore, which
+        //                                            bypasses the queue to stream
+        //                                            multi-GB response bodies)
         //
-        // The non-async branch in ConfigureDI binds IBlobWriter → NullBlobWriter.
-        // These are the ONLY two bindings of IBlobWriter in the app — keep it that
-        // way. Adding a second binding here will silently shadow the queued path
-        // for whichever consumer DI happens to resolve last.
-        //
-        // AsyncStreamingStore is the deliberate exception: it does NOT take
-        // IBlobWriter. It calls IBlobWriterFactory.CreateBlobWriter() to get a raw
-        // BlobWriter so multi-GB response bodies bypass the queue.
+        // No consumer takes IBlobWriter directly — always inject IQueuedBlobWriter or
+        // call IBlobWriterFactory.CreateBlobWriter() at the call site.
         // ─────────────────────────────────────────────────────────────────────────────
         const string asyncClassesRaw =
-            "IServiceBusFactory:ServiceBusFactory, ISBTopicService:SBTopicService, " +
-            "ISBQueueService:SBQueueService, IBlobWriterFactory:BlobWriterFactory, IBlobWriter:QueuedBlobWriter";
+            "IServiceBusFactory:ServiceBusFactory, " +
+            "ISBTopicService:SBTopicService, " +
+            "ISBQueueService:SBQueueService, " +
+            "IBlobWriterFactory:BlobWriterFactory, " +
+            "IAsyncFeeder:AsyncFeeder";
 
-            // "IAsyncFeeder:AsyncFeeder, " +
-            // "IRequestProcessor:NormalRequest, IRequestProcessor:OpenAIBackgroundRequest";
 
         var assembly = typeof(Program).Assembly;
         var assemblyTypes = assembly.GetTypes();
@@ -402,17 +385,24 @@ public class Program
         foreach (var missing in missingInterfaces)
             startupLogger.LogWarning("[ASYNC] Required interface '{InterfaceName}' is missing from AsyncClasses config.", missing);
 
-        // Register each validated interface→class mapping as singleton
+        // Register each validated interface→class mapping as singleton, and
+        // additionally as IHostedService when the class implements one. This lets
+        // the .NET host own start/stop ordering driven by registration order, and
+        // shutdown ordering by IShutdownParticipant (where implemented).
         foreach (var kvp in asyncClasses)
         {
             var iType = Array.Find(assemblyTypes, t => t.Name == kvp.Key && t.IsInterface)!;
             var cType = Array.Find(assemblyTypes, t => t.Name == kvp.Value && !t.IsAbstract)!;
             services.AddSingleton(iType, cType);
-        }
 
-        services.AddSingleton<IAsyncFeeder, AsyncFeeder>();
-        services.AddSingleton<IRequestProcessor, NormalRequest>();
-        services.AddSingleton<IRequestProcessor, OpenAIBackgroundRequest>();
+            if (typeof(IHostedService).IsAssignableFrom(cType))
+            {
+                // AddHostedService<T> uses TryAddEnumerable, which rejects T=IHostedService
+                // because it can't distinguish multiple registrations of the same closed type.
+                // Register IHostedService directly with a factory keyed off the singleton.
+                services.AddSingleton<IHostedService>(sp => (IHostedService)sp.GetRequiredService(iType));
+            }
+        }
 
         // BlobWriteQueue tuning (worker count, batch size, dedup) — consumed by
         // BlobWriteQueue's ctor below.
@@ -431,11 +421,19 @@ public class Program
         });
 
         services.AddSingleton<BlobWorkerPump>();
+        services.AddHostedService(sp => sp.GetRequiredService<BlobWorkerPump>());
+        // Lazy wrapper lets BlobWriterFactory.CreateQueuedBlobWriter() resolve the pump
+        // on demand without forming a DI cycle (BlobWorkerPump itself takes IBlobWriterFactory).
+        services.AddSingleton(sp => new Lazy<BlobWorkerPump>(() => sp.GetRequiredService<BlobWorkerPump>()));
 
-        // Two-store split (both backed by the existing IBlobWriter → QueuedBlobWriter mapping above):
+        // Distinct binding for consumers that explicitly want the queued write path.
+        // Resolved through the factory so the wrapping logic lives in one place.
+        services.AddSingleton<IQueuedBlobWriter>(sp => sp.GetRequiredService<IBlobWriterFactory>().CreateQueuedBlobWriter());
+
+        // Two-store split:
         //   AsyncFileStore     → small one-shot blobs through the BlobWriteQueue (headers,
         //                        status messages, server-scope request snapshots). 1-RT
-        //                        UploadAsync per item.
+        //                        UploadAsync per item. Consumes IQueuedBlobWriter.
         //   AsyncStreamingStore → large/streamed response bodies bypassing the queue. Owns
         //                        a dedicated raw BlobWriter (from IBlobWriterFactory) whose
         //                        write path is BlobClient.OpenWriteAsync (~4 MiB transfer
@@ -447,9 +445,6 @@ public class Program
         services.AddSingleton<AsyncWorkerContext>();
         services.AddSingleton<TemplateLoader>();
         services.AddHostedService<TemplateLoader>(sp => sp.GetRequiredService<TemplateLoader>());
-
-        if (asyncClasses.ContainsKey("IAsyncFeeder"))
-            services.AddHostedService(sp => (AsyncFeeder)sp.GetRequiredService<IAsyncFeeder>());
     }
 
     private static void RegisterEventHeaders(IServiceCollection services, ILogger startupLogger, ProxyConfig backendOptions)
@@ -505,7 +500,15 @@ public class Program
 
         foreach (var loggername in enabledLoggers)
         {
-            if (loggername == "file")
+            if (loggername == "none")
+            {
+                startupLogger.LogInformation("[CONFIGS] Event logger 'none' specified, skipping event logger registration.");
+                // No clients will ever call CompositeEventClient.Add() to satisfy the gate,
+                // so close it via a startup hook.
+                services.AddHostedService(svc => new ReadinessMarker(svc.GetRequiredService<CompositeEventClient>()));
+                continue;
+
+            } else if (loggername == "file")
             {
                 services.AddSingleton<LogFileEventClient>(svc =>
                     new LogFileEventClient(backendOptions.LogFileName, svc.GetRequiredService<CompositeEventClient>(), svc.GetRequiredService<IOptions<ProxyConfig>>()));

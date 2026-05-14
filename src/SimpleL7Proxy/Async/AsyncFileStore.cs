@@ -4,18 +4,20 @@ namespace SimpleL7Proxy.Async;
 
 /// <summary>
 /// File-style store: small one-shot blobs that flow through the BlobWriteQueue.
-/// In async mode <see cref="IBlobWriter"/> is registered as <c>QueuedBlobWriter</c>, so
-/// stream-based calls here transparently go through the queue. <see cref="WriteAsync"/>
-/// bypasses the queue for minimum latency on already-materialized payloads.
+/// Injects <see cref="IQueuedBlobWriter"/> so the queued write path is explicit at the
+/// call site (rather than implicit through the <see cref="IBlobWriter"/> DI binding).
+/// <see cref="WriteAsync"/> bypasses the queue for minimum latency on already-materialized payloads.
 /// </summary>
 public sealed class AsyncFileStore : IAsyncFileStore
 {
-    private readonly IBlobWriter _writer;
+    private readonly IQueuedBlobWriter _writer;
 
-    public AsyncFileStore(IBlobWriter writer)
+    public AsyncFileStore(IQueuedBlobWriter writer)
     {
         _writer = writer ?? throw new ArgumentNullException(nameof(writer));
     }
+
+    public bool IsInitialized => _writer.IsInitialized;
 
     public Task<bool> InitializeClientAsync(string containerName)
         => _writer.InitClientAsync(containerName);

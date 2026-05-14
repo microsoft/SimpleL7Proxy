@@ -60,7 +60,7 @@ public class ProxyConfig
     [ConfigOption("Logging:LogHeaders")]
     public List<string> LogHeaders { get; set; } = [];
     [ConfigOption("Logging:LogToAI")]
-    public List<string> LogToAI { get; set; } = [""];
+    public List<string> LogToAI { get; set; } = ["*"];
     [ConfigOption("Logging:LogToConsole")]
     public List<string> LogToConsole { get; set; } = ["*"];
     [ConfigOption("Logging:LogToEvents")]
@@ -216,7 +216,7 @@ public class ProxyConfig
     [ConfigOption("Server:RequestPreprocessorPlugins", ConfigName = "RequestPreprocessorPlugins", Mode = ConfigMode.Cold)]
     public string RequestPreprocessorPlugins { get; set; } = "";
     [ConfigOption("Server:Port", Mode = ConfigMode.Cold)]
-    public int Port { get; set; } = 80;
+    public int Port { get; set; } = 8000;
     /// <summary>How often (in seconds) to run cleanup of stale shared iterators.</summary>
     [ConfigOption("Server:SharedIteratorCleanupIntervalSeconds", Mode = ConfigMode.Cold)]
     public int SharedIteratorCleanupIntervalSeconds { get; set; } = 30;

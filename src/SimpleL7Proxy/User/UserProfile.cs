@@ -14,8 +14,10 @@ using Microsoft.AspNetCore.Http;
 
 namespace SimpleL7Proxy.User;
 
-public class UserProfile : BackgroundService, IUserProfileService, IConfigChangeSubscriber
+public class UserProfile : BackgroundService, IUserProfileService, IConfigChangeSubscriber, IReadinessParticipant
 {
+    public ReadinessParticipantEnum Participant => ReadinessParticipantEnum.UserProfiles;
+    public ReadinessRegistry Readiness { get; }
     private readonly ProxyConfig _options;
 
     private volatile Dictionary<string, Dictionary<string, string>> userProfiles = new Dictionary<string, Dictionary<string, string>>();
@@ -58,13 +60,15 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
     private PeriodicTimer _timer =null!;   // these are defined in InitVars()
     private PeriodicTimer _ErrorTimer =null!;
     private PeriodicTimer _waitingConfigTimer = null!;
-    public UserProfile(ProxyConfig options, ConfigChangeNotifier configChangeNotifier, ILogger<UserProfile> logger)
+    public UserProfile(ProxyConfig options, ConfigChangeNotifier configChangeNotifier, ReadinessRegistry readiness, ILogger<UserProfile> logger)
     {
         ArgumentNullException.ThrowIfNull(options, nameof(options));
         ArgumentNullException.ThrowIfNull(logger, nameof(logger));
         ArgumentNullException.ThrowIfNull(configChangeNotifier, nameof(configChangeNotifier));
+        ArgumentNullException.ThrowIfNull(readiness, nameof(readiness));
 
         _options = options;
+        Readiness = readiness;
         _logger = logger;
         _userInformation = CreateDefaultAsyncClientInfoCache();
         _logger.LogInformation("[PROFILE] Required: {required}, Header: {Header}, Interval: {RefreshInterval}s, Soft-delete TTL: {SoftDeleteTTL} min, Config: {ConfigUrl}, Suspended: {SuspendedConfigUrl}, AuthAppID: {AuthAppIDConfigUrl}",
@@ -122,6 +126,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
         if (!doUserConfig)
         {
             isInitialized = true;
+            this.RegisterReady();
         }
         return Task.CompletedTask;
     }
@@ -171,6 +176,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
                 {
                     await _waitingConfigTimer.WaitForNextTickAsync(_cancellationTokenSource.Token).ConfigureAwait(false);
                     isInitialized = true;
+                    this.RegisterReady();
                     continue;
                 }
 
@@ -251,6 +257,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
 
                 // initilized if:  no errors && hasData  || users not required
                 isInitialized = !_configRequired || localIsInitialized;
+                if (isInitialized) this.RegisterReady();
                 // Console.WriteLine($"[PROFILE-DEBUG] Load {(success ? "succeeded" : "failed")}, Initialized: {isInitialized}, LocalIsInitialized: {localIsInitialized}");
 
                 if (success)
@@ -454,11 +461,6 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
         authAppIDsConfigStatus.UpdateConfigStatusByEntries(authAppIDs, authAppIDsStatus.Success);
 
         return authAppIDsStatus;
-    }
-
-    public bool ServiceIsReady()
-    {
-        return isInitialized;
     }
 
     private async Task<CurrentRequestStatus> ReadUserConfigAsync(string config, ParsingMode mode)

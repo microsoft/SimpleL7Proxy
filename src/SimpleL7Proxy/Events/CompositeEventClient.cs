@@ -11,8 +11,16 @@ namespace SimpleL7Proxy.Events;
 /// The hot-path (<see cref="SendData"/>) reads from a <see cref="FrozenDictionary{TKey,TValue}"/>
 /// snapshot that is rebuilt on every Add, giving zero-overhead iteration with no locking.
 /// </summary>
-public class CompositeEventClient : IEventClient
+public class CompositeEventClient : IEventClient, IReadinessParticipant
 {
+  public ReadinessParticipantEnum Participant => ReadinessParticipantEnum.EventClient;
+  public ReadinessRegistry Readiness { get; }
+
+  public CompositeEventClient(ReadinessRegistry readiness)
+  {
+    Readiness = readiness ?? throw new ArgumentNullException(nameof(readiness));
+  }
+
   private readonly object _lock = new();
   private readonly Dictionary<IEventClient, byte> _mutable = new();
   private volatile FrozenDictionary<IEventClient, byte> _frozen = FrozenDictionary<IEventClient, byte>.Empty;
@@ -29,6 +37,7 @@ public class CompositeEventClient : IEventClient
       _mutable[client] = 0;
       _frozen = _mutable.ToFrozenDictionary();
     }
+    this.RegisterReady(); // idempotent — first underlying client satisfies the gate
   }
 
   public async Task StopTimerAsync()

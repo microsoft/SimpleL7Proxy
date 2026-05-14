@@ -18,45 +18,36 @@ using Shared.HealthProbe;
 
 namespace SimpleL7Proxy;
 
-/// <summary>
-/// Optimized health check service that handles probe endpoints (/health, /readiness, /startup, /liveness).
-/// Called multiple times per second, so performance is critical.
-/// Also manages worker state tracking for monitoring and diagnostics.
-/// </summary>
+/// <summary>Serves probe endpoints (/health, /readiness, /startup, /liveness) and tracks per-worker state for diagnostics. Hot path — perf matters.</summary>
 public class HealthCheckService
 {
     private readonly IEndpointMonitorService _backends;
+    private readonly ReadinessRegistry _readiness;
     private static ProxyConfig _options=null!;
     private readonly IConcurrentPriQueue<RequestData>? _requestsQueue;
     private readonly IUserPriorityService? _userPriority;
     private readonly IEventClient? _eventClient;
     private readonly ISBQueueService? _sbQueueService;
     private readonly ISBTopicService? _sbTopicService;
-    private readonly IBlobWriter? _blobWriter;
+    private readonly IQueuedBlobWriter? _blobWriter;
     private readonly BlobWorkerPump? _blobWriteQueue;
-    private readonly IUserProfileService? _userProfileService;
     private readonly AppConfigService _appConfigService;
     private readonly Func<string> _getWorkerState;
     private readonly ILogger<HealthCheckService> _logger;
 
-    /// <summary>
-    /// Task that completes when backend startup (token acquisition, health polling) succeeds.
-    /// Callers can await this to block until backends are ready.
-    /// Set by <see cref="BeginStartupMonitoring"/>.
-    /// </summary>
-    public Task BackendStartupTask { get; private set; } = Task.CompletedTask;
-
-    // Cache for health check responses to reduce allocations
+    // Pre-allocated response buffer to avoid per-probe allocations.
     private readonly StringBuilder _stringBuilder;
 
-    // Worker state tracking - using individual fields for better clarity and performance
-    private static int _activeWorkers = 0;
-    private static bool _readyToWork = false;
+    // Set true once ReadinessRegistry signals all participants ready.
+    private volatile bool _systemReady;
 
-    // Track current state per worker ID
+    // Worker state tracking — flat fields for hot-path speed.
+    private static int _activeWorkers = 0;
+
+    // Current state per worker id.
     private static readonly ConcurrentDictionary<int, WorkerState?> _workerCurrentState = new();
 
-    // State counters for each worker state (thread-safe via Interlocked operations)
+    // Per-state counters (updated via Interlocked).
     private static int _dequeueingCount = 0;
     private static int _preProcessingCount = 0;
     private static int _proxyingCount = 0;
@@ -67,7 +58,6 @@ public class HealthCheckService
     private static int _cleanupCount = 0;
 
     public static int ActiveWorkers => _activeWorkers;
-    public static bool IsReadyToWork => System.Threading.Volatile.Read(ref _readyToWork);
 
     private int _lastGen2Count = 0;
     private DateTime _lastFinalizerDrain = DateTime.UtcNow;
@@ -81,18 +71,18 @@ public class HealthCheckService
         IEventClient? eventClient,
         ILogger<HealthCheckService> logger,
         AppConfigService appConfigService,
+        ReadinessRegistry readiness,
         ISBTopicService? sbTopicService = null,
-        IBlobWriter? blobWriter = null,
+        IQueuedBlobWriter? blobWriter = null,
         BlobWorkerPump? blobWriteQueue = null,
-        ISBQueueService? sbQueueService = null,
-        IUserProfileService? userProfileService = null)
+        ISBQueueService? sbQueueService = null)
     {
         _backends = backends ?? throw new ArgumentNullException(nameof(backends));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _appConfigService = appConfigService ?? throw new ArgumentNullException(nameof(appConfigService));
+        _readiness = readiness ?? throw new ArgumentNullException(nameof(readiness));
         _requestsQueue = requestsQueue;
         _userPriority = userPriority;
-        _userProfileService = userProfileService;
         _eventClient = eventClient;
         _sbTopicService = sbTopicService;
         _blobWriter = blobWriter;
@@ -104,53 +94,37 @@ public class HealthCheckService
         // Pre-allocate StringBuilder to reduce allocations
         _stringBuilder = new StringBuilder(512);
         s_finalizerDrainInterval = _options.GC2InternalSecs > 0 ? TimeSpan.FromSeconds(_options.GC2InternalSecs) : TimeSpan.FromMinutes(15);
+
+        // Cache readiness as a single bool so the hot probe path skips per-call evaluation.
+        _ = _readiness.WaitForReadyAsync().ContinueWith(
+            _ =>
+            {
+                var readyList = string.Join(", ", _readiness.Snapshot()
+                    .Where(s => s.IsReady)
+                    .Select(s => s.Participant));
+                _logger.LogInformation("[-READY-] {Participants}", readyList);
+                _systemReady = true;
+            },
+            TaskScheduler.Default);
     }
 
-    bool firstHealthCheck = true;
-    bool backendsStarted = false;
-    /// <summary>
-    /// Starts backend health polling and token acquisition.
-    /// Call once after backends have been registered (HostConfig.Initialize + RegisterBackends).
-    /// </summary>
-    public async Task BeginStartupMonitoring()
-    {
-        try
-        {
-            await _backends.WaitForStartupAsync().ConfigureAwait(false);
-            backendsStarted = true;
-             _logger.LogInformation("[STARTUP] ✓ HealthCheck Ready");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "[STARTUP] ✗ HealthCheck failed — {Message}", ex.Message);
-            throw;
-        }
-    }
-
-    /// <summary>
-    /// Get the current worker state string for monitoring/debugging
-    /// </summary>
+    /// <summary>Returns a compact one-line snapshot of worker count and per-state counters.</summary>
     public static string GetWorkerState()
     {
         return $"Count: {_activeWorkers} States: [ deq-{_dequeueingCount} pre-{_preProcessingCount} prxy-{_proxyingCount} -[snd-{_sendingCount} rcv-{_receivingCount}]-  wr-{_writingCount} rpt-{_reportingCount} cln-{_cleanupCount} ]";
     }
 
-    /// <summary>
-    /// Enter a worker state. Automatically exits the previous state if the worker was in one.
-    /// </summary>
-    /// <param name="workerId">The unique identifier of the worker</param>
-    /// <param name="newState">The state to enter</param>
+    /// <summary>Enters <paramref name="newState"/> for <paramref name="workerId"/>, auto-exiting any previous state.</summary>
     public static void EnterState(int workerId, WorkerState newState)
     {
         if ( !_options.TrackWorkers) return;
 
-        // Get and update the current state atomically
+        // Atomically swap the worker's current state, exiting the old one in the update callback.
         var oldState = _workerCurrentState.AddOrUpdate(
             workerId,
             newState,
             (_, currentState) =>
             {
-                // Exit the old state if one exists
                 if (currentState.HasValue)
                 {
                     ExitStateInternal(currentState.Value);
@@ -158,23 +132,18 @@ public class HealthCheckService
                 return newState;
             });
 
-        // If this is the first time we're seeing this worker, oldState will be the newState we just set
-        // Otherwise, oldState is the previous value and we've already exited it in the update function
+        // First-seen worker: oldState == newState (just set); otherwise old was already exited above.
         if (oldState.Equals(newState))
         {
-            // First time setting state for this worker - just enter the new state
             EnterStateInternal(newState);
         }
         else
         {
-            // We already exited the old state in the update function, just enter the new state
             EnterStateInternal(newState);
         }
     }
 
-    /// <summary>
-    /// Internal method to increment a state counter
-    /// </summary>
+    /// <summary>Increments the counter for <paramref name="state"/>.</summary>
     private static void EnterStateInternal(WorkerState state)
     {
         switch (state)
@@ -206,10 +175,7 @@ public class HealthCheckService
         }
     }
 
-    /// <summary>
-    /// Exit a worker state (decrements the state counter in a thread-safe manner)
-    /// </summary>
-    /// <param name="state">The state to exit</param>
+    /// <summary>Decrements the counter for <paramref name="state"/>.</summary>
     private static void ExitStateInternal(WorkerState state)
     {
         switch (state)
@@ -241,28 +207,19 @@ public class HealthCheckService
         }
     }
 
-    /// <summary>
-    /// Increment the active worker count and set ready status if all workers are active
-    /// </summary>
+    /// <summary>Increments and returns the active-worker count.</summary>
     public static int IncrementActiveWorkers(int totalWorkers)
     {
-        int count = Interlocked.Increment(ref _activeWorkers);
-        if (totalWorkers == count)
-        {
-            System.Threading.Volatile.Write(ref _readyToWork, true);
-        }
-        return count;
+        _ = totalWorkers;
+        return Interlocked.Increment(ref _activeWorkers);
     }
 
-    /// <summary>
-    /// Decrement the active worker count and clean up worker state tracking
-    /// </summary>
-    /// <param name="workerId">The unique identifier of the worker being shut down</param>
+    /// <summary>Decrements active workers and exits <paramref name="workerId"/>'s current state, if any.</summary>
     public static void DecrementActiveWorkers(int workerId)
     {
         Interlocked.Decrement(ref _activeWorkers);
 
-        // Exit the worker's current state if it has one
+        // Exit the worker's current state if it has one.
         if (_workerCurrentState.TryRemove(workerId, out var currentState) && currentState.HasValue)
         {
             ExitStateInternal(currentState.Value);
@@ -328,7 +285,7 @@ public class HealthCheckService
 
             case Constants.Health:
                 {
-                    // Use pre-allocated StringBuilder to reduce allocations
+                    // Pre-allocated StringBuilder, guarded by lock — reused across probe calls.
                     lock (_stringBuilder)
                     {
                         _stringBuilder.Clear();
@@ -387,13 +344,13 @@ public class HealthCheckService
                         _stringBuilder.Append('\n');
                         if (_options.AsyncModeEnabled)
                         {
-                            _stringBuilder.Append(" Backup API      : ").Append(_sbQueueService != null ? "Enabled" : "Disabled").Append('\n')
+                            _stringBuilder.Append(" SBQueue Service : ").Append(_sbQueueService != null ? "Enabled" : "Disabled").Append('\n')
                                 .Append(" Service Bus     : ").Append(_sbTopicService != null ? "Enabled" : "Disabled").Append('\n')
                                 .Append(" Blob Storage    : ").Append(_blobWriter != null ? "Enabled" : "Disabled").Append('\n');
                         }
                         else
                         {
-                            _stringBuilder.Append(" Async Services  : Off (Backup API, Service Bus, Blob Storage)\n");
+                            _stringBuilder.Append(" Async Services  : Off (SBQueue, Service Bus, Blob Storage)\n");
                         }
                         _stringBuilder.Append(" ProxyEvent Pool : ");
                         if (_options.ReuseEvents)
@@ -509,8 +466,8 @@ public class HealthCheckService
                     }
                     sb.Append('\n');
 
-                    // Backup API - inline
-                    sb.Append(" Backup API   : ");
+                    // SBQueue service - inline
+                    sb.Append(" SBQueue      : ");
                     if (_sbQueueService != null)
                     {
                         var eventStats = _sbQueueService.GetEventStatistics();
@@ -569,8 +526,7 @@ public class HealthCheckService
 
     public void RunPeriodicGC()
     {
-        // Periodically drain finalizers to release native memory from recycled HTTP connections.
-        // Only acts when a Gen2 GC has naturally occurred since the last drain — no forced collection.
+        // Drain finalizers periodically to release native memory from recycled HTTP connections — only when a Gen2 GC has naturally occurred (no forced collection).
         var gen2Count = GC.CollectionCount(2);
         if (gen2Count > _lastGen2Count && DateTime.UtcNow - _lastFinalizerDrain >= s_finalizerDrainInterval)
         {
@@ -582,29 +538,18 @@ public class HealthCheckService
 
     }
 
-    // Method to get overall health status for probes, used by ProbeServer
-    // Returns a tuple of (startupStatus, readinessStatus, activeUndrainedEvents) for more detailed monitoring
+    // Overall health status for probes (used by ProbeServer). Returns (startupStatus, readinessStatus, activeUndrainedEvents, blobQueueDepth).
     public (HealthStatusEnum, HealthStatusEnum, int, int) GetStatus()
     {
         int hostCount = _backends.ActiveHostCount();
-        bool hasFailed = _backends.CheckFailedStatusAsync(true).Result; 
-        bool profilesReady = _userProfileService?.ServiceIsReady() ?? true; // if user profile service is not configured, consider it ready
+        bool hasFailed = _backends.CheckFailedStatusAsync(true).Result;
 
         int activeEvents = _eventClient?.Count ?? 0;
         bool tooManyEvents = activeEvents > _options.MaxUndrainedEvents;
         bool eventsAreHealthy = _eventClient?.IsHealthy() == true;
         int blobQueueDepth = _blobWriteQueue?.QueueDepth ?? 0;
         bool blobQueueHealthy = blobQueueDepth <= _options.AsyncBlobMaxQueue;
-        var isReady = IsReadyToWork && backendsStarted && profilesReady && !tooManyEvents && blobQueueHealthy;
-
-        if (isReady && firstHealthCheck)
-        {
-            _logger.LogInformation("[-READY-] ✓ Workers ready, Profiles ready, Backends ready");
-            firstHealthCheck = false;
-        }
-
-        // Debug logging - remove after fixing
-        // Console.WriteLine($"[STARTUP-DEBUG] IsReadyToWork={isReady}, hasProfile={_userProfileService != null}, hostCount={hostCount}, hasFailed={hasFailed}, activeEvents={activeEvents}");
+        var isReady = _systemReady && !tooManyEvents && blobQueueHealthy;
 
         if (!isReady)
         {
