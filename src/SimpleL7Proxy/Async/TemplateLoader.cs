@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Text.Json;
 
@@ -21,8 +22,10 @@ namespace SimpleL7Proxy.Async;
 /// Runs during the hosted-service startup phase so that all dependencies are ready
 /// before Server and WorkerFactory begin accepting traffic.
 /// </summary>
-public sealed class TemplateLoader : IHostedService
+public sealed class TemplateLoader : IHostedService, IReadinessParticipant
 {
+    public ReadinessParticipantEnum Participant => ReadinessParticipantEnum.AsyncTemplates;
+    public ReadinessRegistry Readiness { get; }
     private const string TemplatesContainer = "templates";
 
     /// <summary>
@@ -39,25 +42,28 @@ public sealed class TemplateLoader : IHostedService
     private readonly ISBTopicService _sbTopicService;
     private readonly ISBQueueService _sbQueueService;
     private readonly IUserPriorityService _userPriorityService;
-    private readonly IBlobWriter _blobWriter;
+    private readonly IAsyncFileStore _fileStore;
     private readonly ProxyConfig _options;
     private readonly ILogger<TemplateLoader> _logger;
 
-    private readonly Dictionary<AsyncResponseTypeEnum, AsyncMessage> _templates = new();
+    // Concurrent: Populates this from multiple parallel tasks. 
+    private readonly ConcurrentDictionary<AsyncResponseTypeEnum, AsyncMessage> _templates = new();
 
     public TemplateLoader(
         ISBTopicService sbTopicService,
         ISBQueueService sbQueueService,
         IUserPriorityService userPriorityService,
-        IBlobWriter blobWriter,
+        IAsyncFileStore fileStore,
         IOptions<ProxyConfig> options,
+        ReadinessRegistry readiness,
         ILogger<TemplateLoader> logger)
     {
         _sbTopicService = sbTopicService;
         _sbQueueService = sbQueueService;
         _userPriorityService = userPriorityService;
-        _blobWriter = blobWriter;
+        _fileStore = fileStore;
         _options = options.Value;
+        Readiness = readiness;
         _logger = logger;
     }
 
@@ -129,14 +135,23 @@ public sealed class TemplateLoader : IHostedService
 
         _logger.LogInformation("[STARTUP] ✓ RequestData async statics initialized");
 
-        await LoadAllTemplatesAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await LoadAllTemplatesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Templates have been loaded (from blob or file) — or load was skipped/failed.
+            // Either way the loader's work is done; close the gate so dependents can proceed.
+            this.RegisterReady();
+        }
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     private async Task LoadAllTemplatesAsync(CancellationToken cancellationToken)
     {
-        if (!_blobWriter.IsInitialized)
+        if (!_fileStore.IsInitialized)
         {
             _logger.LogWarning("[STARTUP] BlobWriter not initialized; skipping load of '{Container}' templates and disabling async mode",
                 TemplatesContainer);
@@ -146,7 +161,7 @@ public sealed class TemplateLoader : IHostedService
 
         try
         {
-            await _blobWriter.InitClientAsync(TemplatesContainer).ConfigureAwait(false);
+            await _fileStore.InitializeClientAsync(TemplatesContainer).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -172,7 +187,7 @@ public sealed class TemplateLoader : IHostedService
         {
             string? body = null;
 
-            if (!await _blobWriter.BlobExistsAsync(TemplatesContainer, blobName).ConfigureAwait(false))
+            if (!await _fileStore.BlobExistsAsync(TemplatesContainer, blobName).ConfigureAwait(false))
             {
                 _logger.LogWarning("[STARTUP] Template blob '{Container}/{Blob}' ({Kind}) not found, attempting to load from templates folder",
                     TemplatesContainer, blobName, kind);
@@ -194,7 +209,7 @@ public sealed class TemplateLoader : IHostedService
             }
             else
             {
-                using var stream = await _blobWriter.ReadBlobAsStreamAsync(TemplatesContainer, blobName).ConfigureAwait(false);
+                using var stream = await _fileStore.ReadBlobAsStreamAsync(TemplatesContainer, blobName).ConfigureAwait(false);
                 using var reader = new StreamReader(stream);
                 body = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
             }

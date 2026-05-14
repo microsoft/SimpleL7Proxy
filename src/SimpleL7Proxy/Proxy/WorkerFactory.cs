@@ -9,8 +9,11 @@ using System.Threading;
 
 namespace SimpleL7Proxy.Proxy;
 
-public class WorkerFactory : BackgroundService
+public class WorkerFactory : BackgroundService, IReadinessParticipant
 {
+  public ReadinessParticipantEnum Participant => ReadinessParticipantEnum.Workers;
+  public ReadinessRegistry Readiness { get; }
+
   private readonly ProxyConfig _backendOptions;
   private readonly WorkerContext _context;
   private readonly ILogger<ProxyWorker> _logger;
@@ -21,12 +24,13 @@ public class WorkerFactory : BackgroundService
   private static readonly CancellationTokenSource _internalCancellationTokenSource = new();
 
   public WorkerFactory(
-    WorkerContext context)
+    WorkerContext context,
+    ReadinessRegistry readiness)
   {
     _context = context;
     _backendOptions = context.BackendOptions;
     _logger = context.Logger;
-    
+    Readiness = readiness ?? throw new ArgumentNullException(nameof(readiness));
   }
 
   protected override async Task ExecuteAsync(CancellationToken cancellationToken)
@@ -66,6 +70,17 @@ public class WorkerFactory : BackgroundService
     _logger.LogInformation($"[WORKER] ✓ Total: {_workers.Count} | Priority distribution: {string.Join(",", workerPriorities)}");
     foreach (var pw in _workers)
       _tasks.Add(Task.Run(() => pw.TaskRunnerAsync(), cancellationToken));
+
+    // Close the Workers readiness gate once enough TaskRunners have entered their loops.
+    // Matches the threshold ProxyWorker.TaskRunnerAsync uses to flip s_readyToWork.
+    _ = Task.Run(async () =>
+    {
+      while (HealthCheckService.ActiveWorkers < _backendOptions.Workers)
+      {
+        await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+      }
+      this.RegisterReady();
+    }, cancellationToken);
 
     await _shutdownSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
     

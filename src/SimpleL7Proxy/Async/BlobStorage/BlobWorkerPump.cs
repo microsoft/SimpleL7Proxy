@@ -7,6 +7,7 @@ using System.Threading.Channels;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using SimpleL7Proxy.Events;
 
 namespace SimpleL7Proxy.Async.BlobStorage
 {
@@ -89,8 +90,10 @@ namespace SimpleL7Proxy.Async.BlobStorage
     /// Each worker independently batches operations for the same container.
     /// Operations for the same blob are routed to the same worker via hashing.
     /// </summary>
-    public class BlobWorkerPump : IHostedService, IDisposable
+    public class BlobWorkerPump : IHostedService, IDisposable, IReadinessParticipant
     {
+        public ReadinessParticipantEnum Participant => ReadinessParticipantEnum.BlobWriter;
+        public ReadinessRegistry Readiness { get; }
         private readonly Channel<BlobWriteOperation>[] _workerChannels;
         private readonly List<Task> _workers;
         private readonly CancellationTokenSource _shutdownCts;
@@ -99,16 +102,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
         private readonly ILogger<BlobWorkerPump> _logger;
         private readonly BlobWriteQueueOptions _options;
         private readonly IBlobWriter _blobWriter;
-
-        // Metrics
-        private long _operationsQueued = 0;
-        private long _operationsCompleted = 0;
-        private long _operationsFailed = 0;
-        private long _operationsDeduplicated = 0;
-        private long _operationsInFlight = 0;
-        private long _batchesExecuted = 0;
-        private long _totalQueueTimeMs = 0;
-        private long _totalProcessTimeMs = 0;
+        private readonly BlobPumpMetrics _metrics;
         private volatile bool _isShuttingDown = false;
         private bool _isStarted = false;
         private Task? _stopTask;
@@ -122,14 +116,17 @@ namespace SimpleL7Proxy.Async.BlobStorage
         public BlobWorkerPump(
             IBlobWriterFactory blobWriterFactory,
             BlobWriteQueueOptions options,
+            ReadinessRegistry readiness,
             ILogger<BlobWorkerPump> logger)
         {
             _blobWriter = blobWriterFactory?.CreateBlobWriter() ?? throw new ArgumentNullException(nameof(blobWriterFactory));
             _options = options ?? throw new ArgumentNullException(nameof(options));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            Readiness = readiness ?? throw new ArgumentNullException(nameof(readiness));
             _shutdownCts = new CancellationTokenSource();
             _metricsLoopCts = new CancellationTokenSource();
             _workers = new List<Task>();
+            _metrics = new BlobPumpMetrics(_logger, () => _workerChannels.Sum(ch => ch.Reader.Count), () => _options.WorkerCount);
 
             // Create per-worker channels for worker affinity
             _workerChannels = new Channel<BlobWriteOperation>[_options.WorkerCount];
@@ -192,7 +189,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
             {
                 var workerId = GetWorkerForBlob(operation.ContainerName, operation.BlobName);
                 await _workerChannels[workerId].Writer.WriteAsync(operation, cancellationToken).ConfigureAwait(false);
-                Interlocked.Increment(ref _operationsQueued);
+                _metrics.IncrementQueued();
 
                 _logger.LogTrace(
                     "[BlobWr-Q] Enqueued {OperationId} to Worker-{WorkerId} - Container: {Container}, Blob: {Blob}, Size: {Size}B",
@@ -231,8 +228,9 @@ namespace SimpleL7Proxy.Async.BlobStorage
                     _workers.Add(Task.Run(() => WorkerLoop(workerId, _shutdownCts.Token), _shutdownCts.Token));
                 }
 
-                _workers.Add(Task.Run(() => MetricsLoop(_metricsLoopCts.Token), _metricsLoopCts.Token));
+                _workers.Add(Task.Run(() => _metrics.RunAsync(_metricsLoopCts.Token), _metricsLoopCts.Token));
                 _isStarted = true;
+                this.RegisterReady();
             }
             finally
             {
@@ -362,12 +360,15 @@ namespace SimpleL7Proxy.Async.BlobStorage
                 }
             }
 
-            var avgQueueTime = _operationsCompleted > 0 ? _totalQueueTimeMs / _operationsCompleted : 0;
-            var avgProcessTime = _operationsCompleted > 0 ? _totalProcessTimeMs / _operationsCompleted : 0;
+            var completed = _metrics.OperationsCompleted;
+            var avgQueueTime = completed > 0 ? _metrics.TotalQueueTimeMs / completed : 0;
+            var avgProcessTime = completed > 0 ? _metrics.TotalProcessTimeMs / completed : 0;
+            var qsize = _workerChannels.Sum(ch => ch.Reader.Count);
 
             _logger.LogInformation(
-                "[BlobWr-Q] ⏹  Stopped Σ Q={Queued} C={Completed} D={Dedup} Fail={Failed} B={Batches}  ║ avg q/p {AvgQueue}/{AvgProcess} ms",
-                _operationsQueued, _operationsCompleted, _operationsDeduplicated, _operationsFailed, _batchesExecuted,
+                "[BlobWr-Q] ⏹  Stopped  blobs={Completed} batches={Batches} qsize={QSize}  ║ Σ Q={Queued} D={Dedup} Fail={Failed}  ║ avg q/p {AvgQueue}/{AvgProcess} ms",
+                completed, _metrics.BatchesExecuted, qsize,
+                _metrics.OperationsQueued, _metrics.OperationsDeduplicated, _metrics.OperationsFailed,
                 avgQueueTime, avgProcessTime);
 
             _isStarted = false;
@@ -384,7 +385,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
 
                 await foreach (var operation in _workerChannels[workerId].Reader.ReadAllAsync(cancellationToken))
                 {
-                    Interlocked.Increment(ref _operationsInFlight);
+                    _metrics.IncrementInFlight();
                     try
                     {
                         if (_options.EnableBatching)
@@ -410,8 +411,8 @@ namespace SimpleL7Proxy.Async.BlobStorage
                             Exception = ex
                         });
 
-                        Interlocked.Increment(ref _operationsFailed);
-                        Interlocked.Decrement(ref _operationsInFlight);
+                        _metrics.IncrementFailed();
+                        _metrics.DecrementInFlight();
                     }
                 }
 
@@ -457,10 +458,8 @@ namespace SimpleL7Proxy.Async.BlobStorage
                     QueueTime = queueTime
                 });
 
-                Interlocked.Increment(ref _operationsCompleted);
-                Interlocked.Decrement(ref _operationsInFlight);
-                Interlocked.Add(ref _totalQueueTimeMs, (long)queueTime.TotalMilliseconds);
-                Interlocked.Add(ref _totalProcessTimeMs, sw.ElapsedMilliseconds);
+                _metrics.RecordWriteSuccess((long)queueTime.TotalMilliseconds, sw.ElapsedMilliseconds);
+                _metrics.DecrementInFlight();
 
                 _logger.LogTrace("[Worker-{WorkerId}] {OperationId} completed - Queue: {Queue}ms, Process: {Process}ms",
                     workerId, operation.OperationId, queueTime.TotalMilliseconds, sw.ElapsedMilliseconds);
@@ -481,8 +480,8 @@ namespace SimpleL7Proxy.Async.BlobStorage
                     QueueTime = queueTime
                 });
 
-                Interlocked.Increment(ref _operationsFailed);
-                Interlocked.Decrement(ref _operationsInFlight);
+                _metrics.IncrementFailed();
+                _metrics.DecrementInFlight();
             }
         }
 
@@ -516,7 +515,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
                     {
                         if (_workerChannels[workerId].Reader.TryRead(out var nextOperation))
                         {
-                            Interlocked.Increment(ref _operationsInFlight);
+                            _metrics.IncrementInFlight();
                             if (nextOperation.ContainerName == containerName)
                             {
                                 batchBuffer.Add(nextOperation);
@@ -599,8 +598,8 @@ namespace SimpleL7Proxy.Async.BlobStorage
                             });
                             
                             // Counted as Dedup only (disjoint from Completed)
-                            Interlocked.Increment(ref _operationsDeduplicated);
-                            Interlocked.Decrement(ref _operationsInFlight);
+                            _metrics.IncrementDeduplicated();
+                            _metrics.DecrementInFlight();
                         }
                     }
                 }
@@ -634,10 +633,8 @@ namespace SimpleL7Proxy.Async.BlobStorage
                             QueueTime = queueTime
                         });
 
-                        Interlocked.Increment(ref _operationsCompleted);
-                        Interlocked.Decrement(ref _operationsInFlight);
-                        Interlocked.Add(ref _totalQueueTimeMs, (long)queueTime.TotalMilliseconds);
-                        Interlocked.Add(ref _totalProcessTimeMs, opSw.ElapsedMilliseconds);
+                        _metrics.RecordWriteSuccess((long)queueTime.TotalMilliseconds, opSw.ElapsedMilliseconds);
+                        _metrics.DecrementInFlight();
                     }
                     catch (Exception ex)
                     {
@@ -657,15 +654,15 @@ namespace SimpleL7Proxy.Async.BlobStorage
                             QueueTime = queueTime
                         });
 
-                        Interlocked.Increment(ref _operationsFailed);
-                        Interlocked.Decrement(ref _operationsInFlight);
+                        _metrics.IncrementFailed();
+                        _metrics.DecrementInFlight();
                     }
                 });
 
                 await Task.WhenAll(writeTasks).ConfigureAwait(false);
 
                 sw.Stop();
-                Interlocked.Increment(ref _batchesExecuted);
+                _metrics.RecordBatchExecuted();
 
                 var results = await Task.WhenAll(deduplicatedOps.Select(op => op.GetResultAsync())).ConfigureAwait(false);
                 var successCount = results.Count(r => r.Success);
@@ -693,88 +690,8 @@ namespace SimpleL7Proxy.Async.BlobStorage
                         Duration = sw.Elapsed
                     });
 
-                    Interlocked.Increment(ref _operationsFailed);
-                    Interlocked.Decrement(ref _operationsInFlight);
-                }
-            }
-        }
-
-        // Snapshot counters for delta calculation between metrics intervals
-        private long _lastQueued = 0;
-        private long _lastCompleted = 0;
-        private long _lastFailed = 0;
-        private long _lastDeduplicated = 0;
-        private long _lastBatches = 0;
-
-        private async Task MetricsLoop(CancellationToken cancellationToken)
-        {
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                try
-                {
-                    // During shutdown, log more frequently to show progress
-                    var delay = _isShuttingDown 
-                        ? TimeSpan.FromSeconds(.5) 
-                        : TimeSpan.FromSeconds(_options.MetricsIntervalSeconds);
-                    
-                    await Task.Delay(delay, cancellationToken)
-                        .ConfigureAwait(false);
-
-                    // Snapshot current totals
-                    var queued = Interlocked.Read(ref _operationsQueued);
-                    var completed = Interlocked.Read(ref _operationsCompleted);
-                    var failed = Interlocked.Read(ref _operationsFailed);
-                    var deduplicated = Interlocked.Read(ref _operationsDeduplicated);
-                    var batches = Interlocked.Read(ref _batchesExecuted);
-
-                    // Calculate deltas since last report
-                    var deltaQueued = queued - _lastQueued;
-                    var deltaCompleted = completed - _lastCompleted;
-                    var deltaFailed = failed - _lastFailed;
-                    var deltaDeduplicated = deduplicated - _lastDeduplicated;
-                    var deltaBatches = batches - _lastBatches;
-
-                    var remaining = _workerChannels.Sum(ch => ch.Reader.Count);
-                    var inFlight = Interlocked.Read(ref _operationsInFlight);
-
-                    // Suppress redundant lines: if no counters moved AND nothing is queued or
-                    // in flight, the snapshot is identical to the last one — don't log it.
-                    if (deltaQueued == 0 && deltaCompleted == 0 && deltaFailed == 0
-                        && deltaDeduplicated == 0 && deltaBatches == 0
-                        && remaining == 0 && inFlight == 0)
-                    {
-                        continue;
-                    }
-
-                    // Update snapshots
-                    _lastQueued = queued;
-                    _lastCompleted = completed;
-                    _lastFailed = failed;
-                    _lastDeduplicated = deduplicated;
-                    _lastBatches = batches;
-
-                    var avgQueueTime = completed > 0 ? _totalQueueTimeMs / completed : 0;
-                    var avgProcessTime = completed > 0 ? _totalProcessTimeMs / completed : 0;
-
-                    // DIAGNOSTIC: Log queue depth + in-flight (dequeued but not yet completed)
-                    if (failed > 0)
-                    {
-                        _logger.LogWarning(
-                            "[BlobWr-Q] Δ Q+{DeltaQueued} C+{DeltaCompleted} Dup+{DeltaDeduplicated} Fail+{DeltaFailed} Bch+{DeltaBatches} (failed total: {TotalFailed})  ║ depth {Remaining} / inflight {InFlight}  ║ avg q/p {AvgQueue}/{AvgProcess} ms",
-                            deltaQueued, deltaCompleted, deltaDeduplicated, deltaFailed, deltaBatches, failed,
-                            remaining, inFlight, avgQueueTime, avgProcessTime);
-                    }
-                    else
-                    {
-                        _logger.LogInformation(
-                            "[BlobWr-Q] Δ Q+{DeltaQueued} C+{DeltaCompleted} Dup+{DeltaDeduplicated} Bch+{DeltaBatches}  ║ depth {Remaining} / inflight {InFlight}  ║ avg q/p {AvgQueue}/{AvgProcess} ms",
-                            deltaQueued, deltaCompleted, deltaDeduplicated, deltaBatches,
-                            remaining, inFlight, avgQueueTime, avgProcessTime);
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
+                    _metrics.IncrementFailed();
+                    _metrics.DecrementInFlight();
                 }
             }
         }
@@ -785,6 +702,220 @@ namespace SimpleL7Proxy.Async.BlobStorage
             _metricsLoopCts?.Dispose();
             _lifecycleLock.Dispose();
             GC.SuppressFinalize(this);
+        }
+    }
+
+    /// <summary>
+    /// Owns all metrics for <see cref="BlobWorkerPump"/>. Hot-path counters use Interlocked;
+    /// cascading windows (1m/10m/lifetime) are owned exclusively by <see cref="RunAsync"/> so
+    /// they need no synchronization. Per spec: every 10s a tick rolls the per-tick counter
+    /// into the 1m bucket; every 6 ticks the 1m bucket rolls into the 10m bucket; every 60
+    /// ticks the 10m bucket rolls into lifetime.
+    /// </summary>
+    internal sealed class BlobPumpMetrics
+    {
+        private readonly ILogger _logger;
+        private readonly Func<int> _queueDepthProvider;
+        private readonly Func<int> _workerCountProvider;
+
+        // Reusable metric event populated and sent once per minute.
+        private readonly ProxyEvent _metricEvent = new ProxyEvent
+        {
+            Type = EventType.Metric,
+            MetricValues = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase),
+        };
+
+        // Aggregate counters (Interlocked)
+        private long _operationsQueued;
+        private long _operationsCompleted;
+        private long _operationsFailed;
+        private long _operationsDeduplicated;
+        private long _operationsInFlight;
+        private long _batchesExecuted;
+        private long _totalQueueTimeMs;
+        private long _totalProcessTimeMs;
+
+        // Per-tick counters (Interlocked, hot path)
+        private long _tick10sCompleted;
+        private long _tick10sBatches;
+
+        // Cascading buckets (single-thread owned by RunAsync, no Interlocked needed)
+        private long _bucket1m;
+        private long _bucket1mBatches;
+        private long _bucket10m;
+        private long _bucket10mBatches;
+        private long _bucketLifetime;
+        private long _bucketLifetimeBatches;
+
+        public BlobPumpMetrics(ILogger logger, Func<int> queueDepthProvider, Func<int>? workerCountProvider = null)
+        {
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _queueDepthProvider = queueDepthProvider ?? throw new ArgumentNullException(nameof(queueDepthProvider));
+            _workerCountProvider = workerCountProvider ?? (() => 0);
+        }
+
+        public long OperationsQueued       => Interlocked.Read(ref _operationsQueued);
+        public long OperationsCompleted    => Interlocked.Read(ref _operationsCompleted);
+        public long OperationsFailed       => Interlocked.Read(ref _operationsFailed);
+        public long OperationsDeduplicated => Interlocked.Read(ref _operationsDeduplicated);
+        public long OperationsInFlight     => Interlocked.Read(ref _operationsInFlight);
+        public long BatchesExecuted        => Interlocked.Read(ref _batchesExecuted);
+        public long TotalQueueTimeMs       => Interlocked.Read(ref _totalQueueTimeMs);
+        public long TotalProcessTimeMs     => Interlocked.Read(ref _totalProcessTimeMs);
+
+        public void IncrementQueued()        => Interlocked.Increment(ref _operationsQueued);
+        public void IncrementInFlight()      => Interlocked.Increment(ref _operationsInFlight);
+        public void DecrementInFlight()      => Interlocked.Decrement(ref _operationsInFlight);
+        public void IncrementFailed()        => Interlocked.Increment(ref _operationsFailed);
+        public void IncrementDeduplicated()  => Interlocked.Increment(ref _operationsDeduplicated);
+
+        public void RecordWriteSuccess(long queueTimeMs, long processTimeMs)
+        {
+            Interlocked.Increment(ref _operationsCompleted);
+            Interlocked.Increment(ref _tick10sCompleted);
+            Interlocked.Add(ref _totalQueueTimeMs, queueTimeMs);
+            Interlocked.Add(ref _totalProcessTimeMs, processTimeMs);
+        }
+
+        public void RecordBatchExecuted()
+        {
+            Interlocked.Increment(ref _batchesExecuted);
+            Interlocked.Increment(ref _tick10sBatches);
+        }
+
+        public async Task RunAsync(CancellationToken cancellationToken)
+        {
+            int tickCount = 0;
+            long lastFailed = 0;
+            long lastDedup = 0;
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+
+                tickCount++;
+
+                var blobs10s   = Interlocked.Exchange(ref _tick10sCompleted, 0);
+                var batches10s = Interlocked.Exchange(ref _tick10sBatches, 0);
+                _bucket1m        += blobs10s;
+                _bucket1mBatches += batches10s;
+
+                if (tickCount % 6 == 0)
+                {
+                    _bucket10m         += _bucket1m;
+                    _bucket10mBatches  += _bucket1mBatches;
+                    _bucket1m = 0;
+                    _bucket1mBatches = 0;
+                }
+
+                if (tickCount % 60 == 0)
+                {
+                    _bucketLifetime         += _bucket10m;
+                    _bucketLifetimeBatches  += _bucket10mBatches;
+                    _bucket10m = 0;
+                    _bucket10mBatches = 0;
+                }
+
+                var qSize    = _queueDepthProvider();
+                var inFlight = Interlocked.Read(ref _operationsInFlight);
+                var failed   = Interlocked.Read(ref _operationsFailed);
+                var dedup    = Interlocked.Read(ref _operationsDeduplicated);
+
+                // Suppress periodic output when nothing has changed: no activity this tick,
+                // no in-flight work, empty queue, and no new failures/dedups since last log.
+                bool noChange = blobs10s == 0
+                             && batches10s == 0
+                             && qSize == 0
+                             && inFlight == 0
+                             && failed == lastFailed
+                             && dedup == lastDedup;
+
+                lastFailed = failed;
+                lastDedup = dedup;
+
+                if (noChange)
+                {
+                    continue;
+                }
+
+                // Coarse, human-scannable summary. Lifetime totals are emitted on shutdown;
+                // detailed time-series should go to App Insights metrics (TODO: metrics eventType).
+                _logger.LogInformation(
+                    "[BlobWr-Q] Wr ( 10s:{B10s}  1m:{B1m}  10m:{B10m} )  Bch ( 10s:{Bch10s}  1m:{Bch1m}  10m:{Bch10m} )  Q:{QSize}  InFlight:{InFlight}  Fail:{Failed}  Dup:{Dedup}",
+                    blobs10s, _bucket1m, _bucket10m,
+                    batches10s, _bucket1mBatches, _bucket10mBatches,
+                    qSize, inFlight, failed, dedup);
+
+                // Every minute (6 ticks @ 10s), emit a reusable metric event to App Insights / event client.
+                // Numeric values land in EventTelemetry.Metrics so they are queryable & aggregatable.
+                if (tickCount % 6 == 0)
+                {
+                    SendMetricEvent(qSize, inFlight, failed, dedup);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Populates the reusable per-minute metric event and dispatches it. Tracks deltas for
+        /// counter-like fields so dashboards can sum or rate them. Values are written as both
+        /// string properties (for the event-client/JSON path) and as numeric MetricValues
+        /// (for App Insights EventTelemetry.Metrics).
+        /// </summary>
+        private long _lastMetricCompleted;
+        private long _lastMetricBatches;
+        private long _lastMetricFailed;
+        private long _lastMetricDedup;
+        private void SendMetricEvent(int qSize, long inFlight, long failed, long dedup)
+        {
+            try
+            {
+                var completed = Interlocked.Read(ref _operationsCompleted);
+                var batches   = Interlocked.Read(ref _batchesExecuted);
+
+                long dBlobs   = completed - _lastMetricCompleted;
+                long dBatches = batches   - _lastMetricBatches;
+                long dFailed  = failed    - _lastMetricFailed;
+                long dDedup   = dedup     - _lastMetricDedup;
+                _lastMetricCompleted = completed;
+                _lastMetricBatches   = batches;
+                _lastMetricFailed    = failed;
+                _lastMetricDedup     = dedup;
+
+                int workers = _workerCountProvider();
+
+                _metricEvent.Reset();
+                _metricEvent.Type = EventType.Metric;
+                _metricEvent.MetricValues ??= new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+
+                // Source identifier so multiple metric emitters can coexist.
+                _metricEvent["Source"] = "BlobWr-Q";
+
+                void Put(string key, long value)
+                {
+                    _metricEvent[key] = value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    _metricEvent.MetricValues![key] = value;
+                }
+
+                Put("BlobsWritten",    dBlobs);
+                Put("BatchesWritten",  dBatches);
+                Put("QueueSize",       qSize);
+                Put("BlobWriters",     workers);
+                Put("InFlight",        inFlight);
+                Put("Failed",          dFailed);
+                Put("Dedup",           dDedup);
+
+                _metricEvent.SendEvent();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[BlobWr-Q] Failed to emit metric event");
+            }
         }
     }
 }

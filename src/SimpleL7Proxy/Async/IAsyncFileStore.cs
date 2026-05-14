@@ -18,6 +18,13 @@ namespace SimpleL7Proxy.Async;
 /// </summary>
 public interface IAsyncFileStore
 {
+    /// <summary>
+    /// True when the underlying blob client was successfully configured at startup.
+    /// Consumers can short-circuit on this before attempting container/blob operations
+    /// to avoid spurious failures when blob storage is unavailable.
+    /// </summary>
+    bool IsInitialized { get; }
+
     /// <summary>Ensures the container exists. Idempotent and single-flight per container name.</summary>
     Task<bool> InitializeClientAsync(string containerName);
 

@@ -193,7 +193,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
     /// Decorator for IBlobWriter that transparently queues write operations through BlobWriteQueue.
     /// Reads and metadata operations are passed through directly to the underlying writer.
     /// </summary>
-    public class QueuedBlobWriter : IBlobWriter
+    public class QueuedBlobWriter : IQueuedBlobWriter
     {
         private readonly IBlobWriter _underlyingWriter;
         private readonly BlobWorkerPump _queue;
@@ -228,10 +228,37 @@ namespace SimpleL7Proxy.Async.BlobStorage
             return new QueuedBlobStream(_queue, containerName, blobName, _logger);
         }
 
-        // Pass-through methods - these don't benefit from queuing
+        /// <summary>
+        /// Enqueues a fully-materialized small-blob payload onto the <see cref="BlobWorkerPump"/>
+        /// and awaits its completion. This is the small-blob path the pump was designed for —
+        /// it lets workers batch / deduplicate / coalesce writes across producers and is the
+        /// source of truth for the [BlobWr-Q] telemetry. Streaming/large payloads use
+        /// <see cref="CreateBlobAndGetOutputStreamAsync"/>; everything else bypasses the queue.
+        /// </summary>
+        public async Task UploadBlobAsync(string containerName, string blobName, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
+        {
+            // Ensure the container client is initialized on the underlying writer (the pump
+            // workers share the same factory-produced writer, so this primes the SDK client pool).
+            await _underlyingWriter.InitClientAsync(containerName).ConfigureAwait(false);
 
-        public Task UploadBlobAsync(string containerName, string blobName, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default) =>
-            _underlyingWriter.UploadBlobAsync(containerName, blobName, data, cancellationToken);
+            var operation = new BlobWriteOperation
+            {
+                ContainerName = containerName,
+                BlobName = blobName,
+                Data = data,
+            };
+
+            await _queue.EnqueueAsync(operation, cancellationToken).ConfigureAwait(false);
+
+            var result = await operation.GetResultAsync().ConfigureAwait(false);
+            if (!result.Success)
+            {
+                throw result.Exception ?? new InvalidOperationException(
+                    $"Queued blob upload failed for {containerName}/{blobName}: {result.ErrorMessage}");
+            }
+        }
+
+        // Pass-through methods - these don't benefit from queuing
 
         public Task<bool> BlobExistsAsync(string containerName, string blobName) =>
             _underlyingWriter.BlobExistsAsync(containerName, blobName);

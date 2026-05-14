@@ -9,8 +9,10 @@ using SimpleL7Proxy.Events;
 
 namespace SimpleL7Proxy.Backend
 {
-    public class BackendTokenProvider : IHostedService
+    public class BackendTokenProvider : IHostedService, IReadinessParticipant
     {
+        public ReadinessParticipantEnum Participant => ReadinessParticipantEnum.BackendTokens;
+        public ReadinessRegistry Readiness { get; }
         private readonly Dictionary<string, AccessToken> _tokenDict = new();
         private readonly Dictionary<string, DateTimeOffset> _tokenExpiryDict = new();
         private readonly HashSet<string> _audiences = new();
@@ -21,15 +23,20 @@ namespace SimpleL7Proxy.Backend
 
         public BackendTokenProvider(
             DefaultCredential defaultCredential,
+            ReadinessRegistry readiness,
             ILogger<BackendTokenProvider> logger)
         {
             _defaultCredential = defaultCredential;
+            Readiness = readiness;
             _logger = logger;
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
         {
             _cancellationToken = cancellationToken;
+            // No audiences = no tokens needed; readiness is satisfied immediately.
+            // Otherwise the refresh tasks (already running) will mark ready on first success.
+            if (_audiences.Count == 0) this.RegisterReady();
             return Task.CompletedTask;
         }
 
@@ -88,6 +95,7 @@ namespace SimpleL7Proxy.Backend
                             var token = await credential.GetTokenAsync(tokenRequestContext, _cancellationToken);
                             _tokenDict[audience] = token;
                             _tokenExpiryDict[audience] = token.ExpiresOn;
+                            this.RegisterReady(); // idempotent — first successful fetch satisfies the gate
                             _logger.LogInformation($"[TOKEN] Refreshed token for audience: {audience}, expires: {token.ExpiresOn}");
                             new ProxyEvent()
                             {
