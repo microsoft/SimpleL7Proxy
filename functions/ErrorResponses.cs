@@ -28,7 +28,7 @@ namespace Company.Function
         /// <summary>500 Internal Server Error \u2014 classified as a temporary error by the policy.</summary>
         [Function("error500")]
         public IActionResult Error500(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", Route = "error/500")] HttpRequest req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", Route = "error/500/{*suffix}")] HttpRequest req)
         {
             _logger.LogInformation("Returning 500");
             return new ContentResult { StatusCode = 500, Content = "Internal Server Error", ContentType = "text/plain" };
@@ -37,7 +37,7 @@ namespace Company.Function
         /// <summary>302 Found with a <c>Location</c> header \u2014 useful for redirect-handling tests.</summary>
         [Function("error302")]
         public IActionResult Error302(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", Route = "error/302")] HttpRequest req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", Route = "error/302/{*suffix}")] HttpRequest req)
         {
             // ?to=<url> overrides the default target. Defaults to /api/openai/v1/chat/completions on the same host.
             string defaultTarget = $"{req.Scheme}://{req.Host}/api/openai/v1/chat/completions";
