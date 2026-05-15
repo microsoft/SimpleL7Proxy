@@ -11,7 +11,7 @@ using SimpleL7Proxy.Async.ServiceBus.SBTopic;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.Events;
-using SimpleL7Proxy.Async.Feeder;
+using SimpleL7Proxy.Async.Jobs;
 using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.User;
@@ -128,6 +128,11 @@ public class RequestData : IDisposable, IAsyncDisposable
                 return RequestType.Sync;
             }
 
+            if (IsStatusCheck)
+            {
+                return RequestType.StatusCheck;
+            }
+
             if (IsBackgroundCheck)
             {
                 return RequestType.AsyncBackgroundCheck;
@@ -141,6 +146,12 @@ public class RequestData : IDisposable, IAsyncDisposable
             return RequestType.Async;
         }
     }
+
+    /// <summary>
+    /// Indicates the incoming request is a status-check poll for a previously submitted async request
+    /// (identified by the Guid header). Set by the worker after header inspection.
+    /// </summary>
+    public bool IsStatusCheck { get; set; } = false;
     
     public RequestAPIDocument? _requestAPIDocument; // For tracking async and background status updates
     public RequestAPIStatusEnum RequestAPIStatus

@@ -81,5 +81,11 @@ public enum RequestType
     /// URL is modified to append batch ID. If completed, final response is retrieved and stored.
     /// Triggered by backgroundReqChecker Azure Function.
     /// </summary>
-    AsyncBackgroundCheck = 3
+    AsyncBackgroundCheck = 3,
+
+    /// <summary>
+    /// Status check request - Client polling the proxy for the current status of a previously submitted async request.
+    /// Looks up state via RequestAPI / CheckStatus and returns it without re-invoking the backend.
+    /// </summary>
+    StatusCheck = 4
 }
