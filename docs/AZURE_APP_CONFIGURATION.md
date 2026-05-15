@@ -124,7 +124,8 @@ az containerapp update \
 
 ---
 
-## Automating Setup with the Deploy Script
+<details>
+<summary>Automating Setup with the Deploy Script</summary>
 
 **Instead of manual steps 1–4, use `deployment/AppConfiguration/deploy.sh` to automate everything at once.**
 
@@ -187,6 +188,8 @@ Run the script:
 | Restart Container App | `az containerapp update --name your-proxy-app --resource-group rg-proxy --force-deploy` | Container App pulls settings from App Configuration; logs show `✓ Azure App Configuration initialized` |
 | Change a Warm setting | Portal: edit `Warm:MaxAttempts=5` → Update `Warm:Sentinel=$(date +%s)` | All instances refresh within 30 s; no restart needed |
 
+</details>
+
 ---
 
 ## Per-Request Override
@@ -228,7 +231,8 @@ az appconfig kv set \
 
 ---
 
-## Worked Example
+<details>
+<summary>Worked Example</summary>
 
 > **Goal:** Raise `MaxAttempts` from 3 to 5 on a live deployment without restarting.
 
@@ -242,9 +246,12 @@ az appconfig kv set \
 
 **No deployment or restart is needed — the sentinel bump propagates to every running instance within the poll interval.**
 
+</details>
+
 ---
 
-## Monitoring
+<details>
+<summary>Monitoring</summary>
 
 The proxy emits these log entries around refresh:
 
@@ -258,6 +265,8 @@ The proxy emits these log entries around refresh:
 
 > [!TIP]
 > **Troubleshooting:** If `changes detected` never appears after a sentinel update, verify the label filter (`AZURE_APPCONFIG_LABEL`) matches the label used when importing the keys.
+
+</details>
 
 ---
 

@@ -1,79 +1,80 @@
-# SimpleL7Proxy: Enterprise AI Gateway for Azure
+# SimpleL7Proxy
 
-SimpleL7Proxy is a high-performance, intelligent Layer 7 router engineered to optimize **Large Language Model (LLM)** workloads. Deployed alongside **Azure API Management** and **AI Foundry**, it provides an advanced orchestration layer for LLM model providers.
+SimpleL7Proxy is an open-source Layer 7 proxy for Azure AI workloads. It sits between your clients and backend model endpoints, adding priority queuing, circuit breaking, load balancing, and request governance that a standard HTTP proxy or load balancer doesn't provide.
 
-Unlike proprietary gateways, SimpleL7Proxy is a **fully open-source, self-hosted solution,** offering unparalleled customization for data residency, sovereign cloud requirements (GCC High), and bespoke enterprise logic.
+It is self-hosted — you run it in your own environment, typically as an Azure Container App alongside Azure API Management and AI Foundry.
 
 > Need help diagnosing issues quickly? Start at [TroubleshootTOC.md](TroubleshootTOC.md).
 
-## Core Value Propositions
+## What problems does it solve?
 
-| Challenge | Enterprise-Grade Solution |
-|-----------|--------------------------|
-| **Workload Contention** | **Tiered Priority Queuing:** Preemptive scheduling ensures mission-critical AI requests bypass background batch processing. |
-| **Resource Monopolization** | **Fair-Share Governance:** Granular user/group throttling prevents "noisy neighbor" scenarios and ensures equitable capacity distribution. |
-| **System Instability** | **Self-Healing Resiliency:** Integrated Circuit Breaker and automated Retry patterns prevent backend failures from cascading into outages. |
-| **Observability Gaps** | **Streaming Telemetry:** Real-time capture of AI token metrics and consumption data, even across high-velocity streaming responses. |
-| **Regional Latency** | **Global Traffic Steering:** Intelligent multi-region load balancing with latency-based routing for optimal response times. |
-| **Timeout Constraints** | **Stateful Async Orchestration:** Native support for long-running requests (>30 min) via Azure Service Bus notifications and status tracking. |
-| **Compliance Barriers** | **Zero-Trust Connectivity:** Hardened with VNET Injection, Managed Identity, and OAuth2, purpose-built for regulated industries and Gov Cloud. |
+| Problem | How the proxy helps |
+|---------|---------------------|
+| Interactive requests blocked by batch jobs | Priority queuing: give interactive requests a higher priority so they don't wait behind batch work. |
+| One user consuming all capacity | Per-user throttling: limits how much of the queue any single user can occupy at once. |
+| Backend failures disrupting clients | Circuit breaker and retry: failing backends are skipped automatically and retried later when they recover. |
+| Token usage invisible in streaming responses | Token telemetry: captures token counts from streaming responses for cost tracking and chargebacks. |
+| Uneven backend response times | Load balancing: spreads requests across backends using round-robin, latency-based, or random ordering. |
+| Long-running AI tasks timing out | Async support: requests that exceed normal HTTP timeouts run asynchronously, with status updates via Service Bus. |
+| Running inside regulated or sovereign environments | VNet and Managed Identity: runs entirely inside your own VNet with no external data dependencies. |
 
 
 
-## The Open Source Advantage
+## Self-hosted and open source
 
-While commercial alternatives like Portkey.ai or Helicone offer managed services, and LiteLLM provides broad provider support, **SimpleL7Proxy** is uniquely optimized for the Azure ecosystem.
-By leveraging a self-hosted architecture on Azure Container Apps, organizations maintain complete ownership of the data plane. This eliminates third-party dependency, simplifies Azure API Management policy integration, and allows for deep extensibility that proprietary "black box" gateways cannot match.
+Since you run it yourself, you own the data plane — nothing leaves your environment. It integrates closely with Azure API Management and can be extended or forked to fit your needs.
+
+If you prefer a managed service and don't want to operate your own infrastructure, alternatives like Portkey.ai or Helicone may be a better fit.
 
 ## Supported Architectural Scenarios
 
-**SimpleL7Proxy** is designed to be the backbone of your AI platform, seamlessly integrating with:
+SimpleL7Proxy works well alongside:
 
-* **[Azure AI Foundry](AI_FOUNDRY_INTEGRATION.md):** Advanced routing and rate-limiting for model endpoints.
-* **[Azure API Management (APIM)](https://learn.microsoft.com/en-us/azure/api-management/api-management-key-concepts):** Enhancing the APIM platform with sophisticated queuing and async state management.
-* **[Custom APIM Policy](../APIM-Policy/readme.md):** A reference policy implementation for high-throughput, resilient backend connectivity.
-* **Sovereign & Hybrid Cloud:** Standardizing AI egress and governance across public and government regions.
-* **Multi-Cloud Portability:** The Docker-based architecture supports any orchestrator; organizations have successfully run the proxy in **AWS** and **GCP**.
+* **[Azure AI Foundry](AI_FOUNDRY_INTEGRATION.md):** routing and rate-limiting for model endpoints.
+* **[Azure API Management (APIM)](https://learn.microsoft.com/en-us/azure/api-management/api-management-key-concepts):** adds queuing and async capabilities on top of APIM's policy engine.
+* **[Custom APIM Policy](../APIM-Policy/readme.md):** a reference policy for connecting the proxy to APIM backends.
+* **Sovereign & Hybrid Cloud:** works in sovereign and government cloud regions.
+* **Other clouds:** the Docker image runs on any container platform; it has been used on AWS and GCP as well.
 
 ## When to Choose SimpleL7Proxy
 
 ### Ideal Use Cases
-* **Mixed Workloads**: You need to prevent batch processing (e.g., embeddings, summarization) from blocking interactive users (e.g., chat) using **Preemptive Priority Queuing**.
-* **Long-Running Operations**: Your AI tasks exceed standard HTTP timeouts (30+ minutes) and require **Async/Stateful** execution.
-* **Strict Compliance**: You require a **fully self-hosted** solution that runs entirely within your VNET (e.g., Gov Cloud) with no data egress to third-party gateways.
-* **Cost Management**: You want to maximize efficient use of fixed-capacity (PTU) throughput before spilling over to Pay-As-You-Go.
-* **Deep Observability**: You need to capture **Token Usage** metrics from streaming LLM responses for chargeback or auditing.
-* **Azure Stack integration**: This proxy is deeply integrated with **Azure Managed Identity**, **APIM**, **ACA** and **AI Foundry**.
+* **Mixed workloads:** you want batch jobs (embeddings, summarization) to yield to interactive requests (chat).
+* **Long-running requests:** your AI tasks can take 30 minutes or more and can't complete within a normal HTTP timeout.
+* **Strict compliance:** you need everything to run inside your own VNet with no external data dependencies.
+* **PTU cost control:** you want to maximize dedicated-capacity usage before falling back to Pay-As-You-Go.
+* **Token tracking:** you need accurate token counts from streaming responses for billing or auditing.
+* **Azure-native integration:** you're already using Managed Identity, APIM, Container Apps, and AI Foundry.
 
-### When to Consider Alternatives
-* **Managed Service Preference**: If you prefer a SaaS solution and do not want to manage [Azure Container Apps](https://learn.microsoft.com/en-us/azure/container-apps/overview) infrastructure, consider managed gateways like Portkey.ai or Helicone.
-* **Basic Routing**: If you only require simple round-robin load balancing without priority queuing or token inspection, standard [Azure Application Gateway](https://learn.microsoft.com/en-us/azure/application-gateway/overview) is less complex to maintain.
-* **Azure API Management (APIM)**: Offers native public/private gateways and streaming token counting. However, it does not support **Priority Queuing**, **User Profiles**, or deep **Stream Inspection/Modification**. *Note: When using APIM as a backend for SimpleL7Proxy, use our [Recommended High-Throughput Policy](../APIM-Policy/readme.md).*
+### When to consider alternatives
+* **You prefer a managed service:** if you don't want to operate your own infrastructure, consider Portkey.ai or Helicone.
+* **Simple routing is enough:** if you only need basic round-robin load balancing without priority queuing or token inspection, [Azure Application Gateway](https://learn.microsoft.com/en-us/azure/application-gateway/overview) is simpler to run.
+* **Azure API Management:** APIM has built-in public/private gateways and streaming token counting, but doesn't support priority queuing, user profiles, or stream inspection. When using APIM as a backend for SimpleL7Proxy, see the [recommended high-throughput policy](../APIM-Policy/readme.md).
 
 ## Capabilities
 
 ### Security
-- **Virtual Network Injection:** Secure mission-critical workloads with native **VNET Integration** and identity-based access through [Microsoft Entra ID (Managed Identity)](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview) across public and sovereign regions.
-- **Identity-Driven Edge Security:** Enforce **Zero Trust** principles with integrated **OAuth2 authentication** and customizable **Header Policy Enforcement** to validate or restrict inbound request structures.
-- **Dynamic Access Governance:** Centrally manage user and group permissions via **External Configuration Providers**, enabling real-time suspension or restriction of access without code changes.
+- **VNet support:** runs inside a VNet using [Managed Identity](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview) for authentication, including sovereign regions.
+- **OAuth2 and header validation:** validates or restricts incoming requests based on headers before forwarding them.
+- **Live access control:** suspend or restrict users via configuration without redeploying.
 
 ### Reliability
-- **Global Traffic Steering & Automated Failover:** Ensure business continuity with **Multi-Region Traffic Distribution** and high-speed **DNS Propagation** for instant disaster recovery.
-- **Resilient Request Handling:** Mitigate transient failures using automated **Retry Policies** and built-in **[Circuit Breaker](CIRCUIT_BREAKER.md)** patterns to protect backend health during outages.
-- **Dedicated Health Probing:** Ensure high availability under load with a dedicated **[Health Probe Sidecar](HEALTH_CHECKING.md)** architecture that isolates Kubernetes probes from request processing.
-- **Temporal Request Validation:** Maintain system integrity by automatically expiring stale requests via **TTL (Time-to-Live) Management**, preventing the processing of outdated data.
+- **Multi-region failover:** distribute traffic across regions and fail over when backends become unreachable.
+- **Retry and [circuit breaker](CIRCUIT_BREAKER.md):** retries failed requests on alternate backends; stops sending to backends that are consistently failing.
+- **[Sidecar health probes](HEALTH_CHECKING.md):** an optional sidecar serves health endpoints so high load won't cause false Kubernetes restarts.
+- **TTL expiry:** requests that wait too long in the queue are rejected rather than processed stale.
 
-### Performance Efficiency
-- **Intelligent Traffic Management:** Optimize response times with **Adaptive Load Balancing**, supporting latency-based, weighted round-robin, and randomized routing modes.
-- **Tiered Workload Prioritization:** Guarantee performance for critical tasks through **Configurable Priority Levels** and isolated **Dedicated Worker Threads**.
-- **Integrated Async/Sync Processing:** Deliver seamless user experiences with native support for both **Real-Time Synchronous** and **Decoupled Asynchronous** messaging patterns.
+### Performance
+- **Flexible load balancing:** choose between round-robin, latency-based, or random host selection.
+- **Priority queuing:** high-priority requests get dedicated workers and run before lower-priority ones.
+- **Sync and async:** handles standard HTTP requests and long-running async tasks via Service Bus.
 
-### Operational Excellence
-- **Advanced AI Observability:** Real-time **[Token Usage Telemetry](OBSERVABILITY.md)** for generative AI workloads, providing precise metric capture even for high-velocity **Streaming Responses**.
-- **Automated Resource Safeguards:** Prevent service degradation with **Proactive Throttling** and intelligent **Circuit Breaker rejection** when backend thresholds are exceeded.
+### Observability
+- **[Token telemetry](OBSERVABILITY.md):** captures token usage from streaming AI responses and sends it to Application Insights or Event Hubs.
+- **Throttling and circuit breaking:** limits queue depth and cuts off failing backends before they affect other users.
 
-### Cost Optimization
-- **Fair-Share Resource Governance:** Maximize ROI by preventing resource monopolization through **User-Level Throttling** and **Anti-Starvation** algorithms to ensure equitable allocation.
+### Cost
+- **Per-user throttling:** prevents any single user from consuming all available capacity.
 
 ## APIM Policy Scenarios
 

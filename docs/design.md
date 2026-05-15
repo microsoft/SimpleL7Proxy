@@ -2,7 +2,7 @@ This document serves as the high level description of the source code.
 
 ## Overview
 
-SimpleL7Proxy is a high-performance Layer 7 reverse proxy with intelligent backend selection. It receives incoming requests, queues them by priority, and routes them to healthy backends using configurable load balancing strategies.
+SimpleL7Proxy is a Layer 7 reverse proxy with configurable backend selection. It receives incoming requests, queues them by priority, and routes them to healthy backends using configurable load balancing strategies.
 
 ### Key Capabilities
 

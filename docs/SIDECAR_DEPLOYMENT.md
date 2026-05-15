@@ -160,7 +160,8 @@ cd ../../deployment/proxy-with-sidecar
 
 ---
 
-## Worked Example
+<details>
+<summary>Worked Example</summary>
 
 > **Setup:** ACR=`myacr`, proxy version `v2.1.0`, sidecar version `v1.3.0`.
 
@@ -173,9 +174,12 @@ cd ../../deployment/proxy-with-sidecar
 | Deploy | `./deploy.sh` | Bicep deploys both containers in one revision |
 | Verify | `az containerapp revision list ...` | New revision active, probes passing |
 
+</details>
+
 ---
 
-## Monitoring and Troubleshooting
+<details>
+<summary>Monitoring and Troubleshooting</summary>
 
 ### View logs per container
 
@@ -224,6 +228,8 @@ az containerapp show \
 | Container App cycling — probes failing | Sidecar not ready yet | `failureThreshold: 30` gives 5 minutes at 10 s intervals; check `health` container logs |
 | `AcrPull` permission denied on first deploy | RBAC not propagated yet | Re-run `deploy.sh` after waiting ~60 s, or run `setup.sh` again |
 | Proxy returns 503 on `/health` path | `HealthProbeSidecar` env var missing | Ensure `HealthProbeSidecar=enabled=true;url=http://localhost:9000` is set on proxy container |
+
+</details>
 
 ---
 
