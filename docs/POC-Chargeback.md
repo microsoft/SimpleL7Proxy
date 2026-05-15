@@ -64,17 +64,17 @@ The `userId` header value is forwarded to the backend and appears in request tel
 <details>
 <summary>Direct backend</summary>
 
-Set one `Host` environment variable per provider. The `path=` prefix tells the proxy which incoming URL paths belong to that host, and `processor=` selects the right token extractor. Only configure the hosts you actually need — all three are not required.
+Set one `Host` environment variable per provider. The `path=` prefix tells the proxy which incoming URL paths belong to that host, `processor=` selects the right token extractor, and `mode=direct` disables health probing (appropriate for Azure Functions which scale to zero). Only configure the hosts you actually need — all three are not required.
 
 ```bash
 # Azure OpenAI — handles requests to /openai/...
-export Host1="host=https://<funcapp>.azurewebsites.net;probe=/api/health;path=/openai;processor=OpenAI"
+export Host1="host=https://<funcapp>.azurewebsites.net;mode=direct;path=/openai;processor=OpenAI"
 
 # Anthropic — handles requests to /anthropic/...
-export Host2="host=https://<funcapp>.azurewebsites.net;probe=/api/health;path=/anthropic;processor=AllUsage-2"
+export Host2="host=https://<funcapp>.azurewebsites.net;mode=direct;path=/anthropic;processor=AllUsage-2"
 
 # Google Gemini — handles requests to /v1beta/...
-export Host3="host=https://<funcapp>.azurewebsites.net;probe=/api/health;path=/v1beta;processor=MultiLineAllUsage"
+export Host3="host=https://<funcapp>.azurewebsites.net;mode=direct;path=/v1beta;processor=MultiLineAllUsage"
 ```
 
 </details>
@@ -96,6 +96,12 @@ The included policy already does this in its `<outbound>` block:
 ```
 
 Change the value to match the model family the policy is routing to (`OpenAI`, `AllUsage-2`, or `MultiLineAllUsage`). If the policy routes to multiple providers, use a policy expression to set it conditionally based on whichever backend was selected.
+
+The host config does not need a `processor=` value — the header overrides it at runtime. Use `mode=apim` with a probe path so the proxy health-checks the gateway:
+
+```bash
+export Host1="host=https://<apim>.azure-api.net;mode=apim;probe=/status-0123456789abcdef"
+```
 
 </details>
 
