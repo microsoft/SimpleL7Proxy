@@ -1,10 +1,14 @@
 # LLM Simulator (Azure Function)
 
-A drop-in **LLM simulator** that speaks Azure OpenAI, OpenAI, Anthropic, and Google Gemini at the real provider URL shapes. Every endpoint returns a canned response from [`Samples/`](./Samples/), so any client, SDK, proxy, or gateway works against it unchanged.
+This project provides a simple, practical way to simulate LLM endpoints without needing access to real models.
 
-Use it for zero-cost, deterministic LLM responses in CI, integration tests, retry / failover demos, APIM and proxy policy validation, load testing, and offline development — no tokens, no rate limits, no real model latency. Built-in `/error/429` (with `Retry-After`), `/error/500`, `/error/302`, and `/delay` endpoints let you inject failures to exercise retry, circuit-breaker, and timeout logic. Streaming and at-once modes are supported on every model route and can be flipped per request, per header, or globally with one env var.
+It implements the request and response shapes of Azure OpenAI, OpenAI, Anthropic, and Google Gemini, and returns deterministic responses from local sample files. The goal is to help you build, test, and validate systems that depend on LLMs — without cost, rate limits, or external dependencies.
 
-A pre-built `function.zip` is included, so you can drag it into any Azure Function App and be running in under a minute. The source is also here if you'd rather build it yourself with the .NET 9 SDK and Azure Functions Core Tools.
+If you're working on client SDKs, proxies, gateways, retry logic, or platform integrations, this can save a lot of time and remove uncertainty during development. Because it mirrors the real provider URL shapes, your existing code usually points at it unchanged.
+
+It also covers the failure cases that are hardest to test against a real API: `429 Too Many Requests` with a real `Retry-After` header, `500`, `302`, and a configurable-latency `/delay` endpoint. These make it straightforward to verify that your retry logic, failover policies, and circuit breakers actually work before you depend on them in production.
+
+Streaming is supported on every model route alongside standard responses, and can be toggled per-request, per-header, or globally with a single environment variable. A pre-built `function.zip` is included so you can get it running in an Azure Function App without a local build. The source is here too if you want to add sample files or new routes.
 
 ## Run it on Azure Functions (recommended)
 
