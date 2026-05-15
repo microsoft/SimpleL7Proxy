@@ -27,11 +27,14 @@ idempotent):
 ```
 1) Prerequisites              (Prereq/validate.sh)
 2) Virtual Network            (VNet/deploy.sh)
-3) Build Container Image      (ContainerImage/deploy.sh)
-4) Azure Container Apps       (proxy-with-sidecar/deploy.sh)
-5) Private DNS                (DNS/deploy.sh)
-6) App Configuration          (AppConfiguration/deploy.sh)
-7) Blob Storage  (optional)   (BlobStorage/deploy.sh)
+3) Validate/Create ACR        (ContainerImage/validate-acr.sh)
+4) Build Container Image      (ContainerImage/deploy.sh)
+5) Azure Container Apps       (proxy-with-sidecar/deploy.sh)
+6) Private DNS                (DNS/deploy.sh)
+7) App Configuration          (AppConfiguration/deploy.sh)
+8) Blob Storage  (optional)   (BlobStorage/deploy.sh)
+9) Create RequestAPI Function (RequestAPI/create.sh)
+10) Deploy/Update RequestAPI  (RequestAPI/deploy.sh)
 q) Quit
 ```
 
@@ -60,7 +63,7 @@ cp deploy.parameters.example.sh deploy.parameters.sh
 | `CONTAINER_APP_RESOURCE_GROUP` | ACA, BlobStorage, AppConfiguration | `rg-myapp-prod` | RG that holds the Container App. Often the same as `NETWORK_RESOURCE_GROUP` |
 | `STORAGE_RESOURCE_GROUP` | BlobStorage | `rg-myapp-storage` | RG for the storage account (only needed for async workflows) |
 | `APPCONFIG_RESOURCE_GROUP` | AppConfiguration | `rg-myapp-appconfig` | RG for the App Configuration store |
-| `ACR_NAME` | ContainerImage, ACA | `acrsimplel7proxy` | Azure Container Registry name (no `.azurecr.io` suffix). **Must be globally unique across Azure.** Created automatically by Step 3 if it doesn't exist |
+| `ACR_NAME` | ContainerImage, ACA | `acrsimplel7proxy` | Azure Container Registry name (no `.azurecr.io` suffix). **Must be globally unique across Azure.** Validated by Step 3 before image builds |
 | `PROXY_IMAGE_NAME` | ContainerImage, ACA | `simple-l7-proxy` | Repository name within ACR for the proxy image |
 | `HEALTH_IMAGE_NAME` | ContainerImage, proxy-with-sidecar | `healthprobe` | Repository name within ACR for the health-probe image |
 | `CONTAINER_APP_NAME` | ACA, proxy-with-sidecar, BlobStorage, AppConfiguration | `ca-myapp-proxy` | Name of the Container App |
@@ -68,11 +71,11 @@ cp deploy.parameters.example.sh deploy.parameters.sh
 | `HOST1` | ACA, proxy-with-sidecar | `host=https://your-api.azure-api.net;mode=apim;path=/;probe=/health` | Primary backend descriptor |
 
  > [!NOTE]
-> **ACR auto-creation:** You do not need to create the Azure Container Registry before deploying.
-> Step 3 (`ContainerImage/build.sh`) checks whether `ACR_NAME` exists and creates it automatically
-> if it doesn't (using `ACR_SKU`, defaulting to `Basic`). However, ACR names must be **globally
-> unique** across all of Azure. If the default `acrsimplel7proxy` is taken, append a unique suffix
-> (e.g., `acrsimplel7proxy42`). Verify availability with:
+> **ACR validation:** Run Step 3 before building images.
+> Step 3 (`ContainerImage/validate-acr.sh`) checks whether `ACR_NAME` exists and asks before creating
+> it if missing (using `ACR_SKU`, defaulting to `Basic`). ACR names must be **globally unique** across
+> all of Azure. If the default `acrsimplel7proxy` is taken, append a unique suffix (e.g.,
+> `acrsimplel7proxy42`). Verify availability with:
 > ```bash
 > az acr check-name --name <your-acr-name>
 > ```
@@ -100,14 +103,14 @@ Edit only if the defaults overlap with existing networks in your subscription.
 | `DOCKERFILE_PATH` | `SimpleL7Proxy/Dockerfile` | Dockerfile path under `src/` |
 | `PROXY_VERSION_OVERRIDE` | *(empty)* | Override version tag; otherwise auto-extracted from `src/SimpleL7Proxy/Constants.cs` |
 | `HEALTHPROBE_VERSION_OVERRIDE` | *(empty)* | Override health-probe tag; otherwise auto-extracted from `src/HealthProbe/Constants.cs` |
-| `ACR_SKU` | `Basic` | SKU for ACR if created by Step 3 (`Basic` / `Standard` / `Premium`) |
+| `ACR_SKU` | `Basic` | SKU for ACR if Step 3 creates it (`Basic` / `Standard` / `Premium`) |
 
 ### Private DNS
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `DNS_ZONE_NAME` | `internal.contoso.com` | Private DNS zone, linked to the VNet |
-| `ACA_INTERNAL_FQDN` | *(empty)* | Set after Step 4 deploys (e.g. `ca-myapp-proxy.internal.eastus.azurecontainerapps.io`) |
+| `ACA_INTERNAL_FQDN` | *(empty)* | Set after Step 5 deploys (e.g. `ca-myapp-proxy.internal.eastus.azurecontainerapps.io`) |
 | `ACA_RECORD_NAME` | `ca-myapp-proxy` | Short CNAME pointing to `ACA_INTERNAL_FQDN` |
 | `APIM_PRIVATE_IP` | *(empty)* | Set if APIM is in `snet-apim` |
 | `APIM_RECORD_NAME` | `apim` | A record for APIM |
@@ -124,7 +127,7 @@ Edit only if the defaults overlap with existing networks in your subscription.
 | `ENABLE_APP_INSIGHTS` | `true` | Wires the ACA env to Log Analytics |
 | `LOG_ANALYTICS_WORKSPACE_NAME` | `log-myapp` | Created if `ENABLE_APP_INSIGHTS=true` |
 
-### Sidecar variant (Step 4 — `proxy-with-sidecar/deploy.sh`)
+### Sidecar variant (Step 5 — `proxy-with-sidecar/deploy.sh`)
 
 The sidecar deployment runs the proxy + a `HealthProbe` container in the
 same Container App.
@@ -140,11 +143,11 @@ same Container App.
 | `ENABLE_HTTPS` | `true` | Terminate TLS at the ACA ingress |
 | `REVISION_MODE` | `single` | `single` or `multiple` |
 
-### Blob Storage (Step 7 — async only)
+### Blob Storage (Step 8 — async only)
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `STORAGE_ACCOUNT_NAME` | `myappstorage` | Account name. **Must be globally unique across Azure.** Created automatically by Step 7 if it doesn't exist. Use 3-24 lowercase letters and numbers only |
+| `STORAGE_ACCOUNT_NAME` | `myappstorage` | Account name. **Must be globally unique across Azure.** Created automatically by Step 8 if it doesn't exist. Use 3-24 lowercase letters and numbers only |
 | `STORAGE_SKU` | `Standard_LRS` | `Standard_LRS` / `Standard_GRS` / `Standard_ZRS` / `Standard_RAGRS` |
 | `CREATE_CONTAINERS` | `true` | Create the blob containers below |
 | `BLOB_CONTAINERS` | `templates simplel7proxy` | Space-separated container names |
@@ -152,7 +155,7 @@ same Container App.
 
 > [!NOTE]
 > **Blob Storage auto-creation:** You do not need to create the storage account before deploying.
-> Step 7 (`BlobStorage/deploy.sh`) checks whether `STORAGE_ACCOUNT_NAME` exists in `STORAGE_RESOURCE_GROUP`
+> Step 8 (`BlobStorage/deploy.sh`) checks whether `STORAGE_ACCOUNT_NAME` exists in `STORAGE_RESOURCE_GROUP`
 > and creates it automatically if it doesn't. However, storage account names must be **globally unique**
 > across all of Azure and can only contain lowercase letters and numbers. If the default `myappstorage`
 > is taken, append a unique suffix (e.g., `myappstorage42`). Verify availability with:
@@ -160,11 +163,11 @@ same Container App.
 > az storage account check-name --name <yourstorageaccountname>
 > ```
 
-### App Configuration (Step 6)
+### App Configuration (Step 7)
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `APPCONFIG_NAME` | `myapp-appcfg` | Store name. **Must be globally unique across Azure.** Created automatically by Step 6 if it doesn't exist |
+| `APPCONFIG_NAME` | `myapp-appcfg` | Store name. **Must be globally unique across Azure.** Created automatically by Step 7 if it doesn't exist |
 | `APPCONFIG_SKU` | `standard` | `standard` or `free` |
 | `APPCONFIG_LABEL` | *(empty)* | Optional label for `Warm:*` keys |
 | `AZURE_APPCONFIG_REFRESH_SECONDS` | `30` | Hot-reload interval written to `Warm:RefreshSeconds` |
@@ -172,10 +175,10 @@ same Container App.
 
 > [!NOTE]
 > **App Configuration auto-creation:** You do not need to create the App Configuration store before deploying.
-> Step 6 (`AppConfiguration/deploy.sh`) checks whether `APPCONFIG_NAME` exists in `APPCONFIG_RESOURCE_GROUP`
+> Step 7 (`AppConfiguration/deploy.sh`) checks whether `APPCONFIG_NAME` exists in `APPCONFIG_RESOURCE_GROUP`
 > and creates it automatically if it doesn't. However, App Configuration names must be **globally unique**
 > across all of Azure. If the default `myapp-appcfg` is taken, append a unique suffix
-> (e.g., `myapp-appcfg42`) and rerun Step 6; Azure validates availability during creation.
+> (e.g., `myapp-appcfg42`) and rerun Step 7; Azure validates availability during creation.
 
 ### Auto-computed (do not edit)
 
@@ -198,11 +201,12 @@ folder explain the underlying behavior.
 |---|---|---|---|
 | 1 | `Prereq/`             | `validate.sh` | Verifies `az`, `jq`, `python3`, Bash, and active Azure login |
 | 2 | `VNet/`               | `deploy.sh`   | Creates VNet + subnets in `NETWORK_RESOURCE_GROUP` |
-| 3 | `ContainerImage/`     | `deploy.sh`   | Creates ACR if it doesn't exist, then builds proxy image (or locally) and tags with `Constants.cs` version |
-| 4 | `proxy-with-sidecar/` | `deploy.sh`   | Deploys ACA env + Container App with proxy + health-probe sidecar |
-| 5 | `DNS/`                | `deploy.sh`   | Creates private DNS zone, VNet link, and CNAME → ACA FQDN |
-| 6 | `AppConfiguration/`   | `deploy.sh`   | Creates App Configuration store and seeds `Warm:*` / `Cold:*` keys |
-| 7 | `BlobStorage/`        | `deploy.sh`   | (optional, async only) creates storage account + blob containers + role assignment |
+| 3 | `ContainerImage/`     | `validate-acr.sh` | Validates ACR and asks before creating it if missing |
+| 4 | `ContainerImage/`     | `deploy.sh`   | Builds proxy and health-probe images and tags them with versions from `Constants.cs` |
+| 5 | `proxy-with-sidecar/` | `deploy.sh`   | Deploys ACA env + Container App with proxy + health-probe sidecar |
+| 6 | `DNS/`                | `deploy.sh`   | Creates private DNS zone, VNet link, and CNAME → ACA FQDN |
+| 7 | `AppConfiguration/`   | `deploy.sh`   | Creates App Configuration store and seeds `Warm:*` / `Cold:*` keys |
+| 8 | `BlobStorage/`        | `deploy.sh`   | (optional, async only) creates storage account + blob containers + role assignment |
 
 There is also an `ACA/deploy.sh` (proxy-only, no sidecar) — **dev/test
 only**, exposed only via the legacy README.
@@ -212,7 +216,7 @@ only**, exposed only via the legacy README.
 ## Production order
 
 ```
-1 → 2 → 3 → 4 → 5 → 6   (+ 7 for async workflows)
+1 → 2 → 3 → 4 → 5 → 6 → 7   (+ 8 for async workflows)
 ```
 
 Re-running any step is safe (every script is idempotent).
@@ -223,9 +227,9 @@ Re-running any step is safe (every script is idempotent).
 
 | Task | Steps |
 |---|---|
-| Update backend config without redeploy | menu → `6` |
-| Roll a new proxy version | menu → `3`, then `4` |
-| Add a DNS record | edit `deploy.parameters.sh`, menu → `5` |
+| Update backend config without redeploy | menu → `7` |
+| Roll a new proxy version | menu → `3`, then `4`, then `5` |
+| Add a DNS record | edit `deploy.parameters.sh`, menu → `6` |
 | Tear it all down | `az group delete -n <NETWORK_RESOURCE_GROUP>` (and the others if separate) |
 
 See [DAY2_OPERATIONS.md](DAY2_OPERATIONS.md) for the full day-2 reference.

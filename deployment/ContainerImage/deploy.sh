@@ -34,14 +34,12 @@ fi
 # Required parameters
 ACR_NAME="${ACR_NAME:?'ACR_NAME must be set'}"
 IMAGE_NAME="${IMAGE_NAME:?'IMAGE_NAME (or PROXY_IMAGE_NAME) must be set'}"
-CONTAINER_APP_RESOURCE_GROUP="${CONTAINER_APP_RESOURCE_GROUP:?'CONTAINER_APP_RESOURCE_GROUP must be set'}"
 
 # Optional
 BUILD_METHOD="${BUILD_METHOD:-remote}"  # remote (default) or local
 DOCKERFILE_PATH="${DOCKERFILE_PATH:-SimpleL7Proxy/Dockerfile}"
 HEALTH_IMAGE_NAME="${HEALTH_IMAGE_NAME:-healthprobe}"
 HEALTH_DOCKERFILE_PATH="${HEALTH_DOCKERFILE_PATH:-HealthProbe/Dockerfile}"
-ACR_SKU="${ACR_SKU:-Basic}"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -57,34 +55,25 @@ echo -e "${BLUE}Building SimpleL7Proxy Container Image${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
-# Ensure resource group exists
-echo -e "${YELLOW}Ensuring resource group ${CONTAINER_APP_RESOURCE_GROUP} exists...${NC}"
-GROUP_CREATE_ERROR_FILE="$(mktemp)"
-if ! az group create --name "${CONTAINER_APP_RESOURCE_GROUP}" --location "${LOCATION:-eastus}" --output none 2>"${GROUP_CREATE_ERROR_FILE}"; then
-    if grep -q "ResourceGroupBeingDeleted" "${GROUP_CREATE_ERROR_FILE}"; then
-        echo -e "${RED}Error: Resource group '${CONTAINER_APP_RESOURCE_GROUP}' is currently being deleted.${NC}"
-        echo -e "${YELLOW}Wait for deletion to finish, or update CONTAINER_APP_RESOURCE_GROUP in deploy.parameters.sh to a different name and rerun Step 3.${NC}"
-    else
-        cat "${GROUP_CREATE_ERROR_FILE}" >&2
-    fi
-    rm -f "${GROUP_CREATE_ERROR_FILE}"
+# Validate ACR exists before building. Creation is handled by validate-acr.sh.
+if ! command -v az >/dev/null 2>&1; then
+    echo -e "${RED}Error: Azure CLI is not installed.${NC}"
     exit 1
 fi
-rm -f "${GROUP_CREATE_ERROR_FILE}"
-echo -e "${GREEN}✓ Resource group ready${NC}"
 
-# Ensure ACR exists (idempotent)
-echo -e "${YELLOW}Ensuring ACR ${ACR_NAME} exists...${NC}"
-if az acr show --name "${ACR_NAME}" --resource-group "${CONTAINER_APP_RESOURCE_GROUP}" --output none 2>/dev/null; then
-    echo -e "${GREEN}✓ ACR already exists${NC}"
+echo -e "${YELLOW}Checking Azure login status...${NC}"
+if ! az account show >/dev/null 2>&1; then
+    echo -e "${YELLOW}Authenticating to Azure...${NC}"
+    az login >/dev/null
+fi
+
+echo -e "${YELLOW}Validating ACR ${ACR_NAME} exists...${NC}"
+if az acr show --name "${ACR_NAME}" --output none 2>/dev/null; then
+    echo -e "${GREEN}✓ ACR found${NC}"
 else
-    echo -e "${YELLOW}Creating ACR ${ACR_NAME} (SKU: ${ACR_SKU})...${NC}"
-    az acr create \
-        --name "${ACR_NAME}" \
-        --resource-group "${CONTAINER_APP_RESOURCE_GROUP}" \
-        --sku "${ACR_SKU}" \
-        --output none
-    echo -e "${GREEN}✓ ACR created${NC}"
+    echo -e "${RED}Error: ACR '${ACR_NAME}' was not found in the current subscription.${NC}"
+    echo -e "${YELLOW}Run ./validate-acr.sh first, or create the registry manually and rerun this build step.${NC}"
+    exit 1
 fi
 echo ""
 
@@ -184,17 +173,6 @@ if [ "${BUILD_METHOD}" = "local" ]; then
     
 elif [ "${BUILD_METHOD}" = "remote" ]; then
     echo -e "${YELLOW}Building remotely in Azure Container Registry...${NC}"
-    
-    if ! command -v az >/dev/null 2>&1; then
-        echo -e "${RED}Error: Azure CLI is not installed.${NC}"
-        exit 1
-    fi
-    
-    # Check Azure CLI login
-    if ! az account show >/dev/null 2>&1; then
-        echo -e "${YELLOW}Authenticating to Azure...${NC}"
-        az login
-    fi
     
     ACR_SERVER="${ACR_NAME}.azurecr.io"
     

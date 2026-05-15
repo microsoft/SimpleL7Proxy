@@ -4,12 +4,13 @@
 # Consolidated Deployment Parameters for SimpleL7Proxy
 # =============================================================================
 # Copy this file to deploy.parameters.sh in this same folder, edit values,
-# then run any subfolder's deploy.sh / setup.sh. They will all
+# then run any subfolder's validate.sh / deploy.sh / setup.sh. They will all
 # read from this single file.
 #
 #   cp deploy.parameters.example.sh deploy.parameters.sh
 #   vi deploy.parameters.sh
 #   ./VNet/deploy.sh
+#   ./ContainerImage/validate-acr.sh
 #   ./ContainerImage/deploy.sh
 #   ./ACA/deploy.sh
 #   ...

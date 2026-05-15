@@ -191,25 +191,39 @@ if ! az functionapp show --name "$FUNCTION_APP" --resource-group "$RESOURCE_GROU
     exit 1
 fi
 
-# Deploy to Azure Flex Consumption.
-# Note: the legacy `az functionapp deployment source config-zip` targets the
-# Kudu /api/zipdeploy endpoint which Flex doesn't expose. Flex uses the
-# /api/publish (One Deploy) endpoint via `az functionapp deploy`. The CLI
-# dispatches based on the app's SKU automatically.
+# Deploy to Azure Flex Consumption. Deployment storage auth is configured by
+# deployment/RequestAPI/create.sh so this works even when storage local auth is
+# disabled by policy.
 log "INFO" "Deploying to Azure Functions Flex Consumption..."
-if ! az functionapp deployment source config-zip \
+set +e
+DEPLOY_OUTPUT=$(az functionapp deployment source config-zip \
     --resource-group "$RESOURCE_GROUP" \
     --name "$FUNCTION_APP" \
-    --src "$ZIP_FILE"; then
-    log "ERROR" "Deployment failed"
-    exit 1
-fi
+    --src "$ZIP_FILE" 2>&1)
+DEPLOY_RC=$?
+set -e
+echo "$DEPLOY_OUTPUT"
 
-log "INFO" "Deployment completed successfully"
+if [ "$DEPLOY_RC" -ne 0 ]; then
+    if echo "$DEPLOY_OUTPUT" | grep -q "Failed to fetch host key" && \
+        az functionapp function list --resource-group "$RESOURCE_GROUP" --name "$FUNCTION_APP" --query "[].name" -o tsv 2>/dev/null | grep -q .; then
+        log "WARN" "Package deployment completed, but Azure CLI could not fetch a host key for its post-deploy health check. Functions are visible in Azure."
+    else
+        log "ERROR" "Deployment failed"
+        exit 1
+    fi
+else
+    log "INFO" "Deployment completed successfully"
+fi
 
 # Verify deployment
 log "INFO" "Verifying deployment..."
 sleep 10  # Wait for deployment to stabilize
-if ! az functionapp show --name "$FUNCTION_APP" --resource-group "$RESOURCE_GROUP" --query "state" -o tsv | grep -q "Running"; then
+APP_STATE=$(az functionapp show --name "$FUNCTION_APP" --resource-group "$RESOURCE_GROUP" --query "state" -o tsv 2>/dev/null || true)
+if [ "$APP_STATE" = "Running" ]; then
+    log "INFO" "Function app is running."
+elif az functionapp function list --name "$FUNCTION_APP" --resource-group "$RESOURCE_GROUP" --query "[].name" -o tsv 2>/dev/null | grep -q .; then
+    log "INFO" "Deployed functions are visible in Azure."
+else
     log "WARN" "Function app may not be running properly. Please check the Azure portal"
 fi

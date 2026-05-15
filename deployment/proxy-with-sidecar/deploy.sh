@@ -81,6 +81,21 @@ az account show &> /dev/null || {
 SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 echo -e "${GREEN}Using subscription: ${SUBSCRIPTION_ID}${NC}"
 
+echo -e "${YELLOW}Ensuring resource group ${RESOURCE_GROUP} exists...${NC}"
+GROUP_CREATE_ERROR_FILE="$(mktemp)"
+if ! az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none 2>"${GROUP_CREATE_ERROR_FILE}"; then
+    if grep -q "ResourceGroupBeingDeleted" "${GROUP_CREATE_ERROR_FILE}"; then
+        echo -e "${RED}Error: Resource group '${RESOURCE_GROUP}' is currently being deleted.${NC}"
+        echo -e "${YELLOW}Wait for deletion to finish, or update CONTAINER_APP_RESOURCE_GROUP in deploy.parameters.sh to a different name and rerun this step.${NC}"
+    else
+        cat "${GROUP_CREATE_ERROR_FILE}" >&2
+    fi
+    rm -f "${GROUP_CREATE_ERROR_FILE}"
+    exit 1
+fi
+rm -f "${GROUP_CREATE_ERROR_FILE}"
+echo -e "${GREEN}✓ Resource group ready${NC}"
+
 # Get or create Container Apps Environment
 echo -e "${YELLOW}Getting Container Apps Environment...${NC}"
 MANAGED_ENV_ID=$(az containerapp env show \
@@ -143,14 +158,14 @@ if [ -n "$REGISTRY_SERVER" ]; then
             echo -e "${GREEN}✓ Found ${IMAGE_REPO}:${IMAGE_TAG}${NC}"
         else
             echo -e "${RED}Error: Missing ACR image ${IMAGE_REPO}:${IMAGE_TAG}.${NC}"
-            echo -e "${YELLOW}Run ../ContainerImage/build.sh before deploying the Container App.${NC}"
+            echo -e "${YELLOW}Run ../ContainerImage/validate-acr.sh, then ../ContainerImage/deploy.sh before deploying the Container App.${NC}"
             exit 1
         fi
     done
 fi
 
 # Note: Host1, Workers, Port, AsyncModeEnabled, HealthProbeSidecar are now
-# served from Azure App Configuration (Step 6). They are no longer baked
+# served from Azure App Configuration (Step 7). They are no longer baked
 # into the Container App env vars.
 
 # Ensure the Container App has a managed identity and AcrPull before deploying private ACR images.

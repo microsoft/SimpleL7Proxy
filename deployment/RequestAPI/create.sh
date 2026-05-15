@@ -240,6 +240,12 @@ az functionapp config appsettings set \
         "CosmosDb__ContainerName=${REQUESTAPI_COSMOS_CONTAINER}" \
     >/dev/null
 
+az functionapp config appsettings delete \
+    -g "${REQUESTAPI_RESOURCE_GROUP}" \
+    -n "${REQUESTAPI_FUNCTION_APP}" \
+    --setting-names AzureWebJobsStorage DEPLOYMENT_STORAGE_CONNECTION_STRING \
+    >/dev/null 2>&1 || true
+
 # ----------------------------------------------------------------------------
 # 6. RBAC
 # ----------------------------------------------------------------------------
@@ -260,6 +266,38 @@ log INFO "Granting storage roles..."
 assign_role "Storage Blob Data Owner"        "${STORAGE_ID}"
 assign_role "Storage Queue Data Contributor" "${STORAGE_ID}"
 assign_role "Storage Table Data Contributor" "${STORAGE_ID}"
+
+DEPLOYMENT_STORAGE_URL=$(az functionapp deployment config show \
+    -g "${REQUESTAPI_RESOURCE_GROUP}" \
+    -n "${REQUESTAPI_FUNCTION_APP}" \
+    --query storage.value -o tsv 2>/dev/null || true)
+DEPLOYMENT_STORAGE_CONTAINER="${DEPLOYMENT_STORAGE_URL##*/}"
+if [ -z "${DEPLOYMENT_STORAGE_CONTAINER}" ] || [ "${DEPLOYMENT_STORAGE_CONTAINER}" = "${DEPLOYMENT_STORAGE_URL}" ]; then
+    DEPLOYMENT_STORAGE_CONTAINER="app-package-${REQUESTAPI_FUNCTION_APP}"
+fi
+
+if ! az storage container-rm exists \
+        --resource-group "${STORAGE_RG}" \
+        --storage-account "${REQUESTAPI_STORAGE_ACCOUNT}" \
+        --name "${DEPLOYMENT_STORAGE_CONTAINER}" \
+        --query exists -o tsv 2>/dev/null | grep -qx "true"; then
+    log INFO "Creating deployment storage container ${DEPLOYMENT_STORAGE_CONTAINER}..."
+    az storage container-rm create \
+        --resource-group "${STORAGE_RG}" \
+        --storage-account "${REQUESTAPI_STORAGE_ACCOUNT}" \
+        --name "${DEPLOYMENT_STORAGE_CONTAINER}" \
+        --public-access off \
+        >/dev/null
+fi
+
+log INFO "Configuring deployment storage to use system-assigned managed identity..."
+az functionapp deployment config set \
+    -g "${REQUESTAPI_RESOURCE_GROUP}" \
+    -n "${REQUESTAPI_FUNCTION_APP}" \
+    --deployment-storage-name "${REQUESTAPI_STORAGE_ACCOUNT}" \
+    --deployment-storage-container-name "${DEPLOYMENT_STORAGE_CONTAINER}" \
+    --deployment-storage-auth-type SystemAssignedIdentity \
+    >/dev/null
 
 # Service Bus namespace (must exist)
 SB_NS_ID=$(az servicebus namespace show \

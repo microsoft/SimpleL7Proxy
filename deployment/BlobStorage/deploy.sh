@@ -196,44 +196,24 @@ fi
 if [ "${CREATE_CONTAINERS,,}" = "true" ]; then
     echo -e "${YELLOW}Creating blob containers (CREATE_CONTAINERS=true)...${NC}"
 
-    # Container creation uses Azure AD auth (--auth-mode login) because
-    # storage accounts may have shared-key auth disabled. The signed-in
-    # user therefore needs data-plane access on the account.
-    SIGNED_IN_PRINCIPAL_ID="$(az ad signed-in-user show --query id -o tsv 2>/dev/null || true)"
-    if [ -n "${SIGNED_IN_PRINCIPAL_ID}" ]; then
-        EXISTING_USER_ROLE="$(az role assignment list \
-            --assignee "${SIGNED_IN_PRINCIPAL_ID}" \
-            --role "Storage Blob Data Contributor" \
-            --scope "${STORAGE_RESOURCE_ID}" \
-            --query "[0].id" -o tsv 2>/dev/null || true)"
-
-        if [ -z "${EXISTING_USER_ROLE}" ]; then
-            echo -e "${YELLOW}Assigning 'Storage Blob Data Contributor' to current user for container management...${NC}"
-            az role assignment create \
-                --assignee "${SIGNED_IN_PRINCIPAL_ID}" \
-                --role "Storage Blob Data Contributor" \
-                --scope "${STORAGE_RESOURCE_ID}" \
-                >/dev/null
-            echo -e "${YELLOW}Waiting for RBAC propagation (30s)...${NC}"
-            sleep 30
-        fi
-    fi
-
+    # Container creation uses Azure Resource Manager, not the blob data plane.
+    # This keeps setup working when storage network rules block the operator's
+    # current client IP from calling the blob endpoint directly.
     for CONTAINER in ${BLOB_CONTAINERS}; do
-        EXISTS="$(az storage container exists \
+        EXISTS="$(az storage container-rm exists \
             --name "${CONTAINER}" \
-            --account-name "${STORAGE_ACCOUNT_NAME}" \
-            --auth-mode login \
+            --storage-account "${STORAGE_ACCOUNT_NAME}" \
+            --resource-group "${RESOURCE_GROUP}" \
             --query exists -o tsv 2>/dev/null || echo "false")"
 
         if [ "${EXISTS}" = "true" ]; then
             echo -e "${GREEN}  ✓ Container '${CONTAINER}' already exists${NC}"
         else
             echo -e "${YELLOW}  Creating container '${CONTAINER}'...${NC}"
-            az storage container create \
+            az storage container-rm create \
                 --name "${CONTAINER}" \
-                --account-name "${STORAGE_ACCOUNT_NAME}" \
-                --auth-mode login \
+                --storage-account "${STORAGE_ACCOUNT_NAME}" \
+                --resource-group "${RESOURCE_GROUP}" \
                 --public-access off \
                 >/dev/null
             echo -e "${GREEN}  ✓ Container '${CONTAINER}' created${NC}"
