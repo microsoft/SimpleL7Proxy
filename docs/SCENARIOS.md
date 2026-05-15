@@ -1,6 +1,6 @@
-# Configuration Scenarios
+# Configuration Examples
 
-This document provides various configuration examples for different deployment scenarios using SimpleL7Proxy.
+This document shows configuration snippets for common scenarios.
 
 ## Basic Setup
 
@@ -17,12 +17,10 @@ Timeout=3000
 
 This creates a listener on port 8000 and checks the health of two hosts every 1.5 seconds. Incoming requests are proxied to the server with the lowest latency. Requests timeout after 3 seconds.
 
-## High Availability Configuration
-
-For production environments requiring high availability, configure multiple hosts with strict health monitoring:
+## Multiple backends
 
 ```bash
-# Backend configuration for high availability
+# Three backends; health-checked every 5 seconds
 Host1=https://primary.example.com
 Host2=https://secondary.example.com
 Host3=https://tertiary.example.com
@@ -36,9 +34,7 @@ Workers=20
 MaxQueueLength=50
 ```
 
-## Security-Focused Configuration
-
-For environments requiring strict security controls:
+## Header validation and security
 
 ```bash
 # Security-focused configuration
@@ -52,9 +48,7 @@ UseOAuth=true
 OAuthAudience=api://your-app-id
 ```
 
-## Performance-Optimized Configuration
-
-For high-throughput scenarios:
+## High throughput
 
 ```bash
 # Performance optimization
@@ -67,9 +61,7 @@ PollInterval=10000
 Timeout=5000
 ```
 
-## Async Processing Configuration
-
-For long-running request processing:
+## Async processing
 
 ```bash
 # Service Level Configuration
@@ -84,9 +76,7 @@ LogAllResponseHeaders=true
 APPINSIGHTS_CONNECTIONSTRING=InstrumentationKey=...
 ```
 
-## Regional Deployment Configuration
-
-For multi-region deployments:
+## Multi-region
 
 ```bash
 # Regional configuration
@@ -100,9 +90,7 @@ DnsRefreshTimeout=60000
 PollInterval=8000
 ```
 
-## Container Apps Configuration
-
-When deploying to Azure Container Apps:
+## Azure Container Apps
 
 ```bash
 # Container Apps specific
@@ -115,9 +103,7 @@ LogAllRequestHeaders=true
 LogConsoleEvent=true
 ```
 
-## Development Configuration
-
-For development environments with verbose logging:
+## Development
 
 ```bash
 # Development configuration

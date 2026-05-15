@@ -1,17 +1,17 @@
-# Advanced Configuration Guide
+# Advanced Configuration
 
-This document provides detailed explanations and examples for the more complex configuration scenarios in SimpleL7Proxy.
+This page covers configuration scenarios that go beyond the basic setup: priority mapping, header validation rules, and per-user throttling.
 
 ## Table of Contents
 - [Priority Management](#priority-management)
 - [Header Validation](#header-validation)
 - [User Governance](#user-governance)
 
-## Priority Management
+## Priority mapping
 
-SimpleL7Proxy allows you to map incoming request headers to internal priority levels and assign dedicated resources to those priorities.
+The proxy maps a request header value to an internal priority level, then assigns dedicated worker threads to each level.
 
-### Understanding the Components
+### How it works
 
 1.  **Incoming Trigger**: The proxy looks for a specific header (default: `S7PPriorityKey`) in the request.
 2.  **Mapping**: The value of that header is matched against `PriorityKeys` and mapped to a corresponding value in `PriorityValues`.
@@ -19,16 +19,14 @@ SimpleL7Proxy allows you to map incoming request headers to internal priority le
 
 ### Configuration Variables
 
-| Variable | Usage |
-| bound | --- |
+| Variable | Description |
+|----------|-------------|
 | `PriorityKeyHeader` | The HTTP header name to inspect (e.g., `S7PPriorityKey` or `X-Priority-ID`). |
 | `PriorityKeys` | A comma-separated list of expected values in the header. |
 | `PriorityValues` | A comma-separated list of internal priority integers (lower number = higher priority typically, but depends on implementation. Default is usually lower = higher). |
 | `PriorityWorkers` | A mapping string defining worker threads per priority level. |
 
-### Example Scenario
-
-You have three tiers of service: **Platinum** (Key: `plat`), **Gold** (Key: `gold`), and **Standard** (no key).
+### Example
 
 1.  **Define the Header**:
     ```bash
@@ -68,9 +66,9 @@ DefaultPriority=3
 
 ---
 
-## Header Validation
+## Header validation
 
-You can enforce that a request header's value appears in a comma-separated allow-list stored in another header using `ValidateHeaders`. This is typically combined with **User Profiles**, where the allow-list header is injected from the profile.
+You can enforce that a header's value appears in an allowlist stored in another header. This is often combined with **User Profiles**, where the allowlist header is injected from the profile.
 
 ### Format
 
@@ -116,13 +114,13 @@ If validation fails, the request is rejected with HTTP **417 Expectation Failed*
 
 ---
 
-## User Governance
+## User throttling
 
-These settings control how the proxy manages resource usage per user to prevent noisy neighbor issues.
+These settings limit how much of the queue a single user can occupy.
 
-### User Priority Threshold (`UserPriorityThreshold`)
+### `UserPriorityThreshold`
 
-This setting prevents a single user from dominating the high-priority queues.
+If a user's active requests exceed this fraction of the total queue, their new requests are deprioritized until their share drops back below the threshold.
 
 *   **Type**: Float (0.0 to 1.0) representing a percentage.
 *   **Default**: `0.1` (10%)

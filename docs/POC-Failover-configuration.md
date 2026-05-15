@@ -172,7 +172,8 @@ In both cases the next `<retry>` cycle finds Backend A throttled, Backend B avai
 
 This POC drives the timeout path because it's easy to reproduce with the `delay` function. In production traffic against Azure OpenAI you will most often see the `429` path; both flow through the same failover logic. To exercise the `429` path directly with the simulator, see [Variant — drive the 429 path](#variant--drive-the-429-path-with-the-simulator) below.
 
-## Variant — drive the 429 path with the simulator
+<details>
+<summary>Variant — drive the 429 path with the simulator</summary>
 
 The LLM Simulator's `/api/error/429` endpoint returns a real `429 Too Many Requests` response with a `Retry-After` header, immediately. Swapping Backend A's URL to this endpoint exercises the second failover path with the exact same policy — same two-backend setup, same verification steps, but the failed attempt takes milliseconds instead of seconds.
 
@@ -223,6 +224,7 @@ Throttling [0] by 10s, likely timeout, deltaSeconds=5.0
 
 The timeout path is easier to set up, but the 429 path is closer to what you'll actually see in production. Azure OpenAI returns `429` with a `Retry-After` header when it's under load — it doesn't wait for your client to time out. Running this variant confirms that the policy correctly reads the header and applies the backend's own cool-down value rather than the hard-coded fallback. It also makes iteration faster: you can test short (`?retryAfter=1`) and long (`?retryAfter=60`) throttle windows by changing a query parameter.
 
+</details>
 
 ## Verifying the POC
 
@@ -262,7 +264,8 @@ This sequence is easy to observe manually:
 2. Fire request #2 within 10s → 1 attempt, fast, succeeds on Backend B (no timeout). `x-Backend-Attempts: 1`.
 3. Wait > 10s, fire request #3 → 2 attempts again (Backend A is re-tried, times out, fails over).
 
-## Tuning and further exploration
+<details>
+<summary>Tuning and further exploration</summary>
 
 Once the basic POC is working, a few variations are worth trying:
 
@@ -270,8 +273,14 @@ Once the basic POC is working, a few variations are worth trying:
 - **Point Backend A at a non-routable host:** the policy classifies unreachable endpoints the same way as timeouts and will still fail over — useful for confirming behaviour during infrastructure failures.
 - **Test the requeue path:** set `requeue: true` and `retryCount: 0`. With no retries left after the timeout, the policy returns `429 + S7PREQUEUE: true + retry-after-ms` — the signal that tells SimpleL7Proxy to re-enqueue the request rather than return an error.
 - **Send a burst:** the delay function uses a normal distribution (mean = your `?delay` value, stddev ~200ms). A burst of concurrent requests lets you watch the throttle window open and close on Backend A in real time.
-## Notes
+
+</details>
+
+<details>
+<summary>Notes</summary>
 
 - `BufferResponse: true` on Backend A is fine for this POC. The policy doesn't attempt to stream from an endpoint that's timing out.
 - The 10-second throttle window for the timeout path is hard-coded in the policy (`backend["retryAfter"] = DateTime.UtcNow.AddSeconds(10)` in the `ErrorScenario` timeout branch). Change it there if you need a different cool-down.
 - This is the minimal two-node version of the mechanism described in the [high availability scenario](./high-availability-scenario.md). The same failover logic scales to any number of backends.
+
+</details>

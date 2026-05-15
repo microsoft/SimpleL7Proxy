@@ -1,6 +1,6 @@
 # Environment Variables
 
-SimpleL7Proxy is designed to be highly configurable through environment variables, which are organized into functional categories. This approach allows for easy deployment and configuration without code changes.
+SimpleL7Proxy is configured through environment variables. This page lists all of them by category.
 
 ## Table of Contents
 
@@ -17,18 +17,17 @@ SimpleL7Proxy is designed to be highly configurable through environment variable
   - [User Profile Configuration](#user-profile-configuration)
   - [Additional Configuration Notes](#additional-configuration-notes)
 
-## Quick Start Configuration
+## Quick Start
 
-To get started with minimal configuration, you need to set:
-1. **Port**: The port on which the proxy listens
-2. **Host1, Host2, ...**: At least one backend host to proxy requests to
-3. **Probe_path1, Probe_Path2, ...**: Corresponding probe URLs
+The minimum you need to set:
+1. **Port** — the port the proxy listens on
+2. **Host1, Host2, ...** — at least one backend URL
+3. **Probe_path1, Probe_path2, ...** — the health probe path for each backend
 
-For production deployments, consider also configuring:
-- **Workers**: Number of worker threads (increase for higher throughput)
-- **MaxQueueLength**: Maximum queue size based on expected traffic
-- **LogAllRequestHeaders**: Set to `true` for debugging
-- **APPINSIGHTS_CONNECTIONSTRING**: For monitoring in Azure
+For production, also consider:
+- **Workers** — increase for higher throughput
+- **MaxQueueLength** — set based on expected peak traffic
+- **APPINSIGHTS_CONNECTIONSTRING** — for monitoring in Azure
 
 ## Basic Configuration
 

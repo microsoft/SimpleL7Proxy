@@ -1,6 +1,6 @@
 # Azure AI Foundry & OpenAI Integration
 
-SimpleL7Proxy serves as a powerful gateway for **Azure AI Foundry** (formerly Azure OpenAI Studio) workloads. It sits between your client applications and the backend model deployments, adding critical enterprise capabilities like priority queuing, token tracking, and unified governance.
+SimpleL7Proxy works as a proxy for **Azure AI Foundry** (formerly Azure OpenAI Studio) workloads. It sits between your clients and backend model deployments, adding priority queuing, token tracking, and request governance.
 
 ## Configuration Guide
 
@@ -13,25 +13,25 @@ Connect directly to the Azure OpenAI endpoint without health probing or intermed
 *   **Config**: `mode=direct`
 *   **Behavior**: The proxy assumes the backend is always healthy (`SuccessRate=1.0`) and relies on standard retries for failures.
 
-#### B. Standard/APIM Mode (Enterprise Governance)
-Connect via **Azure API Management (APIM)** to leverage its robust policy engine. This pattern is essential for **enterprise environments** requiring strict governance, advanced security, and centralized control. By fronting your AI resources with APIM, you can implement sophisticated policies to protect and optimize your endpoints.
+#### B. Standard/APIM Mode
+Connect via **Azure API Management (APIM)** to use its policy engine. This is a good choice when you want centralized governance, security controls, or rate limiting on top of your AI endpoints.
 
-**Key APIM Capabilities:**
-*   **Smart Rate Limiting**: Enforce limits based on **Token Count** (TPM) rather than just request count (RPM).
-*   **Semantic Caching**: Cache common LLM responses to reduce latency and costs.
-*   **PII Scrubbing**: Automatically detect and redact sensitive data from prompts and responses.
-*   **Advanced Security**: Implement Mutual TLS (mTLS), IP whitelisting, and centralized key management.
-*   **Quota Management**: Enforce strict usage budgets per tenant, product, or subscription.
+**APIM capabilities when used as a front-end:**
+*   **Rate limiting by token count** (TPM) rather than just request count (RPM).
+*   **Semantic caching:** cache common LLM responses to reduce latency and cost.
+*   **PII scrubbing:** detect and redact sensitive data from prompts and responses.
+*   **mTLS, IP allowlists, and centralized key management.**
+*   **Usage quotas** per tenant, product, or subscription.
 
 *   **Config**: `mode=apim` (default)
 *   **Behavior**: The proxy polls a probe path (e.g., `/status`) and tracks latency for load balancing.
 
 ### 2. Backend Host Setup
-To integrate with an OpenAI/Foundry endpoint, configure a backend host using the **Advanced Connection String** format.
+To connect to an OpenAI/Foundry endpoint, configure a backend host using the connection string format.
 
 **Key Requirements:**
 *   **`host`**: Your Azure OpenAI Endpoint (e.g., `https://my-resource.openai.azure.com`).
-*   **`processor=OpenAI`**: **Crucial**. This tells the proxy to parse the streaming JSON response to extract Token Usage metrics.
+*   **`processor=OpenAI`**: required for OpenAI/Foundry backends. Tells the proxy to parse the streaming JSON response and extract token usage metrics.
 *   **`usemi=true`** (Optional but Recommended): Uses Managed Identity to authenticate with AI Foundry, eliminating API Key management.
 
 **Configuration Examples:**
@@ -61,6 +61,9 @@ The proxy transparently forwards URL paths. Clients should target the proxy as i
 
 ## Advanced Features
 
+<details>
+<summary>Advanced Feature Details</summary>
+
 ### Token Usage Tracking
 By enabling `processor=OpenAI`, the proxy inspects the Server-Sent Events (SSE) stream. It captures the `usage` object (often sent in the final event of a stream) and logs it to Application Insights.
 *   **Benefit**: You get precise chargeback data (`Prompt_Tokens`, `Completion_Tokens`) even for streaming chat applications.
@@ -70,4 +73,6 @@ You can map specific users (via `User Profiles`) to specific backend deployments
 *   **Scenario**: "Gold" users get routed to `Host1` (PTU/Dedicated capacity), while "Silver" users track to `Host2` (Pay-Go/Standard).
 
 ### OpenAI Batch API Support
-The proxy detects Batch API requests. Logic in the proxy (`OpenAIProcessor`) can identify batch job submissions and automatically handle them as long-running async operations if configured, ensuring your gateway doesn't hang on massive batch commits.
+The proxy detects Batch API requests. The `OpenAIProcessor` can identify batch job submissions and handle them as long-running async operations, so the proxy doesn't block waiting for a large batch to complete.
+
+</details>
