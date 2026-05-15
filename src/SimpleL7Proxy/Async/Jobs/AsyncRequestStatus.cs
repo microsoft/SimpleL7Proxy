@@ -45,6 +45,8 @@ namespace SimpleL7Proxy.Async.Jobs
         {
             string baseURL = _options.RequestAPIBaseUri?.ToString() ?? throw new InvalidOperationException("RequestAPIBaseUri is not configured.");
 
+           // baseURL = "https://nvmrequestapi.azurewebsites.net";
+
             // The client-supplied Guid (the one whose status we want) lives in the
             // "Guid" header. request.Guid is a fresh server-generated id for *this*
             // status-check request and is unrelated to the original async request.

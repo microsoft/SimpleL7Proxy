@@ -161,7 +161,7 @@ public class ProxyConfig
     // public bool StorageDbEnabled { get; set; } = false;
 
     [ConfigOption("Async:RequestAPIBaseUri", ConfigName = "RequestAPIBaseUri", Mode = ConfigMode.Cold)]
-    public Uri RequestAPIBaseUri { get; set; } = new Uri("https://<function>.azurewebsites.net/api/");
+    public string RequestAPIBaseUri { get; set; } = "https://example-function.azurewebsites.net/api/";
     
     // ── Circuit Breaker ──
     [ConfigOption("CircuitBreaker:SuccessRate", Mode = ConfigMode.Cold)]
@@ -383,6 +383,13 @@ public class ProxyConfig
                 => ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, (string)currentValue!),
             _ when type == typeof(bool)
                 => ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, (bool)currentValue!),
+            _ when type == typeof(Uri)
+                => Uri.TryCreate(
+                       ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, ((Uri)currentValue!).ToString()),
+                       UriKind.Absolute,
+                       out var parsedUri)
+                    ? parsedUri
+                    : currentValue,
             _ when type == typeof(List<string>)
                 => ConfigParser.ToListOfString(
                        ConfigParser.ReadEnvironmentVariableOrDefault(incomingSettings, configKey, string.Join(",", (List<string>)currentValue!))),
