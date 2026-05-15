@@ -284,3 +284,12 @@ Once the basic POC is working, a few variations are worth trying:
 - This is the minimal two-node version of the mechanism described in the [high availability scenario](./high-availability-scenario.md). The same failover logic scales to any number of backends.
 
 </details>
+
+---
+
+## Related Documentation
+
+- [POC-Priority-configuration.md](POC-Priority-configuration.md) — Routing requests across backends by priority tier
+- [POC-Chargeback.md](POC-Chargeback.md) — Token-level usage tracking and per-user cost attribution
+- [BACKEND_HOSTS.md](BACKEND_HOSTS.md) — Host connection string options including `Timeout` and `retryCount`
+- [OBSERVABILITY.md](OBSERVABILITY.md) — Token metrics, telemetry channels, and event logger configuration

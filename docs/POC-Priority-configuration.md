@@ -294,3 +294,12 @@ Once the basic tests pass, a few variations are worth exploring:
 - **Use `LimitConcurrency`** to cap how many simultaneous requests each backend handles. Combine with different concurrency caps per tier to simulate a PTU deployment with a fixed token budget.
 
 </details>
+
+---
+
+## Related Documentation
+
+- [POC-Failover-configuration.md](POC-Failover-configuration.md) — Automatic failover and retry behaviour when a backend is slow or unavailable
+- [POC-Chargeback.md](POC-Chargeback.md) — Token-level usage tracking and per-user cost attribution
+- [BACKEND_HOSTS.md](BACKEND_HOSTS.md) — Host connection string options including `acceptablePriorities` and `processor=`
+- [OBSERVABILITY.md](OBSERVABILITY.md) — Token metrics, telemetry channels, and event logger configuration
