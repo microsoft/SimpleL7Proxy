@@ -23,6 +23,7 @@ public static class ConfigParser
         ("AsyncTimeout", "AsyncTimeout"),
         ("AsyncTriggerTimeout", "AsyncTriggerTimeout"),
         ("AsyncTTLSecs", "AsyncTTLSecs"),
+        ("RequestAPIBaseUri", "RequestAPIBaseUri"),
         ("CBErrorThreshold", "CircuitBreakerErrorThreshold"),
         ("CBTimeslice", "CircuitBreakerTimeslice"),
         ("DefaultPriority", "DefaultPriority"),
