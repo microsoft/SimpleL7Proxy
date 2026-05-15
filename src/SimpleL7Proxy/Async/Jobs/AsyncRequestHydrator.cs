@@ -20,7 +20,7 @@ using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Queue;
 
-namespace SimpleL7Proxy.Async.Feeder
+namespace SimpleL7Proxy.Async.Jobs
 {
     public class AsyncRequestHydrator : IRequestProcessor
     {

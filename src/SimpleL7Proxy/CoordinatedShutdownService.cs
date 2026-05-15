@@ -12,7 +12,7 @@ using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.Async.ServiceBus;
 using SimpleL7Proxy.Async.ServiceBus.SBQueue;
 using SimpleL7Proxy.Async.ServiceBus.SBTopic;
-using SimpleL7Proxy.Async.Feeder;
+using SimpleL7Proxy.Async.Jobs;
 
 namespace SimpleL7Proxy;
 
