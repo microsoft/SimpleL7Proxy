@@ -88,6 +88,8 @@ public class RequestData : IDisposable, IAsyncDisposable
     public bool runAsync { get; set; } = false;
     public string SBTopicName { get; set; } = "";
     public AsyncClientInfo? AsyncClientConfig { get; set; } = null;
+    public bool IsFetchAsync { get; set; } = false;
+    public string FetchGuid { get; set; } = "";
 
     private string _backgroundRequestId = "";
     public string BackgroundRequestId

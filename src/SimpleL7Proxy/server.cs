@@ -339,7 +339,16 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                     {
                         isprobe = true;
                     }
-                    
+
+                    // Single header drives both modes:
+                    //   value == "true"   → new async submission
+                    //   value == <guid>   → fetch stored result from blob
+                    var asyncHeaderValue = !string.IsNullOrEmpty(_options.AsyncClientRequestHeader)
+                        ? lc.Request.Headers[_options.AsyncClientRequestHeader]
+                        : null;
+                    var isAsyncFetch = !string.IsNullOrEmpty(asyncHeaderValue)
+                                       && Guid.TryParse(asyncHeaderValue, out _);
+
                     int priority = _options.DefaultPriority;
                     int userPriorityBoost = 0;
                     var notEnqued = false;
@@ -604,7 +613,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                     _logger.LogInformation("UserID: {UserID}", rd.UserID);
 
                                 // ASYNC: Determine if the request is allowed async operation
-                                if (doAsync && bool.TryParse(rd.Headers[_options.AsyncClientRequestHeader], out var asyncEnabled) && asyncEnabled)
+                                if (doAsync && bool.TryParse(rd.Headers[_options.AsyncClientRequestHeader], out var asyncEnabled) && asyncEnabled && !isAsyncFetch)
                                 {
                                     // Console.WriteLine($"[ASYNC] Request {rd.MID} has async header enabled, checking user profile for async config...------");
                                     var clientInfo = _userProfile.GetAsyncParams(rd.profileUserId);
@@ -626,6 +635,23 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                     {
                                         _logger.LogInformation("AsyncEnabled: {AsyncEnabled}", rd.runAsync);
                                     }
+                                }
+
+                                // ASYNC FETCH: header value is a GUID → retrieve stored blob response
+                                if (isAsyncFetch)
+                                {
+                                    var fetchGuid = asyncHeaderValue;
+                                    var clientInfo = _userProfile.GetAsyncParams(rd.profileUserId);
+                                    if (clientInfo != null)
+                                    {
+                                        rd.IsFetchAsync = true;
+                                        rd.FetchGuid = fetchGuid!;
+                                        rd.runAsync = false;
+                                        rd.BlobContainerName = clientInfo.ContainerName;
+                                        rd.AsyncClientConfig = clientInfo;
+                                    }
+                                    if (rd.Debug)
+                                        _logger.LogInformation("AsyncFetch: FetchGuid={FetchGuid}, Container={Container}", fetchGuid, rd.BlobContainerName);
                                 }
 
                                 // Determine priority boost based on the UserID

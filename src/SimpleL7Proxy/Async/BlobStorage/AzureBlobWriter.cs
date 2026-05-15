@@ -95,6 +95,7 @@ namespace SimpleL7Proxy.Async.BlobStorage
         {
             _logger.LogDebug("BlobWriter: Initializing BlobContainerName: {BlobContainerName}", containerName);
             var client = _blobServiceClient.GetBlobContainerClient(containerName);
+
             // Ensure the container exists once at init time, rather than on every write.
             await client.CreateIfNotExistsAsync().ConfigureAwait(false);
             return client;
