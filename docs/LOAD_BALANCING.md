@@ -101,9 +101,12 @@ MaxAttempts=7
 > [!TIP]
 > **Troubleshooting:** Seeing more failures than expected? A low `MaxAttempts` combined with many OPEN circuits can exhaust the attempt budget before a healthy host is reached — check circuit-breaker state with `LogHeaders=true`.
 
-### Shared Iterators
+<details>
+<summary>Shared Iterators</summary>
 
 Set `UseSharedIterators=true` when many concurrent requests target the same path and you need strict round-robin fairness across them. Each path then maintains a single shared counter instead of per-request counters.
+
+</details>
 
 ---
 
@@ -124,12 +127,13 @@ Set `UseSharedIterators=true` when many concurrent requests target the same path
 
 ---
 
-## Worked Example
+<details>
+<summary>Worked Example</summary>
 
 > **Setup:** 3 hosts (`A avg 200 ms`, `B avg 80 ms`, `C avg 150 ms`), `LoadBalanceMode=latency`, `IterationMode=MultiPass`, `MaxAttempts=5`.
 
 | Attempt | Host tried (latency order) | Response | Action |
-|---------|---------------------------|----------|--------|
+|---------|---------------------------|----------|---------|
 | 1 | B (80 ms — fastest) | 503 | try next |
 | 2 | C (150 ms) | circuit OPEN | skip (no attempt counted) |
 | 3 | A (200 ms) | 503 | try next |
@@ -137,9 +141,12 @@ Set `UseSharedIterators=true` when many concurrent requests target the same path
 
 **Attempts used: 4 of 5. Host C's open circuit was skipped without spending an attempt budget entry.**
 
+</details>
+
 ---
 
-## Monitoring & Diagnostics
+<details>
+<summary>Monitoring & Diagnostics</summary>
 
 Enable header logging to trace backend selection:
 
@@ -154,6 +161,8 @@ Key response headers to inspect:
 | `Backend-Host` | Host that ultimately served the request |
 | `BackendAttempts` | Number of hosts tried |
 | `Total-Latency` | End-to-end request duration |
+
+</details>
 
 ---
 

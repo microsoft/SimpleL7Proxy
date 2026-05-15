@@ -1,6 +1,6 @@
 # User Profiles
 
-User profiles provide a powerful way to customize request handling on a per-user basis. The proxy can validate incoming requests against user configurations and apply specific settings like priority levels, headers, and async processing permissions.
+User profiles let you customize request handling on a per-user basis. The proxy can validate incoming requests against user configurations and apply specific settings like priority levels, headers, and async processing permissions.
 
 ## Overview
 
@@ -158,7 +158,8 @@ Response:
 }
 ```
 
-## Security Considerations
+<details>
+<summary>Security Considerations</summary>
 
 ### Profile File Security
 - Store profile files securely with appropriate access controls
@@ -175,7 +176,10 @@ Response:
 - Use time-limited SAS tokens for blob access
 - Validate Service Bus topic permissions
 
-## Troubleshooting
+</details>
+
+<details>
+<summary>Troubleshooting</summary>
 
 ### Common Issues
 
@@ -208,7 +212,10 @@ Add debug header to requests:
 curl -H "S7PDEBUG: true" -H "userId: test-user" http://localhost:8000/api/test
 ```
 
-## Profile Management
+</details>
+
+<details>
+<summary>Profile Management</summary>
 
 ### Updating Profiles
 - Profiles are reloaded every hour automatically
@@ -225,3 +232,5 @@ curl -H "S7PDEBUG: true" -H "userId: test-user" http://localhost:8000/api/test
 - Test profile changes in development first
 - Monitor resource usage per user
 - Implement user quotas to prevent abuse
+
+</details>

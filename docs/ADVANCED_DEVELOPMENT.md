@@ -150,7 +150,8 @@ dotnet run
 
 ---
 
-## Mock Backends for Load Testing
+<details>
+<summary>Mock Backends for Load Testing</summary>
 
 Use the included null server to simulate slow/fast backends without actual HTTP calls.
 
@@ -169,9 +170,12 @@ dotnet run
 
 Now send load from a test client and monitor queue depth with the `/debug/queues` endpoint (if available).
 
+</details>
+
 ---
 
-## Debugging Tips
+<details>
+<summary>Debugging Tips</summary>
 
 ### Enable all header logging
 
@@ -201,9 +205,12 @@ for i in {1..100}; do curl http://localhost:8080/api/endpoint & done
 tail -f eventslog.json | jq '.QueueLength'
 ```
 
+</details>
+
 ---
 
-## Performance Baselines
+<details>
+<summary>Performance Baselines</summary>
 
 These are typical baseline metrics on a 4-core machine with 8GB RAM:
 
@@ -216,3 +223,4 @@ These are typical baseline metrics on a 4-core machine with 8GB RAM:
 
 Adjust `Workers` and `PollInterval` based on your workload profiling.
 
+</details>

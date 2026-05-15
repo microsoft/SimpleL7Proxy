@@ -120,7 +120,8 @@ Supported `S7PTTL` formats:
 
 ---
 
-## Worked Example
+<details>
+<summary>Worked Example</summary>
 
 > **Scenario:** `DefaultTTLSecs = 60`, `Timeout = 45000`. No override headers. Request queues for 5 s, then needs two host attempts.
 
@@ -133,3 +134,5 @@ Supported `S7PTTL` formats:
 | TTL expires | 60 s | 0 s | — | — | 503 — no more retries |
 
 **The TTL (not the per-host Timeout) determined the final deadline on the second attempt.**
+
+</details>
