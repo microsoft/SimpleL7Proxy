@@ -1,6 +1,10 @@
 # SimpleL7Proxy
 
-> Self-hosted Layer-7 AI gateway for Azure — priority queuing, async orchestration, and per-user governance inside your own VNET.
+SimpleL7Proxy is a lightweight Layer 7 proxy for routing and managing LLM traffic across multiple backends.
+
+LLM workloads often require handling retries, throttling, and failover across providers, which can be difficult to reason about and control. This project focuses on making those behaviors predictable and observable, so traffic can be routed reliably under real-world conditions.
+
+It is intentionally minimal and easy to integrate, while supporting patterns that are commonly needed in high-volume and enterprise environments.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![.NET 10](https://img.shields.io/badge/.NET-10-purple)](https://dotnet.microsoft.com)

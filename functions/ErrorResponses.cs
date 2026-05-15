@@ -15,7 +15,7 @@ namespace Company.Function
         /// <summary>429 Too Many Requests with <c>retry-after</c> + <c>retry-after-ms</c> + <c>S7PREQUEUE</c>.</summary>
         [Function("error429")]
         public IActionResult Error429(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", Route = "error/429")] HttpRequest req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", Route = "error/429/{*suffix}")] HttpRequest req)
         {
             int retryAfterSec = ParseIntQuery(req, "retryAfter", 10);
             req.HttpContext.Response.Headers["Retry-After"] = retryAfterSec.ToString();
