@@ -51,7 +51,7 @@ After saving, the `listBackends` variable in the `<inbound>` block is what you'l
 ## Prerequisites
 
 - An APIM instance with `Priority-with-retry-enhancedLog.xml` installed on the target API (see above).
-- **The LLM Simulator Azure Function must be deployed before running this POC.** It provides both backends — the slow `/api/delay` endpoint for the timeout path and the `/api/error/429` endpoint for the 429 variant. See [`functions/Readme.md`](../../functions/Readme.md) for the fastest way to get it running (portal ZIP deploy, no build required). The relevant endpoints:
+- **The LLM Simulator Azure Function must be deployed before running this POC.** It provides both backends — the slow `/api/delay` endpoint for the timeout path and the `/api/error/429` endpoint for the 429 variant. See [`test/LLMSimulator/Readme.md`](../test/LLMSimulator/Readme.md) for the fastest way to get it running (portal ZIP deploy, no build required). The relevant endpoints:
   - `GET|POST /api/delay?delay=<ms>` — anonymous auth, returns a response after approximately `delay` milliseconds (normal distribution, stddev ~200ms).
   - `GET|POST /api/error/429?retryAfter=<sec>` — anonymous auth, returns `429` immediately with a real `Retry-After` header.
 - Note the function app hostname — e.g. `https://<funcapp>.azurewebsites.net` — you'll use it in both backend entries below.

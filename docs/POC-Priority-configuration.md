@@ -33,7 +33,7 @@ The request priority is read from the `llm_proxy_priority` header. If the header
 ## Prerequisites
 
 - An APIM instance with `Priority-with-retry-enhancedLog.xml` applied to the target API. See [Applying the policy](#applying-the-policy).
-- The LLM Simulator deployed as an Azure Function. See [`functions/Readme.md`](../../functions/Readme.md) — the fastest path is the portal ZIP deploy. Verify it's running:
+- The LLM Simulator deployed as an Azure Function. See [`test/LLMSimulator/Readme.md`](../test/LLMSimulator/Readme.md) — the fastest path is the portal ZIP deploy. Verify it's running:
   ```bash
   curl https://<funcapp>.azurewebsites.net/api/health
   # → 200 OK
