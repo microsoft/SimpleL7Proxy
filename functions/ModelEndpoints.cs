@@ -22,27 +22,27 @@ namespace Company.Function
 
         [Function("openai_gpt4o_mini")]
         public Task Gpt4oMini([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post",
-            Route = "openai/deployments/gpt-4o-mini/chat/completions")] HttpRequest req)
+            Route = "openai/deployments/gpt-4o-mini/chat/completions/{*rest}")] HttpRequest req)
             => Serve(req, "4o-mini.txt", defaultStream: true);
 
         [Function("openai_aoai2")]
         public Task Aoai2([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post",
-            Route = "openai/deployments/aoai2/chat/completions")] HttpRequest req)
+            Route = "openai/deployments/aoai2/chat/completions/{*rest}")] HttpRequest req)
             => Serve(req, "aoai2.txt", defaultStream: true);
 
         [Function("openai_gpt5_nano")]
         public Task Gpt5Nano([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post",
-            Route = "openai/deployments/gpt-5-nano/chat/completions")] HttpRequest req)
+            Route = "openai/deployments/gpt-5-nano/chat/completions/{*rest}")] HttpRequest req)
             => Serve(req, "gpt5-nano.txt", defaultStream: true);
 
         [Function("openai_responses")]
         public Task OpenAIResponses([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post",
-            Route = "openai/v1/responses")] HttpRequest req)
+            Route = "openai/v1/responses/{*rest}")] HttpRequest req)
             => Serve(req, "gpt5-nano-response.txt", defaultStream: false);
 
         [Function("openai_embeddings")]
         public Task Embeddings([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post",
-            Route = "openai/deployments/{deployment}/embeddings")] HttpRequest req, string deployment)
+            Route = "openai/deployments/{deployment}/embeddings/{*rest}")] HttpRequest req, string deployment)
             => Serve(req, "embeddings.txt", defaultStream: false);
 
         // ── OpenAI (public) ──────────────────────────────────────────────────────
@@ -50,7 +50,7 @@ namespace Company.Function
 
         [Function("openai_public_chat")]
         public Task OpenAIPublicChat([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post",
-            Route = "v1/chat/completions")] HttpRequest req)
+            Route = "v1/chat/completions/{*rest}")] HttpRequest req)
             => Serve(req, "openAI.txt", defaultStream: true);
 
         // ── Anthropic ────────────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ namespace Company.Function
 
         [Function("anthropic_messages")]
         public async Task AnthropicMessages([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post",
-            Route = "anthropic/v1/messages")] HttpRequest req)
+            Route = "anthropic/v1/messages/{*rest}")] HttpRequest req)
         {
             string model = await ReadModelFromBodyAsync(req) ?? "claude-sonnet-4";
             string file = model switch
@@ -81,24 +81,24 @@ namespace Company.Function
 
         [Function("gemini_generate")]
         public Task GeminiGenerate([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post",
-            Route = "v1beta/models/{model}:generateContent")] HttpRequest req, string model)
+            Route = "v1beta/models/{model}:generateContent/{*rest}")] HttpRequest req, string model)
             => Serve(req, GeminiFile(model, streaming: false), defaultStream: false);
 
         [Function("gemini_stream_generate")]
         public Task GeminiStreamGenerate([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post",
-            Route = "v1beta/models/{model}:streamGenerateContent")] HttpRequest req, string model)
+            Route = "v1beta/models/{model}:streamGenerateContent/{*rest}")] HttpRequest req, string model)
             => Serve(req, GeminiFile(model, streaming: true), defaultStream: true);
 
         // ── Filler / fixture content ─────────────────────────────────────────────
 
         [Function("samples_lorem")]
         public Task Lorem([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post",
-            Route = "samples/lorem")] HttpRequest req)
+            Route = "samples/lorem/{*rest}")] HttpRequest req)
             => Serve(req, "lorem_ipsum.txt", defaultStream: false);
 
         [Function("samples_multiline")]
         public Task Multiline([HttpTrigger(AuthorizationLevel.Anonymous, "get", "post",
-            Route = "samples/multiline")] HttpRequest req)
+            Route = "samples/multiline/{*rest}")] HttpRequest req)
             => Serve(req, "multiline.txt", defaultStream: false);
 
         // ── Helpers ──────────────────────────────────────────────────────────────

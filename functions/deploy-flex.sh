@@ -10,12 +10,37 @@ PROJECT_PATH=$(pwd)  # Get absolute path
 PUBLISH_DIR="$PROJECT_PATH/bin/publish"
 ZIP_FILE="$PROJECT_PATH/function.zip"
 
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [options]
+
+Builds and deploys the Functions project to Azure Flex Consumption.
+
+Options:
+  -z            Build the deployment zip only; skip Azure login and deploy.
+  -h, --help, -?
+                Show this help message and exit.
+
+Variables (edit at the top of the script):
+  RESOURCE_GROUP   Azure resource group containing the function app.
+  FUNCTION_APP     Name of the target function app.
+EOF
+}
+
+# Handle long-form help flags before getopts (which only parses short flags).
+for arg in "$@"; do
+    case "$arg" in
+        -h|--help|-\?) usage; exit 0 ;;
+    esac
+done
+
 # Parse flags
 ZIP_ONLY=false
-while getopts ":z" opt; do
+while getopts ":zh" opt; do
     case $opt in
         z) ZIP_ONLY=true ;;
-        \?) log "ERROR" "Unknown flag: -$OPTARG"; exit 1 ;;
+        h) usage; exit 0 ;;
+        \?) echo "ERROR: Unknown flag: -$OPTARG" >&2; usage; exit 1 ;;
     esac
 done
 
