@@ -205,9 +205,9 @@ set -e
 echo "$DEPLOY_OUTPUT"
 
 if [ "$DEPLOY_RC" -ne 0 ]; then
-    if echo "$DEPLOY_OUTPUT" | grep -q "Failed to fetch host key" && \
+    if (echo "$DEPLOY_OUTPUT" | grep -qE "Failed to fetch host key|Failed to resolve|NameResolutionError") && \
         az functionapp function list --resource-group "$RESOURCE_GROUP" --name "$FUNCTION_APP" --query "[].name" -o tsv 2>/dev/null | grep -q .; then
-        log "WARN" "Package deployment completed, but Azure CLI could not fetch a host key for its post-deploy health check. Functions are visible in Azure."
+        log "WARN" "Package deployment completed, but Azure CLI could not reach the app for its post-deploy health check (DNS/network). Functions are visible in Azure."
     else
         log "ERROR" "Deployment failed"
         exit 1

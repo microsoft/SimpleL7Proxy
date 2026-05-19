@@ -138,7 +138,9 @@ else
             -l "${REQUESTAPI_LOCATION}" \
             --sku Standard_LRS \
             --kind StorageV2 \
-            --allow-shared-key-access true >/dev/null
+            --allow-shared-key-access true \
+            --public-network-access Enabled \
+            --min-tls-version TLS1_2 >/dev/null
         STORAGE_RG="${REQUESTAPI_RESOURCE_GROUP}"
     fi
 fi
