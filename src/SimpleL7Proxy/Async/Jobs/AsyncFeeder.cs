@@ -20,7 +20,7 @@ using SimpleL7Proxy.User;
 using SimpleL7Proxy.Queue;
 using System.Runtime.Intrinsics.Arm;
 
-namespace SimpleL7Proxy.Async.Feeder
+namespace SimpleL7Proxy.Async.Jobs
 {
 
     public class NullAsyncFeeder : IAsyncFeeder

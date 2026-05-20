@@ -51,7 +51,7 @@ The `userId` header value is forwarded to the backend and appears in request tel
 - SimpleL7Proxy running locally or on ACA, pointed at the LLM Simulator.
 - `processor=OpenAI` set on the backend host (see [Backend Configuration](#backend-configuration) below).
 - Application Insights connected via `APPINSIGHTS_CONNECTIONSTRING`.
-- The LLM Simulator deployed as an Azure Function. See [`functions/Readme.md`](../../functions/Readme.md) — the fastest path is the portal ZIP deploy. Verify it's up:
+- The LLM Simulator deployed as an Azure Function. See [`test/LLMSimulator/Readme.md`](../test/LLMSimulator/Readme.md) — the fastest path is the portal ZIP deploy. Verify it's up:
   ```bash
   curl https://<funcapp>.azurewebsites.net/api/health
   # → 200 OK

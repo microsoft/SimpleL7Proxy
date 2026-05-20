@@ -264,6 +264,25 @@ public class ProxyWorker : IConfigChangeSubscriber
                         continue;
                     }
 
+                    // check for response check
+                    if (incomingRequest.Type == RequestType.StatusCheck)
+                    {
+                        var statusChecker = _wrkCntxt.AsyncWorkerContext?.RequestStatus;
+                        if (statusChecker != null)
+                        {
+                            _logger.LogInformation("[Worker:{Id}] StatusCheck request {Guid} - delegating to AsyncRequestStatus",
+                                _id, incomingRequest.Headers["Guid"]);
+                            await statusChecker.CheckStatus(incomingRequest).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("[Worker:{Id}] StatusCheck requested but AsyncRequestStatus is not configured", _id);
+                        }
+
+                        HealthCheckService.EnterState(_id, WorkerState.Cleanup);
+                        continue;
+                    }
+   
 
                     // Set the initial status based on request type
                     _lifecycleManager.TransitionToProcessing(incomingRequest);

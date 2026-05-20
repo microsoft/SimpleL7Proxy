@@ -1,14 +1,53 @@
 # Release Notes #
+2.2.11.3
 
 Proxy:
-* bug fix possible 2 versions of TokenProvider
-* bug fix possible race condition with recovery processor
+* Add status checker
+
+RequestAPI:
+* Add status checker
+
+APIM Policy:
+* Version changed to v2.1.0
+* Backend field names changed: 
+    - `priority` -> `priorityGroup`
+    - `ModelType` -> `label`
+    - `api-key` -> `auth`
+    - `LimitConcurrency`, `BufferResponse`, and `Timeout` are now read as `limitConcurrency`, `bufferResponse`, and `timeout`
+* Authentication is now explicit:
+    - In v2.0.1, an empty `api-key` meant "use Managed Identity".
+    - In v2.1.0, `auth: "MI"` means Managed Identity, `auth: "<key>"` means send `api-key: <key>`, and `auth: ""` means send no auth header.
+* Backend URLs are now composed from `url` plus optional `path`:
+    - In v2.0.1, the policy appended `/openai` when building `backendUrl`.
+    - In v2.1.0, the policy combines `url` and `path` during normalization and uses the result as-is.
+    - If you relied on the automatic `/openai` append, add `"path": "/openai"` or include `/openai` directly in `url`.
+* Missing backend settings now get defaults:
+    - If `limitConcurrency` is omitted, the policy sets it to `off`.
+    - If `bufferResponse` is omitted, the policy sets it to `true`.
+    - If `timeout` is omitted, the policy sets it to `10` seconds.
+* Retry budget handling bug fix:
+    - v2.0.1 allowed the request path to keep going while `RetryCount >= 0`.
+    - v2.1.0 only retries while `RetryCount > 0`.
+    - If you previously used `retryCount: 1` the policy retried twice.  For the same behaviour increase it to `2`.
+* PTU skip-on-context-window now keys off `label`:
+    - In v2.0.1, the context-window-exceeded path skipped PTU backends when `ModelType == "PTU"`.
+    - In v2.1.0, it skips them when `label == "PTU"`.
+
+Docs:
+* Add POC use cases
+* Reword for comprehension
+
+2.2.11.2
+
+Proxy:
+* Bug fix possible 2 versions of TokenProvider
+* Bug fix possible race condition with recovery processor
 * Refactor: external consumers now inject IQueuedBlobWriter (or IAsyncFileStore)
 * Refactor: extract IBlobWriterFactory + GenericBlobFactory base to enable pluggable blob backends
 * Update dll's to latest versions: Extensions, Azure, Messaging, Identity
 * Migrate to use ReadinessRegistry for startup checks
 * Improve the blob write stats
-* Bug fix: actually use the queued blob writer
+* Bug fix: actually, use the queued blob writer
 
 
 2.2.11.1

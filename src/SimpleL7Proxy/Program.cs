@@ -26,7 +26,7 @@ using SimpleL7Proxy.Async.BlobStorage;
 using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.Async.ServiceBus.SBQueue;
 using SimpleL7Proxy.Async.ServiceBus.SBTopic;
-using SimpleL7Proxy.Async.Feeder;
+using SimpleL7Proxy.Async.Jobs;
 
 using System.Net;
 using System.Text;
@@ -309,6 +309,9 @@ public class Program
         services.AddSingleton<ISBQueueService, SBQueueService>();
 
         services.AddSingleton<AsyncRequestHydrator>();
+        services.AddSingleton<AsyncRequestStatus>();
+        services.AddSingleton<Lazy<AsyncRequestStatus>>(sp =>
+            new Lazy<AsyncRequestStatus>(() => sp.GetRequiredService<AsyncRequestStatus>()));
         services.AddSingleton<OpenAIBackgroundRequest>();
 
         // Stream processor factory - optimized singleton for high-throughput scenarios

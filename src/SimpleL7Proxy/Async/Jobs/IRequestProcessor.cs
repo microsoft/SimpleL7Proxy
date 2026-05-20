@@ -1,6 +1,6 @@
 using Shared.RequestAPI.Models;
 
-namespace SimpleL7Proxy.Async.Feeder
+namespace SimpleL7Proxy.Async.Jobs
 {
     public interface IRequestProcessor
     {

@@ -1,8 +1,8 @@
 # SimpleL7Proxy
 
-SimpleL7Proxy is a lightweight Layer 7 proxy for routing and managing LLM traffic across multiple backends.
+**SimpleL7Proxy** is a lightweight, practical Layer‑7 proxy that makes routing LLM traffic simple, predictable, and observable. It’s built to do one thing well: route requests to the right model at the right time while keeping cost, health, and policy under control.
 
-LLM workloads often require handling retries, throttling, and failover across providers, which can be difficult to reason about and control. This project focuses on making those behaviors predictable and observable, so traffic can be routed reliably under real-world conditions.
+LLM traffic is noisy: retries, throttles, and provider quirks make behavior unpredictable. SimpleL7Proxy turns that uncertainty into repeatable outcomes so teams can optimize for latency, cost, and capability without surprises.
 
 It is easy to integrate, while supporting patterns that are commonly needed in high-volume and enterprise environments.
 
@@ -11,11 +11,15 @@ It is easy to integrate, while supporting patterns that are commonly needed in h
 [![Platform](https://img.shields.io/badge/platform-Azure%20Container%20Apps-0078D4)](https://learn.microsoft.com/en-us/azure/container-apps/overview)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen)](docs/DEVELOPMENT.md)
 
-**TL;DR**
-- **Run locally:** `git clone … && dotnet run --project src/SimpleL7Proxy`
-- **Deploy to ACA:** `./.azure/setup.sh && azd provision && ./.azure/deploy.sh`
-- **Use async mode** for long LLM calls (>60 s); see [AsyncOperation.md](docs/AsyncOperation.md)
-- **Full setup steps:** [docs/QUICKSTART.md](docs/QUICKSTART.md)
+**TL;DR** -- Try the POCs first ( 5 minutes )
+- Download the latest release and open the POCs. [Releases](https://github.com/microsoft/SimpleL7Proxy/releases/)
+- **Try out the POCs:**
+  - **Failover** — throttle the primary and watch it jump to the secondary.
+  - **Priority Levels** — send mixed traffic and see backends targetted requests based on the priorities.
+  - **Chargeback** — fire a few users at it and check the usage logs.
+  - **Governance** — try calling with the wrong model or App ID and watch it get blocked.
+
+If those make sense, then explore the other capabilities [Docs](docs)
 
 ---
 
@@ -30,14 +34,17 @@ It is easy to integrate, while supporting patterns that are commonly needed in h
 
 ---
 
-## Key Capabilities
+## What it does
 
-- **Priority queuing** — routes high-priority users ahead of batch traffic.
-- **Per-user validation** — blocks callers whose model or header values aren't in their allowlist.
-- **Entra App ID gating** — unknown app IDs rejected at the gate; no backend hit.
-- **Circuit breaker** — progressive back-off; auto-recovery when backends respond.
-- **Async orchestration** — blob + Service Bus hand-off for calls that exceed the sync timeout.
-- **Hot-reload config** — allowlists, routing rules, and profiles update without restart.
+- **Health‑aware routing** — route around slow or failing backends.
+- **Cost‑aware decisions** — balance latency and spend per user or tier.
+- **Policy & priority enforcement** — per‑user allowlists, model gating, and priority queuing.
+- **Per‑caller validation & App gating** — block disallowed headers/models; reject unknown Entra App IDs.
+- **Resilience** — circuit breakers, progressive backoff, and observable retry/failover.
+- **Async orchestration** — hand off long calls to blob + Service Bus.
+- **Hot‑reload config** — update rules and profiles without restarting.
+- **Observability & chargeback** — per‑request telemetry and usage logs.
+
 
 → **[Full architecture and use-case analysis](docs/OVERVIEW.md)**
 
