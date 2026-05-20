@@ -16,6 +16,8 @@ public class RequestAPIDocument : IRequestData
     public RequestAPIStatusEnum? status { get; set; }
     public string? URL { get; set; }
     public string? userID { get; set; }
+    public int checkCount { get; set; }=0;
+    public DateTime? checkedAt { get; set; }
 
     // Interface implementation
     string? IRequestData.Id { get => id; set => id = value; }
@@ -37,7 +39,9 @@ public class RequestAPIDocument : IRequestData
             priority2 = this.priority2,
             status = this.status,
             URL = this.URL,
-            userID = this.userID
+            userID = this.userID,
+            checkCount = this.checkCount,
+            checkedAt = this.checkedAt
         };
     }
 }

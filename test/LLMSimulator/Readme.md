@@ -1,36 +1,40 @@
 # LLM Simulator (Azure Function)
 
-This project provides a simple, practical way to simulate LLM endpoints without needing access to real models.
+**Purpose:** Simulate Azure OpenAI, OpenAI, Anthropic, and Gemini endpoints — returning deterministic canned responses and injectable errors — without needing real model access.
 
-It implements the request and response shapes of Azure OpenAI, OpenAI, Anthropic, and Google Gemini, and returns deterministic responses from local sample files. The goal is to help you build, test, and validate systems that depend on LLMs — without cost, rate limits, or external dependencies.
+> [!IMPORTANT]
+> **The rule: your client code points at this simulator unchanged. It mirrors real provider URL shapes, so existing SDKs, proxies, and gateways work without modification.**
 
-If you're working on client SDKs, proxies, gateways, retry logic, or platform integrations, this can save a lot of time and remove uncertainty during development. Because it mirrors the real provider URL shapes, your existing code usually points at it unchanged.
+## TL;DR (< 5 minutes)
 
-It also covers the failure cases that are hardest to test against a real API: `429 Too Many Requests` with a real `Retry-After` header, `500`, `302`, and a configurable-latency `/delay` endpoint. These make it straightforward to verify that your retry logic, failover policies, and circuit breakers actually work before you depend on them in production.
+1. Deploy `function.zip` to a Function App via portal ZIP deploy, or run `func start` locally.
+2. Set `BASE` to your function host URL.
+3. Copy any `curl` from [Use every model](#use-every-model-cut--paste) or [Trigger failures](#trigger-failures) — check `X-Sample-File` and HTTP status to confirm what was served.
 
-Streaming is supported on every model route alongside standard responses, and can be toggled per-request, per-header, or globally with a single environment variable. A pre-built `function.zip` is included so you can get it running in an Azure Function App without a local build. The source is here too if you want to add sample files or new routes.
+**What it returns:** model routes always return `200 OK` with a canned provider-shaped JSON body; `/api/error/429` returns `429` with a real `Retry-After`; `/api/delay` returns after the requested duration.
 
-## Run it on Azure Functions (recommended)
+## Deploy
 
-The fastest path: drop the pre-built `function.zip` into an existing Function App. If you'd rather build from source, see [Run it locally](#run-it-locally-60-seconds) or [Deploy alternatives](#deploy-alternatives).
+### Run it on Azure Functions (recommended)
 
-1. **Open the Function App** in the Azure Portal → **Deployment Center** → **ZIP Deploy** tab (or go directly to `https://<funcapp>.scm.azurewebsites.net/ZipDeployUI`).
-2. **Drag-and-drop `function.zip`** onto the page. The portal extracts, restarts, and the functions are live in ~30 seconds.
-3. **Verify**: `curl https://<funcapp>.azurewebsites.net/api/health` → `200 OK`.
+**What matters:** a pre-built `function.zip` is included — you do not need to build from source unless you changed the code.
 
+1. Open the Function App in the [Azure portal](https://portal.azure.com) → **Deployment Center** → **ZIP Deploy** tab (or go directly to `https://<funcapp>.scm.azurewebsites.net/ZipDeployUI`).
+2. Drag-and-drop `function.zip`. The portal extracts, restarts, and the functions are live in ~30 seconds.
+3. Confirm: `curl https://<funcapp>.azurewebsites.net/api/health` → `200 OK`.
+
+> [!NOTE]
 > The Function App must already exist (Flex Consumption plan, .NET 9 isolated runtime). The deployed identity needs **Storage Table Data Contributor** and **Storage Blob Data Owner** on the function's storage account.
 
-Then jump to [Try every model](#try-every-model-cut--paste) and set `BASE` to your deployed URL.
+Then set `BASE` (see [below](#set-base)) and use any command in [Use every model](#use-every-model-cut--paste).
 
 <details>
 <summary><b>Run it locally (60 seconds)</b> — for devs with the .NET 9 toolchain</summary>
 
-Use this only if you have the .NET 9 toolchain installed. Otherwise the Azure route above is faster.
-
-**Prerequisites:** [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) and [Azure Functions Core Tools v4](https://learn.microsoft.com/azure/azure-functions/functions-run-local).
+**What matters:** requires [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) and [Azure Functions Core Tools v4](https://learn.microsoft.com/azure/azure-functions/functions-run-local).
 
 ```bash
-cd functions
+cd test/LLMSimulator
 func start
 ```
 
@@ -40,28 +44,27 @@ Once running, every endpoint is reachable at `http://localhost:7071/api/<route>`
 
 </details>
 
-## Try every model (cut & paste)
+## Set BASE
 
-Each scenario sets `BASE` once — change only that line to swap targets. All commands below reuse `$BASE`.
-
-**One-shot validation:** to confirm every endpoint at once, run [`./validate.sh`](./validate.sh). It defaults to the local host and accepts an override:
-
-```bash
-./validate.sh                                              # local
-./validate.sh https://<funcapp>.azurewebsites.net/api      # deployed
-BASE=https://<funcapp>.azurewebsites.net/api ./validate.sh # via env var
-```
-
-Pick a target by setting `BASE` — every command below reuses it.
+**What matters:** set `BASE` once — every command in this doc reuses it unchanged, so the same command works against local or deployed.
 
 ```bash
 # Local (func start on port 7071):
 BASE="http://localhost:7071/api"
 
-# Deployed Function App (anonymous routes; for keyed routes append &code=<host-key>):
-FUNCAPP="<your-funcapp>"        # e.g. nullbackend-001
+# Deployed Function App:
+FUNCAPP="<your-funcapp>"
 BASE="https://${FUNCAPP}.azurewebsites.net/api"
 ```
+
+**One-shot validation** — hit every endpoint at once:
+
+```bash
+./validate.sh                     # local
+./validate.sh "$BASE"             # deployed
+```
+
+## Use every model (cut & paste)
 
 <details>
 <summary><b>At-once (non-streaming)</b> — full body in one shot, <code>Content-Type: text/plain</code></summary>
@@ -169,29 +172,41 @@ curl -N "$BASE/streamdelay?delay=50"
 
 </details>
 
-<details>
-<summary><b>Failover triggers</b> — errors &amp; delay</summary>
+## Trigger failures
+
+**What matters:** these routes return real error shapes so your retry logic, failover policies, and circuit breakers see exactly what they would from a real provider.
 
 ```bash
+# 429 with Retry-After (10s default)
+curl -i "$BASE/error/429"
+
+# 429 with custom Retry-After
 curl -i "$BASE/error/429?retryAfter=5"
+
+# 500 temporary error
 curl -i "$BASE/error/500"
+
+# 302 redirect (configurable target)
 curl -i "$BASE/error/302?to=$BASE/openai/deployments/gpt-4o-mini/chat/completions"
+
+# Variable latency (ms, normal distribution)
 curl -i "$BASE/delay?delay=2000"
 ```
 
-</details>
+> [!NOTE]
+> `/api/error/429` also sets `S7PREQUEUE: true` — SimpleL7Proxy reads this header to requeue the request instead of surfacing the `429` to the client.
 
 ---
 
 ## Deploy alternatives
 
-The [Run it on Azure Functions](#run-it-on-azure-functions-recommended) section at the top covers the portal ZIP deploy — the fastest path. If you need to rebuild or script the deploy, use one of the options below.
+**What matters:** the portal ZIP deploy above is the fastest path. Use the options below only if you need to rebuild or script the deploy.
 
 <details>
 <summary>Rebuilding <code>function.zip</code> (only if you changed the code)</summary>
 
 ```bash
-cd functions
+cd test/LLMSimulator
 dotnet publish -c Release -o publish
 cd publish && zip -r ../function.zip . && cd ..
 ```
@@ -302,25 +317,58 @@ GET /api/profile              → user-profile fixture
 | `?stream=true` / `?stream=false` | Override the route's default streaming mode for this request. |
 | `?delay=<ms>` | Per-line delay when streaming; pre-write delay when not. |
 
-### Toggle streaming globally
+### Toggle streaming
 
-Resolution order (first match wins):
+**What matters:** the first matching rule wins. Per-request flags always beat global settings.
 
-1. **Per-request:** `?stream=true|false` on the URL.
-2. **Per-request:** `X-Force-Stream: true|false` request header.
-3. **Function-wide:** `FORCE_STREAM=true|false` app setting / env var — flips every model endpoint at once. Set it in the portal under **Function App → Configuration → Application settings**, or in `local.settings.json` for local runs. Restart the app to apply.
-4. The route's built-in default (see endpoint tables above).
+| Precedence | Mechanism | Values accepted |
+| :--- | :--- | :--- |
+| 1 (highest) | `?stream=true\|false` query param | `true/false`, `on/off`, `1/0`, `yes/no` |
+| 2 | `X-Force-Stream: true\|false` request header | same |
+| 3 | `FORCE_STREAM` app setting / env var | same |
+| 4 (lowest) | Route built-in default | see endpoint tables above |
 
-Accepted values for any of the above: `true`/`false`, `on`/`off`, `1`/`0`, `yes`/`no` (case-insensitive).
+> [!NOTE]
+> `FORCE_STREAM` flips every model endpoint at once. Set it in the portal under **Function App → Configuration → Application settings**, or in `local.settings.json` for local runs. Restart the app to apply.
 
-Every model response also includes `X-Sample-File: <filename>` so you can confirm which sample was served.
+Every model response includes `X-Sample-File: <filename>` so you can confirm which sample was served.
 
 ### Adding new samples
+
+**What matters:** drop a `.txt` file in `Samples/` and wire it to a function — that is the entire contract.
 
 1. Drop a `.txt` file into [`Samples/`](./Samples/) — it's auto-copied to output via `functions.csproj`.
 2. Add a `[Function(...)]` method in [`ModelEndpoints.cs`](./ModelEndpoints.cs) calling `Serve(req, "yourfile.txt", defaultStream: …)`.
 
-That's the entire contract. The simulator is designed to be used straight from a client SDK, or extended by building from source when you need new routes.
+### Changing the default `Retry-After`
+
+**What matters:** `ERROR429_RETRY_AFTER_DEFAULT` sets the fallback used by `/api/error/429` when `?retryAfter` is not in the query string. Default is `10` seconds.
+
+**Azure portal:** Function App → **Settings** → **Environment variables** → **App settings** → add or update `ERROR429_RETRY_AFTER_DEFAULT` → **Apply** → **Confirm**.
+
+```bash
+# CLI alternative
+az functionapp config appsettings set \
+  --name <funcapp> --resource-group <rg> \
+  --settings ERROR429_RETRY_AFTER_DEFAULT=30
+```
+
+> [!WARNING]
+> Changing app settings restarts the Function App. Requests in flight will be dropped.
+
+## Troubleshooting
+
+**What matters:** each symptom maps to one concrete cause and one concrete check.
+
+| Symptom | Likely cause | Check |
+| :--- | :--- | :--- |
+| `func start` fails immediately | .NET 9 SDK or Core Tools v4 not installed | `dotnet --version` (need 9.x); `func --version` (need 4.x) |
+| `/api/health` returns `404` after deploy | Wrong runtime or corrupt ZIP | Confirm Flex Consumption plan with .NET 9 isolated runtime; rebuild `function.zip` from source |
+| Storage error on startup | Missing role assignments | Add **Storage Table Data Contributor** and **Storage Blob Data Owner** to the function's managed identity on its storage account |
+| `/api/error/429` returns wrong `Retry-After` | `ERROR429_RETRY_AFTER_DEFAULT` not applied | Confirm app setting; restart the Function App after changing it |
+| Streaming response arrives all at once | `FORCE_STREAM=false` or `?stream=false` overriding route default | Check the toggle precedence table; remove `FORCE_STREAM` or change the query param |
+| `X-Sample-File` shows unexpected file | Anthropic `model` field not matching expected pattern | Check the Anthropic model → sample mapping table; confirm `model` value in request body |
+| Client SDK fails with schema error | Outdated sample file | Update the `.txt` file in `Samples/` to match the current provider response shape |
 
 
 

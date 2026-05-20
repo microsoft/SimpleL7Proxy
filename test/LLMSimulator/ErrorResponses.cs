@@ -17,7 +17,7 @@ namespace Company.Function
         public IActionResult Error429(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", Route = "error/429/{*suffix}")] HttpRequest req)
         {
-            int retryAfterSec = ParseIntQuery(req, "retryAfter", 10);
+            int retryAfterSec = ParseIntQuery(req, "retryAfter", GetDefaultRetryAfter());
             req.HttpContext.Response.Headers["Retry-After"] = retryAfterSec.ToString();
             req.HttpContext.Response.Headers["retry-after-ms"] = (retryAfterSec * 1000).ToString();
             req.HttpContext.Response.Headers["S7PREQUEUE"] = "true";
@@ -49,5 +49,16 @@ namespace Company.Function
 
         private static int ParseIntQuery(HttpRequest req, string key, int fallback)
             => int.TryParse(req.Query[key].FirstOrDefault(), out var v) && v > 0 ? v : fallback;
+
+        /// <summary>
+        /// Default Retry-After (seconds) for synthetic 429s, sourced from the
+        /// <c>ERROR429_RETRY_AFTER_DEFAULT</c> app setting / environment variable.
+        /// Falls back to 10 when unset or invalid.
+        /// </summary>
+        private static int GetDefaultRetryAfter()
+        {
+            var raw = Environment.GetEnvironmentVariable("ERROR429_RETRY_AFTER_DEFAULT");
+            return int.TryParse(raw, out var v) && v > 0 ? v : 10;
+        }
     }
 }
