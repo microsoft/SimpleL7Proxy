@@ -140,6 +140,17 @@ namespace Company.Function
             return null;
         }
 
+        /// <summary>
+        /// Default per-line delay (ms) when <c>?delay=</c> is not supplied, sourced from the
+        /// <c>SAMPLE_DELAY_MS_DEFAULT</c> app setting / environment variable. Falls back to 0
+        /// (no extra pacing) when unset or invalid.
+        /// </summary>
+        private static int GetDefaultDelayMs()
+        {
+            var raw = Environment.GetEnvironmentVariable("SAMPLE_DELAY_MS_DEFAULT");
+            return int.TryParse(raw, out var v) && v > 0 ? v : 0;
+        }
+
         /// <summary>Writes the sample file to the response, optionally as SSE with per-line pacing.</summary>
         private async Task Serve(HttpRequest req, string fileName, bool defaultStream)
         {
@@ -154,7 +165,7 @@ namespace Company.Function
                ?? TryParseBool(Environment.GetEnvironmentVariable("FORCE_STREAM")) // 3
                ?? defaultStream;                                                // 4
 
-            int delayMs = int.TryParse(req.Query["delay"].FirstOrDefault(), out var d) && d > 0 ? d : 0;
+            int delayMs = int.TryParse(req.Query["delay"].FirstOrDefault(), out var d) && d > 0 ? d : GetDefaultDelayMs();
 
             var body = SampleContent.Get(fileName);
             var resp = req.HttpContext.Response;
