@@ -2,12 +2,15 @@
 
 **Purpose:** Show that when the primary backend returns a simulated `429`, the `Priority-with-retry-enhancedLog.xml` APIM policy marks it throttled and retries the same request against a healthy backend that returns a real OpenAI-style response.
 
+> [!NOTE]
+> **Policy version:** This POC uses [`APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml`](../APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml). The older [`APIM-Policy/v2.0.1/Priority-with-retry-enhancedLog.xml`](../APIM-Policy/v2.0.1/Priority-with-retry-enhancedLog.xml) does not combine `url + path` the same way and will not produce the `backendLog` entries shown below.
+
 > [!IMPORTANT]
 > **The rule: when Backend A returns `429`, APIM marks it throttled for `Retry-After + 2s`, retries the request against the next healthy backend, and the client still sees `200 OK`.**
 
 ## TL;DR (< 5 minutes)
 
-1. Apply [`APIM-Policy/Priority-with-retry-enhancedLog.xml`](../APIM-Policy/Priority-with-retry-enhancedLog.xml) to your APIM API and use the exact two `listBackends` entries below.
+1. Apply [`APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml`](../APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml) to your APIM API and use the exact two `listBackends` entries below.
 2. Keep `retryCount: 2` so the policy has one failed attempt and one recovery attempt.
 3. Send one OpenAI Responses request through APIM, for example `POST https://<apim>.azure-api.net/<api>/v1/responses`.
 
@@ -77,7 +80,7 @@ Endpoints used in this POC:
 2. Select **APIs** and open the target API.
 3. Select **All operations**.
 4. Open the **Inbound processing** policy editor (`</>` icon).
-5. Replace the editor contents with [`APIM-Policy/Priority-with-retry-enhancedLog.xml`](../APIM-Policy/Priority-with-retry-enhancedLog.xml).
+5. Replace the editor contents with [`APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml`](../APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml).
 6. Select **Save**.
 
 <details>
@@ -88,7 +91,7 @@ az apim api policy create \
   --resource-group <rg> \
   --service-name <apim-name> \
   --api-id <api-id> \
-  --value "$(cat APIM-Policy/Priority-with-retry-enhancedLog.xml)" \
+  --value "$(cat APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml)" \
   --format xml
 ```
 

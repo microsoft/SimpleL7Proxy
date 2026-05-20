@@ -17,7 +17,7 @@ Use this policy when you need:
 ## Key Capabilities
 
 - **Smart Priority Routing:** Routes requests based on priority (High/Medium/Low), backend health, and deployment type (PTU vs. PayGo).
-- **Concurrency Control:** Enforces per-backend concurrency limits (`LimitConcurrency`) to prevent overloading.
+- **Concurrency Control:** Enforces per-backend concurrency limits (`limitConcurrency`) to prevent overloading.
 - **Resiliency:** Intelligent circuit breaking and retry logic that avoids throttled backends.
 - **Cost Efficiency:** Prioritizes pre-paid PTU capacity before spilling over to PayGo endpoints.
 - **Backend Affinity:** Supports sticky routing via affinity headers to maximize cache hits on OpenAI backends.
@@ -41,18 +41,25 @@ Locate the `listBackends` variable initialization in the `<inbound>` region. Add
     backends.Add(new JObject()
     {
         { "url", "https://your-ptu-endpoint.openai.azure.com/" },
-        { "priority", 1 },               // 1=High, 2=Medium, 3=Low
-        { "ModelType", "PTU" },          // Informational label for logging
+        { "path", "" },
+        { "priorityGroup", 1 },          // Lower number wins
+        { "label", "PTU" },             // Informational label for logging
         { "acceptablePriorities", new JArray(1, 2, 3) }, // Priorities this backend can handle
-        { "LimitConcurrency", "high" },  // high (100), medium (50), low (10), or off
-        { "BufferResponse", false },     // Set to false for Streaming; true to buffer full response
-        { "Timeout", 120 },              // Backend timeout in seconds
-        { "api-key", "your-api-key" }    // Leave blank if using Managed Identity
+        { "limitConcurrency", "high" }, // Optional: high (100), medium (50), low (10), or off. Defaults to off.
+        { "bufferResponse", false },     // Optional: set false for streaming. Defaults to true.
+        { "timeout", 120 },              // Optional: backend timeout in seconds. Defaults to 10.
+        { "auth", "MI" }               // "MI", a literal API key, or "" for no auth header
     });
     // Add more backends...
     return backends;
 }" />
 ```
+
+The current backend schema is `priorityGroup`, `label`, `acceptablePriorities`, `limitConcurrency`, `bufferResponse`, `timeout`, and `auth`.
+
+- Uppercase-first variants such as `LimitConcurrency`, `BufferResponse`, and `Timeout` are normalized to lowercase when the policy loads.
+- If `limitConcurrency`, `bufferResponse`, or `timeout` are omitted, the policy defaults them to `off`, `true`, and `10` seconds.
+- Older samples that use `priority`, `ModelType`, or `api-key` should be updated to `priorityGroup`, `label`, and `auth`.
 
 ### 2. Configure Priority Rules
 
@@ -78,6 +85,85 @@ You can customize the header names used for control logic by modifying the varia
 <set-variable name="PolicyCycleCounterHeaderName" value="x-PolicyCycleCounter" /> <!-- Tracks retry attempts count -->
 <set-variable name="AffinityHeaderName" value="x-backend-affinity" /> <!-- Sticky session support -->
 ```
+
+## Migrating from v2.0.1 to v2.1.0
+
+Most migrations are configuration-only. The main work is updating `listBackends` entries to the new schema and checking any retry settings that depended on the older retry-budget behavior.
+
+### What changed
+
+1. **Backend field names changed.**
+    - `priority` -> `priorityGroup`
+    - `ModelType` -> `label`
+    - `api-key` -> `auth`
+    - `LimitConcurrency`, `BufferResponse`, and `Timeout` are now read as `limitConcurrency`, `bufferResponse`, and `timeout`
+
+2. **Authentication is now explicit.**
+    - In v2.0.1, an empty `api-key` meant "use Managed Identity".
+    - In v2.1.0, `auth: "MI"` means Managed Identity, `auth: "<key>"` means send `api-key: <key>`, and `auth: ""` means send no auth header.
+
+3. **Backend URLs are now composed from `url` plus optional `path`.**
+    - In v2.0.1, the policy appended `/openai` when building `backendUrl`.
+    - In v2.1.0, the policy combines `url` and `path` during normalization and uses the result as-is.
+    - If you relied on the automatic `/openai` append, add `"path": "/openai"` or include `/openai` directly in `url`.
+
+4. **Missing backend settings now get defaults.**
+    - If `limitConcurrency` is omitted, the policy sets it to `off`.
+    - If `bufferResponse` is omitted, the policy sets it to `true`.
+    - If `timeout` is omitted, the policy sets it to `10` seconds.
+
+5. **Retry budget handling bug fix.**
+    - v2.0.1 allowed the request path to keep going while `RetryCount >= 0`.
+    - v2.1.0 only retries while `RetryCount > 0`.
+    - If you previously used `retryCount: 1` the policy retried twice.  For the same behaviour increase it to `2`.
+
+6. **PTU skip-on-context-window now keys off `label`.**
+    - In v2.0.1, the context-window-exceeded path skipped PTU backends when `ModelType == "PTU"`.
+    - In v2.1.0, it skips them when `label == "PTU"`.
+
+### Before and after example
+
+v2.0.1 backend entry:
+
+```xml
+backends.Add(new JObject()
+{
+     { "url", "https://your-resource.openai.azure.com/" },
+     { "priority", 1 },
+     { "ModelType", "PTU" },
+     { "acceptablePriorities", new JArray(1,2,3) },
+     { "LimitConcurrency", "off" },
+     { "BufferResponse", true },
+     { "Timeout", 30 },
+     { "api-key", "" }
+});
+```
+
+v2.1.0 backend entry:
+
+```xml
+backends.Add(new JObject()
+{
+     { "url", "https://your-resource.openai.azure.com/" },
+     { "path", "/openai" },
+     { "priorityGroup", 1 },
+     { "label", "PTU" },
+     { "acceptablePriorities", new JArray(1,2,3) },
+     { "limitConcurrency", "off" },
+     { "bufferResponse", true },
+     { "timeout", 30 },
+     { "auth", "MI" }
+});
+```
+
+### Migration checklist
+
+- Rename `priority`, `ModelType`, and `api-key` to `priorityGroup`, `label`, and `auth`.
+- Add `path` if your old config relied on the built-in `/openai` append.
+- Change Managed Identity backends from empty `api-key` to `auth: "MI"`.
+- Raise `retryCount` if you depended on the older `>= 0` retry behavior.
+- Keep `label: "PTU"` on PTU backends if you want context-window-exceeded requests to skip them.
+- Remove `limitConcurrency`, `bufferResponse`, or `timeout` only if the new defaults are acceptable.
 
 ## Standalone Usage & Client Headers
 
@@ -113,10 +199,10 @@ Each scenario demonstrates how to configure the policy to meet different busines
 ## FAQ
 
 **How do I install this?**
-Paste the contents of `Priority-with-retry.xml` into your API policy editor in the Azure Portal.
+Paste the contents of `Priority-with-retry-enhancedLog.xml` into your API policy editor in Azure API Management.
 
 **How does authentication work?**
-The policy supports both API Keys (defined in `listBackends`) and Azure Managed Identity (recommended).
+Set `auth` to `"MI"` to send a managed identity bearer token, set it to a non-empty string to send that value as the `api-key` header, or leave it empty to send no auth header.
 
 **How do I debug?**
 Set the header `S7PDEBUG: true` in your request. Inspect the `backendLog` header in the response for execution traces.
