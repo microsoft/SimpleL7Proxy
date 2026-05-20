@@ -78,7 +78,7 @@ az account show &> /dev/null || {
 }
 
 # Get current subscription
-SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+SUBSCRIPTION_ID=$(az account show --query id -o tsv | tr -d '\r')
 echo -e "${GREEN}Using subscription: ${SUBSCRIPTION_ID}${NC}"
 
 # Get or create Container Apps Environment
@@ -86,7 +86,7 @@ echo -e "${YELLOW}Getting Container Apps Environment...${NC}"
 MANAGED_ENV_ID=$(az containerapp env show \
     --name "$ENVIRONMENT_NAME" \
     --resource-group "$RESOURCE_GROUP" \
-    --query id -o tsv 2>/dev/null || echo "")
+    --query id -o tsv 2>/dev/null | tr -d '\r' || echo "")
 
 if [ -z "$MANAGED_ENV_ID" ]; then
     echo -e "${YELLOW}Container Apps Environment not found. Creating...${NC}"
@@ -98,7 +98,7 @@ if [ -z "$MANAGED_ENV_ID" ]; then
     MANAGED_ENV_ID=$(az containerapp env show \
         --name "$ENVIRONMENT_NAME" \
         --resource-group "$RESOURCE_GROUP" \
-        --query id -o tsv)
+        --query id -o tsv | tr -d '\r')
 fi
 
 echo -e "${GREEN}Using environment: ${MANAGED_ENV_ID}${NC}"
@@ -124,30 +124,115 @@ if [ -n "$REGISTRY_SERVER" ]; then
     BICEP_PARAMS="$BICEP_PARAMS registryServer=$REGISTRY_SERVER"
 fi
 
+<<<<<<< Updated upstream
+=======
+if [ -n "$REGISTRY_SERVER" ]; then
+    echo -e "${YELLOW}Verifying configured images exist in ACR...${NC}"
+    for IMAGE_REF in "$WEB_IMAGE" "$HEALTH_IMAGE"; do
+        IMAGE_REPO_TAG="${IMAGE_REF#${REGISTRY_SERVER}/}"
+        IMAGE_REPO="${IMAGE_REPO_TAG%:*}"
+        IMAGE_TAG="${IMAGE_REPO_TAG##*:}"
+
+        if [ "$IMAGE_REPO_TAG" = "$IMAGE_REF" ] || [ "$IMAGE_REPO" = "$IMAGE_REPO_TAG" ] || [ -z "$IMAGE_REPO" ] || [ -z "$IMAGE_TAG" ]; then
+            echo -e "${RED}Error: Image '$IMAGE_REF' must be in the form ${REGISTRY_SERVER}/repository:tag.${NC}"
+            exit 1
+        fi
+
+        if az acr repository show-tags \
+            --name "${REGISTRY_SERVER%%.*}" \
+            --repository "$IMAGE_REPO" \
+            --query "[?@=='$IMAGE_TAG'] | [0]" -o tsv 2>/dev/null | tr -d '\r' | grep -qx "$IMAGE_TAG"; then
+            echo -e "${GREEN}✓ Found ${IMAGE_REPO}:${IMAGE_TAG}${NC}"
+        else
+            echo -e "${RED}Error: Missing ACR image ${IMAGE_REPO}:${IMAGE_TAG}.${NC}"
+            echo -e "${YELLOW}Run ../ContainerImage/validate-acr.sh, then ../ContainerImage/deploy.sh before deploying the Container App.${NC}"
+            exit 1
+        fi
+    done
+fi
+
+>>>>>>> Stashed changes
 # Note: Host1, Workers, Port, AsyncModeEnabled, HealthProbeSidecar are now
 # served from Azure App Configuration (Step 6). They are no longer baked
 # into the Container App env vars.
 
+<<<<<<< Updated upstream
 # Check if Container App exists and grant ACR pull permission to its managed identity
 echo -e "${YELLOW}Checking if Container App exists for ACR role assignment...${NC}"
+=======
+# Ensure the Container App has a managed identity and AcrPull before deploying private ACR images.
+echo -e "${YELLOW}Checking Container App managed identity and ACR access...${NC}"
+EXISTING_APP_NAME=$(az containerapp show \
+    --name "$CONTAINER_APP_NAME" \
+    --resource-group "$RESOURCE_GROUP" \
+    --query "name" -o tsv 2>/dev/null | tr -d '\r' || echo "")
+
+if [ -z "$EXISTING_APP_NAME" ] && [ -n "$REGISTRY_SERVER" ]; then
+    echo -e "${YELLOW}Container App doesn't exist yet. Creating placeholder app to establish managed identity...${NC}"
+    az containerapp create \
+        --name "$CONTAINER_APP_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --environment "$ENVIRONMENT_NAME" \
+        --image "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest" \
+        --target-port "$WEB_PORT" \
+        --ingress "$INGRESS_TYPE" \
+        --system-assigned \
+        --min-replicas 0 \
+        --max-replicas 1 \
+        --output none
+fi
+
+>>>>>>> Stashed changes
 EXISTING_APP_PRINCIPAL_ID=$(az containerapp show \
     --name "$CONTAINER_APP_NAME" \
     --resource-group "$RESOURCE_GROUP" \
-    --query "identity.principalId" -o tsv 2>/dev/null || echo "")
+    --query "identity.principalId" -o tsv 2>/dev/null | tr -d '\r' || echo "")
 
+<<<<<<< Updated upstream
+=======
+if [ -z "$EXISTING_APP_PRINCIPAL_ID" ] || [ "$EXISTING_APP_PRINCIPAL_ID" = "null" ]; then
+    echo -e "${YELLOW}Enabling system-assigned managed identity...${NC}"
+    az containerapp identity assign \
+        --name "$CONTAINER_APP_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --system-assigned \
+        --output none
+
+    EXISTING_APP_PRINCIPAL_ID=$(az containerapp show \
+        --name "$CONTAINER_APP_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --query "identity.principalId" -o tsv | tr -d '\r')
+fi
+
+>>>>>>> Stashed changes
 if [ -n "$EXISTING_APP_PRINCIPAL_ID" ] && [ -n "$REGISTRY_SERVER" ]; then
     echo -e "${YELLOW}Granting AcrPull role to Container App managed identity...${NC}"
     # Extract ACR name from registry server (e.g., nvmacr.azurecr.io -> nvmacr)
     ACR_NAME=$(echo "$REGISTRY_SERVER" | cut -d'.' -f1)
-    ACR_RESOURCE_ID=$(az acr show --name "$ACR_NAME" --query id -o tsv 2>/dev/null || echo "")
+    ACR_RESOURCE_ID=$(az acr show --name "$ACR_NAME" --query id -o tsv 2>/dev/null | tr -d '\r' || echo "")
     
     if [ -n "$ACR_RESOURCE_ID" ]; then
         az role assignment create \
             --assignee "$EXISTING_APP_PRINCIPAL_ID" \
             --role "AcrPull" \
             --scope "$ACR_RESOURCE_ID" \
+<<<<<<< Updated upstream
             2>/dev/null || echo -e "${YELLOW}Role assignment already exists or failed (continuing...)${NC}"
         echo -e "${GREEN}ACR role assignment configured${NC}"
+=======
+            --query "[0].id" -o tsv 2>/dev/null | tr -d '\r' || echo "")
+
+        if [ -n "$ROLE_EXISTS" ]; then
+            echo -e "${GREEN}AcrPull role already assigned${NC}"
+        else
+            az role assignment create \
+                --assignee "$EXISTING_APP_PRINCIPAL_ID" \
+                --role "AcrPull" \
+                --scope "$ACR_RESOURCE_ID" \
+                --output none
+            echo -e "${GREEN}AcrPull role assigned${NC}"
+        fi
+>>>>>>> Stashed changes
     else
         echo -e "${YELLOW}Warning: Could not find ACR '$ACR_NAME'. Role assignment skipped.${NC}"
     fi
@@ -172,17 +257,17 @@ echo -e "${YELLOW}Retrieving deployment outputs...${NC}"
 FQDN=$(az deployment group show \
     --name "$DEPLOYMENT_NAME" \
     --resource-group "$RESOURCE_GROUP" \
-    --query "properties.outputs.fqdn.value" -o tsv)
+    --query "properties.outputs.fqdn.value" -o tsv | tr -d '\r')
 
 RESOURCE_ID=$(az deployment group show \
     --name "$DEPLOYMENT_NAME" \
     --resource-group "$RESOURCE_GROUP" \
-    --query "properties.outputs.resourceId.value" -o tsv)
+    --query "properties.outputs.resourceId.value" -o tsv | tr -d '\r')
 
 REVISION_NAME=$(az deployment group show \
     --name "$DEPLOYMENT_NAME" \
     --resource-group "$RESOURCE_GROUP" \
-    --query "properties.outputs.latestRevisionName.value" -o tsv)
+    --query "properties.outputs.latestRevisionName.value" -o tsv | tr -d '\r')
 
 # If this was first deployment, assign ACR role now that managed identity exists
 if [ -z "$EXISTING_APP_PRINCIPAL_ID" ] && [ -n "$REGISTRY_SERVER" ]; then

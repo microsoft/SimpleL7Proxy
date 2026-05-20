@@ -89,7 +89,7 @@ MAX_INSTANCE_COUNT="${REQUESTAPI_MAX_INSTANCE_COUNT:-100}"
 command -v az >/dev/null || { log ERROR "Azure CLI not installed"; exit 1; }
 az account show >/dev/null 2>&1 || { log ERROR "Run 'az login' first"; exit 1; }
 
-SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
+SUBSCRIPTION_ID="$(az account show --query id -o tsv | tr -d '\r')"
 log INFO "Subscription: ${SUBSCRIPTION_ID}"
 
 # ----------------------------------------------------------------------------
@@ -113,14 +113,14 @@ else
     # Storage account names are globally unique. Check if it exists anywhere
     # in our subscription before attempting to create.
     EXISTING_SA_RG=$(az storage account list \
-        --query "[?name=='${REQUESTAPI_STORAGE_ACCOUNT}'].resourceGroup | [0]" -o tsv 2>/dev/null || true)
+        --query "[?name=='${REQUESTAPI_STORAGE_ACCOUNT}'].resourceGroup | [0]" -o tsv 2>/dev/null | tr -d '\r' || true)
     if [ -z "${EXISTING_SA_RG}" ]; then
         # Fallback: az resource list sees resources the caller can read even
         # when az storage account list filters them out.
         EXISTING_SA_RG=$(az resource list \
             --name "${REQUESTAPI_STORAGE_ACCOUNT}" \
             --resource-type "Microsoft.Storage/storageAccounts" \
-            --query "[0].resourceGroup" -o tsv 2>/dev/null || true)
+            --query "[0].resourceGroup" -o tsv 2>/dev/null | tr -d '\r' || true)
     fi
     if [ -n "${EXISTING_SA_RG}" ]; then
         if confirm_reuse "Storage account" "${REQUESTAPI_STORAGE_ACCOUNT}" "${EXISTING_SA_RG}" "${REQUESTAPI_RESOURCE_GROUP}"; then
@@ -145,7 +145,7 @@ fi
 
 STORAGE_ID=$(az storage account show \
     -g "${STORAGE_RG}" -n "${REQUESTAPI_STORAGE_ACCOUNT}" \
-    --query id -o tsv 2>/dev/null || true)
+    --query id -o tsv 2>/dev/null | tr -d '\r' || true)
 if [ -z "${STORAGE_ID}" ]; then
     log ERROR "Could not resolve storage account ${REQUESTAPI_STORAGE_ACCOUNT} in ${STORAGE_RG}."
     exit 1
@@ -174,7 +174,7 @@ fi
 
 AI_CONNECTION_STRING=$(az monitor app-insights component show \
     -g "${REQUESTAPI_RESOURCE_GROUP}" -a "${REQUESTAPI_APPINSIGHTS_NAME}" \
-    --query connectionString -o tsv)
+    --query connectionString -o tsv | tr -d '\r')
 
 # ----------------------------------------------------------------------------
 # 4. Flex Consumption Function App
@@ -182,7 +182,7 @@ AI_CONNECTION_STRING=$(az monitor app-insights component show \
 # Function App names are globally unique. Search the whole subscription so we
 # don't try to create one that already exists in a different resource group.
 EXISTING_FA_RG=$(az functionapp list \
-    --query "[?name=='${REQUESTAPI_FUNCTION_APP}'].resourceGroup | [0]" -o tsv 2>/dev/null || true)
+    --query "[?name=='${REQUESTAPI_FUNCTION_APP}'].resourceGroup | [0]" -o tsv 2>/dev/null | tr -d '\r' || true)
 
 if [ -z "${EXISTING_FA_RG}" ]; then
     log INFO "Creating Flex Consumption Function App ${REQUESTAPI_FUNCTION_APP}..."
@@ -217,7 +217,7 @@ fi
 
 PRINCIPAL_ID=$(az functionapp identity show \
     -g "${REQUESTAPI_RESOURCE_GROUP}" -n "${REQUESTAPI_FUNCTION_APP}" \
-    --query principalId -o tsv)
+    --query principalId -o tsv | tr -d '\r')
 log INFO "Function App MI principalId: ${PRINCIPAL_ID}"
 
 # ----------------------------------------------------------------------------
@@ -247,7 +247,7 @@ assign_role() {
     local role=$1 scope=$2
     local count
     count=$(az role assignment list --assignee "${PRINCIPAL_ID}" --scope "${scope}" \
-        --query "[?roleDefinitionName=='${role}'] | length(@)" -o tsv 2>/dev/null || echo 0)
+        --query "[?roleDefinitionName=='${role}'] | length(@)" -o tsv 2>/dev/null | tr -d '\r' || echo 0)
     if [ "${count:-0}" -gt 0 ]; then
         log INFO "  '${role}' already assigned on $(basename "${scope}"). Skipping."
         return
@@ -261,14 +261,49 @@ assign_role "Storage Blob Data Owner"        "${STORAGE_ID}"
 assign_role "Storage Queue Data Contributor" "${STORAGE_ID}"
 assign_role "Storage Table Data Contributor" "${STORAGE_ID}"
 
+<<<<<<< Updated upstream
+=======
+DEPLOYMENT_STORAGE_URL=$(az functionapp deployment config show \
+    -g "${REQUESTAPI_RESOURCE_GROUP}" \
+    -n "${REQUESTAPI_FUNCTION_APP}" \
+    --query storage.value -o tsv 2>/dev/null | tr -d '\r' || true)
+DEPLOYMENT_STORAGE_CONTAINER="${DEPLOYMENT_STORAGE_URL##*/}"
+if [ -z "${DEPLOYMENT_STORAGE_CONTAINER}" ] || [ "${DEPLOYMENT_STORAGE_CONTAINER}" = "${DEPLOYMENT_STORAGE_URL}" ]; then
+    DEPLOYMENT_STORAGE_CONTAINER="app-package-${REQUESTAPI_FUNCTION_APP}"
+fi
+
+if ! az storage container-rm exists \
+        --resource-group "${STORAGE_RG}" \
+        --storage-account "${REQUESTAPI_STORAGE_ACCOUNT}" \
+        --name "${DEPLOYMENT_STORAGE_CONTAINER}" \
+        --query exists -o tsv 2>/dev/null | tr -d '\r' | grep -qx "true"; then
+    log INFO "Creating deployment storage container ${DEPLOYMENT_STORAGE_CONTAINER}..."
+    az storage container-rm create \
+        --resource-group "${STORAGE_RG}" \
+        --storage-account "${REQUESTAPI_STORAGE_ACCOUNT}" \
+        --name "${DEPLOYMENT_STORAGE_CONTAINER}" \
+        --public-access off \
+        >/dev/null
+fi
+
+log INFO "Configuring deployment storage to use system-assigned managed identity..."
+az functionapp deployment config set \
+    -g "${REQUESTAPI_RESOURCE_GROUP}" \
+    -n "${REQUESTAPI_FUNCTION_APP}" \
+    --deployment-storage-name "${REQUESTAPI_STORAGE_ACCOUNT}" \
+    --deployment-storage-container-name "${DEPLOYMENT_STORAGE_CONTAINER}" \
+    --deployment-storage-auth-type SystemAssignedIdentity \
+    >/dev/null
+
+>>>>>>> Stashed changes
 # Service Bus namespace (must exist)
 SB_NS_ID=$(az servicebus namespace show \
     -g "${REQUESTAPI_RESOURCE_GROUP}" -n "${REQUESTAPI_SERVICEBUS_NAMESPACE}" \
-    --query id -o tsv 2>/dev/null || true)
+    --query id -o tsv 2>/dev/null | tr -d '\r' || true)
 if [ -z "${SB_NS_ID}" ]; then
     # Try resolving by name across the subscription in case it lives elsewhere
     SB_NS_ID=$(az resource list --resource-type Microsoft.ServiceBus/namespaces \
-        --name "${REQUESTAPI_SERVICEBUS_NAMESPACE}" --query "[0].id" -o tsv 2>/dev/null || true)
+        --name "${REQUESTAPI_SERVICEBUS_NAMESPACE}" --query "[0].id" -o tsv 2>/dev/null | tr -d '\r' || true)
 fi
 if [ -n "${SB_NS_ID}" ]; then
     log INFO "Granting Service Bus roles on namespace ${REQUESTAPI_SERVICEBUS_NAMESPACE}..."
@@ -279,14 +314,14 @@ else
 fi
 
 # Cosmos DB SQL data-plane role (NOT regular RBAC)
-COSMOS_RG=$(az cosmosdb list --query "[?name=='${REQUESTAPI_COSMOS_ACCOUNT}'].resourceGroup | [0]" -o tsv 2>/dev/null || true)
+COSMOS_RG=$(az cosmosdb list --query "[?name=='${REQUESTAPI_COSMOS_ACCOUNT}'].resourceGroup | [0]" -o tsv 2>/dev/null | tr -d '\r' || true)
 if [ -n "${COSMOS_RG}" ]; then
     log INFO "Granting Cosmos DB SQL data-plane Contributor on account ${REQUESTAPI_COSMOS_ACCOUNT}..."
-    COSMOS_ACCOUNT_ID=$(az cosmosdb show -g "${COSMOS_RG}" -n "${REQUESTAPI_COSMOS_ACCOUNT}" --query id -o tsv)
+    COSMOS_ACCOUNT_ID=$(az cosmosdb show -g "${COSMOS_RG}" -n "${REQUESTAPI_COSMOS_ACCOUNT}" --query id -o tsv | tr -d '\r')
     # Built-in role: "Cosmos DB Built-in Data Contributor" = 00000000-0000-0000-0000-000000000002
     if az cosmosdb sql role assignment list \
             -g "${COSMOS_RG}" -a "${REQUESTAPI_COSMOS_ACCOUNT}" \
-            --query "[?principalId=='${PRINCIPAL_ID}'] | length(@)" -o tsv | grep -q '^[1-9]'; then
+            --query "[?principalId=='${PRINCIPAL_ID}'] | length(@)" -o tsv | tr -d '\r' | grep -q '^[1-9]'; then
         log INFO "  Cosmos data-plane role already assigned. Skipping."
     else
         az cosmosdb sql role assignment create \

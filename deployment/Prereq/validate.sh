@@ -95,8 +95,8 @@ fi
 # Check Azure CLI login
 if command -v az >/dev/null 2>&1; then
     if az account show >/dev/null 2>&1; then
-        SUBSCRIPTION=$(az account show --query "name" -o tsv)
-        ACCOUNT=$(az account show --query "user.name" -o tsv)
+        SUBSCRIPTION=$(az account show --query "name" -o tsv | tr -d '\r')
+        ACCOUNT=$(az account show --query "user.name" -o tsv | tr -d '\r')
         pass "Azure CLI authenticated as: $ACCOUNT"
         info "  Subscription: $SUBSCRIPTION"
     else
@@ -139,7 +139,7 @@ echo ""
 echo -e "${BLUE}[7/10] Checking Azure Subscription Access${NC}"
 if command -v az >/dev/null 2>&1; then
     if az account show >/dev/null 2>&1; then
-        SUBSCRIPTION_ID=$(az account show --query "id" -o tsv)
+        SUBSCRIPTION_ID=$(az account show --query "id" -o tsv | tr -d '\r')
         pass "Subscription accessible: $SUBSCRIPTION_ID"
         
         # Check resource group permissions (if user has any)

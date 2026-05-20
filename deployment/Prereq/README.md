@@ -85,6 +85,8 @@ On Windows, use one of these:
 - Git Bash
 - another shell that supports standard Bash script behavior
 
+Note: On Windows/WSL, Azure CLI `-o tsv` may include trailing carriage returns (`\r`). Sanitize values with `| tr -d '\r'` before reusing IDs/principal values in later Azure commands.
+
 ### 2. Azure tooling
 
 - Azure CLI (`az`)
