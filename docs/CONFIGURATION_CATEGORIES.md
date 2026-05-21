@@ -1,8 +1,23 @@
 # Configuration Settings — By Frequency of Use
 
-This document categorizes all proxy settings into three groups to guide documentation and operator prioritization.
+| Attribute | Value |
+|-----------|-------|
+| **Version** | 1.1 |
+| **Last Updated** | 2026-05-21 |
+| **Owner** | SimpleL7Proxy maintainers |
+| **Review Cycle** | Quarterly |
 
-> **Documentation Rule:** Focus on **Common** settings in general docs. Only include **Essential** and **Advanced** in specialized docs (deployment guides, troubleshooting, performance tuning).
+## Summary
+
+This document categorizes every SimpleL7Proxy configuration setting into three tiers — **Essential**, **Common**, and **Advanced** — to guide operators on which settings to address first and documentation authors on what each doc MUST cover. All Essential settings MUST be configured before any Common or Advanced settings are tuned.
+
+> **TL;DR**
+> - **Essential:** MUST be set in every deployment — the proxy will not function correctly without them.
+> - **Common:** MUST be configured for typical production deployments; govern reliability and observability.
+> - **Advanced:** MUST only be set when a specific capability (async, multi-tenancy, advanced auth) is explicitly required.
+
+> [!NOTE]
+> For the complete reference with Warm/Cold/Hidden reload classification and exact defaults, see [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md). For all environment variable definitions, see [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md).
 
 ---
 
@@ -189,15 +204,34 @@ This document categorizes all proxy settings into three groups to guide document
 
 ## Mapping: Where Each Category Appears in Docs
 
-| Document | Should Discuss | Notes |
+| Document | SHALL Discuss | Notes |
 |----------|---|---------|
-| BEGINNERDEVELOPMENT.md | Essential | Local setup uses basic config |
-| CONTAINER_DEPLOYMENT.md | Essential + Common | Initial deployment checklist |
-| AZURE_APP_CONFIGURATION.md | Essential + Common | Seed script outputs both |
-| CONFIGURATION_SETTINGS.md | All three (with labels) | Complete reference |
-| ADVANCED_CONFIGURATION.md | Advanced only | Deep-dive for specialists |
-| Troubleshooting guides | Common + Advanced (context-dependent) | E.g., circuit-breaker guide discusses CB thresholds (Common) and error window (Advanced) |
-| HEALTH_CHECKING.md | Common (+ Advanced if sidecar) | PollInterval/Timeout are Common; sidecar config is Advanced |
+| [BEGINNER_DEVELOPMENT.md](BEGINNER_DEVELOPMENT.md) | Essential | Local setup uses basic config |
+| [CONTAINER_DEPLOYMENT.md](CONTAINER_DEPLOYMENT.md) | Essential + Common | Initial deployment checklist |
+| [AZURE_APP_CONFIGURATION.md](AZURE_APP_CONFIGURATION.md) | Essential + Common | Seed script outputs both |
+| [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md) | All three (with labels) | Complete reference — the authoritative source |
+| [ADVANCED_CONFIGURATION.md](ADVANCED_CONFIGURATION.md) | Advanced only | Deep-dive: priority mapping, header validation, user throttling |
+| [TroubleshootTOC.md](TroubleshootTOC.md) | Common + Advanced (context-dependent) | Circuit-breaker thresholds (Common); sliding window settings (Advanced) |
+| [HEALTH_CHECKING.md](HEALTH_CHECKING.md) | Common (+ Advanced if sidecar) | `PollInterval`/`PollTimeout` are Common; sidecar config is Advanced |
+
+---
+
+## Validation & Compliance
+
+| Check | Method | Expected Result |
+|-------|--------|-----------------|
+| Essential settings present | Inspect running container env vars | `Port`, `Host1`, `Workers`, `MaxQueueLength`, `Timeout`, `MaxAttempts`, `DefaultPriority` are set |
+| Common settings documented | Review deployment runbook | All Common settings in the table above appear with tuned values |
+| Advanced settings gated | Review pull request checklist | No Advanced setting is added without a documented justification |
+
+---
+
+## Version History
+
+| Version | Date | Changes | Author |
+|---------|------|---------|--------|
+| 1.1 | 2026-05-21 | Added metadata, TL;DR, Summary; removed internal meta-comment; fixed `BEGINNERDEVELOPMENT.md` → `BEGINNER_DEVELOPMENT.md`; added hyperlinks to all documents in mapping table; added Validation & Compliance and Version History sections | SimpleL7Proxy maintainers |
+| 1.0 | — | Initial version | SimpleL7Proxy maintainers |
 
 ---
 

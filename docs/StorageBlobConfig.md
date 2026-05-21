@@ -1,35 +1,68 @@
-### Blob Storage Lifecycle Management Variables
+# Async Blob Storage: Retention and Lifecycle Management
 
-| Variable                     | Description                                                                                          | Default                                  |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| **BlobRetentionDays**        | Number of days to retain blobs before automatic deletion. Set to 0 to disable automatic deletion.     | 7                                        |
-| **StorageDbContainerName**   | The container name where async request blobs are stored.                                              | Requests                                 |
+| Attribute | Value |
+|-----------|-------|
+| **Version** | 1.1 |
+| **Last Updated** | 2026-05-21 |
+| **Owner** | SimpleL7Proxy maintainers |
+| **Review Cycle** | Quarterly |
 
+## Summary
+
+SimpleL7Proxy writes one blob per async request to Azure Blob Storage. Blobs do not expire automatically. Operators MUST configure a storage lifecycle management policy to prevent unbounded storage growth and cost. `BlobRetentionDays` sets the retention window; `StorageDbContainerName` identifies the container the policy MUST target.
+
+> **TL;DR**
+> - `BlobRetentionDays` (default: `7`) sets the days-since-last-modification threshold for automatic deletion.
+> - A lifecycle management policy MUST be created in the Azure Storage account targeting `StorageDbContainerName` (default: `Requests`).
+> - Three equivalent provisioning methods are available: Azure Portal, Azure CLI, and Bicep.
+
+> [!WARNING]
+> Setting `BlobRetentionDays` in the proxy configuration alone does NOT delete blobs. The Azure Storage lifecycle management policy MUST be created independently in the storage account.
+
+---
+
+## Scope & Applicability
+
+**In scope:** Lifecycle management policy configuration for async request blobs written by SimpleL7Proxy.
+**Out of scope:** Blob Storage authentication and connection string setup (see [AsyncOperation.md](AsyncOperation.md)); blob container creation (the proxy creates the container automatically at startup).
+**Dependencies:** `AsyncModeEnabled=true`; `AsyncBlobStorageConfig` set with a valid storage account URI.
+
+---
+
+## Reference — Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BlobRetentionDays` | `7` | Days after last modification before a blob is eligible for automatic deletion. Set to `0` to disable. |
+| `StorageDbContainerName` | `Requests` | Container name where async request blobs are stored. The lifecycle rule MUST target this name exactly. |
+
+> [!NOTE]
+> Azure Blob Storage lifecycle management policies run once per day. Blobs are not deleted immediately when the retention period elapses — deletion occurs on the next daily policy evaluation.
+
+---
 
 ## Configuring Blob Storage Lifecycle Management
 
-SimpleL7Proxy creates blobs in Azure Storage for asynchronous requests. These blobs contain request data and headers, and by default, they don't expire automatically. To avoid storage costs from accumulating over time, configure Azure Blob Storage lifecycle management:
+The following three methods are equivalent. Operators MUST use exactly one.
 
-### Option 1: Using Azure Portal
+### Option 1: Azure Portal
 
-1. Navigate to your storage account in the Azure Portal
-2. Select **Lifecycle Management** under **Data management**
+1. Navigate to your storage account in the [Azure Portal](https://portal.azure.com).
+2. Select **Lifecycle Management** under **Data management**.
 3. Create a new rule with these settings:
-   - **Rule name**: DeleteExpiredAsyncBlobs
-   - **Rule scope**: Apply to containers matching pattern: `{StorageDbContainerName}`
-   - **If blob was last modified more than (days ago)**: `{BlobRetentionDays}` (default 7)
+   - **Rule name**: `DeleteExpiredAsyncBlobs`
+   - **Rule scope**: Apply to containers matching prefix `{StorageDbContainerName}` (default: `Requests`)
+   - **If blob was last modified more than (days ago)**: `{BlobRetentionDays}` (default: `7`)
    - **Then delete the blob**: Checked
 
-### Option 2: Using Azure CLI
+### Option 2: Azure CLI
 
 ```bash
-# Set variables
 STORAGE_ACCOUNT="your-storage-account-name"
 RESOURCE_GROUP="your-resource-group"
-CONTAINER_NAME="Requests"  # Or your custom container name
-RETENTION_DAYS=7  # Or your custom retention period
+CONTAINER_NAME="Requests"
+RETENTION_DAYS=7
 
-# Create lifecycle management policy
 az storage account management-policy create \
   --account-name $STORAGE_ACCOUNT \
   --resource-group $RESOURCE_GROUP \
@@ -55,16 +88,15 @@ az storage account management-policy create \
     }
   ]
 }
-
+EOF
 ```
 
-### Option 3: Using Azure Bicep/ARM Template
+### Option 3: Bicep
 
-```json
-
+```bicep
 resource storageAccount 'Microsoft.Storage/storageAccounts@2021-08-01' = {
   // ...existing storage account properties...
-  
+
   resource managementPolicies 'managementPolicies' = {
     name: 'default'
     properties: {
@@ -96,5 +128,24 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2021-08-01' = {
     }
   }
 }
-
 ```
+
+---
+
+## Validation & Compliance
+
+| Check | Method | Expected Result |
+|-------|--------|-----------------|
+| Lifecycle policy exists | Azure Portal → Storage Account → Lifecycle Management | `DeleteExpiredAsyncBlobs` rule is present and enabled |
+| Target container correct | Inspect rule's prefix filter | Matches `StorageDbContainerName` value exactly |
+| Blobs deleted after retention | Wait `BlobRetentionDays` days after async requests complete | Blobs absent from container on next daily evaluation |
+| Container exists | Azure Portal → Storage Account → Containers | `{StorageDbContainerName}` container is present |
+
+---
+
+## Version History
+
+| Version | Date | Changes | Author |
+|---------|------|---------|--------|
+| 1.1 | 2026-05-21 | Added H1 title, metadata, TL;DR, Summary, Scope & Applicability, Validation & Compliance, Version History; fixed Bicep code block language tag; standardized variable table | SimpleL7Proxy maintainers |
+| 1.0 | — | Initial version (no document title or intro) | SimpleL7Proxy maintainers |

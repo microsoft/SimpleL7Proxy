@@ -1,35 +1,64 @@
 # Environment Variables
 
-SimpleL7Proxy is configured through environment variables. This page lists all of them by category.
+| Attribute | Value |
+|-----------|-------|
+| **Version** | 1.1 |
+| **Last Updated** | 2026-05-21 |
+| **Owner** | SimpleL7Proxy maintainers |
+| **Review Cycle** | Quarterly |
+
+## Summary
+
+This document is the exhaustive reference for every environment variable accepted by SimpleL7Proxy. Operators MUST use this document when configuring deployments. For Warm/Cold/Hidden reload classification and the complete defaults reference, see [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md).
+
+> **TL;DR**
+> - Set `Port` and at least one `Host1` connection string to start the proxy. No other settings are REQUIRED.
+> - The probe path MUST be embedded in the `Host1` connection string (`host=…;probe=/health`) — `Probe_path1` is deprecated and MUST NOT be used in new deployments.
+> - All variable names are case-sensitive. Unknown variables are silently ignored at startup.
+
+> [!NOTE]
+> **Units:** timeout and interval values are in **milliseconds** unless the variable name ends in `Secs` (seconds) or `Minutes`.
+
+---
 
 ## Table of Contents
 
-- [Environment Variables](#environment-variables)
-  - [Table of Contents](#table-of-contents)
-  - [Quick Start](#quick-start)
-  - [Basic Configuration](#basic-configuration)
-  - [Health Check Configuration](#health-check-configuration)
-  - [Security \& Access Control](#security--access-control)
-  - [Request Processing Variables](#request-processing-variables)
-  - [Logging \& Monitoring Variables](#logging--monitoring-variables)
-  - [Async Processing Variables](#async-processing-variables)
-  - [Connection Management Variables](#connection-management-variables)
-  - [Azure App Configuration Variables](#azure-app-configuration-variables)
-  - [Backend Configuration Variables](#backend-configuration-variables)
-  - [User Profile Configuration](#user-profile-configuration)
-  - [Additional Configuration Notes](#additional-configuration-notes)
+- [Minimum Required Configuration](#minimum-required-configuration)
+- [Basic Configuration](#basic-configuration)
+- [Health Check Configuration](#health-check-configuration)
+- [Security \& Access Control](#security--access-control)
+- [Request Processing Variables](#request-processing-variables)
+- [Logging \& Monitoring Variables](#logging--monitoring-variables)
+- [Async Processing Variables](#async-processing-variables)
+- [Connection Management Variables](#connection-management-variables)
+- [Azure App Configuration Variables](#azure-app-configuration-variables)
+- [Backend Configuration Variables](#backend-configuration-variables)
+- [User Profile Configuration](#user-profile-configuration)
+- [Additional Configuration Notes](#additional-configuration-notes)
+- [Validation \& Compliance](#validation--compliance)
+- [Version History](#version-history)
 
-## Quick Start
+## Minimum Required Configuration
 
-The minimum you need to set:
-1. **Port** — the port the proxy listens on
-2. **Host1, Host2, ...** — at least one backend URL
-3. **Probe_path1, Probe_path2, ...** — the health probe path for each backend
+**Every deployment MUST set at minimum:**
 
-For production, also consider:
-- **Workers** — increase for higher throughput
-- **MaxQueueLength** — set based on expected peak traffic
-- **APPINSIGHTS_CONNECTIONSTRING** — for monitoring in Azure
+```bash
+Port=443
+Host1="host=https://your-backend.example.com;probe=/health"
+```
+
+The `probe` path is embedded in the `Host1` connection string. The legacy `Probe_path1` variable is still accepted but MUST NOT be used in new deployments.
+
+For production deployments, the following variables MUST also be set:
+
+| Variable | Reason |
+|----------|--------|
+| `Workers` | Default of `10` is insufficient for production throughput |
+| `MaxQueueLength` | Default of `1000` MUST be tuned to expected peak traffic |
+| `APPINSIGHTS_CONNECTIONSTRING` | REQUIRED for production observability |
+
+> [!TIP]
+> For a full annotated walkthrough of minimum setup and local development options, see [BEGINNER_DEVELOPMENT.md](BEGINNER_DEVELOPMENT.md). For copy-paste production configurations, see [SCENARIOS.md](SCENARIOS.md).
 
 ## Basic Configuration
 
@@ -39,6 +68,9 @@ For production, also consider:
 | **Port**                      | int | The port on which SimpleL7Proxy listens for incoming traffic.                                                                                                                                    | 80                                       |
 | **TERMINATION_GRACE_PERIOD_SECONDS** | int | The number of seconds SimpleL7Proxy waits before forcing itself to shut down.                                                                                                             | 30                                       |
 | **Workers**                   | int | The number of worker threads used to process incoming proxy requests.                                                                                                                            | 10                                       |
+
+> [!TIP]
+> `Workers=10` is the default and is appropriate for local testing only. Production deployments MUST increase `Workers` based on expected concurrent request volume. Start at `Workers=20` and increase until queue depth stabilizes under load.
 
 ## Health Check Configuration
 
@@ -62,6 +94,9 @@ For production, also consider:
 | **ValidateAuthAppID**           | bool | If true, enables validation of an application ID in the request for authentication. Entra has a limit of 13 application IDs, use this setting to make the check in the proxy code.                                                                  | false                                    |
 | **ValidateAuthAppIDHeader**     | string | Name of the header containing the App ID to validate.                                                                                                 | X-MS-CLIENT-PRINCIPAL-ID                 |
 | **ValidateAuthAppIDUrl**        | string | URL or file path to fetch the list of valid App IDs for authentication.                                                                               | file:auth.json                           |
+
+> [!TIP]
+> `ValidateAuthAppID` is designed for scenarios where Entra’s built-in app ID checking is insufficient (the Entra limit is 13 application IDs). When enabled, the proxy performs this check before the request enters the queue, preventing unauthorized apps from consuming queue capacity.
 
 ## Request Processing Variables
 
@@ -118,6 +153,9 @@ For production, also consider:
 | **StorageDbEnabled**          | bool | Enables archiving requests to storage.                                                                           | false                                    |
 | **RequestIDPrefix**           | string | The prefix appended to every request ID.                                                                                                                                                         | S7P                                      |
 
+> [!TIP]
+> `EVENT_LOGGERS` is the REQUIRED method for configuring event backends in all new deployments. The legacy `LOGTOFILE` variable MUST NOT be used in new configurations — it is preserved only for backward compatibility. Set `EVENT_LOGGERS=file,eventhub` to enable both sinks simultaneously.
+
 ## Async Processing Variables
 
 | Variable                       | Type | Description                                                                                                         | Default                                  |
@@ -138,6 +176,9 @@ For production, also consider:
 | **AsyncTimeout**              | int | Timeout in milliseconds for async operations. The maximum amount of time an async request will run for.    | 1800000 (30 min)                        |
 | **AsyncTriggerTimeout**       | int | Timeout for async trigger operations in ms.                                                              | 10000                                    |
 | **AsyncTTLSecs**              | int | TTL for async requests in seconds.                                                                       | 86400 (24 hours)                         |
+
+> [!WARNING]
+> All async variables are **Cold** settings (see [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md)). They MUST be changed by redeploying or restarting the container — updating Azure App Configuration alone has no effect on Cold variables.
 
 ## Connection Management Variables
 
@@ -191,6 +232,9 @@ These variables connect SimpleL7Proxy to [Azure App Configuration](https://learn
 | **SharedIteratorCleanupIntervalSeconds** | int | How often (in seconds) to run cleanup of stale shared iterators.                                        | 30                                       |
 | **MaxEvents**                 | int  | Maximum number of events the proxy can store in memory.                                                          | 100000                                   |
 
+> [!TIP]
+> The `Host1`–`Host9` connection string format (`host=…;probe=…;path=…`) MUST be used for all new deployments. The legacy per-variable format (`Probe_path1`, `IP1`) is deprecated — new per-host options (`path`, `mode`, `usemi`) are only available in the connection string format. See [BACKEND_HOSTS.md](BACKEND_HOSTS.md) for the complete key reference.
+
 ## User Profile Configuration
 
 This is a JSON formatted file that gets read every hour. It can be fetched from a URL or a file location, depending on the configuration. Here is an example file:
@@ -222,8 +266,31 @@ This is a JSON formatted file that gets read every hour. It can be fetched from 
 
 ## Additional Configuration Notes
 
-- **Environment Variables vs Configuration File**: While most settings can be provided via environment variables, you can also use appsettings.json in development mode.
+- **Environment Variables vs Configuration File:** While most settings can be provided via environment variables, `appsettings.json` is supported in development mode only and MUST NOT be used in production deployments.
+- **Priority Configuration:** The count of entries in `PriorityKeys` MUST equal the count in `PriorityValues`. `PriorityWorkers` MUST reference only priority levels defined in `PriorityValues`. See [ADVANCED_CONFIGURATION.md](ADVANCED_CONFIGURATION.md#priority-management) for a worked example.
+- **DNS Refresh:** Set `DnsRefreshTimeout` to force DNS re-resolution at a frequency appropriate for your environment. The default is 120,000 ms (2 min). This setting is relevant in environments where backend IPs change on failover.
 
-- **Priority Configuration**: When setting up priorities, ensure the number of values in `PriorityKeys` and `PriorityValues` match, and that `PriorityWorkers` references valid priority levels.
+---
 
-- **DNS Refresh**: If you're experiencing issues with DNS resolution in dynamic environments, adjust the `DnsRefreshTimeout` value to force more frequent DNS lookups.
+## Validation & Compliance
+
+| Check | Method | Expected Result |
+|-------|--------|-----------------|
+| Proxy binds port | `curl http://localhost:{Port}/health` | `200 OK` |
+| Backend host registered | Proxy startup log | `Host1` URL appears in active host list |
+| App Insights receiving data | Azure Portal → Application Insights → Live Metrics | Custom events appear within 60 s of first request |
+| Event Hub receiving data | Azure Portal → Event Hubs → Data Explorer | Events visible within 60 s of first request |
+| Warm setting reloaded | Update `Warm:Sentinel` in App Configuration | New value applied within `AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS` (default 30 s) |
+| Priority mapping active | Send request with header matching `PriorityKeyHeader` value | Request served at mapped priority (visible in proxy logs) |
+
+> [!NOTE]
+> Cold settings (per [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md)) MUST be changed by redeploying or restarting the container. Updating Azure App Configuration alone is insufficient for Cold variables.
+
+---
+
+## Version History
+
+| Version | Date | Changes | Author |
+|---------|------|---------|--------|
+| 1.1 | 2026-05-21 | Removed legacy `Probe_path1` from minimum configuration; added metadata, TL;DR, Minimum Required Configuration section, [!TIP]/[!WARNING] per category, Validation & Compliance, Version History; tightened Additional Configuration Notes language | SimpleL7Proxy maintainers |
+| 1.0 | — | Initial version | SimpleL7Proxy maintainers |
