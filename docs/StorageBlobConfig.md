@@ -3,7 +3,7 @@
 | Variable                     | Description                                                                                          | Default                                  |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | **BlobRetentionDays**        | Number of days to retain blobs before automatic deletion. Set to 0 to disable automatic deletion.     | 7                                        |
-| **AsyncBlobStorageContainer**| The container name where async request blobs are stored.                                              | asyncrequests                            |
+| **StorageDbContainerName**   | The container name where async request blobs are stored.                                              | Requests                                 |
 
 
 ## Configuring Blob Storage Lifecycle Management
@@ -16,7 +16,7 @@ SimpleL7Proxy creates blobs in Azure Storage for asynchronous requests. These bl
 2. Select **Lifecycle Management** under **Data management**
 3. Create a new rule with these settings:
    - **Rule name**: DeleteExpiredAsyncBlobs
-   - **Rule scope**: Apply to containers matching pattern: `{AsyncBlobStorageContainer}`
+   - **Rule scope**: Apply to containers matching pattern: `{StorageDbContainerName}`
    - **If blob was last modified more than (days ago)**: `{BlobRetentionDays}` (default 7)
    - **Then delete the blob**: Checked
 
@@ -26,7 +26,7 @@ SimpleL7Proxy creates blobs in Azure Storage for asynchronous requests. These bl
 # Set variables
 STORAGE_ACCOUNT="your-storage-account-name"
 RESOURCE_GROUP="your-resource-group"
-CONTAINER_NAME="asyncrequests"  # Or your custom container name
+CONTAINER_NAME="Requests"  # Or your custom container name
 RETENTION_DAYS=7  # Or your custom retention period
 
 # Create lifecycle management policy

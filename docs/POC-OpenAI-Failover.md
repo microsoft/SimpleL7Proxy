@@ -1,6 +1,6 @@
 # POC: Azure OpenAI Failover via APIM
 
-**Purpose:** Show that when a PTU Azure OpenAI backend returns `429`, the `Priority-with-retry-enhancedLog.xml` policy marks it throttled, retries the same request against a PAYGO backend, and the client still sees `200 OK`.
+**Purpose:** Show that when a backend returns `429`, the APIM policy marks it as throttled, retries the same request against the next available backend, and the client still sees `200 OK`. Any combination of `PTU` and `PAYGO` backends can be used but for the purposes of this POC, we will a single PTU and a single PAYGO backed. 
 
 > [!IMPORTANT]
 > **The rule: PTU at `priorityGroup: 1` wins when healthy; when it returns `429`, APIM throttles it for `Retry-After + 2s` and the same request retries against PAYGO at `priorityGroup: 2`. The client never sees the `429`.**
@@ -121,9 +121,7 @@ done
 
 ```xml
 <set-variable name="listBackends" value="@{
-    JArray backends = new JArray();
-    string salt = "0123456789";
-
+...
     backends.Add(new JObject()
     {
         { "url", "https://<ptu-resource>.openai.azure.com/" },
@@ -150,20 +148,7 @@ done
         { "auth", "MI" }
     });
 
-    foreach (JObject backend in backends) {
-        string saltedUrl = salt + backend["url"].ToString();
-        backend["affinity"] = string.Concat(
-            System.Security.Cryptography.SHA256.Create()
-            .ComputeHash(System.Text.Encoding.UTF8.GetBytes(saltedUrl))
-            .Take(10)
-            .Select(b => b.ToString("x2"))
-        );
-        backend["isThrottling"]      = false;
-        backend["retryAfter"]        = DateTime.MinValue;
-        backend["defaultRetryAfter"] = 10;
-    }
-
-    return backends;
+...
 }" />
 ```
 

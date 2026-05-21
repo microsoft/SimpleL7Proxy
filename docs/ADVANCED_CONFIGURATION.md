@@ -13,7 +13,7 @@ The proxy maps a request header value to an internal priority level, then assign
 
 ### How it works
 
-1.  **Incoming Trigger**: The proxy looks for a specific header (default: `S7PPriorityKey`) in the request.
+1.  **Incoming Trigger**: The proxy looks for the header named by `PriorityKeyHeader` (default: `S7PPriorityKey`) in the request.
 2.  **Mapping**: The value of that header is matched against `PriorityKeys` and mapped to a corresponding value in `PriorityValues`.
 3.  **Resource Allocation**: The internal priority level is matched against `PriorityWorkers` to determine how many dedicated threads handle that priority.
 

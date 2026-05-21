@@ -53,7 +53,7 @@ OAuthAudience=api://your-app-id
 ```bash
 # Performance optimization
 Workers=50
-MaxQueueLength=100
+MaxQueueLength=2000
 EnableMultipleHttp2Connections=true
 MultiConnMaxConns=8000
 KeepAliveIdleTimeoutSecs=1800
@@ -66,8 +66,8 @@ Timeout=5000
 ```bash
 # Service Level Configuration
 AsyncModeEnabled=true
-AsyncBlobStorageConnectionString=DefaultEndpointsProtocol=https;AccountName=...
-AsyncSBConnectionString=Endpoint=sb://...
+AsyncBlobStorageConfig=uri=https://<storageaccount>.blob.core.windows.net,mi=true
+AsyncSBConfig=cs=<connection-string>,ns=<namespace>,q=requeststatus,mi=false
 AsyncTimeout=1800000
 
 # Logging for async operations
@@ -100,7 +100,7 @@ Workers=15
 MaxQueueLength=30
 APPINSIGHTS_CONNECTIONSTRING=${APPINSIGHTS_CONNECTION_STRING}
 LogAllRequestHeaders=true
-LogConsoleEvent=true
+LogToConsole=*
 ```
 
 ## Development
@@ -113,7 +113,7 @@ Host2=http://localhost:5000
 LogAllRequestHeaders=true
 LogAllResponseHeaders=true
 LogProbes=true
-LOGFILE=dev-events.log
+LOGFILE_NAME=dev-events.log
 Workers=5
 MaxQueueLength=10
 IgnoreSSLCert=true

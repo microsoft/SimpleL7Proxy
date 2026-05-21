@@ -19,9 +19,9 @@ Configure user profiles using these environment variables. For detailed variable
 | Variable | Description | Default |
 |----------|-------------|---------|
 | **UseProfiles** | Enable user profile functionality | false |
-| **UserConfigUrl** | URL or file path to fetch user configuration | file:config.json |
-| **SuspendedUserConfigUrl** | URL or file path to fetch list of explicitly suspended users | file:config.json |
-| **UserIDFieldName** | Header name used to look up user information | userId |
+| **UserConfigUrl** | URL or file path to fetch user configuration | `""` (not set) |
+| **SuspendedUserConfigUrl** | URL or file path to fetch list of explicitly suspended users | `""` (not set) |
+| **UserIDFieldName** | JSON field name in the user profile config file used as the unique user identifier | userId |
 | **UserProfileHeader** | Header containing serialized user profile information for downstream services | X-UserProfile |
 | **UserPriorityThreshold** | Threshold (0.0-1.0) for user priority calculations. If a user's active requests exceed this ratio of the total queue, their requests are deprioritized. | 0.1 |
 
@@ -138,11 +138,11 @@ To enable async processing for a user, their profile must contain the `async-con
 
 ### Async Request Example
 
-A client requests an async operation by adding the `AsyncMode` header (or configured equivalent):
+A client requests an async operation by adding the `S7PAsyncMode` header (or the value of `AsyncClientRequestHeader` if overridden):
 
 ```bash
 curl -H "userId: premium-user-123" \
-     -H "AsyncMode: true" \
+     -H "S7PAsyncMode: true" \
      -H "Content-Type: application/json" \
      -d '{"query": "process this async"}' \
      http://localhost:8000/api/long-running-task

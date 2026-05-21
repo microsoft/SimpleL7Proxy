@@ -6,8 +6,10 @@ SimpleL7Proxy is configured through environment variables. This page lists all o
 
 - [Environment Variables](#environment-variables)
   - [Table of Contents](#table-of-contents)
-  - [Quick Start Configuration](#quick-start-configuration)
-  - [Core Configuration Variables](#core-configuration-variables)
+  - [Quick Start](#quick-start)
+  - [Basic Configuration](#basic-configuration)
+  - [Health Check Configuration](#health-check-configuration)
+  - [Security \& Access Control](#security--access-control)
   - [Request Processing Variables](#request-processing-variables)
   - [Logging \& Monitoring Variables](#logging--monitoring-variables)
   - [Async Processing Variables](#async-processing-variables)
@@ -49,12 +51,12 @@ For production, also consider:
 
 | Variable                       | Type | Description                                                                                                                                                                                        | Default                                  |
 | ----------------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| **SuspendedUserConfigUrl**      | string | URL or file path to fetch the list of suspended users.                                                                                                | file:config.json                         |
+| **SuspendedUserConfigUrl**      | string | URL or file path to fetch the list of suspended users.                                                                                                | `""` (not set)                           |
 | **UseProfiles**                | bool | If true, enables user profile functionality for custom handling based on user profiles.                                                               | false                                    |
 | **UserConfigRequired**         | bool | If true, a valid user profile must be found for the request to proceed. Requires restart.                                                            | false                                    |
 | **UserConfigRefreshIntervalSecs** | int | Interval in seconds between user configuration refreshes. Requires restart.                                                                       | 3600 (1 hour)                            |
 | **UserSoftDeleteTTLMinutes**   | int  | Time in minutes before a soft-deleted user profile is permanently removed. Requires restart.                                                         | 360 (6 hours)                            |
-| **UserConfigUrl**             | string | URL or file path to fetch user configuration data.                                                                                                     | file:config.json                         |
+| **UserConfigUrl**             | string | URL or file path to fetch user configuration data.                                                                                                     | `""` (not set)                           |
 | **UserPriorityThreshold**     | float | Floating point threshold (0.0-1.0) for user priority calculations. If a user owns more than this percentage of requests, their priority is lowered to prevent monopolization. For details, see [Advanced Configuration](ADVANCED_CONFIGURATION.md#user-governance). | 0.1                                      |
 | **ValidateAuthAppFieldName**    | string | Name of the field in the authentication payload to validate as the App ID.                                                                            | authAppID                                |
 | **ValidateAuthAppID**           | bool | If true, enables validation of an application ID in the request for authentication. Entra has a limit of 13 application IDs, use this setting to make the check in the proxy code.                                                                  | false                                    |
@@ -69,9 +71,9 @@ For production, also consider:
 | **DefaultTTLSecs**            | int | The default time-to-live for a request in seconds.                                                                                                                                               | 300                                      |
 | **DependancyHeaders**         | string | Comma-separated list of headers to track dependency information.                                                                                                      | "Backend-Host, Host-URL..."              |
 | **DisallowedHeaders**         | string | A comma-separated list of headers that should be removed or disallowed when forwarding requests.                                                                                                  | None                                     |
-| **UserIDFieldName**          | string | The header name used to look up user information in configuration files. Also accepts the legacy alias **LookupHeaderName** (kept for backward compatibility). | userId                                   |
+| **UserIDFieldName**          | string | JSON field name in the user profile config file used as the unique user identifier. Also accepts the legacy alias **LookupHeaderName** (kept for backward compatibility). | userId                                   |
 | **PriorityKeyHeader**          | string | Name of the header that contains the priority key for determining request priority.                                                                     | S7PPriorityKey                           |
-| **PriorityKeys**              | int array | Comma-separated list of keys for the header 'S7PPriorityKey'. See [Advanced Configuration](ADVANCED_CONFIGURATION.md#priority-management) for examples.  | "12345,234"                                |
+| **PriorityKeys**              | string array | Comma-separated list of keys for the header 'S7PPriorityKey'. See [Advanced Configuration](ADVANCED_CONFIGURATION.md#priority-management) for examples.  | "12345,234"                                |
 | **PriorityValues**            | int array | Comma-separated list of priorities mapping to **PriorityKeys**. See [Advanced Configuration](ADVANCED_CONFIGURATION.md#priority-management) for examples.   | "1,3"                                      |
 | **PriorityWorkers**           | string | Comma-separated list (e.g., "2:1,3:1") specifying worker threads per priority. See [Advanced Configuration](ADVANCED_CONFIGURATION.md#priority-management) for examples.                                                                                       | 2:1,3:1                                  |
 | **RequiredHeaders**           | string | A comma-separated list of headers required for incoming requests to be deemed valid.                                                                                                             | None                                     |
@@ -167,7 +169,7 @@ These variables connect SimpleL7Proxy to [Azure App Configuration](https://learn
 | ----------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | **AcceptableStatusCodes**     | int array | The list of HTTP status codes considered successful. If a host returns a code not in this list, it's deemed a failure. | 200, 202, 401, 403, 404, 408, 410, 412, 417, 400 |
 | **APPENDHOSTSFILE / AppendHostsFile** | bool | If true, appends host/IP pairs to /etc/hosts for DNS resolution. Both case variants are supported.      | false                                    |
-| **CBErrorThreshold**          | int | The error threshold percentage for the circuit breaker. If the error rate surpasses this value in **CBTimeslice** time period, the circuit breaks.     | 50                                       |
+| **CBErrorThreshold**          | int | Number of failures within the sliding window (`CBTimeslice` seconds) that opens the circuit.                                                                          | 50                                       |
 | **CBTimeslice**               | int | The duration (in seconds) of the sampling window for the circuit breaker's error rate.                             | 60                                       |
 | **DnsRefreshTimeout**         | int | The number of milliseconds to force a DNS refresh, useful for making services fail over more quickly.             | 120000                                   |
 | **Host1, Host2, ...**         | string | Up to 9 backend servers can be specified. Supports Connection Strings or Simple URLs. See [Backend Host Configuration](BACKEND_HOSTS.md) for full details. | None                                     |

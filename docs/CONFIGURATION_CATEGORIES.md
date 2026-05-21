@@ -26,7 +26,7 @@ This document categorizes all proxy settings into three groups to guide document
 ### Request Handling
 | Env Var | Property | Mode | Default | Purpose |
 |---------|----------|------|---------|---------|
-| `DefaultTimeout` | `Timeout` | Warm | `1200000` ms (20 min) | Per-host request timeout; adjust for your SLAs |
+| `Timeout` | `Timeout` | Warm | `1200000` ms (20 min) | Per-host request timeout; adjust for your SLAs |
 | `MaxAttempts` | `MaxAttempts` | Warm | `10` | Max retries per request |
 | `DefaultPriority` | `DefaultPriority` | Warm | `2` | Base priority for requests without priority header |
 
@@ -51,8 +51,8 @@ This document categorizes all proxy settings into three groups to guide document
 ### Circuit Breaker
 | Env Var | Property | Mode | Default | Purpose |
 |---------|----------|------|---------|---------|
-| `CBErrorThreshold` | `CircuitBreakerErrorThreshold` | Warm | `50` % | Error % that opens circuit |
-| `CBTimeslice` | `CircuitBreakerTimeslice` | Warm | `60` s | Rolling window for error rate |
+| `CBErrorThreshold` | `CircuitBreakerErrorThreshold` | Warm | `50` | Number of failures within the window that opens the circuit |
+| `CBTimeslice` | `CircuitBreakerTimeslice` | Warm | `60` s | Sliding window width — failures older than this are discarded |
 | `SuccessRate` | `SuccessRate` | Cold | `80` % | Min success rate to keep circuit closed |
 
 ### Health Checking
