@@ -35,7 +35,7 @@
 
 ## Setup
 
-### 1) Register APIM protected API app
+### 1) Create an App Registration for APIM in Entra
 
 **Rule: APIM must validate tokens issued for the APIM API audience, not the ACA audience.**
 
@@ -45,10 +45,27 @@ Application ID URI: api://<APIM_APP_ID>
 App role: API.Caller (Allowed member types: Applications)
 ```
 
+Portal steps (repo-aligned):
+
+1. Go to Entra ID -> App registrations -> New registration.
+2. Name it `SimpleL7Proxy-APIM-API` (or your environment naming standard), then create.
+3. Open Expose an API -> Set Application ID URI -> `api://<APIM_APP_ID>`.
+4. Open App roles -> Create app role with:
+    - Display name: `Caller`
+    - Allowed member types: `Users/Groups` and `Applications`
+    - Value: `API.Caller`
+    - Description: `Caller`
+    - Enable app role: `Yes`
+5. Open Enterprise applications -> find this app's service principal -> set assignment required to `Yes` (repo script equivalent: `appRoleAssignmentRequired=true`).
+6. Capture and save these IDs for later steps:
+    - App (client) ID (`APIM_APP_ID`)
+    - Service principal object ID (`APIM_API_SERVICE_PRINCIPAL_OBJECT_ID`)
+    - App role ID for `API.Caller` (`APIM_API_CALLER_ROLE_ID`)
+
 > [!WARNING]
 > If `Allowed member types` excludes `Applications`, app-to-app role assignment fails.
 
-### 2) Register ACA protected API app
+### 2) Create an App Registration for ACA in Entra
 
 **Rule: ACA must expose its own audience and scope for inbound client tokens.**
 
@@ -58,10 +75,32 @@ Application ID URI: api://<ACA_APP_ID>
 Scope: api.access
 ```
 
+Portal steps (repo-aligned):
+
+1. Go to Entra ID -> App registrations -> New registration.
+2. Name it `SimpleL7Proxy-ACA-API`, then create.
+3. Open Expose an API -> Set Application ID URI -> `api://<ACA_APP_ID>`.
+4. In Expose an API -> Add a scope with:
+    - Scope name/value: `api.access`
+    - Who can consent: `Admins only` (repo script sets scope type `Admin`)
+    - Admin consent display name: `Admin Access`
+    - Admin consent description: `Access the API`
+    - State: `Enabled`
+5. Open App roles -> Create app role with:
+    - Display name: `Caller`
+    - Allowed member types: `Users/Groups` and `Applications`
+    - Value: `API.Caller`
+    - Enable app role: `Yes`
+6. Open Enterprise applications -> find this app's service principal -> set assignment required to `Yes`.
+7. Capture and save these IDs for later steps:
+    - App (client) ID (`ACA_APP_ID`)
+    - Service principal object ID (`ACA_API_SERVICE_PRINCIPAL_OBJECT_ID`)
+    - App role ID for `API.Caller` (`ACA_API_CALLER_ROLE_ID`)
+
 > [!TIP]
 > Keep this audience distinct from APIM to avoid token confusion between hops.
 
-### 3) Register client app
+### 3) Create an App Registration for client app in Entra
 
 **Rule: the client app needs permission to ACA scope and must be allowed by ACA auth policy.**
 
@@ -70,6 +109,23 @@ Name: SimpleL7Proxy-Client
 API permission: ACA API -> Delegated -> api.access
 Credential: client secret (or cert)
 ```
+
+Portal steps (repo-aligned):
+
+1. Go to Entra ID -> App registrations -> New registration.
+2. Name it `SimpleL7Proxy-Client`, then create.
+3. Open API permissions -> Add a permission -> My APIs -> select `SimpleL7Proxy-ACA-API`.
+4. Add delegated permission `api.access`.
+5. If required by tenant policy, select Grant admin consent.
+6. Open Certificates & secrets -> create a client secret (or configure a certificate).
+7. Ensure a service principal exists for this app in Enterprise applications (repo script equivalent creates one explicitly).
+8. Capture and save:
+    - App (client) ID (`CLIENT_APP_ID`)
+    - Service principal object ID (`CLIENT_SERVICE_PRINCIPAL_OBJECT_ID`)
+    - Client secret value (`CLIENT_SECRET`)
+
+> [!NOTE]
+> The repo scripts use this client identity as the caller to ACA and then assign app roles to its service principal as needed.
 
 > [!NOTE]
 > For service-to-service calls, use client credentials and validate `roles` where applicable.
