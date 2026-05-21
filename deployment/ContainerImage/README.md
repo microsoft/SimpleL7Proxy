@@ -8,7 +8,8 @@ This folder follows the same deployment convention as other packages:
 
 1. Copy `../deploy.parameters.example.sh` to `../deploy.parameters.sh` (shared by all deployment scripts)
 2. Update values
-3. Run `./deploy.sh`
+3. Run `./validate-acr.sh`
+4. Run `./deploy.sh`
 
 ## Prerequisites
 
@@ -17,7 +18,7 @@ This folder follows the same deployment convention as other packages:
 | Requirement | Details |
 |---|---|
 | Azure CLI | `az` installed and authenticated |
-| ACR | Container Registry created in Azure |
+| ACR | Existing Container Registry, or permission to create one when `validate-acr.sh` prompts |
 
 ### For Local Builds (Optional)
 
@@ -40,12 +41,15 @@ cp deploy.parameters.example.sh deploy.parameters.sh
 #    - Set PROXY_IMAGE_NAME (image repo name)
 #    - Leave BUILD_METHOD as "remote" (no Docker needed)
 
-# 3. Run
+# 3. Validate/create ACR
 cd ContainerImage
+./validate-acr.sh
+
+# 4. Build and push images
 ./deploy.sh
 ```
 
-The script will:
+The validation script will confirm ACR exists and ask before creating it if missing. The build script will:
 - Extract the version from `src/SimpleL7Proxy/Constants.cs`
 - Submit build job to ACR
 - Image will be available as: `myregistry.azurecr.io/simple-l7-proxy:vX.Y.Z`
@@ -58,9 +62,23 @@ All parameters are set in the shared `../deploy.parameters.sh`.
 | Parameter | Description |
 |---|---|
 | `ACR_NAME` | Azure Container Registry name (without `.azurecr.io`) |
+| `ACR_SKU` | SKU used when `validate-acr.sh` creates a missing registry |
 | `PROXY_IMAGE_NAME` | Image repository name (e.g., `simple-l7-proxy`) |
 | `BUILD_METHOD` | `remote` (ACR builds, no Docker) or `local` (Docker on your machine) |
 | `DOCKERFILE_PATH` | Path to Dockerfile relative to `src/` |
+
+## ACR Validation
+
+Run `./validate-acr.sh` before `./deploy.sh`. If `ACR_NAME` is missing, the script prompts before creating it in `CONTAINER_APP_RESOURCE_GROUP` with `ACR_SKU`.
+
+For automation, set:
+
+```bash
+export CREATE_ACR_IF_MISSING=true
+./validate-acr.sh
+```
+
+If you choose not to create the registry, create it manually or update `ACR_NAME` before running `./deploy.sh`.
 
 ## Build Methods
 
@@ -163,6 +181,7 @@ public const string VERSION = "1.0.0";
 
 ### Remote build fails
 - Verify ACR exists: `az acr show --name myregistry`
+- If the registry is missing, run `./validate-acr.sh`
 - Check subscription: `az account show`
 - Review build logs: `az acr task logs --registry myregistry`
 

@@ -60,7 +60,7 @@ If all backends returned `429` with `S7PREQUEUE: true`, the proxy throws `S7PReq
 | Header | Description |
 |--------|-------------|
 | `S7PDEBUG` | Set to `true` to enable per-request debug tracing in logs |
-| `S7PPriorityKey` | Looked up in `PriorityKeys`; matching entry sets the request priority from `PriorityValues` |
+| `S7PPriorityKey` | Looked up in `PriorityKeys`; matching entry sets the request priority from `PriorityValues`. Header name is configurable via `PriorityKeyHeader` |
 | `S7PTTL` | Time-to-live for the request (seconds). Expired requests return `412`. Default TTL is `DefaultTTLSecs` (300 s) |
 | `S7PTimeout` | Per-request timeout override (ms). Header name is configurable via `TimeoutHeader` |
 | `S7PREQUEUE` | Set by a **backend** on a `429` response to trigger requeue with retry-after logic |
@@ -84,7 +84,10 @@ These headers are injected by the proxy on every successful proxied response.
 
 ---
 
-## Health Probe Endpoints (port 9000)
+## Health Probe Endpoints
+
+> [!NOTE]
+> Health probe endpoints are served on the **main application port** by default. Port 9000 is only used when the optional sidecar is enabled (see [HEALTH_CHECKING.md](HEALTH_CHECKING.md)).
 
 | Path | Returns |
 |------|---------|

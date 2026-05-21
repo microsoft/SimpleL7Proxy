@@ -14,9 +14,9 @@ Completing all steps results in a private, VNet‑integrated Layer‑7 proxy run
 
 ## Deployment Steps
 
-**Production path:**  Step 1 → Step 2 → Step 3 → Step 4 → Step 5 → Step 6 → [Step 7 if async or APIM]  
+**Production path:**  Step 1 → Step 2 → Step 3 → Step 4 → Step 5 → Step 6 → Step 7 → [Step 8 if async or APIM]  
 
-> **Dev/test only — do not use in production:** Step 1 → Step 2 → Step 3 → Step [4a](ACA/README.md) (proxy only, no health monitoring)
+> **Dev/test only — do not use in production:** Step 1 → Step 2 → Step 3 → Step 4 → Step [5a](ACA/README.md) (proxy only, no health monitoring)
 
 
 ### Step 1: Prerequisites
@@ -59,11 +59,38 @@ cp deploy.parameters.example.sh deploy.parameters.sh
 
 ---
 
-### Step 3: Build Container Image
+### Step 3: Validate/Create Azure Container Registry
+
+Validate that `ACR_NAME` exists before any image build starts. If it is missing, the script asks whether to create it in `CONTAINER_APP_RESOURCE_GROUP`.
 
 ```bash
 cd ContainerImage
-# Uses the shared ../deploy.parameters.sh (see Step 0)
+# Uses the shared ../deploy.parameters.sh
+# Set ACR_NAME, ACR_SKU, CONTAINER_APP_RESOURCE_GROUP, and LOCATION there
+./validate-acr.sh
+```
+
+**Defaults:**
+- `ACR_SKU=Basic`
+- New ACRs are created in `CONTAINER_APP_RESOURCE_GROUP`
+- Existing ACRs can be in any resource group in the current subscription
+
+**Change only if:** `ACR_NAME` is already taken globally, or your registry should use `Standard` / `Premium`
+
+**If this fails:**
+- name unavailable → choose a globally unique `ACR_NAME`
+- non-interactive run → set `CREATE_ACR_IF_MISSING=true` or create the registry manually
+- auth error → `az login && az account set -s <id>`
+
+[→ Details](ContainerImage/README.md)
+
+---
+
+### Step 4: Build Container Image
+
+```bash
+cd ContainerImage
+# Uses the shared ../deploy.parameters.sh
 # Set ACR_NAME and PROXY_IMAGE_NAME there; leave BUILD_METHOD=remote (no Docker needed)
 ./deploy.sh
 ./get-version.sh   # confirm resolved tag
@@ -77,6 +104,7 @@ cd ContainerImage
 
 **If this fails:**
 - 404 → `ACR_NAME` wrong: `az acr list -o table`
+- missing ACR → run Step 3 first
 - 403 → `az role assignment create --role AcrPush --assignee <upn> --scope <acr-id>`
 - empty tag → set version in `Constants.cs`, re-run `./get-version.sh`
 
@@ -84,7 +112,7 @@ cd ContainerImage
 
 ---
 
-### Step 4: Azure Container Apps
+### Step 5: Azure Container Apps
 
 Proxy on port 8000 + HealthProbe sidecar on port 9000, VNet-integrated, internal ingress only.
 
@@ -116,7 +144,7 @@ ca-myapp-proxy.internal.eastus.azurecontainerapps.io
 
 ---
 
-### Step 5: DNS
+### Step 6: DNS
 
 CNAME short name → ACA FQDN; private DNS zone linked to the VNet. Decouples client config from platform-generated FQDNs that change on redeploy.
 
@@ -138,7 +166,7 @@ cp deploy.parameters.example.sh deploy.parameters.sh
 
 ---
 
-### Step 6: App Configuration
+### Step 7: App Configuration
 
 Proxy reads backend URLs, priorities, timeouts, and weights from this store at runtime — no redeploy needed for config changes.
 
@@ -170,7 +198,7 @@ cp deploy.parameters.example.sh deploy.parameters.sh
 
 ---
 
-### Step 7a: Blob Storage (async workflows only)
+### Step 8a: Blob Storage (async workflows only)
 
 Run before enabling async in App Configuration. Skip for sync-only deployments.
 
@@ -194,7 +222,7 @@ cd BlobStorage
 
 ---
 
-### Step 7b: APIM Policy (API gateway only)
+### Step 8b: APIM Policy (API gateway only)
 
 Run after APIM is provisioned in `snet-apim`. Skip if APIM is not in the topology.
 
@@ -212,11 +240,11 @@ Run after APIM is provisioned in `snet-apim`. Skip if APIM is not in the topolog
 
 | Scenario | Steps | Pattern |
 |---|---|---|
-| Single proxy with health monitoring | 1 → 2 → 3 → 4 → 5 → 6 | — |
-| Multi-tenant with async processing | 1 → 2 → 3 → 4 → 5 → 6 → 7a | [Claim Check](https://learn.microsoft.com/azure/architecture/patterns/claim-check) / [Async Request-Reply](https://learn.microsoft.com/azure/architecture/patterns/async-request-reply) |
-| API gateway | 1 → 2 → 3 → 4 → 5 → 6 → 7b | [Gateway Routing](https://learn.microsoft.com/azure/architecture/patterns/gateway-routing) |
-| Multi-tenant, isolated config | 1 → 2 → 3 → 4 → 5 → 6 | Shared runtime, per-tenant App Configuration keys |
-| Dev/test (**do not use in production**) | 1 → 2 → 3 → [4a](ACA/README.md) | — |
+| Single proxy with health monitoring | 1 → 2 → 3 → 4 → 5 → 6 → 7 | — |
+| Multi-tenant with async processing | 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8a | [Claim Check](https://learn.microsoft.com/azure/architecture/patterns/claim-check) / [Async Request-Reply](https://learn.microsoft.com/azure/architecture/patterns/async-request-reply) |
+| API gateway | 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8b | [Gateway Routing](https://learn.microsoft.com/azure/architecture/patterns/gateway-routing) |
+| Multi-tenant, isolated config | 1 → 2 → 3 → 4 → 5 → 6 → 7 | Shared runtime, per-tenant App Configuration keys |
+| Dev/test (**do not use in production**) | 1 → 2 → 3 → 4 → [5a](ACA/README.md) | — |
 
 ---
 
@@ -237,7 +265,7 @@ cd AppConfiguration && ./deploy.sh
 
 ### Roll new proxy version
 ```bash
-cd ContainerImage && ./deploy.sh
+cd ContainerImage && ./validate-acr.sh && ./deploy.sh
 cd ../proxy-with-sidecar && ./deploy.sh
 ```
 
