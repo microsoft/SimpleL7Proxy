@@ -25,6 +25,7 @@
 | ACA scope value | `api.access` | scope value | ACA API app registration | token issuance |
 | APIM audience | `api://<APIM_APP_ID>` | URI | APIM `validate-jwt` policy | policy save |
 | ACA audience | `api://<ACA_APP_ID>` | URI | ACA auth config | config save |
+| Client secret requirement by app | APIM API app: `No`; ACA API app: `Yes` (when used by ACA auth config); Client app: `Yes` (client credentials) | flag | Entra App registrations | immediate |
 | Client -> ACA token resource | `api://<ACA_APP_ID>` | URI | token request | per request |
 | ACA -> APIM token resource | `api://<APIM_APP_ID>/.default` | URI | managed identity token request | per request |
 | Graph module permission | `AppRoleAssignment.ReadWrite.All` | Graph scope | `Connect-MgGraph` | login session |
@@ -72,6 +73,24 @@ Credential: client secret (or cert)
 
 > [!NOTE]
 > For service-to-service calls, use client credentials and validate `roles` where applicable.
+
+### 3a) Client secret requirements by app registration
+
+**Rule: only apps that actively request tokens as confidential clients need a client secret.**
+
+1. APIM protected API app (`SimpleL7Proxy-APIM-API`): no client secret required for this POC.
+2. ACA protected API app (`SimpleL7Proxy-ACA-API`): create a client secret if you configure ACA Easy Auth with Entra app credentials (`-c` and `-s` values in `enableContainerAppAuth.sh`).
+3. Client app (`SimpleL7Proxy-Client`): create a client secret (or certificate) when using client credentials flow.
+
+Portal steps to create a secret:
+
+1. Entra ID -> App registrations -> select the app.
+2. Go to Certificates & secrets -> New client secret.
+3. Add description + expiry, then create.
+4. Copy the secret Value immediately and store it securely.
+
+> [!WARNING]
+> Secret values are shown only once. If lost, create a new secret and update ACA/APIM config that depends on it.
 
 ### 4) Assign app roles with PowerShell (Graph)
 
@@ -163,8 +182,8 @@ APIM required claim: roles contains API.Caller
 3. Set these fields:
    - Display name: `EntraOAuth` (or your standard name)
    - Grant types: `Authorization code` (and `Client credentials` if needed)
-   - Client ID: `<CLIENT_APP_ID_USED_FOR_INTERACTIVE_FLOW>`
-   - Client secret: `<CLIENT_SECRET>`
+    - Client ID: `<CLIENT_APP_ID_USED_FOR_INTERACTIVE_FLOW>` (typically the client app registration)
+    - Client secret: `<CLIENT_SECRET_FROM_CLIENT_APP_REGISTRATION>`
    - Authorization endpoint URL: `https://login.microsoftonline.com/<TENANT_ID>/oauth2/v2.0/authorize`
    - Token endpoint URL: `https://login.microsoftonline.com/<TENANT_ID>/oauth2/v2.0/token`
    - Default scope: `api://<ACA_APP_ID>/api.access` (or your API scope)
@@ -174,6 +193,82 @@ APIM required claim: roles contains API.Caller
 
 > [!NOTE]
 > APIM OAuth server configuration enables the Authorize experience; token acceptance is still controlled by the API policy (`validate-jwt`).
+
+### 6) Test APIM policy after configuration
+
+**Rule: validate both positive and negative paths to confirm `validate-jwt` is enforcing audience and role correctly.**
+
+Set your test variables first:
+
+```bash
+APIM_BASE="https://<apim-name>.azure-api.net/<api-suffix>"
+APIM_SUB_KEY="<apim-subscription-key>"
+TENANT_ID="<tenant-id>"
+APIM_APP_ID="<apim-app-id-guid>"
+```
+
+#### 6a) Positive test: ACA managed identity (or equivalent caller) succeeds
+
+```bash
+# This token should be requested for APIM audience: api://<APIM_APP_ID>/.default
+TOKEN="<valid-bearer-token-with-roles-API.Caller>"
+
+curl -i "$APIM_BASE/health" \
+    -H "Ocp-Apim-Subscription-Key: $APIM_SUB_KEY" \
+    -H "Authorization: Bearer $TOKEN"
+```
+
+Expected result:
+
+- `200` (or your API's expected success code)
+- No `Unauthorized. Missing or invalid token.` message
+
+#### 6b) Negative test: no token should fail
+
+```bash
+curl -i "$APIM_BASE/health" \
+    -H "Ocp-Apim-Subscription-Key: $APIM_SUB_KEY"
+```
+
+Expected result:
+
+- `401 Unauthorized`
+- Error from `validate-jwt` policy
+
+#### 6c) Negative test: wrong audience should fail
+
+```bash
+# Use a token for ACA audience instead of APIM audience.
+BAD_TOKEN="<token-with-aud-api://ACA_APP_ID>"
+
+curl -i "$APIM_BASE/health" \
+    -H "Ocp-Apim-Subscription-Key: $APIM_SUB_KEY" \
+    -H "Authorization: Bearer $BAD_TOKEN"
+```
+
+Expected result:
+
+- `401 Unauthorized`
+- Audience validation failure
+
+#### 6d) Negative test: missing role should fail
+
+```bash
+# Use a token that has APIM audience but lacks roles: API.Caller.
+NO_ROLE_TOKEN="<token-without-API.Caller-role>"
+
+curl -i "$APIM_BASE/health" \
+    -H "Ocp-Apim-Subscription-Key: $APIM_SUB_KEY" \
+    -H "Authorization: Bearer $NO_ROLE_TOKEN"
+```
+
+Expected result:
+
+- `401 Unauthorized`
+- Required claim (`roles=API.Caller`) validation failure
+
+> [!TIP]
+> For fast diagnosis, temporarily project token claims in APIM trace and verify `aud`, `iss`, and `roles` match your `validate-jwt` policy.
 
 ## Full flow
 
