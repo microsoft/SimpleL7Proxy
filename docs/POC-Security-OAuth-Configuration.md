@@ -78,9 +78,9 @@ Credential: client secret (or cert)
 **Rule: use Graph PowerShell for app role assignments when managed identities do not appear in portal options.**
 
 ```powershell
-Connect-MgGraph -Scopes "Application.Read.All AppRoleAssignment.ReadWrite.All"
-Select-MgProfile -Name "v1.0"
-Get-MgContext
+Install-Module Microsoft.Graph.Applications -Scope CurrentUser -Repository PSGallery -Force
+Import-Module Microsoft.Graph.Applications
+Connect-MgGraph -TenantId "<tenant_id>" -Scopes "Application.ReadWrite.All", "AppRoleAssignment.ReadWrite.All"
 ```
 
 > [!TIP]
@@ -89,14 +89,14 @@ Get-MgContext
 #### 4a) Assign ACA managed identity -> APIM API role (`API.Caller`)
 
 ```powershell
-$acaSpId = "<ACA_MANAGED_IDENTITY_OBJECT_ID>"
+$acaSpId = "<YOUR_ACA_MANAGED_IDENTITY_OBJECT_ID>"
 $apimResourceSpId = "<APIM_API_SERVICE_PRINCIPAL_OBJECT_ID>"
 $apimRoleId = "<APIM_API_CALLER_ROLE_ID>"
 New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $acaSpId -PrincipalId $acaSpId -ResourceId $apimResourceSpId -AppRoleId $apimRoleId
 ```
 
 > [!WARNING]
-> Use object IDs, not app IDs, for `ServicePrincipalId`, `PrincipalId`, and `ResourceId`.
+> Use object IDs, not app IDs, for `ServicePrincipalId`, `PrincipalId`, and `ResourceId`. The managed identity object ID can be found on the ACA resource itself. For, the APIM Service Principal, you must use the object ID found under Enterprise Apps in Entra, NOT under the corresponding App Registrations.
 
 #### 4b) Assign client service principal -> ACA API role (`API.Caller`)
 
@@ -108,7 +108,7 @@ New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $clientSpId -Princip
 ```
 
 > [!NOTE]
-> If you use delegated-only access to ACA (`api.access`), keep this step optional; for app-role based enforcement, keep it required.
+> If you use delegated-only access to ACA (`api.access`), keep this step optional; for app-role based enforcement, keep it required. For, the Service Principal object IDs, you must use the object ID found under Enterprise Apps in Entra, NOT under the corresponding App Registrations.
 
 ### 5) Configure ACA auth and APIM JWT validation
 
@@ -123,26 +123,78 @@ APIM required claim: roles contains API.Caller
 > [!WARNING]
 > Passing ACA audience to APIM `validate-jwt` is a common misconfiguration and causes authorization failures.
 
+#### 5a) APIM inbound `validate-jwt` policy (example)
+
+**Rule: APIM must validate issuer + audience + role on the token ACA presents to APIM.**
+
+```xml
+<inbound>
+    <base />
+    <validate-jwt
+        header-name="Authorization"
+        require-scheme="Bearer"
+        failed-validation-httpcode="401"
+        failed-validation-error-message="Unauthorized. Missing or invalid token.">
+        <openid-config url="https://login.microsoftonline.com/<TENANT_ID>/v2.0/.well-known/openid-configuration" />
+        <audiences>
+            <audience>api://<APIM_APP_ID></audience>
+        </audiences>
+        <issuers>
+            <issuer>https://login.microsoftonline.com/<TENANT_ID>/v2.0</issuer>
+        </issuers>
+        <required-claims>
+            <claim name="roles" match="any">
+                <value>API.Caller</value>
+            </claim>
+        </required-claims>
+    </validate-jwt>
+</inbound>
+```
+
+> [!TIP]
+> If your API uses delegated user tokens instead of app roles, validate `scp` instead of `roles`.
+
+#### 5b) Configure OAuth 2.0 in APIM interface (portal)
+
+**Rule: configure an APIM OAuth 2.0 authorization server for interactive auth/testing; keep `validate-jwt` as the enforcement control on APIs.**
+
+1. In Azure portal, open your APIM instance.
+2. Go to Security -> OAuth 2.0 + OpenID Connect -> Add OAuth 2.0 server.
+3. Set these fields:
+   - Display name: `EntraOAuth` (or your standard name)
+   - Grant types: `Authorization code` (and `Client credentials` if needed)
+   - Client ID: `<CLIENT_APP_ID_USED_FOR_INTERACTIVE_FLOW>`
+   - Client secret: `<CLIENT_SECRET>`
+   - Authorization endpoint URL: `https://login.microsoftonline.com/<TENANT_ID>/oauth2/v2.0/authorize`
+   - Token endpoint URL: `https://login.microsoftonline.com/<TENANT_ID>/oauth2/v2.0/token`
+   - Default scope: `api://<ACA_APP_ID>/api.access` (or your API scope)
+4. Save the OAuth 2.0 server.
+5. Open your API in APIM -> Settings and attach this OAuth 2.0 server under Security if you want Developer Portal Authorize support.
+6. Open your API -> Design -> Inbound processing and ensure the `validate-jwt` policy above is present.
+
+> [!NOTE]
+> APIM OAuth server configuration enables the Authorize experience; token acceptance is still controlled by the API policy (`validate-jwt`).
+
 ## Full flow
 
 ```mermaid
 flowchart LR
-    A[Client App Registration\n(SimpleL7Proxy-Client)] -->|Token aud=api://ACA_APP_ID| B[ACA Ingress + Easy Auth]
-    B -->|Validates ACA audience| C[SimpleL7Proxy in ACA]
-    C -->|Managed Identity token\naud=api://APIM_APP_ID/.default| D[APIM]
-    D -->|validate-jwt: audience + role API.Caller| E[Backend routing/policy]
+    A["Client App Registration<br/>SimpleL7Proxy-Client"] -->|"Token aud=api://ACA_APP_ID"| B["ACA Ingress + Easy Auth"]
+    B -->|"Validates ACA audience"| C["SimpleL7Proxy in ACA"]
+    C -->|"Managed identity token<br/>aud=api://APIM_APP_ID/.default"| D["APIM"]
+    D -->|"validate-jwt: audience + role API.Caller"| E["Backend routing/policy"]
 
-    F[ACA API App Registration\n(SimpleL7Proxy-ACA-API)] -. defines audience/scope .-> B
-    G[APIM API App Registration\n(SimpleL7Proxy-APIM-API)] -. defines API.Caller role .-> D
+    F["ACA API App Registration<br/>SimpleL7Proxy-ACA-API"] -. "Defines audience and scope" .-> B
+    G["APIM API App Registration<br/>SimpleL7Proxy-APIM-API"] -. "Defines API.Caller role" .-> D
 ```
 
 ## Worked example
 
 | Step | Example value | Result |
 | :--- | :--- | :--- |
-| Create APIM API app | `appId = 11111111-1111-1111-1111-111111111111` | APIM audience becomes `api://11111111-1111-1111-1111-111111111111` |
-| Create ACA API app | `appId = 22222222-2222-2222-2222-222222222222` | ACA audience becomes `api://22222222-2222-2222-2222-222222222222` |
-| Create client app | `appId = 33333333-3333-3333-3333-333333333333` | Client can request token for ACA audience |
+| Create APIM API app registration | `appId = 11111111-1111-1111-1111-111111111111` | APIM audience becomes `api://11111111-1111-1111-1111-111111111111` |
+| Create ACA API app registration | `appId = 22222222-2222-2222-2222-222222222222` | ACA audience becomes `api://22222222-2222-2222-2222-222222222222` |
+| Create client app registration | `appId = 33333333-3333-3333-3333-333333333333` | Client can request token for ACA audience |
 | Assign ACA MI role on APIM API | `New-MgServicePrincipalAppRoleAssignment ...` | APIM accepts ACA token with `roles: API.Caller` |
 | Request token in ACA for APIM | `resource = api://111.../.default` | ACA -> APIM call authorized |
 
