@@ -17,7 +17,7 @@ SimpleL7Proxy enforces deadline-based limits at three layers — TTL, per-host T
 | Setting | Default | Unit | Override Header | Config Key | Reload |
 |---|---|---|---|---|---|
 | **DefaultTTLSecs** | 300 (5 min) | s | `S7PTTL` | `Priority:DefaultTTLSecs` | WARM |
-| **Timeout** | 1,200,000 (20 min) | ms | `S7PTimeout` | `Server:Timeout` | COLD |
+| **Timeout** | 1,200,000 (20 min) | ms | `S7PTimeout` | `Request:DefaultTimeout` | WARM |
 | **AsyncTriggerTimeout** | 10,000 (10 s) | ms | — | `Async:TriggerTimeout` | WARM |
 | **AsyncTimeout** | 1,800,000 (30 min) | ms | — | `Async:Timeout` | WARM |
 | **AsyncTTLSecs** | 86,400 (24 h) | s | — | `Async:TTLSecs` | WARM |

@@ -38,6 +38,8 @@ IMAGE_NAME="${IMAGE_NAME:?'IMAGE_NAME (or PROXY_IMAGE_NAME) must be set'}"
 # Optional
 BUILD_METHOD="${BUILD_METHOD:-remote}"  # remote (default) or local
 DOCKERFILE_PATH="${DOCKERFILE_PATH:-SimpleL7Proxy/Dockerfile}"
+HEALTH_IMAGE_NAME="${HEALTH_IMAGE_NAME:-healthprobe}"
+HEALTH_DOCKERFILE_PATH="${HEALTH_DOCKERFILE_PATH:-HealthProbe/Dockerfile}"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -51,6 +53,28 @@ REPO_ROOT="${SCRIPT_DIR}/../../"
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}Building SimpleL7Proxy Container Image${NC}"
 echo -e "${BLUE}========================================${NC}"
+echo ""
+
+# Validate ACR exists before building. Creation is handled by validate-acr.sh.
+if ! command -v az >/dev/null 2>&1; then
+    echo -e "${RED}Error: Azure CLI is not installed.${NC}"
+    exit 1
+fi
+
+echo -e "${YELLOW}Checking Azure login status...${NC}"
+if ! az account show >/dev/null 2>&1; then
+    echo -e "${YELLOW}Authenticating to Azure...${NC}"
+    az login >/dev/null
+fi
+
+echo -e "${YELLOW}Validating ACR ${ACR_NAME} exists...${NC}"
+if az acr show --name "${ACR_NAME}" --output none 2>/dev/null; then
+    echo -e "${GREEN}✓ ACR found${NC}"
+else
+    echo -e "${RED}Error: ACR '${ACR_NAME}' was not found in the current subscription.${NC}"
+    echo -e "${YELLOW}Run ./validate-acr.sh first, or create the registry manually and rerun this build step.${NC}"
+    exit 1
+fi
 echo ""
 
 # Extract version from Constants.cs
@@ -75,6 +99,31 @@ if [[ ! $VERSION == v* ]]; then
 fi
 
 echo -e "${GREEN}✓ Version: ${VERSION}${NC}"
+echo ""
+
+echo -e "${YELLOW}Extracting HealthProbe version from Constants.cs...${NC}"
+
+HEALTH_CONSTANTS_FILE="${REPO_ROOT}/src/HealthProbe/Constants.cs"
+if [ ! -f "${HEALTH_CONSTANTS_FILE}" ]; then
+    echo -e "${RED}Error: Could not find ${HEALTH_CONSTANTS_FILE}${NC}"
+    exit 1
+fi
+
+HEALTH_VERSION="${HEALTHPROBE_VERSION:-}"
+if [ -z "${HEALTH_VERSION}" ]; then
+    HEALTH_VERSION=$(grep -oP 'VERSION = "\K[^"]+' "${HEALTH_CONSTANTS_FILE}" 2>/dev/null || echo "")
+fi
+
+if [ -z "${HEALTH_VERSION}" ]; then
+    echo -e "${RED}Error: Could not extract version from HealthProbe Constants.cs${NC}"
+    exit 1
+fi
+
+if [[ ! $HEALTH_VERSION == v* ]]; then
+    HEALTH_VERSION="v$HEALTH_VERSION"
+fi
+
+echo -e "${GREEN}✓ HealthProbe Version: ${HEALTH_VERSION}${NC}"
 echo ""
 
 # Build method: local or remote
@@ -102,30 +151,28 @@ if [ "${BUILD_METHOD}" = "local" ]; then
     
     ACR_SERVER="${ACR_NAME}.azurecr.io"
     FULL_IMAGE="${ACR_SERVER}/${IMAGE_NAME}:${VERSION}"
+    FULL_HEALTH_IMAGE="${ACR_SERVER}/${HEALTH_IMAGE_NAME}:${HEALTH_VERSION}"
     
     echo -e "${YELLOW}Building image: ${FULL_IMAGE}${NC}"
     docker build -t "${FULL_IMAGE}" \
         -f "${REPO_ROOT}/src/${DOCKERFILE_PATH}" \
         "${REPO_ROOT}/src"
+
+    echo -e "${YELLOW}Building health image: ${FULL_HEALTH_IMAGE}${NC}"
+    docker build -t "${FULL_HEALTH_IMAGE}" \
+        -f "${REPO_ROOT}/src/${HEALTH_DOCKERFILE_PATH}" \
+        "${REPO_ROOT}/src"
     
     echo -e "${YELLOW}Pushing image to ACR...${NC}"
     docker push "${FULL_IMAGE}"
+
+    echo -e "${YELLOW}Pushing health image to ACR...${NC}"
+    docker push "${FULL_HEALTH_IMAGE}"
     
     echo -e "${GREEN}✓ Local build and push complete${NC}"
     
 elif [ "${BUILD_METHOD}" = "remote" ]; then
     echo -e "${YELLOW}Building remotely in Azure Container Registry...${NC}"
-    
-    if ! command -v az >/dev/null 2>&1; then
-        echo -e "${RED}Error: Azure CLI is not installed.${NC}"
-        exit 1
-    fi
-    
-    # Check Azure CLI login
-    if ! az account show >/dev/null 2>&1; then
-        echo -e "${YELLOW}Authenticating to Azure...${NC}"
-        az login
-    fi
     
     ACR_SERVER="${ACR_NAME}.azurecr.io"
     
@@ -136,6 +183,12 @@ elif [ "${BUILD_METHOD}" = "remote" ]; then
             --registry "${ACR_NAME}" \
             --image "${IMAGE_NAME}:${VERSION}" \
             --file "${DOCKERFILE_PATH}" \
+            .
+
+        az acr build \
+            --registry "${ACR_NAME}" \
+            --image "${HEALTH_IMAGE_NAME}:${HEALTH_VERSION}" \
+            --file "${HEALTH_DOCKERFILE_PATH}" \
             .
     )
     
@@ -151,6 +204,7 @@ echo -e "${GREEN}Build Complete${NC}"
 echo -e "${GREEN}======================================${NC}"
 echo "ACR: ${ACR_NAME}"
 echo "Image: ${IMAGE_NAME}:${VERSION}"
+echo "Health Image: ${HEALTH_IMAGE_NAME}:${HEALTH_VERSION}"
 echo ""
 echo "Ready for deployment:"
 echo "  cd ../ACA"

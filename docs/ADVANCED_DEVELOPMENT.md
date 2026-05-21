@@ -2,7 +2,7 @@
 
 For fine-tuning proxy behavior during local development, optimizing throughput, and testing advanced features.
 
-> **See also:** [BEGINNERDEVELOPMENT.md](BEGINNERDEVELOPMENT.md) for basic local setup. This guide covers performance tuning and feature-specific configuration.
+> **See also:** [BEGINNER_DEVELOPMENT.md](BEGINNER_DEVELOPMENT.md) for basic local setup. This guide covers performance tuning and feature-specific configuration.
 
 ---
 

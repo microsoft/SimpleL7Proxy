@@ -129,12 +129,28 @@ az group create --name "${RESOURCE_GROUP}" --location "${LOCATION}" >/dev/null
 EXISTING_APP_CONFIG="$(az appconfig show --name "${APPCONFIG_NAME}" --resource-group "${RESOURCE_GROUP}" --query name -o tsv 2>/dev/null || true)"
 if [ -z "${EXISTING_APP_CONFIG}" ]; then
     echo -e "${YELLOW}Creating App Configuration store '${APPCONFIG_NAME}'...${NC}"
-    az appconfig create \
+    CREATE_ERROR_FILE="$(mktemp)"
+    if ! az appconfig create \
         --name "${APPCONFIG_NAME}" \
         --resource-group "${RESOURCE_GROUP}" \
         --location "${LOCATION}" \
         --sku "${APPCONFIG_SKU}" \
-        >/dev/null
+        >/dev/null 2>"${CREATE_ERROR_FILE}"; then
+        if grep -q "NameUnavailable" "${CREATE_ERROR_FILE}"; then
+            echo -e "${RED}Error: App Configuration name '${APPCONFIG_NAME}' is already in use.${NC}"
+            echo -e "${YELLOW}APPCONFIG_NAME must be globally unique across Azure, like ACR_NAME.${NC}"
+            echo -e "${YELLOW}Update deploy.parameters.sh with a unique suffix, for example:${NC}"
+            echo -e "${GREEN}  export APPCONFIG_NAME=\"${APPCONFIG_NAME}-${SUBSCRIPTION_ID%%-*}\"${NC}"
+            echo -e "${YELLOW}Rerun Step 6 after updating the name; Azure will validate availability during creation.${NC}"
+            rm -f "${CREATE_ERROR_FILE}"
+            exit 1
+        else
+            cat "${CREATE_ERROR_FILE}" >&2
+            rm -f "${CREATE_ERROR_FILE}"
+            exit 1
+        fi
+    fi
+    rm -f "${CREATE_ERROR_FILE}"
 else
     echo -e "${GREEN}Using existing App Configuration store: ${APPCONFIG_NAME}${NC}"
 fi

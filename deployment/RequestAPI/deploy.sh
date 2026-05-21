@@ -13,6 +13,11 @@ PARENT_PARAMS="${SCRIPT_DIR}/../deploy.parameters.sh"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 SRC_DEPLOY="${REPO_ROOT}/src/RequestAPI/deploy-flex.sh"
 
+if ! command -v dotnet >/dev/null 2>&1 && [ -x "${HOME}/.dotnet/dotnet" ]; then
+    export DOTNET_ROOT="${HOME}/.dotnet"
+    export PATH="${DOTNET_ROOT}:${PATH}"
+fi
+
 GREEN='\033[0;32m'; RED='\033[0;31m'; NC='\033[0m'
 
 if [ ! -f "${PARENT_PARAMS}" ]; then

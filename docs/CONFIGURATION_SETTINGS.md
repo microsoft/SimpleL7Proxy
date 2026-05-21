@@ -42,8 +42,8 @@ Startup
 
 | Env Var / Config Name | Property | Default | Description |
 |----------------------|----------|---------|-------------|
-| `CBErrorThreshold` | `CircuitBreakerErrorThreshold` | `50` | Error % that opens the circuit |
-| `CBTimeslice` | `CircuitBreakerTimeslice` | `60` s | Rolling window for error rate calculation |
+| `CBErrorThreshold` | `CircuitBreakerErrorThreshold` | `50` | Number of failures within the sliding window that opens the circuit |
+| `CBTimeslice` | `CircuitBreakerTimeslice` | `60` s | Sliding window width — failures older than this are discarded |
 
 ### Health Probe
 
@@ -77,14 +77,14 @@ Startup
 |----------------------|----------|---------|-------------|
 | `DefaultPriority` | `DefaultPriority` | `2` | Priority assigned when no priority header present |
 | `DefaultTTLSecs` | `DefaultTTLSecs` | `300` s | Request TTL when no `S7PTTL` header present |
-| `GreedyUserThreshold` | `UserPriorityThreshold` | `0.1` | Fraction of queue a single user may occupy |
+| `UserPriorityThreshold` | `UserPriorityThreshold` | `0.1` | Fraction of queue a single user may occupy |
 | `PriorityKeys` | `PriorityKeys` | `["12345","234"]` | Known priority key values |
 | `PriorityValues` | `PriorityValues` | `[1,3]` | Priority level assigned per key |
-| `DefaultTimeout` | `Timeout` | `1200000` ms (20 min) | Per-host request timeout |
+| `Timeout` | `Timeout` | `1200000` ms (20 min) | Per-host request timeout |
 | `MaxAttempts` | `MaxAttempts` | `10` | Max backend attempts per request |
-| `S7PTimeout` *(header name)* | `TimeoutHeader` | `S7PTimeout` | Header clients use to override per-request timeout |
-| `S7PTTL` *(header name)* | `TTLHeader` | `S7PTTL` | Header clients use to override per-request TTL |
-| `S7PPriorityKey` *(header name)* | `PriorityKeyHeader` | `S7PPriorityKey` | Header clients use to set priority |
+| `TimeoutHeader` | `TimeoutHeader` | `S7PTimeout` | Header clients use to override per-request timeout |
+| `TTLHeader` | `TTLHeader` | `S7PTTL` | Header clients use to override per-request TTL |
+| `PriorityKeyHeader` | `PriorityKeyHeader` | `S7PPriorityKey` | Header name clients use to pass priority key |
 | `UniqueUserHeaders` | `UniqueUserHeaders` | `["X-UserID"]` | Headers that identify a unique user |
 | `RequiredHeaders` | `RequiredHeaders` | `[]` | Headers that must be present or request is rejected |
 | `DisallowedHeaders` | `DisallowedHeaders` | `[]` | Headers that must not be present |
@@ -109,7 +109,7 @@ Startup
 | `UserProfileHeader` | `UserProfileHeader` | `X-UserProfile` | Header injected with user profile data |
 | `UseProfiles` | `UseProfiles` | `false` | Enable user profile enrichment |
 | `UserConfigRequired` | `UserConfigRequired` | `false` | Reject requests when user config unavailable |
-| `ValidateAppIDEnabled` | `ValidateAuthAppID` | `false` | Enable app ID validation |
+| `ValidateAuthAppID` | `ValidateAuthAppID` | `false` | Enable app ID validation |
 | `ValidateAuthAppIDUrl` | `ValidateAuthAppIDUrl` | `""` | URL for app ID allowlist |
 | `ValidateAuthAppFieldName` | `ValidateAuthAppFieldName` | `authAppID` | JSON field name for app ID |
 | `ValidateAuthAppIDHeader` | `ValidateAuthAppIDHeader` | `X-MS-CLIENT-PRINCIPAL-ID` | Header containing app ID to validate |
@@ -184,8 +184,8 @@ Startup
 
 | Env Var / Config Name | Property | Default | Description |
 |----------------------|----------|---------|-------------|
-| `RefreshIntervalSecs` | `UserConfigRefreshIntervalSecs` | `3600` s (1 h) | How often user config is reloaded |
-| `SoftDeleteTTLMinutes` | `UserSoftDeleteTTLMinutes` | `360` min (6 h) | TTL for soft-deleted user records |
+| `UserConfigRefreshIntervalSecs` | `UserConfigRefreshIntervalSecs` | `3600` s (1 h) | How often user config is reloaded |
+| `UserSoftDeleteTTLMinutes` | `UserSoftDeleteTTLMinutes` | `360` min (6 h) | TTL for soft-deleted user records |
 
 ---
 

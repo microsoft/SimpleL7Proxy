@@ -13,12 +13,12 @@ The proxy selects backends through a three-stage pipeline on every request: filt
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LoadBalanceMode` | `random` | Host ordering: `roundrobin`, `latency`, or `random` |
+| `LoadBalanceMode` | `latency` | Host ordering: `roundrobin`, `latency`, or `random` |
 | `IterationMode` | `SinglePass` | Retry strategy: `SinglePass` or `MultiPass` |
-| `MaxAttempts` | `30` | Max total attempts (MultiPass only) |
-| `UseSharedIterators` | `false` | Share iterator state across concurrent requests to the same path |
-| `SharedIteratorTTLSeconds` | `300` | Seconds before an unused shared iterator is discarded |
-| `SharedIteratorCleanupIntervalSeconds` | `60` | How often expired shared iterators are cleaned up |
+| `MaxAttempts` | `10` | Max total attempts (MultiPass only) |
+| `UseSharedIterators` | `true` | Share iterator state across concurrent requests to the same path |
+| `SharedIteratorTTLSeconds` | `60` | Seconds before an unused shared iterator is discarded |
+| `SharedIteratorCleanupIntervalSeconds` | `30` | How often expired shared iterators are cleaned up |
 
 ---
 
@@ -78,7 +78,7 @@ LoadBalanceMode=latency   # try fastest host first
 | `random` | Avoiding predictable traffic patterns |
 
 > [!NOTE]
-> **Default:** `LoadBalanceMode=random`. Path prefix is stripped before forwarding unless `stripprefix=false` is set on the host (see [BACKEND_HOSTS.md](BACKEND_HOSTS.md#controlling-path-prefix-stripping)).
+> **Default:** `LoadBalanceMode=latency`. Path prefix is stripped before forwarding unless `stripprefix=false` is set on the host (see [BACKEND_HOSTS.md](BACKEND_HOSTS.md#controlling-path-prefix-stripping)).
 
 > [!TIP]
 > **Troubleshooting:** If a specific host is never reached, verify its configured path prefix matches the inbound request path; a mismatch silently excludes it from the candidate set.

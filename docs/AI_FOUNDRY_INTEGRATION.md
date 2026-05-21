@@ -23,11 +23,11 @@ Connect via **Azure API Management (APIM)** to use its policy engine. This is a 
 *   **mTLS, IP allowlists, and centralized key management.**
 *   **Usage quotas** per tenant, product, or subscription.
 
-*   **Config**: `mode=apim` (default)
+*   **Config**: omit `mode` (standard/APIM mode is the default; only `mode=direct` changes behavior)
 *   **Behavior**: The proxy polls a probe path (e.g., `/status`) and tracks latency for load balancing.
 
 ### 2. Backend Host Setup
-To connect to an OpenAI/Foundry endpoint, configure a backend host using the connection string format.
+To configure a backend host for an OpenAI/Foundry deployment, use the connection string format.
 
 **Key Requirements:**
 *   **`host`**: Your Azure OpenAI Endpoint (e.g., `https://my-resource.openai.azure.com`).
