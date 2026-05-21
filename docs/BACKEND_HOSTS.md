@@ -27,6 +27,14 @@ Configure any number of backend hosts (`Host1`…`Host9`) using a semicolon-sepa
 | `api-key-header` | `api-key` | Header name used when `api-key` is set. |
 | `stripprefix` / `strippathprefix` | `true` | Strip the matched `path` prefix before forwarding. Set `false` to preserve the full original path. |
 | `retryafter` / `useretryafter` | `true` | Honour the `Retry-After` header returned by the backend. |
+| `usegcpauth` | `false` | Enable GCP Workload Identity Federation auth for this host. See [GCP Vertex AI](#gcp-vertex-ai-backends) below. |
+| `gcpproject` | *(required with `usegcpauth`)* | GCP project name used in the backend path (e.g. `a208790-ellms-preprod`). |
+| `gcpprojectnumber` | *(required with `usegcpauth`)* | Numeric GCP project number used in the WIF audience URL (e.g. `753819451045`). |
+| `gcpregion` | *(required with `usegcpauth`)* | GCP region (e.g. `us-east1`). Used in the backend path; also auto-derives `host` if omitted. |
+| `gcppool` | *(required with `usegcpauth`)* | Workload Identity Federation pool ID (e.g. `azure-gcp-identity-federation`). |
+| `gcpprovider` | *(required with `usegcpauth`)* | WIF provider ID (e.g. `azure-gcp-identity-provider`). |
+| `gcpsa` | *(required with `usegcpauth`)* | GCP service account email to impersonate (e.g. `my-svc@project.iam.gserviceaccount.com`). |
+| `gcpazureclientid` | *(required with `usegcpauth`)* | Azure resource URI used to obtain the subject token (e.g. `api://374a2caa-...`). |
 
 > [!WARNING]
 > An **unrecognised key** in the connection string throws `UriFormatException` at startup and prevents the proxy from starting.
@@ -172,6 +180,59 @@ FilterActiveHosts:
 | `func-direct` | `mode=direct` | always 100% | Yes | 0 ms |
 
 **In latency mode, `func-direct` (0 ms) is tried first, then `chat-service` (120 ms). `embed-service` is excluded until its rolling rate recovers above 80%.**
+
+---
+
+## GCP Vertex AI Backends
+
+Use `usegcpauth=true` to route requests to Google Cloud Vertex AI with automatic OAuth via **Workload Identity Federation (WIF)**.
+
+The proxy handles the full 3-step authentication flow on your behalf:
+1. Acquires an Azure JWT for the configured `gcpazureclientid` resource via `DefaultAzureCredential`
+2. Exchanges it at `https://sts.googleapis.com/v1/token` for a short-lived federated GCP token
+3. Impersonates the `gcpsa` service account at `https://iamcredentials.googleapis.com` to get the final access token
+4. Injects `Authorization: Bearer {token}` on every forwarded request; background task refreshes 5 minutes before expiry
+
+### Path Translation
+
+The `path` key sets the **client-facing** prefix. The proxy auto-constructs the full Vertex AI resource path:
+
+```
+client prefix stripped  →  /v1/projects/{gcpproject}/locations/{gcpregion}  +  remaining path
+```
+
+| Client request | Forwarded backend path |
+|---|---|
+| `POST /a208790-gemini-2.5-pro/publishers/google/models/gemini-2.5-flash:streamGenerateContent` | `POST /v1/projects/a208790-ellms-preprod/locations/us-east1/publishers/google/models/gemini-2.5-flash:streamGenerateContent` |
+
+### Config Example
+
+```bash
+Host1="mode=direct;path=/a208790-gemini-2.5-pro;\
+usegcpauth=true;\
+gcpproject=a208790-ellms-preprod;\
+gcpprojectnumber=753819451045;\
+gcpregion=us-east1;\
+gcppool=azure-gcp-identity-federation;\
+gcpprovider=azure-gcp-identity-provider;\
+gcpsa=eais-vertexai-svc@a208790-eais6-prod.iam.gserviceaccount.com;\
+gcpazureclientid=api://374a2caa-b184-4b47-93e9-3b7c4e7a6b76"
+```
+
+> [!NOTE]
+> **`host=` is optional** when `usegcpauth=true` — the proxy derives it as `https://{gcpregion}-aiplatform.googleapis.com`.
+
+> [!NOTE]
+> **`mode=direct` is required** for Vertex AI since there is no standard health probe endpoint. The circuit breaker still tracks per-request failures.
+
+> [!NOTE]
+> **Existing AOAI backends are unaffected.** GCP auth and path rewriting only activate when `usegcpauth=true` is present in the host config string.
+
+### Token Refresh Logs
+
+```
+[TOKEN] Refreshed GCP token for pool: //iam.googleapis.com/projects/753819451045/locations/global/workloadIdentityPools/azure-gcp-identity-federation/providers/azure-gcp-identity-provider, SA: eais-vertexai-svc@..., expires: 2026-05-11T14:00:00+00:00
+```
 
 ---
 

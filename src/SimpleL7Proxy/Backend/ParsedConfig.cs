@@ -5,7 +5,8 @@ namespace SimpleL7Proxy.Backend
     {
         None,
         ApiKey,
-        OAuth2
+        OAuth2,
+        GcpAuth
     }
 
     public struct ParsedConfig
@@ -42,6 +43,15 @@ namespace SimpleL7Proxy.Backend
         public string ProbePath;
         public string Processor;
         public bool StripPrefix;
+        public bool UseGcpAuth;
+        public string GcpProject;        // project name for backend path (e.g. a208790-ellms-preprod)
+        public string GcpProjectNumber;  // project number for WIF audience (e.g. 753819451045)
+        public string GcpRegion;         // e.g. us-east1
+        public string GcpPool;           // WIF pool ID
+        public string GcpProvider;       // WIF provider ID
+        public string GcpServiceAccount; // GCP SA email to impersonate
+        public string GcpAzureClientId;  // Azure resource URI for subject token
+        public bool UseOAuth;
         public bool UsesRetryAfter;
         public AuthModeEnum AuthMode;
         public bool Enabled;

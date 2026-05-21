@@ -1,5 +1,9 @@
 # Release Notes #
 
+2.2.14-TR-GCP
+* Added support for GCP 3 step WIF authentication mechnaism
+* Fixed GCP streaming token capture
+
 2.2.14
 
 Proxy:

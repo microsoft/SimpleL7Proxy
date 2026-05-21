@@ -38,7 +38,17 @@ namespace SimpleL7Proxy.Backend
     public string Processor => ParsedConfig.Processor;
     public bool StripPrefix => ParsedConfig.StripPrefix;
     public AuthModeEnum AuthMode => ParsedConfig.AuthMode;
+    public bool UseOAuth => ParsedConfig.AuthMode == AuthModeEnum.OAuth2;
     public bool UsesRetryAfter => ParsedConfig.UsesRetryAfter;
+    public bool UseGcpAuth => ParsedConfig.AuthMode == AuthModeEnum.GcpAuth;
+    public string GcpServiceAccount => ParsedConfig.GcpServiceAccount;
+    public string GcpAzureClientId => ParsedConfig.GcpAzureClientId;
+    public string GcpPoolAudience => ParsedConfig.UseGcpAuth
+        ? $"//iam.googleapis.com/projects/{ParsedConfig.GcpProjectNumber}/locations/global/workloadIdentityPools/{ParsedConfig.GcpPool}/providers/{ParsedConfig.GcpProvider}"
+        : string.Empty;
+    public string GcpBackendPath => ParsedConfig.UseGcpAuth
+        ? $"/v1/projects/{ParsedConfig.GcpProject}/locations/{ParsedConfig.GcpRegion}"
+        : string.Empty;
     public string Protocol { get; private set; }
     public int Port { get; private set; }
     // Cached path matching properties for performance
@@ -73,6 +83,16 @@ namespace SimpleL7Proxy.Backend
         sb.Append(ApiKey ?? string.Empty).Append('|');
         sb.Append(ApiKeyHeader ?? string.Empty).Append('|');
         sb.Append(UsesRetryAfter);
+        sb.Append(UseOAuth).Append('|');
+        sb.Append(UsesRetryAfter).Append('|');
+        sb.Append(ParsedConfig.UseGcpAuth).Append('|');
+        sb.Append(ParsedConfig.GcpProject ?? string.Empty).Append('|');
+        sb.Append(ParsedConfig.GcpProjectNumber ?? string.Empty).Append('|');
+        sb.Append(ParsedConfig.GcpRegion ?? string.Empty).Append('|');
+        sb.Append(ParsedConfig.GcpPool ?? string.Empty).Append('|');
+        sb.Append(ParsedConfig.GcpProvider ?? string.Empty).Append('|');
+        sb.Append(ParsedConfig.GcpServiceAccount ?? string.Empty).Append('|');
+        sb.Append(ParsedConfig.GcpAzureClientId ?? string.Empty);
 
         Span<byte> hashBytes = stackalloc byte[SHA256.HashSizeInBytes];
         SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()), hashBytes);
@@ -257,6 +277,9 @@ namespace SimpleL7Proxy.Backend
 
       if (hostname.Contains(';') || hostname.Contains(','))
       {
+        // Clear the host — it must be set explicitly via host= or derived below
+        result.Host = string.Empty;
+
         var configDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var part in hostname.Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -321,6 +344,34 @@ namespace SimpleL7Proxy.Backend
             case "retryafter":
               result.UsesRetryAfter = kvp.Value.Equals("true", StringComparison.OrdinalIgnoreCase);
               break;
+            case "usegcpauth":
+              if (kvp.Value.Equals("true", StringComparison.OrdinalIgnoreCase))
+              {
+                result.UseGcpAuth = true;
+                result.AuthMode = AuthModeEnum.GcpAuth;
+              }
+              break;
+            case "gcpproject":
+              result.GcpProject = kvp.Value;
+              break;
+            case "gcpprojectnumber":
+              result.GcpProjectNumber = kvp.Value;
+              break;
+            case "gcpregion":
+              result.GcpRegion = kvp.Value;
+              break;
+            case "gcppool":
+              result.GcpPool = kvp.Value;
+              break;
+            case "gcpprovider":
+              result.GcpProvider = kvp.Value;
+              break;
+            case "gcpsa":
+              result.GcpServiceAccount = kvp.Value;
+              break;
+            case "gcpazureclientid":
+              result.GcpAzureClientId = kvp.Value;
+              break;
             default:
               throw new UriFormatException($"Invalid backend host configuration key: {kvp.Key}");
           }
@@ -329,6 +380,12 @@ namespace SimpleL7Proxy.Backend
           {
             result.ProbePath = "";
           }
+        }
+
+        // Auto-derive Vertex AI host from region if usegcpauth=true and host= was omitted
+        if (result.UseGcpAuth && string.IsNullOrEmpty(result.Host) && !string.IsNullOrEmpty(result.GcpRegion))
+        {
+          result.Host = NormalizeHostUrl($"{result.GcpRegion}-aiplatform.googleapis.com");
         }
       }
 
@@ -351,7 +408,11 @@ namespace SimpleL7Proxy.Backend
 
     public void RegisterWithTokenProvider()
     {
-      if (AuthMode == AuthModeEnum.OAuth2 && !string.IsNullOrEmpty(Audience))
+      if (UseGcpAuth)
+      {
+        _tokenProvider!.AddGcpConfig(GcpPoolAudience, GcpServiceAccount, GcpAzureClientId);
+      }
+      else if (AuthMode == AuthModeEnum.OAuth2 && !string.IsNullOrEmpty(Audience))
       {
         _tokenProvider!.AddAudience(Audience);
       }
@@ -384,6 +445,9 @@ namespace SimpleL7Proxy.Backend
     /// </summary>
     public async Task<string> OAuth2Token()
     {
+      if (UseGcpAuth && _tokenProvider != null)
+        return await _tokenProvider.GcpToken(GcpPoolAudience).ConfigureAwait(false);
+
       if (AuthMode != AuthModeEnum.OAuth2 || string.IsNullOrEmpty(Audience) || _tokenProvider == null)
         return string.Empty;
 
@@ -416,6 +480,10 @@ namespace SimpleL7Proxy.Backend
             return PathMatchResult.NoMatch(requestPath);
         }
 
+        // When GcpBackendPath is set, prepend it to the stripped path so the
+        // forwarded request targets the full Vertex AI resource path.
+        string gcpPrefix = GcpBackendPath;
+
         // Split path and query using span to avoid allocations
         ReadOnlySpan<char> pathSpan = requestPath.AsSpan();
         int queryIndex = pathSpan.IndexOf('?');
@@ -440,9 +508,10 @@ namespace SimpleL7Proxy.Backend
                 if (!string.IsNullOrEmpty(_wildcardPrefix))
                 {
                     var remaining = normalizedPath.Slice(_wildcardPrefix.Length).TrimStart('/');
-                    return PathMatchResult.Match(string.Concat("/", remaining, query));
+                    var stripped = string.Concat("/", remaining, query);
+                    return PathMatchResult.Match(string.IsNullOrEmpty(gcpPrefix) ? stripped : gcpPrefix + stripped);
                 }
-                return PathMatchResult.Match(requestPath);
+                return PathMatchResult.Match(string.IsNullOrEmpty(gcpPrefix) ? requestPath : gcpPrefix + requestPath);
             }
             return PathMatchResult.NoMatch(requestPath);
         }
@@ -454,7 +523,8 @@ namespace SimpleL7Proxy.Backend
             {
                 return PathMatchResult.Match(requestPath);
             }
-            return PathMatchResult.Match(query.IsEmpty ? "/" : string.Concat("/", query));
+            var exactStripped = query.IsEmpty ? "/" : string.Concat("/", query);
+            return PathMatchResult.Match(string.IsNullOrEmpty(gcpPrefix) ? exactStripped : gcpPrefix + exactStripped);
         }
 
         // Prefix match: "/api" should match "/api/c1/foo" 
@@ -472,7 +542,8 @@ namespace SimpleL7Proxy.Backend
                         return PathMatchResult.Match(requestPath);
                     }
                     var remaining = normalizedPath.Slice(prefixSpan.Length).TrimStart('/');
-                    return PathMatchResult.Match(string.Concat("/", remaining, query));
+                    var prefixStripped = string.Concat("/", remaining, query);
+                    return PathMatchResult.Match(string.IsNullOrEmpty(gcpPrefix) ? prefixStripped : gcpPrefix + prefixStripped);
                 }
             }
         }

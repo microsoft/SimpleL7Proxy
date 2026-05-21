@@ -423,4 +423,86 @@ Expand for links to guides on App Configuration setup, local development, timeou
 - [TIMEOUTS.md](TIMEOUTS.md) - TTL, Timeout, and AsyncTimeout behavior.
 - [LOAD_BALANCING.md](LOAD_BALANCING.md) - Load balancing and iteration behavior.
 
-</details>
+| Env Var | Property | Default | Description |
+|---------|----------|---------|-------------|
+| `AZURE_APPCONFIG_ENDPOINT` | `AppConfigEndpoint` | — | App Configuration endpoint (Managed Identity auth) |
+| `AZURE_APPCONFIG_CONNECTION_STRING` | `AppConfigConnectionString` | — | App Configuration connection string (dev fallback) |
+| `AZURE_APPCONFIG_LABEL` | `AppConfigLabel` | — | Label filter for settings |
+| `AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS` | `AppConfigRefreshIntervalSeconds` | `30` s | Sentinel poll interval |
+
+### Security
+
+| Env Var | Property | Default | Description |
+|---------|----------|---------|-------------|
+| `UseOAuthGov` | `UseOAuthGov` | `false` | Use Azure Government OAuth endpoint |
+
+### Async — parsed from `AsyncBlobStorageConfig`
+
+| Property | Default | Description |
+|----------|---------|-------------|
+| `AsyncBlobStorageConnectionString` | `example-connection-string` | Parsed blob storage connection string |
+| `AsyncBlobStorageUseMI` | `true` | Use Managed Identity for blob storage |
+| `AsyncBlobStorageAccountUri` | `https://mystorageaccount.blob.core.windows.net` | Blob storage account URI |
+
+### Async — parsed from `AsyncSBConfig`
+
+| Property | Default | Description |
+|----------|---------|-------------|
+| `AsyncSBConnectionString` | `example-sb-connection-string` | Parsed Service Bus connection string |
+| `AsyncSBQueue` | `requeststatus` | Service Bus queue name |
+| `AsyncSBUseMI` | `false` | Use Managed Identity for Service Bus |
+| `AsyncSBNamespace` | `example-namespace` | Service Bus namespace |
+
+### Logging
+
+| Env Var | Property | Default | Description |
+|---------|----------|---------|-------------|
+| `LOG_LEVEL` | `LogLevel` | `Information` | Minimum log level |
+| `LOGTOFILE` | `LogToFile` | `false` | Write logs to file |
+
+### Transport / Keep-Alive
+
+| Env Var | Property | Default | Description |
+|---------|----------|---------|-------------|
+| `KeepAliveInitialDelaySecs` | `KeepAliveInitialDelaySecs` | `60` s | Delay before first keep-alive probe |
+| `KeepAlivePingIntervalSecs` | `KeepAlivePingIntervalSecs` | `60` s | Interval between keep-alive pings |
+| `KeepAliveIdleTimeoutSecs` | `KeepAliveIdleTimeoutSecs` | `1200` s | Idle connection timeout |
+| `EnableMultipleHttp2Connections` | `EnableMultipleHttp2Connections` | `false` | Allow multiple HTTP/2 connections per host |
+| `MultiConnLifetimeSecs` | `MultiConnLifetimeSecs` | `3600` s | Max lifetime of a pooled connection |
+| `MultiConnIdleTimeoutSecs` | `MultiConnIdleTimeoutSecs` | `300` s | Idle timeout for pooled connections |
+| `MultiConnMaxConns` | `MultiConnMaxConns` | `4000` | Max connections in the pool |
+
+### Metadata (populated by Azure Container Apps runtime)
+
+| Env Var | Property | Default | Description |
+|---------|----------|---------|-------------|
+| `CONTAINER_APP_NAME` | `ContainerApp` | `ContainerAppName` | Container App name injected by ACA |
+| `Hostname` | `HostName` | `""` | Host name |
+| `RequestIDPrefix` | `IDStr` | `S7P` | Prefix for generated request IDs |
+| `CONTAINER_APP_REPLICA_NAME` | `ReplicaName` | `""` | Replica name injected by ACA |
+| `CONTAINER_APP_REVISION` | `Revision` | `revisionID` | Revision name injected by ACA |
+
+---
+
+## Runtime-Derived Properties
+
+These are never set via config — the proxy computes them at startup from other settings.
+
+| Property | Description |
+|----------|-------------|
+| `HealthProbeSidecarEnabled` | Parsed from `HealthProbeSidecar` |
+| `HealthProbeSidecarUrl` | Parsed from `HealthProbeSidecar` |
+| `Hosts` | Populated from `Host1`…`HostN` environment variables |
+| `PriorityWorkers` | Worker allocation map derived from `PriorityValues` |
+| `TrackWorkers` | Internal worker tracking flag |
+| `UseSharedIterators` | Whether to share iterator state across concurrent requests |
+
+---
+
+## Related Documentation
+
+- [AZURE_APP_CONFIGURATION.md](AZURE_APP_CONFIGURATION.md) — Setting up hot-reload with App Configuration
+- [BEGINNERDEVELOPMENT.md](BEGINNERDEVELOPMENT.md) — Local dev setup and minimal required config
+- [TIMEOUTS.md](TIMEOUTS.md) — How TTL, Timeout, and AsyncTimeout interact
+- [LOAD_BALANCING.md](LOAD_BALANCING.md) — LoadBalanceMode, IterationMode, and retry settings
+- [BACKEND_HOSTS.md](BACKEND_HOSTS.md) — Per-host connection string keys including GCP Vertex AI (`usegcpauth`, `gcpproject`, etc.)

@@ -932,17 +932,29 @@ public class ProxyWorker : IConfigChangeSubscriber
                 switch (host.Config.AuthMode)
                 {
                     case AuthModeEnum.OAuth2:
-                        // Get a token
+                        request.Headers.Remove("api-key");
                         var oaToken = await host.Config.OAuth2Token().ConfigureAwait(false);
-                        if (request.Debug)
-                        {
-                            _logger.LogDebug("OAuth Token retrieved for backend {BackendHost}", host.Host);
-                        }
-                        // Set the token in the headers
                         request.Headers.Set("Authorization", $"Bearer {oaToken}");
+                        if (_logger.IsEnabled(LogLevel.Information))
+                        {
+                            var empty = string.IsNullOrEmpty(oaToken);
+                            _logger.LogInformation("[AUTH] Backend: {Host} | Token empty: {Empty} | Prefix: {Prefix}",
+                                host.Host, empty, empty ? "<empty>" : oaToken[..Math.Min(20, oaToken.Length)] + "...");
+                        }
+                        break;
+                    case AuthModeEnum.GcpAuth:
+                        // Vertex AI: 3-step WIF token (Azure JWT → GCP STS → SA impersonation)
+                        request.Headers.Remove("api-key");
+                        var gcpToken = await host.Config.OAuth2Token().ConfigureAwait(false);
+                        request.Headers.Set("Authorization", $"Bearer {gcpToken}");
+                        if (_logger.IsEnabled(LogLevel.Information))
+                        {
+                            var gcpEmpty = string.IsNullOrEmpty(gcpToken);
+                            _logger.LogInformation("[AUTH] GCP Backend: {Host} | Token empty: {Empty} | Prefix: {Prefix}",
+                                host.Host, gcpEmpty, gcpEmpty ? "<empty>" : gcpToken[..Math.Min(20, gcpToken.Length)] + "...");
+                        }
                         break;
                     case AuthModeEnum.ApiKey:
-                        // Set the API key in the headers
                         request.Headers.Set(host.Config.ApiKeyHeader, host.Config.ApiKey);
                         break;
                 }
