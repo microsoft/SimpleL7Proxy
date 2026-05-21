@@ -629,9 +629,8 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                 }
 
                                 // Status-check request: client polling for a previously submitted async request.
-                                // Independent of runAsync — a status check has nothing to proxy, it just looks up
-                                // a previously stored async request's state by Guid.
-                                if (string.Equals(rd.Headers["S7PType"], "ResponseCheck", StringComparison.OrdinalIgnoreCase) &&
+                                if (rd.runAsync &&
+                                    string.Equals(rd.Headers["S7PType"], "ResponseCheck", StringComparison.OrdinalIgnoreCase) &&
                                     !string.IsNullOrEmpty(rd.Headers["Guid"]))
                                 {
                                     rd.IsStatusCheck = true;
@@ -651,7 +650,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                 // if (!string.IsNullOrEmpty(priorityKey) && _priorityKeys.Contains(priorityKey)) //lookup the priority
                                 // {
                                 //     var index = _options.PriorityKeys.IndexOf(priorityKey);
-                                //     if (index >= 0)
+                                //     if (index >= 0)delegating
                                 //     {
                                 //         priority = _options.PriorityValues[index];
                                 //     }
