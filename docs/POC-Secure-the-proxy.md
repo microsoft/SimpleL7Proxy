@@ -1,183 +1,189 @@
-# POC: Securing the Proxy with Container Apps Easy Auth
+# POC: Securing the Proxy with Container Apps EasyAuth
 
-**Every request to the proxy is authenticated by the Container Apps platform before it reaches your app — no auth code required.**
+**Protect the proxy from unauthorized access.**
 
 ## TL;DR (< 5 minutes)
 
-1. Create an Entra app registration with a client secret, redirect URI, and ID token issuance enabled.
-2. Wire it to your Container App with `az containerapp auth microsoft update` and set unauthenticated action to `Return401`.
-3. Hit the app without a session — get `401`. Hit `/.auth/login/aad` — authenticate — get through.
+1. Register an Entra app, create a client secret, and enable ID token issuance.
+2. Enable EasyAuth on the Container App and set the unauthenticated action to `Return401`.
+3. Acquire a bearer token scoped to `api://<APP_ID>` and include it in the `Authorization: Bearer` header.
 
-**Expected outcome:** unauthenticated `curl` → `401`. Browser flow via `/.auth/login/aad` → `200`.
+**Expected outcome:** `curl` without a token → `401`. `curl` with a valid token → request reaches the proxy and returns `200`.
+
+> EasyAuth rejects any request without a valid Entra token before it reaches the proxy.
 
 ## What you will observe
 
-- `curl https://<your-proxy>/` with no session cookie → `401 Unauthorized` (EasyAuth sidecar rejects before the proxy sees the request).
-- Browser navigation to `https://<your-proxy>/` without a session → redirect to `https://login.microsoftonline.com/...`.
-- After successful Entra login → redirect back to `https://<your-proxy>/.auth/login/aad/callback` → session cookie set → proxy receives request with identity headers.
-- `X-MS-CLIENT-PRINCIPAL-NAME` header contains the authenticated user's UPN.
-- `X-MS-CLIENT-PRINCIPAL` header contains a base64-encoded claims JSON.
-- Requests from users not in the tenant → `401` (Entra rejects the login, session is never issued).
+- `curl https://<proxy>/` with no `Authorization` header → `401 Unauthorized`; the proxy never processes the request.
+- `curl` with a token for the wrong audience → `401`.
+- `curl` with a valid bearer token scoped to `api://<APP_ID>` → request reaches the proxy, proxy returns its normal response.
+- The proxy receives no unauthenticated traffic at any point.
 
 ## Flow
 
 ```
-Browser / API client
-  │
-  ▼
-Container Apps EasyAuth sidecar
-  ├─ No session / invalid token ──► 401 or redirect to login.microsoftonline.com
-  └─ Valid session / token
-       │  injects X-MS-CLIENT-PRINCIPAL-NAME, X-MS-CLIENT-PRINCIPAL headers
-       ▼
-  Proxy app code (never sees unauthenticated requests)
+API client / service
+   │
+   │  Authorization: Bearer <token>
+   ▼
+ACA EasyAuth sidecar
+   ├─ No token        ──► 401
+   ├─ Wrong audience  ──► 401
+   └─ Valid token
+        ▼
+   SimpleL7Proxy
+   (receives only authenticated requests)
 ```
 
 > [!NOTE]
-> EasyAuth runs as a platform sidecar. The proxy receives only authenticated requests and reads identity from headers — no SDK or middleware needed.
+> EasyAuth runs as a platform sidecar managed by Azure Container Apps and only forwards validated requests.
 
 ## Setup
-
-**What matters:** `--enable-id-token-issuance true`, the correct redirect URI, and unauthenticated action set to reject (not redirect) for API scenarios.
-
-| Item | Value used in this POC |
-| :--- | :--- |
-| Redirect URI pattern | `https://<app-fqdn>/.auth/login/aad/callback` |
-| Unauthenticated action | `Return401` (API) or `RedirectToLoginPage` (browser) |
-| Identity headers injected | `X-MS-CLIENT-PRINCIPAL-NAME`, `X-MS-CLIENT-PRINCIPAL` |
-| Login endpoint | `https://<app-fqdn>/.auth/login/aad` |
-| Token refresh endpoint | `https://<app-fqdn>/.auth/refresh` |
 
 **Prerequisites:**
 
 - Azure subscription with Contributor access
-- `az` CLI logged in (`az login`)
+- `az` CLI authenticated (`az login`)
 - Container App deployed (the proxy)
-- Tenant ID on hand: `az account show --query tenantId -o tsv`
+- Tenant ID: `az account show --query tenantId -o tsv`
 
-### 1. Create the Entra App Registration
+### Step 1 — Set Variables
 
-**This registration tells Entra ID which app is allowed to authenticate users — the redirect URI must match exactly.**
+Set `APP_NAME`, `CONTAINER_APP_NAME`, `RG` to match your environment.
 
 ```bash
-APP_NAME="aca-auth-poc"
+export ENTRA_APP_NAME="aca-proxy"                  # display name for the Entra app registration
+export CONTAINER_APP_NAME="<your-app-name>"  # your Container App name
+export RG="<your-resource-group>"            # your resource group
+```
 
-# Create registration
-APP_ID=$(az ad app create \
-  --display-name "$APP_NAME" \
+### Step 2 — Create the Entra App Registration and enable EasyAuth
+
+Save the generated `APP_ID` and `CLIENT_SECRET` variables for troubleshooting.
+
+```bash
+
+# Lookup 
+export TENANT_ID="$(az account show --query tenantId -o tsv)"
+export APP_FQDN="https://$(az containerapp show --name "$CONTAINER_APP_NAME" --resource-group "$RG" --query properties.configuration.ingress.fqdn -o tsv)"
+export HEALTH_URL="$APP_FQDN/health"
+
+export APP_ID=$(az ad app create \
+  --display-name "$ENTRA_APP_NAME" \
   --sign-in-audience AzureADMyOrg \
   --query appId -o tsv)
 echo "APP_ID=$APP_ID"
 
-# Enable ID token issuance (required for EasyAuth)
+# Enable ID token issuance
 az ad app update --id "$APP_ID" --enable-id-token-issuance true
 
-# Set redirect URI
-APP_FQDN="https://<app-name>.<env>.<region>.azurecontainerapps.io"
-az ad app update --id "$APP_ID" \
-  --web-redirect-uris "$APP_FQDN/.auth/login/aad/callback"
-
-# Create client secret (set end-date explicitly — required in some tenants)
-CLIENT_SECRET=$(az ad app credential reset \
+# Create client secret
+export CLIENT_SECRET=$(az ad app credential reset \
   --id "$APP_ID" \
-  --display-name "easyauth-secret" \
+  --display-name "proxy-auth-secret" \
   --end-date "$(date -d '+30 days' '+%Y-%m-%d')" \
   --query password -o tsv)
 echo "CLIENT_SECRET=$CLIENT_SECRET"
 
 # Create service principal
 az ad sp create --id "$APP_ID" 1>/dev/null
-```
 
-> [!WARNING]
-> `--enable-id-token-issuance true` is mandatory. EasyAuth will fail silently at login without it.
-
-### 2. Enable EasyAuth on the Container App
-
-**This wires the app registration to the Container App platform — the sidecar handles all token validation from this point.**
-
-> [!WARNING]
-> If this command partially applies (enables auth but fails to register the provider), **the app returns `503` for all traffic** until auth is either fixed or disabled. Verify immediately after running — do not proceed to Step 3 until the provider check passes.
-
-```bash
+# Enable EazyAuth
 az containerapp auth microsoft update \
-  --name "<CONTAINER_APP_NAME>" \
-  --resource-group "<RG>" \
+  --name "$CONTAINER_APP_NAME" \
+  --resource-group "$RG" \
   --client-id "$APP_ID" \
   --client-secret "$CLIENT_SECRET" \
-  --tenant-id "<TENANT_ID>" \
+  --tenant-id "$TENANT_ID" \
   --yes
 ```
 
-> [!NOTE]
-> This command also enables authentication on the app.
+### Step 3 — Verify
 
-Verify the Microsoft identity provider was registered — **if the `identityProviders` block is empty, re-run the command above**:
+Run the verify command to ensure that both auth and the identity provider were registered. 
 
 ```bash
 az containerapp auth show \
-  --name "<CONTAINER_APP_NAME>" \
-  --resource-group "<RG>" \
+  --name "$CONTAINER_APP_NAME" \
+  --resource-group "$RG" \
   --query "{enabled:platform.enabled, provider:identityProviders.azureActiveDirectory.enabled}" \
   -o table
 ```
 
-Expected output: both `enabled` columns show `True`. If the portal shows **"No identity provider"**, re-run Step 2 — the `az containerapp auth microsoft update` command may have partially applied.
+Both columns must show `True`. If either shows `False` or `identityProviders` is empty, re-run the `auth microsoft update` command above — do not continue to Step 4.
 
-### 3. Set the Unauthenticated Action
+### Step 4 — Set the Unauthenticated Action
 
-**For API/proxy scenarios, use `Return401` — `RedirectToLoginPage` is for browser-only apps.**
+Rejects unauthenticated requests outright — callers get a `401` with no redirect.
 
 ```bash
 az containerapp auth update \
-  --name "<CONTAINER_APP_NAME>" \
-  --resource-group "<RG>" \
+  --name "$CONTAINER_APP_NAME" \
+  --resource-group "$RG" \
   --enabled true \
   --unauthenticated-client-action Return401
 ```
 
-> [!TIP]
-> Use `RedirectToLoginPage` if you want the browser to be sent to the Entra login page automatically instead of receiving a `401`.
-
 ## Run
 
 ```bash
-APP_FQDN="https://<app-name>.<env>.<region>.azurecontainerapps.io"
-
-# 1. Should return 401
+# 1. No token — expect 401
 curl -i "$APP_FQDN"
 
-# 2. Browser login flow — open in browser
-echo "$APP_FQDN/.auth/login/aad"
+# 2. Acquire a token scoped to the proxy's app registration
+TOKEN=$(az account get-access-token \
+  --resource "api://$APP_ID" \
+  --query accessToken -o tsv)
 
-# 3. After login, check injected identity headers
-curl -i "$APP_FQDN" --cookie "<session-cookie>"
+# 3. Call with token — expect 200
+curl -i "$APP_FQDN" \
+  -H "Authorization: Bearer $TOKEN"
 ```
-
-> [!TIP]
-> After logging in via the browser, use browser DevTools → Network → copy the `AppServiceAuthSession` cookie value for use with `curl`.
 
 ## Verify
 
-Run each check in order. All four must pass.
+```bash
+# No token — expect 401
+curl -i "$HEALTH_URL"
 
-- [ ] `curl -i $APP_FQDN` (no session) → `HTTP/1.1 401`, no proxy app output in response
-- [ ] Open `$APP_FQDN/.auth/login/aad` in a browser → redirected to `login.microsoftonline.com`
-- [ ] Complete Entra login → redirected back to `$APP_FQDN`, session cookie set, app responds normally
-- [ ] Inspect response headers or app logs — `X-MS-CLIENT-PRINCIPAL-NAME` is present and contains your UPN
+# Wrong audience (valid Azure token, wrong resource) — expect 401
+# Uses the Azure management API as the resource to produce a real Entra-signed token
+# whose 'aud' claim does not match api://$APP_ID — EasyAuth will reject it due to the mismatch.
+BAD_TOKEN=$(az account get-access-token --resource "https://management.azure.com/" --query accessToken -o tsv)
+curl -i "$HEALTH_URL" -H "Authorization: Bearer $BAD_TOKEN"
 
-> [!TIP]
-> `curl "$APP_FQDN/.auth/me"` with a valid session returns a JSON array of claims — use this to confirm the session is active without inspecting headers manually.
+# Valid token — expect 200
+curl -i "$HEALTH_URL" -H "Authorization: Bearer $TOKEN"
+```
+
+## Remove
+
+Use this to temporarily disable auth — for example, to isolate whether a problem is in EasyAuth or in the proxy itself.
+
+```bash
+az containerapp auth update \
+  --name "$CONTAINER_APP_NAME" \
+  --resource-group "$RG" \
+  --enabled false
+```
+
+All traffic is accepted again immediately. The app registration and secret are left in place. To restore protection:
+
+```bash
+az containerapp auth update \
+  --name "$CONTAINER_APP_NAME" \
+  --resource-group "$RG" \
+  --enabled true
+```
 
 ## Troubleshooting
 
-| Symptom | Likely cause | Check |
+| Symptom | Cause | Check |
 | :--- | :--- | :--- |
-| `curl` returns `503` instead of `401` | Auth is enabled but no identity provider is configured — platform blocks all traffic | **To restore the app immediately:** `az containerapp auth update -n <name> -g <rg> --enabled false`. Then re-run Step 2 and verify the provider is registered before re-enabling. Check with `az containerapp auth show -n <name> -g <rg> --query "identityProviders"` |
-| Login redirects to Entra but then fails with `AADSTS50011` | Redirect URI mismatch | Compare the URI in the error with what is registered: `az ad app show --id $APP_ID --query "web.redirectUris"` |
-| `401` even after successful Entra login | ID token issuance not enabled | Run `az ad app update --id $APP_ID --enable-id-token-issuance true` |
-| Browser gets `401` instead of login redirect | Unauthenticated action set to `Return401` | Change to `RedirectToLoginPage`: `az containerapp auth update --unauthenticated-client-action RedirectToLoginPage` |
-| `X-MS-CLIENT-PRINCIPAL-NAME` header missing in app | EasyAuth not fully enabled | Run `az containerapp auth show -n <name> -g <rg>` and confirm `"enabled": true` |
-| Client secret error at login | Secret expired or wrong value | Reset: `az ad app credential reset --id $APP_ID --display-name "easyauth-secret"` then re-run Step 2 |
+| `401` on all requests including valid tokens | Wrong token audience | Decode at [jwt.ms](https://jwt.ms); `aud` claim must be `api://<APP_ID>` |
+| `503` on all traffic after Step 3 | Auth enabled but no identity provider registered | `az containerapp auth show -n <name> -g <rg> --query identityProviders` — if empty, re-run Step 3. To restore immediately: `az containerapp auth update -n <name> -g <rg> --enabled false` |
+| Authentication fails with `AADSTS50019` or similar | ID token issuance not enabled | `az ad app update --id $APP_ID --enable-id-token-issuance true` |
+| `401` despite a valid Entra token | Auth not fully enabled or provider missing | `az containerapp auth show -n <name> -g <rg>` — confirm `"enabled": true` and provider is configured |
+| Client secret rejected at authentication | Secret expired or rotated | `az ad app credential reset --id $APP_ID --display-name "proxy-auth-secret"` then re-run Step 2 |
 
 
