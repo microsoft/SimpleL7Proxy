@@ -98,7 +98,7 @@ az containerapp auth microsoft update \
   --yes
 ```
 
-### Step 3 — Verify
+### Step 3 — Verify Container App
 
 Run the verify command to ensure that both auth and the identity provider were registered. 
 
@@ -124,11 +124,11 @@ az containerapp auth update \
   --unauthenticated-client-action Return401
 ```
 
-## Run
+## Verify Access
 
 ```bash
 # 1. No token — expect 401
-curl -i "$APP_FQDN"
+curl -i "$HEALTH_URL"
 
 # 2. Acquire a token scoped to the proxy's app registration
 TOKEN=$(az account get-access-token \
@@ -136,15 +136,8 @@ TOKEN=$(az account get-access-token \
   --query accessToken -o tsv)
 
 # 3. Call with token — expect 200
-curl -i "$APP_FQDN" \
+curl -i "$HEALTH_URL" \
   -H "Authorization: Bearer $TOKEN"
-```
-
-## Verify
-
-```bash
-# No token — expect 401
-curl -i "$HEALTH_URL"
 
 # Wrong audience (valid Azure token, wrong resource) — expect 401
 # Uses the Azure management API as the resource to produce a real Entra-signed token
@@ -152,8 +145,6 @@ curl -i "$HEALTH_URL"
 BAD_TOKEN=$(az account get-access-token --resource "https://management.azure.com/" --query accessToken -o tsv)
 curl -i "$HEALTH_URL" -H "Authorization: Bearer $BAD_TOKEN"
 
-# Valid token — expect 200
-curl -i "$HEALTH_URL" -H "Authorization: Bearer $TOKEN"
 ```
 
 ## Remove
