@@ -29,6 +29,20 @@
 
 ## Setup
 
+### 0) Enable system-assigned managed identity on ACA
+
+**Rule: ACA managed identity `principalId` is the identity that must receive `API.Caller` on the APIM API app.**
+
+```bash
+RG="<resource-group>"
+CA_NAME="<container-app-name>"
+
+az containerapp identity assign -g "$RG" -n "$CA_NAME" --system-assigned
+
+ACA_MANAGED_IDENTITY_OBJECT_ID="$(az containerapp show -g "$RG" -n "$CA_NAME" --query "identity.principalId" -o tsv)"
+echo "$ACA_MANAGED_IDENTITY_OBJECT_ID"
+```
+
 ### 1) Create APIM API app registration in Entra
 
 **Rule: APIM policy audience must match this app's identifier URI.**
@@ -85,8 +99,10 @@ New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $acaSpId -PrincipalI
         <openid-config url="https://login.microsoftonline.com/<TENANT_ID>/v2.0/.well-known/openid-configuration" />
         <audiences>
             <audience>api://<APIM_APP_ID></audience>
+            <audience><APIM_APP_ID></audience>
         </audiences>
         <issuers>
+            <issuer>https://sts.windows.net/<TENANT_ID>/</issuer>
             <issuer>https://login.microsoftonline.com/<TENANT_ID>/v2.0</issuer>
         </issuers>
         <required-claims>
@@ -100,6 +116,9 @@ New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $acaSpId -PrincipalI
 
 > [!TIP]
 > If your APIM endpoint accepts delegated user tokens, validate `scp` instead of `roles`.
+
+> [!NOTE]
+> Match the issuer to the token you actually receive. Depending on flow and token version, `iss` may be `https://sts.windows.net/<TENANT_ID>/` or `https://login.microsoftonline.com/<TENANT_ID>/v2.0`.
 
 ### 4) Configure OAuth 2.0 in APIM interface
 
@@ -147,12 +166,13 @@ Set variables:
 ```bash
 APIM_BASE="https://<apim-name>.azure-api.net/<api-suffix>"
 APIM_SUB_KEY="<apim-subscription-key>"
+APIM_APP_ID="<apim-app-id-guid>"
 ```
 
 Positive test:
 
 ```bash
-TOKEN="<valid-bearer-token-with-aud-api://APIM_APP_ID-and-role-API.Caller>"
+TOKEN="$(az account get-access-token --resource "api://$APIM_APP_ID" --query accessToken -o tsv)"
 curl -i "$APIM_BASE/health" \
   -H "Ocp-Apim-Subscription-Key: $APIM_SUB_KEY" \
   -H "Authorization: Bearer $TOKEN"
@@ -171,7 +191,7 @@ Expected: `401 Unauthorized`.
 Negative test (wrong audience):
 
 ```bash
-BAD_TOKEN="<token-with-aud-api://ACA_APP_ID>"
+BAD_TOKEN="$(az account get-access-token --resource "https://management.azure.com/" --query accessToken -o tsv)"
 curl -i "$APIM_BASE/health" \
   -H "Ocp-Apim-Subscription-Key: $APIM_SUB_KEY" \
   -H "Authorization: Bearer $BAD_TOKEN"
@@ -190,6 +210,26 @@ curl -i "$APIM_BASE/health" \
 
 Expected: `401 Unauthorized` due to missing required claim.
 
+> [!NOTE]
+> Role assignment changes are not retroactive to already-issued tokens. If you revoke a role, old tokens may continue to work until token expiry.
+
+## Optional: proxy -> APIM with managed identity
+
+**Rule: when proxy host config uses `usemi=true`, set `audience` so ACA requests the correct APIM token.**
+
+```bash
+Host1="host=https://<apim-name>.azure-api.net;usemi=true;audience=api://<APIM_APP_ID>;probe=/health"
+```
+
+Runtime behavior:
+
+- Proxy acquires a managed identity token for `api://<APIM_APP_ID>`.
+- Proxy forwards requests to APIM with `Authorization: Bearer <token>`.
+- APIM `validate-jwt` evaluates that token before backend routing.
+
+> [!WARNING]
+> If `usemi=true` and `audience` is missing or incorrect, APIM receives an invalid or missing token and returns `401`.
+
 ## Verify
 
 - [ ] APIM API app registration exists with identifier URI `api://<APIM_APP_ID>`.
@@ -198,6 +238,16 @@ Expected: `401 Unauthorized` due to missing required claim.
 - [ ] APIM inbound policy validates issuer, audience, and role.
 - [ ] Valid APIM token succeeds.
 - [ ] Missing token, wrong audience, and missing role all fail with `401`.
+
+## Troubleshooting
+
+| Symptom | Likely cause | Check |
+| :--- | :--- | :--- |
+| `401` with token that seems valid | Token audience mismatch | Decode token and verify `aud` equals `api://<APIM_APP_ID>` or configured accepted value |
+| `401` with correct audience | Missing `roles` claim | Verify role assignment to ACA managed identity on APIM API service principal |
+| `401` only from ACA path but local test succeeds | Wrong ACA principal or missing role assignment | Confirm `identity.principalId` on ACA matches assigned principal |
+| `401` with signature or issuer validation issues | Issuer mismatch in policy | Compare token `iss` to policy `<issuers>` entries |
+| Role removed but calls still succeed | Old token still valid | Wait for token expiry, then retest with a new token |
 
 ## Related docs
 
