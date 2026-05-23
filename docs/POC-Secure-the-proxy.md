@@ -57,6 +57,9 @@ export CONTAINER_APP_NAME="<your-app-name>"  # your Container App name
 export RG="<your-resource-group>"            # your resource group
 ```
 
+> [!NOTE]
+> In Windows/WSL environments, sanitize `-o tsv` outputs with `tr -d '\r\n'` before reusing values in later CLI calls.
+
 ### Step 2 — Create the Entra App Registration and enable EasyAuth
 
 Save the generated `APP_ID` and `CLIENT_SECRET` variables for troubleshooting.
@@ -64,15 +67,41 @@ Save the generated `APP_ID` and `CLIENT_SECRET` variables for troubleshooting.
 ```bash
 
 # Lookup 
-export TENANT_ID="$(az account show --query tenantId -o tsv)"
-export APP_FQDN="https://$(az containerapp show --name "$CONTAINER_APP_NAME" --resource-group "$RG" --query properties.configuration.ingress.fqdn -o tsv)"
+export TENANT_ID="$(az account show --query tenantId -o tsv | tr -d '\r\n')"
+export APP_FQDN="https://$(az containerapp show --name "$CONTAINER_APP_NAME" --resource-group "$RG" --query properties.configuration.ingress.fqdn -o tsv | tr -d '\r\n')"
 export HEALTH_URL="$APP_FQDN/health"
 
 export APP_ID=$(az ad app create \
   --display-name "$ENTRA_APP_NAME" \
   --sign-in-audience AzureADMyOrg \
-  --query appId -o tsv)
+  --query appId -o tsv | tr -d '\r\n')
 echo "APP_ID=$APP_ID"
+
+# Required so az token requests to api://$APP_ID can resolve the resource principal.
+az ad app update --id "$APP_ID" --identifier-uris "api://$APP_ID"
+
+# Create service principal
+az ad sp create --id "$APP_ID" 1>/dev/null
+
+# Create delegated scope required by Step 2a consent flow: api.access
+if [ -z "$APP_ID" ]; then
+  echo "APP_ID is empty. Re-run Step 2 app creation or app lookup first."
+  exit 1
+fi
+
+SCOPE_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+API_OBJ="$(az ad app show --id "$APP_ID" --query api -o json)"
+UPDATED_API_OBJ="$(echo "$API_OBJ" | jq --arg id "$SCOPE_ID" '.oauth2PermissionScopes = [{
+  adminConsentDescription: "Access the API",
+  adminConsentDisplayName: "Admin Access",
+  id: $id,
+  isEnabled: true,
+  type: "Admin",
+  userConsentDescription: "Access the API",
+  userConsentDisplayName: "User Access",
+  value: "api.access"
+}]')"
+az ad app update --id "$APP_ID" --set api="$UPDATED_API_OBJ"
 
 # Enable ID token issuance
 az ad app update --id "$APP_ID" --enable-id-token-issuance true
@@ -82,11 +111,9 @@ export CLIENT_SECRET=$(az ad app credential reset \
   --id "$APP_ID" \
   --display-name "proxy-auth-secret" \
   --end-date "$(date -d '+30 days' '+%Y-%m-%d')" \
-  --query password -o tsv)
+  --query password -o tsv | tr -d '\r\n')
 echo "CLIENT_SECRET=$CLIENT_SECRET"
 
-# Create service principal
-az ad sp create --id "$APP_ID" 1>/dev/null
 
 # Enable EazyAuth
 az containerapp auth microsoft update \
@@ -96,21 +123,81 @@ az containerapp auth microsoft update \
   --client-secret "$CLIENT_SECRET" \
   --tenant-id "$TENANT_ID" \
   --yes
+
+# Verify identifier URI is set correctly.
+az ad app show --id "$APP_ID" --query "{appId:appId,identifierUris:identifierUris,scopes:api.oauth2PermissionScopes[].value}" -o table
 ```
+
+### Step 2a — Grant admin consent for token acquisition (fix for `AADSTS65001`)
+
+If `az account get-access-token --resource "api://$APP_ID"` fails with `consent_required`, grant consent to a dedicated client app instead of broad tenant-wide grants.
+
+> [!NOTE]
+> App IDs are identifiers, not secrets. Keep secrets in secure stores; avoid printing or committing secret values.
+
+Preferred (least privilege): grant consent to a named client app only.
+
+```bash
+CLIENT_APP_NAME="aca-proxy-client"   # your caller app registration
+CLIENT_APP_ID="$(az ad app list --display-name "$CLIENT_APP_NAME" --query "[0].appId" -o tsv | tr -d '\r\n')"
+SCOPE_ID="$(az ad app show --id "$APP_ID" --query "api.oauth2PermissionScopes[?value=='api.access'].id | [0]" -o tsv | tr -d '\r\n')"
+
+if [ -z "$CLIENT_APP_ID" ] || [ -z "$SCOPE_ID" ]; then
+  echo "Missing CLIENT_APP_ID or api.access scope. Verify app registrations first."
+  exit 1
+fi
+
+# Add delegated permission and grant admin consent for this specific client app.
+az ad app permission add \
+  --id "$CLIENT_APP_ID" \
+  --api "$APP_ID" \
+  --api-permissions "${SCOPE_ID}=Scope"
+
+az ad app permission admin-consent --id "$CLIENT_APP_ID"
+```
+
+Optional shortcut for local `az account get-access-token` testing:
+
+```bash
+az logout
+az login --tenant "$TENANT_ID" --scope "api://$APP_ID/.default"
+```
+
+> [!WARNING]
+> Admin consent requires Entra admin privileges.
 
 ### Step 3 — Verify Container App
 
-Run the verify command to ensure that both auth and the identity provider were registered. 
+Run these checks to ensure auth is enabled and the Microsoft identity provider is registered.
 
 ```bash
-az containerapp auth show \
+ENABLED="$(az containerapp auth show \
   --name "$CONTAINER_APP_NAME" \
   --resource-group "$RG" \
-  --query "{enabled:platform.enabled, provider:identityProviders.azureActiveDirectory.enabled}" \
-  -o table
+  --query "platform.enabled" -o tsv | tr -d '\r\n')"
+
+AAD_CLIENT_ID="$(az containerapp auth show \
+  --name "$CONTAINER_APP_NAME" \
+  --resource-group "$RG" \
+  --query "identityProviders.azureActiveDirectory.registration.clientId" -o tsv | tr -d '\r\n')"
+
+AUDIENCE="$(az containerapp auth show \
+  --name "$CONTAINER_APP_NAME" \
+  --resource-group "$RG" \
+  --query "identityProviders.azureActiveDirectory.validation.allowedAudiences[0]" -o tsv | tr -d '\r\n')"
+
+echo "enabled=$ENABLED"
+echo "aad_client_id=$AAD_CLIENT_ID"
+echo "allowed_audience=$AUDIENCE"
 ```
 
-Both columns must show `True`. If either shows `False` or `identityProviders` is empty, re-run the `auth microsoft update` command above — do not continue to Step 4.
+Expected:
+
+- enabled=true
+- aad_client_id=<guid>
+- allowed_audience=api://<same-guid-or-intended-api-uri>
+
+If `aad_client_id` or `allowed_audience` is empty, or `enabled` is not `true`, re-run the auth microsoft update command above and do not continue to Step 4.
 
 ### Step 4 — Set the Unauthenticated Action
 
@@ -133,7 +220,7 @@ curl -i "$HEALTH_URL"
 # 2. Acquire a token scoped to the proxy's app registration
 TOKEN=$(az account get-access-token \
   --resource "api://$APP_ID" \
-  --query accessToken -o tsv)
+  --query accessToken -o tsv | tr -d '\r\n')
 
 # 3. Call with token — expect 200
 curl -i "$HEALTH_URL" \
@@ -142,7 +229,7 @@ curl -i "$HEALTH_URL" \
 # Wrong audience (valid Azure token, wrong resource) — expect 401
 # Uses the Azure management API as the resource to produce a real Entra-signed token
 # whose 'aud' claim does not match api://$APP_ID — EasyAuth will reject it due to the mismatch.
-BAD_TOKEN=$(az account get-access-token --resource "https://management.azure.com/" --query accessToken -o tsv)
+BAD_TOKEN=$(az account get-access-token --resource "https://management.azure.com/" --query accessToken -o tsv | tr -d '\r\n')
 curl -i "$HEALTH_URL" -H "Authorization: Bearer $BAD_TOKEN"
 
 ```
@@ -176,5 +263,6 @@ az containerapp auth update \
 | Authentication fails with `AADSTS50019` or similar | ID token issuance not enabled | `az ad app update --id $APP_ID --enable-id-token-issuance true` |
 | `401` despite a valid Entra token | Auth not fully enabled or provider missing | `az containerapp auth show -n <name> -g <rg>` — confirm `"enabled": true` and provider is configured |
 | Client secret rejected at authentication | Secret expired or rotated | `az ad app credential reset --id $APP_ID --display-name "proxy-auth-secret"` then re-run Step 2 |
+| `AADSTS65001 consent_required` when requesting token | Delegated consent not granted for client -> API scope | Run Step 2a to grant consent, then retry token request |
 
 
