@@ -83,7 +83,7 @@ az ad app update --id "$APP_ID" --identifier-uris "api://$APP_ID"
 # Create service principal
 az ad sp create --id "$APP_ID" 1>/dev/null
 
-# Create delegated scope required by Step 2a consent flow: api.access
+# Create delegated scope
 if [ -z "$APP_ID" ]; then
   echo "APP_ID is empty. Re-run Step 2 app creation or app lookup first."
   exit 1
@@ -112,7 +112,8 @@ export CLIENT_SECRET=$(az ad app credential reset \
   --display-name "proxy-auth-secret" \
   --end-date "$(date -d '+30 days' '+%Y-%m-%d')" \
   --query password -o tsv | tr -d '\r\n')
-echo "CLIENT_SECRET=$CLIENT_SECRET"
+
+# Do not print or commit secret values. Keep them in memory only.
 
 
 # Enable EazyAuth
@@ -126,45 +127,17 @@ az containerapp auth microsoft update \
 
 # Verify identifier URI is set correctly.
 az ad app show --id "$APP_ID" --query "{appId:appId,identifierUris:identifierUris,scopes:api.oauth2PermissionScopes[].value}" -o table
-```
 
-### Step 2a — Grant admin consent for token acquisition (fix for `AADSTS65001`)
-
-If `az account get-access-token --resource "api://$APP_ID"` fails with `consent_required`, grant consent to a dedicated client app instead of broad tenant-wide grants.
-
-> [!NOTE]
-> App IDs are identifiers, not secrets. Keep secrets in secure stores; avoid printing or committing secret values.
-
-Preferred (least privilege): grant consent to a named client app only.
-
-```bash
-CLIENT_APP_NAME="aca-proxy-client"   # your caller app registration
-CLIENT_APP_ID="$(az ad app list --display-name "$CLIENT_APP_NAME" --query "[0].appId" -o tsv | tr -d '\r\n')"
-SCOPE_ID="$(az ad app show --id "$APP_ID" --query "api.oauth2PermissionScopes[?value=='api.access'].id | [0]" -o tsv | tr -d '\r\n')"
-
-if [ -z "$CLIENT_APP_ID" ] || [ -z "$SCOPE_ID" ]; then
-  echo "Missing CLIENT_APP_ID or api.access scope. Verify app registrations first."
-  exit 1
-fi
-
-# Add delegated permission and grant admin consent for this specific client app.
-az ad app permission add \
-  --id "$CLIENT_APP_ID" \
-  --api "$APP_ID" \
-  --api-permissions "${SCOPE_ID}=Scope"
-
-az ad app permission admin-consent --id "$CLIENT_APP_ID"
-```
-
-Optional shortcut for local `az account get-access-token` testing:
-
-```bash
-az logout
-az login --tenant "$TENANT_ID" --scope "api://$APP_ID/.default"
+# Optional hygiene: clear secret from shell after auth configuration is complete.
+# unset CLIENT_SECRET
 ```
 
 > [!WARNING]
-> Admin consent requires Entra admin privileges.
+> You may need to grant admin consent in the Azure portal before token acquisition works.
+> If `az account get-access-token --resource "api://$APP_ID"` returns `AADSTS65001` (`consent_required`), ask a tenant admin to grant consent for your client app/API scope in Entra ID:
+> **App registrations** -> your client app -> **API permissions** -> **Grant admin consent**.
+>
+> For better secret hygiene, avoid sharing terminal output that includes auth commands and never paste secret values into tickets, PR comments, or chat logs.
 
 ### Step 3 — Verify Container App
 
@@ -237,6 +210,9 @@ curl -i "$HEALTH_URL" -H "Authorization: Bearer $BAD_TOKEN"
 ## Remove
 
 Use this to temporarily disable auth — for example, to isolate whether a problem is in EasyAuth or in the proxy itself.
+
+> [!WARNING]
+> Disabling auth exposes the app endpoint to unauthenticated traffic. Use this only for short-lived troubleshooting in non-production environments, and re-enable auth immediately after validation.
 
 ```bash
 az containerapp auth update \
