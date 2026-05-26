@@ -87,3 +87,71 @@ If the file doesn't exist, create it and document any important lessons learned 
 - When a change requires modifications outside the immediate scope of what was requested, ask first.
 - When the user says "undo", revert ALL changes from the last action, not just some.
 
+
+## definition of a gold standard document:
+ - A POC doc is complete when: A new user can run it in <5 minutes , Behavior is visible and verifiable, No section requires rereading to understand
+ - The reader can explain:what happened, why it happened, how to reproduce it
+
+## when writing POCs'
+POC docs must prioritize runnable usability over completeness; use direct engineer-to-engineer tone; no marketing language; always include TLDR with <5 min steps and expected outcome; include “what you will observe” as pure behavior bullets; separate sections strictly into setup (minimal prereqs), run (exact commands), verify (checklist mapping signals→meaning), deep dive (step-by-step execution flow), optional variants, and troubleshooting; prefer bullets over prose; avoid repetition and narrative phrasing; every config section must start with “what matters” and highlight only critical knobs (timeout, retry, backend behavior); always define observable signals (headers/logs/state changes) and map them explicitly; include execution cycles (cycle 1 fail, cycle 2 retry, final result); include mental model as simple state machine (select→fail→throttle→retry→recover); include minimal flow diagram (client→proxy→backend A fail→backend B success); verification must be checklist not table; troubleshooting must map symptom→cause→check; all claims must be reproducible and observable; avoid vague phrasing; front-load value in first 30%; reader must be able to run, see, and explain behavior without reading entire document
+
+## When generating a Reference Document, enforce the following rules:
+1. Purpose:
+- Produce the authoritative, canonical, single source of truth for the topic.
+- Output must be complete, deterministic, and audit‑ready.
+2. Language Rules:
+- Use mandatory language: MUST, REQUIRED, MANDATORY, SHALL.
+- Avoid ambiguity: do not use should, could, might, typically, generally.
+- Use exact values, configurations, constraints, and specifications.
+- No conversational tone. No filler. No speculation.
+3. Required Document Structure (always in this order):
+A. Document Metadata (Title, Version, Last Updated, Owner, Review Cycle, Compliance Tags)
+B. Summary (what this defines, why it exists, who must follow it)
+C. Scope & Applicability (in-scope, out-of-scope, dependencies)
+D. Authoritative Specification (architecture, configurations, patterns, constraints, SLAs/SLOs, security requirements)
+E. Reference Implementation (canonical diagrams, workflows, configuration blocks, API contracts)
+F. Validation & Compliance (required tests, checks, evidence, audit artifacts)
+G. Version History (changes, rationale, approvers)
+4. Behavioral Rules:
+- Never invent facts. Request missing parameters before finalizing.
+- Ensure internal consistency across all sections.
+- All examples must be canonical, valid, and copy‑paste‑ready.
+- All diagrams, tables, and configs must be deterministic and aligned with the specification.
+- No placeholders unless explicitly allowed by the user.
+- No contradictions across sections.
+5. Output Requirements:
+- Produce a fully structured, complete document.
+- Enforce strict formatting and section order.
+- Ensure the document is suitable for governance, compliance, and long‑term reference.
+
+## When generating an Overview Document, enforce the following rules:
+1. Purpose:
+- Provide a high‑clarity, high‑signal summary of a system, solution, or domain.
+- Communicate essential concepts, architecture, flows, and rationale without deep implementation detail.
+- Serve as the onboarding and orientation artifact for new readers.
+2. Language Rules:
+- Use concise, precise, high‑signal language.
+- Avoid ambiguity, filler, marketing language, or conversational tone.
+- Use factual, neutral, technically accurate statements.
+- Avoid mandatory language unless describing non‑negotiable constraints.
+3. Required Document Structure (always in this order):
+A. Document Metadata (Title, Version, Last Updated, Owner)
+B. Overview Summary (what the system is, what problem it solves, why it exists)
+C. Key Objectives (primary goals, outcomes, and value)
+D. High‑Level Architecture (major components, interactions, boundaries)
+E. Core Concepts (definitions, domain terms, key abstractions)
+F. High‑Level Workflows (end‑to‑end flows, sequence summaries)
+G. Key Constraints & Assumptions (technical, operational, business)
+H. Integration Points (external systems, APIs, dependencies)
+I. Non‑Goals (what is intentionally excluded)
+J. Future Considerations (roadmap‑level items only)
+4. Behavioral Rules:
+- Never invent facts. Request missing parameters before finalizing.
+- Ensure internal consistency across all sections.
+- Keep all diagrams and workflows high‑level; no implementation detail.
+- Do not include configuration, SLAs, or compliance details unless explicitly requested.
+- No placeholders unless explicitly allowed by the user.
+5. Output Requirements:
+- Produce a complete, structured overview document.
+- Maintain strict section order and formatting.
+- Ensure the document is suitable for onboarding, orientation, and executive‑level understanding.
