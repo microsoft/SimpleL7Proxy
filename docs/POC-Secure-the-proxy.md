@@ -4,20 +4,19 @@
 
 ## TL;DR (< 5 minutes)
 
-1. Register an Entra app, create a client secret, and enable ID token issuance.
-2. Enable EasyAuth on the Container App and set the unauthenticated action to `Return401`.
-3. Acquire a bearer token scoped to `api://<APP_ID>` and include it in the `Authorization: Bearer` header.
+1. Run the `secureProxy.sh` script to configure EasyAuth in ACA and enable authentication.
+2. Call the proxy with a bearer token from a trusted client — everything else is denied.
 
-**Expected outcome:** `curl` without a token → `401`. `curl` with a valid token → request reaches the proxy and returns `200`.
+**Expected outcome:** Only authenticated, authorized callers can reach the proxy.
 
-> EasyAuth rejects any request without a valid Entra token before it reaches the proxy.
+> EasyAuth offloads authentication from the proxy and only accepts authorized requests.
 
 ## What you will observe
 
-- `curl https://<proxy>/` with no `Authorization` header → `401 Unauthorized`; the proxy never processes the request.
-- `curl` with a token for the wrong audience → `401`.
-- `curl` with a valid bearer token scoped to `api://<APP_ID>` → request reaches the proxy, proxy returns its normal response.
-- The proxy receives no unauthenticated traffic at any point.
+- Requests without a valid Entra token are rejected before the proxy sees them.
+- Requests with a token from a trusted client reach the proxy and get its normal response.
+- Requests with a token from any other source — wrong audience, untrusted client, expired — are rejected.
+- The proxy receives no unauthenticated or unauthorized traffic at any point.
 
 ## Flow
 
@@ -27,16 +26,19 @@ API client / service
    │  Authorization: Bearer <token>
    ▼
 ACA EasyAuth sidecar
-   ├─ No token        ──► 401
-   ├─ Wrong audience  ──► 401
-   └─ Valid token
+   ├─ No token              ──► 401
+   ├─ Wrong audience        ──► 403
+   ├─ Untrusted client app  ──► 403
+   └─ Valid token from trusted client
         ▼
    SimpleL7Proxy
    (receives only authenticated requests)
 ```
 
 > [!NOTE]
-> EasyAuth runs as a platform sidecar managed by Azure Container Apps and only forwards validated requests.
+> EasyAuth is enforced by the Container Apps platform and intercepts all traffic.
+>
+> This POC uses Entra ID only. EasyAuth also supports other providers (GitHub, Google, custom OpenID Connect), token refresh, per-route exclusions, and forwarding signed claims — out of scope here.
 
 ## Setup
 
@@ -47,144 +49,46 @@ ACA EasyAuth sidecar
 - Container App deployed (the proxy)
 - Tenant ID: `az account show --query tenantId -o tsv`
 
-### Step 1 — Set Variables
+### Run `secureProxy.sh` in ACA mode
 
-Set `APP_NAME`, `CONTAINER_APP_NAME`, `RG` to match your environment.
+> [!NOTE] OAuth 2.0 in Azure requires a client that has been granted a permission on an app registration representing the resource, and a validator configured to accept tokens for that app registration. Each client that calls the proxy will need to be granted that permission before its tokens will be accepted.
+
+In this POC the client is the Azure CLI, our validator is built into the ACA, and the permission on the proxy's app registration is a delegated scope named `api.access`.
+
+To simplify this setup, the [`secureProxy.sh`](../deployment/POC/secureProxy.sh) script in `deployment/POC/` will do the work of configuring the ACA to do the validation.
+
+Arguments:
+
+1. `-a` — display name for the app registration (created if missing, reused if present).
+2. `-n` / `-g` — the Container App and its resource group.
 
 ```bash
-export ENTRA_APP_NAME="aca-proxy"                  # display name for the Entra app registration
-export CONTAINER_APP_NAME="<your-app-name>"  # your Container App name
-export RG="<your-resource-group>"            # your resource group
+./deployment/POC/secureProxy.sh \
+  -a aca-proxy \
+  -n <your-container-app-name> \
+  -g <your-resource-group>
 ```
+
+On success, you will see these values.
+
+Output:
+```bash
+export APP_ID="<guid>"
+export TENANT_ID="<tenant-guid>"
+export HEALTH_URL="https://<fqdn>/health"
+export CONTAINER_APP_NAME="<name>"
+export RG="<resource-group>"
+```
+
+Paste them into your shell, then continue to **Verify Access** below. Re-running with the same arguments is safe.
 
 > [!NOTE]
-> In Windows/WSL environments, sanitize `-o tsv` outputs with `tr -d '\r\n'` before reusing values in later CLI calls.
+> Creating the app registration requires `Application.ReadWrite.All` (or equivalent) in the tenant. If you don't have that, an admin can either run the script or pre-create the app — an existing app registration with a matching display name is reused.
 
-### Step 2 — Create the Entra App Registration and enable EasyAuth
-
-Save the generated `APP_ID` and `CLIENT_SECRET` variables for troubleshooting.
-
-```bash
-
-# Lookup 
-export TENANT_ID="$(az account show --query tenantId -o tsv | tr -d '\r\n')"
-export APP_FQDN="https://$(az containerapp show --name "$CONTAINER_APP_NAME" --resource-group "$RG" --query properties.configuration.ingress.fqdn -o tsv | tr -d '\r\n')"
-export HEALTH_URL="$APP_FQDN/health"
-
-export APP_ID=$(az ad app create \
-  --display-name "$ENTRA_APP_NAME" \
-  --sign-in-audience AzureADMyOrg \
-  --query appId -o tsv | tr -d '\r\n')
-echo "APP_ID=$APP_ID"
-
-# Required so az token requests to api://$APP_ID can resolve the resource principal.
-az ad app update --id "$APP_ID" --identifier-uris "api://$APP_ID"
-
-# Create service principal
-az ad sp create --id "$APP_ID" 1>/dev/null
-
-# Create delegated scope
-if [ -z "$APP_ID" ]; then
-  echo "APP_ID is empty. Re-run Step 2 app creation or app lookup first."
-  exit 1
-fi
-
-SCOPE_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
-API_OBJ="$(az ad app show --id "$APP_ID" --query api -o json)"
-UPDATED_API_OBJ="$(echo "$API_OBJ" | jq --arg id "$SCOPE_ID" '.oauth2PermissionScopes = [{
-  adminConsentDescription: "Access the API",
-  adminConsentDisplayName: "Admin Access",
-  id: $id,
-  isEnabled: true,
-  type: "Admin",
-  userConsentDescription: "Access the API",
-  userConsentDisplayName: "User Access",
-  value: "api.access"
-}]')"
-az ad app update --id "$APP_ID" --set api="$UPDATED_API_OBJ"
-
-# Enable ID token issuance
-az ad app update --id "$APP_ID" --enable-id-token-issuance true
-
-# Create client secret
-export CLIENT_SECRET=$(az ad app credential reset \
-  --id "$APP_ID" \
-  --display-name "proxy-auth-secret" \
-  --end-date "$(date -d '+30 days' '+%Y-%m-%d')" \
-  --query password -o tsv | tr -d '\r\n')
-
-# Do not print or commit secret values. Keep them in memory only.
-
-
-# Enable EazyAuth
-az containerapp auth microsoft update \
-  --name "$CONTAINER_APP_NAME" \
-  --resource-group "$RG" \
-  --client-id "$APP_ID" \
-  --client-secret "$CLIENT_SECRET" \
-  --tenant-id "$TENANT_ID" \
-  --yes
-
-# Verify identifier URI is set correctly.
-az ad app show --id "$APP_ID" --query "{appId:appId,identifierUris:identifierUris,scopes:api.oauth2PermissionScopes[].value}" -o table
-
-# Optional hygiene: clear secret from shell after auth configuration is complete.
-# unset CLIENT_SECRET
-```
-
-> [!WARNING]
-> You may need to grant admin consent in the Azure portal before token acquisition works.
-> If `az account get-access-token --resource "api://$APP_ID"` returns `AADSTS65001` (`consent_required`), ask a tenant admin to grant consent for your client app/API scope in Entra ID:
-> **App registrations** -> your client app -> **API permissions** -> **Grant admin consent**.
->
-> For better secret hygiene, avoid sharing terminal output that includes auth commands and never paste secret values into tickets, PR comments, or chat logs.
-
-### Step 3 — Verify Container App
-
-Run these checks to ensure auth is enabled and the Microsoft identity provider is registered.
-
-```bash
-ENABLED="$(az containerapp auth show \
-  --name "$CONTAINER_APP_NAME" \
-  --resource-group "$RG" \
-  --query "platform.enabled" -o tsv | tr -d '\r\n')"
-
-AAD_CLIENT_ID="$(az containerapp auth show \
-  --name "$CONTAINER_APP_NAME" \
-  --resource-group "$RG" \
-  --query "identityProviders.azureActiveDirectory.registration.clientId" -o tsv | tr -d '\r\n')"
-
-AUDIENCE="$(az containerapp auth show \
-  --name "$CONTAINER_APP_NAME" \
-  --resource-group "$RG" \
-  --query "identityProviders.azureActiveDirectory.validation.allowedAudiences[0]" -o tsv | tr -d '\r\n')"
-
-echo "enabled=$ENABLED"
-echo "aad_client_id=$AAD_CLIENT_ID"
-echo "allowed_audience=$AUDIENCE"
-```
-
-Expected:
-
-- enabled=true
-- aad_client_id=<guid>
-- allowed_audience=api://<same-guid-or-intended-api-uri>
-
-If `aad_client_id` or `allowed_audience` is empty, or `enabled` is not `true`, re-run the auth microsoft update command above and do not continue to Step 4.
-
-### Step 4 — Set the Unauthenticated Action
-
-Rejects unauthenticated requests outright — callers get a `401` with no redirect.
-
-```bash
-az containerapp auth update \
-  --name "$CONTAINER_APP_NAME" \
-  --resource-group "$RG" \
-  --enabled true \
-  --unauthenticated-client-action Return401
-```
 
 ## Verify Access
+
+Run four requests and check the codes:
 
 ```bash
 # 1. No token — expect 401
@@ -195,17 +99,20 @@ TOKEN=$(az account get-access-token \
   --resource "api://$APP_ID" \
   --query accessToken -o tsv | tr -d '\r\n')
 
+
 # 3. Call with token — expect 200
 curl -i "$HEALTH_URL" \
   -H "Authorization: Bearer $TOKEN"
 
-# Wrong audience (valid Azure token, wrong resource) — expect 401
-# Uses the Azure management API as the resource to produce a real Entra-signed token
-# whose 'aud' claim does not match api://$APP_ID — EasyAuth will reject it due to the mismatch.
+# 4. Wrong audience (valid Azure token for a different resource) — expect 403
 BAD_TOKEN=$(az account get-access-token --resource "https://management.azure.com/" --query accessToken -o tsv | tr -d '\r\n')
 curl -i "$HEALTH_URL" -H "Authorization: Bearer $BAD_TOKEN"
-
 ```
+
+If you saw `401`, `200`, `403` in that order, the proxy is secured.
+
+> [!NOTE]
+> Skipped the script and set things up by hand? Pre-authorize Azure CLI (well-known client ID `04b07795-8ddb-461a-bbee-02f9e1bf7b46`) on the API app's `api.access` scope, or step 2 fails with `AADSTS650057: Invalid resource`.
 
 ## Remove
 
@@ -232,13 +139,14 @@ az containerapp auth update \
 
 ## Troubleshooting
 
-| Symptom | Cause | Check |
+| Symptom | Cause | Fix |
 | :--- | :--- | :--- |
-| `401` on all requests including valid tokens | Wrong token audience | Decode at [jwt.ms](https://jwt.ms); `aud` claim must be `api://<APP_ID>` |
-| `503` on all traffic after Step 3 | Auth enabled but no identity provider registered | `az containerapp auth show -n <name> -g <rg> --query identityProviders` — if empty, re-run Step 3. To restore immediately: `az containerapp auth update -n <name> -g <rg> --enabled false` |
-| Authentication fails with `AADSTS50019` or similar | ID token issuance not enabled | `az ad app update --id $APP_ID --enable-id-token-issuance true` |
-| `401` despite a valid Entra token | Auth not fully enabled or provider missing | `az containerapp auth show -n <name> -g <rg>` — confirm `"enabled": true` and provider is configured |
-| Client secret rejected at authentication | Secret expired or rotated | `az ad app credential reset --id $APP_ID --display-name "proxy-auth-secret"` then re-run Step 2 |
-| `AADSTS65001 consent_required` when requesting token | Delegated consent not granted for client -> API scope | Run Step 2a to grant consent, then retry token request |
+| `403` with valid token; logs show `"does not match any of the allowed applications"` | The client's `appId` (token `azp` claim) is not in `defaultAuthorizationPolicy.allowedApplications` | Add it: `./secureProxy.sh -a <name> -z <client-appId> -n $CONTAINER_APP_NAME -g $RG` |
+| `403` with valid token; logs show `aud` does not match | Token `aud` is `api://<GUID>` (v1) but `allowedAudiences` is the bare GUID (v2) — or vice versa | Re-run `secureProxy.sh` (it forces v2 tokens with the bare-GUID audience). Decode the token at [jwt.ms](https://jwt.ms) to confirm `aud` |
+| `403` with valid token immediately after a config change | EasyAuth's per-principal deny cache (~60s) | Wait ~60 seconds or acquire a fresh token, then retry |
+| `503` on all traffic after enabling auth | Auth enabled but no identity provider registered | `az containerapp auth show -n $CONTAINER_APP_NAME -g $RG --query identityProviders` — if empty, re-run `secureProxy.sh`. To restore service immediately: `az containerapp auth update -n $CONTAINER_APP_NAME -g $RG --enabled false` |
+| `401` despite a valid Entra token | Auth platform not enabled, or no provider configured | `az containerapp auth show -n $CONTAINER_APP_NAME -g $RG` — confirm `platform.enabled=true` and `identityProviders.azureActiveDirectory` is populated |
+| Client secret rejected at authentication | Secret expired or rotated | Re-run `secureProxy.sh` — it mints a new 30-day secret and writes it to EasyAuth |
+| `AADSTS65001 consent_required` when requesting token | Calling client is not pre-authorized on the `api.access` scope | `./secureProxy.sh -a <name> -z <client-appId>` — or in the portal: **API app → Expose an API → Authorized client applications → Add**, paste the client's `appId`, check `api.access` |
 
 
