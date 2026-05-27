@@ -496,7 +496,7 @@ public static class ConfigFactory
     {
         try
         {
-            var hostConfig = new HostConfig(entry.Hostname, entry.ProbePath, entry.Ip, backendOptions.OAuthAudience);
+            var hostConfig = new HostConfig(entry.Hostname, entry.ProbePath, entry.Ip);//, backendOptions.OAuthAudience);
             hostCollection?.StageHost(hostConfig);
             hostsFileContent.AppendLine($"{entry.Ip} {hostConfig.Host}");
         }

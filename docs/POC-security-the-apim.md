@@ -71,7 +71,7 @@ Capture the managed identity's object ID:
 ```bash
 CA_PRINCIPAL_ID=$(az containerapp show \
   -g "$RG" -n "$CA_NAME" \
-  --query "identity.principalId" -o tsv)
+  --query "identity.principalId" -o tsv | tr -d '\r\n')
 echo "CA_PRINCIPAL_ID=$CA_PRINCIPAL_ID"
 ```
 
@@ -83,7 +83,7 @@ echo "CA_PRINCIPAL_ID=$CA_PRINCIPAL_ID"
 APP_NAME="apim-protected-api-poc"
 
 # 1. Create the app registration
-APP_ID=$(az ad app create --display-name "$APP_NAME" --query "appId" -o tsv)
+APP_ID=$(az ad app create --display-name "$APP_NAME" --query "appId" -o tsv | tr -d '\r\n')
 echo "APP_ID=$APP_ID"
 
 # 2. Create the service principal
@@ -93,7 +93,7 @@ az ad sp create --id "$APP_ID" 1>/dev/null
 az ad app update --id "$APP_ID" --identifier-uris "api://$APP_ID"
 
 # 4. Add an app role
-ROLE_ID=$(python3 -c "import uuid; print(uuid.uuid4())")
+ROLE_ID=$(python3 -c "import uuid; print(uuid.uuid4())" | tr -d '\r\n')
 az ad app update --id "$APP_ID" --app-roles "[
   {
     \"allowedMemberTypes\": [\"User\", \"Application\"],
@@ -110,6 +110,9 @@ az ad app update --id "$APP_ID" --app-roles "[
 az ad sp update --id "$APP_ID" --set appRoleAssignmentRequired=true
 ```
 
+> [!WARNING]
+> `az ad app update --app-roles` replaces the app's full role list. If the app already has roles, merge them first instead of applying this single-role JSON as-is.
+
 > [!NOTE]
 > For delegated user access (OAuth2 scopes), add a scope via **App registrations → [API App] → Expose an API → Add a scope**. App roles alone are sufficient for this POC.
 
@@ -120,7 +123,7 @@ az ad sp update --id "$APP_ID" --set appRoleAssignmentRequired=true
 Get the service principal object ID of the protected API:
 
 ```bash
-API_SP_OBJECT_ID=$(az ad sp show --id "$APP_ID" --query "id" -o tsv)
+API_SP_OBJECT_ID=$(az ad sp show --id "$APP_ID" --query "id" -o tsv | tr -d '\r\n')
 echo "API_SP_OBJECT_ID=$API_SP_OBJECT_ID"
 ```
 
@@ -139,6 +142,23 @@ New-AzureADServiceAppRoleAssignment `
   -ResourceId  $ResourceObjectId `
   -Id          $AppRoleId
 ```
+
+Or assign the role from Bash using Microsoft Graph via `az rest`:
+
+```bash
+AssigneeObjectId=$(printf "%s" "$CA_PRINCIPAL_ID" | tr -d '\r\n')   # Managed Identity principalId
+ResourceObjectId=$(printf "%s" "$API_SP_OBJECT_ID" | tr -d '\r\n')  # Service principal objectId of the API app
+AppRoleId=$(printf "%s" "$ROLE_ID" | tr -d '\r\n')                  # App role GUID from Step 2
+
+az rest \
+  --method POST \
+  --url "https://graph.microsoft.com/v1.0/servicePrincipals/${AssigneeObjectId}/appRoleAssignments" \
+  --headers "Content-Type=application/json" \
+  --body "{\"principalId\":\"${AssigneeObjectId}\",\"resourceId\":\"${ResourceObjectId}\",\"appRoleId\":\"${AppRoleId}\"}"
+```
+
+> [!NOTE]
+> Graph role assignment via `az rest` requires directory permissions. If this call fails with authorization errors, run it as a tenant admin or use the Azure portal assignment flow.
 
 > [!TIP]
 > You can also assign the role via the Azure portal: **Enterprise Applications → [API App] → Users and groups → Add assignment**.
@@ -193,6 +213,18 @@ curl -i "$APIM_URL" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
+> [!NOTE]
+> `az account get-access-token` uses your current Azure CLI identity (user or service principal), not the Container App managed identity.
+> For this call to return `200`, the identity used by `az login` must also be assigned the `API.Caller` app role.
+> If you want to validate the exact managed identity path instead, run from inside the Container App:
+>
+> ```bash
+> az containerapp exec -g "$RG" -n "$CA_NAME" --command "sh -lc '
+> TOKEN=\$(curl -s \"\$IDENTITY_ENDPOINT?resource=api://$APP_ID&api-version=2019-08-01\" -H \"X-IDENTITY-HEADER: \$IDENTITY_HEADER\" | jq -r .access_token)
+> curl -i \"$APIM_URL\" -H \"Authorization: Bearer \$TOKEN\"
+> '"
+> ```
+
 > [!TIP]
 > Paste the token into [jwt.io](https://jwt.io) and confirm `aud = api://<APP_ID>` and `roles` contains `"API.Caller"`.
 
@@ -227,7 +259,10 @@ Run each check in order. All five must pass.
 - [ ] Decode the `200` token at [jwt.io](https://jwt.io) and confirm: `aud = api://<APP_ID>`, `iss = https://sts.windows.net/<TENANT_ID>/`, `roles` array contains `"API.Caller"`
 
 > [!TIP]
-> `az account get-access-token --resource "api://$APP_ID" --query accessToken -o tsv | pbcopy` puts the token straight on the clipboard for jwt.io.
+> Copy token to clipboard by platform:
+> - macOS: `az account get-access-token --resource "api://$APP_ID" --query accessToken -o tsv | pbcopy`
+> - Linux/WSL: `az account get-access-token --resource "api://$APP_ID" --query accessToken -o tsv | xclip -selection clipboard`
+> - Windows PowerShell: `az account get-access-token --resource "api://$APP_ID" --query accessToken -o tsv | Set-Clipboard`
 
 ## Troubleshooting
 
@@ -238,6 +273,7 @@ Run each check in order. All five must pass.
 | `401` from Container App but `200` from `az` CLI | MI not assigned the role | Check `CA_PRINCIPAL_ID` matches the MI object ID: `az containerapp show -g $RG -n $CA_NAME --query "identity.principalId"` |
 | `401` with `"IDX10511: Signature validation failed"` | Issuer URL mismatch | APIM policy `<issuer>` must match the `iss` claim exactly — copy from jwt.io decode |
 | Role assignment succeeds but token still lacks `roles` | `appRoleAssignmentRequired` not set | Run `az ad sp update --id "$APP_ID" --set appRoleAssignmentRequired=true` |
+| Role assignment call fails with Graph authorization error | Caller lacks Entra directory privileges | Use an admin account for `az rest` assignment or assign via portal Enterprise Applications UI |
 
 
 
