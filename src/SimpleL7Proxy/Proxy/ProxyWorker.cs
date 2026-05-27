@@ -923,17 +923,25 @@ public class ProxyWorker : IConfigChangeSubscriber
                 // else
                 requestAttempt.Uri = new Uri(modifiedPath);
 
-                if (host.Config.UseOAuth)
+
+                switch (host.Config.AuthMode)
                 {
-                    // Get a token
-                    var oaToken = await host.Config.OAuth2Token().ConfigureAwait(false);
-                    if (request.Debug)
-                    {
-                        _logger.LogDebug("OAuth Token retrieved for backend {BackendHost}", host.Host);
-                    }
-                    // Set the token in the headers
-                    request.Headers.Set("Authorization", $"Bearer {oaToken}");
+                    case AuthModeEnum.OAuth2:
+                        // Get a token
+                        var oaToken = await host.Config.OAuth2Token().ConfigureAwait(false);
+                        if (request.Debug)
+                        {
+                            _logger.LogDebug("OAuth Token retrieved for backend {BackendHost}", host.Host);
+                        }
+                        // Set the token in the headers
+                        request.Headers.Set("Authorization", $"Bearer {oaToken}");
+                        break;
+                    case AuthModeEnum.ApiKey:
+                        // Set the API key in the headers
+                        request.Headers.Set(host.Config.ApiKeyHeader, host.Config.ApiKey);
+                        break;
                 }
+
 
                 requestState = "Calc ExpiresAt";
 

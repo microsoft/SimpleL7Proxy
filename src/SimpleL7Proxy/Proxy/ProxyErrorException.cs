@@ -14,6 +14,7 @@ public class ProxyErrorException(ProxyErrorException.ErrorType type, HttpStatusC
         IncompleteHeaders,
         InvalidHeader,
         DisallowedAppID,
+        DisallowedKey,
         UnknownProfile,
         AsyncWorkerError,
         ContentTooLarge

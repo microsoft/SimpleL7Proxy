@@ -171,8 +171,12 @@ This document categorizes every SimpleL7Proxy configuration setting into three t
 ### OAuth / Security (Advanced)
 | Env Var | Property | Mode | Default | Purpose |
 |---------|----------|------|---------|---------|
-| `UseOAuth` | `UseOAuth` | Cold | `false` | Enable OAuth token validation |
-| `OAuthAudience` | `OAuthAudience` | Cold | `""` | Expected OAuth audience claim |
+| `OAuthAudience` | `OAuthAudience` | Cold | `""` | Legacy global OAuth audience. Prefer `audience=` in `HostN` connection strings. |
+| `ValidateAuthConfig` | `ValidateAuthConfig` | Warm | `enabled=false, mode=key, header=S7P-KEY` | Enable inbound key validation and set required request header |
+| `ValidateAuthKey1` | `ValidateAuthKey1` | Warm | `key1` | First allowed inbound key value |
+| `ValidateAuthKey2` | `ValidateAuthKey2` | Warm | `key2` | Second allowed inbound key value |
+
+Per-host auth should be configured in `HostN` connection strings using `useoauth` / `usemi`, `audience`, `api-key`, and `api-key-header`.
 
 ### Logging (Advanced)
 | Env Var | Property | Mode | Default | Purpose |

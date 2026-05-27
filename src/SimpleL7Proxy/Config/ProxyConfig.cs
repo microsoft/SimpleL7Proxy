@@ -75,6 +75,14 @@ public class ProxyConfig
     public string ValidateAuthAppIDHeader { get; set; } = "X-MS-CLIENT-PRINCIPAL-ID";
     [ConfigOption("Profiles:Auth:ValidateFieldName")]
     public string ValidateAuthAppFieldName { get; set; } = "authAppID";
+
+    [ConfigOption("Profiles:Auth:Config")]
+    public string ValidateAuthConfig { get; set; } = "enabled=false, mode=key, header=S7P-KEY";
+    [ConfigOption("Profiles:Auth:Key1")]
+    public string ValidateAuthKey1 { get; set; } = "key1";
+    [ConfigOption("Profiles:Auth:Key2")]
+    public string ValidateAuthKey2 { get; set; } = "key2";
+
     [ConfigOption("Profiles:SuspendedUser:ConfigUrl")]
     public string SuspendedUserConfigUrl { get; set; } = ""; // e.g. "file:suspended.json" or "http://configservice/suspended"
     [ConfigOption("Profiles:User:ConfigRequired")]
@@ -200,10 +208,10 @@ public class ProxyConfig
     // ── Security ──
     [ConfigOption("Security:IgnoreSSLCert", ConfigName = "IgnoreSSLCert", Mode = ConfigMode.Cold)]
     public bool IgnoreSSLCert { get; set; } = false;
-    [ConfigOption("Security:OAuthAudience", Mode = ConfigMode.Cold)]
-    public string OAuthAudience { get; set; } = "";
-    [ConfigOption("Security:UseOAuth", Mode = ConfigMode.Cold)]
-    public bool UseOAuth { get; set; } = false;
+    // [ConfigOption("Security:OAuthAudience", Mode = ConfigMode.Cold)]
+    // public string OAuthAudience { get; set; } = "";
+    // [ConfigOption("Security:UseOAuth", Mode = ConfigMode.Cold)]
+    // public bool UseOAuth { get; set; } = false;
 
     // ── Server ──
     [ConfigOption("Server:GC2InternalSecs", ConfigName = "GC2InternalSecs", Mode = ConfigMode.Cold)]
@@ -316,6 +324,8 @@ public class ProxyConfig
     public HttpClient? Client { get; set; }
     public bool HealthProbeSidecarEnabled { get; set; } = false;
     public string HealthProbeSidecarUrl { get; set; } = "http://localhost/9000";
+    public string ValidateAuthViaKeyHeader { get; set; } = "S7P-KEY";
+    public bool ValidateAuthViaKey { get; set; } = false;
     public List<HostConfig> Hosts { get; set; } = [];
     public Dictionary<int, int> PriorityWorkers { get; set; } = new() { { 2, 1 }, { 3, 1 } };
     public bool TrackWorkers { get; set; } = true;

@@ -3,6 +3,8 @@
 
 Proxy:
 * Add status checker
+* Add ability to validate requests via api-key
+* Add ability to call backend via api-key
 
 RequestAPI:
 * Add status checker

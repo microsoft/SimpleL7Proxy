@@ -113,6 +113,9 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
             options => options.DefaultPriority,
             options => options.ValidateAuthAppID,
             options => options.ValidateAuthAppIDHeader,
+            options => options.ValidateAuthConfig,
+            options => options.ValidateAuthKey1,
+            options => options.ValidateAuthKey2,
             options => options.DisallowedHeaders,
             options => options.RequiredHeaders,
             options => options.UniqueUserHeaders,
@@ -122,13 +125,13 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
             options => options.TTLHeader,
             options => options.MaxQueueLength,
             options => options.PollInterval
+            ]);
 
             // COLD OPTIONS (require restart, so not subscribed for live updates):
             // options => options.Port,  
             // options => options.UseProfiles,
             // options => options.IDStr,
             // options => options.CircuitBreakerTimeslice,   display only
-            ]);
 
         InitVars();
 
@@ -444,7 +447,6 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                             {
                                 rd.Debug = rd.Headers["S7PDEBUG"] != null && string.Equals(rd.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase);
 
-
                                 if (_options.ValidateAuthAppID)
                                 {
                                     string? authAppID = rd.Headers[_options.ValidateAuthAppIDHeader];
@@ -462,6 +464,30 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                             ProxyErrorException.ErrorType.DisallowedAppID,
                                             HttpStatusCode.Forbidden,
                                             "Invalid AuthAppID: " + rd.Headers[_options.ValidateAuthAppIDHeader] + "\n"
+                                        );
+                                    }
+                                }
+                                else if (_options.ValidateAuthViaKey)
+                                {
+                                    string? incomingKey = rd.Headers[_options.ValidateAuthViaKeyHeader];
+                                    bool isIncomingKeyValid =
+                                        !string.IsNullOrEmpty(incomingKey)
+                                        && (incomingKey == _options.ValidateAuthKey1 || incomingKey == _options.ValidateAuthKey2);
+
+                                    if (rd.Debug)
+                                    {
+                                        if (incomingKey == null)
+                                            _logger.LogInformation("Incoming key is null.");
+                                        else
+                                            _logger.LogInformation("Incoming key {IncomingKey} is {ValidationState}.", incomingKey, isIncomingKeyValid ? "valid" : "invalid");
+                                    }
+
+                                    if (!isIncomingKeyValid)
+                                    {
+                                        throw new ProxyErrorException(
+                                            ProxyErrorException.ErrorType.DisallowedKey,
+                                            HttpStatusCode.Forbidden,
+                                            "Invalid Incoming Key: " + incomingKey + "\n"
                                         );
                                     }
                                 }
@@ -650,7 +676,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                 // if (!string.IsNullOrEmpty(priorityKey) && _priorityKeys.Contains(priorityKey)) //lookup the priority
                                 // {
                                 //     var index = _options.PriorityKeys.IndexOf(priorityKey);
-                                //     if (index >= 0)delegating
+                                //     if (index >= 0)
                                 //     {
                                 //         priority = _options.PriorityValues[index];
                                 //     }

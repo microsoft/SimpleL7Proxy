@@ -94,6 +94,9 @@ For production deployments, the following variables MUST also be set:
 | **ValidateAuthAppID**           | bool | If true, enables validation of an application ID in the request for authentication. Entra has a limit of 13 application IDs, use this setting to make the check in the proxy code.                                                                  | false                                    |
 | **ValidateAuthAppIDHeader**     | string | Name of the header containing the App ID to validate.                                                                                                 | X-MS-CLIENT-PRINCIPAL-ID                 |
 | **ValidateAuthAppIDUrl**        | string | URL or file path to fetch the list of valid App IDs for authentication.                                                                               | file:auth.json                           |
+| **ValidateAuthConfig**          | string | Inbound auth validation config. Use `enabled=true, mode=key, header=<HeaderName>` to require an inbound key header and return 403 on mismatch.        | enabled=false, mode=key, header=S7P-KEY |
+| **ValidateAuthKey1**            | string | First accepted inbound key value when key mode is enabled.                                                                                            | key1                                     |
+| **ValidateAuthKey2**            | string | Second accepted inbound key value when key mode is enabled.                                                                                           | key2                                     |
 
 > [!TIP]
 > `ValidateAuthAppID` is designed for scenarios where Entra’s built-in app ID checking is insufficient (the Entra limit is 13 application IDs). When enabled, the proxy performs this check before the request enters the queue, preventing unauthorized apps from consuming queue capacity.
@@ -219,13 +222,12 @@ These variables connect SimpleL7Proxy to [Azure App Configuration](https://learn
 | **IP1, IP2, ...**             | string | IP addresses that map to corresponding Host entries if DNS is unavailable. Ignored if `ipaddress` is set in connection string. | None                                     |
 | **LoadBalanceMode**           | string | Load balancing strategy: 'latency', 'roundrobin', or 'random'.                                          | latency                                  |
 | **MaxAttempts**               | int | Maximum number of retry attempts for a request.                                                                   | 10                                       |
-| **OAuthAudience**             | string | The audience used for OAuth token requests, if **UseOAuth** is enabled.                                                                                                           | None                                     |
+| **OAuthAudience**             | string | Legacy global OAuth audience setting. Use per-host `audience=` in `Host1` connection strings for new deployments.                                                                                                           | None                                     |
 | **PollInterval**              | int | The interval (in milliseconds) at which SimpleL7Proxy polls the backend servers.                                  | 15000                                    |
 | **PollTimeout**               | int | The timeout (in milliseconds) for each server poll request.                                                       | 3000                                     |
 | **Probe_path1, Probe_path2, ...** | string | Path(s) to health check endpoints for each backend host. Ignored if `probe` is set in connection string.                         | echo/resource?param1=sample              |
 | **SuccessRate**               | int | The minimum success rate (percentage) a backend must maintain to stay active.                                    | 80                                       |
 | **Timeout**                   | int | Connection timeout (in milliseconds) for each backend request. If exceeded, SimpleL7Proxy tries the next available host. | 1200000 (20 mins)                        |
-| **UseOAuth**                  | bool | Enables or disables OAuth token fetching for outgoing requests.                                                  | false                                    |
 | **UseOAuthGov**               | bool | If true, uses the government cloud OAuth endpoint for token acquisition.                                         | false                                    |
 | **UseSharedIterators**        | bool | When true, requests to the same path share the same host iterator for fair round-robin distribution.             | true                                     |
 | **SharedIteratorTTLSeconds**  | int  | How long (in seconds) an unused shared iterator lives before cleanup.                                            | 60                                       |
@@ -233,7 +235,7 @@ These variables connect SimpleL7Proxy to [Azure App Configuration](https://learn
 | **MaxEvents**                 | int  | Maximum number of events the proxy can store in memory.                                                          | 100000                                   |
 
 > [!TIP]
-> The `Host1`–`Host9` connection string format (`host=…;probe=…;path=…`) MUST be used for all new deployments. The legacy per-variable format (`Probe_path1`, `IP1`) is deprecated — new per-host options (`path`, `mode`, `usemi`) are only available in the connection string format. See [BACKEND_HOSTS.md](BACKEND_HOSTS.md) for the complete key reference.
+> The `Host1`–`Host9` connection string format (`host=…;probe=…;path=…`) MUST be used for all new deployments. The legacy per-variable format (`Probe_path1`, `IP1`) is deprecated. Per-host auth must be configured in `HostN` using `useoauth`/`usemi`, `audience`, `api-key`, and `api-key-header`. See [BACKEND_HOSTS.md](BACKEND_HOSTS.md) for the complete key reference.
 
 ## User Profile Configuration
 
