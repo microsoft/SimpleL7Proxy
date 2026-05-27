@@ -43,7 +43,7 @@ public static class ConfigParser
         ("LookupHeaderName", "UserIDFieldName"),  // older field name, kept for backward compatibility
         ("MaxAttempts", "MaxAttempts"),
         ("MaxQueueLength", "MaxQueueLength"),
-        ("OAuthAudience", "OAuthAudience"),
+        // ("OAuthAudience", "OAuthAudience"),
         ("PollInterval", "PollInterval"),
         ("PollTimeout", "PollTimeout"),
         ("Port", "Port"),
@@ -64,7 +64,7 @@ public static class ConfigParser
         ("TimeoutHeader", "TimeoutHeader"),
         ("TTLHeader", "TTLHeader"),
         ("UniqueUserHeaders", "UniqueUserHeaders"),
-        ("UseOAuth", "UseOAuth"),
+        // ("UseOAuth", "UseOAuth"),
         ("UseOAuthGov", "UseOAuthGov"),
         ("UseProfiles", "UseProfiles"),
         ("UserConfigRefreshIntervalSecs", "UserConfigRefreshIntervalSecs"),
@@ -79,6 +79,9 @@ public static class ConfigParser
         ("ValidateAuthAppID", "ValidateAuthAppID"),
         ("ValidateAuthAppIDHeader", "ValidateAuthAppIDHeader"),
         ("ValidateAuthAppIDUrl", "ValidateAuthAppIDUrl"),
+        ("ValidateAuthConfig", "ValidateAuthConfig"),
+        ("ValidateAuthKey1", "ValidateAuthKey1"),
+        ("ValidateAuthKey2", "ValidateAuthKey2"),
         ("Workers", "Workers"),
         // ("StorageDbEnabled", "StorageDbEnabled"),
 
@@ -156,7 +159,10 @@ public static class ConfigParser
             nameof(ProxyConfig.LoadBalanceMode),
             nameof(ProxyConfig.PriorityKeys),
             nameof(ProxyConfig.PriorityValues),
-            nameof(ProxyConfig.ValidateHeaders));
+            nameof(ProxyConfig.ValidateHeaders),
+            nameof(ProxyConfig.ValidateAuthConfig),
+            nameof(ProxyConfig.ValidateAuthKey1),
+            nameof(ProxyConfig.ValidateAuthKey2));
 
         return opts;
     }
@@ -181,26 +187,36 @@ public static class ConfigParser
             changedProperties.Select(p => p.Name),
             StringComparer.OrdinalIgnoreCase);
 
-        if (changedPropertyNames.Contains(nameof(ProxyConfig.HealthProbeSidecar)))
+        bool shouldValidatePrioritySettings = false;
+
+        foreach (var changedPropertyName in changedPropertyNames)
         {
-            ParseHealthProbeSidecarSettings(backendOptions);
+            switch (changedPropertyName)
+            {
+                case nameof(ProxyConfig.HealthProbeSidecar):
+                    ParseHealthProbeSidecarSettings(backendOptions);
+                    break;
+                case nameof(ProxyConfig.LoadBalanceMode):
+                    ValidateLoadBalanceMode(backendOptions);
+                    break;
+                case nameof(ProxyConfig.PriorityKeys):
+                case nameof(ProxyConfig.PriorityValues):
+                    shouldValidatePrioritySettings = true;
+                    break;
+                case nameof(ProxyConfig.ValidateHeaders):
+                    ValidateHeaderSettings(backendOptions);
+                    break;
+                case nameof(ProxyConfig.ValidateAuthConfig):
+                    ValidateAuthSettings(backendOptions);
+                    break;
+            }
         }
 
-        if (changedPropertyNames.Contains(nameof(ProxyConfig.LoadBalanceMode)))
-        {
-            ValidateLoadBalanceMode(backendOptions);
-        }
-
-        if (changedPropertyNames.Contains(nameof(ProxyConfig.PriorityKeys))
-            || changedPropertyNames.Contains(nameof(ProxyConfig.PriorityValues)))
+        if (shouldValidatePrioritySettings)
         {
             ValidatePrioritySettings(backendOptions, s_defaults);
         }
 
-        if (changedPropertyNames.Contains(nameof(ProxyConfig.ValidateHeaders)))
-        {
-            ValidateHeaderSettings(backendOptions);
-        }
     }
 
     public static void ApplyDerivedSettingsFromConfigNames(
@@ -363,6 +379,42 @@ public static class ConfigParser
         {
             backendOptions.LoadBalanceMode = Constants.Latency;
         }
+    }
+
+    private static void ValidateAuthSettings(ProxyConfig backendOptions)
+    {
+        // Keep derived key values in sync with top-level key settings.
+        backendOptions.ValidateAuthKey1 = backendOptions.ValidateAuthKey1.ToLowerInvariant();
+        backendOptions.ValidateAuthKey2 = backendOptions.ValidateAuthKey2.ToLowerInvariant();
+
+        if (string.IsNullOrWhiteSpace(backendOptions.ValidateAuthConfig))
+        {
+            backendOptions.ValidateAuthViaKey = false;
+            return;
+        }
+
+        var authSettings = KVStringPairs(ToListOfString(backendOptions.ValidateAuthConfig));
+
+        bool enabled = false;
+        string mode = "key";
+
+        if (authSettings.TryGetValue("enabled", out var enabledValue))
+        {
+            enabled = enabledValue.Equals("true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (authSettings.TryGetValue("mode", out var modeValue) && !string.IsNullOrWhiteSpace(modeValue))
+        {
+            mode = modeValue.Trim();
+        }
+
+        if (authSettings.TryGetValue("header", out var headerValue) && !string.IsNullOrWhiteSpace(headerValue))
+        {
+            backendOptions.ValidateAuthViaKeyHeader = headerValue.Trim();
+        }
+
+        backendOptions.ValidateAuthViaKey =
+            enabled && mode.Equals("key", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TryEvaluateMathExpression(string expression, out double result)
