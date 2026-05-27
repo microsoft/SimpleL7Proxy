@@ -113,6 +113,9 @@ Startup
 | `ValidateAuthAppIDUrl` | `ValidateAuthAppIDUrl` | `""` | URL for app ID allowlist |
 | `ValidateAuthAppFieldName` | `ValidateAuthAppFieldName` | `authAppID` | JSON field name for app ID |
 | `ValidateAuthAppIDHeader` | `ValidateAuthAppIDHeader` | `X-MS-CLIENT-PRINCIPAL-ID` | Header containing app ID to validate |
+| `ValidateAuthConfig` | `ValidateAuthConfig` | `enabled=false, mode=key, header=S7P-KEY` | Inbound key validation config (`enabled`, `mode`, `header`) |
+| `ValidateAuthKey1` | `ValidateAuthKey1` | `key1` | First accepted inbound key value |
+| `ValidateAuthKey2` | `ValidateAuthKey2` | `key2` | Second accepted inbound key value |
 
 ### Sentinel
 
@@ -140,8 +143,9 @@ Startup
 | Env Var / Config Name | Property | Default | Description |
 |----------------------|----------|---------|-------------|
 | `IgnoreSSLCert` | `IgnoreSSLCert` | `false` | Skip TLS verification (dev only) |
-| `UseOAuth` | `UseOAuth` | `false` | Enable OAuth token validation |
-| `OAuthAudience` | `OAuthAudience` | `""` | Expected OAuth audience |
+| `OAuthAudience` | `OAuthAudience` | `""` | Legacy global OAuth audience. For new deployments use per-host `audience=` in `HostN` connection strings. |
+
+Per-host auth is configured in `HostN` connection strings using `useoauth` / `usemi`, `audience`, `api-key`, and `api-key-header`.
 
 ### Server
 

@@ -23,6 +23,8 @@ Configure any number of backend hosts (`Host1`…`Host9`) using a semicolon-sepa
 | `processor` | *(empty)* | Custom stream processor name. Required and auto-defaulted in `direct` mode. |
 | `usemi` / `useoauth` | `false` | Attach a Managed Identity / OAuth2 Bearer token to every request and probe. |
 | `audience` | *(empty)* | OAuth token audience. Required when `usemi=true`. |
+| `api-key` | *(empty)* | API key value to send on every forwarded request and probe. Sets auth mode to API key. |
+| `api-key-header` | `api-key` | Header name used when `api-key` is set. |
 | `stripprefix` / `strippathprefix` | `true` | Strip the matched `path` prefix before forwarding. Set `false` to preserve the full original path. |
 | `retryafter` / `useretryafter` | `true` | Honour the `Retry-After` header returned by the backend. |
 
@@ -48,12 +50,36 @@ Host3="host=https://passthrough.internal;path=/api/v1;stripprefix=false"
 # Authenticated host (Managed Identity)
 Host4="host=https://secure-api.internal;usemi=true;audience=api://my-app-id;probe=/health"
 
+# Authenticated host (API key with custom header)
+Host5="host=https://secure-api.internal;api-key-header=foo;api-key=bar;probe=/health"
+
 # Direct mode — serverless, no probing
-Host5="host=https://my-func.azurewebsites.net;mode=direct;path=/api/v1"
+Host6="host=https://my-func.azurewebsites.net;mode=direct;path=/api/v1"
 
 # IP override — skip DNS
-Host6="host=https://api.backend.com;ipaddress=10.0.1.5;probe=/health"
+Host7="host=https://api.backend.com;ipaddress=10.0.1.5;probe=/health"
 ```
+
+## Per-Host Auth Behavior
+
+Auth is configured per host via the `HostN` connection string, not by a global `UseOAuth` switch.
+
+| Host connection string values | Effective auth mode |
+|-------------------------------|---------------------|
+| `useoauth=true` (or `usemi=true`) | OAuth2 / Managed Identity |
+| `api-key=<non-empty>` | API key mode (`<api-key-header>: <api-key>`) |
+| `useoauth=false` and empty `api-key` | No auth header added |
+
+Example custom header mapping:
+
+```bash
+Host1="host=https://example.internal;api-key-header=foo;api-key=bar"
+```
+
+This sends `foo: bar` to that backend.
+
+> [!NOTE]
+> Set only one auth mode per host. If both OAuth and API key entries are present, the host string order can change which mode is applied.
 
 > [!NOTE]
 > **Legacy format** (`Host1=https://...`, `Probe_path1=/health`, `IP1=10.0.1.5`) is still supported but cannot express `path`, `mode`, `usemi`, or other per-host options. Do not mix legacy and connection-string keys for the same host number.
@@ -65,7 +91,7 @@ Host6="host=https://api.backend.com;ipaddress=10.0.1.5;probe=/health"
 **Rule: Use `mode=direct` for any backend that scales to zero — the proxy will never probe it, so it will never wake it unnecessarily.**
 
 ```bash
-Host5="host=https://my-func.azurewebsites.net;mode=direct;path=/api/v1"
+Host6="host=https://my-func.azurewebsites.net;mode=direct;path=/api/v1"
 ```
 
 In direct mode:
