@@ -77,8 +77,9 @@ namespace SimpleL7Proxy.StreamProcessor
                     {
                         //cancellationToken?.ThrowIfCancellationRequested();
 
-                        // Write each line immediately - no delays
-                        Task t = writer.WriteLineAsync(currentLine);
+                        // Write and flush each line immediately so the client receives chunks as they arrive
+                        await writer.WriteLineAsync(currentLine).ConfigureAwait(false);
+                        await writer.FlushAsync().ConfigureAwait(false);
 
                         // Only process through lines that could have usage in them
                         if (CaptureAllLines)
@@ -92,8 +93,6 @@ namespace SimpleL7Proxy.StreamProcessor
                             currentIndex = (currentIndex + 1) % MaxLines; // Wrap around
                             lineCount++;
                         }
-
-                        await t.ConfigureAwait(false);
                     }
                     
                     _logger?.LogDebug("Finished streaming {LineCount} lines from source", lineCount);
