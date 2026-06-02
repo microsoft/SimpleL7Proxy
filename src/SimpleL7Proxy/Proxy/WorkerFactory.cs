@@ -36,7 +36,7 @@ public class WorkerFactory : BackgroundService, IReadinessParticipant
   protected override async Task ExecuteAsync(CancellationToken cancellationToken)
   {
 
-    var workerPriorities = new Dictionary<int, int>(_backendOptions.PriorityWorkers);
+    var workerPriorities = new Dictionary<int, int>(_backendOptions.PriorityWorkerDict);
 
     // The loop creates a number of workers based on backendOptions.Workers.
     // The first worker (wrkrNum == 0) is always a probe worker with priority 0.

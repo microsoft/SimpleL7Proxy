@@ -138,8 +138,9 @@ public static class ConfigParser
         opts.AcceptableStatusCodes = ReadEnvironmentVariableOrDefault(incoming, "AcceptableStatusCodes", defaults.AcceptableStatusCodes);
         opts.IterationMode = ReadEnvironmentVariableOrDefault(incoming, "IterationMode", defaults.IterationMode);
 
-        var defaultPriorityWorkers = string.Join(",", defaults.PriorityWorkers.Select(kvp => $"{kvp.Key}:{kvp.Value}"));
-        opts.PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault(incoming, "PriorityWorkers", defaultPriorityWorkers)));
+        // Seed from ProxyConfig defaults, then let incoming "PriorityWorkers" override if present.
+        var defaultPriorityWorkers = string.Join(",", defaults.PriorityWorkerDict.Select(kvp => $"{kvp.Key}:{kvp.Value}"));
+        opts.PriorityWorkerDict = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault(incoming, "PriorityWorkers", defaultPriorityWorkers)));
 
         var defaultValidateHeaders = string.Join(",", defaults.ValidateHeaders.Select(kvp => $"{kvp.Key}={kvp.Value}"));
         opts.ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault(incoming, "ValidateHeaders", defaultValidateHeaders)));
@@ -337,9 +338,9 @@ public static class ConfigParser
         }
 
         int workerAllocation = 0;
-        foreach (var key in backendOptions.PriorityWorkers.Keys)
+        foreach (var key in backendOptions.PriorityWorkerDict.Keys)
         {
-            workerAllocation += backendOptions.PriorityWorkers[key];
+            workerAllocation += backendOptions.PriorityWorkerDict[key];
         }
 
         if (workerAllocation > backendOptions.Workers)
