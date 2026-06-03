@@ -1,8 +1,12 @@
-# POC: PTU Chargeback
+# POC: LLM Chargeback
+
+_Track per-user token consumption across Azure OpenAI, Anthropic, and Gemini using SimpleL7Proxy as a transparent passthrough._
 
 ## Overview
 
-A PTU (Provisioned Throughput Unit) is a fixed-capacity Azure OpenAI deployment — you pay a flat rate 24×7 regardless of usage. Sharing one PTU across teams is the most cost-effective option ( as long as you track each team's consumption. )
+> **TL;DR** — Point SimpleL7Proxy at your LLM endpoint, send requests with a `userId` header, then run a KQL query in Application Insights to see per-user token consumption.
+
+When multiple teams share an LLM deployment, you need a way to attribute token costs back to each caller. A PTU (Provisioned Throughput Unit) makes this especially important — it's a fixed-capacity Azure OpenAI deployment billed at a flat rate 24×7, so sharing one across teams is cost-effective only if you can track each team's consumption.
 
 SimpleL7Proxy solves this as a transparent passthrough: it reads the response stream, extracts token counts, and writes them to Application Insights — without buffering or added latency, and with no changes to your clients or backends. A single KQL query then breaks down consumption by user, tier, or backend.
 
