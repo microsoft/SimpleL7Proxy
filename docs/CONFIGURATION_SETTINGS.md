@@ -215,7 +215,7 @@ Each host entry supports the following fields:
 | <small>`api-key`</small> | API key value. Sets auth mode to `ApiKey`. |
 | <small>`api-key-header`</small> | Header name used to send the API key to the backend. |
 | <small>`ipaddress`</small> | Override IP address for the backend connection. |
-| <small>`mode`</small> | Set to `direct` to bypass path rewriting. |
+| <small>`mode`</small> | Set to `direct` if the endpoints do not support probes. Set to `apim` if using an APIM. |
 | <small>`path`</small> | Path prefix to append to forwarded requests. |
 | <small>`probe`</small> | Health-check path for this endpoint. |
 | <small>`processor`</small> | Custom processor class for this endpoint's responses. |
