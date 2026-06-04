@@ -71,9 +71,13 @@ public class EventDataBuilder
         eventData["Url"] = request.FullURL;
         var timeTaken = DateTime.UtcNow - request.EnqueueTime;
         eventData.Duration = timeTaken;
+        // TTFB-Latency = time from enqueue to backend response headers received.
+        // Total-Latency is overwritten later in StampFinalLatency() (called after
+        // Context.Response.OutputStream.Close()) so it captures the full proxy-side send time.
+        eventData["TTFB-Latency"] = timeTaken.TotalMilliseconds.ToString("F3");
         eventData["Total-Latency"] = timeTaken.TotalMilliseconds.ToString("F3");
         eventData["Attempts"] = request.BackendAttempts.ToString();
-        
+
         if (proxyData != null)
         {
             eventData["Backend-Host"] = !string.IsNullOrEmpty(proxyData.BackendHostname) 
@@ -141,6 +145,9 @@ public class EventDataBuilder
 
     /// <summary>
     /// Populates final event data with response information and incomplete requests.
+    /// Total-Latency is intentionally NOT stamped here — it is stamped later in
+    /// StampFinalLatency(), after the response output stream has been closed, so
+    /// the value includes the full proxy-side send time.
     /// </summary>
     public void PopulateFinalEventData(RequestData request, HttpListenerContext? context)
     {
@@ -155,5 +162,20 @@ public class EventDataBuilder
         }
 
         _logger.LogTrace("Populated final event data for request {Guid}", request.Guid);
+    }
+
+    /// <summary>
+    /// Stamps Total-Latency and Duration with the time measured after the response
+    /// output stream has been fully closed. Call this immediately before Cleanup()/SendEvent()
+    /// so the event captures the true proxy-side send completion time.
+    /// </summary>
+    public void StampFinalLatency(RequestData request)
+    {
+        var trueLatency = DateTime.UtcNow - request.EnqueueTime;
+        request.EventData["Total-Latency"] = trueLatency.TotalMilliseconds.ToString("F3");
+        request.EventData.Duration = trueLatency;
+
+        _logger.LogTrace("Stamped final Total-Latency {Ms}ms for request {Guid}",
+            trueLatency.TotalMilliseconds.ToString("F3"), request.Guid);
     }
 }
