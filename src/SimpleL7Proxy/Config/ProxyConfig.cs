@@ -121,6 +121,8 @@ public class ProxyConfig
     public float UserPriorityThreshold { get; set; } = 0.1f;
     [ConfigOption("Request:Priority:PriorityKeys")]
     public List<string> PriorityKeys { get; set; } = ["12345", "234"];
+    [ConfigOption("Request:Priority:PriorityWorker", ConfigName = "PriorityWorker")]
+    public string PriorityWorker { get; set; } = "2:1,3:1";
     [ConfigOption("Request:Priority:PriorityValues")]
     public List<int> PriorityValues { get; set; } = [1, 3];
     [ConfigOption("Request:RequiredHeaders")]
@@ -327,7 +329,7 @@ public class ProxyConfig
     public string ValidateAuthViaKeyHeader { get; set; } = "S7P-KEY";
     public bool ValidateAuthViaKey { get; set; } = false;
     public List<HostConfig> Hosts { get; set; } = [];
-    public Dictionary<int, int> PriorityWorkers { get; set; } = new() { { 2, 1 }, { 3, 1 } };
+    public Dictionary<int, int> PriorityWorkerDict { get; set; } = new() { { 2, 1 }, { 3, 1 } };
     public bool TrackWorkers { get; set; } = true;
 
     /// <summary>
@@ -356,7 +358,7 @@ public class ProxyConfig
         clone.StripResponseHeaders = new List<string>(StripResponseHeaders);
         clone.UniqueUserHeaders = new List<string>(UniqueUserHeaders);
         clone.ValidateHeaders = new Dictionary<string, string>(ValidateHeaders);
-        clone.PriorityWorkers = new Dictionary<int, int>(PriorityWorkers);
+        clone.PriorityWorkerDict = new Dictionary<int, int>(PriorityWorkerDict);
         clone.Hosts = new List<HostConfig>(Hosts);
 
         return clone;
