@@ -30,14 +30,14 @@ Each completed request creates a `requests` entry in Application Insights, inclu
 ## Prerequisites
 
 1. An LLM endpoint that returns token usage. You can use `Azure OpenAI`, `Anthropic`, `Google Gemini`, or the built-in LLM Simulator deployed as an Azure Function.
-2. SimpleL7Proxy running locally or on ACA.
+2. SimpleL7Proxy running locally or on Azure Container Apps (ACA).
 3. A unique `X-UserID` value in each request.
 4. Application Insights connected via `APPINSIGHTS_CONNECTIONSTRING`.
 5. `LogToAI="*"` enabled so the proxy sends request logs to Application Insights.
 
 See [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md) for all environment variable options covering endpoints, logging, workers, and timeouts.
 
-This POC supports two setup choices:
+This POC supports two setup options:
 
 **Backend routing — choose one:**
 - **Direct** — SimpleL7Proxy forwards requests straight to the backend.
@@ -65,7 +65,7 @@ export PROXYHOST="http://localhost:8000"
 export PROXYHOST="https://<ACA Name>.<environment>.eastus.azurecontainerapps.io"
 ```
 
-Call the proxy to test
+Call the proxy to test it:
 ```bash
 curl -i $PROXYHOST/health
 # → 200 OK
@@ -73,12 +73,12 @@ curl -i $PROXYHOST/health
 
 Confirm that your backend is reachable. If you deployed the proxy in a vnet, run this test from inside that vnet.
 
-**A Real LLM Endpoint:**
+**A real LLM endpoint:**
 
 We'll send a request to it in Step 4. Nothing to do for now.
 
 
-**LLM Simulator: If you are using the simulator ( recommended )**
+**LLM Simulator: If you are using the simulator (recommended)**
 ```bash
 curl -i https://<funcapp>.azurewebsites.net/api/v1/chat/completions
 # → 200 OK
@@ -102,7 +102,7 @@ The proxy can route to the LLM endpoint directly or through APIM. Set the `Host1
 <details>
 <summary>Direct backend — LLM Simulator or an Azure OpenAI endpoint</summary>
 
-Direct backends do not have probes, so the proxy assumes they are always available. Pick the scenario below that matches your environment.
+Direct backends do not have probes, so the proxy assumes they are always available. Pick one of the scenarios below that matches your environment.
 
 ```bash
 # Azure OpenAI - runs real queries to /openai/...
@@ -195,7 +195,7 @@ The proxy writes a `requests` entry to Application Insights for every completed 
 The queries below use OpenAI field names. For Anthropic or Gemini, substitute the field names from the [provider table](#reference).
 
 
-Open the Log Analytics workspace linked to your Application Insights resource and run:
+Open the Log Analytics workspace linked to your Application Insights resource, then run:
 
 ```kusto
 requests
@@ -230,7 +230,7 @@ For example, for `gpt-5.4-mini`, these are available in custom dimensions:
 
 ---
 
-### Send More Data
+### Send more data
 
 For a chargeback test across multiple users, send the batch below before running the queries:
 
@@ -241,7 +241,7 @@ for i in {1..3}; do
     -H "Content-Type: application/json" -d "$BODY" "$PROXYHOST/$URL" &
 done
 ```
-After a few minutes, rerun the query above. Expected result (1 request for alice from Step 4, and 3 for bob from the batch above):
+After a few minutes, rerun the query above. Expected result (1 request for `alice` from Step 4 and 3 for `bob` from the batch above):
 
 | UserId | Priority | Requests | TotalTokens | PromptTokens | CompTokens |
 |--------|----------|----------|-------------|--------------|------------|
@@ -264,7 +264,7 @@ requests
 
 ---
 
-## Sending data to additional data sinks
+## Send data to additional sinks
 
 Set `EVENT_LOGGERS` to one or more of `appinsights`, `eventhub`, or `file` (comma-separated). See [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md) for all options.
 
@@ -296,7 +296,7 @@ Other tools that work directly with Event Hubs or Blob-captured data include Fab
 <details>
 <summary>Local File</summary>
 
-If `EVENT_LOGGERS=file` (the default), token data appears in `eventslog.json` immediately — no ingestion delay. Useful for a quick sanity check before querying Application Insights.
+If `EVENT_LOGGERS=file` (the default), token data appears in `eventslog.json` immediately, with no ingestion delay. This is useful for a quick sanity check before querying Application Insights.
 
 If the proxy is deployed to Azure Container Apps, the file is written inside the container. Use the ACA console to inspect it: in the Azure portal, open the container app → **Containers** → **Console**, then run the `jq` command below. For a more durable setup, ACA supports mounting an Azure Files share as a volume — configure a storage mount in the container app and set the proxy's working directory to that path so `eventslog.json` persists across container restarts.
 
@@ -326,14 +326,14 @@ If `EVENT_LOGGERS` is not set or is set to an empty value, telemetry is turned o
 
 ## Tuning and Further Exploration
 
-Once the basic data is confirmed, a few variations are worth trying:
+Once the basic data is confirmed, these variations are worth trying:
 
 <details>
 <summary>Stream Analytics + Power BI dashboard</summary>
 
 With `EVENT_LOGGERS=eventhub`, every request event lands in the hub in real time. Connect an Azure Stream Analytics job to the hub and project the token fields into an output — a Power BI streaming dataset works well here. You can build a live dashboard showing token consumption by user, priority tier, and backend, updating as requests arrive. This is the closest thing to a real-time chargeback view without any custom code.
 
-For a batch approach, use the Event Hubs Capture output (Avro files in Blob Storage) as a Power BI dataflow source or import it into a Fabric lakehouse for scheduled reporting.
+For a batch approach, use the Event Hubs Capture output (Avro files in Blob Storage) as a Power BI dataflow source, or import it into a Fabric lakehouse for scheduled reporting.
 
 </details>
 
