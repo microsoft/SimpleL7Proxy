@@ -1,10 +1,11 @@
 # Release Notes #
-2.2.11.3
+2.2.12
 
 Proxy:
 * Add status checker
 * Add ability to validate requests via api-key
 * Add ability to call backend via api-key
+* Allow bakend api keys to be configured outside Hostn so Hostn_api_key can be backed via keyvault.
 
 RequestAPI:
 * Add status checker
