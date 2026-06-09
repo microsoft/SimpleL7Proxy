@@ -70,6 +70,8 @@ namespace SimpleL7Proxy.Backend
         sb.Append(Processor ?? string.Empty).Append('|');
         sb.Append(StripPrefix).Append('|');
         sb.Append(AuthMode).Append('|');
+        sb.Append(ApiKey ?? string.Empty).Append('|');
+        sb.Append(ApiKeyHeader ?? string.Empty).Append('|');
         sb.Append(UsesRetryAfter);
 
         Span<byte> hashBytes = stackalloc byte[SHA256.HashSizeInBytes];
@@ -268,6 +270,7 @@ namespace SimpleL7Proxy.Backend
             case "audience":
               result.Audience = kvp.Value;
               break;
+            case "api_key":
             case "api-key":
               result.ApiKey = kvp.Value;
               result.AuthMode = AuthModeEnum.ApiKey;
