@@ -281,8 +281,40 @@ public static class ConfigParser
             return int.TryParse(suffix, out _);
         }
 
-        return IsIndexedKey(normalized, "Host")
+        static bool IsHostIndexedVariant(string value)
+        {
+            if (!value.StartsWith("Host", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var indexStart = "Host".Length;
+            var indexEnd = indexStart;
+            while (indexEnd < value.Length && char.IsDigit(value[indexEnd]))
+            {
+                indexEnd++;
+            }
+
+            if (indexEnd == indexStart)
+            {
+                return false;
+            }
+
+            if (indexEnd == value.Length)
+            {
+                return true; // HostN
+            }
+
+            var suffix = value[indexEnd..];
+            return suffix.Equals("-api-key", StringComparison.OrdinalIgnoreCase)
+                || suffix.Equals("_api_key", StringComparison.OrdinalIgnoreCase)
+                || suffix.Equals("-api_key", StringComparison.OrdinalIgnoreCase)
+                || suffix.Equals("_api-key", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return IsHostIndexedVariant(normalized)
             || IsIndexedKey(normalized, "IP")
+            || IsIndexedKey(normalized, "Api_Key")
             || IsIndexedKey(normalized, "Probe_path")
             || normalized.Equals("APPENDHOSTSFILE", StringComparison.OrdinalIgnoreCase)
             || normalized.Equals("AppendHostsFile", StringComparison.OrdinalIgnoreCase);

@@ -3,7 +3,7 @@
 **Purpose:** Show how token consumption across a shared LLM deployment can be tracked and attributed to each caller.
 
 >[!IMPORTANT]
-> **For chargeback to work, each request must include a unique `X-UserID` so the proxy can attribute usage to the correct caller. You also need the model's monthly cost and a logging target such as Application Insights or Event Hubs, since those inputs turn token counts into a chargeback view. Finally, configure the proxy with the token processor that matches each model, because different models return usage data in different formats.**
+> **For chargeback to work, each request must include a unique `X-UserID` so the proxy can attribute usage to the correct caller. (This field can be customized but for this POC, the header identifies the end user.)  You also need the model's monthly cost and a logging target such as Application Insights or Event Hubs, since those inputs turn token counts into a chargeback view. Finally, configure the proxy with the token processor that matches each model, because different models return usage data in different formats.**
 
 ## TL;DR (< 5 minutes)
 
@@ -73,18 +73,18 @@ curl -i $PROXYHOST/health
 
 Confirm that your backend is reachable. If you deployed the proxy in a vnet, run this test from inside that vnet.
 
-**A real LLM endpoint:**
+**Option A. A real LLM endpoint:**
 
 We'll send a request to it in Step 4. Nothing to do for now.
 
 
-**LLM Simulator: If you are using the simulator (recommended)**
+**Option B. LLM Simulator: If you are using the simulator (recommended)**
 ```bash
 curl -i https://<funcapp>.azurewebsites.net/api/v1/chat/completions
 # → 200 OK
 ```
 
-**APIM:**
+**Option C. APIM:**
 ```bash
 # Health probe - APIM's built-in health probe
 curl -i https://<apim-name>.azure-api.net/status-0123456789abcdef
@@ -97,7 +97,7 @@ curl -i https://<apim-name>.azure-api.net/status-0123456789abcdef
 
 ## Step 2. Configure a backend in the proxy
 
-The proxy can route to the LLM endpoint directly or through APIM. Set the `Host1` environment variable to point to your backend. Choose the option that matches your setup:
+The `Host1` environment variable points the proxy to a backend.  The proxy can route to the LLM endpoint directly or through APIM.  Choose the option that matches your setup:
 
 <details>
 <summary>Direct backend — LLM Simulator or an Azure OpenAI endpoint</summary>

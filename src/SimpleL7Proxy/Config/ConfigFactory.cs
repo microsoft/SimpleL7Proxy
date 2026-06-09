@@ -172,7 +172,10 @@ public static class ConfigFactory
         if (string.IsNullOrEmpty(rawValue)) continue;
 
         // Host keys are handled separately via RegisterBackends.
-        if (key.StartsWith("Host") || key.StartsWith("Probe") || key.StartsWith("IP"))
+        if (key.StartsWith("Host", StringComparison.OrdinalIgnoreCase)
+          || key.StartsWith("Probe", StringComparison.OrdinalIgnoreCase)
+          || key.StartsWith("IP", StringComparison.OrdinalIgnoreCase)
+          || key.StartsWith("Api_Key", StringComparison.OrdinalIgnoreCase))
         {
             hostChanges[key] = rawValue;
             continue;
@@ -253,7 +256,10 @@ public static class ConfigFactory
         if (string.IsNullOrEmpty(rawValue)) continue;
 
         var key = kvp.Key;
-        if (key.StartsWith("Host") || key.StartsWith("Probe") || key.StartsWith("IP"))
+        if (key.StartsWith("Host", StringComparison.OrdinalIgnoreCase)
+          || key.StartsWith("Probe", StringComparison.OrdinalIgnoreCase)
+          || key.StartsWith("IP", StringComparison.OrdinalIgnoreCase)
+          || key.StartsWith("Api_Key", StringComparison.OrdinalIgnoreCase))
         {
             hostChanges[key] = rawValue;
             continue;
@@ -496,7 +502,13 @@ public static class ConfigFactory
     {
         try
         {
-            var hostConfig = new HostConfig(entry.Hostname, entry.ProbePath, entry.Ip);//, backendOptions.OAuthAudience);
+        var hostname = entry.Hostname;
+        if (!string.IsNullOrWhiteSpace(entry.ApiKey))
+        {
+          hostname += $";api-key={entry.ApiKey}";
+        }
+
+        var hostConfig = new HostConfig(hostname, entry.ProbePath, entry.Ip);//, backendOptions.OAuthAudience);
             hostCollection?.StageHost(hostConfig);
             hostsFileContent.AppendLine($"{entry.Ip} {hostConfig.Host}");
         }
@@ -513,7 +525,7 @@ public static class ConfigFactory
     hostCollection?.Activate();
   }
 
-  private record ParsedHostEntry(string HostKey, string Hostname, string? ProbePath, string? Ip);
+  private record ParsedHostEntry(string HostKey, string Hostname, string? ProbePath, string? Ip, string? ApiKey);
 
   /// <summary>Yields Host1..N entries until a gap is found.</summary>
   private static IEnumerable<ParsedHostEntry> ReadHostEntries(Func<string, string?> readWithFallback)
@@ -523,11 +535,14 @@ public static class ConfigFactory
       var hostname = readWithFallback($"Host{i}");
       if (string.IsNullOrEmpty(hostname)) yield break;
 
+      var apiKey = readWithFallback($"Host{i}-api-key") ?? readWithFallback($"Host{i}-api_key") ?? readWithFallback($"Host{i}_api_key");
+
       yield return new ParsedHostEntry(
           $"Host{i}",
           hostname,
           readWithFallback($"Probe_path{i}"),
-          readWithFallback($"IP{i}")
+          readWithFallback($"IP{i}"),
+          apiKey
       );
     }
   }
