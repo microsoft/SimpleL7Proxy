@@ -3,21 +3,21 @@
 **Purpose:** Show how token consumption across a shared LLM deployment can be tracked and attributed to each caller.
 
 >[!IMPORTANT]
-> **For chargeback to work, each request must include a unique `X-UserID` so the proxy can attribute usage to the correct caller. (This field can be customized but for this POC, the header identifies the end user.)  You also need the model's monthly cost and a logging target such as Application Insights or Event Hubs, since those inputs turn token counts into a chargeback view. Finally, configure the proxy with the token processor that matches each model, because different models return usage data in different formats.**
+> **For chargeback to work, each request must include a unique `X-UserID`, telemetry must be enabled with a logging target such as Application Insights or Event Hubs, and the proxy token processor must match the model family response format so usage fields are parsed correctly.**
 
 ## TL;DR (< 5 minutes)
 
-1. Configure the token processor by setting `processor=MultiLineAllUsage` (or the matching value) on each backend host.
+1. Configure the token processor to match the model family response format.
 2. Send an LLM request through the proxy with an `X-UserID` header.
-3. Run the KQL query in Application Insights to see per-user token consumption.
+3. Run the KQL query in Application Insights (allow 3-5 minutes for ingestion) and confirm `UserId` plus token fields are present per request.
 4. Calculate each user's share of the total model cost.
 
-**Expected outcome:** Token metrics appear in Application Insights, attributed to each caller by `X-UserID`.
+**Expected outcome:** Token metrics appear in Application Insights, attributed to each caller by `X-UserID`, with one `requests` entry per completed call and usage token fields present in `customDimensions`.
 
 ## What you will observe
 
 - A KQL query over `requests` shows token consumption grouped by `X-UserID`.
-- Token field names differ by provider — match them to the model. See the [provider table](#reference).
+- Token field names differ by provider — match them to the model family. See the [provider table](#reference).
 
 ## How it works
 
@@ -163,19 +163,19 @@ export BODY='{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"
 
 # LLMSimulator - Gemini
 export URL="v1beta/models/gemini-2.5-pro:generateContent"
-export BODY='{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}'
+export BODY='{"contents":[{"parts":[{"text":"hello"}]}]}'
 
 # LLMSimulator - Anthropic
 export URL="anthropic/v1/messages"
-export BODY='{"model":"claude-sonnet-3-5","messages":[{"role":"user","content":"hello"}]}'
+export BODY='{"model":"claude-sonnet-3-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}]}'
 
 # OpenAI - gpt-4o
 export URL="openai/v1/chat/completions"
-export BODY='{"messages": [{"role": "system", "content": "What are 3 things to visit in Seattle?"}],"model": "gpt-4o"}'
+export BODY='{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"stream":true}'
 
 # OpenAI - gpt-5.4-mini
 export URL="openai/v1/chat/completions"
-export BODY='{"messages": [{"role": "system", "content": "What are 3 things to visit in Seattle?"}],"model": "gpt-5.4-mini"}'
+export BODY='{"model":"gpt-5.4-mini","messages":[{"role":"user","content":"hello"}],"stream":true}'
 ```
 
 Now that `$PROXYHOST`, `URL`, and `BODY` are defined, run the following command to get a response.
