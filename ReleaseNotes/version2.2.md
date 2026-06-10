@@ -1,5 +1,10 @@
 # Release Notes #
 
+2.2.13
+
+Proxy:
+* Add StreamFlusher to flush every `Server:StreamFlushInterval` ms
+
 2.2.12.2
 
 Deployment:
