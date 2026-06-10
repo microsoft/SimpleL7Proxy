@@ -5,6 +5,14 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Load deployment parameters if available
+if [[ -f "${SCRIPT_DIR}/../deploy.parameters.sh" ]]; then
+    # shellcheck source=../deploy.parameters.sh
+    source "${SCRIPT_DIR}/../deploy.parameters.sh"
+fi
+
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
@@ -153,17 +161,19 @@ fi
 echo ""
 
 # =============================================================================
-# Check: Docker (optional for deployment, required for local development)
+# Check: Docker (only required when BUILD_METHOD=local)
 # =============================================================================
 echo -e "${BLUE}[8/10] Checking Docker${NC}"
-if command -v docker >/dev/null 2>&1; then
-    DOCKER_VERSION=$(docker --version)
-    pass "Docker installed: $DOCKER_VERSION"
-    info "  (Optional for deployment, useful for local development)"
+if [[ "${BUILD_METHOD:-remote}" == "remote" ]]; then
+    info "Docker check skipped (BUILD_METHOD=remote — build runs in ACR)"
 else
-    warn "Docker is not installed (optional)"
-    info "  Required only for local development/testing"
-    info "  Install from: https://www.docker.com/products/docker-desktop"
+    if command -v docker >/dev/null 2>&1; then
+        DOCKER_VERSION=$(docker --version)
+        pass "Docker installed: $DOCKER_VERSION"
+    else
+        fail "Docker is not installed (required for BUILD_METHOD=local)"
+        info "  Install from: https://www.docker.com/products/docker-desktop"
+    fi
 fi
 echo ""
 
@@ -209,12 +219,6 @@ echo ""
 
 if [ $FAILED -eq 0 ]; then
     echo -e "${GREEN}✓ All required prerequisites are met!${NC}"
-    echo ""
-    echo "You can proceed with deployment:"
-    echo "  cd deployment/VNet"
-    echo "  cp deploy.parameters.example.sh deploy.parameters.sh"
-    echo "  # Edit deploy.parameters.sh with your values"
-    echo "  ./deploy.sh"
     exit 0
 else
     echo -e "${RED}✗ Some prerequisites are missing.${NC}"

@@ -28,6 +28,8 @@
 # Common
 # -----------------------------------------------------------------------------
 export LOCATION="eastus"
+export PRIVATE_NETWORK_DEPLOYMENT="yes|no"              # Are you deploying in a private network?
+export ASYNC_DEPLOYMENT="yes|no"                        # Are you deploying mode?
 
 # -----------------------------------------------------------------------------
 # Resource groups (one per concern; can all be the same RG if preferred)
