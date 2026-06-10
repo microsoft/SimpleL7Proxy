@@ -112,6 +112,10 @@ public static class ConfigParser
         ("MultiConnIdleTimeoutSecs", "MultiConnIdleTimeoutSecs"),
         ("MultiConnMaxConns", "MultiConnMaxConns"),
 
+        // ── Internal ──
+        ("GC2InternalSecs", "GC2InternalSecs"),
+        ("StreamFlushInterval", "StreamFlushInterval"),
+
         // ── Security ──
         ("IgnoreSSLCert", "IgnoreSSLCert"),
 

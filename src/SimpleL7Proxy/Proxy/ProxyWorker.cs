@@ -40,6 +40,7 @@ public class ProxyWorker : IConfigChangeSubscriber
     private readonly ILogger<ProxyWorker> _logger;
     private readonly RequestLifecycleManager _lifecycleManager;
     private readonly EventDataBuilder _eventDataBuilder;
+    private readonly StreamFlusher _streamFlusher;
     private readonly int _id;
     private readonly string _idStr;
     // private static bool s_readyToWork;
@@ -80,6 +81,7 @@ public class ProxyWorker : IConfigChangeSubscriber
         _lifecycleManager = context.LifecycleManager;
         _eventDataBuilder = context.EventDataBuilder;
         _options = context.BackendOptions;
+        _streamFlusher = context.StreamFlusher;
 
         InitVars();
 
@@ -1824,8 +1826,14 @@ public class ProxyWorker : IConfigChangeSubscriber
             if (proxyResponse.Content != null)
             {
                 _logger.LogDebug("Streaming to {Destination} for request {Guid}", destinationType, request.Guid);
-                await processor.CopyToAsync(proxyResponse.Content, destination).ConfigureAwait(false);
 
+                var addedToFlusher = _streamFlusher.AddStream(destination);
+                await processor.CopyToAsync(proxyResponse.Content, destination).ConfigureAwait(false);
+                if (addedToFlusher)
+                {
+                    _streamFlusher.RemoveStream(destination);
+                }
+            
                 if (needsFlush)
                 {
                     await destination.FlushAsync().ConfigureAwait(false);

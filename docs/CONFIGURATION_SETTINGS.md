@@ -50,6 +50,7 @@ These settings determine how many requests the proxy can handle simultaneously a
 | <small>`Server:TerminationGracePeriodSeconds`</small> | <small>`TerminationGracePeriodSeconds`</small> | `30`</small> | Gives endpoints time to drain in-flight requests during shutdown. |
 | <small>`Server:PriorityWorker`</small> | <small>`PriorityWorker`</small> | `2:1, 3:1`</small> | Dedicated workers per priority level (`priority:count` pairs). If no work exists at their assigned priority, these workers process the next available request. Prevents lower-priority requests from starving. |
 | <small>`Server:GC2InternalSecs`</small> | <small>`GC2InternalSecs`</small> | `300`</small> | How often (in seconds) the proxy runs garbage collection. |
+| <small>`Server:StreamFlushInterval`</small> | <small>`StreamFlushInterval`</small> | `250`</small> | Interval (in milliseconds) used by StreamFlusher to flush active response streams. |
 | <small>`Security:UseOAuthGov`</small> | <small>`UseOAuthGov`</small> | `false`</small> | Switches OAuth endpoint logic to government cloud boundary. |
 | <small>`Security:IgnoreSSLCert`</small> | <small>`IgnoreSSLCert`</small> | `false`</small> | TLS certificate validation bypass for explicit non-production scenarios. |
 | <small>`Server:MaxUndrainedEvents`</small> | <small>`MaxUndrainedEvents`</small> | <small>`100`</small> | Backpressure cap for buffered Event Hub events. |
