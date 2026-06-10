@@ -1,25 +1,22 @@
 # POC: Security and OAuth 2.0 Configuration (Split Index)
 
-**Purpose:** This index replaces the previous combined security POC and points to two focused runbooks.
+**Purpose:** This page keeps historical context for the split security POC and points to current security guidance.
 
 ## TL;DR
 
-1. **Most important rule: use the doc that matches the security boundary you are configuring.**
-2. Use the ACA document for client -> ACA authentication and authorization.
-3. Use the APIM document for ACA -> APIM token validation and policy enforcement.
+1. **Most important rule: use active security docs; the old split POC runbooks were removed.**
+2. Use `SECURITY.md` for the baseline security model.
+3. Use `POC-Secure-the-proxy.md` for practical proxy hardening guidance.
 
 ## Use these documents
 
-- [POC-ACA-Proxy-Security-Authorization.md](POC-ACA-Proxy-Security-Authorization.md)
-  - Focus: securing and authorizing the ACA proxy ingress.
-  - Includes: ACA app registration, client app registration, ACA auth setup, and ACA validation tests.
+- [SECURITY.md](SECURITY.md)
+  - Baseline security model and recommendations for the proxy.
 
-- [POC-APIM-Security-Authorization.md](POC-APIM-Security-Authorization.md)
-  - Focus: securing and authorizing APIM.
-  - Includes: APIM app registration, ACA managed identity role assignment, APIM OAuth interface setup, `validate-jwt` policy, and APIM policy tests.
+- [POC-Secure-the-proxy.md](POC-Secure-the-proxy.md)
+  - Practical steps for securing the proxy in proof-of-concept environments.
 
-## Why the split
+## Note
 
-- ACA and APIM have different enforcement points and token audiences.
-- Splitting reduces setup confusion and makes validation steps clearer.
-- Each document now has a dedicated diagram, worked example, and verification checklist.
+- The two split runbooks were removed from this repository.
+- This index remains so existing links can be redirected to supported docs.
