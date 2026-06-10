@@ -7,11 +7,8 @@ param managedEnvId string
 @description('Location (must match the existing Container App location)')
 param location string
 
-@description('Container image for the web container')
+@description('Container image for the proxy container')
 param webImage string
-
-@description('Container image for the health sidecar')
-param healthImage string
 
 @description('Optional registry server (e.g., myregistry.azurecr.io). Leave empty if using public images.')
 param registryServer string = ''
@@ -22,17 +19,8 @@ param webCpu string = '0.5'
 @description('Web container memory in Gi - e.g., 0.5Gi, 1.0Gi, 2.0Gi')
 param webMemory string = '1.0Gi'
 
-@description('Health container CPU cores - e.g., 0.25, 0.5, 1.0')
-param healthCpu string = '0.25'
-
-@description('Health container memory in Gi - e.g., 0.5Gi, 1.0Gi')
-param healthMemory string = '0.5Gi'
-
-@description('Target port exposed by the web container (ingress)')
+@description('Target port exposed by the proxy container (ingress)')
 param webPort int = 8000
-
-@description('Internal port exposed by the health container for probes')
-param healthPort int = 9000
 
 @description('Whether ingress should be external or internal')
 @allowed([
@@ -44,7 +32,7 @@ param ingressType string = 'external'
 @description('Enable or disable HTTPS on ingress')
 param enableHttps bool = true
 
-@description('Revision mode; single is recommended for sidecars')
+@description('Revision mode; single is recommended for simple deployments')
 @allowed([
   'single'
   'multiple'
@@ -57,12 +45,14 @@ param terminationGracePeriodSeconds int = 30
 @description('Timestamp for generating unique revision suffix')
 param timestamp string = utcNow()
 
-var registries = empty(registryServer) ? [] : [
-  {
-    server: registryServer
-    identity: 'system'
-  }
-]
+var registries = empty(registryServer)
+  ? []
+  : [
+      {
+        server: registryServer
+        identity: 'system'
+      }
+    ]
 
 resource updateApp 'Microsoft.App/containerApps@2024-02-02-preview' = {
   name: containerAppName
@@ -89,7 +79,7 @@ resource updateApp 'Microsoft.App/containerApps@2024-02-02-preview' = {
       }
     }
     template: {
-      revisionSuffix: uniqueString(resourceGroup().id, timestamp, webImage, healthImage)
+      revisionSuffix: uniqueString(resourceGroup().id, timestamp, webImage)
       terminationGracePeriodSeconds: terminationGracePeriodSeconds
       containers: [
         {
@@ -105,30 +95,12 @@ resource updateApp 'Microsoft.App/containerApps@2024-02-02-preview' = {
             cpu: json(webCpu)
             memory: webMemory
           }
-        }
-        {
-          name: 'health'
-          image: healthImage
-          env: [
-            {
-              name: 'HEALTHPROBE_PORT'
-              value: string(healthPort)
-            }
-            {
-              name: 'DEPLOY_TIMESTAMP'
-              value: timestamp
-            }
-          ]
-          resources: {
-            cpu: json(healthCpu)
-            memory: healthMemory
-          }
           probes: [
             {
               type: 'Liveness'
               httpGet: {
                 path: '/liveness'
-                port: healthPort
+                port: webPort
               }
               initialDelaySeconds: 5
               periodSeconds: 10
@@ -140,7 +112,7 @@ resource updateApp 'Microsoft.App/containerApps@2024-02-02-preview' = {
               type: 'Readiness'
               httpGet: {
                 path: '/readiness'
-                port: healthPort
+                port: webPort
               }
               initialDelaySeconds: 3
               periodSeconds: 10
@@ -152,7 +124,7 @@ resource updateApp 'Microsoft.App/containerApps@2024-02-02-preview' = {
               type: 'Startup'
               httpGet: {
                 path: '/startup'
-                port: healthPort
+                port: webPort
               }
               initialDelaySeconds: 3
               periodSeconds: 10
