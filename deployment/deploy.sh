@@ -38,7 +38,7 @@ step1_prereq()        { ( cd "${SCRIPT_DIR}/Prereq"           && ./validate.sh )
 step2_vnet()          { ( cd "${SCRIPT_DIR}/VNet"             && ./deploy.sh   ); }
 step3_acr()           { ( cd "${SCRIPT_DIR}/ContainerImage"   && ./validate-acr.sh ); }
 step4_image()         { ( cd "${SCRIPT_DIR}/ContainerImage"   && ./deploy.sh   ); }
-step5_aca()           { ( cd "${SCRIPT_DIR}/proxy-with-sidecar" && ./deploy.sh ); }
+step5_aca()           { ( cd "${SCRIPT_DIR}/proxy" && ./deploy.sh ); }
 step6_dns()           { ( cd "${SCRIPT_DIR}/DNS"              && ./deploy.sh   ); }
 step7_appconfig()     { ( cd "${SCRIPT_DIR}/AppConfiguration" && ./deploy.sh   ); }
 step8_blobstorage()   { ( cd "${SCRIPT_DIR}/BlobStorage"      && ./deploy.sh   ); }
@@ -54,7 +54,7 @@ print_menu() {
     echo "  2) Virtual Network            (VNet/deploy.sh)"
     echo "  3) Validate/Create ACR        (ContainerImage/validate-acr.sh)"
     echo "  4) Build Container Image      (ContainerImage/deploy.sh)"
-    echo "  5) Azure Container Apps       (proxy-with-sidecar/deploy.sh)"
+    echo "  5) Azure Container Apps       (proxy/deploy.sh)"
     echo "  6) Private DNS                (DNS/deploy.sh)"
     echo "  7) App Configuration          (AppConfiguration/deploy.sh)"
     echo "  8) Blob Storage  (optional)   (BlobStorage/deploy.sh)"

@@ -1,5 +1,13 @@
 # Release Notes #
-2.2.12
+
+2.2.12.2
+
+Deployment:
+* add sidecar type to deploy.parameters.sh
+* add grace termination time  to deploy.parameters.sh
+
+
+2.2.12.1
 
 Proxy:
 * Add status checker
