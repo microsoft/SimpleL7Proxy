@@ -30,10 +30,17 @@ ENVIRONMENT_NAME="${ENVIRONMENT_NAME:-simplelL7Proxy}"
 WEB_IMAGE="${WEB_IMAGE:-}"
 HEALTH_IMAGE="${HEALTH_IMAGE:-}"
 
-# Validate required images
-if [ -z "$WEB_IMAGE" ] || [ -z "$HEALTH_IMAGE" ]; then
-    echo -e "${RED}Error: WEB_IMAGE and HEALTH_IMAGE must be set.${NC}"
-    echo "Either set them as environment variables or create deploy.parameters.sh"
+# Validate required images based on deployment type
+if [ -z "$WEB_IMAGE" ]; then
+    echo -e "${RED}Error: WEB_IMAGE must be set.${NC}"
+    echo "Either set it as an environment variable or create deploy.parameters.sh"
+    echo "See deploy.parameters.example.sh for reference."
+    exit 1
+fi
+
+if [ "${HEALTHPROBE_TYPE:-sidecar}" = "sidecar" ] && [ -z "$HEALTH_IMAGE" ]; then
+    echo -e "${RED}Error: HEALTH_IMAGE must be set for sidecar deployments.${NC}"
+    echo "Either set it as an environment variable or create deploy.parameters.sh"
     echo "See deploy.parameters.example.sh for reference."
     exit 1
 fi
@@ -53,6 +60,7 @@ HEALTH_PORT="${HEALTH_PORT:-9000}"
 INGRESS_TYPE="${INGRESS_TYPE:-external}"  # or "internal"
 ENABLE_HTTPS="${ENABLE_HTTPS:-true}"
 REVISION_MODE="${REVISION_MODE:-single}"  # or "multiple"
+TERMINATION_GRACE_PERIOD_SECONDS="${TERMINATION_GRACE_PERIOD_SECONDS:-30}"
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -103,36 +111,72 @@ MANAGED_ENV_ID=$(az containerapp env show \
     --resource-group "$RESOURCE_GROUP" \
     --query id -o tsv 2>/dev/null || echo "")
 
+wait_for_managed_env() {
+    local env_id=""
+    local provisioning_state=""
+    local attempts=0
+    local max_attempts=60
+
+    echo -e "${YELLOW}Waiting for Container Apps Environment to finish provisioning...${NC}"
+    while [[ $attempts -lt $max_attempts ]]; do
+        env_id=$(az containerapp env show \
+            --name "$ENVIRONMENT_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query id -o tsv 2>/dev/null || echo "")
+        provisioning_state=$(az containerapp env show \
+            --name "$ENVIRONMENT_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query "properties.provisioningState" -o tsv 2>/dev/null || echo "")
+
+        if [ -n "$env_id" ] && [ "$provisioning_state" = "Succeeded" ]; then
+            MANAGED_ENV_ID="$env_id"
+            echo -e "${GREEN}✓ Container Apps Environment is ready${NC}"
+            return 0
+        fi
+
+        attempts=$((attempts + 1))
+        sleep 10
+    done
+
+    echo -e "${RED}Error: Container Apps Environment did not become ready in time.${NC}"
+    echo -e "${YELLOW}Last observed provisioning state: ${provisioning_state:-unknown}${NC}"
+    exit 1
+}
+
 if [ -z "$MANAGED_ENV_ID" ]; then
     echo -e "${YELLOW}Container Apps Environment not found. Creating...${NC}"
     az containerapp env create \
         --name "$ENVIRONMENT_NAME" \
         --resource-group "$RESOURCE_GROUP" \
         --location "$LOCATION"
-    
-    MANAGED_ENV_ID=$(az containerapp env show \
-        --name "$ENVIRONMENT_NAME" \
-        --resource-group "$RESOURCE_GROUP" \
-        --query id -o tsv)
+
+    wait_for_managed_env
+else
+    wait_for_managed_env
 fi
 
 echo -e "${GREEN}Using environment: ${MANAGED_ENV_ID}${NC}"
 
-# Build Bicep parameters
+# Build Bicep parameters based on deployment type
 BICEP_PARAMS="containerAppName=$CONTAINER_APP_NAME"
 BICEP_PARAMS="$BICEP_PARAMS managedEnvId=$MANAGED_ENV_ID"
 BICEP_PARAMS="$BICEP_PARAMS location=$LOCATION"
 BICEP_PARAMS="$BICEP_PARAMS webImage=$WEB_IMAGE"
-BICEP_PARAMS="$BICEP_PARAMS healthImage=$HEALTH_IMAGE"
 BICEP_PARAMS="$BICEP_PARAMS webCpu=$WEB_CPU"
 BICEP_PARAMS="$BICEP_PARAMS webMemory=${WEB_MEMORY}Gi"
-BICEP_PARAMS="$BICEP_PARAMS healthCpu=$HEALTH_CPU"
-BICEP_PARAMS="$BICEP_PARAMS healthMemory=${HEALTH_MEMORY}Gi"
 BICEP_PARAMS="$BICEP_PARAMS webPort=$WEB_PORT"
-BICEP_PARAMS="$BICEP_PARAMS healthPort=$HEALTH_PORT"
 BICEP_PARAMS="$BICEP_PARAMS ingressType=$INGRESS_TYPE"
 BICEP_PARAMS="$BICEP_PARAMS enableHttps=$ENABLE_HTTPS"
 BICEP_PARAMS="$BICEP_PARAMS revisionMode=$REVISION_MODE"
+BICEP_PARAMS="$BICEP_PARAMS terminationGracePeriodSeconds=$TERMINATION_GRACE_PERIOD_SECONDS"
+
+# Add sidecar-specific parameters if using sidecar deployment
+if [ "${HEALTHPROBE_TYPE:-sidecar}" = "sidecar" ]; then
+    BICEP_PARAMS="$BICEP_PARAMS healthImage=$HEALTH_IMAGE"
+    BICEP_PARAMS="$BICEP_PARAMS healthCpu=$HEALTH_CPU"
+    BICEP_PARAMS="$BICEP_PARAMS healthMemory=${HEALTH_MEMORY}Gi"
+    BICEP_PARAMS="$BICEP_PARAMS healthPort=$HEALTH_PORT"
+fi
 
 # Add registry parameters if configured
 if [ -n "$REGISTRY_SERVER" ]; then
@@ -141,7 +185,12 @@ fi
 
 if [ -n "$REGISTRY_SERVER" ]; then
     echo -e "${YELLOW}Verifying configured images exist in ACR...${NC}"
-    for IMAGE_REF in "$WEB_IMAGE" "$HEALTH_IMAGE"; do
+    IMAGES_TO_VERIFY=("$WEB_IMAGE")
+    if [ "${HEALTHPROBE_TYPE:-sidecar}" = "sidecar" ]; then
+        IMAGES_TO_VERIFY+=("$HEALTH_IMAGE")
+    fi
+    
+    for IMAGE_REF in "${IMAGES_TO_VERIFY[@]}"; do
         IMAGE_REPO_TAG="${IMAGE_REF#${REGISTRY_SERVER}/}"
         IMAGE_REPO="${IMAGE_REPO_TAG%:*}"
         IMAGE_TAG="${IMAGE_REPO_TAG##*:}"
@@ -241,11 +290,18 @@ fi
 echo -e "${YELLOW}Deploying Container App with Bicep...${NC}"
 DEPLOYMENT_NAME="healthprobe-deployment-$(date +%s)"
 
+# Select appropriate Bicep template based on deployment type
+if [ "${HEALTHPROBE_TYPE:-sidecar}" = "sidecar" ]; then
+    BICEP_TEMPLATE="$(dirname "$0")/script.bicep"
+else
+    BICEP_TEMPLATE="$(dirname "$0")/script-nosidecar.bicep"
+fi
+
 #az deployment group create --debug \
 az deployment group create  \
     --name "$DEPLOYMENT_NAME" \
     --resource-group "$RESOURCE_GROUP" \
-    --template-file "$(dirname "$0")/script.bicep" \
+    --template-file "$BICEP_TEMPLATE" \
     --parameters $BICEP_PARAMS \
     --query "properties.outputs" -o json
 

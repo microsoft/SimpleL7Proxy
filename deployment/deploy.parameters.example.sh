@@ -123,6 +123,7 @@ export HEALTH_PORT=9000
 export INGRESS_TYPE="external"           # external | internal
 export ENABLE_HTTPS=true
 export REVISION_MODE="single"            # single | multiple
+export TERMINATION_GRACE_PERIOD_SECONDS="30"
 
 # -----------------------------------------------------------------------------
 # Blob Storage (used by BlobStorage/deploy.sh)
