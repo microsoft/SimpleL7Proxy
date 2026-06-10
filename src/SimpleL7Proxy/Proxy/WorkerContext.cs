@@ -29,6 +29,7 @@ public class WorkerContext
     public IUserProfileService UserProfileService { get; }
     public RequestLifecycleManager LifecycleManager { get; }
     public StreamProcessorFactory StreamProcessorFactory { get; }
+    public StreamFlusher StreamFlusher { get; }
 
     public WorkerContext(
         ProxyConfig backendOptions,
@@ -44,6 +45,7 @@ public class WorkerContext
         EventDataBuilder eventDataBuilder,
         HealthCheckService healthCheckService,
         ConfigChangeNotifier configChangeNotifier,
+        StreamFlusher streamFlusher,
         AsyncWorkerContext? asyncWorkerContext = null,
         ISharedIteratorRegistry? sharedIteratorRegistry = null)
     {
@@ -61,6 +63,7 @@ public class WorkerContext
         ArgumentNullException.ThrowIfNull(eventDataBuilder);
         ArgumentNullException.ThrowIfNull(healthCheckService);
         ArgumentNullException.ThrowIfNull(configChangeNotifier);
+        ArgumentNullException.ThrowIfNull(streamFlusher);
         ArgumentNullException.ThrowIfNull(sharedIteratorRegistry);
 
         BackendOptions = backendOptions;
@@ -78,5 +81,6 @@ public class WorkerContext
         HealthCheckService = healthCheckService;
         ConfigChangeNotifier = configChangeNotifier;
         SharedIteratorRegistry = sharedIteratorRegistry;
+        StreamFlusher = streamFlusher;
     }
 }
