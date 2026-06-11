@@ -16,7 +16,7 @@ namespace SimpleL7Proxy.StreamProcessor
             @"""(?:[uU]sage|[uU]sage[mM]etadata)"":\s*(\{(?:[^{}]|(?<open>\{)|(?<-open>\}))*(?(open)(?!))\})",
             RegexOptions.Singleline | RegexOptions.Compiled);
 
-        protected override int MaxLines => 10;
+        protected override int MaxLines => 50;
         protected override int MinLineLength => 1;
 
         /// <summary>
