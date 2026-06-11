@@ -16,8 +16,8 @@ namespace SimpleL7Proxy.DTO
         public Guid Guid { get; set; }
         public List<Dictionary<string, string>> IncompleteRequests { get; set; }
         public int AsyncBlobAccessTimeoutSecs { get; set; }
-        public int BackendAttempts { get; set; }
-        public int TotalDownstreamAttempts { get; set; }
+        public int LifetimeBackendAttempts { get; set; }
+        public int LifetimePolicyCycleCounter { get; set; }
         public int Priority { get; set; }
         public int Priority2 { get; set; }
         public int Timeout { get; set; }
@@ -36,7 +36,8 @@ namespace SimpleL7Proxy.DTO
         public RequestDataDtoV1(RequestData data)
         {
             AsyncBlobAccessTimeoutSecs = data.AsyncBlobAccessTimeoutSecs;
-            BackendAttempts = data.BackendAttempts;
+            LifetimeBackendAttempts = data.LifetimeBackendAttempts;
+            LifetimePolicyCycleCounter = data.LifetimePolicyCycleCounter;
             BlobContainerName = data.BlobContainerName;
             DequeueTime = data.DequeueTime;
             EnqueueTime = data.EnqueueTime;
@@ -55,7 +56,6 @@ namespace SimpleL7Proxy.DTO
             SBTopicName = data.SBTopicName;
             Timeout = data.Timeout;
             Timestamp = data.Timestamp;
-            TotalDownstreamAttempts = data.TotalDownstreamAttempts;
             UserID = data.UserID;
 
             // Convert WebHeaderCollection to Dictionary
@@ -139,7 +139,10 @@ namespace SimpleL7Proxy.DTO
 
             data.Populate(Guid.ToString(), Guid, MID, Path, Method, Timestamp, Headers);
             data.AsyncBlobAccessTimeoutSecs = this.AsyncBlobAccessTimeoutSecs;
-            data.BackendAttempts = this.BackendAttempts;
+            data.LifetimeBackendAttempts = this.LifetimeBackendAttempts;
+            data.BackendAttempts = 0;
+            data.LifetimePolicyCycleCounter = this.LifetimePolicyCycleCounter;
+            data.PolicyCycleCounter = 0;
             data.BlobContainerName = BlobContainerName;
             data.DequeueTime = DequeueTime;
             data.EnqueueTime = EnqueueTime;
@@ -153,7 +156,6 @@ namespace SimpleL7Proxy.DTO
             data.Requeued = Requeued;
             data.SBTopicName = SBTopicName;
             data.Timeout = Timeout;
-            data.TotalDownstreamAttempts = this.TotalDownstreamAttempts;
             data.UserID = UserID;
             data.EventData = this.ProxyEvent.ToProxyEvent();
 

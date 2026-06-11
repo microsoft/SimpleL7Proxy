@@ -1,5 +1,20 @@
 # Release Notes #
 
+2.2.13.1
+
+Proxy:
+* Clarify counter semantics and requeue behavior:
+    LifetimeBackendAttempts, LifetimePolicyCycleCounter never reset
+    LifetimeBackendAttempts increments by 1 on every APIM call
+    LifetimePolicyCycleCounter increments by delta of PolicyCycleCounter
+    On requeue and restore:
+        Attempts reset
+        PolicyCycleCounter reset
+        incompleteRequests cleared
+    incompleteRequests is appended on failure
+    Backup/restore preserves lifetime counters
+
+
 2.2.13
 
 Proxy:
