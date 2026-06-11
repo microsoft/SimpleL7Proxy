@@ -218,10 +218,12 @@ public class ProxyConfig
     // ── Server ──
     [ConfigOption("Server:GC2InternalSecs", ConfigName = "GC2InternalSecs", Mode = ConfigMode.Cold)]
     public int GC2InternalSecs { get; set; } = 300; // 5 minutes
+    [ConfigOption("Server:StreamFlushInterval", ConfigName = "StreamFlushInterval", Mode = ConfigMode.Cold)]
+    public int StreamFlushInterval { get; set; } = 250; // 250 milliseconds
     [ConfigOption("Server:MaxQueueLength", Mode = ConfigMode.Cold)]
     public int MaxQueueLength { get; set; } = 1000;
     [ConfigOption("Server:MaxUndrainedEvents", ConfigName = "EVENTHUB_MAX_UNDRAINED_EVENTS", Mode = ConfigMode.Cold)]
-    public int MaxUndrainedEvents { get; set; } = 100;
+    public int MaxUndrainedEvents { get; set; } = 10000;
     [ConfigOption("Server:PollInterval", Mode = ConfigMode.Cold)]
     public int PollInterval { get; set; } = 15000;
     [ConfigOption("Server:PollTimeout", Mode = ConfigMode.Cold)]

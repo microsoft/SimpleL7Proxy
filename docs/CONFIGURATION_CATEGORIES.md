@@ -200,6 +200,7 @@ Per-host auth should be configured in `HostN` connection strings using `useoauth
 | Env Var | Property | Mode | Default | Purpose |
 |---------|----------|------|---------|---------|
 | `GC2InternalSecs` | `GC2InternalSecs` | Cold | `300` s | Garbage collection internal cleanup interval |
+| `StreamFlushInterval` | `StreamFlushInterval` | Cold | `250` ms | Interval used by StreamFlusher to flush active response streams |
 | `SharedIteratorTTLSeconds` | `SharedIteratorTTLSeconds` | Cold | `60` s | TTL for an unused shared iterator |
 | `SharedIteratorCleanupIntervalSeconds` | `SharedIteratorCleanupIntervalSeconds` | Cold | `30` s | Shared iterator cleanup frequency |
 | `TERMINATION_GRACE_PERIOD_SECONDS` | `TerminationGracePeriodSeconds` | Cold | `30` s | Graceful shutdown drain window |
