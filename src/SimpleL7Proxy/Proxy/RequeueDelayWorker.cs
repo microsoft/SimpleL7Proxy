@@ -73,6 +73,10 @@ public class RequeueDelayWorker : IRequeueWorker, IShutdownParticipant, IDisposa
 
                 request.SBStatus = ServiceBusMessageStatusEnum.Requeued;
 
+                request.PolicyCycleCounter = 0;
+                request.incompleteRequests = [];
+                request.BackendAttempts = 0;
+
                 // Requeue the request
                 _logger.LogCritical("Requeued request, Pri: {Priority}, Expires-At: {ExpiresAt}, GUID: {Guid}",
                     request.Priority, request.ExpiresAtString, request.Guid);

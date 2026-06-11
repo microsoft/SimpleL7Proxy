@@ -52,6 +52,7 @@ public static class ConfigParser
         ("PriorityValues", "PriorityValues"),
         ("RequiredHeaders", "RequiredHeaders"),
         ("RequestPreprocessorPlugins", "RequestPreprocessorPlugins"),
+        // ("ResetPolicyCounterOnRequeue", "ResetPolicyCounterOnRequeue"),
         ("SharedIteratorCleanupIntervalSeconds", "SharedIteratorCleanupIntervalSeconds"),
         ("SharedIteratorTTLSeconds", "SharedIteratorTTLSeconds"),
         ("StorageDbContainerName", "StorageDbContainerName"),
