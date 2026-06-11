@@ -13,6 +13,12 @@ if [[ -f "${SCRIPT_DIR}/deploy.parameters.sh" ]]; then
     source "${SCRIPT_DIR}/deploy.parameters.sh"
 fi
 
+# Load derived values (computed from parameters)
+if [[ -f "${SCRIPT_DIR}/deploy.derived.sh" ]]; then
+    # shellcheck source=deploy.derived.sh
+    source "${SCRIPT_DIR}/deploy.derived.sh"
+fi
+
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
