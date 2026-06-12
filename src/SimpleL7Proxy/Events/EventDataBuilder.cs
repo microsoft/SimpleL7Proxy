@@ -77,6 +77,9 @@ public class EventDataBuilder
         eventData["TTFB-Latency"] = timeTaken.TotalMilliseconds.ToString("F3");
         eventData["Total-Latency"] = timeTaken.TotalMilliseconds.ToString("F3");
         eventData["Attempts"] = request.BackendAttempts.ToString();
+        eventData["Lifetime-Attempts"]         = request.LifetimeBackendAttempts.ToString();
+        eventData["Policy-Cycle-Counter"]      = request.PolicyCycleCounter.ToString();
+        eventData["Lifetime-Policy-Counter"]   = request.LifetimePolicyCycleCounter.ToString(); 
 
         if (proxyData != null)
         {

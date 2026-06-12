@@ -1,5 +1,8 @@
 # Release Notes #
 
+2.2.13.2
+Added Lifetime-Attempts, Policy-Cycle-Counter, Lifetime-Policy-Counter to Event Data
+
 2.2.13.1
 
 Proxy:
