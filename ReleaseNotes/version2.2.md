@@ -1,5 +1,10 @@
 # Release Notes #
 
+2.2.13.2
+
+Proxy:
+* Update the default for the console to not log custom events
+
 2.2.13.1
 
 Proxy:

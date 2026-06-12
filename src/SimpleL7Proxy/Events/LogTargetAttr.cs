@@ -46,28 +46,50 @@ public class LogTargetAttr
     /// <summary>
     /// Creates a <see cref="LogTargetAttr"/> from a config list.
     /// A list containing "*" enables all event types.
+    /// An entry prefixed with "-" excludes that event type, even when "*" is present
+    /// (e.g. ["*","-custom"] enables everything except CustomEvent).
     /// </summary>
     public static LogTargetAttr From(List<string>? configList)
     {
         var list = configList ?? [];
         bool all = list.Contains("*");
-        var set = all ? null : new HashSet<string>(list, StringComparer.OrdinalIgnoreCase);
+
+        var includes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var excludes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in list)
+        {
+            if (string.IsNullOrWhiteSpace(item) || item == "*")
+            {
+                continue;
+            }
+
+            if (item.StartsWith('-'))
+            {
+                excludes.Add(item[1..]);
+            }
+            else
+            {
+                includes.Add(item);
+            }
+        }
+
+        bool On(string key) => (all || includes.Contains(key)) && !excludes.Contains(key);
 
         return new LogTargetAttr
         {
-            Async            = all || set!.Contains("async"),
-            BackendRequest   = all || set!.Contains("backend"),
-            Probe            = all || set!.Contains("probe"),
-            Poller           = all || set!.Contains("poller"),  
-            CircuitBreakerError = all || set!.Contains("circuitbreaker"),
-            Console          = all || set!.Contains("console"),
-            CustomEvent      = all || set!.Contains("custom"),
-            Exception        = all || set!.Contains("exception"),
-            ProfileError     = all || set!.Contains("profile"),
-            ProxyRequest     = all || set!.Contains("proxy"),
-            ProxyRequestEnqueued = all || set!.Contains("enqueued"),
-            Authentication   = all || set!.Contains("auth"),
-            Metric           = all || set!.Contains("metric"),
+            Async            = On("async"),
+            BackendRequest   = On("backend"),
+            Probe            = On("probe"),
+            Poller           = On("poller"),
+            CircuitBreakerError = On("circuitbreaker"),
+            Console          = On("console"),
+            CustomEvent      = On("custom"),
+            Exception        = On("exception"),
+            ProfileError     = On("profile"),
+            ProxyRequest     = On("proxy"),
+            ProxyRequestEnqueued = On("enqueued"),
+            Authentication   = On("auth"),
+            Metric           = On("metric"),
         };
     }
 
