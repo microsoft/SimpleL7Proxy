@@ -328,8 +328,6 @@ public class ProxyConfig
     public HttpClient? Client { get; set; }
     public bool HealthProbeSidecarEnabled { get; set; } = false;
     public string HealthProbeSidecarUrl { get; set; } = "http://localhost/9000";
-    public string ValidateAuthViaKeyHeader { get; set; } = "S7P-KEY";
-    public bool ValidateAuthViaKey { get; set; } = false;
     public List<HostConfig> Hosts { get; set; } = [];
     public Dictionary<int, int> PriorityWorkerDict { get; set; } = new() { { 2, 1 }, { 3, 1 } };
     public bool TrackWorkers { get; set; } = true;

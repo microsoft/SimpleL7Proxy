@@ -6,6 +6,8 @@ using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
 using System.Diagnostics;
 using System.Threading;
 using SimpleL7Proxy.Backend;
@@ -25,7 +27,7 @@ namespace SimpleL7Proxy;
 // This class represents a server that listens for HTTP requests and processes them.
 // It uses a priority queue to manage incoming requests and supports telemetry for monitoring.
 // If the incoming request has the S7PPriorityKey header, it will be assigned a priority based the S7PPriority header.
-public class Server :  BackgroundService, IConfigChangeSubscriber
+public class Server : BackgroundService, IConfigChangeSubscriber
 {
     //    private readonly IBackendOptions? _options;
     private readonly ProxyConfig _options;
@@ -43,6 +45,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
     private readonly ILogger<Server> _logger;
     private readonly IQueuedBlobWriter _blobWriter;
     private static bool _isShuttingDown = false;
+    private static readonly JsonWebTokenHandler s_tokenHandler = new();
     private readonly string _priorityHeaderName;
     private readonly HealthCheckService _healthService;
 
@@ -127,11 +130,11 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
             options => options.PollInterval
             ]);
 
-            // COLD OPTIONS (require restart, so not subscribed for live updates):
-            // options => options.Port,  
-            // options => options.UseProfiles,
-            // options => options.IDStr,
-            // options => options.CircuitBreakerTimeslice,   display only
+        // COLD OPTIONS (require restart, so not subscribed for live updates):
+        // options => options.Port,  
+        // options => options.UseProfiles,
+        // options => options.IDStr,
+        // options => options.CircuitBreakerTimeslice,   display only
 
         InitVars();
 
@@ -150,6 +153,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         // Server config is logged at startup in ExecuteAsync alongside the listening message
     }
 
+    IncomingAuthValidator _authValidator = new IncomingAuthValidator();
     public void InitVars()
     {
         // Recompute frozen sets from updated options
@@ -164,6 +168,9 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                 kvp.Value,
                 kvp.Key.StartsWith("S7", StringComparison.Ordinal) ? kvp.Key[2..] : kvp.Key))
             .ToArray();
+
+        _authValidator.Parse(_options.ValidateAuthConfig);
+
     }
 
     public Task OnConfigChangedAsync(
@@ -258,7 +265,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         var token = _probesCts.Token;
 
         await Run(token);
-    }  
+    }
 
     bool initialStartup = true;
     // Continuously listens for incoming HTTP requests and processes them.
@@ -315,17 +322,17 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                     {
                         var (probeType, code) = probePath switch
                         {
-                            Constants.Liveness  => ("Liveness",  await _probeServer.LivenessResponseAsync(lc)),
+                            Constants.Liveness => ("Liveness", await _probeServer.LivenessResponseAsync(lc)),
                             Constants.Readiness => ("Readiness", await _probeServer.ReadinessResponseAsync(lc)),
-                            _                   => ("Startup",   await _probeServer.StartupResponseAsync(lc)),
+                            _ => ("Startup", await _probeServer.StartupResponseAsync(lc)),
                         };
                         _probe.Uri = lc.Request.Url!;
                         _probe["ProbeType"] = probeType;
                         _probe["StatusCode"] = ((int)code).ToString();
-                        _probe.Status = code; 
+                        _probe.Status = code;
                         _probe.SendEvent();
 
-                        if (initialStartup )
+                        if (initialStartup)
                         {
                             if (code != HttpStatusCode.OK)
                                 _logger.LogInformation("[- PROBE] SERVICE NOT READY: {ProbeType} probe responded with {Code} during startup", probeType, code);
@@ -342,7 +349,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                     {
                         isprobe = true;
                     }
-                    
+
                     int priority = _options.DefaultPriority;
                     int userPriorityBoost = 0;
                     var notEnqued = false;
@@ -398,7 +405,8 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                     if (!notEnqued && !_isShuttingDown)
                     {
                         int eventCount = _probeServer.EventCount;
-                        if (eventCount > halfMaxEvents) {
+                        if (eventCount > halfMaxEvents)
+                        {
                             int ticks = eventCount / 100;
 
                             // add a delay in case the number of events is high
@@ -406,7 +414,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                 await ptimer.WaitForNextTickAsync(cancellationToken);
                         }
 
-                        if ( eventCount > maxEvents)
+                        if (eventCount > maxEvents)
                         {
                             notEnqued = true;
                             notEnquedCode = 429;
@@ -467,27 +475,53 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                         );
                                     }
                                 }
-                                else if (_options.ValidateAuthViaKey)
+                                else if (_authValidator.ValidateAuthViaKey)
                                 {
-                                    string? incomingKey = rd.Headers[_options.ValidateAuthViaKeyHeader];
-                                    bool isIncomingKeyValid =
-                                        !string.IsNullOrEmpty(incomingKey)
-                                        && (incomingKey == _options.ValidateAuthKey1 || incomingKey == _options.ValidateAuthKey2);
+                                    bool isValid = false;
+                                    string? incomingKey = rd.Headers[_authValidator.ValidateAuthViaKeyHeader]?.Trim();
+                                    string message = string.Empty;
+
+                                    if (_authValidator.ValidateAuthMode is IncomingAuthModeEnum.Mixed
+                                        or IncomingAuthModeEnum.Key)
+                                    {
+
+                                        (isValid, message) = ValidateAuthKey(incomingKey, message);
+                                        if (!isValid)
+                                        {
+                                            message = "Invalid Incoming Key: " + incomingKey + "\n";
+                                        }
+                                    }
+                                    if (!isValid && _authValidator.ValidateAuthMode is IncomingAuthModeEnum.Mixed
+                                        or IncomingAuthModeEnum.OAuth2)
+                                    {
+
+                                        if (!string.IsNullOrEmpty(incomingKey) &&
+                                            incomingKey.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            var token = incomingKey["Bearer ".Length..].Trim();
+                                            (isValid, message) = await ValidateBearerTokenAsync(token, message); // new validator you implement
+                                        }
+                                    }
+
+                                    if (!isValid && message == string.Empty )
+                                    {   
+                                        message = "Not Authorized";
+                                    }
 
                                     if (rd.Debug)
                                     {
-                                        if (incomingKey == null)
-                                            _logger.LogInformation("Incoming key is null.");
+                                        if (string.IsNullOrWhiteSpace(incomingKey))
+                                            _logger.LogInformation("Incoming key is null or empty.");
                                         else
-                                            _logger.LogInformation("Incoming key {IncomingKey} is {ValidationState}.", incomingKey, isIncomingKeyValid ? "valid" : "invalid");
+                                            _logger.LogInformation("Incoming key {IncomingKey} is {ValidationState}.", incomingKey, isValid ? "valid" : "invalid");
                                     }
 
-                                    if (!isIncomingKeyValid)
+                                    if (!isValid)
                                     {
                                         throw new ProxyErrorException(
                                             ProxyErrorException.ErrorType.DisallowedKey,
                                             HttpStatusCode.Forbidden,
-                                            "Invalid Incoming Key: " + incomingKey + "\n"
+                                            message
                                         );
                                     }
                                 }
@@ -538,8 +572,8 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                                 "User profile not found: " + requestUser + "\n"
                                             );
                                         }
-                                    } 
-                                    else if ( _options.UserConfigRequired)
+                                    }
+                                    else if (_options.UserConfigRequired)
                                     {
                                         throw new ProxyErrorException(
                                             ProxyErrorException.ErrorType.UnknownProfile,
@@ -800,9 +834,9 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
 
                                 if (!msg.Contains("Broken pipe") && !msg.Contains("Unable to write data to the transport connection"))
                                 {
-                                    _logger.LogError($"Request was not enqueue'd and got an error writing on network: {msg}");                               
+                                    _logger.LogError($"Request was not enqueue'd and got an error writing on network: {msg}");
                                 }
-                                    
+
                                 ed["ErrorWritingResponse"] = msg;
                             }
 
@@ -845,6 +879,60 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
             }
         }
 
-        _staticEvent.WriteOutput("[SHUTDOWN] ✓ HTTP server stopped");
+        _staticEvent.WriteOutput("[SHUTDOWN] ✓");
     }
+
+    private (bool isValid, string message) ValidateAuthKey(string? incomingKey, string message)
+    {
+        if (!string.IsNullOrEmpty(incomingKey) &&
+            (incomingKey == _options.ValidateAuthKey1 || incomingKey == _options.ValidateAuthKey2))
+        {
+            return (true, message);
+        }
+        else
+        {
+            if ( !message.StartsWith("Bearer ") ) 
+            {
+                message = "Invalid Auth Key:  " + incomingKey;
+            };
+            return (false, message);
+        }
+    }
+
+    private async Task<(bool isValid, string message)> ValidateBearerTokenAsync(string token, string message)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            message = "Token is null or whitespace";
+            return (false, message);
+        }
+
+        try
+        {
+            var result = await s_tokenHandler.ValidateTokenAsync(token, _authValidator.validationParameters).ConfigureAwait(false);
+            if (!result.IsValid)
+                return (false, message);
+
+            var claimMap = result.Claims
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value?.ToString(), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var expectedClaim in _authValidator.RequiredClaims)
+            {
+                if (!claimMap.TryGetValue(expectedClaim.Key, out var actualValue) ||
+                    !string.Equals(actualValue, expectedClaim.Value, StringComparison.OrdinalIgnoreCase))
+                {
+                    message = $"Claim {expectedClaim.Key} is not valid";
+                    return (false, message);
+                }
+            }
+
+            return (true, message);
+        }
+        catch (Exception ex)
+        {
+            message = "An error occurred while validating the token: " + ex.Message;
+            return (false, message);
+        }
+    }
+
 }

@@ -212,9 +212,9 @@ public static class ConfigParser
                 case nameof(ProxyConfig.ValidateHeaders):
                     ValidateHeaderSettings(backendOptions);
                     break;
-                case nameof(ProxyConfig.ValidateAuthConfig):
-                    ValidateAuthSettings(backendOptions);
-                    break;
+                //case nameof(ProxyConfig.ValidateAuthConfig):
+                //    ValidateAuthSettings(backendOptions);
+                //    break;
             }
         }
 
@@ -419,42 +419,12 @@ public static class ConfigParser
         }
     }
 
-    private static void ValidateAuthSettings(ProxyConfig backendOptions)
+private static void ValidateAuthSettings(ProxyConfig backendOptions)
     {
         // Keep derived key values in sync with top-level key settings.
         backendOptions.ValidateAuthKey1 = backendOptions.ValidateAuthKey1.ToLowerInvariant();
         backendOptions.ValidateAuthKey2 = backendOptions.ValidateAuthKey2.ToLowerInvariant();
-
-        if (string.IsNullOrWhiteSpace(backendOptions.ValidateAuthConfig))
-        {
-            backendOptions.ValidateAuthViaKey = false;
-            return;
-        }
-
-        var authSettings = KVStringPairs(ToListOfString(backendOptions.ValidateAuthConfig));
-
-        bool enabled = false;
-        string mode = "key";
-
-        if (authSettings.TryGetValue("enabled", out var enabledValue))
-        {
-            enabled = enabledValue.Equals("true", StringComparison.OrdinalIgnoreCase);
-        }
-
-        if (authSettings.TryGetValue("mode", out var modeValue) && !string.IsNullOrWhiteSpace(modeValue))
-        {
-            mode = modeValue.Trim();
-        }
-
-        if (authSettings.TryGetValue("header", out var headerValue) && !string.IsNullOrWhiteSpace(headerValue))
-        {
-            backendOptions.ValidateAuthViaKeyHeader = headerValue.Trim();
-        }
-
-        backendOptions.ValidateAuthViaKey =
-            enabled && mode.Equals("key", StringComparison.OrdinalIgnoreCase);
     }
-
     private static bool TryEvaluateMathExpression(string expression, out double result)
     {
         result = 0;
