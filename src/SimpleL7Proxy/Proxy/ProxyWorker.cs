@@ -1003,6 +1003,14 @@ public class ProxyWorker : IConfigChangeSubscriber
                     proxyRequest.Headers.Add("x-LifetimePolicyCycleCounter", request.LifetimePolicyCycleCounter.ToString());
                     ProxyHelperUtils.CopyHeaders(request.Headers, proxyRequest, true, s_stripRequestHeaders);
 
+                    // add S7PDEBUG back in if it was requested
+                    if ( request.Debug)
+                    {
+                        proxyRequest.Headers.Remove("S7PDEBUG");
+                        proxyRequest.Headers.Add("S7PDEBUG", "True");
+                    }
+
+
                     var contentType = request.Context?.Request.ContentType ?? "application/json";
                     if (!MediaTypeHeaderValue.TryParse(contentType, out var req_mediaType))
                     {
