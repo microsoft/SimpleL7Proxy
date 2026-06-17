@@ -496,7 +496,14 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                         if (string.IsNullOrWhiteSpace(incomingKey))
                                             _logger.LogInformation("Incoming key is null or empty.");
                                         else
-                                            _logger.LogInformation("Incoming key {IncomingKey} is {ValidationState}.", incomingKey, isValid ? "valid" : "invalid");
+                                        {
+                                            if (incomingKey.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                _logger.LogInformation("Incoming key {incomingKey} is a Bearer token.", incomingKey);
+                                            } 
+                                            else
+                                            _logger.LogInformation("Incoming key {incomingKey} is {ValidationState}.", incomingKey, isValid ? "valid" : "invalid");
+                                        }
                                     }
 
                                     if (!isValid)
