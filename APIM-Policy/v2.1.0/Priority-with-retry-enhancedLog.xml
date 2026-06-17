@@ -2,11 +2,12 @@
 =============================================================================
 Azure API Policy Template
 =============================================================================
-Version:	 2.1.0
+Version:	 2.2.0
 Mode:	 Standard
 Updated:	 2026-02-13
  
 KEY CHANGES:
+- When S7PDEBUG is true, additional debug information is logged.
 - Added context window exceeded error handling (routes to PAYGO, skips PTU)
 - Bugfix to support appropriate retries for streaming
 - Added affinity support, bugfix for 200 empty response
@@ -39,7 +40,7 @@ KEY CHANGES:
 		<set-variable name="PolicyCycleCounterHeaderName" value="x-PolicyCycleCounter" />
 		<set-variable name="AffinityHeaderName" value="x-backend-affinity" />
 		<choose>
-			<when condition="@(context.Variables.ContainsKey("listBackends") == false)">
+			<when condition="@(context.Variables.ContainsKey("listBackends") == false || context.Variables["listBackends"] == null)">
 				<set-variable name="listBackends" value="@{
 					JArray backends = new JArray();
 					string salt = "0123456789"; // 10-digit salt
@@ -75,7 +76,7 @@ KEY CHANGES:
 					backends.Add(new JObject()
 					{
 						{ "url", "https://nvm2.openai.azure.com/" },
-						{ "path", ""},
+						{ "path", "/openai"},
 						{ "priorityGroup", 2},
 						{ "label", "PAYGO" },
 						{ "acceptablePriorities", new JArray(1,2,3) }, // Acceptable priorities for this backend
@@ -210,7 +211,19 @@ KEY CHANGES:
 			return arr;
 		}" />
 
-			
+		<!-- Response headers (name -> value) to surface only when debugging is requested -->
+		<set-variable name="RespHeaders" value="@{
+			JObject respHeaders = new JObject();
+			string s7pdebug = context.Request.Headers.GetValueOrDefault("S7PDEBUG", "N/A").ToLowerInvariant();
+			if (s7pdebug == "true") {
+				respHeaders["x-Request-Queue-Duration"] = context.Request.Headers.GetValueOrDefault("x-Request-Queue-Duration", "N/A");
+				respHeaders["x-Request-Process-Duration"] = context.Request.Headers.GetValueOrDefault("x-Request-Process-Duration", "N/A");
+				respHeaders["x-S7PID"] = context.Request.Headers.GetValueOrDefault("x-S7P-ID", "N/A");
+			}
+			return respHeaders;
+		}" />
+
+
 	</inbound>
 	<!-- Control if and how the requests are forwarded to services  -->
 	<backend>
@@ -745,6 +758,7 @@ KEY CHANGES:
 
 						return 1000;
 					}" />
+
 					<!--<set-variable name="activityLog" value="@{
 						JArray arr = context.Variables.GetValueOrDefault<JArray>("activityLog", new JArray());
 						arr.Add(new JObject {
@@ -780,10 +794,14 @@ KEY CHANGES:
 						</set-header>
 						<set-header name="backendLog" exists-action="override">
 							<value>@{
+								JObject dbg = context.Variables.GetValueOrDefault<JObject>("RespHeaders", new JObject());
+								string dbgStr = string.Join(" | ", dbg.Properties().Select(p => p.Name + "=" + p.Value));
+
 								JArray actLog = context.Variables.GetValueOrDefault<JArray>("activityLog", new JArray());
 								string result = string.Join(" | ", actLog.Select(entry => 
 									((JObject)entry).Value<string>("Elapsed") + "s " + ((JObject)entry).Value<string>("message")
 								));
+								result = string.IsNullOrEmpty(dbgStr) ? result : dbgStr + " | " + result;
 								return result.Length > 4000 ? result.Substring(0, 4000) + "..." : result;
 							}</value>
 						</set-header>
@@ -802,10 +820,14 @@ KEY CHANGES:
 						</set-header>
 						<set-header name="backendLog" exists-action="override">
 							<value>@{
+								JObject dbg = context.Variables.GetValueOrDefault<JObject>("RespHeaders", new JObject());
+								string dbgStr = string.Join(" | ", dbg.Properties().Select(p => p.Name + "=" + p.Value));
+
 								JArray actLog = context.Variables.GetValueOrDefault<JArray>("activityLog", new JArray());
 								string result = string.Join(" | ", actLog.Select(entry => 
 									((JObject)entry).Value<string>("Elapsed") + " " + ((JObject)entry).Value<string>("message")
 								));
+								result = string.IsNullOrEmpty(dbgStr) ? result : dbgStr + " | " + result;
 								return result.Length > 4000 ? result.Substring(0, 4000) + "..." : result;
 							}</value>
 						</set-header>
@@ -831,10 +853,14 @@ KEY CHANGES:
 		</set-header>
 		<set-header name="backendLog" exists-action="override">
 			<value>@{
+				JObject dbg = context.Variables.GetValueOrDefault<JObject>("RespHeaders", new JObject());
+				string dbgStr = string.Join(" | ", dbg.Properties().Select(p => p.Name + "=" + p.Value));
+
 				JArray actLog = context.Variables.GetValueOrDefault<JArray>("activityLog", new JArray());
 				string result = string.Join(" | ", actLog.Select(entry => 
 					((JObject)entry).Value<string>("Elapsed") + "s " + ((JObject)entry).Value<string>("message")
 				));
+				result = string.IsNullOrEmpty(dbgStr) ? result : dbgStr + " | " + result;
 				return result.Length > 4000 ? result.Substring(0, 4000) + "..." : result;
 			}</value>
 		</set-header>
