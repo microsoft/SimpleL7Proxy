@@ -1,14 +1,14 @@
-using System.Net;
-using System.Text.Json;
-using System.Collections.Frozen;
 using Microsoft.ApplicationInsights.DataContracts;
-using Microsoft.Extensions.Options;
-using System.Collections.Concurrent;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
+using System.Collections.Concurrent;
+using System.Collections.Frozen;
 using System.Diagnostics;
+using System.Net;
+using System.Text.Json;
 using System.Threading;
 using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Async.BlobStorage;
@@ -45,7 +45,10 @@ public class Server : BackgroundService, IConfigChangeSubscriber
     private readonly ILogger<Server> _logger;
     private readonly IQueuedBlobWriter _blobWriter;
     private static bool _isShuttingDown = false;
+
+    IncomingAuthValidator _authValidator = new IncomingAuthValidator();
     private static readonly JsonWebTokenHandler s_tokenHandler = new();
+
     private readonly string _priorityHeaderName;
     private readonly HealthCheckService _healthService;
 
@@ -153,7 +156,6 @@ public class Server : BackgroundService, IConfigChangeSubscriber
         // Server config is logged at startup in ExecuteAsync alongside the listening message
     }
 
-    IncomingAuthValidator _authValidator = new IncomingAuthValidator();
     public void InitVars()
     {
         // Recompute frozen sets from updated options
@@ -322,9 +324,9 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                     {
                         var (probeType, code) = probePath switch
                         {
-                            Constants.Liveness => ("Liveness", await _probeServer.LivenessResponseAsync(lc)),
+                            Constants.Liveness  => ("Liveness",  await _probeServer.LivenessResponseAsync(lc)),
                             Constants.Readiness => ("Readiness", await _probeServer.ReadinessResponseAsync(lc)),
-                            _ => ("Startup", await _probeServer.StartupResponseAsync(lc)),
+                            _                   => ("Startup",   await _probeServer.StartupResponseAsync(lc)),
                         };
                         _probe.Uri = lc.Request.Url!;
                         _probe["ProbeType"] = probeType;
@@ -349,7 +351,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                     {
                         isprobe = true;
                     }
-
+                    
                     int priority = _options.DefaultPriority;
                     int userPriorityBoost = 0;
                     var notEnqued = false;
@@ -454,35 +456,16 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                             try
                             {
                                 rd.Debug = rd.Headers["S7PDEBUG"] != null && string.Equals(rd.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase);
+                                string? authAppID = rd.Headers[_options.ValidateAuthAppIDHeader];
 
-                                if (_options.ValidateAuthAppID)
-                                {
-                                    string? authAppID = rd.Headers[_options.ValidateAuthAppIDHeader];
-                                    if (!string.IsNullOrEmpty(authAppID) && _userProfile.IsAuthAppIDValid(authAppID))
-                                    {
-                                        if (rd.Debug)
-                                            _logger.LogInformation("AuthAppID {AuthAppID} is valid.", rd.Headers[_options.ValidateAuthAppIDHeader]);
-                                    }
-                                    else
-                                    {
-                                        if (rd.Debug)
-                                            _logger.LogInformation("AuthAppID {AuthAppID} is invalid.", rd.Headers[_options.ValidateAuthAppIDHeader]);
-
-                                        throw new ProxyErrorException(
-                                            ProxyErrorException.ErrorType.DisallowedAppID,
-                                            HttpStatusCode.Forbidden,
-                                            "Invalid AuthAppID: " + rd.Headers[_options.ValidateAuthAppIDHeader] + "\n"
-                                        );
-                                    }
-                                }
-                                else if (_authValidator.ValidateAuthViaKey)
+                                if (_authValidator.ValidateAuthViaKey)
                                 {
                                     bool isValid = false;
                                     string? incomingKey = rd.Headers[_authValidator.ValidateAuthViaKeyHeader]?.Trim();
                                     string message = string.Empty;
 
-                                    if (_authValidator.ValidateAuthMode is IncomingAuthModeEnum.Mixed
-                                        or IncomingAuthModeEnum.Key)
+                                    // check api-key = value
+                                    if (_authValidator.ValidateAuthMode is IncomingAuthModeEnum.Mixed or IncomingAuthModeEnum.Key)
                                     {
 
                                         (isValid, message) = ValidateAuthKey(incomingKey, message);
@@ -491,15 +474,15 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                             message = "Invalid Incoming Key: " + incomingKey + "\n";
                                         }
                                     }
-                                    if (!isValid && _authValidator.ValidateAuthMode is IncomingAuthModeEnum.Mixed
-                                        or IncomingAuthModeEnum.OAuth2)
+
+                                    if (!isValid && _authValidator.ValidateAuthMode is IncomingAuthModeEnum.Mixed or IncomingAuthModeEnum.OAuth2)
                                     {
 
                                         if (!string.IsNullOrEmpty(incomingKey) &&
                                             incomingKey.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
                                         {
                                             var token = incomingKey["Bearer ".Length..].Trim();
-                                            (isValid, message) = await ValidateBearerTokenAsync(token, message); // new validator you implement
+                                            (isValid, message, authAppID) = await ValidateBearerTokenAsync(token, message); // new validator you implement
                                         }
                                     }
 
@@ -522,6 +505,26 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                             ProxyErrorException.ErrorType.DisallowedKey,
                                             HttpStatusCode.Forbidden,
                                             message
+                                        );
+                                    }
+                                }
+
+                                if (_options.ValidateAuthAppID)
+                                {
+                                    if (!string.IsNullOrEmpty(authAppID) && _userProfile.IsAuthAppIDValid(authAppID))
+                                    {
+                                        if (rd.Debug)
+                                            _logger.LogInformation("AuthAppID {AuthAppID} is valid.", rd.Headers[_options.ValidateAuthAppIDHeader]);
+                                    }
+                                    else
+                                    {
+                                        if (rd.Debug)
+                                            _logger.LogInformation("AuthAppID {AuthAppID} is invalid.", rd.Headers[_options.ValidateAuthAppIDHeader]);
+
+                                        throw new ProxyErrorException(
+                                            ProxyErrorException.ErrorType.DisallowedAppID,
+                                            HttpStatusCode.Forbidden,
+                                            "Invalid AuthAppID: " + rd.Headers[_options.ValidateAuthAppIDHeader] + "\n"
                                         );
                                     }
                                 }
@@ -866,7 +869,19 @@ public class Server : BackgroundService, IConfigChangeSubscriber
             }
             catch (IOException ioEx)
             {
-                ed.WriteOutput($"An IO exception occurred: {ioEx.Message}");
+                // During shutdown, the listener can be stopped while a request is still
+                // being drained. Treat this as a normal termination path instead of a
+                // fatal worker exception.
+                _logger.LogDebug(ioEx, "IO exception while draining request loop");
+                ed?.WriteOutput($"An IO exception occurred: {ioEx.Message}");
+            }
+            catch (HttpListenerException) when (cancellationToken.IsCancellationRequested || _isShuttingDown)
+            {
+                break;
+            }
+            catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested || _isShuttingDown)
+            {
+                break;
             }
             catch (OperationCanceledException)
             {
@@ -899,39 +914,58 @@ public class Server : BackgroundService, IConfigChangeSubscriber
         }
     }
 
-    private async Task<(bool isValid, string message)> ValidateBearerTokenAsync(string token, string message)
+    private async Task<(bool isValid, string message, string appid)> ValidateBearerTokenAsync(string token, string message)
     {
+        var appid = string.Empty;
+
         if (string.IsNullOrWhiteSpace(token))
         {
-            message = "Token is null or whitespace";
-            return (false, message);
+            return (false, "Token is null or whitespace", appid);
         }
 
         try
         {
             var result = await s_tokenHandler.ValidateTokenAsync(token, _authValidator.validationParameters).ConfigureAwait(false);
             if (!result.IsValid)
-                return (false, message);
+            {
+                var detail = result.Exception switch
+                {
+                    SecurityTokenExpiredException => "expired token",
+                    SecurityTokenInvalidAudienceException => "invalid audience",
+                    SecurityTokenInvalidIssuerException => "invalid issuer",
+                    SecurityTokenInvalidSignatureException => "invalid signature",
+                    _ => "token validation failed"
+                };
+
+                _logger.LogError($"Invalid token: {detail}");
+                return (false, $"Invalid token: {detail}\n", appid);
+            }
 
             var claimMap = result.Claims
                 .ToDictionary(kvp => kvp.Key, kvp => kvp.Value?.ToString(), StringComparer.OrdinalIgnoreCase);
+
+            appid = claimMap.TryGetValue("appid", out var appIdValue) && !string.IsNullOrWhiteSpace(appIdValue)
+                ? appIdValue
+                : claimMap.TryGetValue("appId", out appIdValue) && !string.IsNullOrWhiteSpace(appIdValue)
+                    ? appIdValue
+                    : claimMap.TryGetValue("azp", out appIdValue) && !string.IsNullOrWhiteSpace(appIdValue)
+                        ? appIdValue
+                        : string.Empty;
 
             foreach (var expectedClaim in _authValidator.RequiredClaims)
             {
                 if (!claimMap.TryGetValue(expectedClaim.Key, out var actualValue) ||
                     !string.Equals(actualValue, expectedClaim.Value, StringComparison.OrdinalIgnoreCase))
                 {
-                    message = $"Claim {expectedClaim.Key} is not valid";
-                    return (false, message);
+                    return (false, $"Claim {expectedClaim.Key} is not valid", appid);
                 }
             }
 
-            return (true, message);
+            return (true, message, appid);
         }
         catch (Exception ex)
         {
-            message = "An error occurred while validating the token: " + ex.Message;
-            return (false, message);
+            return (false, "An error occurred while validating the token: " + ex.Message, appid);
         }
     }
 
