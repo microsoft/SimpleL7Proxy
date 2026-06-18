@@ -555,6 +555,22 @@ public class ProxyWorker : IConfigChangeSubscriber
                             if (workerState != "Cleanup")
                                 eventData["WorkerState"] = workerState;
 
+                            // Close the response output stream now so Total-Latency captures
+                            // the full proxy-side send time, including the final TCP flush.
+                            // Stamp AFTER close, BEFORE Cleanup()/SendEvent().
+                            if (!incomingRequest.AsyncTriggered && incomingRequest.Context != null)
+                            {
+                                try
+                                {
+                                    incomingRequest.Context.Response.OutputStream.Close();
+                                }
+                                catch (Exception)
+                                {
+                                    // Stream may already be closed/disposed — safe to ignore.
+                                }
+                            }
+                            _eventDataBuilder.StampFinalLatency(incomingRequest);
+
                             incomingRequest.Cleanup();
 
                             try

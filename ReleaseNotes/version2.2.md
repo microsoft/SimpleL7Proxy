@@ -1,6 +1,7 @@
 # Release Notes #
 
 2.2.13.2
+Added Lifetime-Attempts, Policy-Cycle-Counter, Lifetime-Policy-Counter to Event Data
 
 Proxy:
 * Update the default for the console to not log custom events

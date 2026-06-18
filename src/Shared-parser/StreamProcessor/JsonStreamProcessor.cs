@@ -92,7 +92,6 @@ namespace SimpleL7Proxy.StreamProcessor
                             currentIndex = (currentIndex + 1) % MaxLines; // Wrap around
                             lineCount++;
                         }
-
                         await t.ConfigureAwait(false);
                     }
                     
@@ -159,7 +158,7 @@ namespace SimpleL7Proxy.StreamProcessor
                         _logger?.LogDebug("Searching for usage and background request patterns in last lines");
                         
                         // Loop through lines starting from most recent, going backwards
-                        for (int i = 0; i < validLines.Length; i++)
+                        for (int i = validLines.Length - 1; i >= 0; i--)
                         {
                             var line = validLines[i];
                             if (line.IndexOf("usage", StringComparison.OrdinalIgnoreCase) >= 0)
