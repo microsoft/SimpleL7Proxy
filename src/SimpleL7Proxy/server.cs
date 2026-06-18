@@ -462,48 +462,36 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                 {
                                     bool isValid = false;
                                     string? incomingKey = rd.Headers[_authValidator.ValidateAuthViaKeyHeader]?.Trim();
+                                    bool isBearer = incomingKey != null && incomingKey.StartsWith("Bearer", StringComparison.OrdinalIgnoreCase);
                                     string message = string.Empty;
-
-                                    // check api-key = value
-                                    if (_authValidator.ValidateAuthMode is IncomingAuthModeEnum.Mixed or IncomingAuthModeEnum.Key)
-                                    {
-
-                                        (isValid, message) = ValidateAuthKey(incomingKey, message);
-                                        if (!isValid)
-                                        {
-                                            message = "Invalid Incoming Key: " + incomingKey + "\n";
-                                        }
-                                    }
-
-                                    if (!isValid && _authValidator.ValidateAuthMode is IncomingAuthModeEnum.Mixed or IncomingAuthModeEnum.OAuth2)
-                                    {
-
-                                        if (!string.IsNullOrEmpty(incomingKey) &&
-                                            incomingKey.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            var token = incomingKey["Bearer ".Length..].Trim();
-                                            (isValid, message, authAppID) = await ValidateBearerTokenAsync(token, message); // new validator you implement
-                                        }
-                                    }
-
-                                    if (!isValid && message == string.Empty )
-                                    {   
-                                        message = "Not Authorized";
-                                    }
+                                    var authMode = _authValidator.ValidateAuthMode;
 
                                     if (rd.Debug)
                                     {
-                                        if (string.IsNullOrWhiteSpace(incomingKey))
-                                            _logger.LogInformation("Incoming key is null or empty.");
-                                        else
+                                        _logger.LogInformation($"[{rd.MID}] Auth Length: {incomingKey?.Length ?? 0} isBearer: {isBearer}");
+                                    }
+
+                                    if (incomingKey is null)
+                                    {
+                                        message = "Not Authorized : No auth provided";
+                                    }
+                                    else if (isBearer && authMode is IncomingAuthModeEnum.Mixed or IncomingAuthModeEnum.OAuth2)
+                                    {
+                                        var token = incomingKey["Bearer".Length..].Trim();
+                                        (isValid, message, authAppID) = await ValidateBearerTokenAsync(token, message);
+                                    }
+                                    else if (authMode is IncomingAuthModeEnum.Mixed or IncomingAuthModeEnum.Key)
+                                    {
+                                        (isValid, message) = ValidateAuthKey(incomingKey, message);
+                                        if (!isValid)
                                         {
-                                            if (incomingKey.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-                                            {
-                                                _logger.LogInformation("Incoming key {incomingKey} is a Bearer token.", incomingKey);
-                                            } 
-                                            else
-                                            _logger.LogInformation("Incoming key {incomingKey} is {ValidationState}.", incomingKey, isValid ? "valid" : "invalid");
+                                            message = "Invalid Auth Key: " + incomingKey;
                                         }
+                                    }
+
+                                    if (!isValid && string.IsNullOrEmpty(message))
+                                    {
+                                        message = "Not Authorized";
                                     }
 
                                     if (!isValid)
@@ -521,7 +509,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                     if (!string.IsNullOrEmpty(authAppID) && _userProfile.IsAuthAppIDValid(authAppID))
                                     {
                                         if (rd.Debug)
-                                            _logger.LogInformation("AuthAppID {AuthAppID} is valid.", rd.Headers[_options.ValidateAuthAppIDHeader]);
+                                            _logger.LogInformation($"[{rd.MID}] AuthAppID {authAppID} is valid.");
                                     }
                                     else
                                     {
@@ -531,7 +519,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                         throw new ProxyErrorException(
                                             ProxyErrorException.ErrorType.DisallowedAppID,
                                             HttpStatusCode.Forbidden,
-                                            "Invalid AuthAppID: " + rd.Headers[_options.ValidateAuthAppIDHeader] + "\n"
+                                            "Invalid AuthAppID: " + rd.Headers[_options.ValidateAuthAppIDHeader]
                                         );
                                     }
                                 }
@@ -579,7 +567,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                             throw new ProxyErrorException(
                                                 ProxyErrorException.ErrorType.UnknownProfile,
                                                 HttpStatusCode.Forbidden,
-                                                "User profile not found: " + requestUser + "\n"
+                                                "User profile not found: " + requestUser
                                             );
                                         }
                                     }
@@ -588,7 +576,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                         throw new ProxyErrorException(
                                             ProxyErrorException.ErrorType.UnknownProfile,
                                             HttpStatusCode.Forbidden,
-                                            "User profile not found: " + requestUser + "\n"
+                                            "User profile not found: " + requestUser
                                         );
                                     }
                                 }
@@ -777,7 +765,17 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                 notEnqued = true;
                                 notEnquedCode = (int)e.StatusCode;
 
-                                logmsg = retrymsg = ed["Message"] = e.Message;
+                                logmsg = ed["Message"] = e.Message;
+                                retrymsg = logmsg + "\n";
+                            }
+                            catch (Exception e)
+                            {
+                                notEnqued = true;
+                                notEnquedCode = 500;
+
+                                logmsg = ed["Message"] = "An unexpected error occurred.";
+                                retrymsg = logmsg + "\n";
+                                _logger.LogError(e.StackTrace);
                             }
                         }   // end of allowed to proccess check
                     }
@@ -825,11 +823,12 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                             ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
 
                             if (!_isShuttingDown)
-                                _logger.LogError($"{logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}");
+                                _logger.LogError($"[{rd.MID}] {logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}");
 
                             try
                             {
                                 rd.Context.Response.StatusCode = notEnquedCode;
+                                rd.Context.Response.Headers["S7P-ID"] = rd.MID.ToString();
                                 ed["Retry-After"] = rd.Context.Response.Headers["Retry-After"] = (_backends.ActiveHostCount() == 0) ? _options.PollInterval.ToString() : "500";
 
                                 using (var writer = new System.IO.StreamWriter(rd.Context.Response.OutputStream))
@@ -896,7 +895,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
             }
             catch (Exception e)
             {
-                _logger.LogError(e, "An error occurred");
+                _logger.LogError(e.StackTrace);
                 _staticEvent.WriteOutput($"Error: {e.Message}\n{e.StackTrace}");
             }
         }
@@ -907,18 +906,18 @@ public class Server : BackgroundService, IConfigChangeSubscriber
     private (bool isValid, string message) ValidateAuthKey(string? incomingKey, string message)
     {
         if (!string.IsNullOrEmpty(incomingKey) &&
-            (incomingKey == _options.ValidateAuthKey1 || incomingKey == _options.ValidateAuthKey2))
+            (string.Equals(incomingKey, _options.ValidateAuthKey1, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(incomingKey, _options.ValidateAuthKey2, StringComparison.OrdinalIgnoreCase)))
         {
             return (true, message);
         }
-        else
+
+        if (!message.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
         {
-            if ( !message.StartsWith("Bearer ") ) 
-            {
-                message = "Invalid Auth Key:  " + incomingKey;
-            };
-            return (false, message);
+            message = "Invalid Auth Key:  " + incomingKey;
         }
+
+        return (false, message);
     }
 
     private async Task<(bool isValid, string message, string appid)> ValidateBearerTokenAsync(string token, string message)
@@ -927,7 +926,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
 
         if (string.IsNullOrWhiteSpace(token))
         {
-            return (false, "Token is null or whitespace", appid);
+            return (false, "No token provided", appid);
         }
 
         try
@@ -944,8 +943,8 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                     _ => "token validation failed"
                 };
 
-                _logger.LogError($"Invalid token: {detail}");
-                return (false, $"Invalid token: {detail}\n", appid);
+                //_logger.LogError($"Invalid token: {detail}");
+                return (false, $"Invalid Auth: {detail}", appid);
             }
 
             var claimMap = result.Claims
@@ -972,6 +971,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, $"An error occurred while validating the token: {ex.Message}");
             return (false, "An error occurred while validating the token: " + ex.Message, appid);
         }
     }
