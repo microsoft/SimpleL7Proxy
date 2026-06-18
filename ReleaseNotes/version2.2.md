@@ -10,7 +10,7 @@ Proxy:
 * improve auth token parsing edge cases
 * default to priorities high, medium, low
 * preserve X-Forwarded-For if present, else set to remoteIP
-* Accept Host-<name> formatted hostnames
+* Accept Host_<name> formatted hostnames
 
 
 APIM Policy:
