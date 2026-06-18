@@ -1,5 +1,28 @@
 # Release Notes #
 
+2.2.14
+
+Proxy:
+* Check for OAuth or api-key for authentication
+* Send S7PDEBUG to backend if debug is turned on
+* Don't log the auth token if debug is turned on
+* catch unexpected errors
+* improve auth token parsing edge cases
+* default to priorities high, medium, low
+* preserve X-Forwarded-For if present, else set to remoteIP
+* Accept Host-<name> formatted hostnames
+
+
+APIM Policy:
+* Added v2.2.0
+* If S7PDEBUG is true, return quque-duration and process-duration in backendlog 
+
+chat tester:
+* initial version
+* chat test with different models
+* authentication with api-key or OAuth
+* burst tester
+
 2.2.13.2
 
 Proxy:

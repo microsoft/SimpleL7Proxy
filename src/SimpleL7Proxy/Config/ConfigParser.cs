@@ -293,28 +293,33 @@ public static class ConfigParser
                 return false;
             }
 
-            var indexStart = "Host".Length;
-            var indexEnd = indexStart;
-            while (indexEnd < value.Length && char.IsDigit(value[indexEnd]))
+            // Strip a recognized api-key suffix (e.g. "Host1-api-key", "Host-eastus-api-key").
+            var core = value;
+            string[] apiKeySuffixes = ["-api-key", "_api_key", "-api_key", "_api-key"];
+            foreach (var apiKeySuffix in apiKeySuffixes)
             {
-                indexEnd++;
+                if (core.EndsWith(apiKeySuffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    core = core[..^apiKeySuffix.Length];
+                    break;
+                }
             }
 
-            if (indexEnd == indexStart)
+            var token = core["Host".Length..];
+            if (token.Length == 0)
             {
-                return false;
+                return false; // bare "Host" (or "Host-api-key") is not a host variant
             }
 
-            if (indexEnd == value.Length)
+            // HostN: numeric index immediately after "Host".
+            if (token.All(char.IsDigit))
             {
-                return true; // HostN
+                return true;
             }
 
-            var suffix = value[indexEnd..];
-            return suffix.Equals("-api-key", StringComparison.OrdinalIgnoreCase)
-                || suffix.Equals("_api_key", StringComparison.OrdinalIgnoreCase)
-                || suffix.Equals("-api_key", StringComparison.OrdinalIgnoreCase)
-                || suffix.Equals("_api-key", StringComparison.OrdinalIgnoreCase);
+            // Host-<name> / Host_<name>: a leading separator distinguishes a named host
+            // from the unrelated "Hostname" setting.
+            return (token[0] == '-' || token[0] == '_') && token.Length > 1;
         }
 
         return IsHostIndexedVariant(normalized)
