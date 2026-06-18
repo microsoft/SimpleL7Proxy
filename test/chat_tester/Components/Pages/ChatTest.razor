@@ -1,0 +1,399 @@
+@page "/chat-test"
+@rendermode InteractiveServer
+@inject IOptions<ChatTesterOptions> Options
+@inject IJSRuntime JS
+@inject RequestDebugSettings DebugSettings
+@using chat_tester.Components.Shared
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.Extensions.Options
+@using System.Text
+@using System.Linq
+
+<PageTitle>Chat test</PageTitle>
+
+<SectionContent SectionName="page-heading">
+    <div class="d-flex flex-wrap align-items-baseline gap-3">
+        <h1 class="h4 mb-0">Chat test</h1>
+        <span class="text-muted small mb-0">Send a chat-style request and inspect the returned stream.</span>
+    </div>
+</SectionContent>
+
+<div class="row g-4">
+    <div class="col-12 request-col">
+        <RequestPanel @ref="RequestPanel"
+                      Settings="AuthSettings"
+                      UserSettings="UserSettings"
+                      InitialServerBaseUrl="@InitialServerBaseUrl"
+                      HeaderSubtitle="Send a chat request."
+                      CardTitle="Chat request"
+                      SubmitLabel="Send single chat call"
+                      BusyLabel="Sending..."
+                      IsBusy="@IsRunning"
+                      OnSubmit="SendSingleChatCallAsync">
+            <PromptContent>
+                <ChatRequestBodyPanel @ref="BodyPanel" Rows="@RequestTextAreaRows" InitialBody="@InitialRequestBody" InitialEndpointPath="@InitialEndpointPath" InitialContentType="@InitialContentType" />
+            </PromptContent>
+        </RequestPanel>
+    </div>
+
+    <div class="col-12 response-col">
+        <div class="response-stack">
+        <div class="card shadow-sm chat-card @(IsChatResponseFullscreen ? "fs-overlay" : string.Empty)">
+            <div class="card-header bg-primary text-white d-flex align-items-center justify-content-between">
+                <span class="fw-semibold">Chat response</span>
+                <button class="btn btn-sm btn-light" type="button" @onclick="ToggleChatResponseFullscreen">
+                    @(IsChatResponseFullscreen ? "Exit full screen" : "Full screen")
+                </button>
+            </div>
+            <div class="card-body @(IsChatResponseFullscreen ? "overflow-auto" : string.Empty)">
+                <pre @ref="ChatResponseRef" class="bg-dark text-light p-3 rounded mb-0" style="white-space: pre-wrap; @(IsChatResponseFullscreen ? "max-height: calc(100vh - 130px);" : "max-height: 360px;") overflow-y: auto;">@ChatResponse</pre>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mt-3 raw-card @(IsRawFullscreen ? "fs-overlay" : string.Empty)">
+            <div class="card-header bg-secondary text-white pb-0">
+                <div class="d-flex align-items-baseline gap-2 pt-1 pb-2">
+                    <span class="fw-semibold">Raw response</span>
+                    <span class="text-white-50 small">@StatusMessage</span>
+                    <button class="btn btn-sm btn-light ms-auto" type="button" @onclick="ToggleRawFullscreen">
+                        @(IsRawFullscreen ? "Exit full screen" : "Full screen")
+                    </button>
+                </div>
+                <ul class="nav nav-tabs card-header-tabs raw-tabs mb-0" role="tablist">
+                    <li class="nav-item">
+                        <button class="nav-link @(ActiveResponseTab == "request-headers" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveResponseTab("request-headers")'>Request headers</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link @(ActiveResponseTab == "response-headers" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveResponseTab("response-headers")'>Response headers</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link @(ActiveResponseTab == "request-body" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveResponseTab("request-body")'>Request body</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link @(ActiveResponseTab == "response-body" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveResponseTab("response-body")'>Response body</button>
+                    </li>
+                </ul>
+            </div>
+            <div class="card-body @(IsRawFullscreen ? "overflow-auto" : string.Empty)">
+                <div class="border rounded p-3 bg-light" style="@(IsRawFullscreen ? "max-height: calc(100vh - 180px);" : "max-height: 320px;") overflow-y: auto;">
+                    @if (ActiveResponseTab == "request-headers")
+                    {
+                        <pre class="mb-0" style="white-space: pre-wrap; word-break: break-all;">@RequestHeadersText</pre>
+                    }
+                    else if (ActiveResponseTab == "response-headers")
+                    {
+                        <pre class="mb-0" style="white-space: pre-wrap; word-break: break-all;">@ResponseHeadersText</pre>
+                    }
+                    else if (ActiveResponseTab == "request-body")
+                    {
+                        <pre class="mb-0" style="white-space: pre-wrap; word-break: break-word;">@RequestBodyDisplay</pre>
+                    }
+                    else
+                    {
+                        <pre class="mb-0" style="white-space: pre-wrap; word-break: break-word;">@ObservedResponse</pre>
+                    }
+                </div>
+            </div>
+        </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .fs-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 1080;
+        margin: 0 !important;
+        border-radius: 0;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .fs-overlay .card-body {
+        flex: 1 1 auto;
+    }
+
+    .raw-tabs .nav-link {
+        color: rgba(255, 255, 255, 0.85);
+        border-color: transparent;
+        padding-top: 0.15rem;
+        padding-bottom: 0.15rem;
+    }
+
+    .raw-tabs .nav-link:hover {
+        color: #fff;
+        border-color: rgba(255, 255, 255, 0.4);
+    }
+
+    .raw-tabs .nav-link.active {
+        color: #495057;
+        background-color: #fff;
+        border-color: #fff #fff #fff;
+    }
+
+    @@media (min-width: 992px) {
+        .request-col {
+            flex: 0 0 40%;
+            max-width: 40%;
+            height: 90vh;
+        }
+
+        .request-col > .card {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .request-col > .card > .card-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+        }
+
+        .response-col {
+            flex: 0 0 60%;
+            max-width: 60%;
+            position: relative;
+        }
+
+        .response-stack {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-card {
+            flex: 1 1 50%;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-card .card-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+        }
+
+        .chat-card .card-body pre {
+            max-height: none !important;
+        }
+
+        .raw-card {
+            flex: 1 1 50%;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .raw-card .card-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+        }
+
+        .raw-card .card-body > div {
+            max-height: none !important;
+        }
+    }
+</style>
+
+@code {
+    private string InitialServerBaseUrl { get; set; } = string.Empty;
+    private string InitialEndpointPath { get; set; } = string.Empty;
+    private string InitialContentType { get; set; } = ChatTesterHttp.JsonContentType;
+    [Inject]
+    private AuthTokenSettings AuthSettings { get; set; } = default!;
+    [Inject]
+    private UserSettings UserSettings { get; set; } = default!;
+    private RequestPanel? RequestPanel { get; set; }
+    private ChatRequestBodyPanel? BodyPanel { get; set; }
+    private string InitialRequestBody { get; set; } = string.Empty;
+    private bool IsRunning { get; set; }
+    private string StatusMessage { get; set; } = "Ready to send a single request.";
+    private string ObservedResponse { get; set; } = "No response yet.";
+    private string ChatResponse { get; set; } = "Waiting for the request ...";
+    private string ActiveResponseTab { get; set; } = "response-body";
+    private string RequestHeadersText { get; set; } = "No request has been sent yet.";
+    private string ResponseHeadersText { get; set; } = "No response has been received yet.";
+    private string RequestBodyDisplay { get; set; } = "No request body yet.";
+    private ElementReference ChatResponseRef;
+    private bool IsChatResponseFullscreen { get; set; }
+    private bool IsRawFullscreen { get; set; }
+    private bool HasResponse => !string.IsNullOrWhiteSpace(ObservedResponse)
+        && !ObservedResponse.Equals("No response yet.", StringComparison.OrdinalIgnoreCase)
+        && !ObservedResponse.Equals("Awaiting response...", StringComparison.OrdinalIgnoreCase)
+        && !ObservedResponse.Equals("The server returned an empty response body.", StringComparison.OrdinalIgnoreCase);
+    private int RequestTextAreaRows => HasResponse ? 7 : 12;
+
+    protected override void OnInitialized()
+    {
+        var options = Options.Value;
+        InitialServerBaseUrl = options.ServerBaseUrl;
+        InitialEndpointPath = options.ChatEndpointPath;
+        InitialRequestBody = options.ChatRequestBody;
+        AuthSettings.ApplyDefaultsIfMissing(options.AuthorizationHeaderName, options.AuthorizationHeaderPrefix);
+        UserSettings.ApplyDefaultsIfMissing(options.UserHeaderName, options.PriorityKeyHeader, options.UserNames);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try
+        {
+            if (firstRender)
+            {
+                await JS.InvokeVoidAsync("chatScroll.register", ChatResponseRef);
+            }
+
+            await JS.InvokeVoidAsync("chatScroll.scrollIfStuck", ChatResponseRef);
+        }
+        catch (JSException)
+        {
+            // Ignore interop errors during prerender or disconnect.
+        }
+    }
+
+    private void ToggleChatResponseFullscreen()
+    {
+        IsChatResponseFullscreen = !IsChatResponseFullscreen;
+    }
+
+    private void ToggleRawFullscreen()
+    {
+        IsRawFullscreen = !IsRawFullscreen;
+    }
+
+    private async Task SendSingleChatCallAsync()
+    {
+        var serverBaseUrl = RequestPanel?.ServerBaseUrl ?? string.Empty;
+        var endpointPath = BodyPanel?.EndpointPath ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(serverBaseUrl) || string.IsNullOrWhiteSpace(endpointPath))
+        {
+            StatusMessage = "Set both the server URL and endpoint path before sending the request.";
+            return;
+        }
+
+        var requestBody = BodyPanel?.RequestBody ?? string.Empty;
+        var contentType = BodyPanel?.ContentType ?? ChatTesterHttp.JsonContentType;
+        IsRunning = true;
+        StatusMessage = "Sending the chat request and waiting for the response...";
+        ObservedResponse = "Awaiting response...";
+        ChatResponse = "Generating response stream...";
+        RequestBodyDisplay = requestBody;
+        StateHasChanged();
+
+        try
+        {
+            using var client = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Post, ChatTesterHttp.BuildUri(serverBaseUrl, endpointPath));
+            request.Content = new StringContent(requestBody, System.Text.Encoding.UTF8, contentType);
+            request.Headers.Add(ChatTesterHttp.AcceptHeaderName, ChatTesterHttp.EventStreamContentType);
+            ChatTesterHttp.ApplyDebugHeader(request, DebugSettings);
+
+            RequestHeadersText = ChatTesterHttp.SummarizeRequestHeaders(request);
+
+            if (RequestPanel is not null)
+            {
+                await RequestPanel.ApplyAuthorizationAsync(request);
+                RequestPanel.ApplyUser(request, 0);
+            }
+
+            RequestHeadersText = ChatTesterHttp.SummarizeRequestHeaders(request);
+
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+            ResponseHeadersText = ChatTesterHttp.SummarizeResponseHeaders(response);
+            StatusMessage = $"Streaming response: {(int)response.StatusCode} {response.ReasonPhrase ?? ""}".Trim();
+            await StreamResponseAsync(response);
+            StatusMessage = $"Completed with {(int)response.StatusCode} {response.ReasonPhrase ?? ""}".Trim();
+        }
+        catch (Exception ex)
+        {
+            ObservedResponse = ex.Message;
+            ResponseHeadersText = "No response headers available.";
+            ChatResponse = $"Chat fallback response:\nAssistant: I could not receive a stream from the server.\nReason: {ex.Message}";
+            StatusMessage = "The request failed before a full response was received.";
+        }
+        finally
+        {
+            IsRunning = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task StreamResponseAsync(HttpResponseMessage response)
+    {
+        var rawBuilder = new StringBuilder();
+        var assistantBuilder = new StringBuilder();
+        var sawAssistantContent = false;
+        ChatResponse = "Assistant:\n";
+        ObservedResponse = string.Empty;
+        await InvokeAsync(StateHasChanged);
+
+        using var stream = await response.Content.ReadAsStreamAsync();
+        using var reader = new StreamReader(stream);
+
+        while (!reader.EndOfStream)
+        {
+            var line = await reader.ReadLineAsync();
+            if (line is null)
+            {
+                break;
+            }
+
+            rawBuilder.AppendLine(line);
+            ObservedResponse = rawBuilder.ToString();
+
+            var payload = ChatStreamParser.ExtractDataPayload(line);
+            if (payload is not null)
+            {
+                var piece = ChatStreamParser.ExtractDeltaText(payload);
+                if (!string.IsNullOrEmpty(piece))
+                {
+                    assistantBuilder.Append(piece);
+                    sawAssistantContent = true;
+                    ChatResponse = $"Assistant:\n{assistantBuilder}";
+                }
+            }
+
+            await InvokeAsync(StateHasChanged);
+        }
+
+        if (rawBuilder.Length == 0)
+        {
+            ObservedResponse = "The server returned an empty response body.";
+            ChatResponse = "Assistant: I did not receive any content from the server.";
+        }
+        else if (!sawAssistantContent)
+        {
+            ChatResponse = BuildChatResponse(rawBuilder.ToString());
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private string BuildChatResponse(string observed)
+    {
+        if (string.IsNullOrWhiteSpace(observed))
+        {
+            return "Assistant: I did not receive any content from the server.";
+        }
+
+        var interpretedContent = ChatStreamParser.ExtractAllContent(observed);
+        if (!string.IsNullOrWhiteSpace(interpretedContent))
+        {
+            return $"Assistant:\n{interpretedContent}";
+        }
+
+        // Not an event stream (or no stream content found): show the entire response body.
+        return observed;
+    }
+
+    private void SetActiveResponseTab(string tab)
+    {
+        ActiveResponseTab = tab;
+    }
+}

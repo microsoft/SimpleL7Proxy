@@ -1,0 +1,109 @@
+@namespace chat_tester.Components.Shared
+@using chat_tester.Components.Shared
+@using Microsoft.AspNetCore.Components.Forms
+
+<div class="card shadow-sm h-100">
+    <div class="card-header bg-success text-white pb-0">
+        <div class="d-flex align-items-baseline gap-2 pt-1 pb-2">
+            <span class="fw-semibold">Request</span>
+            @if (!string.IsNullOrWhiteSpace(HeaderSubtitle))
+            {
+                <span class="text-white-50 small">@HeaderSubtitle</span>
+            }
+        </div>
+        <ul class="nav nav-tabs card-header-tabs request-tabs mb-0">
+            <li class="nav-item">
+                <button class="nav-link @(ActiveTab == "server" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveTab("server")'>Server</button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link @(ActiveTab == "user" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveTab("user")'>User</button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link @(ActiveTab == "prompt" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveTab("prompt")'>@PromptTabLabel</button>
+            </li>
+        </ul>
+    </div>
+    <div class="card-body">
+        @if (!string.IsNullOrWhiteSpace(CardTitle))
+        {
+            <h5 class="card-title">@CardTitle</h5>
+        }
+        <EditForm Model="this" OnValidSubmit="HandleSubmitAsync">
+            <div class="@(ActiveTab == "server" ? string.Empty : "d-none")">
+                <ProxyPanel @ref="ProxyPanel" Settings="Settings" InitialServerBaseUrl="@InitialServerBaseUrl" />
+            </div>
+            <div class="@(ActiveTab == "user" ? string.Empty : "d-none")">
+                <UserPanel @ref="UserPanel" Settings="UserSettings" />
+            </div>
+            <div class="@(ActiveTab == "prompt" ? string.Empty : "d-none")">
+                @PromptContent
+            </div>
+
+            <button class="btn @SubmitButtonClass" type="submit" disabled="@IsBusy">
+                @(IsBusy ? BusyLabel : SubmitLabel)
+            </button>
+        </EditForm>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public AuthTokenSettings Settings { get; set; } = new();
+
+    [Parameter]
+    public UserSettings UserSettings { get; set; } = new();
+
+    [Parameter]
+    public string? InitialServerBaseUrl { get; set; }
+
+    [Parameter]
+    public string HeaderSubtitle { get; set; } = "Send a chat request.";
+
+    [Parameter]
+    public string PromptTabLabel { get; set; } = "Prompt";
+
+    [Parameter]
+    public string? CardTitle { get; set; }
+
+    [Parameter]
+    public string SubmitLabel { get; set; } = "Send";
+
+    [Parameter]
+    public string BusyLabel { get; set; } = "Sending...";
+
+    [Parameter]
+    public bool IsBusy { get; set; }
+
+    [Parameter]
+    public string SubmitButtonClass { get; set; } = "btn-success";
+
+    [Parameter]
+    public EventCallback OnSubmit { get; set; }
+
+    [Parameter]
+    public RenderFragment? PromptContent { get; set; }
+
+    private ProxyPanel? ProxyPanel { get; set; }
+    private UserPanel? UserPanel { get; set; }
+
+    public string ActiveTab { get; private set; } = "prompt";
+
+    /// <summary>The server base URL entered in the Server tab.</summary>
+    public string ServerBaseUrl => ProxyPanel?.ServerBaseUrl ?? string.Empty;
+
+    /// <summary>Resolves the configured authorization header value (empty when authorization is disabled).</summary>
+    public Task<string> ResolveHeaderValueAsync()
+        => ProxyPanel?.ResolveHeaderValueAsync() ?? Task.FromResult(string.Empty);
+
+    /// <summary>Applies the configured authorization header to the request when enabled.</summary>
+    public Task ApplyAuthorizationAsync(HttpRequestMessage request)
+        => ProxyPanel?.ApplyAuthorizationAsync(request) ?? Task.CompletedTask;
+
+    /// <summary>Applies the configured user identity header for the given request index.</summary>
+    public void ApplyUser(HttpRequestMessage request, int requestIndex)
+        => UserSettings.ApplyUser(request, requestIndex);
+
+    private void SetActiveTab(string tab) => ActiveTab = tab;
+
+    private Task HandleSubmitAsync() => OnSubmit.InvokeAsync();
+}

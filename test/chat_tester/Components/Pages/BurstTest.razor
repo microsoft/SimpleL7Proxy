@@ -1,0 +1,310 @@
+@page "/burst-test"
+@rendermode InteractiveServer
+@inject IOptions<ChatTesterOptions> Options
+@inject RequestDebugSettings DebugSettings
+@using chat_tester.Components.Shared
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.Extensions.Options
+@using System.Diagnostics
+@using System.Linq
+
+<PageTitle>Burst test</PageTitle>
+
+<h1>Burst test</h1>
+<p class="lead">Fire a configurable number of parallel requests and measure bytes, total time, and time to first byte for each.</p>
+
+<div class="row g-4 align-items-start">
+    <div class="col-12 col-lg-5">
+        <RequestPanel @ref="RequestPanel"
+                      Settings="AuthSettings"
+                      UserSettings="UserSettings"
+                      InitialServerBaseUrl="@InitialServerBaseUrl"
+                      HeaderSubtitle="Fire parallel requests."
+                      CardTitle="Request"
+                      SubmitLabel="Run stress test"
+                      BusyLabel="@($"Running {CompletedCount}/{ParallelCount}...")"
+                      IsBusy="@IsRunning"
+                      OnSubmit="RunStressTestAsync">
+            <PromptContent>
+                <div class="mb-3">
+                    <label class="form-label">Parallel count</label>
+                    <InputNumber class="form-control" @bind-Value="ParallelCount" min="1" max="2000" />
+                    <div class="form-text">Number of requests to send simultaneously (1–2000).</div>
+                </div>
+
+                <ChatRequestBodyPanel @ref="BodyPanel" Rows="10" InitialBody="@InitialRequestBody" InitialEndpointPath="@InitialEndpointPath" InitialContentType="@InitialContentType" />
+            </PromptContent>
+        </RequestPanel>
+    </div>
+
+    <div class="col-12 col-lg-7">
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white fw-semibold">Results</div>
+            <div class="card-body">
+                <p class="text-muted">@StatusMessage</p>
+
+                @if (Results.Count > 0)
+                {
+                    <div class="row g-2 mb-3">
+                        <div class="col-6 col-md-3">
+                            <div class="border rounded p-2 text-center">
+                                <div class="small text-muted">Success</div>
+                                <div class="fw-semibold">@SuccessCount / @Results.Count</div>
+                            </div>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <div class="border rounded p-2 text-center">
+                                <div class="small text-muted">Total bytes</div>
+                                <div class="fw-semibold">@FormatBytes(TotalBytes)</div>
+                            </div>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <div class="border rounded p-2 text-center">
+                                <div class="small text-muted">Avg TTFB</div>
+                                <div class="fw-semibold">@AverageTtfbMs ms</div>
+                            </div>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <div class="border rounded p-2 text-center">
+                                <div class="small text-muted">Avg total</div>
+                                <div class="fw-semibold">@AverageTotalMs ms</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="max-height: 480px; overflow-y: auto;">
+                        <table class="table table-sm table-striped align-middle mb-0">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th>#</th>
+                                    <th>Status</th>
+                                    <th class="text-end">Bytes</th>
+                                    <th class="text-end">TTFB (ms)</th>
+                                    <th class="text-end">Total (ms)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var result in Results.OrderBy(r => r.Index))
+                                {
+                                    <tr class="@(result.IsSuccess ? string.Empty : "table-danger")">
+                                        <td>@(result.Index + 1)</td>
+                                        <td>
+                                            @if (result.Error is not null)
+                                            {
+                                                <span class="text-danger" title="@result.Error">error</span>
+                                            }
+                                            else
+                                            {
+                                                @($"{result.StatusCode}")
+                                            }
+                                        </td>
+                                        <td class="text-end">@result.Bytes.ToString("N0")</td>
+                                        <td class="text-end">@result.TtfbMs</td>
+                                        <td class="text-end">@result.TotalMs</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string InitialServerBaseUrl { get; set; } = string.Empty;
+    private string InitialEndpointPath { get; set; } = string.Empty;
+    private string InitialContentType { get; set; } = ChatTesterHttp.JsonContentType;
+    private int ParallelCount { get; set; } = 10;
+
+    [Inject]
+    private AuthTokenSettings AuthSettings { get; set; } = default!;
+    [Inject]
+    private UserSettings UserSettings { get; set; } = default!;
+    private RequestPanel? RequestPanel { get; set; }
+    private ChatRequestBodyPanel? BodyPanel { get; set; }
+    private string InitialRequestBody { get; set; } = string.Empty;
+
+    private bool IsRunning { get; set; }
+    private int CompletedCount { get; set; }
+    private string StatusMessage { get; set; } = "Configure the request and run the stress test.";
+    private List<RequestResult> Results { get; set; } = new();
+
+    private int SuccessCount => Results.Count(r => r.IsSuccess);
+    private long TotalBytes => Results.Sum(r => r.Bytes);
+    private long AverageTtfbMs => Results.Count == 0 ? 0 : (long)Results.Average(r => r.TtfbMs);
+    private long AverageTotalMs => Results.Count == 0 ? 0 : (long)Results.Average(r => r.TotalMs);
+
+    protected override void OnInitialized()
+    {
+        var options = Options.Value;
+        InitialServerBaseUrl = options.ServerBaseUrl;
+        InitialEndpointPath = options.ChatEndpointPath;
+        InitialRequestBody = options.ChatRequestBody;
+        AuthSettings.ApplyDefaultsIfMissing(options.AuthorizationHeaderName, options.AuthorizationHeaderPrefix);
+        UserSettings.ApplyDefaultsIfMissing(options.UserHeaderName, options.PriorityKeyHeader, options.UserNames);
+    }
+
+    private async Task RunStressTestAsync()
+    {
+        var endpointPath = BodyPanel?.EndpointPath ?? string.Empty;
+        var serverBaseUrl = RequestPanel?.ServerBaseUrl ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(serverBaseUrl) || string.IsNullOrWhiteSpace(endpointPath))
+        {
+            StatusMessage = "Set both the server URL and endpoint path before running the test.";
+            return;
+        }
+
+        var count = Math.Clamp(ParallelCount, 1, 2000);
+        ParallelCount = count;
+        var requestBody = BodyPanel?.RequestBody ?? string.Empty;
+        var contentType = BodyPanel?.ContentType ?? ChatTesterHttp.JsonContentType;
+        var uri = ChatTesterHttp.BuildUri(serverBaseUrl, endpointPath);
+
+        // Resolve the authorization header once so all parallel requests reuse it.
+        var headerName = AuthSettings.HeaderName;
+        string headerValue = string.Empty;
+        if (RequestPanel is not null)
+        {
+            try
+            {
+                headerValue = await RequestPanel.ResolveHeaderValueAsync();
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"Could not resolve authorization: {ex.Message}";
+                return;
+            }
+        }
+
+        IsRunning = true;
+        CompletedCount = 0;
+        _completedCount = 0;
+        Results = new List<RequestResult>();
+        StatusMessage = $"Running {count} parallel requests...";
+        StateHasChanged();
+
+        using var client = new HttpClient
+        {
+            Timeout = TimeSpan.FromMinutes(5)
+        };
+
+        var overall = Stopwatch.StartNew();
+        var tasks = Enumerable.Range(0, count)
+            .Select(i => RunSingleAsync(client, i, uri, requestBody, contentType, headerName, headerValue))
+            .ToArray();
+
+        var results = await Task.WhenAll(tasks);
+        overall.Stop();
+
+        Results = results.ToList();
+        IsRunning = false;
+        StatusMessage = $"Completed {count} requests in {overall.ElapsedMilliseconds:N0} ms — {SuccessCount} succeeded, {Results.Count - SuccessCount} failed.";
+        StateHasChanged();
+    }
+
+    private async Task<RequestResult> RunSingleAsync(HttpClient client, int index, Uri uri, string body, string contentType, string headerName, string headerValue)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        long ttfb = -1;
+        long bytes = 0;
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, uri)
+            {
+                Content = new StringContent(body, System.Text.Encoding.UTF8, contentType)
+            };
+            request.Headers.TryAddWithoutValidation(ChatTesterHttp.AcceptHeaderName, ChatTesterHttp.EventStreamContentType);
+
+            ChatTesterHttp.TryApplyHeader(request, headerName, headerValue);
+            UserSettings.ApplyUser(request, index);
+            ChatTesterHttp.ApplyDebugHeader(request, DebugSettings);
+
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+            using var stream = await response.Content.ReadAsStreamAsync();
+            var buffer = new byte[8192];
+            int read;
+            while ((read = await stream.ReadAsync(buffer)) > 0)
+            {
+                if (ttfb < 0)
+                {
+                    ttfb = stopwatch.ElapsedMilliseconds;
+                }
+
+                bytes += read;
+            }
+
+            stopwatch.Stop();
+            if (ttfb < 0)
+            {
+                ttfb = stopwatch.ElapsedMilliseconds;
+            }
+
+            var result = new RequestResult
+            {
+                Index = index,
+                StatusCode = (int)response.StatusCode,
+                Bytes = bytes,
+                TtfbMs = ttfb,
+                TotalMs = stopwatch.ElapsedMilliseconds,
+                IsSuccess = response.IsSuccessStatusCode
+            };
+
+            await OnRequestCompletedAsync();
+            return result;
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            var result = new RequestResult
+            {
+                Index = index,
+                StatusCode = 0,
+                Bytes = bytes,
+                TtfbMs = ttfb < 0 ? stopwatch.ElapsedMilliseconds : ttfb,
+                TotalMs = stopwatch.ElapsedMilliseconds,
+                IsSuccess = false,
+                Error = ex.Message
+            };
+
+            await OnRequestCompletedAsync();
+            return result;
+        }
+    }
+
+    private async Task OnRequestCompletedAsync()
+    {
+        Interlocked.Increment(ref _completedCount);
+        CompletedCount = _completedCount;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private int _completedCount;
+
+    private static string FormatBytes(long bytes)
+    {
+        string[] units = { "B", "KB", "MB", "GB" };
+        double value = bytes;
+        int unit = 0;
+        while (value >= 1024 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
+        }
+
+        return unit == 0 ? $"{bytes:N0} {units[unit]}" : $"{value:N1} {units[unit]}";
+    }
+
+    private sealed class RequestResult
+    {
+        public int Index { get; set; }
+        public int StatusCode { get; set; }
+        public long Bytes { get; set; }
+        public long TtfbMs { get; set; }
+        public long TotalMs { get; set; }
+        public bool IsSuccess { get; set; }
+        public string? Error { get; set; }
+    }
+}
