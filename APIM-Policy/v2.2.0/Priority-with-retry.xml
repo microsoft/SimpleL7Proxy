@@ -36,7 +36,7 @@ KEY CHANGES:
 			cfg["3"] = new JObject { { "retryCount", 1  }, { "requeue", false  } };
 			return cfg;
 		}" />
-		<set-variable name="priorityHeaderName" value="llm_proxy_priority" />
+		<set-variable name="priorityHeaderName" value="x-S7PPriority" />
 		<set-variable name="PolicyCycleCounterHeaderName" value="x-PolicyCycleCounter" />
 		<set-variable name="AffinityHeaderName" value="x-backend-affinity" />
 		<choose>
@@ -218,7 +218,8 @@ KEY CHANGES:
 				dbgObj["Proxy-Queue-Duration"] = context.Request.Headers.GetValueOrDefault("x-Request-Queue-Duration", "N/A");
 				dbgObj["Proxy-Process-Duration"] = context.Request.Headers.GetValueOrDefault("x-Request-Process-Duration", "N/A");
 				dbgObj["S7PID"] = context.Request.Headers.GetValueOrDefault("x-S7P-ID", "N/A");
-		    	dbgObj["Request-Priority"] = (int)context.Variables["RequestPriority"];
+		    	dbgObj[(string)context.Variables["priorityHeaderName"]] = (string)context.Request.Headers.GetValueOrDefault("x-S7PPriority", "N/A");
+		    	dbgObj["Priority"] = (int)context.Variables["RequestPriority"];
 			}
 
             return string.Join(" | ", dbgObj.Properties().Select(p => p.Name + ": " + p.Value));
