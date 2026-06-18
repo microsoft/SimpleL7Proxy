@@ -120,11 +120,11 @@ public class ProxyConfig
     [ConfigOption("Request:Priority:GreedyUserThreshold")]
     public float UserPriorityThreshold { get; set; } = 0.1f;
     [ConfigOption("Request:Priority:PriorityKeys")]
-    public List<string> PriorityKeys { get; set; } = ["12345", "234"];
+    public List<string> PriorityKeys { get; set; } = ["high", "medium", "low"];
     [ConfigOption("Request:Priority:PriorityWorker", ConfigName = "PriorityWorker")]
     public string PriorityWorker { get; set; } = "2:1,3:1";
     [ConfigOption("Request:Priority:PriorityValues")]
-    public List<int> PriorityValues { get; set; } = [1, 3];
+    public List<int> PriorityValues { get; set; } = [1, 2, 3];
     [ConfigOption("Request:RequiredHeaders")]
     public List<string> RequiredHeaders { get; set; } = [];
     [ConfigOption("Request:StripRequestHeaders")]
