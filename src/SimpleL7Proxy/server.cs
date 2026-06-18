@@ -721,6 +721,11 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                 rd.Priority2 = userPriorityBoost;
                                 rd.EnqueueTime = DateTime.UtcNow;
 
+                                var forwardedFor = rd.Context?.Request.Headers["X-Forwarded-For"];
+                                rd.Headers["X-Forwarded-For"] = !string.IsNullOrWhiteSpace(forwardedFor)
+                                    ? forwardedFor
+                                    : rd.Context?.Request.RemoteEndPoint?.Address?.ToString() ?? "N/A";
+
                                 ed["S7P-Priority"] = priority.ToString();
                                 ed["S7P-Priority2"] = userPriorityBoost.ToString();
 
