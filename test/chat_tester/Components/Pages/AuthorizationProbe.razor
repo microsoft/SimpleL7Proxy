@@ -15,6 +15,7 @@
         <RequestPanel @ref="RequestPanel"
                       Settings="AuthSettings"
                       UserSettings="UserSettings"
+                      HeaderSettings="HeaderSettings"
                       InitialServerBaseUrl="@InitialServerBaseUrl"
                       HeaderSubtitle="Probe endpoints with auth."
                       PromptTabLabel="Probe"
@@ -99,6 +100,8 @@
     private AuthTokenSettings AuthSettings { get; set; } = default!;
     [Inject]
     private UserSettings UserSettings { get; set; } = default!;
+    [Inject]
+    private HeaderSettings HeaderSettings { get; set; } = default!;
     private RequestPanel? RequestPanel { get; set; }
     private string TargetUrlsText { get; set; } = string.Empty;
     private string Payload { get; set; } = "{\"message\":\"auth-probe\"}";
@@ -113,6 +116,7 @@
         InitialServerBaseUrl = options.ServerBaseUrl;
         AuthSettings.ApplyDefaultsIfMissing(options.AuthorizationHeaderName, options.AuthorizationHeaderPrefix);
         UserSettings.ApplyDefaultsIfMissing(options.UserHeaderName, options.PriorityKeyHeader, options.UserNames);
+        HeaderSettings.ApplyDefaultsIfMissing(options.DefaultHeaders);
         TargetUrlsText = string.Join(Environment.NewLine, options.AuthTargetUrls);
     }
 
@@ -161,6 +165,7 @@
                         }
 
                         UserSettings.ApplyUser(request, requestIndex);
+                        HeaderSettings.ApplyHeaders(request, requestIndex);
 
                         using var response = await client.SendAsync(request);
                         var body = await response.Content.ReadAsStringAsync();

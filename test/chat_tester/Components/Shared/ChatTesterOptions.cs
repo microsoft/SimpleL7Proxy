@@ -72,4 +72,10 @@ public class ChatTesterOptions
         "carol",
         "dave"
     };
+
+    /// <summary>
+    /// Default custom request headers, each as a <c>Name: Value</c> string. Use the
+    /// <c>{id}</c> token in a value to insert the sequential request number.
+    /// </summary>
+    public string[] DefaultHeaders { get; set; } = System.Array.Empty<string>();
 }

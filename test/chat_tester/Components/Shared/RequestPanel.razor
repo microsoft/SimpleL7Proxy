@@ -19,6 +19,9 @@
                 <button class="nav-link @(ActiveTab == "user" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveTab("user")'>User</button>
             </li>
             <li class="nav-item">
+                <button class="nav-link @(ActiveTab == "headers" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveTab("headers")'>Headers</button>
+            </li>
+            <li class="nav-item">
                 <button class="nav-link @(ActiveTab == "prompt" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveTab("prompt")'>@PromptTabLabel</button>
             </li>
         </ul>
@@ -34,6 +37,9 @@
             </div>
             <div class="@(ActiveTab == "user" ? string.Empty : "d-none")">
                 <UserPanel @ref="UserPanel" Settings="UserSettings" />
+            </div>
+            <div class="@(ActiveTab == "headers" ? string.Empty : "d-none")">
+                <HeaderPanel @ref="HeaderPanel" Settings="HeaderSettings" />
             </div>
             <div class="@(ActiveTab == "prompt" ? string.Empty : "d-none")">
                 @PromptContent
@@ -52,6 +58,9 @@
 
     [Parameter]
     public UserSettings UserSettings { get; set; } = new();
+
+    [Parameter]
+    public HeaderSettings HeaderSettings { get; set; } = new();
 
     [Parameter]
     public string? InitialServerBaseUrl { get; set; }
@@ -85,6 +94,7 @@
 
     private ProxyPanel? ProxyPanel { get; set; }
     private UserPanel? UserPanel { get; set; }
+    private HeaderPanel? HeaderPanel { get; set; }
 
     public string ActiveTab { get; private set; } = "prompt";
 
@@ -102,6 +112,10 @@
     /// <summary>Applies the configured user identity header for the given request index.</summary>
     public void ApplyUser(HttpRequestMessage request, int requestIndex)
         => UserSettings.ApplyUser(request, requestIndex);
+
+    /// <summary>Applies the configured custom headers for the given request index.</summary>
+    public void ApplyHeaders(HttpRequestMessage request, int requestIndex)
+        => HeaderSettings.ApplyHeaders(request, requestIndex);
 
     private void SetActiveTab(string tab) => ActiveTab = tab;
 

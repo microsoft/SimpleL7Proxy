@@ -23,6 +23,7 @@
         <RequestPanel @ref="RequestPanel"
                       Settings="AuthSettings"
                       UserSettings="UserSettings"
+                      HeaderSettings="HeaderSettings"
                       InitialServerBaseUrl="@InitialServerBaseUrl"
                       HeaderSubtitle="Send a chat request."
                       CardTitle="Chat request"
@@ -137,7 +138,7 @@
         .request-col {
             flex: 0 0 40%;
             max-width: 40%;
-            height: 90vh;
+            height: 85vh;
         }
 
         .request-col > .card {
@@ -210,6 +211,8 @@
     private AuthTokenSettings AuthSettings { get; set; } = default!;
     [Inject]
     private UserSettings UserSettings { get; set; } = default!;
+    [Inject]
+    private HeaderSettings HeaderSettings { get; set; } = default!;
     private RequestPanel? RequestPanel { get; set; }
     private ChatRequestBodyPanel? BodyPanel { get; set; }
     private string InitialRequestBody { get; set; } = string.Empty;
@@ -238,6 +241,7 @@
         InitialRequestBody = options.ChatRequestBody;
         AuthSettings.ApplyDefaultsIfMissing(options.AuthorizationHeaderName, options.AuthorizationHeaderPrefix);
         UserSettings.ApplyDefaultsIfMissing(options.UserHeaderName, options.PriorityKeyHeader, options.UserNames);
+        HeaderSettings.ApplyDefaultsIfMissing(options.DefaultHeaders);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -300,6 +304,7 @@
             {
                 await RequestPanel.ApplyAuthorizationAsync(request);
                 RequestPanel.ApplyUser(request, 0);
+                RequestPanel.ApplyHeaders(request, 0);
             }
 
             RequestHeadersText = ChatTesterHttp.SummarizeRequestHeaders(request);

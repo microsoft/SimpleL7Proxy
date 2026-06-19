@@ -18,6 +18,7 @@
         <RequestPanel @ref="RequestPanel"
                       Settings="AuthSettings"
                       UserSettings="UserSettings"
+                      HeaderSettings="HeaderSettings"
                       InitialServerBaseUrl="@InitialServerBaseUrl"
                       HeaderSubtitle="Fire parallel requests."
                       CardTitle="Request"
@@ -122,6 +123,8 @@
     private AuthTokenSettings AuthSettings { get; set; } = default!;
     [Inject]
     private UserSettings UserSettings { get; set; } = default!;
+    [Inject]
+    private HeaderSettings HeaderSettings { get; set; } = default!;
     private RequestPanel? RequestPanel { get; set; }
     private ChatRequestBodyPanel? BodyPanel { get; set; }
     private string InitialRequestBody { get; set; } = string.Empty;
@@ -144,6 +147,7 @@
         InitialRequestBody = options.ChatRequestBody;
         AuthSettings.ApplyDefaultsIfMissing(options.AuthorizationHeaderName, options.AuthorizationHeaderPrefix);
         UserSettings.ApplyDefaultsIfMissing(options.UserHeaderName, options.PriorityKeyHeader, options.UserNames);
+        HeaderSettings.ApplyDefaultsIfMissing(options.DefaultHeaders);
     }
 
     private async Task RunStressTestAsync()
@@ -220,6 +224,7 @@
 
             ChatTesterHttp.TryApplyHeader(request, headerName, headerValue);
             UserSettings.ApplyUser(request, index);
+            HeaderSettings.ApplyHeaders(request, index);
             ChatTesterHttp.ApplyDebugHeader(request, DebugSettings);
 
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);

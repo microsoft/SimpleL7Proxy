@@ -8,6 +8,7 @@ builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddSingleton<AuthTokenSettings>();
 builder.Services.AddSingleton<UserSettings>();
+builder.Services.AddSingleton<HeaderSettings>();
 builder.Services.AddSingleton<RequestDebugSettings>();
 builder.Services.Configure<ChatTesterOptions>(
     builder.Configuration.GetSection(ChatTesterOptions.SectionName));
