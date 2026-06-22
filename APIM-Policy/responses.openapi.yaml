@@ -1,0 +1,70 @@
+openapi: 3.0.1
+info:
+  title: responses
+  description: passthru
+  version: '1.0'
+servers:
+  - url: https://nvmtr2apim.azure-api.net/resp
+paths:
+  /*:
+    trace:
+      summary: TRACE
+      operationId: 68e3f351a0b632d0bef9e6cd
+      responses:
+        '200':
+          description: ''
+    options:
+      summary: OPTIONS
+      operationId: 68e3f351df94b1929936a722
+      responses:
+        '200':
+          description: ''
+    patch:
+      summary: PATCH
+      operationId: 68e3f35164f36e64c6844413
+      responses:
+        '200':
+          description: ''
+    put:
+      summary: PUT
+      operationId: 68e3f351501da12c8a63d91e
+      responses:
+        '200':
+          description: ''
+    head:
+      summary: HEAD
+      operationId: 68e3f351740edfdfe47b438d
+      responses:
+        '200':
+          description: ''
+    post:
+      summary: POST
+      operationId: 68e3f351c26824594e25aaab
+      responses:
+        '200':
+          description: ''
+    delete:
+      summary: DELETE
+      operationId: 68e3f3510aaa10bca895c97f
+      responses:
+        '200':
+          description: ''
+    get:
+      summary: GET
+      operationId: 68e3f351a02d92339e7a062e
+      responses:
+        '200':
+          description: ''
+components:
+  securitySchemes:
+    apiKeyHeader:
+      type: apiKey
+      name: api-key
+      in: header
+    apiKeyQuery:
+      type: apiKey
+      name: subscription-key
+      in: query
+security:
+  - apiKeyHeader: [ ]
+  - apiKeyQuery: [ ]

@@ -1,34 +1,64 @@
 # Environment Variables
 
-SimpleL7Proxy is designed to be highly configurable through environment variables, which are organized into functional categories. This approach allows for easy deployment and configuration without code changes.
+| Attribute | Value |
+|-----------|-------|
+| **Version** | 1.1 |
+| **Last Updated** | 2026-05-21 |
+| **Owner** | SimpleL7Proxy maintainers |
+| **Review Cycle** | Quarterly |
+
+## Summary
+
+This document is the exhaustive reference for every environment variable accepted by SimpleL7Proxy. Operators MUST use this document when configuring deployments. For Warm/Cold/Hidden reload classification and the complete defaults reference, see [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md).
+
+> **TL;DR**
+> - Set `Port` and at least one `Host1` connection string to start the proxy. No other settings are REQUIRED.
+> - The probe path MUST be embedded in the `Host1` connection string (`host=…;probe=/health`) — `Probe_path1` is deprecated and MUST NOT be used in new deployments.
+> - All variable names are case-sensitive. Unknown variables are silently ignored at startup.
+
+> [!NOTE]
+> **Units:** timeout and interval values are in **milliseconds** unless the variable name ends in `Secs` (seconds) or `Minutes`.
+
+---
 
 ## Table of Contents
 
-- [Environment Variables](#environment-variables)
-  - [Table of Contents](#table-of-contents)
-  - [Quick Start Configuration](#quick-start-configuration)
-  - [Core Configuration Variables](#core-configuration-variables)
-  - [Request Processing Variables](#request-processing-variables)
-  - [Logging \& Monitoring Variables](#logging--monitoring-variables)
-  - [Async Processing Variables](#async-processing-variables)
-  - [Connection Management Variables](#connection-management-variables)
-  - [Azure App Configuration Variables](#azure-app-configuration-variables)
-  - [Backend Configuration Variables](#backend-configuration-variables)
-  - [User Profile Configuration](#user-profile-configuration)
-  - [Additional Configuration Notes](#additional-configuration-notes)
+- [Minimum Required Configuration](#minimum-required-configuration)
+- [Basic Configuration](#basic-configuration)
+- [Health Check Configuration](#health-check-configuration)
+- [Security \& Access Control](#security--access-control)
+- [Request Processing Variables](#request-processing-variables)
+- [Logging \& Monitoring Variables](#logging--monitoring-variables)
+- [Async Processing Variables](#async-processing-variables)
+- [Connection Management Variables](#connection-management-variables)
+- [Azure App Configuration Variables](#azure-app-configuration-variables)
+- [Backend Configuration Variables](#backend-configuration-variables)
+- [User Profile Configuration](#user-profile-configuration)
+- [Additional Configuration Notes](#additional-configuration-notes)
+- [Validation \& Compliance](#validation--compliance)
+- [Version History](#version-history)
 
-## Quick Start Configuration
+## Minimum Required Configuration
 
-To get started with minimal configuration, you need to set:
-1. **Port**: The port on which the proxy listens
-2. **Host1, Host2, ...**: At least one backend host to proxy requests to
-3. **Probe_path1, Probe_Path2, ...**: Corresponding probe URLs
+**Every deployment MUST set at minimum:**
 
-For production deployments, consider also configuring:
-- **Workers**: Number of worker threads (increase for higher throughput)
-- **MaxQueueLength**: Maximum queue size based on expected traffic
-- **LogAllRequestHeaders**: Set to `true` for debugging
-- **APPINSIGHTS_CONNECTIONSTRING**: For monitoring in Azure
+```bash
+Port=443
+Host1="host=https://your-backend.example.com;probe=/health"
+```
+
+The `probe` path is embedded in the `Host1` connection string. The legacy `Probe_path1` variable is still accepted but MUST NOT be used in new deployments.
+
+For production deployments, the following variables MUST also be set:
+
+| Variable | Reason |
+|----------|--------|
+| `Workers` | Default of `10` is insufficient for production throughput |
+| `MaxQueueLength` | Default of `1000` MUST be tuned to expected peak traffic |
+| `APPINSIGHTS_CONNECTIONSTRING` | REQUIRED for production observability |
+
+> [!TIP]
+> For a full annotated walkthrough of minimum setup and local development options, see [BEGINNER_DEVELOPMENT.md](BEGINNER_DEVELOPMENT.md). For copy-paste production configurations, see [SCENARIOS.md](SCENARIOS.md).
 
 ## Basic Configuration
 
@@ -38,6 +68,9 @@ For production deployments, consider also configuring:
 | **Port**                      | int | The port on which SimpleL7Proxy listens for incoming traffic.                                                                                                                                    | 80                                       |
 | **TERMINATION_GRACE_PERIOD_SECONDS** | int | The number of seconds SimpleL7Proxy waits before forcing itself to shut down.                                                                                                             | 30                                       |
 | **Workers**                   | int | The number of worker threads used to process incoming proxy requests.                                                                                                                            | 10                                       |
+
+> [!TIP]
+> `Workers=10` is the default and is appropriate for local testing only. Production deployments MUST increase `Workers` based on expected concurrent request volume. Start at `Workers=20` and increase until queue depth stabilizes under load.
 
 ## Health Check Configuration
 
@@ -50,17 +83,20 @@ For production deployments, consider also configuring:
 
 | Variable                       | Type | Description                                                                                                                                                                                        | Default                                  |
 | ----------------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| **SuspendedUserConfigUrl**      | string | URL or file path to fetch the list of suspended users.                                                                                                | file:config.json                         |
+| **SuspendedUserConfigUrl**      | string | URL or file path to fetch the list of suspended users.                                                                                                | `""` (not set)                           |
 | **UseProfiles**                | bool | If true, enables user profile functionality for custom handling based on user profiles.                                                               | false                                    |
 | **UserConfigRequired**         | bool | If true, a valid user profile must be found for the request to proceed. Requires restart.                                                            | false                                    |
 | **UserConfigRefreshIntervalSecs** | int | Interval in seconds between user configuration refreshes. Requires restart.                                                                       | 3600 (1 hour)                            |
 | **UserSoftDeleteTTLMinutes**   | int  | Time in minutes before a soft-deleted user profile is permanently removed. Requires restart.                                                         | 360 (6 hours)                            |
-| **UserConfigUrl**             | string | URL or file path to fetch user configuration data.                                                                                                     | file:config.json                         |
+| **UserConfigUrl**             | string | URL or file path to fetch user configuration data.                                                                                                     | `""` (not set)                           |
 | **UserPriorityThreshold**     | float | Floating point threshold (0.0-1.0) for user priority calculations. If a user owns more than this percentage of requests, their priority is lowered to prevent monopolization. For details, see [Advanced Configuration](ADVANCED_CONFIGURATION.md#user-governance). | 0.1                                      |
 | **ValidateAuthAppFieldName**    | string | Name of the field in the authentication payload to validate as the App ID.                                                                            | authAppID                                |
 | **ValidateAuthAppID**           | bool | If true, enables validation of an application ID in the request for authentication. Entra has a limit of 13 application IDs, use this setting to make the check in the proxy code.                                                                  | false                                    |
 | **ValidateAuthAppIDHeader**     | string | Name of the header containing the App ID to validate.                                                                                                 | X-MS-CLIENT-PRINCIPAL-ID                 |
 | **ValidateAuthAppIDUrl**        | string | URL or file path to fetch the list of valid App IDs for authentication.                                                                               | file:auth.json                           |
+
+> [!TIP]
+> `ValidateAuthAppID` is designed for scenarios where Entra’s built-in app ID checking is insufficient (the Entra limit is 13 application IDs). When enabled, the proxy performs this check before the request enters the queue, preventing unauthorized apps from consuming queue capacity.
 
 ## Request Processing Variables
 
@@ -70,9 +106,9 @@ For production deployments, consider also configuring:
 | **DefaultTTLSecs**            | int | The default time-to-live for a request in seconds.                                                                                                                                               | 300                                      |
 | **DependancyHeaders**         | string | Comma-separated list of headers to track dependency information.                                                                                                      | "Backend-Host, Host-URL..."              |
 | **DisallowedHeaders**         | string | A comma-separated list of headers that should be removed or disallowed when forwarding requests.                                                                                                  | None                                     |
-| **UserIDFieldName**          | string | The header name used to look up user information in configuration files. Also accepts the legacy alias **LookupHeaderName** (kept for backward compatibility). | userId                                   |
+| **UserIDFieldName**          | string | JSON field name in the user profile config file used as the unique user identifier. Also accepts the legacy alias **LookupHeaderName** (kept for backward compatibility). | userId                                   |
 | **PriorityKeyHeader**          | string | Name of the header that contains the priority key for determining request priority.                                                                     | S7PPriorityKey                           |
-| **PriorityKeys**              | int array | Comma-separated list of keys for the header 'S7PPriorityKey'. See [Advanced Configuration](ADVANCED_CONFIGURATION.md#priority-management) for examples.  | "12345,234"                                |
+| **PriorityKeys**              | string array | Comma-separated list of keys for the header 'S7PPriorityKey'. See [Advanced Configuration](ADVANCED_CONFIGURATION.md#priority-management) for examples.  | "12345,234"                                |
 | **PriorityValues**            | int array | Comma-separated list of priorities mapping to **PriorityKeys**. See [Advanced Configuration](ADVANCED_CONFIGURATION.md#priority-management) for examples.   | "1,3"                                      |
 | **PriorityWorkers**           | string | Comma-separated list (e.g., "2:1,3:1") specifying worker threads per priority. See [Advanced Configuration](ADVANCED_CONFIGURATION.md#priority-management) for examples.                                                                                       | 2:1,3:1                                  |
 | **RequiredHeaders**           | string | A comma-separated list of headers required for incoming requests to be deemed valid.                                                                                                             | None                                     |
@@ -117,6 +153,9 @@ For production deployments, consider also configuring:
 | **StorageDbEnabled**          | bool | Enables archiving requests to storage.                                                                           | false                                    |
 | **RequestIDPrefix**           | string | The prefix appended to every request ID.                                                                                                                                                         | S7P                                      |
 
+> [!TIP]
+> `EVENT_LOGGERS` is the REQUIRED method for configuring event backends in all new deployments. The legacy `LOGTOFILE` variable MUST NOT be used in new configurations — it is preserved only for backward compatibility. Set `EVENT_LOGGERS=file,eventhub` to enable both sinks simultaneously.
+
 ## Async Processing Variables
 
 | Variable                       | Type | Description                                                                                                         | Default                                  |
@@ -137,6 +176,9 @@ For production deployments, consider also configuring:
 | **AsyncTimeout**              | int | Timeout in milliseconds for async operations. The maximum amount of time an async request will run for.    | 1800000 (30 min)                        |
 | **AsyncTriggerTimeout**       | int | Timeout for async trigger operations in ms.                                                              | 10000                                    |
 | **AsyncTTLSecs**              | int | TTL for async requests in seconds.                                                                       | 86400 (24 hours)                         |
+
+> [!WARNING]
+> All async variables are **Cold** settings (see [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md)). They MUST be changed by redeploying or restarting the container — updating Azure App Configuration alone has no effect on Cold variables.
 
 ## Connection Management Variables
 
@@ -168,7 +210,7 @@ These variables connect SimpleL7Proxy to [Azure App Configuration](https://learn
 | ----------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | **AcceptableStatusCodes**     | int array | The list of HTTP status codes considered successful. If a host returns a code not in this list, it's deemed a failure. | 200, 202, 401, 403, 404, 408, 410, 412, 417, 400 |
 | **APPENDHOSTSFILE / AppendHostsFile** | bool | If true, appends host/IP pairs to /etc/hosts for DNS resolution. Both case variants are supported.      | false                                    |
-| **CBErrorThreshold**          | int | The error threshold percentage for the circuit breaker. If the error rate surpasses this value in **CBTimeslice** time period, the circuit breaks.     | 50                                       |
+| **CBErrorThreshold**          | int | Number of failures within the sliding window (`CBTimeslice` seconds) that opens the circuit.                                                                          | 50                                       |
 | **CBTimeslice**               | int | The duration (in seconds) of the sampling window for the circuit breaker's error rate.                             | 60                                       |
 | **DnsRefreshTimeout**         | int | The number of milliseconds to force a DNS refresh, useful for making services fail over more quickly.             | 120000                                   |
 | **Host1, Host2, ...**         | string | Up to 9 backend servers can be specified. Supports Connection Strings or Simple URLs. See [Backend Host Configuration](BACKEND_HOSTS.md) for full details. | None                                     |
@@ -189,6 +231,9 @@ These variables connect SimpleL7Proxy to [Azure App Configuration](https://learn
 | **SharedIteratorTTLSeconds**  | int  | How long (in seconds) an unused shared iterator lives before cleanup.                                            | 60                                       |
 | **SharedIteratorCleanupIntervalSeconds** | int | How often (in seconds) to run cleanup of stale shared iterators.                                        | 30                                       |
 | **MaxEvents**                 | int  | Maximum number of events the proxy can store in memory.                                                          | 100000                                   |
+
+> [!TIP]
+> The `Host1`–`Host9` connection string format (`host=…;probe=…;path=…`) MUST be used for all new deployments. The legacy per-variable format (`Probe_path1`, `IP1`) is deprecated — new per-host options (`path`, `mode`, `usemi`) are only available in the connection string format. See [BACKEND_HOSTS.md](BACKEND_HOSTS.md) for the complete key reference.
 
 ## User Profile Configuration
 
@@ -221,8 +266,31 @@ This is a JSON formatted file that gets read every hour. It can be fetched from 
 
 ## Additional Configuration Notes
 
-- **Environment Variables vs Configuration File**: While most settings can be provided via environment variables, you can also use appsettings.json in development mode.
+- **Environment Variables vs Configuration File:** While most settings can be provided via environment variables, `appsettings.json` is supported in development mode only and MUST NOT be used in production deployments.
+- **Priority Configuration:** The count of entries in `PriorityKeys` MUST equal the count in `PriorityValues`. `PriorityWorkers` MUST reference only priority levels defined in `PriorityValues`. See [ADVANCED_CONFIGURATION.md](ADVANCED_CONFIGURATION.md#priority-management) for a worked example.
+- **DNS Refresh:** Set `DnsRefreshTimeout` to force DNS re-resolution at a frequency appropriate for your environment. The default is 120,000 ms (2 min). This setting is relevant in environments where backend IPs change on failover.
 
-- **Priority Configuration**: When setting up priorities, ensure the number of values in `PriorityKeys` and `PriorityValues` match, and that `PriorityWorkers` references valid priority levels.
+---
 
-- **DNS Refresh**: If you're experiencing issues with DNS resolution in dynamic environments, adjust the `DnsRefreshTimeout` value to force more frequent DNS lookups.
+## Validation & Compliance
+
+| Check | Method | Expected Result |
+|-------|--------|-----------------|
+| Proxy binds port | `curl http://localhost:{Port}/health` | `200 OK` |
+| Backend host registered | Proxy startup log | `Host1` URL appears in active host list |
+| App Insights receiving data | Azure Portal → Application Insights → Live Metrics | Custom events appear within 60 s of first request |
+| Event Hub receiving data | Azure Portal → Event Hubs → Data Explorer | Events visible within 60 s of first request |
+| Warm setting reloaded | Update `Warm:Sentinel` in App Configuration | New value applied within `AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS` (default 30 s) |
+| Priority mapping active | Send request with header matching `PriorityKeyHeader` value | Request served at mapped priority (visible in proxy logs) |
+
+> [!NOTE]
+> Cold settings (per [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md)) MUST be changed by redeploying or restarting the container. Updating Azure App Configuration alone is insufficient for Cold variables.
+
+---
+
+## Version History
+
+| Version | Date | Changes | Author |
+|---------|------|---------|--------|
+| 1.1 | 2026-05-21 | Removed legacy `Probe_path1` from minimum configuration; added metadata, TL;DR, Minimum Required Configuration section, [!TIP]/[!WARNING] per category, Validation & Compliance, Version History; tightened Additional Configuration Notes language | SimpleL7Proxy maintainers |
+| 1.0 | — | Initial version | SimpleL7Proxy maintainers |

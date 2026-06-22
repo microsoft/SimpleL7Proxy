@@ -30,8 +30,8 @@ namespace SimpleL7Proxy.Async.BlobStorage
         // Cache for the user delegation key used to sign SAS tokens when running under MI.
         // Refreshing on every SAS request would add a management-plane round-trip per call.
         private static readonly SemaphoreSlim _delegationKeyLock = new(1, 1);
-        private static Azure.Storage.Blobs.Models.UserDelegationKey _cachedDelegationKey = default!;
-        private static bool _hasCachedDelegationKey;
+        // private static Azure.Storage.Blobs.Models.UserDelegationKey _cachedDelegationKey = default!;
+        // private static bool _hasCachedDelegationKey;
         private static DateTimeOffset _delegationKeyRefreshAfter = DateTimeOffset.MinValue;
         private static readonly TimeSpan DelegationKeyLifetime = TimeSpan.FromHours(1);
         // Refresh slightly before expiry to avoid a thundering herd at the boundary.
@@ -40,7 +40,6 @@ namespace SimpleL7Proxy.Async.BlobStorage
         public bool UsesMI { get; set; }
 
         public bool IsInitialized => _blobServiceClient != null;
-        private bool _disposed = false;
 
 
         /// <summary>
@@ -324,42 +323,42 @@ namespace SimpleL7Proxy.Async.BlobStorage
             return blobClient.Uri.ToString();
         }
 
-        // Returns a cached user delegation key, refreshing it shortly before expiry. Single-flight
-        // protected via SemaphoreSlim so a refresh storm cannot fan out.
-        private async Task<Azure.Storage.Blobs.Models.UserDelegationKey> GetOrRefreshUserDelegationKeyAsync()
-        {
-            var now = DateTimeOffset.UtcNow;
-            if (_hasCachedDelegationKey && now < _delegationKeyRefreshAfter)
-            {
-                return _cachedDelegationKey;
-            }
+        // // Returns a cached user delegation key, refreshing it shortly before expiry. Single-flight
+        // // protected via SemaphoreSlim so a refresh storm cannot fan out.
+        // private async Task<Azure.Storage.Blobs.Models.UserDelegationKey> GetOrRefreshUserDelegationKeyAsync()
+        // {
+        //     var now = DateTimeOffset.UtcNow;
+        //     if (_hasCachedDelegationKey && now < _delegationKeyRefreshAfter)
+        //     {
+        //         return _cachedDelegationKey;
+        //     }
 
-            await _delegationKeyLock.WaitAsync().ConfigureAwait(false);
-            try
-            {
-                now = DateTimeOffset.UtcNow;
-                if (_hasCachedDelegationKey && now < _delegationKeyRefreshAfter)
-                {
-                    return _cachedDelegationKey;
-                }
+        //     await _delegationKeyLock.WaitAsync().ConfigureAwait(false);
+        //     try
+        //     {
+        //         now = DateTimeOffset.UtcNow;
+        //         if (_hasCachedDelegationKey && now < _delegationKeyRefreshAfter)
+        //         {
+        //             return _cachedDelegationKey;
+        //         }
 
-                _logger.LogDebug("Requesting user delegation key for SAS token generation");
-                var start = now.AddMinutes(-5); // tolerate clock skew
-                var expiry = now.Add(DelegationKeyLifetime);
-                var response = await _blobServiceClient
-                    .GetUserDelegationKeyAsync(start, expiry)
-                    .ConfigureAwait(false);
+        //         _logger.LogDebug("Requesting user delegation key for SAS token generation");
+        //         var start = now.AddMinutes(-5); // tolerate clock skew
+        //         var expiry = now.Add(DelegationKeyLifetime);
+        //         var response = await _blobServiceClient
+        //             .GetUserDelegationKeyAsync(new global::Azure.Storage.Blobs.Models.BlobGetUserDelegationKeyOptions(expiry) { StartsOn = start })
+        //             .ConfigureAwait(false);
 
-                _cachedDelegationKey = response.Value;
-                _delegationKeyRefreshAfter = expiry - DelegationKeyRefreshSkew;
-                _hasCachedDelegationKey = true;
-                return _cachedDelegationKey;
-            }
-            finally
-            {
-                _delegationKeyLock.Release();
-            }
-        }
+        //         _cachedDelegationKey = response.Value;
+        //         _delegationKeyRefreshAfter = expiry - DelegationKeyRefreshSkew;
+        //         _hasCachedDelegationKey = true;
+        //         return _cachedDelegationKey;
+        //     }
+        //     finally
+        //     {
+        //         _delegationKeyLock.Release();
+        //     }
+        // }
 
         /// <summary>
         /// Gets connection information for health check and diagnostics.
@@ -392,7 +391,6 @@ namespace SimpleL7Proxy.Async.BlobStorage
         {
             // The BlobServiceClient is owned by BlobWriterFactory (singleton, shared
             // across all BlobWriter instances), so we deliberately do not dispose it here.
-            _disposed = true;
         }
         
 

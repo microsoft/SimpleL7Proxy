@@ -16,9 +16,13 @@ using SimpleL7Proxy.Async.ServiceBus;
 namespace SimpleL7Proxy.Async.ServiceBus.SBQueue
 {
     public class SBQueueService : IHostedService, ISBQueueService, IShutdownParticipant,
-        IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>
+        IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>,
+        IReadinessParticipant
     {
         public int ShutdownOrder => 20;
+
+        public ReadinessParticipantEnum Participant => ReadinessParticipantEnum.SBQueue;
+        public ReadinessRegistry Readiness { get; }
 
         private readonly ProxyConfig _options;
         private readonly ILogger<SBQueueService> _logger;
@@ -42,10 +46,23 @@ namespace SimpleL7Proxy.Async.ServiceBus.SBQueue
         private const int FlushCountThreshold = 10;
         private static readonly TimeSpan FlushIntervalMs = TimeSpan.FromSeconds(1);
 
-        public SBQueueService(IOptions<ProxyConfig> options, IServiceBusFactory senderFactory, ILogger<SBQueueService> logger)
+        // Throttled "Sent N status updates" log aggregation.
+        // Trace  -> log every batch
+        // Debug  -> aggregate, emit every 10s
+        // Info   -> aggregate, emit every 60s
+        // Accessed only from the pump's single writer task (SendAsync), so no locking.
+        private static readonly TimeSpan SendLogIntervalDebug = TimeSpan.FromSeconds(10);
+        private static readonly TimeSpan SendLogIntervalInfo  = TimeSpan.FromSeconds(60);
+        private static readonly TimeSpan SendLogIntervalShutdown = TimeSpan.FromSeconds(1);
+        private int _aggBatches;
+        private int _aggMessages;
+        private DateTime _aggWindowStart = DateTime.UtcNow;
+
+        public SBQueueService(IOptions<ProxyConfig> options, IServiceBusFactory senderFactory, ReadinessRegistry readiness, ILogger<SBQueueService> logger)
         {
             _options = options.Value;
             _senderFactory = senderFactory ?? throw new ArgumentNullException(nameof(senderFactory));
+            Readiness = readiness ?? throw new ArgumentNullException(nameof(readiness));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _batchTransport = this;
         }
@@ -57,7 +74,7 @@ namespace SimpleL7Proxy.Async.ServiceBus.SBQueue
                 return Task.CompletedTask;
             }
 
-            _logger.LogInformation("[SERVICE] ✓ Backup API service starting...");
+            _logger.LogInformation("[SERVICE] ✓ SBQueue service starting...");
 
             var queueName = _options.AsyncSBQueue;
             _pump = new BatchMessagePump<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>(
@@ -75,7 +92,9 @@ namespace SimpleL7Proxy.Async.ServiceBus.SBQueue
                 });
 
             _isRunning = true;
-            return _pump.StartAsync(cancellationToken);
+            var startTask = _pump.StartAsync(cancellationToken);
+            this.RegisterReady();
+            return startTask;
         }
 
         public Task ShutdownAsync(CancellationToken cancellationToken)
@@ -206,6 +225,52 @@ namespace SimpleL7Proxy.Async.ServiceBus.SBQueue
             _currentMinuteErrors = 0;
         }
 
+        private void LogSendThrottled(string destination, int count)
+        {
+            // Trace: log every batch verbatim.
+            if (_logger.IsEnabled(LogLevel.Trace))
+            {
+                _logger.LogTrace("[SBQueue:Batch] Sent {MessageCount} status updates to queue {QueueName}", count, destination);
+                return;
+            }
+
+            _aggBatches++;
+            _aggMessages += count;
+
+            var debugOn = _logger.IsEnabled(LogLevel.Debug);
+            var infoOn  = _logger.IsEnabled(LogLevel.Information);
+            if (!debugOn && !infoOn)
+            {
+                return;
+            }
+
+            var interval = debugOn ? SendLogIntervalDebug : SendLogIntervalInfo;
+            if (_isShuttingDown)
+            {
+                interval = SendLogIntervalShutdown;
+            }
+            var elapsed  = DateTime.UtcNow - _aggWindowStart;
+            if (elapsed < interval)
+            {
+                return;
+            }
+
+            if (debugOn)
+            {
+                _logger.LogDebug("[SBQueue:Batch] Sent {MessageCount} status updates in {BatchCount} batches to queue {QueueName} over {Elapsed:F1}s",
+                    _aggMessages, _aggBatches, destination, elapsed.TotalSeconds);
+            }
+            else
+            {
+                _logger.LogInformation("[SBQueue:Batch] Sent {MessageCount} status updates in {BatchCount} batches to queue {QueueName} over {Elapsed:F1}s",
+                    _aggMessages, _aggBatches, destination, elapsed.TotalSeconds);
+            }
+
+            _aggBatches = 0;
+            _aggMessages = 0;
+            _aggWindowStart = DateTime.UtcNow;
+        }
+
         static readonly JsonSerializerOptions jsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -254,7 +319,7 @@ namespace SimpleL7Proxy.Async.ServiceBus.SBQueue
                 await _senderFactory.GetQueueSender(destination).SendMessagesAsync(batch, cancellationToken).ConfigureAwait(false);
                 RotateMinuteIfNeeded();
                 _currentMinuteCount += count;
-                _logger.LogInformation("[SBQueue:Batch] Sent {MessageCount} status updates to queue {QueueName}", count, destination);
+                LogSendThrottled(destination, count);
             }
             catch
             {

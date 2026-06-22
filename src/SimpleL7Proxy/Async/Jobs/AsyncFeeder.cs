@@ -20,7 +20,7 @@ using SimpleL7Proxy.User;
 using SimpleL7Proxy.Queue;
 using System.Runtime.Intrinsics.Arm;
 
-namespace SimpleL7Proxy.Async.Feeder
+namespace SimpleL7Proxy.Async.Jobs
 {
 
     public class NullAsyncFeeder : IAsyncFeeder
@@ -39,10 +39,11 @@ namespace SimpleL7Proxy.Async.Feeder
         private readonly IUserProfileService _userProfile;
         private readonly IRequestSerializerService _requestBackupService;
 
-        private readonly IRequestProcessor _normalRequest;
+        private readonly IRequestProcessor _asyncRequestHydrator;
         private readonly IRequestProcessor _openAIRequest;
         private readonly IUserPriorityService _userPriority;
         private readonly IConcurrentPriQueue<RequestData> _requestsQueue;
+        private readonly ReadinessRegistry _readiness;
 
         private readonly SemaphoreSlim _queueSignal = new SemaphoreSlim(0);
         private bool isShuttingDown = false;
@@ -82,9 +83,10 @@ namespace SimpleL7Proxy.Async.Feeder
                             IUserProfileService userProfile,
                             IRequestSerializerService requestBackupService,
                             IServiceBusFactory senderFactory,
-                            NormalRequest normalRequest,
+                            AsyncRequestHydrator asyncRequestHydrator,
                             OpenAIBackgroundRequest openAIRequest,
                             IConcurrentPriQueue<RequestData> requestsQueue,
+                            ReadinessRegistry readiness,
                             ILogger<AsyncFeeder> logger)
         {
             _options = options.Value;
@@ -92,9 +94,10 @@ namespace SimpleL7Proxy.Async.Feeder
             _userProfile = userProfile;
             _requestBackupService = requestBackupService;
             _senderFactory = senderFactory;
-            _normalRequest = normalRequest;
+            _asyncRequestHydrator = asyncRequestHydrator;
             _openAIRequest = openAIRequest;
             _requestsQueue = requestsQueue;
+            _readiness = readiness;
             _logger = logger;
         }
 
@@ -135,6 +138,18 @@ namespace SimpleL7Proxy.Async.Feeder
         {
 
             _logger.LogInformation("[SERVICE] ✓ AsyncFeeder service starting...");
+
+            // Hold off processing rehydrated requests until workers, backends, and profiles are
+            // ready - otherwise rehydrated requests can race the pipeline and return 503.
+            try
+            {
+                await _readiness.WaitForReadyAsync().WaitAsync(token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("[SERVICE] AsyncFeeder cancelled before ready");
+                return;
+            }
 
             ServiceBusProcessor? processor = null;
 
@@ -265,6 +280,8 @@ namespace SimpleL7Proxy.Async.Feeder
         {
             var message = args.Message;
             var messageFromSB = message.Body.ToString();
+
+            // Shared with RequestAPI backgroundReqChecker  - returns a IRequestData ( ID, UserID, Guid )
             var requestData = RequestDataParser.ParseRequestData(messageFromSB);
 
             try
@@ -275,19 +292,12 @@ namespace SimpleL7Proxy.Async.Feeder
                     // this is either a background request status check, or a brand new request
                     bool isBackground = requestMsg.isBackground == true && requestMsg.status == RequestAPIStatusEnum.BackgroundProcessing;
 
-                    var rd = ConvertDocumentToRequest(requestMsg, isBackground);
-                    if (rd != null)
-                    {
-                        rd.RecoveryProcessor = isBackground ? _openAIRequest : _normalRequest;
-                    }
+                    var recoveryProcessor = isBackground ? _openAIRequest : _asyncRequestHydrator;
+                    ConvertDocumentToRequest(requestMsg, isBackground, recoveryProcessor);
                 }
                 else if (requestData is RequestMessage msg)
                 {
-                    var rd = await ConvertToNewRequestAsync(msg).ConfigureAwait(false);
-                    if (rd != null)
-                    {
-                        rd.RecoveryProcessor = _normalRequest;
-                    }
+                    await ConvertToNewRequestAsync(msg, _asyncRequestHydrator).ConfigureAwait(false);
 
                     // Handle simple message
                     _logger.LogInformation("AsyncFeeder: UserID: {UserID}, ID: {Id}", msg.UserID, msg.Id);
@@ -307,7 +317,7 @@ namespace SimpleL7Proxy.Async.Feeder
             }
         }
 
-        public async Task<RequestData?> ConvertToNewRequestAsync(RequestMessage message)
+        public async Task<RequestData?> ConvertToNewRequestAsync(RequestMessage message, IRequestProcessor recoveryProcessor)
         {
             Interlocked.Increment(ref counter);
             var requestId = _options.IDStr + "_Feeder_" + counter.ToString();
@@ -363,6 +373,10 @@ namespace SimpleL7Proxy.Async.Feeder
             rd.IsBackground = false;
             rd.BackgroundRequestId = string.Empty;
 
+            // Assign RecoveryProcessor BEFORE publishing to the queue so workers can never
+            // observe a partially-initialized RequestData (the field is consumed by ProxyWorker).
+            rd.RecoveryProcessor = recoveryProcessor;
+
             await _requestBackupService.BackupAsync(rd).ConfigureAwait(false);
 
             // re-establish job as an incoming request
@@ -390,7 +404,7 @@ namespace SimpleL7Proxy.Async.Feeder
 
         // Convert the minimal RequestAPIDocument from the queue into a full RequestData by restoring from blob storage
 
-        public RequestData? ConvertDocumentToRequest(RequestAPIDocument data, bool isBackground)
+        public RequestData? ConvertDocumentToRequest(RequestAPIDocument data, bool isBackground, IRequestProcessor recoveryProcessor)
         {
             try
             {
@@ -407,6 +421,10 @@ namespace SimpleL7Proxy.Async.Feeder
                 rd.Priority = data.priority1 ?? 1;
                 rd.IsBackground = data.isBackground ?? false;
                 rd.BackgroundRequestId = data.backgroundRequestId ?? string.Empty;
+
+                // Assign RecoveryProcessor BEFORE publishing to the queue so workers can never
+                // observe a partially-initialized RequestData (the field is consumed by ProxyWorker).
+                rd.RecoveryProcessor = recoveryProcessor;
 
                 // re-establish job as an incoming request
                 if (_options.UseProfiles)

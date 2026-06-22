@@ -3,9 +3,10 @@ using Microsoft.Extensions.Logging;
 namespace SimpleL7Proxy.Async.BlobStorage
 {
     /// <summary>
-    /// Null object pattern implementation for when blob storage is disabled.
+    /// Null object pattern implementation for when blob storage is disabled. Implements
+    /// <see cref="IQueuedBlobWriter"/> for non-async mode operation.
     /// </summary>
-    public class NullBlobWriter : IBlobWriter
+    public class NullBlobWriter : IQueuedBlobWriter
     {
         private readonly ILogger<NullBlobWriter> _logger;
 

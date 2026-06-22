@@ -92,7 +92,8 @@ CBTimeslice=60
 
 ---
 
-## Worked Example
+<details>
+<summary>Worked Example</summary>
 
 > **Setup:** `CBErrorThreshold=10`, `CBTimeslice=30`. Three hosts A, B, C.
 
@@ -106,9 +107,12 @@ CBTimeslice=60
 
 **Host A rejoins the active pool automatically once all its failures age out of the `CBTimeslice` window — no restart or manual reset needed.**
 
+</details>
+
 ---
 
-## Integration with Load Balancing
+<details>
+<summary>Integration with Load Balancing</summary>
 
 During iteration the load balancer calls `CheckFailedStatusAsync()` before sending to each host:
 
@@ -122,6 +126,8 @@ FOR EACH HOST in iterator:
 ```
 
 See [LOAD_BALANCING.md](LOAD_BALANCING.md) for how hosts are ordered and how `MaxAttempts` interacts with skipped hosts.
+
+</details>
 
 ---
 

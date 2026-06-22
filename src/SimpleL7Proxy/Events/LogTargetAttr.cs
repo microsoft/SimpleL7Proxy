@@ -18,6 +18,7 @@ public class LogTargetAttr
     public bool ProxyRequest;
     public bool ProxyRequestEnqueued;
     public bool Authentication;
+    public bool Metric;
 
     /// <summary>
     /// Returns whether the given <see cref="EventType"/> is enabled for this destination.
@@ -38,6 +39,7 @@ public class LogTargetAttr
             or EventType.ProxyRequestRequeued                    => ProxyRequest,
         EventType.ProxyRequestEnqueued                           => ProxyRequestEnqueued,
         EventType.Authentication                                 => Authentication,
+        EventType.Metric                                         => Metric,
         _                                                        => true,
     };
 
@@ -65,12 +67,13 @@ public class LogTargetAttr
             ProxyRequest     = all || set!.Contains("proxy"),
             ProxyRequestEnqueued = all || set!.Contains("enqueued"),
             Authentication   = all || set!.Contains("auth"),
+            Metric           = all || set!.Contains("metric"),
         };
     }
 
-    public string ToString()
+    public override string ToString()
     {
-        return $"Async: {Async}, BackendRequest: {BackendRequest}, Probe: {Probe}, CircuitBreakerError: {CircuitBreakerError}, Console: {Console}, CustomEvent: {CustomEvent}, Exception: {Exception}, ProfileError: {ProfileError}, ProxyRequest: {ProxyRequest}, ProxyRequestEnqueued: {ProxyRequestEnqueued}, Authentication: {Authentication}";
+        return $"Async: {Async}, BackendRequest: {BackendRequest}, Probe: {Probe}, CircuitBreakerError: {CircuitBreakerError}, Console: {Console}, CustomEvent: {CustomEvent}, Exception: {Exception}, ProfileError: {ProfileError}, ProxyRequest: {ProxyRequest}, ProxyRequestEnqueued: {ProxyRequestEnqueued}, Authentication: {Authentication}, Metric: {Metric}";
     }
 
 }

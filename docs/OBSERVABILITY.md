@@ -1,6 +1,6 @@
-# Observability & AI Telemetry
+# Observability & Telemetry
 
-SimpleL7Proxy is designed to provide deep visibility into AI workloads, solving the "Black Box" problem of streaming LLM responses. It captures standard HTTP metrics alongside high-fidelity AI specific telemetry.
+SimpleL7Proxy captures telemetry for every proxied request, including token usage extracted from streaming AI responses.
 
 ## Telemetry Channels
 Data is emitted to the following configured sinks:
@@ -60,7 +60,8 @@ Both backends are **sibling sinks** managed by `CompositeEventClient` — they c
 
 ---
 
-## Custom Event Loggers
+<details>
+<summary>Custom Event Loggers</summary>
 
 Besides the built-in `file` and `eventhub` backends, you can create your own event logger by implementing `IEventClient` and `IHostedService` in the `SimpleL7Proxy` assembly.
 
@@ -121,9 +122,12 @@ The proxy uses `ActivatorUtilities.CreateInstance` to construct custom loggers, 
 
 > **Security:** Only types within the `SimpleL7Proxy` assembly are resolved. External assemblies cannot be loaded via `EVENT_LOGGERS`.
 
+</details>
+
 ---
 
-## Custom Event Headers
+<details>
+<summary>Custom Event Headers</summary>
 
 Every event includes a set of **default fields** (version, revision, container name) that are injected by an `ICommonEventData` implementation. You can customize these fields by providing your own class.
 
@@ -180,6 +184,8 @@ EVENT_HEADERS=SimpleL7Proxy.Events.MyCustomEventHeaders
 ### Fallback Behaviour
 
 If the configured `EVENT_HEADERS` type cannot be found, does not implement `ICommonEventData`, or throws during construction, the proxy logs a warning and falls back to `CommonEventHeaders` automatically. The proxy will always start successfully regardless of event header misconfiguration.
+
+</details>
 
 ## AI Token Metrics (Streaming)
 Standard gateways cannot count tokens in streaming responses (Server-Sent Events/SSE) because the "usage" field is often only sent in the final chunk, or requires aggregating chunks.

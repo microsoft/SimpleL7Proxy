@@ -138,7 +138,9 @@ else
             -l "${REQUESTAPI_LOCATION}" \
             --sku Standard_LRS \
             --kind StorageV2 \
-            --allow-shared-key-access true >/dev/null
+            --allow-shared-key-access true \
+            --public-network-access Enabled \
+            --min-tls-version TLS1_2 >/dev/null
         STORAGE_RG="${REQUESTAPI_RESOURCE_GROUP}"
     fi
 fi
@@ -240,6 +242,12 @@ az functionapp config appsettings set \
         "CosmosDb__ContainerName=${REQUESTAPI_COSMOS_CONTAINER}" \
     >/dev/null
 
+az functionapp config appsettings delete \
+    -g "${REQUESTAPI_RESOURCE_GROUP}" \
+    -n "${REQUESTAPI_FUNCTION_APP}" \
+    --setting-names AzureWebJobsStorage DEPLOYMENT_STORAGE_CONNECTION_STRING \
+    >/dev/null 2>&1 || true
+
 # ----------------------------------------------------------------------------
 # 6. RBAC
 # ----------------------------------------------------------------------------
@@ -261,8 +269,6 @@ assign_role "Storage Blob Data Owner"        "${STORAGE_ID}"
 assign_role "Storage Queue Data Contributor" "${STORAGE_ID}"
 assign_role "Storage Table Data Contributor" "${STORAGE_ID}"
 
-<<<<<<< Updated upstream
-=======
 DEPLOYMENT_STORAGE_URL=$(az functionapp deployment config show \
     -g "${REQUESTAPI_RESOURCE_GROUP}" \
     -n "${REQUESTAPI_FUNCTION_APP}" \
@@ -295,7 +301,6 @@ az functionapp deployment config set \
     --deployment-storage-auth-type SystemAssignedIdentity \
     >/dev/null
 
->>>>>>> Stashed changes
 # Service Bus namespace (must exist)
 SB_NS_ID=$(az servicebus namespace show \
     -g "${REQUESTAPI_RESOURCE_GROUP}" -n "${REQUESTAPI_SERVICEBUS_NAMESPACE}" \

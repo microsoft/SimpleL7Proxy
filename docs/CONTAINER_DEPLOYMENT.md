@@ -178,7 +178,8 @@ docker build -t simplel7proxy:latest -f SimpleL7Proxy/Dockerfile .
 
 ---
 
-## Building without Docker (Remote ACR Build)
+<details>
+<summary>Building without Docker (Remote ACR Build)</summary>
 
 If Docker is not available locally (corporate restrictions, CI/CD runners, etc.), build directly in Azure Container Registry:
 
@@ -194,6 +195,8 @@ az acr build
 src
 ```
 
+</details>
+
 ## Running Locally with Docker
 
 ### Minimal run
@@ -206,7 +209,8 @@ docker run -p 8000:443 \
   simplel7proxy:latest
 ```
 
-### Using an environment file
+<details>
+<summary>Using an environment file</summary>
 
 Create `.env`:
 ```bash
@@ -222,7 +226,10 @@ APPINSIGHTS_CONNECTIONSTRING=your-connection-string
 docker run -p 8000:443 --env-file .env simplel7proxy:latest
 ```
 
-### Docker Compose
+</details>
+
+<details>
+<summary>Docker Compose</summary>
 
 ```yaml
 services:
@@ -251,6 +258,8 @@ docker compose up -d
 
 > [!TIP]
 > **Troubleshooting:** Health check failures using port 443 will always fail — the probe server runs on port **9000**. Use `http://localhost:9000/liveness`.
+
+</details>
 
 ---
 

@@ -25,11 +25,10 @@ the Container App's environment variables.
    proxy both reads templates and writes async result blobs, so Reader is
    not sufficient.
 4. **Optionally creates blob containers** (`templates`, `simplel7proxy`)
-   when `CREATE_CONTAINERS=true`. Container creation uses
-   `--auth-mode login`, so the signed-in user is JIT-granted
-   `Storage Blob Data Contributor` on the account first (with a 30 s wait
-   for RBAC propagation). This works whether or not shared-key auth is
-   enabled on the account.
+   when `CREATE_CONTAINERS=true`. Container creation uses Azure Resource
+   Manager (`az storage container-rm`), so setup still works when storage
+   network rules block the operator's current client IP from the blob data
+   plane.
 
 The script is **idempotent** — re-running it skips work that's already done.
 
@@ -127,14 +126,11 @@ account, and the proxy authenticates with `DefaultAzureCredential`.
 
 - **Container App MI** — assigned `${CA_BLOB_ROLE}` (default
   `Storage Blob Data Contributor`) on the storage account scope.
-- **Signed-in user** — only when `CREATE_CONTAINERS=true`, the script JIT
-  assigns `Storage Blob Data Contributor` to the operator running it so
-  that `az storage container create --auth-mode login` succeeds. This
-  assignment is **not removed** by the script; remove it manually if your
-  org's policy requires it.
-- RBAC propagation can take a few minutes. The script sleeps 30 s after
-  granting the operator role; if subsequent commands still 403, wait and
-  re-run.
+- **Signed-in user** — needs permission to create or update blob container
+   ARM resources on the storage account. Data-plane blob network access is
+   not required for container creation.
+- RBAC propagation can take a few minutes. If runtime blob access still 403s
+   after assigning the Container App role, wait and re-run.
 
 ## Re-running
 

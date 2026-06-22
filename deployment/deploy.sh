@@ -36,13 +36,14 @@ run_step() {
 
 step1_prereq()        { ( cd "${SCRIPT_DIR}/Prereq"           && ./validate.sh ); }
 step2_vnet()          { ( cd "${SCRIPT_DIR}/VNet"             && ./deploy.sh   ); }
-step3_image()         { ( cd "${SCRIPT_DIR}/ContainerImage"   && ./deploy.sh   ); }
-step4_aca()           { ( cd "${SCRIPT_DIR}/proxy-with-sidecar" && ./deploy.sh ); }
-step5_dns()           { ( cd "${SCRIPT_DIR}/DNS"              && ./deploy.sh   ); }
-step6_appconfig()     { ( cd "${SCRIPT_DIR}/AppConfiguration" && ./deploy.sh   ); }
-step7a_blobstorage()  { ( cd "${SCRIPT_DIR}/BlobStorage"      && ./deploy.sh   ); }
-step8_requestapi_create() { ( cd "${SCRIPT_DIR}/RequestAPI"     && ./create.sh   ); }
-step9_requestapi_deploy() { ( cd "${SCRIPT_DIR}/RequestAPI"     && ./deploy.sh   ); }
+step3_acr()           { ( cd "${SCRIPT_DIR}/ContainerImage"   && ./validate-acr.sh ); }
+step4_image()         { ( cd "${SCRIPT_DIR}/ContainerImage"   && ./deploy.sh   ); }
+step5_aca()           { ( cd "${SCRIPT_DIR}/proxy-with-sidecar" && ./deploy.sh ); }
+step6_dns()           { ( cd "${SCRIPT_DIR}/DNS"              && ./deploy.sh   ); }
+step7_appconfig()     { ( cd "${SCRIPT_DIR}/AppConfiguration" && ./deploy.sh   ); }
+step8_blobstorage()   { ( cd "${SCRIPT_DIR}/BlobStorage"      && ./deploy.sh   ); }
+step9_requestapi_create() { ( cd "${SCRIPT_DIR}/RequestAPI"     && ./create.sh   ); }
+step10_requestapi_deploy() { ( cd "${SCRIPT_DIR}/RequestAPI"     && ./deploy.sh   ); }
 
 print_menu() {
     clear 2>/dev/null || true
@@ -51,13 +52,14 @@ print_menu() {
     echo -e "${GREEN}========================================${NC}"
     echo "  1) Prerequisites              (Prereq/validate.sh)"
     echo "  2) Virtual Network            (VNet/deploy.sh)"
-    echo "  3) Build Container Image      (ContainerImage/deploy.sh)"
-    echo "  4) Azure Container Apps       (proxy-with-sidecar/deploy.sh)"
-    echo "  5) Private DNS                (DNS/deploy.sh)"
-    echo "  6) App Configuration          (AppConfiguration/deploy.sh)"
-    echo "  7) Blob Storage  (optional)   (BlobStorage/deploy.sh)"
-    echo "  8) Create RequestAPI Function (RequestAPI/create.sh)"
-    echo "  9) Deploy/Update RequestAPI   (RequestAPI/deploy.sh)"
+    echo "  3) Validate/Create ACR        (ContainerImage/validate-acr.sh)"
+    echo "  4) Build Container Image      (ContainerImage/deploy.sh)"
+    echo "  5) Azure Container Apps       (proxy-with-sidecar/deploy.sh)"
+    echo "  6) Private DNS                (DNS/deploy.sh)"
+    echo "  7) App Configuration          (AppConfiguration/deploy.sh)"
+    echo "  8) Blob Storage  (optional)   (BlobStorage/deploy.sh)"
+    echo "  9) Create RequestAPI Function (RequestAPI/create.sh)"
+    echo " 10) Deploy/Update RequestAPI   (RequestAPI/deploy.sh)"
     echo "  q) Quit"
     echo ""
 }
@@ -68,13 +70,14 @@ while true; do
     case "${choice}" in
         1)   run_step "Step 1: Prerequisites"           step1_prereq       ;;
         2)   run_step "Step 2: Virtual Network"         step2_vnet         ;;
-        3)   run_step "Step 3: Build Container Image"   step3_image        ;;
-        4)   run_step "Step 4: Azure Container Apps"    step4_aca          ;;
-        5)   run_step "Step 5: Private DNS"             step5_dns          ;;
-        6)   run_step "Step 6: App Configuration"       step6_appconfig    ;;
-        7)   run_step "Step 7a: Blob Storage"           step7a_blobstorage ;;
-        8)   run_step "Step 8: Create RequestAPI Function App" step8_requestapi_create ;;
-        9)   run_step "Step 9: Deploy/Update RequestAPI"       step9_requestapi_deploy ;;
+        3)   run_step "Step 3: Validate/Create ACR"      step3_acr          ;;
+        4)   run_step "Step 4: Build Container Image"    step4_image        ;;
+        5)   run_step "Step 5: Azure Container Apps"     step5_aca          ;;
+        6)   run_step "Step 6: Private DNS"              step6_dns          ;;
+        7)   run_step "Step 7: App Configuration"        step7_appconfig    ;;
+        8)   run_step "Step 8: Blob Storage"             step8_blobstorage  ;;
+        9)   run_step "Step 9: Create RequestAPI Function App" step9_requestapi_create ;;
+        10)  run_step "Step 10: Deploy/Update RequestAPI"      step10_requestapi_deploy ;;
         q|Q) echo "Bye."; exit 0 ;;
         *)   echo -e "${YELLOW}Invalid option: ${choice}${NC}"; sleep 1 ;;
     esac

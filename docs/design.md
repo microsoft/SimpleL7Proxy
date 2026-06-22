@@ -2,7 +2,7 @@ This document serves as the high level description of the source code.
 
 ## Overview
 
-SimpleL7Proxy is a high-performance Layer 7 reverse proxy with intelligent backend selection. It receives incoming requests, queues them by priority, and routes them to healthy backends using configurable load balancing strategies.
+SimpleL7Proxy is a Layer 7 reverse proxy with configurable backend selection. It receives incoming requests, queues them by priority, and routes them to healthy backends using configurable load balancing strategies.
 
 ### Key Capabilities
 
@@ -45,7 +45,7 @@ When deployed in Azure Container Apps, it can be set up with auto-scale to handl
 
 Purpose:  Authenticate to Azure and acquire Oauth2 tokens. 
 * Azure.Core: Provides essential classes and utilities for working with Azure services, including HTTP pipeline configuration, retry policies, and diagnostics.
-* Azure.Identity: Offers a variety of token credential implementations for authenticating Azure SDK clients using Azure Active Directory (AAD). It supports multiple authentication methods, including managed identities, service principals, and interactive user authentication.
+* Azure.Identity: Offers a variety of token credential implementations for authenticating Azure SDK clients using Microsoft Entra ID. It supports multiple authentication methods, including managed identities, service principals, and interactive user authentication.
 
 Purpose:  Log messages to application insights and EventHub
 * Azure.Messaging.EventHubs: Facilitates the sending and receiving of messages to and from Azure Event Hubs

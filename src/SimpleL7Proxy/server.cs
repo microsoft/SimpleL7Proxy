@@ -41,7 +41,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
     private readonly IConcurrentPriQueue<RequestData> _requestsQueue;// = new ConcurrentPriQueue<RequestData>();
     //private readonly IServiceBusRequestService _serviceBusRequestService;
     private readonly ILogger<Server> _logger;
-    private readonly IBlobWriter _blobWriter;
+    private readonly IQueuedBlobWriter _blobWriter;
     private static bool _isShuttingDown = false;
     private readonly string _priorityHeaderName;
     private readonly HealthCheckService _healthService;
@@ -70,7 +70,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         IEventClient? eventHubClient,
         IEndpointMonitorService backends,
         IEnumerable<IRequestPreprocessorPlugin> requestPreprocessorPlugins,
-        IBlobWriter blobWriter,
+        IQueuedBlobWriter blobWriter,
         HealthCheckService healthService,
         ProbeServer probeServer,
         ConfigChangeNotifier configChangeNotifier,
@@ -628,6 +628,17 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                     }
                                 }
 
+                                // Status-check request: client polling for a previously submitted async request.
+                                if (rd.runAsync &&
+                                    string.Equals(rd.Headers["S7PType"], "ResponseCheck", StringComparison.OrdinalIgnoreCase) &&
+                                    !string.IsNullOrEmpty(rd.Headers["Guid"]))
+                                {
+                                    rd.IsStatusCheck = true;
+                                    ed["S7PType"] = "ResponseCheck";
+
+                                    Console.WriteLine($"[ASYNC] Received status check request for GUID {rd.Headers["Guid"]} on request {rd.MID}");
+                                }
+
                                 // Determine priority boost based on the UserID
                                 rd.Guid = _userPriority.addRequest(rd.UserID);
                                 bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
@@ -639,7 +650,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                 // if (!string.IsNullOrEmpty(priorityKey) && _priorityKeys.Contains(priorityKey)) //lookup the priority
                                 // {
                                 //     var index = _options.PriorityKeys.IndexOf(priorityKey);
-                                //     if (index >= 0)
+                                //     if (index >= 0)delegating
                                 //     {
                                 //         priority = _options.PriorityValues[index];
                                 //     }

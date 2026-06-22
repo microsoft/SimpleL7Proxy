@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
+using SimpleL7Proxy.Async.Jobs;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.Proxy;
@@ -22,23 +23,28 @@ namespace SimpleL7Proxy.Async;
 /// </summary>
 public sealed class AsyncWorkerContext
 {
+    private readonly Lazy<AsyncRequestStatus> _requestStatus;
+
     public IAsyncFileStore FileStore { get; }
     public IRequestSerializerService BackupService { get; }
     public ILogger<AsyncWorker> Logger { get; }
     public ProxyConfig Options { get; }
     public TemplateLoader Messages { get; }
+    public AsyncRequestStatus RequestStatus => _requestStatus.Value;
 
     public AsyncWorkerContext(
         IAsyncFileStore fileStore,
         IRequestSerializerService backupService,
         ILogger<AsyncWorker> logger,
         IOptions<ProxyConfig> options,
-        TemplateLoader messages)
+        TemplateLoader messages,
+        Lazy<AsyncRequestStatus> requestStatus)
     {
         FileStore = fileStore ?? throw new ArgumentNullException(nameof(fileStore));
         BackupService = backupService ?? throw new ArgumentNullException(nameof(backupService));
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         Options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         Messages = messages ?? throw new ArgumentNullException(nameof(messages));
+        _requestStatus = requestStatus ?? throw new ArgumentNullException(nameof(requestStatus));
     }
 }

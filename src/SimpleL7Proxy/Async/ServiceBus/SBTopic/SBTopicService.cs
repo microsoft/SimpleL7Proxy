@@ -15,8 +15,12 @@ using SimpleL7Proxy.Messaging;
 namespace SimpleL7Proxy.Async.ServiceBus.SBTopic
 {
 
-    public class SBTopicService : IHostedService, ISBTopicService, IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>
+    public class SBTopicService : IHostedService, ISBTopicService, IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>,
+        IReadinessParticipant
     {
+        public ReadinessParticipantEnum Participant => ReadinessParticipantEnum.SBTopic;
+        public ReadinessRegistry Readiness { get; }
+
         private readonly ProxyConfig _options;
         private readonly IServiceBusFactory _senderFactory;
         private readonly ILogger<SBTopicService> _logger;
@@ -28,15 +32,29 @@ namespace SimpleL7Proxy.Async.ServiceBus.SBTopic
         private const int MaxDrainPerCycle = 50;
         private const int FlushCountThreshold = 10;
         private static readonly TimeSpan FlushIntervalMs = TimeSpan.FromSeconds(2);
-        
+
+        // Throttled "Sent N messages" log aggregation, keyed per topic.
+        // Trace -> log every batch, Debug -> 10s, Info -> 60s, below Info -> silent.
+        private static readonly TimeSpan SendLogIntervalDebug = TimeSpan.FromSeconds(10);
+        private static readonly TimeSpan SendLogIntervalInfo = TimeSpan.FromSeconds(60);
+        private static readonly TimeSpan SendLogIntervalShutdown = TimeSpan.FromSeconds(1);
+        private sealed class SendLogAgg
+        {
+            public int Batches;
+            public int Messages;
+            public DateTime WindowStart = DateTime.UtcNow;
+        }
+        private readonly ConcurrentDictionary<string, SendLogAgg> _sendLogAgg = new(StringComparer.OrdinalIgnoreCase);
+
         // Performance tracking
         private int _totalMessagesProcessed = 0;
         private int _totalBatchesSent = 0;
 
-        public SBTopicService(IOptions<ProxyConfig> options, IServiceBusFactory senderFactory, ILogger<SBTopicService> logger)
+        public SBTopicService(IOptions<ProxyConfig> options, IServiceBusFactory senderFactory, ReadinessRegistry readiness, ILogger<SBTopicService> logger)
         {
             _options = options.Value;
             _senderFactory = senderFactory ?? throw new ArgumentNullException(nameof(senderFactory));
+            Readiness = readiness ?? throw new ArgumentNullException(nameof(readiness));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _batchTransport = this;
         }
@@ -47,8 +65,9 @@ namespace SimpleL7Proxy.Async.ServiceBus.SBTopic
             {
                 _logger.LogInformation("[SERVICE] ✓ SBTopicService starting...");
                 isRunning = true;
+                this.RegisterReady();
             }
-            
+
             return Task.CompletedTask;
         }
 
@@ -174,10 +193,65 @@ namespace SimpleL7Proxy.Async.ServiceBus.SBTopic
 
         async Task IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>.SendAsync(string destination, ServiceBusMessageBatch batch, CancellationToken cancellationToken)
         {
+            var count = batch.Count;
             await _senderFactory.GetSender(destination).SendMessagesAsync(batch, cancellationToken).ConfigureAwait(false);
-            Interlocked.Add(ref _totalMessagesProcessed, batch.Count);
+            Interlocked.Add(ref _totalMessagesProcessed, count);
             Interlocked.Increment(ref _totalBatchesSent);
-            _logger.LogTrace("[ServiceBus:Batch] Sent {MessageCount} messages to topic {TopicName}", batch.Count, destination);
+            LogSendThrottled(destination, count);
+        }
+
+        private void LogSendThrottled(string destination, int count)
+        {
+            if (_logger.IsEnabled(LogLevel.Trace))
+            {
+                _logger.LogTrace("[ServiceBus:Batch] Sent {MessageCount} messages to topic {TopicName}", count, destination);
+                return;
+            }
+
+            var debugOn = _logger.IsEnabled(LogLevel.Debug);
+            var infoOn  = _logger.IsEnabled(LogLevel.Information);
+            if (!debugOn && !infoOn)
+            {
+                return;
+            }
+
+            var interval = debugOn ? SendLogIntervalDebug : SendLogIntervalInfo;
+            if (isShuttingDown)
+            {
+                interval = SendLogIntervalShutdown;
+            }
+            var agg = _sendLogAgg.GetOrAdd(destination, static _ => new SendLogAgg());
+
+            int totalBatches;
+            int totalMessages;
+            double elapsedSeconds;
+            lock (agg)
+            {
+                agg.Batches++;
+                agg.Messages += count;
+                var elapsed = DateTime.UtcNow - agg.WindowStart;
+                if (elapsed < interval)
+                {
+                    return;
+                }
+                totalBatches = agg.Batches;
+                totalMessages = agg.Messages;
+                elapsedSeconds = elapsed.TotalSeconds;
+                agg.Batches = 0;
+                agg.Messages = 0;
+                agg.WindowStart = DateTime.UtcNow;
+            }
+
+            if (debugOn)
+            {
+                _logger.LogDebug("[ServiceBus:Batch] Sent {MessageCount} messages in {BatchCount} batches to topic {TopicName} over {Elapsed:F1}s",
+                    totalMessages, totalBatches, destination, elapsedSeconds);
+            }
+            else
+            {
+                _logger.LogInformation("[ServiceBus:Batch] Sent {MessageCount} messages in {BatchCount} batches to topic {TopicName} over {Elapsed:F1}s",
+                    totalMessages, totalBatches, destination, elapsedSeconds);
+            }
         }
 
         void IBatchMessageTransport<ServiceBusMessageBatch, BinaryBatchMessageEnvelope>.DisposeBatch(ServiceBusMessageBatch batch)

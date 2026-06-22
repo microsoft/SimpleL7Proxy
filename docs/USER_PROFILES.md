@@ -1,6 +1,6 @@
 # User Profiles
 
-User profiles provide a powerful way to customize request handling on a per-user basis. The proxy can validate incoming requests against user configurations and apply specific settings like priority levels, headers, and async processing permissions.
+User profiles let you customize request handling on a per-user basis. The proxy can validate incoming requests against user configurations and apply specific settings like priority levels, headers, and async processing permissions.
 
 ## Overview
 
@@ -19,9 +19,9 @@ Configure user profiles using these environment variables. For detailed variable
 | Variable | Description | Default |
 |----------|-------------|---------|
 | **UseProfiles** | Enable user profile functionality | false |
-| **UserConfigUrl** | URL or file path to fetch user configuration | file:config.json |
-| **SuspendedUserConfigUrl** | URL or file path to fetch list of explicitly suspended users | file:config.json |
-| **UserIDFieldName** | Header name used to look up user information | userId |
+| **UserConfigUrl** | URL or file path to fetch user configuration | `""` (not set) |
+| **SuspendedUserConfigUrl** | URL or file path to fetch list of explicitly suspended users | `""` (not set) |
+| **UserIDFieldName** | JSON field name in the user profile config file used as the unique user identifier | userId |
 | **UserProfileHeader** | Header containing serialized user profile information for downstream services | X-UserProfile |
 | **UserPriorityThreshold** | Threshold (0.0-1.0) for user priority calculations. If a user's active requests exceed this ratio of the total queue, their requests are deprioritized. | 0.1 |
 
@@ -138,11 +138,11 @@ To enable async processing for a user, their profile must contain the `async-con
 
 ### Async Request Example
 
-A client requests an async operation by adding the `AsyncMode` header (or configured equivalent):
+A client requests an async operation by adding the `S7PAsyncMode` header (or the value of `AsyncClientRequestHeader` if overridden):
 
 ```bash
 curl -H "userId: premium-user-123" \
-     -H "AsyncMode: true" \
+     -H "S7PAsyncMode: true" \
      -H "Content-Type: application/json" \
      -d '{"query": "process this async"}' \
      http://localhost:8000/api/long-running-task
@@ -158,7 +158,8 @@ Response:
 }
 ```
 
-## Security Considerations
+<details>
+<summary>Security Considerations</summary>
 
 ### Profile File Security
 - Store profile files securely with appropriate access controls
@@ -175,7 +176,10 @@ Response:
 - Use time-limited SAS tokens for blob access
 - Validate Service Bus topic permissions
 
-## Troubleshooting
+</details>
+
+<details>
+<summary>Troubleshooting</summary>
 
 ### Common Issues
 
@@ -208,7 +212,10 @@ Add debug header to requests:
 curl -H "S7PDEBUG: true" -H "userId: test-user" http://localhost:8000/api/test
 ```
 
-## Profile Management
+</details>
+
+<details>
+<summary>Profile Management</summary>
 
 ### Updating Profiles
 - Profiles are reloaded every hour automatically
@@ -225,3 +232,5 @@ curl -H "S7PDEBUG: true" -H "userId: test-user" http://localhost:8000/api/test
 - Test profile changes in development first
 - Monitor resource usage per user
 - Implement user quotas to prevent abuse
+
+</details>

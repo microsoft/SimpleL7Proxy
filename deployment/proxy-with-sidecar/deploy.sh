@@ -81,6 +81,21 @@ az account show &> /dev/null || {
 SUBSCRIPTION_ID=$(az account show --query id -o tsv | tr -d '\r')
 echo -e "${GREEN}Using subscription: ${SUBSCRIPTION_ID}${NC}"
 
+echo -e "${YELLOW}Ensuring resource group ${RESOURCE_GROUP} exists...${NC}"
+GROUP_CREATE_ERROR_FILE="$(mktemp)"
+if ! az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none 2>"${GROUP_CREATE_ERROR_FILE}"; then
+    if grep -q "ResourceGroupBeingDeleted" "${GROUP_CREATE_ERROR_FILE}"; then
+        echo -e "${RED}Error: Resource group '${RESOURCE_GROUP}' is currently being deleted.${NC}"
+        echo -e "${YELLOW}Wait for deletion to finish, or update CONTAINER_APP_RESOURCE_GROUP in deploy.parameters.sh to a different name and rerun this step.${NC}"
+    else
+        cat "${GROUP_CREATE_ERROR_FILE}" >&2
+    fi
+    rm -f "${GROUP_CREATE_ERROR_FILE}"
+    exit 1
+fi
+rm -f "${GROUP_CREATE_ERROR_FILE}"
+echo -e "${GREEN}✓ Resource group ready${NC}"
+
 # Get or create Container Apps Environment
 echo -e "${YELLOW}Getting Container Apps Environment...${NC}"
 MANAGED_ENV_ID=$(az containerapp env show \
@@ -124,8 +139,6 @@ if [ -n "$REGISTRY_SERVER" ]; then
     BICEP_PARAMS="$BICEP_PARAMS registryServer=$REGISTRY_SERVER"
 fi
 
-<<<<<<< Updated upstream
-=======
 if [ -n "$REGISTRY_SERVER" ]; then
     echo -e "${YELLOW}Verifying configured images exist in ACR...${NC}"
     for IMAGE_REF in "$WEB_IMAGE" "$HEALTH_IMAGE"; do
@@ -151,15 +164,10 @@ if [ -n "$REGISTRY_SERVER" ]; then
     done
 fi
 
->>>>>>> Stashed changes
 # Note: Host1, Workers, Port, AsyncModeEnabled, HealthProbeSidecar are now
-# served from Azure App Configuration (Step 6). They are no longer baked
+# served from Azure App Configuration (Step 7). They are no longer baked
 # into the Container App env vars.
 
-<<<<<<< Updated upstream
-# Check if Container App exists and grant ACR pull permission to its managed identity
-echo -e "${YELLOW}Checking if Container App exists for ACR role assignment...${NC}"
-=======
 # Ensure the Container App has a managed identity and AcrPull before deploying private ACR images.
 echo -e "${YELLOW}Checking Container App managed identity and ACR access...${NC}"
 EXISTING_APP_NAME=$(az containerapp show \
@@ -182,14 +190,11 @@ if [ -z "$EXISTING_APP_NAME" ] && [ -n "$REGISTRY_SERVER" ]; then
         --output none
 fi
 
->>>>>>> Stashed changes
 EXISTING_APP_PRINCIPAL_ID=$(az containerapp show \
     --name "$CONTAINER_APP_NAME" \
     --resource-group "$RESOURCE_GROUP" \
     --query "identity.principalId" -o tsv 2>/dev/null | tr -d '\r' || echo "")
 
-<<<<<<< Updated upstream
-=======
 if [ -z "$EXISTING_APP_PRINCIPAL_ID" ] || [ "$EXISTING_APP_PRINCIPAL_ID" = "null" ]; then
     echo -e "${YELLOW}Enabling system-assigned managed identity...${NC}"
     az containerapp identity assign \
@@ -204,22 +209,16 @@ if [ -z "$EXISTING_APP_PRINCIPAL_ID" ] || [ "$EXISTING_APP_PRINCIPAL_ID" = "null
         --query "identity.principalId" -o tsv | tr -d '\r')
 fi
 
->>>>>>> Stashed changes
 if [ -n "$EXISTING_APP_PRINCIPAL_ID" ] && [ -n "$REGISTRY_SERVER" ]; then
-    echo -e "${YELLOW}Granting AcrPull role to Container App managed identity...${NC}"
-    # Extract ACR name from registry server (e.g., nvmacr.azurecr.io -> nvmacr)
+    echo -e "${YELLOW}Ensuring AcrPull role for Container App managed identity...${NC}"
     ACR_NAME=$(echo "$REGISTRY_SERVER" | cut -d'.' -f1)
     ACR_RESOURCE_ID=$(az acr show --name "$ACR_NAME" --query id -o tsv 2>/dev/null | tr -d '\r' || echo "")
     
     if [ -n "$ACR_RESOURCE_ID" ]; then
-        az role assignment create \
+        ROLE_EXISTS=$(az role assignment list \
             --assignee "$EXISTING_APP_PRINCIPAL_ID" \
             --role "AcrPull" \
             --scope "$ACR_RESOURCE_ID" \
-<<<<<<< Updated upstream
-            2>/dev/null || echo -e "${YELLOW}Role assignment already exists or failed (continuing...)${NC}"
-        echo -e "${GREEN}ACR role assignment configured${NC}"
-=======
             --query "[0].id" -o tsv 2>/dev/null | tr -d '\r' || echo "")
 
         if [ -n "$ROLE_EXISTS" ]; then
@@ -232,12 +231,10 @@ if [ -n "$EXISTING_APP_PRINCIPAL_ID" ] && [ -n "$REGISTRY_SERVER" ]; then
                 --output none
             echo -e "${GREEN}AcrPull role assigned${NC}"
         fi
->>>>>>> Stashed changes
     else
-        echo -e "${YELLOW}Warning: Could not find ACR '$ACR_NAME'. Role assignment skipped.${NC}"
+        echo -e "${RED}Error: Could not find ACR '$ACR_NAME'.${NC}"
+        exit 1
     fi
-else
-    echo -e "${YELLOW}Container App doesn't exist yet. ACR role will be assigned after first deployment.${NC}"
 fi
 
 # Deploy using Bicep
@@ -268,30 +265,6 @@ REVISION_NAME=$(az deployment group show \
     --name "$DEPLOYMENT_NAME" \
     --resource-group "$RESOURCE_GROUP" \
     --query "properties.outputs.latestRevisionName.value" -o tsv | tr -d '\r')
-
-# If this was first deployment, assign ACR role now that managed identity exists
-if [ -z "$EXISTING_APP_PRINCIPAL_ID" ] && [ -n "$REGISTRY_SERVER" ]; then
-    echo -e "${YELLOW}Assigning AcrPull role to newly created Container App managed identity...${NC}"
-    NEW_PRINCIPAL_ID=$(az containerapp show \
-        --name "$CONTAINER_APP_NAME" \
-        --resource-group "$RESOURCE_GROUP" \
-        --query "identity.principalId" -o tsv)
-    
-    if [ -n "$NEW_PRINCIPAL_ID" ]; then
-        ACR_NAME=$(echo "$REGISTRY_SERVER" | cut -d'.' -f1)
-        ACR_RESOURCE_ID=$(az acr show --name "$ACR_NAME" --query id -o tsv 2>/dev/null || echo "")
-        
-        if [ -n "$ACR_RESOURCE_ID" ]; then
-            az role assignment create \
-                --assignee "$NEW_PRINCIPAL_ID" \
-                --role "AcrPull" \
-                --scope "$ACR_RESOURCE_ID" \
-                2>/dev/null || echo -e "${YELLOW}Role assignment already exists or failed${NC}"
-            echo -e "${GREEN}ACR role assignment configured for new Container App${NC}"
-            echo -e "${YELLOW}Note: You may need to re-deploy for the role assignment to take effect.${NC}"
-        fi
-    fi
-fi
 
 echo -e "${GREEN}======================================${NC}"
 echo -e "${GREEN}Deployment Complete!${NC}"

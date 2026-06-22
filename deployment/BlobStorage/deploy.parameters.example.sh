@@ -22,7 +22,7 @@ export CONTAINER_APP_RESOURCE_GROUP="rg-myapp-prod"
 # =============================================================================
 export RESOURCE_GROUP="rg-myapp-storage"
 export LOCATION="eastus"
-export STORAGE_ACCOUNT_NAME="myappstorage"
+export STORAGE_ACCOUNT_NAME="myappstorage" # Must be globally unique across Azure; lowercase letters and numbers only
 
 # Storage SKU. Accepted: Standard_LRS, Standard_GRS, Standard_ZRS, Standard_RAGRS
 # (short forms "lrs", "grs", "zrs", "ragrs" are also accepted).

@@ -20,20 +20,20 @@ using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Queue;
 
-namespace SimpleL7Proxy.Async.Feeder
+namespace SimpleL7Proxy.Async.Jobs
 {
-    public class NormalRequest : IRequestProcessor
+    public class AsyncRequestHydrator : IRequestProcessor
     {
         private readonly ProxyConfig _options;
-        private readonly ILogger<NormalRequest> _logger;
+        private readonly ILogger<AsyncRequestHydrator> _logger;
         private readonly IRequestSerializerService _backupService;
         private readonly AsyncWorkerContext _asyncWorkerContext;
 
 
-        public NormalRequest(IOptions<ProxyConfig> options,
+        public AsyncRequestHydrator(IOptions<ProxyConfig> options,
                             IRequestSerializerService backupService,
                             AsyncWorkerContext asyncWorkerContext,
-                            ILogger<NormalRequest> logger)
+                            ILogger<AsyncRequestHydrator> logger)
         {
             _options = options.Value;
             _backupService = backupService;
@@ -47,6 +47,14 @@ namespace SimpleL7Proxy.Async.Feeder
 
             // restore the request from blob storage, re-create the async streams.
             await DataFromBlob(request);
+
+            // Reset per-attempt counters that were persisted from the prior process.
+            // Without this, the worker's `BackendAttempts < maxSharedAttempts` guard
+            // short-circuits (e.g. SinglePass + 1 host => maxSharedAttempts = 1, but
+            // BackendAttempts is already 1 from before the crash) and the request fails
+            // with 503 "No Active Hosts Available" without ever calling a backend.
+            request.BackendAttempts = 0;
+            // request.incompleteRequests?.Clear();
 
             request.Requeued = true; // mark it as requeued
             request.AsyncHydrated = true; // mark it as hydrated from async

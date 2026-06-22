@@ -174,7 +174,7 @@ ValidateAuthAppIDUrl=file:auth.json
 ```
 
 > [!NOTE]
-> `ValidateAuthAppIDUrl` is only active when `UseProfiles=true`. The allowlist is loaded on the same background timer as user profiles (`UserConfigRefreshIntervalSecs`, default 300 s).
+> `ValidateAuthAppIDUrl` is only active when `UseProfiles=true`. The allowlist is loaded on the same background timer as user profiles (`UserConfigRefreshIntervalSecs`, default 3600 s).
 
 ### How it works
 

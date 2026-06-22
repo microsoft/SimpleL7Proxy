@@ -8,7 +8,41 @@ FUNCTION_APP="simplel7fn"
 
 PROJECT_PATH=$(pwd)  # Get absolute path
 PUBLISH_DIR="$PROJECT_PATH/bin/publish"
-ZIP_FILE="$PROJECT_PATH/apim.zip"
+ZIP_FILE="$PROJECT_PATH/function.zip"
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [options]
+
+Builds and deploys the Functions project to Azure Flex Consumption.
+
+Options:
+  -z            Build the deployment zip only; skip Azure login and deploy.
+  -h, --help, -?
+                Show this help message and exit.
+
+Variables (edit at the top of the script):
+  RESOURCE_GROUP   Azure resource group containing the function app.
+  FUNCTION_APP     Name of the target function app.
+EOF
+}
+
+# Handle long-form help flags before getopts (which only parses short flags).
+for arg in "$@"; do
+    case "$arg" in
+        -h|--help|-\?) usage; exit 0 ;;
+    esac
+done
+
+# Parse flags
+ZIP_ONLY=false
+while getopts ":zh" opt; do
+    case $opt in
+        z) ZIP_ONLY=true ;;
+        h) usage; exit 0 ;;
+        \?) echo "ERROR: Unknown flag: -$OPTARG" >&2; usage; exit 1 ;;
+    esac
+done
 
 
 # Color codes for output
@@ -49,11 +83,13 @@ log "INFO" "Cleaning previous build artifacts..."
 rm -rf "$PUBLISH_DIR"
 rm -f "$ZIP_FILE"
 
-# Verify Azure CLI login
-log "INFO" "Verifying Azure CLI login..."
-if ! az account show &> /dev/null; then
-    log "ERROR" "Not logged into Azure CLI. Please run 'az login' first."
-    exit 1
+# Verify Azure CLI login (skip when only building the zip)
+if [ "$ZIP_ONLY" = false ]; then
+    log "INFO" "Verifying Azure CLI login..."
+    if ! az account show &> /dev/null; then
+        log "ERROR" "Not logged into Azure CLI. Please run 'az login' first."
+        exit 1
+    fi
 fi
 
 # Create a project.assets.json file to specify the function app runtime version
@@ -71,14 +107,14 @@ EOLINNER
 
 
 # Clean and build the main project first
-log "INFO" "Building apim project..."
+log "INFO" "Building functions project..."
 if ! dotnet clean "$PROJECT_PATH/functions.csproj" -c Release; then
-    log "ERROR" "Failed to clean apim project"
+    log "ERROR" "Failed to clean functions project"
     exit 1
 fi
 
 if ! dotnet build "$PROJECT_PATH/functions.csproj" -c Release; then
-    log "ERROR" "Failed to build apim project"
+    log "ERROR" "Failed to build functions project"
     exit 1
 fi
 
@@ -91,9 +127,9 @@ if [ ! -f "$PROJECT_PATH/bin/Release/net9.0/functions.dll" ] || \
 fi
 
 # Publish the project
-log "INFO" "Publishing apim project..."
+log "INFO" "Publishing functions project..."
 if ! dotnet publish "$PROJECT_PATH/functions.csproj" -c Release -o "$PUBLISH_DIR" --no-build; then
-    log "ERROR" "Failed to publish apim project"
+    log "ERROR" "Failed to publish functions project"
     exit 1
 fi
 
@@ -113,6 +149,15 @@ if ! cp "$PROJECT_PATH/host.json" "$PUBLISH_DIR/host.json"; then
     exit 1
 fi
 
+# Explicitly copy Samples folder (dotnet publish --no-build may not copy None content items)
+log "INFO" "Copying Samples folder..."
+if [ -d "$PROJECT_PATH/Samples" ]; then
+    cp -r "$PROJECT_PATH/Samples" "$PUBLISH_DIR/Samples"
+    log "INFO" "Samples folder copied ($(ls "$PROJECT_PATH/Samples" | wc -l | tr -d ' ') files)"
+else
+    log "WARN" "Samples folder not found at $PROJECT_PATH/Samples"
+fi
+
 # For Flex Consumption, ensure functions.metadata exists
 log "INFO" "Creating functions.metadata..."
 if [ ! -f "$PUBLISH_DIR/functions.metadata" ]; then
@@ -129,7 +174,7 @@ log "INFO" "Creating function.json files..."
 
 # Create .csproj.buildWithDotNet file for Flex Consumption
 log "INFO" "Creating buildWithDotNet marker..."
-touch "$PUBLISH_DIR/apim.csproj.buildWithDotNet"
+touch "$PUBLISH_DIR/functions.csproj.buildWithDotNet"
 
 # Create deployment package
 log "INFO" "Creating deployment package..."
@@ -151,6 +196,15 @@ fi
 if ! unzip -l "$ZIP_FILE" | grep -q "functions.dll"; then
     log "ERROR" "Deployment package verification failed - missing functions.dll"
     exit 1
+fi
+
+if ! unzip -l "$ZIP_FILE" | grep -q "Samples/"; then
+    log "WARN" "Deployment package does not contain a Samples/ directory"
+fi
+
+if [ "$ZIP_ONLY" = true ]; then
+    log "INFO" "Zip-only mode: package ready at $ZIP_FILE"
+    exit 0
 fi
 
 # Check if function app exists

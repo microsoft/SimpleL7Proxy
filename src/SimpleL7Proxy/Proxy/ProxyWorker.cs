@@ -42,8 +42,8 @@ public class ProxyWorker : IConfigChangeSubscriber
     private readonly EventDataBuilder _eventDataBuilder;
     private readonly int _id;
     private readonly string _idStr;
-    private static bool s_readyToWork;
-    public static bool IsReadyToWork => s_readyToWork;
+    // private static bool s_readyToWork;
+    // public static bool IsReadyToWork => s_readyToWork;
     private CancellationTokenSource? _asyncExpelSource;
     private bool _isEvictingAsyncRequest;
     private static List<string> s_backendKeys = [];
@@ -186,10 +186,12 @@ public class ProxyWorker : IConfigChangeSubscriber
         // CancellationToken token = cts.Token;
 
         // increment the active workers count.   When all workers are active, the startup probe allows traffic. 
-        if (_options.Workers == HealthCheckService.IncrementActiveWorkers(_options.Workers))
-        {
-            s_readyToWork = true;
-        }
+        // if (_options.Workers == HealthCheckService.IncrementActiveWorkers(_options.Workers))
+        // {
+        //     s_readyToWork = true;
+        // }
+
+        HealthCheckService.IncrementActiveWorkers(_options.Workers);
 
         // Run until cancellation is requested. (Queue emptiness is handled by the blocking DequeueAsync call.)
         while (!_cancellationToken.IsCancellationRequested || s_requestsQueue.thrdSafeCount > 0)
@@ -262,6 +264,25 @@ public class ProxyWorker : IConfigChangeSubscriber
                         continue;
                     }
 
+                    // check for response check
+                    if (incomingRequest.Type == RequestType.StatusCheck)
+                    {
+                        var statusChecker = _wrkCntxt.AsyncWorkerContext?.RequestStatus;
+                        if (statusChecker != null)
+                        {
+                            _logger.LogInformation("[Worker:{Id}] StatusCheck request {Guid} - delegating to AsyncRequestStatus",
+                                _id, incomingRequest.Headers["Guid"]);
+                            await statusChecker.CheckStatus(incomingRequest).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("[Worker:{Id}] StatusCheck requested but AsyncRequestStatus is not configured", _id);
+                        }
+
+                        HealthCheckService.EnterState(_id, WorkerState.Cleanup);
+                        continue;
+                    }
+   
 
                     // Set the initial status based on request type
                     _lifecycleManager.TransitionToProcessing(incomingRequest);
@@ -326,13 +347,16 @@ public class ProxyWorker : IConfigChangeSubscriber
                     var conlen = pr.ContentHeaders?["Content-Length"] ?? "N/A";
                     var proxyLatency = (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
 
-                    _logger.LogCritical("Pri: {Priority}, Stat: {StatusCode}, User: {user} Guid: {Guid} Type: {RequestType}, Processor: {Processor}, Len: {ContentLength}, {FullURL}, Deq: {DequeueTime}, Lat: {ProxyTime} ms",
+                    _logger.LogCritical("[{Guid}] Pri: {Priority}, Stat: {StatusCode}, User: {User}, Type: {RequestType}, Proc: {Processor}, Len: {ContentLength}, Deq: {DequeueTime}, Lat: {ProxyTime} ms, {FullURL}",
+                        incomingRequest.Guid,
                         incomingRequest.Priority, statusCodeInt,
                         incomingRequest.UserID ?? "N/A",
-                        incomingRequest.Guid,
                         incomingRequest.Type,
                         pr.StreamingProcessor,
-                        conlen, pr.FullURL, incomingRequest.DequeueTime.ToLocalTime().ToString("T"), proxyLatency);
+                        conlen, 
+                        incomingRequest.DequeueTime.ToLocalTime().ToString("T"), proxyLatency,
+                        pr.FullURL
+                        );
 
                     // Log circuit breaker details when status code is -1
                     if (statusCodeInt == -1 || statusCodeInt == 503)
@@ -588,14 +612,15 @@ public class ProxyWorker : IConfigChangeSubscriber
     {
         ArgumentNullException.ThrowIfNull(pr);
         ArgumentNullException.ThrowIfNull(request, "Request context is null.");
-        ArgumentNullException.ThrowIfNull(request.Context, "Request context is null.");
 
         var context = request.Context;
 
-        // For async requests that triggered, the 202 Accepted response was already sent and 
+        // For async requests that triggered, the 202 Accepted response was already sent and
         // the connection was closed by AsyncWorker. Skip writing to the HttpListenerResponse.
         // The actual backend response will be streamed to blob storage in StreamResponseAsync.
-        if (!request.AsyncTriggered)
+        // For rehydrated/background-check requests Context is null by design — there is no
+        // client connection to write headers to; the response goes only to blob storage.
+        if (!request.AsyncTriggered && context != null)
         {
             // Set the response status code
             context.Response.StatusCode = (int)pr.StatusCode;
