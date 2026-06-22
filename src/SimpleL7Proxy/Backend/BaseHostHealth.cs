@@ -29,13 +29,36 @@ public abstract class BaseHostHealth
   protected BaseHostHealth(HostConfig config, ILogger logger)
   {
     Config = config ?? throw new ArgumentNullException(nameof(config));
-    logger.LogInformation("[HOSTMGR] ✓ {Mode} : {Host} | Path: {Path} | Probe: {Probe}",
-        config.DirectMode ? "Direct" : "APIM", config.Host, config.PartialPath, config.ProbePath);
+    logger.LogInformation("[HOSTMGR] ✓ {Host}", ToString());
   }
 
+  private static string GetAuthSummary(HostConfig config)
+  {
+    return config.AuthMode switch
+    {
+      AuthModeEnum.None => "No Auth",
+      AuthModeEnum.ApiKey => "Auth=key",
+      AuthModeEnum.OAuth2 when !string.IsNullOrWhiteSpace(config.Audience) => $"Auth=MI, aud={config.Audience}",
+      AuthModeEnum.OAuth2 => "Auth=MI",
+      _ => "No Auth"
+    };
+  }
+
+  // Direct backend | No Auth | https://orders.internal.contoso.local
+  // Direct backend | Auth=key | https://inventory.internal.contoso.local
+  // Direct backend | Auth=MI, aud=api://orders-service | https://orders.internal.contoso.local
+  // Direct backend | Auth=MI | https://reports.internal.contoso.local
+  // APIM backend | No Auth | https://apim.contoso.com | Path: /orders | Probe: /health
+  // APIM backend | Auth=key | https://apim.contoso.com | Path: /inventory | Probe: /healthz
+  // APIM backend | Auth=MI, aud=api://payments-service | https://apim.contoso.com | Path: /payments | Probe: /ready
+  // APIM backend | Auth=MI | https://apim.contoso.com | Path: /analytics | Probe: /probe
   public override string ToString()
   {
-    return $"{Protocol}://{Hostname}:{Port}";
+    var cfg = Config;
+    var auth = GetAuthSummary(cfg);
+    if (cfg.DirectMode)
+      return $"Direct backend | {auth} | {cfg.Host}";
+    return $"APIM backend | {auth} | {cfg.Host} | Path: {cfg.PartialPath} | Probe: {cfg.ProbePath}";
   }
 
   #region Runtime Performance Tracking

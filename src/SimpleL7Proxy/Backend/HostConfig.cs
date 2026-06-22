@@ -26,6 +26,9 @@ namespace SimpleL7Proxy.Backend
     public Guid Guid { get; } = Guid.NewGuid();
     private ParsedConfig ParsedConfig { get; set; }
     public string Audience => ParsedConfig.Audience;
+    public string ApiKey => ParsedConfig.ApiKey;
+    public string ApiKeyHeader => ParsedConfig.ApiKeyHeader;
+
     public bool DirectMode => ParsedConfig.DirectMode;
     public string Host => ParsedConfig.Host;
     public string Hostname => ParsedConfig.Hostname;
@@ -34,7 +37,7 @@ namespace SimpleL7Proxy.Backend
     public string ProbePath => ParsedConfig.ProbePath;
     public string Processor => ParsedConfig.Processor;
     public bool StripPrefix => ParsedConfig.StripPrefix;
-    public bool UseOAuth => ParsedConfig.UseOAuth;
+    public AuthModeEnum AuthMode => ParsedConfig.AuthMode;
     public bool UsesRetryAfter => ParsedConfig.UsesRetryAfter;
     public string Protocol { get; private set; }
     public int Port { get; private set; }
@@ -66,7 +69,9 @@ namespace SimpleL7Proxy.Backend
         sb.Append(ProbePath).Append('|');
         sb.Append(Processor ?? string.Empty).Append('|');
         sb.Append(StripPrefix).Append('|');
-        sb.Append(UseOAuth).Append('|');
+        sb.Append(AuthMode).Append('|');
+        sb.Append(ApiKey ?? string.Empty).Append('|');
+        sb.Append(ApiKeyHeader ?? string.Empty).Append('|');
         sb.Append(UsesRetryAfter);
 
         Span<byte> hashBytes = stackalloc byte[SHA256.HashSizeInBytes];
@@ -178,10 +183,10 @@ namespace SimpleL7Proxy.Backend
     /// <summary>
     /// Constructs a BackendHostConfig from a hostname and optional probe path.
     /// </summary>
-    public HostConfig(string hostname, string? probepath = "", string? ip = null, string? audience = "")
+    public HostConfig(string hostname, string? probepath = "", string? ip = null)//, string? audience = "")
     {
       _logger?.LogDebug("[CONFIGS] Configuring backend host: {hostname}", hostname);
-      ParsedConfig = TryParseConfig(hostname, probepath, ip, audience);
+      ParsedConfig = TryParseConfig(hostname, probepath, ip);//, audience);
 
       // parse the host, protocol and port
       Uri uri = new Uri(ParsedConfig.Host);
@@ -223,7 +228,7 @@ namespace SimpleL7Proxy.Backend
     }
 
 
-    private static ParsedConfig TryParseConfig(string hostname, string? probepath, string? ip, string? audience = "")
+    private static ParsedConfig TryParseConfig(string hostname, string? probepath, string? ip)//, string? audience = "")
     /// <summary>
     /// Parses a backend configuration string into a ParsedConfig struct.
     /// </summary>
@@ -236,8 +241,10 @@ namespace SimpleL7Proxy.Backend
         IpAddr = ip ?? "",
         PartialPath = "/",
         StripPrefix = true,
-        UseOAuth = false,
-        Audience = audience ?? "",
+        AuthMode = AuthModeEnum.None,
+        Audience = "",
+        ApiKey = "",
+        ApiKeyHeader = "api-key",
         UsesRetryAfter = true
       };
 
@@ -263,6 +270,14 @@ namespace SimpleL7Proxy.Backend
             case "audience":
               result.Audience = kvp.Value;
               break;
+            case "api_key":
+            case "api-key":
+              result.ApiKey = kvp.Value;
+              result.AuthMode = AuthModeEnum.ApiKey;
+              break;
+            case "api-key-header":
+              result.ApiKeyHeader = kvp.Value;
+              break;
             case "host":
               result.Host = NormalizeHostUrl(kvp.Value);
               break;
@@ -287,7 +302,10 @@ namespace SimpleL7Proxy.Backend
               break;
             case "useoauth":
             case "usemi":
-              result.UseOAuth = kvp.Value.Equals("true", StringComparison.OrdinalIgnoreCase);
+              if (kvp.Value.Equals("true", StringComparison.OrdinalIgnoreCase))
+              {
+                result.AuthMode = AuthModeEnum.OAuth2;
+              }
               break;
             case "useretryafter":
             case "retryafter":
@@ -323,7 +341,7 @@ namespace SimpleL7Proxy.Backend
 
     public void RegisterWithTokenProvider()
     {
-      if (UseOAuth && !string.IsNullOrEmpty(Audience))
+      if (AuthMode == AuthModeEnum.OAuth2 && !string.IsNullOrEmpty(Audience))
       {
         _tokenProvider!.AddAudience(Audience);
       }
@@ -356,7 +374,7 @@ namespace SimpleL7Proxy.Backend
     /// </summary>
     public async Task<string> OAuth2Token()
     {
-      if (!UseOAuth || string.IsNullOrEmpty(Audience) || _tokenProvider == null)
+      if (AuthMode != AuthModeEnum.OAuth2 || string.IsNullOrEmpty(Audience) || _tokenProvider == null)
         return string.Empty;
 
       return await _tokenProvider.OAuth2Token(Audience).ConfigureAwait(false);

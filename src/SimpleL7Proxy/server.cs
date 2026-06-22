@@ -1,12 +1,14 @@
+using Microsoft.ApplicationInsights.DataContracts;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
+using System.Collections.Concurrent;
+using System.Collections.Frozen;
+using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
-using System.Collections.Frozen;
-using Microsoft.ApplicationInsights.DataContracts;
-using Microsoft.Extensions.Options;
-using System.Collections.Concurrent;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Hosting;
-using System.Diagnostics;
 using System.Threading;
 using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Async.BlobStorage;
@@ -25,7 +27,7 @@ namespace SimpleL7Proxy;
 // This class represents a server that listens for HTTP requests and processes them.
 // It uses a priority queue to manage incoming requests and supports telemetry for monitoring.
 // If the incoming request has the S7PPriorityKey header, it will be assigned a priority based the S7PPriority header.
-public class Server :  BackgroundService, IConfigChangeSubscriber
+public class Server : BackgroundService, IConfigChangeSubscriber
 {
     //    private readonly IBackendOptions? _options;
     private readonly ProxyConfig _options;
@@ -43,6 +45,10 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
     private readonly ILogger<Server> _logger;
     private readonly IQueuedBlobWriter _blobWriter;
     private static bool _isShuttingDown = false;
+
+    IncomingAuthValidator _authValidator = new IncomingAuthValidator();
+    private static readonly JsonWebTokenHandler s_tokenHandler = new();
+
     private readonly string _priorityHeaderName;
     private readonly HealthCheckService _healthService;
 
@@ -113,6 +119,9 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
             options => options.DefaultPriority,
             options => options.ValidateAuthAppID,
             options => options.ValidateAuthAppIDHeader,
+            options => options.ValidateAuthConfig,
+            options => options.ValidateAuthKey1,
+            options => options.ValidateAuthKey2,
             options => options.DisallowedHeaders,
             options => options.RequiredHeaders,
             options => options.UniqueUserHeaders,
@@ -122,13 +131,13 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
             options => options.TTLHeader,
             options => options.MaxQueueLength,
             options => options.PollInterval
-
-            // COLD OPTIONS (require restart, so not subscribed for live updates):
-            // options => options.Port,  
-            // options => options.UseProfiles,
-            // options => options.IDStr,
-            // options => options.CircuitBreakerTimeslice,   display only
             ]);
+
+        // COLD OPTIONS (require restart, so not subscribed for live updates):
+        // options => options.Port,  
+        // options => options.UseProfiles,
+        // options => options.IDStr,
+        // options => options.CircuitBreakerTimeslice,   display only
 
         InitVars();
 
@@ -161,6 +170,9 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                 kvp.Value,
                 kvp.Key.StartsWith("S7", StringComparison.Ordinal) ? kvp.Key[2..] : kvp.Key))
             .ToArray();
+
+        _authValidator.Parse(_options.ValidateAuthConfig);
+
     }
 
     public Task OnConfigChangedAsync(
@@ -255,7 +267,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
         var token = _probesCts.Token;
 
         await Run(token);
-    }  
+    }
 
     bool initialStartup = true;
     // Continuously listens for incoming HTTP requests and processes them.
@@ -319,10 +331,10 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                         _probe.Uri = lc.Request.Url!;
                         _probe["ProbeType"] = probeType;
                         _probe["StatusCode"] = ((int)code).ToString();
-                        _probe.Status = code; 
+                        _probe.Status = code;
                         _probe.SendEvent();
 
-                        if (initialStartup )
+                        if (initialStartup)
                         {
                             if (code != HttpStatusCode.OK)
                                 _logger.LogInformation("[- PROBE] SERVICE NOT READY: {ProbeType} probe responded with {Code} during startup", probeType, code);
@@ -395,7 +407,8 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                     if (!notEnqued && !_isShuttingDown)
                     {
                         int eventCount = _probeServer.EventCount;
-                        if (eventCount > halfMaxEvents) {
+                        if (eventCount > halfMaxEvents)
+                        {
                             int ticks = eventCount / 100;
 
                             // add a delay in case the number of events is high
@@ -403,7 +416,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                 await ptimer.WaitForNextTickAsync(cancellationToken);
                         }
 
-                        if ( eventCount > maxEvents)
+                        if (eventCount > maxEvents)
                         {
                             notEnqued = true;
                             notEnquedCode = 429;
@@ -443,15 +456,60 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                             try
                             {
                                 rd.Debug = rd.Headers["S7PDEBUG"] != null && string.Equals(rd.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase);
+                                string? authAppID = rd.Headers[_options.ValidateAuthAppIDHeader];
 
+                                if (_authValidator.ValidateAuthViaKey)
+                                {
+                                    bool isValid = false;
+                                    string? incomingKey = rd.Headers[_authValidator.ValidateAuthViaKeyHeader]?.Trim();
+                                    bool isBearer = incomingKey != null && incomingKey.StartsWith("Bearer", StringComparison.OrdinalIgnoreCase);
+                                    string message = string.Empty;
+                                    var authMode = _authValidator.ValidateAuthMode;
+
+                                    if (rd.Debug)
+                                    {
+                                        _logger.LogInformation($"[{rd.MID}] Auth Length: {incomingKey?.Length ?? 0} isBearer: {isBearer}");
+                                    }
+
+                                    if (incomingKey is null)
+                                    {
+                                        message = "Not Authorized : No auth provided";
+                                    }
+                                    else if (isBearer && authMode is IncomingAuthModeEnum.Mixed or IncomingAuthModeEnum.OAuth2)
+                                    {
+                                        var token = incomingKey["Bearer".Length..].Trim();
+                                        (isValid, message, authAppID) = await ValidateBearerTokenAsync(token, message);
+                                    }
+                                    else if (authMode is IncomingAuthModeEnum.Mixed or IncomingAuthModeEnum.Key)
+                                    {
+                                        (isValid, message) = ValidateAuthKey(incomingKey, message);
+                                        if (!isValid)
+                                        {
+                                            message = "Invalid Auth Key: " + incomingKey;
+                                        }
+                                    }
+
+                                    if (!isValid && string.IsNullOrEmpty(message))
+                                    {
+                                        message = "Not Authorized";
+                                    }
+
+                                    if (!isValid)
+                                    {
+                                        throw new ProxyErrorException(
+                                            ProxyErrorException.ErrorType.DisallowedKey,
+                                            HttpStatusCode.Forbidden,
+                                            message
+                                        );
+                                    }
+                                }
 
                                 if (_options.ValidateAuthAppID)
                                 {
-                                    string? authAppID = rd.Headers[_options.ValidateAuthAppIDHeader];
                                     if (!string.IsNullOrEmpty(authAppID) && _userProfile.IsAuthAppIDValid(authAppID))
                                     {
                                         if (rd.Debug)
-                                            _logger.LogInformation("AuthAppID {AuthAppID} is valid.", rd.Headers[_options.ValidateAuthAppIDHeader]);
+                                            _logger.LogInformation($"[{rd.MID}] AuthAppID {authAppID} is valid.");
                                     }
                                     else
                                     {
@@ -461,7 +519,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                         throw new ProxyErrorException(
                                             ProxyErrorException.ErrorType.DisallowedAppID,
                                             HttpStatusCode.Forbidden,
-                                            "Invalid AuthAppID: " + rd.Headers[_options.ValidateAuthAppIDHeader] + "\n"
+                                            "Invalid AuthAppID: " + rd.Headers[_options.ValidateAuthAppIDHeader]
                                         );
                                     }
                                 }
@@ -509,16 +567,16 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                             throw new ProxyErrorException(
                                                 ProxyErrorException.ErrorType.UnknownProfile,
                                                 HttpStatusCode.Forbidden,
-                                                "User profile not found: " + requestUser + "\n"
+                                                "User profile not found: " + requestUser
                                             );
                                         }
-                                    } 
-                                    else if ( _options.UserConfigRequired)
+                                    }
+                                    else if (_options.UserConfigRequired)
                                     {
                                         throw new ProxyErrorException(
                                             ProxyErrorException.ErrorType.UnknownProfile,
                                             HttpStatusCode.Forbidden,
-                                            "User profile not found: " + requestUser + "\n"
+                                            "User profile not found: " + requestUser
                                         );
                                     }
                                 }
@@ -650,7 +708,7 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                 // if (!string.IsNullOrEmpty(priorityKey) && _priorityKeys.Contains(priorityKey)) //lookup the priority
                                 // {
                                 //     var index = _options.PriorityKeys.IndexOf(priorityKey);
-                                //     if (index >= 0)delegating
+                                //     if (index >= 0)
                                 //     {
                                 //         priority = _options.PriorityValues[index];
                                 //     }
@@ -662,6 +720,11 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                 rd.Priority = priority;
                                 rd.Priority2 = userPriorityBoost;
                                 rd.EnqueueTime = DateTime.UtcNow;
+
+                                var forwardedFor = rd.Context?.Request.Headers["X-Forwarded-For"];
+                                rd.Headers["X-Forwarded-For"] = !string.IsNullOrWhiteSpace(forwardedFor)
+                                    ? forwardedFor
+                                    : rd.Context?.Request.RemoteEndPoint?.Address?.ToString() ?? "N/A";
 
                                 ed["S7P-Priority"] = priority.ToString();
                                 ed["S7P-Priority2"] = userPriorityBoost.ToString();
@@ -707,7 +770,17 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                                 notEnqued = true;
                                 notEnquedCode = (int)e.StatusCode;
 
-                                logmsg = retrymsg = ed["Message"] = e.Message;
+                                logmsg = ed["Message"] = e.Message;
+                                retrymsg = logmsg + "\n";
+                            }
+                            catch (Exception e)
+                            {
+                                notEnqued = true;
+                                notEnquedCode = 500;
+
+                                logmsg = ed["Message"] = "An unexpected error occurred.";
+                                retrymsg = logmsg + "\n";
+                                _logger.LogError(e.StackTrace);
                             }
                         }   // end of allowed to proccess check
                     }
@@ -755,11 +828,12 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
                             ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
 
                             if (!_isShuttingDown)
-                                _logger.LogError($"{logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}");
+                                _logger.LogError($"[{rd.MID}] {logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}");
 
                             try
                             {
                                 rd.Context.Response.StatusCode = notEnquedCode;
+                                rd.Context.Response.Headers["S7P-ID"] = rd.MID.ToString();
                                 ed["Retry-After"] = rd.Context.Response.Headers["Retry-After"] = (_backends.ActiveHostCount() == 0) ? _options.PollInterval.ToString() : "500";
 
                                 using (var writer = new System.IO.StreamWriter(rd.Context.Response.OutputStream))
@@ -774,9 +848,9 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
 
                                 if (!msg.Contains("Broken pipe") && !msg.Contains("Unable to write data to the transport connection"))
                                 {
-                                    _logger.LogError($"Request was not enqueue'd and got an error writing on network: {msg}");                               
+                                    _logger.LogError($"Request was not enqueue'd and got an error writing on network: {msg}");
                                 }
-                                    
+
                                 ed["ErrorWritingResponse"] = msg;
                             }
 
@@ -806,7 +880,19 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
             }
             catch (IOException ioEx)
             {
-                ed.WriteOutput($"An IO exception occurred: {ioEx.Message}");
+                // During shutdown, the listener can be stopped while a request is still
+                // being drained. Treat this as a normal termination path instead of a
+                // fatal worker exception.
+                _logger.LogDebug(ioEx, "IO exception while draining request loop");
+                ed?.WriteOutput($"An IO exception occurred: {ioEx.Message}");
+            }
+            catch (HttpListenerException) when (cancellationToken.IsCancellationRequested || _isShuttingDown)
+            {
+                break;
+            }
+            catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested || _isShuttingDown)
+            {
+                break;
             }
             catch (OperationCanceledException)
             {
@@ -814,11 +900,85 @@ public class Server :  BackgroundService, IConfigChangeSubscriber
             }
             catch (Exception e)
             {
-                _logger.LogError(e, "An error occurred");
+                _logger.LogError(e.StackTrace);
                 _staticEvent.WriteOutput($"Error: {e.Message}\n{e.StackTrace}");
             }
         }
 
-        _staticEvent.WriteOutput("[SHUTDOWN] ✓ HTTP server stopped");
+        _staticEvent.WriteOutput("[SHUTDOWN] ✓");
     }
+
+    private (bool isValid, string message) ValidateAuthKey(string? incomingKey, string message)
+    {
+        if (!string.IsNullOrEmpty(incomingKey) &&
+            (string.Equals(incomingKey, _options.ValidateAuthKey1, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(incomingKey, _options.ValidateAuthKey2, StringComparison.OrdinalIgnoreCase)))
+        {
+            return (true, message);
+        }
+
+        if (!message.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            message = "Invalid Auth Key:  " + incomingKey;
+        }
+
+        return (false, message);
+    }
+
+    private async Task<(bool isValid, string message, string appid)> ValidateBearerTokenAsync(string token, string message)
+    {
+        var appid = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return (false, "No token provided", appid);
+        }
+
+        try
+        {
+            var result = await s_tokenHandler.ValidateTokenAsync(token, _authValidator.validationParameters).ConfigureAwait(false);
+            if (!result.IsValid)
+            {
+                var detail = result.Exception switch
+                {
+                    SecurityTokenExpiredException => "expired token",
+                    SecurityTokenInvalidAudienceException => "invalid audience",
+                    SecurityTokenInvalidIssuerException => "invalid issuer",
+                    SecurityTokenInvalidSignatureException => "invalid signature",
+                    _ => "token validation failed"
+                };
+
+                //_logger.LogError($"Invalid token: {detail}");
+                return (false, $"Invalid Auth: {detail}", appid);
+            }
+
+            var claimMap = result.Claims
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value?.ToString(), StringComparer.OrdinalIgnoreCase);
+
+            appid = claimMap.TryGetValue("appid", out var appIdValue) && !string.IsNullOrWhiteSpace(appIdValue)
+                ? appIdValue
+                : claimMap.TryGetValue("appId", out appIdValue) && !string.IsNullOrWhiteSpace(appIdValue)
+                    ? appIdValue
+                    : claimMap.TryGetValue("azp", out appIdValue) && !string.IsNullOrWhiteSpace(appIdValue)
+                        ? appIdValue
+                        : string.Empty;
+
+            foreach (var expectedClaim in _authValidator.RequiredClaims)
+            {
+                if (!claimMap.TryGetValue(expectedClaim.Key, out var actualValue) ||
+                    !string.Equals(actualValue, expectedClaim.Value, StringComparison.OrdinalIgnoreCase))
+                {
+                    return (false, $"Claim {expectedClaim.Key} is not valid", appid);
+                }
+            }
+
+            return (true, message, appid);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"An error occurred while validating the token: {ex.Message}");
+            return (false, "An error occurred while validating the token: " + ex.Message, appid);
+        }
+    }
+
 }

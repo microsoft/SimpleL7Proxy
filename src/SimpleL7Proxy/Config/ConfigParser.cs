@@ -43,7 +43,7 @@ public static class ConfigParser
         ("LookupHeaderName", "UserIDFieldName"),  // older field name, kept for backward compatibility
         ("MaxAttempts", "MaxAttempts"),
         ("MaxQueueLength", "MaxQueueLength"),
-        ("OAuthAudience", "OAuthAudience"),
+        // ("OAuthAudience", "OAuthAudience"),
         ("PollInterval", "PollInterval"),
         ("PollTimeout", "PollTimeout"),
         ("Port", "Port"),
@@ -52,6 +52,7 @@ public static class ConfigParser
         ("PriorityValues", "PriorityValues"),
         ("RequiredHeaders", "RequiredHeaders"),
         ("RequestPreprocessorPlugins", "RequestPreprocessorPlugins"),
+        // ("ResetPolicyCounterOnRequeue", "ResetPolicyCounterOnRequeue"),
         ("SharedIteratorCleanupIntervalSeconds", "SharedIteratorCleanupIntervalSeconds"),
         ("SharedIteratorTTLSeconds", "SharedIteratorTTLSeconds"),
         ("StorageDbContainerName", "StorageDbContainerName"),
@@ -64,7 +65,7 @@ public static class ConfigParser
         ("TimeoutHeader", "TimeoutHeader"),
         ("TTLHeader", "TTLHeader"),
         ("UniqueUserHeaders", "UniqueUserHeaders"),
-        ("UseOAuth", "UseOAuth"),
+        // ("UseOAuth", "UseOAuth"),
         ("UseOAuthGov", "UseOAuthGov"),
         ("UseProfiles", "UseProfiles"),
         ("UserConfigRefreshIntervalSecs", "UserConfigRefreshIntervalSecs"),
@@ -79,6 +80,9 @@ public static class ConfigParser
         ("ValidateAuthAppID", "ValidateAuthAppID"),
         ("ValidateAuthAppIDHeader", "ValidateAuthAppIDHeader"),
         ("ValidateAuthAppIDUrl", "ValidateAuthAppIDUrl"),
+        ("ValidateAuthConfig", "ValidateAuthConfig"),
+        ("ValidateAuthKey1", "ValidateAuthKey1"),
+        ("ValidateAuthKey2", "ValidateAuthKey2"),
         ("Workers", "Workers"),
         // ("StorageDbEnabled", "StorageDbEnabled"),
 
@@ -109,6 +113,10 @@ public static class ConfigParser
         ("MultiConnIdleTimeoutSecs", "MultiConnIdleTimeoutSecs"),
         ("MultiConnMaxConns", "MultiConnMaxConns"),
 
+        // ── Internal ──
+        ("GC2InternalSecs", "GC2InternalSecs"),
+        ("StreamFlushInterval", "StreamFlushInterval"),
+
         // ── Security ──
         ("IgnoreSSLCert", "IgnoreSSLCert"),
 
@@ -135,8 +143,9 @@ public static class ConfigParser
         opts.AcceptableStatusCodes = ReadEnvironmentVariableOrDefault(incoming, "AcceptableStatusCodes", defaults.AcceptableStatusCodes);
         opts.IterationMode = ReadEnvironmentVariableOrDefault(incoming, "IterationMode", defaults.IterationMode);
 
-        var defaultPriorityWorkers = string.Join(",", defaults.PriorityWorkers.Select(kvp => $"{kvp.Key}:{kvp.Value}"));
-        opts.PriorityWorkers = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault(incoming, "PriorityWorkers", defaultPriorityWorkers)));
+        // Seed from ProxyConfig defaults, then let incoming "PriorityWorkers" override if present.
+        var defaultPriorityWorkers = string.Join(",", defaults.PriorityWorkerDict.Select(kvp => $"{kvp.Key}:{kvp.Value}"));
+        opts.PriorityWorkerDict = KVIntPairs(ToListOfString(ReadEnvironmentVariableOrDefault(incoming, "PriorityWorkers", defaultPriorityWorkers)));
 
         var defaultValidateHeaders = string.Join(",", defaults.ValidateHeaders.Select(kvp => $"{kvp.Key}={kvp.Value}"));
         opts.ValidateHeaders = KVStringPairs(ToListOfString(ReadEnvironmentVariableOrDefault(incoming, "ValidateHeaders", defaultValidateHeaders)));
@@ -156,7 +165,10 @@ public static class ConfigParser
             nameof(ProxyConfig.LoadBalanceMode),
             nameof(ProxyConfig.PriorityKeys),
             nameof(ProxyConfig.PriorityValues),
-            nameof(ProxyConfig.ValidateHeaders));
+            nameof(ProxyConfig.ValidateHeaders),
+            nameof(ProxyConfig.ValidateAuthConfig),
+            nameof(ProxyConfig.ValidateAuthKey1),
+            nameof(ProxyConfig.ValidateAuthKey2));
 
         return opts;
     }
@@ -181,26 +193,36 @@ public static class ConfigParser
             changedProperties.Select(p => p.Name),
             StringComparer.OrdinalIgnoreCase);
 
-        if (changedPropertyNames.Contains(nameof(ProxyConfig.HealthProbeSidecar)))
+        bool shouldValidatePrioritySettings = false;
+
+        foreach (var changedPropertyName in changedPropertyNames)
         {
-            ParseHealthProbeSidecarSettings(backendOptions);
+            switch (changedPropertyName)
+            {
+                case nameof(ProxyConfig.HealthProbeSidecar):
+                    ParseHealthProbeSidecarSettings(backendOptions);
+                    break;
+                case nameof(ProxyConfig.LoadBalanceMode):
+                    ValidateLoadBalanceMode(backendOptions);
+                    break;
+                case nameof(ProxyConfig.PriorityKeys):
+                case nameof(ProxyConfig.PriorityValues):
+                    shouldValidatePrioritySettings = true;
+                    break;
+                case nameof(ProxyConfig.ValidateHeaders):
+                    ValidateHeaderSettings(backendOptions);
+                    break;
+                //case nameof(ProxyConfig.ValidateAuthConfig):
+                //    ValidateAuthSettings(backendOptions);
+                //    break;
+            }
         }
 
-        if (changedPropertyNames.Contains(nameof(ProxyConfig.LoadBalanceMode)))
-        {
-            ValidateLoadBalanceMode(backendOptions);
-        }
-
-        if (changedPropertyNames.Contains(nameof(ProxyConfig.PriorityKeys))
-            || changedPropertyNames.Contains(nameof(ProxyConfig.PriorityValues)))
+        if (shouldValidatePrioritySettings)
         {
             ValidatePrioritySettings(backendOptions, s_defaults);
         }
 
-        if (changedPropertyNames.Contains(nameof(ProxyConfig.ValidateHeaders)))
-        {
-            ValidateHeaderSettings(backendOptions);
-        }
     }
 
     public static void ApplyDerivedSettingsFromConfigNames(
@@ -264,8 +286,45 @@ public static class ConfigParser
             return int.TryParse(suffix, out _);
         }
 
-        return IsIndexedKey(normalized, "Host")
+        static bool IsHostIndexedVariant(string value)
+        {
+            if (!value.StartsWith("Host", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            // Strip a recognized api-key suffix (e.g. "Host1-api-key", "Host-eastus-api-key").
+            var core = value;
+            string[] apiKeySuffixes = ["-api-key", "_api_key", "-api_key", "_api-key"];
+            foreach (var apiKeySuffix in apiKeySuffixes)
+            {
+                if (core.EndsWith(apiKeySuffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    core = core[..^apiKeySuffix.Length];
+                    break;
+                }
+            }
+
+            var token = core["Host".Length..];
+            if (token.Length == 0)
+            {
+                return false; // bare "Host" (or "Host-api-key") is not a host variant
+            }
+
+            // HostN: numeric index immediately after "Host".
+            if (token.All(char.IsDigit))
+            {
+                return true;
+            }
+
+            // Host-<name> / Host_<name>: a leading separator distinguishes a named host
+            // from the unrelated "Hostname" setting.
+            return (token[0] == '-' || token[0] == '_') && token.Length > 1;
+        }
+
+        return IsHostIndexedVariant(normalized)
             || IsIndexedKey(normalized, "IP")
+            || IsIndexedKey(normalized, "Api_Key")
             || IsIndexedKey(normalized, "Probe_path")
             || normalized.Equals("APPENDHOSTSFILE", StringComparison.OrdinalIgnoreCase)
             || normalized.Equals("AppendHostsFile", StringComparison.OrdinalIgnoreCase);
@@ -321,9 +380,9 @@ public static class ConfigParser
         }
 
         int workerAllocation = 0;
-        foreach (var key in backendOptions.PriorityWorkers.Keys)
+        foreach (var key in backendOptions.PriorityWorkerDict.Keys)
         {
-            workerAllocation += backendOptions.PriorityWorkers[key];
+            workerAllocation += backendOptions.PriorityWorkerDict[key];
         }
 
         if (workerAllocation > backendOptions.Workers)
@@ -365,6 +424,12 @@ public static class ConfigParser
         }
     }
 
+private static void ValidateAuthSettings(ProxyConfig backendOptions)
+    {
+        // Keep derived key values in sync with top-level key settings.
+        backendOptions.ValidateAuthKey1 = backendOptions.ValidateAuthKey1.ToLowerInvariant();
+        backendOptions.ValidateAuthKey2 = backendOptions.ValidateAuthKey2.ToLowerInvariant();
+    }
     private static bool TryEvaluateMathExpression(string expression, out double result)
     {
         result = 0;

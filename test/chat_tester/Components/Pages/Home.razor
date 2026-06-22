@@ -1,0 +1,64 @@
+﻿@page "/"
+
+<PageTitle>chat-tester</PageTitle>
+
+<h1>chat-tester</h1>
+<p class="lead">A local Blazor app for sending chat-style requests through a server and inspecting the response stream.</p>
+
+<div class="row g-4">
+    <div class="col-md-8">
+        <div class="card shadow-sm h-100 border-success">
+            <div class="card-body">
+                <h5 class="card-title">Chat test</h5>
+                <p class="card-text">Send a chat-style request, pick a model template, attach authorization, and inspect the streamed response alongside the raw payload, request, and response headers.</p>
+                <a class="btn btn-success" href="chat-test">Open chat test</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card shadow-sm h-100">
+            <div class="card-body">
+                <h5 class="card-title">Highlights</h5>
+                <ul>
+                    <li>Model template picker (OpenAI, Anthropic, Gemini, and more)</li>
+                    <li>Key or OAuth bearer authorization</li>
+                    <li>Live streaming response with raw payload inspection</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<h2 class="h5 text-uppercase text-muted mt-4">fail-test</h2>
+<div class="row g-4 mt-0">
+    <div class="col-md-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-body">
+                <h5 class="card-title">Rapid disconnect</h5>
+                <p class="card-text">Open many rapid requests to a configurable base URL and abort them before the server replies.</p>
+                <a class="btn btn-outline-primary" href="rapid-disconnect">Open rapid disconnect test</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-body">
+                <h5 class="card-title">Authorization probe</h5>
+                <p class="card-text">Try API keys or bearer tokens against a list of endpoints with a configurable header name.</p>
+                <a class="btn btn-outline-primary" href="authorization-probe">Open auth probe</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-body">
+                <h5 class="card-title">Burst test</h5>
+                <p class="card-text">Run many parallel requests and measure bytes returned, total time, and time to first byte for each.</p>
+                <a class="btn btn-outline-primary" href="burst-test">Open burst test</a>
+            </div>
+        </div>
+    </div>
+</div>

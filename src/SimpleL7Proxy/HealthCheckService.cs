@@ -509,7 +509,8 @@ public class HealthCheckService
                     {
                         foreach (var host in hosts)
                         {
-                            sb.Append(' ').Append(host.Host).Append("  Status: ").Append(host.GetStatus(out int calls, out int errorCalls, out double average)).Append('\n');
+                            sb.Append(' ').Append(host.ToString())
+                              .Append("  Status: ").Append(host.GetStatus(out int calls, out int errorCalls, out double average)).Append('\n');
                         }
                     }
                     else

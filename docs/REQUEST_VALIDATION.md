@@ -1,11 +1,12 @@
 # Request Validation
 
-Reject or sanitize incoming requests before they enter the queue — return **417** if a required header is missing or fails a value rule, **403** if an App ID is not in the allowlist.
+Reject or sanitize incoming requests before they enter the queue — return **417** if a required header is missing or fails a value rule, **403** if an App ID is not in the allowlist or if inbound auth key validation fails.
 
 **TL;DR**
 - Set `RequiredHeaders` to demand specific headers on every request; missing → 417.
 - Set `ValidateHeaders` to enforce per-user value allowlists; mismatch → 417.
 - Set `ValidateAuthAppID=true` + `ValidateAuthAppIDUrl` to block unknown Entra app IDs; unknown → 403.
+- Set `ValidateAuthConfig="enabled=true, mode=key, header=<name>"` plus `ValidateAuthKey1`/`ValidateAuthKey2` to require an inbound key header; missing/invalid → 403.
 
 ## Reference Table
 
@@ -20,6 +21,9 @@ All settings are **Warm** — changes apply instantly without a container restar
 | `ValidateAuthAppIDUrl` | `string` | `""` | URL or `file:auth.json` for the App ID allowlist. Requires `UseProfiles=true`. |
 | `ValidateAuthAppIDHeader` | `string` | `X-MS-CLIENT-PRINCIPAL-ID` | Request header containing the caller's Entra App ID. |
 | `ValidateAuthAppFieldName` | `string` | `authAppID` | JSON field name in the allowlist file that holds the App ID value. |
+| `ValidateAuthConfig` | `string` | `enabled=false, mode=key, header=S7P-KEY` | Enables inbound key validation when `enabled=true` and `mode=key`; `header` chooses the inbound header name. |
+| `ValidateAuthKey1` | `string` | `key1` | First accepted inbound key value. |
+| `ValidateAuthKey2` | `string` | `key2` | Second accepted inbound key value. |
 
 > [!NOTE]
 > **Auto-population side effect:** Setting `ValidateHeaders=SourceHeader=AllowlistHeader` automatically adds both headers to `RequiredHeaders` **and** adds `AllowlistHeader` to `DisallowedHeaders`. The allowlist header is injected by the user profile service and must not reach the backend.
@@ -33,6 +37,7 @@ Incoming request
        │
        ▼
 [1] ValidateAuthAppID check ──── fail ──► 403 Forbidden  (DisallowedAppID)
+  OR ValidateAuth key check ─ fail ──► 403 Forbidden  (DisallowedKey)
        │ pass
        ▼
 [2] Strip DisallowedHeaders  (silent — no error returned)
@@ -206,6 +211,36 @@ The endpoint must return a JSON array in the same format as `auth.json`. The pro
 
 ---
 
+## Scenario 5: Require an Inbound Shared Key Header
+
+**Use key validation when you want the proxy to reject requests unless a caller supplies a specific header/value pair.**
+
+Configuration example:
+
+```env
+ValidateAuthConfig=enabled=true, mode=key, header=S7P-KEY
+ValidateAuthKey1=foobar
+ValidateAuthKey2=
+```
+
+Request behavior:
+
+- Incoming request with `S7P-KEY: foobar` -> passes key validation.
+- Missing `S7P-KEY` header -> `403 Forbidden`.
+- `S7P-KEY` present but value not equal to `ValidateAuthKey1` or `ValidateAuthKey2` -> `403 Forbidden`.
+
+Example failure response:
+
+```http
+HTTP/1.1 403 Forbidden
+X-S7P-Error: Invalid Incoming Key: <value>
+```
+
+> [!NOTE]
+> `ValidateAuthAppID` and key mode are mutually exclusive in the request path: when `ValidateAuthAppID=true`, App ID validation runs first and key validation is skipped.
+
+---
+
 ## Combining Multiple Rules
 
 All mechanisms compose independently. Enable any subset:
@@ -249,3 +284,4 @@ S7PAllowedModels         → stripped (auto DisallowedHeaders)
 | 417 "required header missing" for the allowlist header (`S7PAllowedModels`) | User profile not found or profile JSON lacks the key | Verify `UserConfigUrl` is reachable and the user ID matches `UserIDFieldName` |
 | Allowlist header (`S7PAllowedModels`) appears in backend request | `ValidateHeaders` rule not set; strip is auto-applied only when the rule is active | Set the `ValidateHeaders` rule or add the header to `DisallowedHeaders` manually |
 | App ID validation blocks a valid caller after Entra cert rotation | The App/Client GUID changed | Update `auth.json` with the new GUID |
+| 403 "Invalid Incoming Key" | `ValidateAuthConfig` enabled key mode but inbound header missing or value mismatch | Send the configured header (for example `S7P-KEY`) and match `ValidateAuthKey1` or `ValidateAuthKey2` |

@@ -249,6 +249,10 @@ public class Program
         // Register refresh services only if App Configuration was reachable.
         appConfigBootstrap.RegisterServices(services, backendOptions);
 
+        // Buffer flusher is a helper to periodically flush the buffers of all active streams.
+        services.AddSingleton<StreamFlusher>();
+        services.AddHostedService<StreamFlusher>(sp => sp.GetRequiredService<StreamFlusher>());
+
         services.AddSingleton<WorkerContext>();
 
         if (backendOptions.AsyncModeEnabled)

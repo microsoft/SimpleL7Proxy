@@ -1,0 +1,15 @@
+.request-tabs .nav-link {
+    color: rgba(255, 255, 255, 0.85);
+    border-color: transparent;
+}
+
+.request-tabs .nav-link:hover {
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.request-tabs .nav-link.active {
+    color: #198754;
+    background-color: #fff;
+    border-color: #fff #fff #fff;
+}

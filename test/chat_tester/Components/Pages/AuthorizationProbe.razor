@@ -1,0 +1,220 @@
+@page "/authorization-probe"
+@rendermode InteractiveServer
+@inject IOptions<ChatTesterOptions> Options
+@using chat_tester.Components.Shared
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.Extensions.Options
+
+<PageTitle>Authorization probe</PageTitle>
+
+<h1>API key and authorization probe</h1>
+<p class="lead">Send repeated requests to a list of endpoints with a configurable auth header and token source.</p>
+
+<div class="row g-4">
+    <div class="col-lg-5">
+        <RequestPanel @ref="RequestPanel"
+                      Settings="AuthSettings"
+                      UserSettings="UserSettings"
+                      HeaderSettings="HeaderSettings"
+                      InitialServerBaseUrl="@InitialServerBaseUrl"
+                      HeaderSubtitle="Probe endpoints with auth."
+                      PromptTabLabel="Probe"
+                      CardTitle="Probe settings"
+                      SubmitLabel="Run auth probe"
+                      BusyLabel="Running..."
+                      IsBusy="@IsRunning"
+                      SubmitButtonClass="btn-primary"
+                      OnSubmit="RunProbeAsync">
+            <PromptContent>
+                <div class="mb-3">
+                    <label class="form-label">Method</label>
+                    <InputSelect class="form-select" @bind-Value="SelectedMethod">
+                        <option value="GET">GET</option>
+                        <option value="POST">POST</option>
+                    </InputSelect>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Target URLs (one per line)</label>
+                    <InputTextArea class="form-control font-monospace" rows="10" @bind-Value="TargetUrlsText" />
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Payload</label>
+                    <InputTextArea class="form-control font-monospace" rows="3" @bind-Value="Payload" />
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Request count</label>
+                    <InputNumber class="form-control" @bind-Value="RequestCount" />
+                </div>
+            </PromptContent>
+        </RequestPanel>
+    </div>
+
+    <div class="col-lg-7">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h5 class="card-title">Results</h5>
+                <p class="mb-3">@StatusMessage</p>
+
+                @if (Results.Any())
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Endpoint</th>
+                                    <th>Status</th>
+                                    <th>Outcome</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var result in Results.Take(50))
+                                {
+                                    <tr>
+                                        <td>@result.Index</td>
+                                        <td><code>@result.Url</code></td>
+                                        <td>@result.StatusCode</td>
+                                        <td>@result.Outcome</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <p class="text-muted">No auth probes have run yet.</p>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string InitialServerBaseUrl { get; set; } = string.Empty;
+    private string SelectedMethod { get; set; } = "GET";
+    [Inject]
+    private AuthTokenSettings AuthSettings { get; set; } = default!;
+    [Inject]
+    private UserSettings UserSettings { get; set; } = default!;
+    [Inject]
+    private HeaderSettings HeaderSettings { get; set; } = default!;
+    private RequestPanel? RequestPanel { get; set; }
+    private string TargetUrlsText { get; set; } = string.Empty;
+    private string Payload { get; set; } = "{\"message\":\"auth-probe\"}";
+    private int RequestCount { get; set; } = 20;
+    private bool IsRunning { get; set; }
+    private string StatusMessage { get; set; } = "Ready to start.";
+    private List<ProbeResult> Results { get; set; } = new();
+
+    protected override void OnInitialized()
+    {
+        var options = Options.Value;
+        InitialServerBaseUrl = options.ServerBaseUrl;
+        AuthSettings.ApplyDefaultsIfMissing(options.AuthorizationHeaderName, options.AuthorizationHeaderPrefix);
+        UserSettings.ApplyDefaultsIfMissing(options.UserHeaderName, options.PriorityKeyHeader, options.UserNames);
+        HeaderSettings.ApplyDefaultsIfMissing(options.DefaultHeaders);
+        TargetUrlsText = string.Join(Environment.NewLine, options.AuthTargetUrls);
+    }
+
+    private async Task RunProbeAsync()
+    {
+        var serverBaseUrl = RequestPanel?.ServerBaseUrl ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(serverBaseUrl))
+        {
+            StatusMessage = "Set a server base URL before running the probe.";
+            return;
+        }
+
+        var targets = ChatTesterHttp.ParseTargetLines(TargetUrlsText);
+        if (targets.Count == 0)
+        {
+            StatusMessage = "Add at least one target URL before running the probe.";
+            return;
+        }
+
+        IsRunning = true;
+        StatusMessage = "Resolving token and sending requests...";
+        Results.Clear();
+        StateHasChanged();
+
+        try
+        {
+            var headerValue = await (RequestPanel?.ResolveHeaderValueAsync() ?? Task.FromResult(string.Empty));
+            var hasAuth = !string.IsNullOrWhiteSpace(headerValue);
+            if (!hasAuth)
+            {
+                StatusMessage = "No token resolved \u2014 sending unauthenticated requests.";
+                StateHasChanged();
+            }
+            using var client = new HttpClient();
+            for (var requestIndex = 1; requestIndex <= RequestCount; requestIndex++)
+            {
+                foreach (var target in targets)
+                {
+                    var endpoint = ChatTesterHttp.BuildSessionEndpoint(serverBaseUrl, target, requestIndex);
+                    var request = BuildRequest(endpoint, requestIndex);
+                    try
+                    {
+                        if (hasAuth && RequestPanel is not null)
+                        {
+                            await RequestPanel.ApplyAuthorizationAsync(request);
+                        }
+
+                        UserSettings.ApplyUser(request, requestIndex);
+                        HeaderSettings.ApplyHeaders(request, requestIndex);
+
+                        using var response = await client.SendAsync(request);
+                        var body = await response.Content.ReadAsStringAsync();
+                        var outcome = $"{(int)response.StatusCode} {response.ReasonPhrase ?? ""}".Trim();
+                        Results.Add(new ProbeResult(requestIndex, endpoint.ToString(), (int)response.StatusCode, outcome));
+                    }
+                    catch (Exception ex)
+                    {
+                        Results.Add(new ProbeResult(requestIndex, endpoint.ToString(), 0, ex.Message));
+                    }
+                }
+            }
+
+            StatusMessage = hasAuth
+                ? $"Completed {RequestCount * targets.Count} requests with header '{AuthSettings.HeaderName}'."
+                : $"Completed {RequestCount * targets.Count} unauthenticated requests.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"The auth probe stopped with an error: {ex.Message}";
+        }
+        finally
+        {
+            IsRunning = false;
+            StateHasChanged();
+        }
+    }
+
+    private HttpRequestMessage BuildRequest(Uri endpoint, int requestIndex)
+    {
+        var request = ChatTesterHttp.CreateRequest(SelectedMethod, endpoint, Payload);
+
+        request.Headers.Add("X-Auth-Probe-Id", requestIndex.ToString());
+        return request;
+    }
+
+    private sealed class ProbeResult
+    {
+        public ProbeResult(int index, string url, int statusCode, string outcome)
+        {
+            Index = index;
+            Url = url;
+            StatusCode = statusCode;
+            Outcome = outcome;
+        }
+
+        public int Index { get; }
+        public string Url { get; }
+        public int StatusCode { get; }
+        public string Outcome { get; }
+    }
+}

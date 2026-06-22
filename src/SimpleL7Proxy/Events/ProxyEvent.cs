@@ -212,10 +212,10 @@ namespace SimpleL7Proxy.Events
             case EventType.Exception:
             case EventType.ServerError:
             case EventType.ProxyError:
-              Console.WriteLine("Sending event data to the console .. type: " + Type);
-              break;
-
             default:
+              // Console.WriteLine("Sending event data to the console .. type: " + Type);
+              // break;
+
               foreach (var kvp in this)
               {
                 sb.Append($"{kvp.Key}: {kvp.Value} ");

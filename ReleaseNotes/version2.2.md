@@ -1,8 +1,67 @@
 # Release Notes #
-2.2.11.3
+
+2.2.14
+
+Proxy:
+* Check for OAuth or api-key for authentication
+* Send S7PDEBUG to backend if debug is turned on
+* Don't log the auth token if debug is turned on
+* catch unexpected errors
+* improve auth token parsing edge cases
+* default to priorities high, medium, low
+* preserve X-Forwarded-For if present, else set to remoteIP
+* Accept Host_<name> formatted hostnames
+
+
+APIM Policy:
+* Added v2.2.0
+* If S7PDEBUG is true, return quque-duration and process-duration in backendlog 
+
+chat tester:
+* initial version
+* chat test with different models
+* authentication with api-key or OAuth
+* burst tester
+
+2.2.13.2
+
+Proxy:
+* Update the default for the console to not log custom events
+
+2.2.13.1
+
+Proxy:
+* Clarify counter semantics and requeue behavior:
+    LifetimeBackendAttempts, LifetimePolicyCycleCounter never reset
+    LifetimeBackendAttempts increments by 1 on every APIM call
+    LifetimePolicyCycleCounter increments by delta of PolicyCycleCounter
+    On requeue and restore:
+        Attempts reset
+        PolicyCycleCounter reset
+        incompleteRequests cleared
+    incompleteRequests is appended on failure
+    Backup/restore preserves lifetime counters
+
+
+2.2.13
+
+Proxy:
+* Add StreamFlusher to flush every `Server:StreamFlushInterval` ms
+
+2.2.12.2
+
+Deployment:
+* add sidecar type to deploy.parameters.sh
+* add grace termination time  to deploy.parameters.sh
+
+
+2.2.12.1
 
 Proxy:
 * Add status checker
+* Add ability to validate requests via api-key
+* Add ability to call backend via api-key
+* Allow bakend api keys to be configured outside Hostn so Hostn_api_key can be backed via keyvault.
 
 RequestAPI:
 * Add status checker

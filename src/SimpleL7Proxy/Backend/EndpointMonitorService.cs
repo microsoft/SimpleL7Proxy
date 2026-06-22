@@ -284,10 +284,15 @@ public class EndpointMonitorService : BackgroundService, IEndpointMonitorService
       }
 
       using var request = new HttpRequestMessage(HttpMethod.Get, probeableHost.ProbeUrl);
-      if (host.Config.UseOAuth)
+      switch (host.Config.AuthMode)
       {
-        string token = await host.Config.OAuth2Token().ConfigureAwait(false);
-        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        case AuthModeEnum.OAuth2:
+          string token = await host.Config.OAuth2Token().ConfigureAwait(false);
+          request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+          break;
+        case AuthModeEnum.ApiKey:
+          request.Headers.Add(host.Config.ApiKeyHeader, host.Config.ApiKey);
+          break;
       }
 
       var stopwatch = Stopwatch.StartNew();

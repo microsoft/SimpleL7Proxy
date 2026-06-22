@@ -172,7 +172,10 @@ public static class ConfigFactory
         if (string.IsNullOrEmpty(rawValue)) continue;
 
         // Host keys are handled separately via RegisterBackends.
-        if (key.StartsWith("Host") || key.StartsWith("Probe") || key.StartsWith("IP"))
+        if (key.StartsWith("Host", StringComparison.OrdinalIgnoreCase)
+          || key.StartsWith("Probe", StringComparison.OrdinalIgnoreCase)
+          || key.StartsWith("IP", StringComparison.OrdinalIgnoreCase)
+          || key.StartsWith("Api_Key", StringComparison.OrdinalIgnoreCase))
         {
             hostChanges[key] = rawValue;
             continue;
@@ -253,7 +256,10 @@ public static class ConfigFactory
         if (string.IsNullOrEmpty(rawValue)) continue;
 
         var key = kvp.Key;
-        if (key.StartsWith("Host") || key.StartsWith("Probe") || key.StartsWith("IP"))
+        if (key.StartsWith("Host", StringComparison.OrdinalIgnoreCase)
+          || key.StartsWith("Probe", StringComparison.OrdinalIgnoreCase)
+          || key.StartsWith("IP", StringComparison.OrdinalIgnoreCase)
+          || key.StartsWith("Api_Key", StringComparison.OrdinalIgnoreCase))
         {
             hostChanges[key] = rawValue;
             continue;
@@ -492,11 +498,19 @@ public static class ConfigFactory
 
     var hostsFileContent = new StringBuilder();
 
-    foreach (var entry in ReadHostEntries(ReadWithFallback))
+    var namedHostKeys = CollectNamedHostKeys(appConfigSettings, fallbackConfig);
+
+    foreach (var entry in ReadHostEntries(ReadWithFallback, namedHostKeys))
     {
         try
         {
-            var hostConfig = new HostConfig(entry.Hostname, entry.ProbePath, entry.Ip, backendOptions.OAuthAudience);
+        var hostname = entry.Hostname;
+        if (!string.IsNullOrWhiteSpace(entry.ApiKey))
+        {
+          hostname += $";api-key={entry.ApiKey}";
+        }
+
+        var hostConfig = new HostConfig(hostname, entry.ProbePath, entry.Ip);//, backendOptions.OAuthAudience);
             hostCollection?.StageHost(hostConfig);
             hostsFileContent.AppendLine($"{entry.Ip} {hostConfig.Host}");
         }
@@ -513,23 +527,156 @@ public static class ConfigFactory
     hostCollection?.Activate();
   }
 
-  private record ParsedHostEntry(string HostKey, string Hostname, string? ProbePath, string? Ip);
+  private record ParsedHostEntry(string HostKey, string Hostname, string? ProbePath, string? Ip, string? ApiKey);
 
-  /// <summary>Yields Host1..N entries until a gap is found.</summary>
-  private static IEnumerable<ParsedHostEntry> ReadHostEntries(Func<string, string?> readWithFallback)
+  private static readonly string[] s_hostApiKeySuffixes = ["-api-key", "_api_key", "-api_key", "_api-key"];
+
+  /// <summary>
+  /// Yields backend host entries: first the numeric Host1..N series (stopping at the first
+  /// gap), then any named Host-&lt;name&gt;/Host_&lt;name&gt; entries discovered in configuration.
+  /// For a named host, the paired keys mirror the suffix: e.g. Host-eastus pairs with
+  /// IP-eastus, Probe_path-eastus, and Host-eastus-api-key.
+  /// </summary>
+  private static IEnumerable<ParsedHostEntry> ReadHostEntries(
+      Func<string, string?> readWithFallback,
+      IEnumerable<string> namedHostKeys)
   {
     for (int i = 1; ; i++)
     {
       var hostname = readWithFallback($"Host{i}");
-      if (string.IsNullOrEmpty(hostname)) yield break;
+      if (string.IsNullOrEmpty(hostname)) break;
+
+      var apiKey = readWithFallback($"Host{i}-api-key") ?? readWithFallback($"Host{i}-api_key") ?? readWithFallback($"Host{i}_api_key");
 
       yield return new ParsedHostEntry(
           $"Host{i}",
           hostname,
           readWithFallback($"Probe_path{i}"),
-          readWithFallback($"IP{i}")
+          readWithFallback($"IP{i}"),
+          apiKey
       );
     }
+
+    foreach (var hostKey in namedHostKeys)
+    {
+      var hostname = readWithFallback(hostKey);
+      if (string.IsNullOrEmpty(hostname)) continue;
+
+      // Suffix after "Host", including the separator (e.g. "-eastus"). Paired IP/Probe_path
+      // keys reuse the same suffix so naming stays consistent with the numeric series.
+      var suffix = hostKey["Host".Length..];
+
+      var apiKey = readWithFallback($"{hostKey}-api-key")
+          ?? readWithFallback($"{hostKey}-api_key")
+          ?? readWithFallback($"{hostKey}_api_key");
+
+      yield return new ParsedHostEntry(
+          hostKey,
+          hostname,
+          readWithFallback($"Probe_path{suffix}"),
+          readWithFallback($"IP{suffix}"),
+          apiKey
+      );
+    }
+  }
+
+  /// <summary>
+  /// Discovers named backend host root keys (Host-&lt;name&gt; / Host_&lt;name&gt;) across all
+  /// configuration sources: the App Configuration snapshot, the fallback IConfiguration
+  /// (Warm:/Cold: prefixes stripped), and OS environment variables. API-key variants and
+  /// the numeric Host1..N series are excluded; results are de-duplicated case-insensitively.
+  /// </summary>
+  private static List<string> CollectNamedHostKeys(
+      Dictionary<string, string>? appConfigSettings,
+      IConfiguration? fallbackConfig)
+  {
+    var roots = new List<string>();
+    var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    foreach (var rawKey in EnumerateConfigKeys(appConfigSettings, fallbackConfig))
+    {
+      var key = StripWarmColdPrefix(rawKey);
+      if (IsNamedHostRoot(key) && seen.Add(key))
+      {
+        roots.Add(key);
+      }
+    }
+
+    return roots;
+  }
+
+  private static IEnumerable<string> EnumerateConfigKeys(
+      Dictionary<string, string>? appConfigSettings,
+      IConfiguration? fallbackConfig)
+  {
+    if (appConfigSettings != null)
+    {
+      foreach (var key in appConfigSettings.Keys)
+      {
+        yield return key;
+      }
+    }
+
+    if (fallbackConfig != null)
+    {
+      foreach (var pair in fallbackConfig.AsEnumerable())
+      {
+        if (pair.Key != null)
+        {
+          yield return pair.Key;
+        }
+      }
+    }
+
+    foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
+    {
+      if (entry.Key is string key)
+      {
+        yield return key;
+      }
+    }
+  }
+
+  private static string StripWarmColdPrefix(string key)
+  {
+    if (key.StartsWith("Warm:", StringComparison.OrdinalIgnoreCase))
+    {
+      return key["Warm:".Length..];
+    }
+    if (key.StartsWith("Cold:", StringComparison.OrdinalIgnoreCase))
+    {
+      return key["Cold:".Length..];
+    }
+    return key;
+  }
+
+  /// <summary>
+  /// True when <paramref name="key"/> names a named host root: "Host" followed by a
+  /// '-'/'_' separator and at least one more character, and not an api-key variant.
+  /// This deliberately excludes "HostN" (numeric) and the unrelated "Hostname" setting.
+  /// </summary>
+  private static bool IsNamedHostRoot(string key)
+  {
+    if (key.Length < 6 || !key.StartsWith("Host", StringComparison.OrdinalIgnoreCase))
+    {
+      return false;
+    }
+
+    var separator = key["Host".Length];
+    if (separator != '-' && separator != '_')
+    {
+      return false;
+    }
+
+    foreach (var apiKeySuffix in s_hostApiKeySuffixes)
+    {
+      if (key.EndsWith(apiKeySuffix, StringComparison.OrdinalIgnoreCase))
+      {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   /// <summary>Appends host/IP pairs to /etc/hosts when APPENDHOSTSFILE=true.</summary>

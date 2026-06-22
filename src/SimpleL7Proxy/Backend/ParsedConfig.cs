@@ -1,8 +1,18 @@
 namespace SimpleL7Proxy.Backend
 {
+
+    public enum AuthModeEnum
+    {
+        None,
+        ApiKey,
+        OAuth2
+    }
+
     public struct ParsedConfig
     {
         public string Audience;
+        public string ApiKey;
+        public string ApiKeyHeader;
         public bool DirectMode;
         public string Host;
         private string _hostname;
@@ -32,7 +42,7 @@ namespace SimpleL7Proxy.Backend
         public string ProbePath;
         public string Processor;
         public bool StripPrefix;
-        public bool UseOAuth;
         public bool UsesRetryAfter;
+        public AuthModeEnum AuthMode;
     }
 }

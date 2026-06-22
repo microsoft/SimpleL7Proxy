@@ -1,202 +1,241 @@
-# POC: Token-Level Chargeback
+# POC: LLM Chargeback
 
-## Overview
+**Purpose:** Show how token consumption across a shared LLM deployment can be tracked and attributed to each caller.
 
-This POC shows how SimpleL7Proxy captures token usage from streaming Azure OpenAI responses and emits it as structured telemetry — without buffering the response or adding meaningful latency. Once the data is in Application Insights, a single KQL query can break down consumption by user, priority tier, or backend, giving you the raw numbers needed for internal chargeback or cost reporting.
+> [!CONCEPT]
+> **Chargeback works by tagging each request with a user ID, allowing the proxy to extract token usage from the response and send that data to telemetry for per-user querying.**
 
-The goal is to verify that:
+## TL;DR (< 5 minutes)
 
-1. Token counts (`prompt_tokens`, `completion_tokens`, `total_tokens`) are extracted from the SSE stream and appear in Application Insights custom dimensions.
-2. The `userId` header flows through to telemetry, so consumption can be attributed to an individual caller.
-3. A KQL query can aggregate total tokens per user over a time window.
+1. Send a request through the proxy with an `X-UserID` header.
+2. The proxy captures token usage from the model response and logs it to Application Insights.
+3. Run the KQL query and confirm token usage is attributed per `X-UserID`.
 
-The LLM Simulator covers all three cases. Its sample files return real `usage` blocks in the same format Azure OpenAI uses, so the proxy's stream processor extracts and logs the same fields it would against a real endpoint.
+**Expected outcome:** Token metrics appear in Application Insights, attributed to each caller by `X-UserID`, with one `requests` entry per completed call and usage token fields present in `customDimensions`.
 
----
+## What you will observe
+
+The proxy can intercept LLM requests and log metrics in near real time to Application Insights. You can then generate chargebacks to departments based on data from Log Analytics or an alternate sink such as Event Hubs.
 
 ## How it works
 
-The proxy includes stream processors that read the SSE or JSON response stream on-the-fly and extract token usage without buffering the full response. The processor to use depends on the provider (LLM model):
+Each request includes an `X-UserID` (or another configured header).
 
-| Provider | `processor=` value | Usage fields logged |
-|----------|--------------------|---------------------|
-| Azure OpenAI / OpenAI | `OpenAI` | `Usage.Prompt_Tokens`, `Usage.Completion_Tokens`, `Usage.Total_Tokens` |
-| Anthropic | `AllUsage-2` | `Usage.Input_Tokens`, `Usage.Output_Tokens` |
-| Google Gemini | `MultiLineAllUsage` | `Usage.PromptTokenCount`, `Usage.CandidatesTokenCount`, `Usage.TotalTokenCount` |
+The proxy forwards the request to the model, reads token usage from the response, and logs that data to telemetry.
 
-All processors attach their extracted values to the `ProxyEvent` for that request and write them to every configured telemetry sink — Application Insights, Event Hubs, and the local file logger all receive the same token fields. This POC focuses on Application Insights. For Event Hubs see the tuning section below.
+Each completed call produces a `requests` entry in Application Insights with:
+- User ID
+- Token counts
+- Routing metadata
 
-<details>
-<summary>Custom dimensions emitted per request</summary>
+This data can then be queried and aggregated per user to calculate model usage.
 
-| Custom Dimension | Content |
-|------------------|---------|
-| `Usage.Prompt_Tokens` | Tokens consumed by the input prompt |
-| `Usage.Completion_Tokens` | Tokens generated in the response |
-| `Usage.Total_Tokens` | Sum of prompt + completion |
-| `S7P_RequestId` | Unique request correlation ID |
-| `S7P_Priority` | Priority queue the request was assigned to |
-| `BackendHost` | Backend URL that served the request |
+---
+
+## Minimal Prerequisites (Fast Path)
+
+- SimpleL7Proxy running (local or ACA)
+- OpenAI endpoint with `gpt-4o` deployed
+- Application Insights connection string configured:
+  export APPINSIGHTS_CONNECTIONSTRING="..."
+- Logging enabled:
+  export LogToAI="*" (this is the default value)
+
+Required behavior:
+- Each request MUST include a unique `X-UserID` header
+- The backend MUST return token usage (simulator already does)
+
+Nothing else is required for this POC.
+
+**Optional (alternate setup paths):**
+
+1. Use APIM routing instead of direct backend routing.
+2. Use the LLM Simulator instead of the Azure OpenAI endpoint. See [`test/LLMSimulator/Readme.md`](../test/LLMSimulator/Readme.md).
+
+See [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md) for all environment variable options covering endpoints, logging, workers, and timeouts.
+
+
+---
+
+## Step 1. Validate connectivity
+
+Check that the proxy and backend are reachable before we begin.
+
+**Set the hostname for where the proxy is running:**
+
+Replace `<ACA Name>` with the name of your container app and `<environment>` with the name of your container app environment. You can copy both values from the URL on the container app Overview page.
+
+```bash
+# proxy running on localhost port 8000
+export PROXYHOST="http://localhost:8000"
+
+# proxy running on ACA with ingress enabled on 443
+export PROXYHOST="https://<ACA Name>.<environment>.eastus.azurecontainerapps.io"
+```
+
+Call the proxy to test it:
+```bash
+curl -i $PROXYHOST/health
+# → 200 OK
+```
+
+Confirm that your backend is reachable. If you deployed the proxy in a vnet, run this test from inside that vnet.
+
+We'll send a request to it in Step 4. Skip to Step 2.
+
+**Optional connectivity checks:**
+<details><summary>If you choose to use the LLM Simulator or APIM, run these checks:</summary>
+
+Replace `<funcapp>` with the name of the Azure Function where the simulator is deployed.
+
+**LLM Simulator:**
+```bash
+curl -i https://<funcapp>.azurewebsites.net/api/v1/chat/completions
+# → 200 OK
+```
+
+Replace `<apim-name>` with the name of your APIM instance.
+
+**APIM:**
+```bash
+# Health probe - APIM's built-in health probe
+curl -i https://<apim-name>.azure-api.net/status-0123456789abcdef
+# → 200 OK
+```
 
 </details>
 
-The `userId` header value is forwarded to the backend and appears in request telemetry, enabling per-user attribution.
-
-> **Note:** Token extraction requires the appropriate `processor=` value on the backend host configuration (see table above). Without it, the proxy forwards the stream transparently but does not parse usage.
-
 ---
 
-## Prerequisites
+## Step 2. Configure a backend in the proxy
 
-- SimpleL7Proxy running locally or on ACA, pointed at the LLM Simulator.
-- `processor=OpenAI` set on the backend host (see [Backend Configuration](#backend-configuration) below).
-- Application Insights connected via `APPINSIGHTS_CONNECTIONSTRING`.
-- The LLM Simulator deployed as an Azure Function. See [`test/LLMSimulator/Readme.md`](../test/LLMSimulator/Readme.md) — the fastest path is the portal ZIP deploy. Verify it's up:
-  ```bash
-  curl https://<funcapp>.azurewebsites.net/api/health
-  # → 200 OK
-  ```
+The `Host1` environment variable points the proxy to a backend.  The proxy can route to the LLM endpoint directly.
 
----
-
-## Backend Configuration
-
-<details>
-<summary>Direct backend</summary>
-
-Set one `Host` environment variable per provider. The `path=` prefix tells the proxy which incoming URL paths belong to that host, `processor=` selects the right token extractor, and `mode=direct` disables health probing (appropriate for Azure Functions which scale to zero). Only configure the hosts you actually need — all three are not required.
+Replace `<endpoint>` with the name of your LLM endpoint.
 
 ```bash
-# Azure OpenAI — handles requests to /openai/...
-export Host1="host=https://<funcapp>.azurewebsites.net;mode=direct;path=/openai;processor=OpenAI"
+# Azure OpenAI - runs real queries to /openai/...
+export Host1="host=https://<endpoint>.openai.azure.com;mode=direct;path=/openai; processor=MultiLineAllUsage"
+```
 
-# Anthropic — handles requests to /anthropic/...
-export Host2="host=https://<funcapp>.azurewebsites.net;mode=direct;path=/anthropic;processor=AllUsage-2"
+**Optional backend options:**
+<details><summary>If you choose to use the LLM Simulator:</summary>
 
-# Google Gemini — handles requests to /v1beta/...
-export Host3="host=https://<funcapp>.azurewebsites.net;mode=direct;path=/v1beta;processor=MultiLineAllUsage"
+
+Direct backends do not have probes, so the proxy assumes they are always available. Pick one of the scenarios below that matches your environment.
+
+Replace `<funcapp>` with the name of the Azure Function where the simulator is deployed.
+
+```bash
+# Simulated Azure OpenAI — handles requests to /openai/...
+export Host1="host=https://<funcapp>.azurewebsites.net;mode=direct;path=/openai; processor=MultiLineAllUsage"
+
+# Simulated Anthropic — handles requests to /anthropic/...
+export Host1="host=https://<funcapp>.azurewebsites.net;mode=direct;path=/anthropic; processor=AllUsage-2"
+
+# Simulated Google Gemini — handles requests to /v1beta/...
+export Host1="host=https://<funcapp>.azurewebsites.net;mode=direct;path=/v1beta; processor=MultiLineAllUsage"
 ```
 
 </details>
 
 <details>
-<summary>APIM</summary>
+<summary>APIM — routing through Azure API Management</summary>
 
-With APIM the processor is not set in the host config. Instead, APIM returns it as the `TOKENPROCESSOR` response header. The proxy reads that header from each `200 OK` response and selects the processor dynamically — useful when a single APIM gateway fronts multiple models and the policy knows which backend was actually called.
+APIM lets you implement capabilities such as governance, security, and compliance across your LLM backends. Connect the proxy to it using `mode=apim` with a probe path so the proxy can health-check the gateway. If auth is needed, see [POC-APIM-Security-Authorization.md](POC-APIM-Security-Authorization.md).
 
-The included policy already does this in its `<outbound>` block:
+Replace `<apim-name>` with the name of your APIM instance.
+
+```bash
+export Host1="host=https://<apim-name>.azure-api.net;mode=apim;probe=/status-0123456789abcdef"
+```
+
+APIM can specify the correct processor per route by returning a header to the proxy. Set the `TOKENPROCESSOR` response header in the APIM policy `<outbound>` block based on the model response. Change the value to match the model family your policy routes to (`OpenAI`, `AllUsage-2`, or `MultiLineAllUsage`).
+
+Paste this XML snippet into the outbound portion of your LLM API in All Operations.
 
 ```xml
 <outbound>
     <set-header name="TOKENPROCESSOR" exists-action="override">
-        <value>MultiLineAllUsage</value>
+        <value><!-- OpenAI | AllUsage-2 | MultiLineAllUsage --></value>
     </set-header>
     ...
 </outbound>
 ```
-
-Change the value to match the model family the policy is routing to (`OpenAI`, `AllUsage-2`, or `MultiLineAllUsage`). If the policy routes to multiple providers, use a policy expression to set it conditionally based on whichever backend was selected.
-
-The host config does not need a `processor=` value — the header overrides it at runtime. Use `mode=apim` with a probe path so the proxy health-checks the gateway:
-
-```bash
-export Host1="host=https://<apim>.azure-api.net;mode=apim;probe=/status-0123456789abcdef"
-```
-
 </details>
 
+---
+
+## Step 3. Configure Application Insights
+
+Set `APPINSIGHTS_CONNECTIONSTRING` to your Application Insights connection string. Data sent to App Insights is typically queryable within 3-5 minutes.
+
+If you modified `LogToAI`, change it back to `'*'`.
+
+---
+
+## Step 4. Send a request to confirm the pipeline is working.
+
+Depending on your scenario, the URL and body will differ. Define `URL` and `BODY` for your test endpoint.
+
 ```bash
-export APPINSIGHTS_CONNECTIONSTRING="InstrumentationKey=..."
-export Workers=5
-dotnet run --project src/SimpleL7Proxy
+# OpenAI - gpt-4o
+export URL="openai/v1/chat/completions"
+export BODY='{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"stream":true}'
+```
+
+**Optional backend options:**
+<details><summary>If you choose to use the LLM Simulator or APIM:</summary>
+
+```bash
+# Optional alternative - OpenAI - gpt-5.4-mini
+export URL="openai/v1/chat/completions"
+export BODY='{"model":"gpt-5.4-mini","messages":[{"role":"user","content":"hello"}],"stream":true}'
+
+# Optional alternative - LLMSimulator - OpenAI
+export URL="api/v1/chat/completions"
+export BODY='{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}],"stream":true}'
+
+# Optional alternative - LLMSimulator - Gemini
+export URL="v1beta/models/gemini-2.5-pro:generateContent"
+export BODY='{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}'
+
+# Optional alternative - LLMSimulator - Anthropic
+export URL="anthropic/v1/messages"
+export BODY='{"model":"claude-sonnet-3-5","messages":[{"role":"user","content":"hello"}]}'
+```
+</details>
+
+Now that `$PROXYHOST`, `URL`, and `BODY` are defined, run the following command to get a response.
+
+```bash
+# Make the call
+curl -i -H "X-UserID: alice" \
+  -H "Content-Type: application/json" -d "$BODY" "$PROXYHOST/$URL"
 ```
 
 ---
 
-## Sending Test Requests
+## Verifying the first pass
 
-The simulator returns deterministic responses with realistic `usage` blocks — the same JSON structure the real providers return. Because the token counts are fixed, you can verify telemetry exactly: if the KQL query shows 1058 total tokens for an OpenAI call, the stream processor is working correctly end-to-end. Send at least a few requests across two different `userId` values so the chargeback query has something meaningful to aggregate.
+The proxy writes a `requests` entry to Application Insights for every completed request, with token counts in `customDimensions`. When using the simulator, it returns fixed counts (58 prompt / 1000 completion / 1058 total).
 
-<details>
-<summary>curl commands</summary>
+The queries below use OpenAI field names. For Anthropic or Gemini, substitute the field names from the [provider table](#reference).
 
-**Azure OpenAI (`processor=OpenAI`) — 58 prompt / 1000 completion / 1058 total:**
-```bash
-curl -i \
-  -H "userId: alice" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}],"stream":true}' \
-  "http://localhost:8000/openai/deployments/gpt-4o-mini/chat/completions"
-```
 
-**Anthropic (`processor=AllUsage-2`) — 10 input / 35 output:**
-```bash
-curl -i \
-  -H "userId: alice" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"claude-sonnet-3-5","messages":[{"role":"user","content":"hello"}]}' \
-  "http://localhost:8000/anthropic/v1/messages"
-```
-
-**Gemini (`processor=MultiLineAllUsage`) — 6 prompt / 19 candidates / 1465 total (includes thinking tokens):**
-```bash
-curl -i \
-  -H "userId: alice" \
-  -H "Content-Type: application/json" \
-  -d '{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}' \
-  "http://localhost:8000/v1beta/models/gemini-2.5-pro:generateContent"
-```
-
-**Batch — two users, multiple requests (OpenAI):**
-```bash
-for i in {1..5}; do
-  curl -s -o /dev/null \
-    -H "userId: alice" \
-    -H "Content-Type: application/json" \
-    -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}],"stream":true}' \
-    "http://localhost:8000/openai/deployments/gpt-4o-mini/chat/completions" &
-done
-
-for i in {1..3}; do
-  curl -s -o /dev/null \
-    -H "userId: bob" \
-    -H "Content-Type: application/json" \
-    -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}],"stream":true}' \
-    "http://localhost:8000/openai/deployments/gpt-4o-mini/chat/completions" &
-done
-
-wait
-echo "Done"
-```
-
-</details>
-
-After a few seconds, the events will appear in Application Insights.
-
----
-
-## Verifying the Data
-
-Now that the proxy is running and sample requests have been sent, it's time to verify that token data is flowing through correctly. The proxy writes a `customEvent` to Application Insights for every completed request, with token counts in `customDimensions`. Because the simulator returns fixed token counts, the numbers are deterministic — if the results match the expected values below, the full pipeline (stream parsing → telemetry emission → ingestion) is confirmed working.
-
-The field names vary by provider: Azure OpenAI uses `Usage.Prompt_Tokens` / `Usage.Completion_Tokens` / `Usage.Total_Tokens`; Anthropic uses `Usage.Input_Tokens` / `Usage.Output_Tokens`; Gemini uses `Usage.PromptTokenCount` / `Usage.CandidatesTokenCount` / `Usage.TotalTokenCount`. The queries and log checks below use the OpenAI fields — adapt the field names if you're testing a different provider.
-
-<details>
-<summary>Application Insights</summary>
-
-Open the Log Analytics workspace linked to your Application Insights resource and run:
+Open the Log Analytics workspace linked to your Application Insights resource, then run:
 
 ```kusto
-customEvents
+requests
 | where timestamp > ago(1h)
 | where customDimensions contains "Usage.Total_Tokens"
 | project
     timestamp,
-    UserId       = tostring(customDimensions["userId"]),
-    Priority     = tostring(customDimensions["S7P_Priority"]),
-    Backend      = tostring(customDimensions["BackendHost"]),
-    PromptTokens = toint(customDimensions["Usage.Prompt_Tokens"]),
-    CompTokens   = toint(customDimensions["Usage.Completion_Tokens"]),
+  UserId       = tostring(coalesce(customDimensions["UserID"], customDimensions["userID"])),
+  Priority     = tostring(coalesce(customDimensions["S7P-Priority"], customDimensions["S7P_Priority"])),
+  Backend      = tostring(coalesce(customDimensions["BackendHost"], customDimensions["Backend-Host"])),
+  PromptTokens = toint(coalesce(customDimensions["Usage.Prompt_Tokens"], customDimensions["Usage.Input_Tokens"])),
+  CompTokens   = toint(coalesce(customDimensions["Usage.Completion_Tokens"], customDimensions["Usage.Output_Tokens"])),
     TotalTokens  = toint(customDimensions["Usage.Total_Tokens"])
 | summarize
     Requests     = count(),
@@ -207,28 +246,55 @@ customEvents
 | order by TotalTokens desc
 ```
 
-Expected result for the batch above (simulator returns 1058 tokens per call):
+You should see a response similar to the screenshot. If the query shows a `UserId` and counts for the usage fields, the full pipeline is working.
+![alt text](report.png)
+
+
+Depending on the model, there may be additional usage fields worth reporting.
+
+For example, for `gpt-5.4-mini`, these are available in custom dimensions:
+
+![alt text](custom-dimension-usage-5-4.png)
+
+---
+
+### Send more data
+
+For a chargeback test across multiple users, send the batch below before running the queries:
+
+```bash
+for i in {1..3}; do
+  curl -s -o /dev/null \
+    -H "X-UserID: bob" \
+    -H "Content-Type: application/json" -d "$BODY" "$PROXYHOST/$URL" &
+done
+```
+After a few minutes, rerun the query above. Expected result (1 request for `alice` from Step 4 and 3 for `bob` from the batch above):
 
 | UserId | Priority | Requests | TotalTokens | PromptTokens | CompTokens |
 |--------|----------|----------|-------------|--------------|------------|
-| alice  | 1        | 5        | 5290        | 290          | 5000       |
 | bob    | 1        | 3        | 3174        | 174          | 3000       |
+| alice  | 1        | 1        | 1058        | 58           | 1000       |
 
-To break down by backend — useful when multiple deployments serve different tiers:
+To break down by backend (useful when multiple deployments serve different tiers):
 
 ```kusto
-customEvents
+requests
 | where timestamp > ago(1h)
 | where customDimensions contains "Usage.Total_Tokens"
 | summarize
     TotalTokens = sum(toint(customDimensions["Usage.Total_Tokens"])),
     Requests    = count()
-    by UserId = tostring(customDimensions["userId"]),
-       Backend = tostring(customDimensions["BackendHost"])
+  by UserId = tostring(coalesce(customDimensions["UserID"], customDimensions["userID"])),
+     Backend = tostring(coalesce(customDimensions["BackendHost"], customDimensions["Backend-Host"]))
 | order by TotalTokens desc
 ```
 
-</details>
+---
+
+## Send data to additional sinks
+
+Set `EVENT_LOGGERS` to one or more of `appinsights`, `eventhub`, or `file` (comma-separated). See [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md) for all options.
 
 <details>
 <summary>Event Hubs</summary>
@@ -258,7 +324,7 @@ Other tools that work directly with Event Hubs or Blob-captured data include Fab
 <details>
 <summary>Local File</summary>
 
-If `EVENT_LOGGERS=file` (the default), token data appears in `eventslog.json` immediately — no ingestion delay. Useful for a quick sanity check before querying Application Insights.
+If `EVENT_LOGGERS=file` (the default), token data appears in `eventslog.json` immediately, with no ingestion delay. This is useful for a quick sanity check before querying Application Insights.
 
 If the proxy is deployed to Azure Container Apps, the file is written inside the container. Use the ACA console to inspect it: in the Azure portal, open the container app → **Containers** → **Console**, then run the `jq` command below. For a more durable setup, ACA supports mounting an Azure Files share as a volume — configure a storage mount in the container app and set the proxy's working directory to that path so `eventslog.json` persists across container restarts.
 
@@ -288,14 +354,14 @@ If `EVENT_LOGGERS` is not set or is set to an empty value, telemetry is turned o
 
 ## Tuning and Further Exploration
 
-Once the basic data is confirmed, a few variations are worth trying:
+Once the basic data is confirmed, these variations are worth trying:
 
 <details>
 <summary>Stream Analytics + Power BI dashboard</summary>
 
 With `EVENT_LOGGERS=eventhub`, every request event lands in the hub in real time. Connect an Azure Stream Analytics job to the hub and project the token fields into an output — a Power BI streaming dataset works well here. You can build a live dashboard showing token consumption by user, priority tier, and backend, updating as requests arrive. This is the closest thing to a real-time chargeback view without any custom code.
 
-For a batch approach, use the Event Hubs Capture output (Avro files in Blob Storage) as a Power BI dataflow source or import it into a Fabric lakehouse for scheduled reporting.
+For a batch approach, use the Event Hubs Capture output (Avro files in Blob Storage) as a Power BI dataflow source, or import it into a Fabric lakehouse for scheduled reporting.
 
 </details>
 
@@ -315,8 +381,43 @@ Raise `Workers` and send a larger burst. Watch `eventslog.json` — every line s
 
 ---
 
+## Reference
+
+<details>
+<summary>Settings, values, units, and when each takes effect</summary>
+
+| Setting | Value in this POC | Unit | Set in | Takes effect |
+| :--- | :--- | :--- | :--- | :--- |
+| `processor=` | `OpenAI`, `AllUsage-2`, or `MultiLineAllUsage` | — | `Host1` env var | proxy restart |
+| `X-UserID` header | caller-supplied string | — | request header | per request |
+| `APPINSIGHTS_CONNECTIONSTRING` | App Insights connection string | — | env var | proxy restart |
+| `EVENT_LOGGERS` | `appinsights`, `eventhub`, `file` (comma-separated) | — | env var | proxy restart |
+
+> [!NOTE]
+> For APIM topology, `processor=` is set via the `TOKENPROCESSOR` response header in the APIM policy `<outbound>` block — not in the `Host1` string.
+
+</details>
+
+<details>
+<summary>Custom dimensions by provider</summary>
+
+The `processor=` value on the backend host determines which usage fields are extracted:
+
+| Provider | `processor=` value | Usage fields logged |
+|----------|--------------------|---------------------|
+| Azure OpenAI / OpenAI | `OpenAI` | `Usage.Prompt_Tokens`, `Usage.Completion_Tokens`, `Usage.Total_Tokens` |
+| Anthropic | `AllUsage-2` | `Usage.Input_Tokens`, `Usage.Output_Tokens` |
+| Google Gemini | `MultiLineAllUsage` | `Usage.PromptTokenCount`, `Usage.CandidatesTokenCount`, `Usage.TotalTokenCount` |
+
+Every request also includes: `S7P_RequestId` (correlation ID), `S7P_Priority` (queue assigned), `BackendHost` (URL that served the request).
+
+</details>
+
 ## Related Documentation
 
+- [BEGINNER_DEVELOPMENT.md](BEGINNER_DEVELOPMENT.md) — Running the proxy locally for the first time
+- [CONTAINER_DEPLOYMENT.md](CONTAINER_DEPLOYMENT.md) — Deploying to Azure Container Apps
+- [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md) — Full reference for all environment variables
 - [POC-Priority-configuration.md](POC-Priority-configuration.md) — Routing requests across backends by priority tier
 - [POC-Failover-configuration.md](POC-Failover-configuration.md) — Automatic failover and retry behaviour when a backend is slow or unavailable
 - [OBSERVABILITY.md](OBSERVABILITY.md) — Token metrics, telemetry channels, and event logger configuration

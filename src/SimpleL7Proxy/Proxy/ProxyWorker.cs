@@ -40,6 +40,7 @@ public class ProxyWorker : IConfigChangeSubscriber
     private readonly ILogger<ProxyWorker> _logger;
     private readonly RequestLifecycleManager _lifecycleManager;
     private readonly EventDataBuilder _eventDataBuilder;
+    private readonly StreamFlusher _streamFlusher;
     private readonly int _id;
     private readonly string _idStr;
     // private static bool s_readyToWork;
@@ -80,23 +81,25 @@ public class ProxyWorker : IConfigChangeSubscriber
         _lifecycleManager = context.LifecycleManager;
         _eventDataBuilder = context.EventDataBuilder;
         _options = context.BackendOptions;
+        _streamFlusher = context.StreamFlusher;
 
         InitVars();
 
         _wrkCntxt.ConfigChangeNotifier.Subscribe(
             this,
-            options => options.DependancyHeaders,
-            options => options.UseProfiles,
             // options => options.Workers,    COLD
+            options => options.AsyncTimeout,
+            options => options.AsyncTriggerTimeout,
+            options => options.DependancyHeaders,
+            options => options.IterationMode,
+            options => options.LoadBalanceMode,
+            options => options.MaxAttempts,
             options => options.StripRequestHeaders,
             options => options.StripResponseHeaders,
-            options => options.UseSharedIterators,
-            options => options.LoadBalanceMode,
-            options => options.IterationMode,
-            options => options.MaxAttempts,
             options => options.Timeout,
-            options => options.AsyncTimeout,
-            options => options.AsyncTriggerTimeout);
+            options => options.UseProfiles,
+            options => options.UseSharedIterators
+            );
     }
 
     public void InitVars(){
@@ -895,8 +898,9 @@ public class ProxyWorker : IConfigChangeSubscriber
 
             // track the number of attempts
             request.BackendAttempts++;
+            request.LifetimeBackendAttempts++;
             _logger.LogDebug("[ProxyToBackEnd:{Guid}] Attempting backend host: {Host} (Attempt #{Attempt})",
-                request.Guid, host.Host, request.BackendAttempts);
+                request.Guid, host.Host, request.LifetimeBackendAttempts);
             bool SuccessfulRequest = false;
             bool TriggerHostCB = true;
             string requestState = "Init";
@@ -907,12 +911,13 @@ public class ProxyWorker : IConfigChangeSubscriber
             {
                 Type = EventType.BackendRequest,
                 ParentId = request.ParentId,
-                MID = $"{request.MID}-{request.BackendAttempts}",
+                MID = $"{request.MID}-{request.LifetimeBackendAttempts}",
                 Method = request.Method,
                 ["Request-Date"] = DateTime.UtcNow.ToString("o"),
                 ["Backend-Host"] = host.Host,
                 ["Host-URL"] = host.Url,
-                ["Attempt"] = request.BackendAttempts.ToString()
+                ["Attempt"] = request.BackendAttempts.ToString(),
+                ["Lifetime-Attempt"] = request.LifetimeBackendAttempts.ToString()
             };
 
             // Tracked as an attempt
@@ -923,17 +928,25 @@ public class ProxyWorker : IConfigChangeSubscriber
                 // else
                 requestAttempt.Uri = new Uri(modifiedPath);
 
-                if (host.Config.UseOAuth)
+
+                switch (host.Config.AuthMode)
                 {
-                    // Get a token
-                    var oaToken = await host.Config.OAuth2Token().ConfigureAwait(false);
-                    if (request.Debug)
-                    {
-                        _logger.LogDebug("OAuth Token retrieved for backend {BackendHost}", host.Host);
-                    }
-                    // Set the token in the headers
-                    request.Headers.Set("Authorization", $"Bearer {oaToken}");
+                    case AuthModeEnum.OAuth2:
+                        // Get a token
+                        var oaToken = await host.Config.OAuth2Token().ConfigureAwait(false);
+                        if (request.Debug)
+                        {
+                            _logger.LogDebug("OAuth Token retrieved for backend {BackendHost}", host.Host);
+                        }
+                        // Set the token in the headers
+                        request.Headers.Set("Authorization", $"Bearer {oaToken}");
+                        break;
+                    case AuthModeEnum.ApiKey:
+                        // Set the API key in the headers
+                        request.Headers.Set(host.Config.ApiKeyHeader, host.Config.ApiKey);
+                        break;
                 }
+
 
                 requestState = "Calc ExpiresAt";
 
@@ -986,8 +999,17 @@ public class ProxyWorker : IConfigChangeSubscriber
                     // proxyRequest.Version = HttpVersion.Version11;
                     // proxyRequest.VersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
 
-                    proxyRequest.Headers.Add("x-PolicyCycleCounter", request.TotalDownstreamAttempts.ToString());
+                    proxyRequest.Headers.Add("x-PolicyCycleCounter", request.PolicyCycleCounter.ToString());
+                    proxyRequest.Headers.Add("x-LifetimePolicyCycleCounter", request.LifetimePolicyCycleCounter.ToString());
                     ProxyHelperUtils.CopyHeaders(request.Headers, proxyRequest, true, s_stripRequestHeaders);
+
+                    // add S7PDEBUG back in if it was requested
+                    if ( request.Debug)
+                    {
+                        proxyRequest.Headers.Remove("S7PDEBUG");
+                        proxyRequest.Headers.Add("S7PDEBUG", "True");
+                    }
+
 
                     var contentType = request.Context?.Request.ContentType ?? "application/json";
                     if (!MediaTypeHeaderValue.TryParse(contentType, out var req_mediaType))
@@ -1121,7 +1143,9 @@ public class ProxyWorker : IConfigChangeSubscriber
                             {
                                 if (int.TryParse(policyAttempts.FirstOrDefault(), out var pAttempts))
                                 {
-                                    request.TotalDownstreamAttempts = pAttempts;
+                                    var delta = pAttempts - request.PolicyCycleCounter;
+                                    request.LifetimePolicyCycleCounter += delta;
+                                    request.PolicyCycleCounter = pAttempts;
                                 }
                             }
 
@@ -1296,7 +1320,7 @@ public class ProxyWorker : IConfigChangeSubscriber
 
                 // Track host status for circuit breaker
                 if (intCode != 412 && intCode != 429 && !_isEvictingAsyncRequest)
-                    host.Config.TrackStatus(intCode, TriggerHostCB, "Attempt-" + request.BackendAttempts);
+                    host.Config.TrackStatus(intCode, TriggerHostCB, "Attempt-" + request.LifetimeBackendAttempts);
 
                 if (!SuccessfulRequest)
                 {
@@ -1389,7 +1413,8 @@ public class ProxyWorker : IConfigChangeSubscriber
             ["x-Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms",
             ["x-ProxyHost"] = _options.HostName,
             ["x-MID"] = request.MID,
-            ["Attempts"] = request.BackendAttempts.ToString()
+            ["Attempts"] = request.BackendAttempts.ToString(),
+            ["Lifetime-Attempts"] = request.LifetimeBackendAttempts.ToString()
         };
 
         var errorResponse = new HttpResponseMessage(lastStatusCode) { Content = errorContent };
@@ -1654,7 +1679,8 @@ public class ProxyWorker : IConfigChangeSubscriber
                     ["x-Total-Latency"] = (DateTime.UtcNow - request.EnqueueTime).TotalMilliseconds.ToString("F3") + " ms",
                     ["x-ProxyHost"] = _options.HostName,
                     ["x-MID"] = request.MID,
-                    ["Attempts"] = request.BackendAttempts.ToString()
+                    ["Attempts"] = request.BackendAttempts.ToString(),
+                    ["Lifetime-Attempts"] = request.LifetimeBackendAttempts.ToString()
                 };
 
                 await request.asyncWorker.SaveResponseHeadersAsync(statusCode, errorHeaders);
@@ -1683,6 +1709,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                 request.Context.Response.Headers["x-ProxyHost"] = _options.HostName;
                 request.Context.Response.Headers["x-MID"] = request.MID;
                 request.Context.Response.Headers["Attempts"] = request.BackendAttempts.ToString();
+                request.Context.Response.Headers["Lifetime-Attempts"] = request.LifetimeBackendAttempts.ToString();
 
                 await request.Context.Response.OutputStream.WriteAsync(Encoding.UTF8.GetBytes(errorBody)).ConfigureAwait(false);
                 await request.Context.Response.OutputStream.FlushAsync().ConfigureAwait(false);
@@ -1816,8 +1843,14 @@ public class ProxyWorker : IConfigChangeSubscriber
             if (proxyResponse.Content != null)
             {
                 _logger.LogDebug("Streaming to {Destination} for request {Guid}", destinationType, request.Guid);
-                await processor.CopyToAsync(proxyResponse.Content, destination).ConfigureAwait(false);
 
+                var addedToFlusher = _streamFlusher.AddStream(destination);
+                await processor.CopyToAsync(proxyResponse.Content, destination).ConfigureAwait(false);
+                if (addedToFlusher)
+                {
+                    _streamFlusher.RemoveStream(destination);
+                }
+            
                 if (needsFlush)
                 {
                     await destination.FlushAsync().ConfigureAwait(false);

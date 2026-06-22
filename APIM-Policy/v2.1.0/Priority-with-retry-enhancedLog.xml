@@ -39,7 +39,7 @@ KEY CHANGES:
 		<set-variable name="PolicyCycleCounterHeaderName" value="x-PolicyCycleCounter" />
 		<set-variable name="AffinityHeaderName" value="x-backend-affinity" />
 		<choose>
-			<when condition="@(context.Variables.ContainsKey("listBackends") == false)">
+			<when condition="@(context.Variables.ContainsKey("listBackends") == false || context.Variables["listBackends"] == null)">
 				<set-variable name="listBackends" value="@{
 					JArray backends = new JArray();
 					string salt = "0123456789"; // 10-digit salt
@@ -75,7 +75,7 @@ KEY CHANGES:
 					backends.Add(new JObject()
 					{
 						{ "url", "https://nvm2.openai.azure.com/" },
-						{ "path", ""},
+						{ "path", "/openai"},
 						{ "priorityGroup", 2},
 						{ "label", "PAYGO" },
 						{ "acceptablePriorities", new JArray(1,2,3) }, // Acceptable priorities for this backend

@@ -62,7 +62,7 @@ public class ProxyConfig
     [ConfigOption("Logging:LogToAI")]
     public List<string> LogToAI { get; set; } = ["*"];
     [ConfigOption("Logging:LogToConsole")]
-    public List<string> LogToConsole { get; set; } = ["*"];
+    public List<string> LogToConsole { get; set; } = ["*", "-custom"];
     [ConfigOption("Logging:LogToEvents")]
     public List<string> LogToEvents { get; set; } = ["async","backend","probe","circuitbreaker","custom","exception","profile","proxy","enqueued","auth"];
 
@@ -75,6 +75,14 @@ public class ProxyConfig
     public string ValidateAuthAppIDHeader { get; set; } = "X-MS-CLIENT-PRINCIPAL-ID";
     [ConfigOption("Profiles:Auth:ValidateFieldName")]
     public string ValidateAuthAppFieldName { get; set; } = "authAppID";
+
+    [ConfigOption("Profiles:Auth:Config")]
+    public string ValidateAuthConfig { get; set; } = "enabled=false, mode=key, header=S7P-KEY";
+    [ConfigOption("Profiles:Auth:Key1")]
+    public string ValidateAuthKey1 { get; set; } = "key1";
+    [ConfigOption("Profiles:Auth:Key2")]
+    public string ValidateAuthKey2 { get; set; } = "key2";
+
     [ConfigOption("Profiles:SuspendedUser:ConfigUrl")]
     public string SuspendedUserConfigUrl { get; set; } = ""; // e.g. "file:suspended.json" or "http://configservice/suspended"
     [ConfigOption("Profiles:User:ConfigRequired")]
@@ -112,9 +120,11 @@ public class ProxyConfig
     [ConfigOption("Request:Priority:GreedyUserThreshold")]
     public float UserPriorityThreshold { get; set; } = 0.1f;
     [ConfigOption("Request:Priority:PriorityKeys")]
-    public List<string> PriorityKeys { get; set; } = ["12345", "234"];
+    public List<string> PriorityKeys { get; set; } = ["high", "medium", "low"];
+    [ConfigOption("Request:Priority:PriorityWorker", ConfigName = "PriorityWorker")]
+    public string PriorityWorker { get; set; } = "2:1,3:1";
     [ConfigOption("Request:Priority:PriorityValues")]
-    public List<int> PriorityValues { get; set; } = [1, 3];
+    public List<int> PriorityValues { get; set; } = [1, 2, 3];
     [ConfigOption("Request:RequiredHeaders")]
     public List<string> RequiredHeaders { get; set; } = [];
     [ConfigOption("Request:StripRequestHeaders")]
@@ -200,18 +210,20 @@ public class ProxyConfig
     // ── Security ──
     [ConfigOption("Security:IgnoreSSLCert", ConfigName = "IgnoreSSLCert", Mode = ConfigMode.Cold)]
     public bool IgnoreSSLCert { get; set; } = false;
-    [ConfigOption("Security:OAuthAudience", Mode = ConfigMode.Cold)]
-    public string OAuthAudience { get; set; } = "";
-    [ConfigOption("Security:UseOAuth", Mode = ConfigMode.Cold)]
-    public bool UseOAuth { get; set; } = false;
+    // [ConfigOption("Security:OAuthAudience", Mode = ConfigMode.Cold)]
+    // public string OAuthAudience { get; set; } = "";
+    // [ConfigOption("Security:UseOAuth", Mode = ConfigMode.Cold)]
+    // public bool UseOAuth { get; set; } = false;
 
     // ── Server ──
     [ConfigOption("Server:GC2InternalSecs", ConfigName = "GC2InternalSecs", Mode = ConfigMode.Cold)]
     public int GC2InternalSecs { get; set; } = 300; // 5 minutes
+    [ConfigOption("Server:StreamFlushInterval", ConfigName = "StreamFlushInterval", Mode = ConfigMode.Cold)]
+    public int StreamFlushInterval { get; set; } = 250; // 250 milliseconds
     [ConfigOption("Server:MaxQueueLength", Mode = ConfigMode.Cold)]
     public int MaxQueueLength { get; set; } = 1000;
     [ConfigOption("Server:MaxUndrainedEvents", ConfigName = "EVENTHUB_MAX_UNDRAINED_EVENTS", Mode = ConfigMode.Cold)]
-    public int MaxUndrainedEvents { get; set; } = 100;
+    public int MaxUndrainedEvents { get; set; } = 10000;
     [ConfigOption("Server:PollInterval", Mode = ConfigMode.Cold)]
     public int PollInterval { get; set; } = 15000;
     [ConfigOption("Server:PollTimeout", Mode = ConfigMode.Cold)]
@@ -317,7 +329,7 @@ public class ProxyConfig
     public bool HealthProbeSidecarEnabled { get; set; } = false;
     public string HealthProbeSidecarUrl { get; set; } = "http://localhost/9000";
     public List<HostConfig> Hosts { get; set; } = [];
-    public Dictionary<int, int> PriorityWorkers { get; set; } = new() { { 2, 1 }, { 3, 1 } };
+    public Dictionary<int, int> PriorityWorkerDict { get; set; } = new() { { 2, 1 }, { 3, 1 } };
     public bool TrackWorkers { get; set; } = true;
 
     /// <summary>
@@ -346,7 +358,7 @@ public class ProxyConfig
         clone.StripResponseHeaders = new List<string>(StripResponseHeaders);
         clone.UniqueUserHeaders = new List<string>(UniqueUserHeaders);
         clone.ValidateHeaders = new Dictionary<string, string>(ValidateHeaders);
-        clone.PriorityWorkers = new Dictionary<int, int>(PriorityWorkers);
+        clone.PriorityWorkerDict = new Dictionary<int, int>(PriorityWorkerDict);
         clone.Hosts = new List<HostConfig>(Hosts);
 
         return clone;
