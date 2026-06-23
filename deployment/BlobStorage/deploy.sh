@@ -89,7 +89,7 @@ fi
 echo -e "${YELLOW}Checking Azure login status...${NC}"
 az account show >/dev/null 2>&1 || az login >/dev/null
 
-SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
+SUBSCRIPTION_ID="$(az account show --query id -o tsv | tr -d '\r')"
 echo -e "${GREEN}Using subscription: ${SUBSCRIPTION_ID}${NC}"
 
 # ----------------------------------------------------------------------------
@@ -112,7 +112,7 @@ if [ -z "${CA_PRINCIPAL_ID}" ]; then
     CA_PRINCIPAL_ID="$(az containerapp show \
         --name "${CONTAINER_APP_NAME}" \
         --resource-group "${CONTAINER_APP_RESOURCE_GROUP}" \
-        --query identity.principalId -o tsv)"
+        --query identity.principalId -o tsv | tr -d '\r')"
 fi
 echo -e "${GREEN}Container App principalId: ${CA_PRINCIPAL_ID}${NC}"
 
@@ -125,13 +125,13 @@ az group create --name "${RESOURCE_GROUP}" --location "${LOCATION}" >/dev/null
 EXISTING_STORAGE="$(az storage account show \
     --name "${STORAGE_ACCOUNT_NAME}" \
     --resource-group "${RESOURCE_GROUP}" \
-    --query name -o tsv 2>/dev/null || true)"
+    --query name -o tsv 2>/dev/null | tr -d '\r' || true)"
 
 if [ -z "${EXISTING_STORAGE}" ]; then
     # Confirm the name is not taken globally by someone else
-    NAME_AVAILABLE="$(az storage account check-name --name "${STORAGE_ACCOUNT_NAME}" --query nameAvailable -o tsv)"
+    NAME_AVAILABLE="$(az storage account check-name --name "${STORAGE_ACCOUNT_NAME}" --query nameAvailable -o tsv | tr -d '\r')"
     if [ "${NAME_AVAILABLE}" != "true" ]; then
-        REASON="$(az storage account check-name --name "${STORAGE_ACCOUNT_NAME}" --query message -o tsv)"
+        REASON="$(az storage account check-name --name "${STORAGE_ACCOUNT_NAME}" --query message -o tsv | tr -d '\r')"
         echo -e "${RED}Error: Storage account name '${STORAGE_ACCOUNT_NAME}' is not available.${NC}"
         echo -e "${YELLOW}${REASON}${NC}"
         echo -e "${YELLOW}STORAGE_ACCOUNT_NAME must be globally unique across Azure, like ACR_NAME and APPCONFIG_NAME.${NC}"
@@ -162,11 +162,11 @@ fi
 STORAGE_RESOURCE_ID="$(az storage account show \
     --name "${STORAGE_ACCOUNT_NAME}" \
     --resource-group "${RESOURCE_GROUP}" \
-    --query id -o tsv)"
+    --query id -o tsv | tr -d '\r')"
 STORAGE_BLOB_ENDPOINT="$(az storage account show \
     --name "${STORAGE_ACCOUNT_NAME}" \
     --resource-group "${RESOURCE_GROUP}" \
-    --query primaryEndpoints.blob -o tsv)"
+    --query primaryEndpoints.blob -o tsv | tr -d '\r')"
 
 # ----------------------------------------------------------------------------
 # Grant the Container App's managed identity read access to the storage account
@@ -175,7 +175,7 @@ EXISTING_CA_ROLE="$(az role assignment list \
     --assignee "${CA_PRINCIPAL_ID}" \
     --role "${CA_BLOB_ROLE}" \
     --scope "${STORAGE_RESOURCE_ID}" \
-    --query "[0].id" -o tsv 2>/dev/null || true)"
+    --query "[0].id" -o tsv 2>/dev/null | tr -d '\r' || true)"
 
 if [ -z "${EXISTING_CA_ROLE}" ]; then
     echo -e "${YELLOW}Assigning '${CA_BLOB_ROLE}' role to Container App managed identity (${CA_PRINCIPAL_ID})...${NC}"
@@ -204,7 +204,7 @@ if [ "${CREATE_CONTAINERS,,}" = "true" ]; then
             --name "${CONTAINER}" \
             --storage-account "${STORAGE_ACCOUNT_NAME}" \
             --resource-group "${RESOURCE_GROUP}" \
-            --query exists -o tsv 2>/dev/null || echo "false")"
+            --query exists -o tsv 2>/dev/null | tr -d '\r' || echo "false")"
 
         if [ "${EXISTS}" = "true" ]; then
             echo -e "${GREEN}  ✓ Container '${CONTAINER}' already exists${NC}"
