@@ -35,33 +35,6 @@ public static class ModelRequestParser
         return string.Empty;
     }
 
-    /// <summary>Returns the body's <c>max_tokens</c> value, or null when absent or invalid.</summary>
-    public static int? ExtractMaxTokens(string? body)
-    {
-        if (string.IsNullOrWhiteSpace(body))
-        {
-            return null;
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(body);
-            if (document.RootElement.ValueKind == JsonValueKind.Object &&
-                document.RootElement.TryGetProperty("max_tokens", out var maxTokens) &&
-                maxTokens.ValueKind == JsonValueKind.Number &&
-                maxTokens.TryGetInt32(out var value))
-            {
-                return value;
-            }
-        }
-        catch
-        {
-            // Body is not valid JSON; keep the current value.
-        }
-
-        return null;
-    }
-
     /// <summary>Extracts the user message from the body across the supported request shapes.</summary>
     public static string ExtractUserMessage(string? body)
     {

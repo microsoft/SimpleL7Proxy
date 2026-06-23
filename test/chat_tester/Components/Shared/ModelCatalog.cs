@@ -13,22 +13,10 @@ namespace chat_tester.Components.Shared;
 public sealed record ModelTemplate(string Key, string Provider, string DisplayName, string ModelId, string Schema, string? EndpointPath = null);
 
 /// <summary>
-/// The request-construction family a schema belongs to. Each family is backed by a model
-/// component (for example <c>OpenAiChatModel</c>) that owns its request shape and UI.
-/// </summary>
-public enum ModelFamily
-{
-    OpenAiChat,
-    OpenAiResponses,
-    AnthropicMessages,
-    Gemini,
-    Cohere
-}
-
-/// <summary>
 /// Central, easy-to-maintain catalog of supported model templates (metadata only).
 /// To support a new model, add a row to <see cref="Templates"/>. The request body for each
-/// schema is built by its model component; this catalog maps schemas to families and endpoints.
+/// schema is built from configured model defaults; this catalog preserves legacy model detection
+/// and endpoint resolution for existing request bodies.
 /// </summary>
 public static class ModelCatalog
 {
@@ -168,18 +156,4 @@ public static class ModelCatalog
         _ => "/openai/v1/chat/completions"
     };
 
-    /// <summary>Maps a request schema to the model-component family that builds its request.</summary>
-    public static ModelFamily GetFamily(string schema) => schema switch
-    {
-        OpenAiResponses or OpenAiResponsesNonStreaming => ModelFamily.OpenAiResponses,
-        "anthropic" or AnthropicMessages or AnthropicMessagesNonStreaming => ModelFamily.AnthropicMessages,
-        "gemini" or GeminiStreamGenerateContent or GeminiGenerateContent => ModelFamily.Gemini,
-        CohereV2Chat or CohereV2ChatNonStreaming or "cohere" or CohereV1Chat or CohereV1ChatNonStreaming => ModelFamily.Cohere,
-        // openai-chat, gemini-openai-chat, cohere-openai-chat and their non-streaming variants.
-        _ => ModelFamily.OpenAiChat
-    };
-
-    /// <summary>Whether the given schema sends a streaming request (non-streaming variants opt out).</summary>
-    public static bool SchemaIsStreaming(string schema) =>
-        !schema.Contains("nonstreaming", StringComparison.OrdinalIgnoreCase);
 }

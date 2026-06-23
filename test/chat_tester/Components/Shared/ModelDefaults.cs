@@ -100,9 +100,6 @@ public sealed class ModelDefaults
     /// <summary>Returns the list of all configured models, including provider and display name.</summary>
     public IReadOnlyList<ModelInfo> ListModels() => _models;
 
-    /// <summary>Returns the list of all configured APIs.</summary>
-    public IReadOnlyList<ApiInfo> ListApis() => _apis;
-
     /// <summary>Finds a model by its id, or null if not found.</summary>
     public ModelInfo? GetModel(string? id) =>
         _models.FirstOrDefault(m => string.Equals(m.Id, id, StringComparison.OrdinalIgnoreCase));
