@@ -3,10 +3,12 @@
 @inject IOptions<ChatTesterOptions> Options
 @inject IJSRuntime JS
 @inject RequestDebugSettings DebugSettings
+@inject ChatHistoryStore ChatHistoryStore
 @using chat_tester.Components.Shared
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.Extensions.Options
 @using System.Diagnostics
+@using System.Globalization
 @using System.Net
 @using System.Text
 @using System.Text.Json
@@ -17,7 +19,7 @@
 <SectionContent SectionName="page-heading">
     <div class="d-flex flex-wrap align-items-baseline gap-3">
         <h1 class="h4 mb-0">Chat test</h1>
-        <span class="text-muted small mb-0">Send a chat-style request and inspect the returned stream.</span>
+        <span class="text-muted small mb-0">@PageTagline</span>
     </div>
 </SectionContent>
 
@@ -135,7 +137,7 @@
                         <button class="nav-link @(ActiveResponseTab == "response-body" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveResponseTab("response-body")'>Response body</button>
                     </li>
                     <li class="nav-item">
-                        <button class="nav-link @(ActiveResponseTab == "proxy-error" ? "active" : string.Empty)" type="button" disabled="@(!HasProxyError)" @onclick='() => SetActiveResponseTab("proxy-error")'>Proxy error</button>
+                        <button class="nav-link @(ActiveResponseTab == "backend-log" ? "active" : string.Empty)" type="button" disabled="@(!HasBackendLog)" @onclick='() => SetActiveResponseTab("backend-log")'>Backend Log</button>
                     </li>
                 </ul>
             </div>
@@ -153,9 +155,9 @@
                     {
                         <pre class="mb-0" style="white-space: pre-wrap; word-break: break-word;">@RequestBodyDisplay</pre>
                     }
-                    else if (ActiveResponseTab == "proxy-error")
+                    else if (ActiveResponseTab == "backend-log")
                     {
-                        <div class="proxy-error-view">@((MarkupString)RenderProxyError())</div>
+                        <div class="backend-log-view">@((MarkupString)RenderBackendLogPanel())</div>
                     }
                     else
                     {
@@ -168,8 +170,33 @@
     </div>
 </div>
 
+<div class="card shadow-sm mt-3 history-card">
+    <div class="card-header bg-light d-flex flex-wrap align-items-baseline gap-2">
+        <span class="fw-semibold">Request history</span>
+        <span class="text-muted small">@HistoryStatusText</span>
+    </div>
+    <div class="card-body py-3">
+        @if (HistoryEntries.Count == 0)
+        {
+            <div class="text-muted small">No saved requests yet.</div>
+        }
+        else
+        {
+            <div class="history-buttons" role="list" aria-label="Request history">
+                @foreach (var entry in HistoryEntries)
+                {
+                    <button class="history-button @(entry.Id == SelectedHistoryEntryId ? "active" : string.Empty)" type="button" role="listitem" @onclick="() => SelectHistoryEntry(entry)">
+                        <span class="history-date">@FormatHistoryDate(entry.CreatedAt)</span>
+                        <span class="history-age">@FormatHistoryAge(entry.CreatedAt)</span>
+                    </button>
+                }
+            </div>
+        }
+    </div>
+</div>
+
 <style>
-    .fs-overlay {
+    .search-host.fs-overlay {
         position: fixed;
         inset: 0;
         z-index: 1080;
@@ -180,7 +207,7 @@
         flex-direction: column;
     }
 
-    .fs-overlay .card-body {
+    .search-host.fs-overlay .card-body {
         flex: 1 1 auto;
     }
 
@@ -267,13 +294,13 @@
         outline: 2px solid #0d6efd;
     }
 
-    .proxy-error-view .proxy-message {
+    .backend-log-view .proxy-message {
         font-weight: 600;
         color: #842029;
         margin-bottom: 0.75rem;
     }
 
-    .proxy-error-view .proxy-json {
+    .backend-log-view .proxy-json {
         background: #1f2328;
         color: #f8f9fa;
         border-radius: 0.375rem;
@@ -282,42 +309,98 @@
         word-break: break-word;
     }
 
-    .proxy-error-view .json-key {
+    .backend-log-view .json-key {
         color: #9cdcfe;
     }
 
-    .proxy-error-view .json-string {
+    .backend-log-view .json-string {
         color: #ce9178;
     }
 
-    .proxy-error-view .json-number {
+    .backend-log-view .json-number {
         color: #b5cea8;
     }
 
-    .proxy-error-view .json-literal {
+    .backend-log-view .json-literal {
         color: #569cd6;
     }
 
-    .proxy-error-view .backend-log-item {
+    .backend-log-view .backend-log-item {
         border-left: 4px solid #6c757d;
         background: #fff;
         padding: 0.45rem 0.65rem;
         margin-bottom: 0.4rem;
     }
 
-    .proxy-error-view .backend-log-item.warning {
+    .backend-log-view .backend-log-item.warning {
         border-left-color: #ffc107;
         background: #fff8e1;
     }
 
-    .proxy-error-view .backend-log-item.error {
+    .backend-log-view .backend-log-item.error {
         border-left-color: #dc3545;
         background: #f8d7da;
     }
 
-    .proxy-error-view .backend-log-item.success {
+    .backend-log-view .backend-log-item.success {
         border-left-color: #198754;
         background: #d1e7dd;
+    }
+
+    .history-card {
+        margin-left: 0;
+        margin-right: 0;
+    }
+
+    .history-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        align-content: flex-start;
+        gap: 0.5rem;
+        max-height: 8.25rem;
+        overflow-y: auto;
+    }
+
+    .history-button {
+        width: 11.5rem;
+        min-height: 3.5rem;
+        border: 1px solid #ced4da;
+        border-radius: 0.375rem;
+        background: #fff;
+        color: #212529;
+        text-align: left;
+        padding: 0.45rem 0.6rem;
+    }
+
+    .history-button:hover {
+        border-color: #0d6efd;
+        background: #f8fbff;
+    }
+
+    .history-button.active {
+        border-color: #0d6efd;
+        background: #e7f1ff;
+        box-shadow: inset 0 0 0 1px #0d6efd;
+    }
+
+    .history-date,
+    .history-age {
+        display: block;
+        line-height: 1.25;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .history-date {
+        font-weight: 600;
+        font-size: 0.85rem;
+    }
+
+    .history-age {
+        color: #6c757d;
+        font-size: 0.78rem;
+        margin-top: 0.15rem;
     }
 
     @@media (min-width: 992px) {
@@ -411,6 +494,8 @@
         public long TotalBytes { get; set; }
     }
 
+    private const string DefaultPageTagline = "Send a chat-style request and inspect the returned stream.";
+
     private string InitialServerBaseUrl { get; set; } = string.Empty;
     private string InitialEndpointPath { get; set; } = string.Empty;
     private string InitialContentType { get; set; } = ChatTesterHttp.JsonContentType;
@@ -423,6 +508,8 @@
     private RequestPanel? RequestPanel { get; set; }
     private ChatRequestBodyPanel? BodyPanel { get; set; }
     private string InitialRequestBody { get; set; } = string.Empty;
+    private string PageTagline { get; set; } = DefaultPageTagline;
+    private string? SelectedHistoryEntryId { get; set; }
     private bool IsRunning { get; set; }
     private string StatusMessage { get; set; } = "Ready to send a single request.";
     private string ObservedResponse { get; set; } = "No response yet.";
@@ -438,6 +525,11 @@
     private ResponseDisplayFormat ResponseFormat { get; set; } = ResponseDisplayFormat.Text;
     private ChatResponseMetrics ResponseMetrics { get; set; } = new();
     private bool HasProxyError { get; set; }
+    private bool HasBackendLog => HasProxyError || ExtractBackendLogHeaders(ResponseHeadersText).Any();
+    private IReadOnlyList<ChatHistoryEntry> HistoryEntries => ChatHistoryStore.Entries;
+    private string HistoryStatusText => SelectedHistoryEntryId is null
+        ? "Saved locally under data/."
+        : PageTagline;
     private bool HasResponse => !string.IsNullOrWhiteSpace(ObservedResponse)
         && !ObservedResponse.Equals("No response yet.", StringComparison.OrdinalIgnoreCase)
         && !ObservedResponse.Equals("Awaiting response...", StringComparison.OrdinalIgnoreCase)
@@ -503,6 +595,8 @@
         var requestBody = BodyPanel?.RequestBody ?? string.Empty;
         var contentType = BodyPanel?.ContentType ?? ChatTesterHttp.JsonContentType;
         IsRunning = true;
+        SelectedHistoryEntryId = null;
+        PageTagline = DefaultPageTagline;
         StatusMessage = "Sending the chat request and waiting for the response...";
         ObservedResponse = "Awaiting response...";
         DisplayResponse = "Generating response stream...";
@@ -565,8 +659,78 @@
             }
 
             ResponseMetrics.Duration = stopwatch.Elapsed;
+            await SaveHistoryEntryAsync(serverBaseUrl, endpointPath, contentType);
             IsRunning = false;
             StateHasChanged();
+        }
+    }
+
+    private async Task SaveHistoryEntryAsync(string serverBaseUrl, string endpointPath, string contentType)
+    {
+        var entry = await ChatHistoryStore.AddAsync(new ChatHistoryEntry
+        {
+            CreatedAt = DateTimeOffset.Now,
+            ServerBaseUrl = serverBaseUrl,
+            EndpointPath = endpointPath,
+            ContentType = contentType,
+            RequestHeadersText = RequestHeadersText,
+            ResponseHeadersText = ResponseHeadersText,
+            RequestBody = RequestBodyDisplay,
+            ResponseBody = ObservedResponse,
+            DisplayResponse = DisplayResponse,
+            StatusMessage = StatusMessage,
+            ResponseFormat = ResponseFormat.ToString(),
+            ActiveResponseTab = ActiveResponseTab,
+            HasProxyError = HasProxyError,
+            Metrics = new ChatHistoryMetrics
+            {
+                Status = ResponseMetrics.Status,
+                ContentType = ResponseMetrics.ContentType,
+                TimeToFirstByte = ResponseMetrics.TimeToFirstByte,
+                Duration = ResponseMetrics.Duration,
+                Chunks = ResponseMetrics.Chunks,
+                TotalBytes = ResponseMetrics.TotalBytes
+            }
+        });
+
+        SelectedHistoryEntryId = entry.Id;
+        PageTagline = $"Showing response from {FormatHistoryTimestamp(entry.CreatedAt)}.";
+    }
+
+    private void SelectHistoryEntry(ChatHistoryEntry entry)
+    {
+        SelectedHistoryEntryId = entry.Id;
+        PageTagline = $"Showing response from {FormatHistoryTimestamp(entry.CreatedAt)}.";
+        RequestHeadersText = entry.RequestHeadersText;
+        ResponseHeadersText = entry.ResponseHeadersText;
+        RequestBodyDisplay = entry.RequestBody;
+        ObservedResponse = entry.ResponseBody;
+        DisplayResponse = entry.DisplayResponse;
+        StatusMessage = entry.StatusMessage;
+        ActiveResponseTab = string.IsNullOrWhiteSpace(entry.ActiveResponseTab) ? "response-body" : entry.ActiveResponseTab;
+        if (ActiveResponseTab == "proxy-error")
+        {
+            ActiveResponseTab = "backend-log";
+        }
+
+        HasProxyError = entry.HasProxyError;
+        ResponseMetrics = new ChatResponseMetrics
+        {
+            Status = entry.Metrics.Status,
+            ContentType = entry.Metrics.ContentType,
+            TimeToFirstByte = entry.Metrics.TimeToFirstByte,
+            Duration = entry.Metrics.Duration,
+            Chunks = entry.Metrics.Chunks,
+            TotalBytes = entry.Metrics.TotalBytes
+        };
+
+        if (Enum.TryParse<ResponseDisplayFormat>(entry.ResponseFormat, out var responseFormat))
+        {
+            ResponseFormat = responseFormat;
+        }
+        else
+        {
+            ResponseFormat = ResponseDisplayFormat.Text;
         }
     }
 
@@ -647,7 +811,7 @@
         if (!HasProxyError)
         {
             HasProxyError = true;
-            ActiveResponseTab = "proxy-error";
+            ActiveResponseTab = "backend-log";
         }
     }
 
@@ -693,6 +857,35 @@
     private static string FormatDuration(TimeSpan? value) =>
         value is null ? "-" : $"{value.Value.TotalMilliseconds:0} ms";
 
+    private static string FormatHistoryTimestamp(DateTimeOffset value) =>
+        value.LocalDateTime.ToString("MMM d, yyyy h:mm tt", CultureInfo.InvariantCulture);
+
+    private static string FormatHistoryDate(DateTimeOffset value) =>
+        value.LocalDateTime.ToString("MMM d, h:mm tt", CultureInfo.InvariantCulture);
+
+    private static string FormatHistoryAge(DateTimeOffset value)
+    {
+        var age = DateTimeOffset.Now - value;
+        if (age.TotalMinutes < 1)
+        {
+            return "Just now";
+        }
+
+        if (age.TotalHours < 1)
+        {
+            var minutes = Math.Max(1, (int)age.TotalMinutes);
+            return minutes == 1 ? "1 minute ago" : $"{minutes} minutes ago";
+        }
+
+        if (age.TotalHours < 24)
+        {
+            var hours = Math.Max(1, (int)age.TotalHours);
+            return hours == 1 ? "1 hour ago" : $"{hours} hours ago";
+        }
+
+        return value.LocalDateTime.ToString("MMM d, yyyy", CultureInfo.InvariantCulture);
+    }
+
     private static string FormatContentType(string contentType)
     {
         if (string.IsNullOrWhiteSpace(contentType) || contentType == "-")
@@ -728,15 +921,31 @@
         return contentType.Split(';', 2)[0];
     }
 
-    private string RenderProxyError()
+    private string RenderBackendLogPanel()
     {
+        var headerLogs = ExtractBackendLogHeaders(ResponseHeadersText).ToList();
+        if (!HasProxyError && headerLogs.Count == 0)
+        {
+            return "<div class=\"text-muted\">No backend log detected.</div>";
+        }
+
+        var builder = new StringBuilder();
+        if (headerLogs.Count > 0)
+        {
+            builder.Append(RenderBackendLogEntries(headerLogs, "Backend log header"));
+        }
+
         if (!HasProxyError)
         {
-            return "<div class=\"text-muted\">No proxy error detected.</div>";
+            return builder.ToString();
         }
 
         var (message, json) = SplitProxyError(ObservedResponse);
-        var builder = new StringBuilder();
+        if (builder.Length > 0)
+        {
+            builder.AppendLine("<div class=\"fw-semibold mt-3 mb-2\">Proxy error</div>");
+        }
+
         builder.Append("<div class=\"proxy-message\">").Append(WebUtility.HtmlEncode(message)).AppendLine("</div>");
 
         if (TryParseProxyJson(json, out var document))
@@ -784,20 +993,26 @@
 
     private static string RenderBackendLog(JsonElement root)
     {
-        var builder = new StringBuilder();
         var logs = new List<string>();
         CollectBackendLogs(root, logs);
-        if (logs.Count == 0)
+        return RenderBackendLogEntries(logs, "Backend log highlights");
+    }
+
+    private static string RenderBackendLogEntries(IEnumerable<string> logs, string title)
+    {
+        var builder = new StringBuilder();
+        var logList = logs.Where(log => !string.IsNullOrWhiteSpace(log)).ToList();
+        if (logList.Count == 0)
         {
             return string.Empty;
         }
 
-        builder.AppendLine("<div class=\"fw-semibold mb-2\">Backend log highlights</div>");
-        foreach (var log in logs)
+        builder.Append("<div class=\"fw-semibold mb-2\">").Append(WebUtility.HtmlEncode(title)).AppendLine("</div>");
+        foreach (var log in logList)
         {
             foreach (var part in log.Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
             {
-                                var severity = ClassifyBackendLogPart(part);
+                var severity = ClassifyBackendLogPart(part);
                 builder.Append("<div class=\"backend-log-item ").Append(severity).Append("\">")
                     .Append(WebUtility.HtmlEncode(part.Trim()))
                     .AppendLine("</div>");
@@ -806,6 +1021,39 @@
 
         return builder.ToString();
     }
+
+    private static IEnumerable<string> ExtractBackendLogHeaders(string responseHeaders)
+    {
+        if (string.IsNullOrWhiteSpace(responseHeaders))
+        {
+            yield break;
+        }
+
+        foreach (var line in responseHeaders.Replace("\r\n", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var separator = line.IndexOf(':');
+            if (separator <= 0)
+            {
+                continue;
+            }
+
+            var name = line[..separator].Trim();
+            if (!IsBackendLogHeaderName(name))
+            {
+                continue;
+            }
+
+            var value = line[(separator + 1)..].Trim();
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                yield return value;
+            }
+        }
+    }
+
+    private static bool IsBackendLogHeaderName(string name) =>
+        string.Equals(name, "backendLog", StringComparison.OrdinalIgnoreCase) ||
+        name.EndsWith("-backendLog", StringComparison.OrdinalIgnoreCase);
 
     private static string ClassifyBackendLogPart(string part)
     {

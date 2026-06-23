@@ -11,10 +11,12 @@ builder.Services.AddSingleton<UserSettings>();
 builder.Services.AddSingleton<HeaderSettings>();
 builder.Services.AddSingleton<RequestDebugSettings>();
 builder.Services.AddSingleton<ModelDefaults>();
+builder.Services.AddSingleton<ChatHistoryStore>();
 builder.Services.Configure<ChatTesterOptions>(
     builder.Configuration.GetSection(ChatTesterOptions.SectionName));
 
 var app = builder.Build();
+app.Services.GetRequiredService<ChatHistoryStore>();
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
