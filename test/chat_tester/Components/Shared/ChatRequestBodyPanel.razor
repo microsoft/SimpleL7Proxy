@@ -1,45 +1,15 @@
-@using Microsoft.AspNetCore.Components.Forms
-@using System.Text
-@using System.Linq
-@inject RequestDebugSettings DebugSettings
+@namespace chat_tester.Components.Shared
+@using Microsoft.AspNetCore.Components
+@using chat_tester.Components.Shared
 
 <div class="chat-body-panel rounded border p-3 mb-3">
-    <div class="mb-3">
-        <label class="form-label">Model</label>
-        <select class="form-select" value="@SelectedModelKey" @onchange="OnModelSelected" title="Pick a model template; your current message is carried over and the endpoint path is filled in.">
-            <option value="">Model…</option>
-            @foreach (var group in ModelCatalog.Templates.GroupBy(m => m.Provider))
-            {
-                <optgroup label="@group.Key">
-                    @foreach (var model in group)
-                    {
-                        <option value="@model.Key">@model.DisplayName</option>
-                    }
-                </optgroup>
-            }
-        </select>
-    </div>
-
-    <div class="mb-3">
-        <label class="form-label">Endpoint path</label>
-        <InputText class="form-control" @bind-Value="EndpointPath" />
-    </div>
-
-    <div class="mb-3">
-        <label class="form-label">Content-Type</label>
-        <InputText class="form-control" @bind-Value="ContentType" />
-    </div>
-
-    <div class="mb-0">
-        <div class="d-flex align-items-center justify-content-between mb-1">
-            <label class="form-label mb-0">Request body</label>
-            <div class="form-check mb-0">
-                <input class="form-check-input" type="checkbox" id="debugHeaderCheck" checked="@DebugSettings.DebugEnabled" @onchange="OnDebugChanged" />
-                <label class="form-check-label small" for="debugHeaderCheck">Debug </label>
-            </div>
-        </div>
-        <InputTextArea class="form-control font-monospace" rows="@Rows" @bind-Value="RequestBody" />
-    </div>
+    <ModelPanel @ref="Panel"
+                @bind-SelectedModel="SelectedModel"
+                @bind-SelectedApi="SelectedApi"
+                @bind-SimpleMode="SimpleMode"
+                @bind-Message="SharedMessage"
+                @bind-ContentType="SharedContentType"
+                Rows="Rows" />
 </div>
 
 <style>
@@ -62,225 +32,93 @@
     [Parameter]
     public string? InitialContentType { get; set; }
 
-    public string RequestBody { get; set; } = string.Empty;
-    public string EndpointPath { get; set; } = string.Empty;
-    public string ContentType { get; set; } = ChatTesterHttp.JsonContentType;
-    private string SelectedModelKey { get; set; } = string.Empty;
+    private ModelPanel? Panel { get; set; }
 
-    private void OnDebugChanged(ChangeEventArgs args)
-    {
-        DebugSettings.DebugEnabled = args.Value is bool value && value;
-    }
+    private bool SimpleMode { get; set; } = true;
+    private string SelectedModel { get; set; } = string.Empty;
+    private string SelectedApi { get; set; } = string.Empty;
+    private string SharedMessage { get; set; } = "tell me about the history of jokes";
+    private string SharedContentType { get; set; } = ChatTesterHttp.JsonContentType;
+
+    /// <summary>The request the parent page should send, built by the model panel.</summary>
+    public ModelRequest CurrentRequest => Panel is not null
+        ? new ModelRequest(Panel.EndpointPath, Panel.RequestBody, ContentType)
+        : new ModelRequest(InitialEndpointPath ?? string.Empty, InitialBody ?? string.Empty, ContentType);
+
+    public string RequestBody => CurrentRequest.Body;
+
+    public string EndpointPath => CurrentRequest.EndpointPath;
+
+    public string ContentType => Panel?.ContentType ?? SharedContentType;
 
     protected override void OnInitialized()
     {
-        if (!string.IsNullOrWhiteSpace(InitialEndpointPath))
-        {
-            EndpointPath = InitialEndpointPath;
-        }
+        SharedContentType = !string.IsNullOrWhiteSpace(InitialContentType)
+            ? InitialContentType!
+            : ChatTesterHttp.JsonContentType;
 
-        if (!string.IsNullOrWhiteSpace(InitialContentType))
-        {
-            ContentType = InitialContentType;
-        }
-
-        if (!string.IsNullOrWhiteSpace(InitialBody))
-        {
-            SetRequestBody(InitialBody);
-        }
-    }
-
-    /// <summary>
-    /// Sets the request body from the calling page and re-syncs the model dropdown.
-    /// </summary>
-    public void SetRequestBody(string body)
-    {
-        RequestBody = body ?? string.Empty;
-        SelectedModelKey = DetectModelKey(RequestBody);
-        StateHasChanged();
-    }
-
-    /// <summary>
-    /// Sets the model template by its key and rebuilds the body, carrying over the current message.
-    /// </summary>
-    public void SetModel(string modelKey)
-    {
-        ApplyModel(modelKey);
-        StateHasChanged();
-    }
-
-    private void OnModelSelected(ChangeEventArgs args)
-    {
-        ApplyModel(args.Value?.ToString() ?? string.Empty);
-    }
-
-    private void ApplyModel(string modelKey)
-    {
-        SelectedModelKey = modelKey;
-        var template = ModelCatalog.FindByKey(SelectedModelKey);
-        if (template is null)
+        if (string.IsNullOrWhiteSpace(InitialBody))
         {
             return;
         }
 
-        var message = ExtractUserMessage(RequestBody);
-        if (string.IsNullOrWhiteSpace(message))
+        var template = ModelCatalog.FindByKey(ModelRequestParser.DetectModelKey(InitialBody));
+        if (template is not null)
         {
-            message = "tell me about the history of jokes";
+            SelectedModel = template.ModelId;
+            SelectedApi = ResolveApiId(template, InitialEndpointPath);
         }
 
-        RequestBody = ModelCatalog.BuildBody(template, message);
-        EndpointPath = ModelCatalog.ResolveEndpointPath(template);
+        var message = ModelRequestParser.ExtractUserMessage(InitialBody);
+        if (!string.IsNullOrWhiteSpace(message))
+        {
+            SharedMessage = message;
+        }
     }
 
-    private string DetectModelKey(string body)
+    private static string ResolveApiId(ModelTemplate template, string? endpointPath)
     {
-        if (string.IsNullOrWhiteSpace(body))
+        var endpoint = !string.IsNullOrWhiteSpace(endpointPath)
+            ? endpointPath!
+            : ModelCatalog.ResolveEndpointPath(template);
+
+        if (endpoint.Contains("/responses", StringComparison.OrdinalIgnoreCase))
         {
-            return string.Empty;
+            return "openai-responses";
         }
 
-        try
+        if (endpoint.Contains("/messages", StringComparison.OrdinalIgnoreCase))
         {
-            using var document = System.Text.Json.JsonDocument.Parse(body);
-            if (document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object &&
-                document.RootElement.TryGetProperty("model", out var modelValue) &&
-                modelValue.ValueKind == System.Text.Json.JsonValueKind.String)
-            {
-                return ModelCatalog.FindByModelId(modelValue.GetString())?.Key ?? string.Empty;
-            }
-        }
-        catch
-        {
-            // Body is not valid JSON; leave the dropdown unselected.
+            return "anthropic-messages";
         }
 
-        return string.Empty;
-    }
-
-    private string ExtractUserMessage(string body)
-    {
-        if (string.IsNullOrWhiteSpace(body))
+        if (endpoint.Contains("generateContent", StringComparison.OrdinalIgnoreCase))
         {
-            return string.Empty;
+            return "gemini-generate-content";
         }
 
-        try
+        if (endpoint.Contains("/v2/chat", StringComparison.OrdinalIgnoreCase))
         {
-            using var document = System.Text.Json.JsonDocument.Parse(body);
-            var root = document.RootElement;
-            if (root.ValueKind != System.Text.Json.JsonValueKind.Object)
-            {
-                return string.Empty;
-            }
-
-            // OpenAI / Anthropic / Mistral / Cohere v2 style: messages[].content (last user message).
-            if (root.TryGetProperty("messages", out var messages) &&
-                messages.ValueKind == System.Text.Json.JsonValueKind.Array)
-            {
-                string lastContent = string.Empty;
-                foreach (var msg in messages.EnumerateArray())
-                {
-                    if (msg.ValueKind != System.Text.Json.JsonValueKind.Object)
-                    {
-                        continue;
-                    }
-
-                    var role = msg.TryGetProperty("role", out var roleValue) ? roleValue.GetString() : null;
-                    if (!string.Equals(role, "user", StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    if (msg.TryGetProperty("content", out var contentValue))
-                    {
-                        lastContent = ReadContentValue(contentValue);
-                    }
-                }
-
-                if (!string.IsNullOrWhiteSpace(lastContent))
-                {
-                    return lastContent;
-                }
-            }
-
-            // Cohere v1 style: message.
-            if (root.TryGetProperty("message", out var singleMessage) &&
-                singleMessage.ValueKind == System.Text.Json.JsonValueKind.String)
-            {
-                return singleMessage.GetString() ?? string.Empty;
-            }
-
-            // Gemini style: contents[].parts[].text.
-            if (root.TryGetProperty("contents", out var contents) &&
-                contents.ValueKind == System.Text.Json.JsonValueKind.Array)
-            {
-                var builder = new StringBuilder();
-                foreach (var content in contents.EnumerateArray())
-                {
-                    if (content.ValueKind == System.Text.Json.JsonValueKind.Object &&
-                        content.TryGetProperty("parts", out var parts) &&
-                        parts.ValueKind == System.Text.Json.JsonValueKind.Array)
-                    {
-                        foreach (var part in parts.EnumerateArray())
-                        {
-                            if (part.ValueKind == System.Text.Json.JsonValueKind.Object &&
-                                part.TryGetProperty("text", out var text) &&
-                                text.ValueKind == System.Text.Json.JsonValueKind.String)
-                            {
-                                builder.Append(text.GetString());
-                            }
-                        }
-                    }
-                }
-
-                return builder.ToString();
-            }
-
-            // Plain prompt style.
-            if (root.TryGetProperty("prompt", out var prompt) &&
-                prompt.ValueKind == System.Text.Json.JsonValueKind.String)
-            {
-                return prompt.GetString() ?? string.Empty;
-            }
-            if (root.TryGetProperty("input", out var input) &&
-                input.ValueKind == System.Text.Json.JsonValueKind.String)
-            {
-                return input.GetString() ?? string.Empty;
-            }
-        }
-        catch
-        {
-            // Body is not valid JSON; nothing to carry over.
+            return "cohere-v2-chat";
         }
 
-        return string.Empty;
-    }
-
-    private string ReadContentValue(System.Text.Json.JsonElement contentValue)
-    {
-        if (contentValue.ValueKind == System.Text.Json.JsonValueKind.String)
+        if (endpoint.Contains("/compatibility/", StringComparison.OrdinalIgnoreCase))
         {
-            return contentValue.GetString() ?? string.Empty;
+            return "cohere-openai-chat";
         }
 
-        // Multimodal content arrays: pull the text segments.
-        if (contentValue.ValueKind == System.Text.Json.JsonValueKind.Array)
+        if (template.Provider == "Google Gemini")
         {
-            var builder = new StringBuilder();
-            foreach (var item in contentValue.EnumerateArray())
-            {
-                if (item.ValueKind == System.Text.Json.JsonValueKind.Object &&
-                    item.TryGetProperty("text", out var text) &&
-                    text.ValueKind == System.Text.Json.JsonValueKind.String)
-                {
-                    builder.Append(text.GetString());
-                }
-            }
-
-            return builder.ToString();
+            return "gemini-openai-chat";
         }
 
-        return string.Empty;
+        if (template.Provider == "Cohere")
+        {
+            return endpoint.Contains("/v1/chat", StringComparison.OrdinalIgnoreCase)
+                ? "cohere-v1-chat"
+                : "cohere-openai-chat";
+        }
+
+        return "openai-chat";
     }
 }

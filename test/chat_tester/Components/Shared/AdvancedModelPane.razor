@@ -1,0 +1,43 @@
+@namespace chat_tester.Components.Shared
+
+<div class="mb-3">
+    <label class="form-label">Endpoint path</label>
+    <input class="form-control" value="@EndpointPath"
+           @oninput="e => EndpointPathChanged.InvokeAsync(e.Value?.ToString() ?? string.Empty)" />
+</div>
+
+<div class="mb-3">
+    <label class="form-label">Content-Type</label>
+    <input class="form-control" value="@ContentType"
+           @oninput="e => ContentTypeChanged.InvokeAsync(e.Value?.ToString() ?? string.Empty)" />
+</div>
+
+<div class="mb-0">
+    <label class="form-label">Request body</label>
+    <textarea class="form-control font-monospace" rows="@Rows" value="@RequestBody"
+              @oninput="e => RequestBodyChanged.InvokeAsync(e.Value?.ToString() ?? string.Empty)"></textarea>
+</div>
+
+@code {
+    /// <summary>Row count for the request-body editor.</summary>
+    [Parameter]
+    public int Rows { get; set; } = 12;
+
+    [Parameter]
+    public string EndpointPath { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> EndpointPathChanged { get; set; }
+
+    [Parameter]
+    public string ContentType { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> ContentTypeChanged { get; set; }
+
+    [Parameter]
+    public string RequestBody { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> RequestBodyChanged { get; set; }
+}

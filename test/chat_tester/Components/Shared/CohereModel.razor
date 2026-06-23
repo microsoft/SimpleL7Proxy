@@ -1,0 +1,62 @@
+@namespace chat_tester.Components.Shared
+@inherits ModelComponentBase
+
+@if (SimpleMode)
+{
+    <div class="mb-3">
+        <label class="form-label">messageContent</label>
+        <textarea class="form-control" rows="4" value="@Message" @oninput="OnMessageInput"></textarea>
+    </div>
+    <div class="row g-3 mb-0">
+        <div class="col-12 col-lg-6">
+            <label class="form-label">ContentType</label>
+            <select class="form-select" value="@ContentType" @onchange="OnContentTypeSelected">
+                @foreach (var contentType in ContentTypeOptions)
+                {
+                    <option value="@contentType">@contentType</option>
+                }
+            </select>
+        </div>
+    </div>
+}
+else
+{
+    <AdvancedModelPane Rows="Rows"
+                       EndpointPath="EndpointPath" EndpointPathChanged="OnEndpointPathChanged"
+                       ContentType="ContentType" ContentTypeChanged="OnContentTypeChangedAsync"
+                       RequestBody="RequestBody" RequestBodyChanged="OnRequestBodyChanged" />
+}
+
+@code {
+    // Cohere Chat API request shape. v2 uses a messages array; v1 uses a single message field.
+    protected override object BuildPayload(string message, int maxTokens)
+    {
+        var isV1 = Template.Schema.Contains("v1", StringComparison.OrdinalIgnoreCase);
+
+        if (isV1)
+        {
+            if (IsStreaming)
+            {
+                return new { model = Template.ModelId, message, stream = true };
+            }
+
+            return new { model = Template.ModelId, message };
+        }
+
+        if (IsStreaming)
+        {
+            return new
+            {
+                model = Template.ModelId,
+                messages = new[] { new { role = "user", content = message } },
+                stream = true
+            };
+        }
+
+        return new
+        {
+            model = Template.ModelId,
+            messages = new[] { new { role = "user", content = message } }
+        };
+    }
+}

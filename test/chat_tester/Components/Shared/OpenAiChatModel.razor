@@ -1,0 +1,110 @@
+@namespace chat_tester.Components.Shared
+@using System.Globalization
+@inherits ModelComponentBase
+
+@if (SimpleMode)
+{
+    <div class="mb-3">
+        <label class="form-label">messageContent</label>
+        <textarea class="form-control" rows="4" value="@Message" @oninput="OnMessageInput"></textarea>
+    </div>
+    <div class="row g-3 mb-3">
+        <div class="col-6 col-lg-3">
+            <label class="form-label">temperature</label>
+            <input type="number" step="0.1" min="0" max="2" class="form-control" placeholder="default"
+                   value="@Temperature?.ToString(CultureInfo.InvariantCulture)" @onchange="OnTemperatureChanged" />
+        </div>
+        <div class="col-6 col-lg-3">
+            <label class="form-label">top_p</label>
+            <input type="number" step="0.05" min="0" max="1" class="form-control" placeholder="default"
+                   value="@TopP?.ToString(CultureInfo.InvariantCulture)" @onchange="OnTopPChanged" />
+        </div>
+        <div class="col-6 col-lg-3">
+            <label class="form-label">max_completion_tokens</label>
+            <input type="number" min="1" class="form-control" placeholder="default"
+                   value="@MaxCompletionTokens?.ToString(CultureInfo.InvariantCulture)" @onchange="OnMaxCompletionTokensChanged" />
+        </div>
+        <div class="col-6 col-lg-3">
+            <label class="form-label">seed</label>
+            <input type="number" class="form-control" placeholder="default"
+                   value="@Seed?.ToString(CultureInfo.InvariantCulture)" @onchange="OnSeedChanged" />
+        </div>
+        <div class="col-6 col-lg-3">
+            <label class="form-label">frequency_penalty</label>
+            <input type="number" step="0.1" min="-2" max="2" class="form-control" placeholder="default"
+                   value="@FrequencyPenalty?.ToString(CultureInfo.InvariantCulture)" @onchange="OnFrequencyPenaltyChanged" />
+        </div>
+        <div class="col-6 col-lg-3">
+            <label class="form-label">presence_penalty</label>
+            <input type="number" step="0.1" min="-2" max="2" class="form-control" placeholder="default"
+                   value="@PresencePenalty?.ToString(CultureInfo.InvariantCulture)" @onchange="OnPresencePenaltyChanged" />
+        </div>
+        <div class="col-12 col-lg-6">
+            <label class="form-label">stop</label>
+            <input type="text" class="form-control" placeholder="optional stop sequence"
+                   value="@Stop" @onchange="OnStopChanged" />
+        </div>
+    </div>
+    <div class="row g-3 mb-0">
+        <div class="col-12 col-lg-6">
+            <label class="form-label">ContentType</label>
+            <select class="form-select" value="@ContentType" @onchange="OnContentTypeSelected">
+                @foreach (var contentType in ContentTypeOptions)
+                {
+                    <option value="@contentType">@contentType</option>
+                }
+            </select>
+        </div>
+    </div>
+}
+else
+{
+    <AdvancedModelPane Rows="Rows"
+                       EndpointPath="EndpointPath" EndpointPathChanged="OnEndpointPathChanged"
+                       ContentType="ContentType" ContentTypeChanged="OnContentTypeChangedAsync"
+                       RequestBody="RequestBody" RequestBodyChanged="OnRequestBodyChanged" />
+}
+
+@code {
+    // OpenAI-style Chat Completions request (also used by OpenAI-compatible providers,
+    // Gemini's OpenAI endpoint, and Cohere's compatibility endpoint).
+    private double? Temperature;
+    private double? TopP;
+    private int? MaxCompletionTokens;
+    private double? FrequencyPenalty;
+    private double? PresencePenalty;
+    private int? Seed;
+    private string? Stop;
+
+    protected override object BuildPayload(string message, int maxTokens)
+    {
+        var payload = new Dictionary<string, object?>
+        {
+            ["model"] = Template.ModelId,
+            ["messages"] = new[] { new { role = "user", content = message } }
+        };
+
+        if (IsStreaming)
+        {
+            payload["stream"] = true;
+        }
+
+        if (Temperature is not null) payload["temperature"] = Temperature;
+        if (TopP is not null) payload["top_p"] = TopP;
+        if (MaxCompletionTokens is not null) payload["max_completion_tokens"] = MaxCompletionTokens;
+        if (FrequencyPenalty is not null) payload["frequency_penalty"] = FrequencyPenalty;
+        if (PresencePenalty is not null) payload["presence_penalty"] = PresencePenalty;
+        if (Seed is not null) payload["seed"] = Seed;
+        if (!string.IsNullOrWhiteSpace(Stop)) payload["stop"] = Stop;
+
+        return payload;
+    }
+
+    private void OnTemperatureChanged(ChangeEventArgs e) { Temperature = ParseNullableDouble(e.Value); RebuildRequest(); }
+    private void OnTopPChanged(ChangeEventArgs e) { TopP = ParseNullableDouble(e.Value); RebuildRequest(); }
+    private void OnMaxCompletionTokensChanged(ChangeEventArgs e) { MaxCompletionTokens = ParseNullableInt(e.Value); RebuildRequest(); }
+    private void OnFrequencyPenaltyChanged(ChangeEventArgs e) { FrequencyPenalty = ParseNullableDouble(e.Value); RebuildRequest(); }
+    private void OnPresencePenaltyChanged(ChangeEventArgs e) { PresencePenalty = ParseNullableDouble(e.Value); RebuildRequest(); }
+    private void OnSeedChanged(ChangeEventArgs e) { Seed = ParseNullableInt(e.Value); RebuildRequest(); }
+    private void OnStopChanged(ChangeEventArgs e) { Stop = e.Value?.ToString(); RebuildRequest(); }
+}

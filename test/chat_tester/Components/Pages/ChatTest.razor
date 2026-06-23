@@ -6,7 +6,10 @@
 @using chat_tester.Components.Shared
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.Extensions.Options
+@using System.Diagnostics
+@using System.Net
 @using System.Text
+@using System.Text.Json
 @using System.Linq
 
 <PageTitle>Chat test</PageTitle>
@@ -39,19 +42,77 @@
 
     <div class="col-12 response-col">
         <div class="response-stack">
-        <div class="card shadow-sm chat-card @(IsChatResponseFullscreen ? "fs-overlay" : string.Empty)">
+        <div class="card shadow-sm chat-card search-host @(IsChatResponseFullscreen ? "fs-overlay" : string.Empty)">
             <div class="card-header bg-primary text-white d-flex align-items-center justify-content-between">
                 <span class="fw-semibold">Chat response</span>
-                <button class="btn btn-sm btn-light" type="button" @onclick="ToggleChatResponseFullscreen">
-                    @(IsChatResponseFullscreen ? "Exit full screen" : "Full screen")
-                </button>
+                <div class="d-flex flex-wrap align-items-center justify-content-end gap-3">
+                    <div class="form-check form-check-inline mb-0">
+                        <input class="form-check-input" type="checkbox" id="responseFormatText" checked="@(ResponseFormat == ResponseDisplayFormat.Text)" @onchange='() => SetResponseFormat(ResponseDisplayFormat.Text)' />
+                        <label class="form-check-label" for="responseFormatText">Text</label>
+                    </div>
+                    <div class="form-check form-check-inline mb-0">
+                        <input class="form-check-input" type="checkbox" id="responseFormatMarkdown" checked="@(ResponseFormat == ResponseDisplayFormat.Markdown)" @onchange='() => SetResponseFormat(ResponseDisplayFormat.Markdown)' />
+                        <label class="form-check-label" for="responseFormatMarkdown">Markdown</label>
+                    </div>
+                    <div class="form-check form-check-inline mb-0">
+                        <input class="form-check-input" type="checkbox" id="responseFormatHtml" checked="@(ResponseFormat == ResponseDisplayFormat.Html)" @onchange='() => SetResponseFormat(ResponseDisplayFormat.Html)' />
+                        <label class="form-check-label" for="responseFormatHtml">HTML</label>
+                    </div>
+                    <button class="btn btn-sm btn-light" type="button" @onclick="ToggleChatResponseFullscreen">
+                        @(IsChatResponseFullscreen ? "Exit full screen" : "Full screen")
+                    </button>
+                </div>
             </div>
             <div class="card-body @(IsChatResponseFullscreen ? "overflow-auto" : string.Empty)">
-                <pre @ref="ChatResponseRef" class="bg-dark text-light p-3 rounded mb-0" style="white-space: pre-wrap; @(IsChatResponseFullscreen ? "max-height: calc(100vh - 130px);" : "max-height: 360px;") overflow-y: auto;">@ChatResponse</pre>
+                <div class="row g-3 h-100">
+                    <div class="col-12 col-xl-9">
+                        @if (ResponseFormat == ResponseDisplayFormat.Html)
+                        {
+                            <div @ref="ChatResponseRef" class="response-rendered border rounded p-3 bg-white" style="@(IsChatResponseFullscreen ? "max-height: calc(100vh - 145px);" : "max-height: 360px;") overflow-y: auto;">@((MarkupString)DisplayResponse)</div>
+                        }
+                        else if (ResponseFormat == ResponseDisplayFormat.Markdown)
+                        {
+                            <div @ref="ChatResponseRef" class="response-rendered border rounded p-3 bg-white" style="@(IsChatResponseFullscreen ? "max-height: calc(100vh - 145px);" : "max-height: 360px;") overflow-y: auto;">@((MarkupString)MarkdownToHtml(DisplayResponse))</div>
+                        }
+                        else
+                        {
+                            <pre @ref="ChatResponseRef" class="bg-dark text-light p-3 rounded mb-0" style="white-space: pre-wrap; @(IsChatResponseFullscreen ? "max-height: calc(100vh - 145px);" : "max-height: 360px;") overflow-y: auto;">@DisplayResponse</pre>
+                        }
+                    </div>
+                    <div class="col-12 col-xl-3">
+                        <div class="border rounded bg-light p-3 small response-metrics">
+                            <div class="fw-semibold mb-2">Metrics</div>
+                            <div class="metric-row">
+                                <span class="metric-name">Status</span>
+                                <span class="metric-value">@ResponseMetrics.Status</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-name">Content-Type</span>
+                                <span class="metric-value" title="@ResponseMetrics.ContentType">@FormatContentType(ResponseMetrics.ContentType)</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-name">Time to first byte</span>
+                                <span class="metric-value">@FormatDuration(ResponseMetrics.TimeToFirstByte)</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-name">Duration</span>
+                                <span class="metric-value">@FormatDuration(ResponseMetrics.Duration)</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-name">Chunks</span>
+                                <span class="metric-value">@ResponseMetrics.Chunks</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-name">Total bytes</span>
+                                <span class="metric-value">@ResponseMetrics.TotalBytes</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <div class="card shadow-sm mt-3 raw-card @(IsRawFullscreen ? "fs-overlay" : string.Empty)">
+        <div class="card shadow-sm mt-3 raw-card search-host @(IsRawFullscreen ? "fs-overlay" : string.Empty)">
             <div class="card-header bg-secondary text-white pb-0">
                 <div class="d-flex align-items-baseline gap-2 pt-1 pb-2">
                     <span class="fw-semibold">Raw response</span>
@@ -73,10 +134,13 @@
                     <li class="nav-item">
                         <button class="nav-link @(ActiveResponseTab == "response-body" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveResponseTab("response-body")'>Response body</button>
                     </li>
+                    <li class="nav-item">
+                        <button class="nav-link @(ActiveResponseTab == "proxy-error" ? "active" : string.Empty)" type="button" disabled="@(!HasProxyError)" @onclick='() => SetActiveResponseTab("proxy-error")'>Proxy error</button>
+                    </li>
                 </ul>
             </div>
             <div class="card-body @(IsRawFullscreen ? "overflow-auto" : string.Empty)">
-                <div class="border rounded p-3 bg-light" style="@(IsRawFullscreen ? "max-height: calc(100vh - 180px);" : "max-height: 320px;") overflow-y: auto;">
+                <div class="border rounded p-3 bg-light" style="@(IsRawFullscreen ? "max-height: calc(100vh - 180px);" : "max-height: 320px;") overflow-y: auto;" @ref="RawResponseRef">
                     @if (ActiveResponseTab == "request-headers")
                     {
                         <pre class="mb-0" style="white-space: pre-wrap; word-break: break-all;">@RequestHeadersText</pre>
@@ -88,6 +152,10 @@
                     else if (ActiveResponseTab == "request-body")
                     {
                         <pre class="mb-0" style="white-space: pre-wrap; word-break: break-word;">@RequestBodyDisplay</pre>
+                    }
+                    else if (ActiveResponseTab == "proxy-error")
+                    {
+                        <div class="proxy-error-view">@((MarkupString)RenderProxyError())</div>
                     }
                     else
                     {
@@ -132,6 +200,124 @@
         color: #495057;
         background-color: #fff;
         border-color: #fff #fff #fff;
+    }
+
+    .response-metrics .metric-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.45rem 0.5rem;
+        border-radius: 0.25rem;
+    }
+
+    .response-metrics .metric-row:nth-child(even) {
+        background: rgba(13, 110, 253, 0.08);
+    }
+
+    .response-metrics .metric-name {
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .response-metrics .metric-value {
+        text-align: right;
+        overflow-wrap: anywhere;
+    }
+
+    .search-host {
+        position: relative;
+    }
+
+    .response-search-popup {
+        position: absolute;
+        top: 3.25rem;
+        right: 1rem;
+        z-index: 25;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.35rem;
+        border: 1px solid rgba(0, 0, 0, 0.2);
+        border-radius: 0.375rem;
+        background: #fff;
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.18);
+    }
+
+    .response-search-popup input {
+        width: 14rem;
+        color: #212529;
+    }
+
+    .response-search-status {
+        min-width: 3.5rem;
+        text-align: center;
+        color: #6c757d;
+        font-size: 0.8rem;
+    }
+
+    .response-search-match {
+        background: #ffe08a;
+        color: #111;
+        padding: 0 0.05rem;
+    }
+
+    .response-search-match.active {
+        background: #ffb703;
+        color: #111;
+        outline: 2px solid #0d6efd;
+    }
+
+    .proxy-error-view .proxy-message {
+        font-weight: 600;
+        color: #842029;
+        margin-bottom: 0.75rem;
+    }
+
+    .proxy-error-view .proxy-json {
+        background: #1f2328;
+        color: #f8f9fa;
+        border-radius: 0.375rem;
+        padding: 0.75rem;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .proxy-error-view .json-key {
+        color: #9cdcfe;
+    }
+
+    .proxy-error-view .json-string {
+        color: #ce9178;
+    }
+
+    .proxy-error-view .json-number {
+        color: #b5cea8;
+    }
+
+    .proxy-error-view .json-literal {
+        color: #569cd6;
+    }
+
+    .proxy-error-view .backend-log-item {
+        border-left: 4px solid #6c757d;
+        background: #fff;
+        padding: 0.45rem 0.65rem;
+        margin-bottom: 0.4rem;
+    }
+
+    .proxy-error-view .backend-log-item.warning {
+        border-left-color: #ffc107;
+        background: #fff8e1;
+    }
+
+    .proxy-error-view .backend-log-item.error {
+        border-left-color: #dc3545;
+        background: #f8d7da;
+    }
+
+    .proxy-error-view .backend-log-item.success {
+        border-left-color: #198754;
+        background: #d1e7dd;
     }
 
     @@media (min-width: 992px) {
@@ -184,6 +370,10 @@
             max-height: none !important;
         }
 
+        .chat-card .response-rendered {
+            max-height: none !important;
+        }
+
         .raw-card {
             flex: 1 1 50%;
             min-height: 0;
@@ -204,6 +394,23 @@
 </style>
 
 @code {
+    private enum ResponseDisplayFormat
+    {
+        Text,
+        Markdown,
+        Html
+    }
+
+    private sealed class ChatResponseMetrics
+    {
+        public string Status { get; set; } = "-";
+        public string ContentType { get; set; } = "-";
+        public TimeSpan? TimeToFirstByte { get; set; }
+        public TimeSpan? Duration { get; set; }
+        public int Chunks { get; set; }
+        public long TotalBytes { get; set; }
+    }
+
     private string InitialServerBaseUrl { get; set; } = string.Empty;
     private string InitialEndpointPath { get; set; } = string.Empty;
     private string InitialContentType { get; set; } = ChatTesterHttp.JsonContentType;
@@ -219,14 +426,18 @@
     private bool IsRunning { get; set; }
     private string StatusMessage { get; set; } = "Ready to send a single request.";
     private string ObservedResponse { get; set; } = "No response yet.";
-    private string ChatResponse { get; set; } = "Waiting for the request ...";
+    private string DisplayResponse { get; set; } = "Waiting for the request ...";
     private string ActiveResponseTab { get; set; } = "response-body";
     private string RequestHeadersText { get; set; } = "No request has been sent yet.";
     private string ResponseHeadersText { get; set; } = "No response has been received yet.";
     private string RequestBodyDisplay { get; set; } = "No request body yet.";
     private ElementReference ChatResponseRef;
+    private ElementReference RawResponseRef;
     private bool IsChatResponseFullscreen { get; set; }
     private bool IsRawFullscreen { get; set; }
+    private ResponseDisplayFormat ResponseFormat { get; set; } = ResponseDisplayFormat.Text;
+    private ChatResponseMetrics ResponseMetrics { get; set; } = new();
+    private bool HasProxyError { get; set; }
     private bool HasResponse => !string.IsNullOrWhiteSpace(ObservedResponse)
         && !ObservedResponse.Equals("No response yet.", StringComparison.OrdinalIgnoreCase)
         && !ObservedResponse.Equals("Awaiting response...", StringComparison.OrdinalIgnoreCase)
@@ -253,6 +464,9 @@
                 await JS.InvokeVoidAsync("chatScroll.register", ChatResponseRef);
             }
 
+            await JS.InvokeVoidAsync("responseSearch.register", ChatResponseRef);
+            await JS.InvokeVoidAsync("responseSearch.register", RawResponseRef);
+            await JS.InvokeVoidAsync("responseSearch.refresh");
             await JS.InvokeVoidAsync("chatScroll.scrollIfStuck", ChatResponseRef);
         }
         catch (JSException)
@@ -271,6 +485,11 @@
         IsRawFullscreen = !IsRawFullscreen;
     }
 
+    private void SetResponseFormat(ResponseDisplayFormat format)
+    {
+        ResponseFormat = format;
+    }
+
     private async Task SendSingleChatCallAsync()
     {
         var serverBaseUrl = RequestPanel?.ServerBaseUrl ?? string.Empty;
@@ -286,9 +505,15 @@
         IsRunning = true;
         StatusMessage = "Sending the chat request and waiting for the response...";
         ObservedResponse = "Awaiting response...";
-        ChatResponse = "Generating response stream...";
+        DisplayResponse = "Generating response stream...";
+        ResponseMetrics = new ChatResponseMetrics { Status = "Sending" };
+        HasProxyError = false;
         RequestBodyDisplay = requestBody;
         StateHasChanged();
+
+        using var metricsTimer = new CancellationTokenSource();
+        var stopwatch = Stopwatch.StartNew();
+        var metricsTimerTask = RunMetricsTimerAsync(stopwatch, metricsTimer.Token);
 
         try
         {
@@ -310,31 +535,57 @@
             RequestHeadersText = ChatTesterHttp.SummarizeRequestHeaders(request);
 
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+            ResponseMetrics.TimeToFirstByte = stopwatch.Elapsed;
+            ResponseMetrics.Status = $"{(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
+            ResponseMetrics.ContentType = response.Content.Headers.ContentType?.ToString() ?? "-";
+            ApplyDetectedResponseFormat(ResponseMetrics.ContentType);
             ResponseHeadersText = ChatTesterHttp.SummarizeResponseHeaders(response);
             StatusMessage = $"Streaming response: {(int)response.StatusCode} {response.ReasonPhrase ?? ""}".Trim();
-            await StreamResponseAsync(response);
+            await StreamResponseAsync(response, stopwatch);
+            ResponseMetrics.Duration = stopwatch.Elapsed;
             StatusMessage = $"Completed with {(int)response.StatusCode} {response.ReasonPhrase ?? ""}".Trim();
         }
         catch (Exception ex)
         {
             ObservedResponse = ex.Message;
             ResponseHeadersText = "No response headers available.";
-            ChatResponse = $"Chat fallback response:\nAssistant: I could not receive a stream from the server.\nReason: {ex.Message}";
+            DisplayResponse = $"I could not receive a stream from the server.\nReason: {ex.Message}";
             StatusMessage = "The request failed before a full response was received.";
+            ResponseMetrics.Status = "Failed";
         }
         finally
         {
+            metricsTimer.Cancel();
+            try
+            {
+                await metricsTimerTask;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            ResponseMetrics.Duration = stopwatch.Elapsed;
             IsRunning = false;
             StateHasChanged();
         }
     }
 
-    private async Task StreamResponseAsync(HttpResponseMessage response)
+    private async Task RunMetricsTimerAsync(Stopwatch stopwatch, CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            ResponseMetrics.Duration = stopwatch.Elapsed;
+            await InvokeAsync(StateHasChanged);
+            await Task.Delay(100, cancellationToken);
+        }
+    }
+
+    private async Task StreamResponseAsync(HttpResponseMessage response, Stopwatch stopwatch)
     {
         var rawBuilder = new StringBuilder();
         var assistantBuilder = new StringBuilder();
         var sawAssistantContent = false;
-        ChatResponse = "Assistant:\n";
+        DisplayResponse = string.Empty;
         ObservedResponse = string.Empty;
         await InvokeAsync(StateHasChanged);
 
@@ -349,8 +600,11 @@
                 break;
             }
 
+            ResponseMetrics.Chunks++;
+            ResponseMetrics.TotalBytes += Encoding.UTF8.GetByteCount(line) + 1;
             rawBuilder.AppendLine(line);
             ObservedResponse = rawBuilder.ToString();
+            UpdateProxyErrorState();
 
             var payload = ChatStreamParser.ExtractDataPayload(line);
             if (payload is not null)
@@ -360,41 +614,426 @@
                 {
                     assistantBuilder.Append(piece);
                     sawAssistantContent = true;
-                    ChatResponse = $"Assistant:\n{assistantBuilder}";
+                    DisplayResponse = assistantBuilder.ToString();
                 }
             }
 
+            ResponseMetrics.Duration = stopwatch.Elapsed;
             await InvokeAsync(StateHasChanged);
         }
 
         if (rawBuilder.Length == 0)
         {
             ObservedResponse = "The server returned an empty response body.";
-            ChatResponse = "Assistant: I did not receive any content from the server.";
+            DisplayResponse = "I did not receive any content from the server.";
         }
         else if (!sawAssistantContent)
         {
-            ChatResponse = BuildChatResponse(rawBuilder.ToString());
+            DisplayResponse = BuildDisplayResponse(rawBuilder.ToString());
         }
+
+        UpdateProxyErrorState();
 
         await InvokeAsync(StateHasChanged);
     }
 
-    private string BuildChatResponse(string observed)
+    private void UpdateProxyErrorState()
+    {
+        if (!ObservedResponse.Contains("No active hosts were able", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (!HasProxyError)
+        {
+            HasProxyError = true;
+            ActiveResponseTab = "proxy-error";
+        }
+    }
+
+    private string BuildDisplayResponse(string observed)
     {
         if (string.IsNullOrWhiteSpace(observed))
         {
-            return "Assistant: I did not receive any content from the server.";
+            return "I did not receive any content from the server.";
         }
 
         var interpretedContent = ChatStreamParser.ExtractAllContent(observed);
         if (!string.IsNullOrWhiteSpace(interpretedContent))
         {
-            return $"Assistant:\n{interpretedContent}";
+            return interpretedContent;
+        }
+
+        interpretedContent = ChatStreamParser.ExtractDisplayContent(observed);
+        if (!string.IsNullOrWhiteSpace(interpretedContent))
+        {
+            return interpretedContent;
         }
 
         // Not an event stream (or no stream content found): show the entire response body.
         return observed;
+    }
+
+    private void ApplyDetectedResponseFormat(string contentType)
+    {
+        if (contentType.Contains("html", StringComparison.OrdinalIgnoreCase))
+        {
+            ResponseFormat = ResponseDisplayFormat.Html;
+        }
+        else if (contentType.Contains("markdown", StringComparison.OrdinalIgnoreCase))
+        {
+            ResponseFormat = ResponseDisplayFormat.Markdown;
+        }
+        else
+        {
+            ResponseFormat = ResponseDisplayFormat.Text;
+        }
+    }
+
+    private static string FormatDuration(TimeSpan? value) =>
+        value is null ? "-" : $"{value.Value.TotalMilliseconds:0} ms";
+
+    private static string FormatContentType(string contentType)
+    {
+        if (string.IsNullOrWhiteSpace(contentType) || contentType == "-")
+        {
+            return "-";
+        }
+
+        if (contentType.Contains("event-stream", StringComparison.OrdinalIgnoreCase))
+        {
+            return "event-stream";
+        }
+
+        if (contentType.Contains("json", StringComparison.OrdinalIgnoreCase))
+        {
+            return "json";
+        }
+
+        if (contentType.Contains("html", StringComparison.OrdinalIgnoreCase))
+        {
+            return "html";
+        }
+
+        if (contentType.Contains("markdown", StringComparison.OrdinalIgnoreCase))
+        {
+            return "markdown";
+        }
+
+        if (contentType.Contains("text", StringComparison.OrdinalIgnoreCase))
+        {
+            return "text";
+        }
+
+        return contentType.Split(';', 2)[0];
+    }
+
+    private string RenderProxyError()
+    {
+        if (!HasProxyError)
+        {
+            return "<div class=\"text-muted\">No proxy error detected.</div>";
+        }
+
+        var (message, json) = SplitProxyError(ObservedResponse);
+        var builder = new StringBuilder();
+        builder.Append("<div class=\"proxy-message\">").Append(WebUtility.HtmlEncode(message)).AppendLine("</div>");
+
+        if (TryParseProxyJson(json, out var document))
+        {
+            using (document)
+            {
+                builder.Append(RenderBackendLog(document.RootElement));
+                builder.Append("<div class=\"fw-semibold mt-3 mb-2\">Formatted JSON</div>");
+                builder.Append("<pre class=\"proxy-json mb-0\">").Append(ColorJson(JsonSerializer.Serialize(document.RootElement, new JsonSerializerOptions { WriteIndented = true }))).AppendLine("</pre>");
+            }
+        }
+        else
+        {
+            builder.Append("<pre class=\"proxy-json mb-0\">").Append(WebUtility.HtmlEncode(ObservedResponse)).AppendLine("</pre>");
+        }
+
+        return builder.ToString();
+    }
+
+    private static (string Message, string Json) SplitProxyError(string response)
+    {
+        var jsonStart = response.IndexOf('{');
+        if (jsonStart < 0)
+        {
+            return (response.Trim(), string.Empty);
+        }
+
+        var message = response[..jsonStart].Replace("Request Summary:", string.Empty, StringComparison.OrdinalIgnoreCase).Trim();
+        return (message, response[jsonStart..].Trim());
+    }
+
+    private static bool TryParseProxyJson(string json, out JsonDocument document)
+    {
+        try
+        {
+            document = JsonDocument.Parse(json);
+            return true;
+        }
+        catch
+        {
+            document = null!;
+            return false;
+        }
+    }
+
+    private static string RenderBackendLog(JsonElement root)
+    {
+        var builder = new StringBuilder();
+        var logs = new List<string>();
+        CollectBackendLogs(root, logs);
+        if (logs.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        builder.AppendLine("<div class=\"fw-semibold mb-2\">Backend log highlights</div>");
+        foreach (var log in logs)
+        {
+            foreach (var part in log.Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            {
+                                var severity = ClassifyBackendLogPart(part);
+                builder.Append("<div class=\"backend-log-item ").Append(severity).Append("\">")
+                    .Append(WebUtility.HtmlEncode(part.Trim()))
+                    .AppendLine("</div>");
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private static string ClassifyBackendLogPart(string part)
+    {
+        var beginSeverity = ClassifyBeginLog(part);
+        if (!string.IsNullOrEmpty(beginSeverity))
+        {
+            return beginSeverity;
+        }
+
+        if (part.Contains("THROTTLED: (none)", StringComparison.OrdinalIgnoreCase))
+        {
+            return "success";
+        }
+
+        if (part.Contains("TIMEOUT", StringComparison.OrdinalIgnoreCase) ||
+            part.Contains("INCOMPLETE", StringComparison.OrdinalIgnoreCase) ||
+            part.Contains("exhausted", StringComparison.OrdinalIgnoreCase))
+        {
+            return "error";
+        }
+
+        if (part.Contains("THROTTLED", StringComparison.OrdinalIgnoreCase) ||
+            part.Contains("RETRIES", StringComparison.OrdinalIgnoreCase))
+        {
+            return "warning";
+        }
+
+        return string.Empty;
+    }
+
+    private static string ClassifyBeginLog(string part)
+    {
+        if (!part.Contains("Begin", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Empty;
+        }
+
+        var secondsSuffix = part.IndexOf('s');
+        if (secondsSuffix <= 0 || !double.TryParse(part[..secondsSuffix].Trim(), out var seconds))
+        {
+            return string.Empty;
+        }
+
+        if (seconds < 0.1)
+        {
+            return "success";
+        }
+
+        if (seconds < 1)
+        {
+            return "warning";
+        }
+
+        return "error";
+    }
+
+    private static void CollectBackendLogs(JsonElement element, List<string> logs)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (property.NameEquals("backendLog") && property.Value.ValueKind == JsonValueKind.String)
+                {
+                    logs.Add(property.Value.GetString() ?? string.Empty);
+                }
+                else
+                {
+                    CollectBackendLogs(property.Value, logs);
+                }
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                CollectBackendLogs(item, logs);
+            }
+        }
+    }
+
+    private static string ColorJson(string json)
+    {
+        var encoded = WebUtility.HtmlEncode(json);
+        var builder = new StringBuilder();
+        for (var index = 0; index < encoded.Length;)
+        {
+            if (encoded[index] == '&' && encoded[index..].StartsWith("&quot;", StringComparison.Ordinal))
+            {
+                var end = encoded.IndexOf("&quot;", index + 6, StringComparison.Ordinal);
+                if (end < 0)
+                {
+                    builder.Append(encoded[index..]);
+                    break;
+                }
+
+                var token = encoded[index..(end + 6)];
+                var after = end + 6;
+                var isKey = after < encoded.Length && encoded[after..].TrimStart().StartsWith(':');
+                builder.Append("<span class=\"").Append(isKey ? "json-key" : "json-string").Append("\">").Append(token).Append("</span>");
+                index = after;
+            }
+            else if (char.IsDigit(encoded[index]) || encoded[index] == '-')
+            {
+                var start = index;
+                while (index < encoded.Length && (char.IsDigit(encoded[index]) || encoded[index] is '-' or '.' or 'E' or 'e' or '+'))
+                {
+                    index++;
+                }
+                builder.Append("<span class=\"json-number\">").Append(encoded[start..index]).Append("</span>");
+            }
+            else if (encoded[index..].StartsWith("true", StringComparison.Ordinal) || encoded[index..].StartsWith("false", StringComparison.Ordinal) || encoded[index..].StartsWith("null", StringComparison.Ordinal))
+            {
+                var literal = encoded[index..].StartsWith("true", StringComparison.Ordinal) ? "true" : encoded[index..].StartsWith("false", StringComparison.Ordinal) ? "false" : "null";
+                builder.Append("<span class=\"json-literal\">").Append(literal).Append("</span>");
+                index += literal.Length;
+            }
+            else
+            {
+                builder.Append(encoded[index]);
+                index++;
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private static string MarkdownToHtml(string markdown)
+    {
+        if (string.IsNullOrEmpty(markdown))
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder();
+        var inList = false;
+        foreach (var rawLine in markdown.Replace("\r\n", "\n").Split('\n'))
+        {
+            var line = rawLine.TrimEnd();
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                if (inList)
+                {
+                    builder.AppendLine("</ul>");
+                    inList = false;
+                }
+                continue;
+            }
+
+            if (line.StartsWith("- ", StringComparison.Ordinal))
+            {
+                if (!inList)
+                {
+                    builder.AppendLine("<ul>");
+                    inList = true;
+                }
+                builder.Append("<li>").Append(InlineMarkdown(line[2..])).AppendLine("</li>");
+                continue;
+            }
+
+            if (inList)
+            {
+                builder.AppendLine("</ul>");
+                inList = false;
+            }
+
+            if (TryParseMarkdownHeading(line, out var headingLevel, out var headingText))
+            {
+                builder.Append("<h").Append(headingLevel).Append(">").Append(InlineMarkdown(headingText)).Append("</h").Append(headingLevel).AppendLine(">");
+            }
+            else
+            {
+                builder.Append("<p>").Append(InlineMarkdown(line)).AppendLine("</p>");
+            }
+        }
+
+        if (inList)
+        {
+            builder.AppendLine("</ul>");
+        }
+
+        return builder.ToString();
+    }
+
+    private static string InlineMarkdown(string value)
+    {
+        var encoded = WebUtility.HtmlEncode(value);
+        while (TryReplaceDelimited(ref encoded, "**", "<strong>", "</strong>")) { }
+        while (TryReplaceDelimited(ref encoded, "`", "<code>", "</code>")) { }
+        while (TryReplaceDelimited(ref encoded, "*", "<em>", "</em>")) { }
+        return encoded;
+    }
+
+    private static bool TryParseMarkdownHeading(string line, out int level, out string text)
+    {
+        level = 0;
+        text = string.Empty;
+        while (level < line.Length && level < 6 && line[level] == '#')
+        {
+            level++;
+        }
+
+        if (level == 0 || level >= line.Length || line[level] != ' ')
+        {
+            level = 0;
+            return false;
+        }
+
+        text = line[(level + 1)..];
+        return true;
+    }
+
+    private static bool TryReplaceDelimited(ref string value, string delimiter, string openTag, string closeTag)
+    {
+        var start = value.IndexOf(delimiter, StringComparison.Ordinal);
+        if (start < 0)
+        {
+            return false;
+        }
+
+        var end = value.IndexOf(delimiter, start + delimiter.Length, StringComparison.Ordinal);
+        if (end < 0)
+        {
+            return false;
+        }
+
+        value = value[..start] + openTag + value[(start + delimiter.Length)..end] + closeTag + value[(end + delimiter.Length)..];
+        return true;
     }
 
     private void SetActiveResponseTab(string tab)

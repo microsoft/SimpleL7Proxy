@@ -10,6 +10,7 @@ builder.Services.AddSingleton<AuthTokenSettings>();
 builder.Services.AddSingleton<UserSettings>();
 builder.Services.AddSingleton<HeaderSettings>();
 builder.Services.AddSingleton<RequestDebugSettings>();
+builder.Services.AddSingleton<ModelDefaults>();
 builder.Services.Configure<ChatTesterOptions>(
     builder.Configuration.GetSection(ChatTesterOptions.SectionName));
 

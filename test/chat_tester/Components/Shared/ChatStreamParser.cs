@@ -66,6 +66,30 @@ public static class ChatStreamParser
     }
 
     /// <summary>
+    /// Extracts displayable assistant/content text from a complete JSON response body.
+    /// Supports OpenAI chat/responses-style shapes and falls back to an empty string.
+    /// </summary>
+    public static string ExtractDisplayContent(string responseBody)
+    {
+        if (string.IsNullOrWhiteSpace(responseBody) || !LooksLikeJson(responseBody.TrimStart()))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(responseBody);
+            var builder = new StringBuilder();
+            AppendContent(document.RootElement, builder);
+            return builder.ToString().Trim();
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    /// <summary>
     /// Returns the payload of an SSE <c>data:</c> line, or <c>null</c> when the
     /// line is not a data line or is the terminating <c>[DONE]</c> marker.
     /// </summary>
@@ -102,6 +126,16 @@ public static class ChatStreamParser
             return;
         }
 
+        if (root.TryGetProperty("type", out var typeValue) &&
+            typeValue.ValueKind == JsonValueKind.String &&
+            string.Equals(typeValue.GetString(), "response.output_text.delta", StringComparison.OrdinalIgnoreCase) &&
+            root.TryGetProperty("delta", out var outputTextDelta) &&
+            outputTextDelta.ValueKind == JsonValueKind.String)
+        {
+            builder.Append(outputTextDelta.GetString());
+            return;
+        }
+
         if (root.TryGetProperty("choices", out var choices) &&
             choices.ValueKind == JsonValueKind.Array)
         {
@@ -114,6 +148,51 @@ public static class ChatStreamParser
                     choiceContentValue.ValueKind == JsonValueKind.String)
                 {
                     builder.Append(choiceContentValue.GetString());
+                }
+
+                if (choice.ValueKind == JsonValueKind.Object &&
+                    choice.TryGetProperty("message", out var message) &&
+                    message.ValueKind == JsonValueKind.Object &&
+                    message.TryGetProperty("content", out var messageContent) &&
+                    messageContent.ValueKind == JsonValueKind.String)
+                {
+                    builder.Append(messageContent.GetString());
+                }
+            }
+        }
+
+        if (root.TryGetProperty("output_text", out var outputText) &&
+            outputText.ValueKind == JsonValueKind.String)
+        {
+            builder.Append(outputText.GetString());
+        }
+
+        if (root.TryGetProperty("content", out var rootContent) &&
+            rootContent.ValueKind == JsonValueKind.String)
+        {
+            builder.Append(rootContent.GetString());
+        }
+
+        if (root.TryGetProperty("output", out var output) &&
+            output.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in output.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object ||
+                    !item.TryGetProperty("content", out var contentArray) ||
+                    contentArray.ValueKind != JsonValueKind.Array)
+                {
+                    continue;
+                }
+
+                foreach (var contentItem in contentArray.EnumerateArray())
+                {
+                    if (contentItem.ValueKind == JsonValueKind.Object &&
+                        contentItem.TryGetProperty("text", out var textValue) &&
+                        textValue.ValueKind == JsonValueKind.String)
+                    {
+                        builder.Append(textValue.GetString());
+                    }
                 }
             }
         }
