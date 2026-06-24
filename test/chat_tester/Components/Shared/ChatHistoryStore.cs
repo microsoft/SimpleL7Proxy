@@ -51,6 +51,32 @@ public sealed class ChatHistoryStore
         }
     }
 
+    public async Task<bool> DeleteAsync(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return false;
+        }
+
+        await _gate.WaitAsync();
+        try
+        {
+            var index = _entries.FindIndex(entry => string.Equals(entry.Id, id, StringComparison.Ordinal));
+            if (index < 0)
+            {
+                return false;
+            }
+
+            _entries.RemoveAt(index);
+            await SaveCoreAsync();
+            return true;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private void Load()
     {
         if (!File.Exists(_historyFilePath))
