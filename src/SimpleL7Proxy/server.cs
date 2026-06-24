@@ -17,6 +17,7 @@ using SimpleL7Proxy.User;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.Proxy;
+using SimpleL7Proxy.Plugin;
 using SimpleL7Proxy.Async.ServiceBus;
 using System.Text;
 
@@ -462,7 +463,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                 {
                                     bool isValid = false;
                                     string? incomingKey = rd.Headers[_authValidator.ValidateAuthViaKeyHeader]?.Trim();
-                                    bool isBearer = incomingKey != null && incomingKey.StartsWith("Bearer", StringComparison.OrdinalIgnoreCase);
+                                    bool isBearer = incomingKey != null && incomingKey.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase);
                                     string message = string.Empty;
                                     var authMode = _authValidator.ValidateAuthMode;
 
@@ -477,16 +478,12 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                     }
                                     else if (isBearer && authMode is IncomingAuthModeEnum.Mixed or IncomingAuthModeEnum.OAuth2)
                                     {
-                                        var token = incomingKey["Bearer".Length..].Trim();
+                                        var token = incomingKey["Bearer ".Length..].Trim();
                                         (isValid, message, authAppID) = await ValidateBearerTokenAsync(token, message);
                                     }
                                     else if (authMode is IncomingAuthModeEnum.Mixed or IncomingAuthModeEnum.Key)
                                     {
                                         (isValid, message) = ValidateAuthKey(incomingKey, message);
-                                        if (!isValid)
-                                        {
-                                            message = "Invalid Auth Key: " + incomingKey;
-                                        }
                                     }
 
                                     if (!isValid && string.IsNullOrEmpty(message))
@@ -919,7 +916,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
 
         if (!message.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
         {
-            message = "Invalid Auth Key:  " + incomingKey;
+            message = "Invalid Auth Key:  <REDACTED>" ;
         }
 
         return (false, message);
