@@ -4,6 +4,8 @@ using SimpleL7Proxy.Backend.Iterators;
 using SimpleL7Proxy.Events;
 using System.Reflection;
 
+using SimpleL7Proxy.Plugin;
+
 namespace SimpleL7Proxy.Config;
 
 public static class ConfigParser
@@ -30,6 +32,7 @@ public static class ConfigParser
         ("DefaultTTLSecs", "DefaultTTLSecs"),
         ("DependancyHeaders", "DependancyHeaders"),
         ("DisallowedHeaders", "DisallowedHeaders"),
+        ("EnvPluginClass", "EnvPluginClass"),
         ("HealthProbeSidecar", "HealthProbeSidecar"),
         ("LoadBalanceMode", "LoadBalanceMode"),
         ("LogAllRequestHeaders", "LogAllRequestHeaders"),
@@ -121,19 +124,42 @@ public static class ConfigParser
         ("IgnoreSSLCert", "IgnoreSSLCert"),
 
         // ── Identity ──
-        ("CONTAINER_APP_NAME", "ContainerApp"),
-        ("CONTAINER_APP_REVISION", "Revision"),
-        ("CONTAINER_APP_REPLICA_NAME", "ReplicaName"),
         ("Hostname", "HostName"),
         ("RequestIDPrefix", "IDStr"),
     ];
 
+    public static void ApplyConfigPlugin(IConfigPlugin plugin, ProxyConfig defaults)
+    {
+        defaults.ContainerApp = plugin.ContainerName;
+        defaults.ReplicaName = plugin.InstanceID;
+        defaults.Revision = plugin.ConfigInstanceID;
+   }
+
+
+    public static void NonAzureOverrides(string ifExistsEnvVar, string propertyName)
+    {
+        var overrideEnvVarName = Environment.GetEnvironmentVariable(ifExistsEnvVar);
+        if (string.IsNullOrWhiteSpace(overrideEnvVarName) || string.IsNullOrWhiteSpace(propertyName))
+        {
+            return;
+        }
+
+        // find the propertyName in the SimpleFields list
+        for (var i = 0; i < SimpleFields.Length; i++)
+        {
+            if (string.Equals(SimpleFields[i].property, propertyName, StringComparison.OrdinalIgnoreCase))
+            {
+                SimpleFields[i] = (ifExistsEnvVar, SimpleFields[i].property);
+            }
+        }
+    }
 
     // Creates a BackendOptions instance by applying environment variable overrides on top of the defaults
     public static ProxyConfig ApplyEnv(Dictionary<string, string> incoming, ProxyConfig defaults)
     {
         // Start from a copy of the defaults; the loop only overwrites keys present in incoming.
         var opts = defaults.DeepClone();
+
 
         foreach (var (envVarName, propertyName) in SimpleFields)
         {
@@ -212,9 +238,9 @@ public static class ConfigParser
                 case nameof(ProxyConfig.ValidateHeaders):
                     ValidateHeaderSettings(backendOptions);
                     break;
-                //case nameof(ProxyConfig.ValidateAuthConfig):
-                //    ValidateAuthSettings(backendOptions);
-                //    break;
+                    //case nameof(ProxyConfig.ValidateAuthConfig):
+                    //    ValidateAuthSettings(backendOptions);
+                    //    break;
             }
         }
 
@@ -424,7 +450,7 @@ public static class ConfigParser
         }
     }
 
-private static void ValidateAuthSettings(ProxyConfig backendOptions)
+    private static void ValidateAuthSettings(ProxyConfig backendOptions)
     {
         // Keep derived key values in sync with top-level key settings.
         backendOptions.ValidateAuthKey1 = backendOptions.ValidateAuthKey1.ToLowerInvariant();

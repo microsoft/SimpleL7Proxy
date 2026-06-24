@@ -17,6 +17,7 @@ using SimpleL7Proxy.Async;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
 using SimpleL7Proxy.Proxy;
+using SimpleL7Proxy.Plugin;
 using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.StreamProcessor;
 using SimpleL7Proxy.User;
@@ -51,7 +52,7 @@ public class Program
     public static async Task Main(string[] args)
     {
 
-        DateTime StartTime= DateTime.UtcNow; 
+        DateTime StartTime = DateTime.UtcNow;
         var startupLoggerFactory = LoggerFactory.Create(ConfigureLogging);
         var startupLogger = startupLoggerFactory.CreateLogger<Program>();
 
@@ -66,6 +67,7 @@ public class Program
             AppConfigLabel = Environment.GetEnvironmentVariable("AZURE_APPCONFIG_LABEL"),
             AppConfigRefreshIntervalSeconds = int.TryParse(Environment.GetEnvironmentVariable("AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS"), out var refreshInterval) ? refreshInterval : 30,
         };
+
         DefaultCredential defaultCredential = new DefaultCredential(defaultBackendOptions);
 
         var appConfigBootstrap = new AppConfigService(startupLoggerFactory.CreateLogger<AppConfigService>(), defaultBackendOptions, defaultCredential);
@@ -73,6 +75,12 @@ public class Program
         appConfigBootstrap.Start();
 
         var hostBuilder = Host.CreateDefaultBuilder(args)
+            // .ConfigureHostOptions(options =>
+            // {
+            // Keep the proxy alive when a client disconnects or a request-path
+            // exception occurs during response handling; we already log and recover.
+            // options.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore;
+            // })
             .ConfigureLogging(logging =>
             {
                 logging.ClearProviders();
@@ -99,7 +107,7 @@ public class Program
         {
             // Log full exception details including inner exceptions
             logger.LogError(e, "[ERROR] ✗ Unexpected startup error: {Message}", e.Message);
-            
+
             var pe = new ProxyEvent();
             pe.Type = EventType.Exception;
             pe.SendEvent();
@@ -107,7 +115,8 @@ public class Program
 
         // await for the coordinated shutdown to complete before exiting Main, ensuring all cleanup logic runs
         // (RunAsync may return early if the host's ShutdownTimeout expires before StopAsync finishes)
-        try {
+        try
+        {
             var shutdownService = serviceProvider.GetRequiredService<CoordinatedShutdownService>();
             await shutdownService.ShutdownComplete;
         }
@@ -144,7 +153,7 @@ public class Program
         var options = serviceProvider.GetRequiredService<IOptions<ProxyConfig>>();
         Banner.Display(options.Value, appConfigBootstrap.Status());
 
-        appConfigBootstrap.Notifier       = serviceProvider.GetRequiredService<ConfigChangeNotifier>();
+        appConfigBootstrap.Notifier = serviceProvider.GetRequiredService<ConfigChangeNotifier>();
         appConfigBootstrap.HostCollection = serviceProvider.GetRequiredService<IHostHealthCollection>();
 
         var backendTokenProvider = serviceProvider.GetRequiredService<BackendTokenProvider>();
@@ -224,9 +233,12 @@ public class Program
         services.AddSingleton(appConfigBootstrap);
         services.AddSingleton(defaultCredential);
         TryAddCompositeEventClient(services);
-      
+
         // register the backend options
         var result = ConfigFactory.CreateOptions(appConfigBootstrap).GetAwaiter().GetResult();
+
+        // Load environment specific information
+        RegisterConfigOverrides(result.envOptions);
 
         // create a new logger based on configs loaded from App Config
         var startupLogger = startupLoggerFactory.CreateLogger<Program>();
@@ -237,7 +249,7 @@ public class Program
         var backendOptions = result.envOptions;
 
         Console.Out.Flush();
-        
+
         ConfigureAppInsights(services, backendOptions, startupLogger);
         services.RegisterBackendOptions(startupLogger, backendOptions);
 
@@ -257,7 +269,8 @@ public class Program
 
         if (backendOptions.AsyncModeEnabled)
             RegisterAsyncDI(services, startupLogger, backendOptions);
-        else {
+        else
+        {
             // No-op writer satisfies the queued-write contract so consumers that
             // depend on IQueuedBlobWriter can resolve in non-async mode.
             services.AddSingleton<NullBlobWriter>();
@@ -454,6 +467,31 @@ public class Program
         services.AddHostedService<TemplateLoader>(sp => sp.GetRequiredService<TemplateLoader>());
     }
 
+    private static void RegisterConfigOverrides(ProxyConfig envOptions)
+    {
+        try
+        {
+            var pluginClass = envOptions.EnvPluginClass;
+            if (!string.IsNullOrEmpty(pluginClass))
+            {
+                var pluginType = typeof(Program).Assembly.GetType(pluginClass, throwOnError: false);
+                if (pluginType != null && typeof(IConfigPlugin).IsAssignableFrom(pluginType))
+                {
+                    if (Activator.CreateInstance(pluginType) is IConfigPlugin plugin)
+                    {
+                        plugin.ProcessAsync().Wait();
+                        ConfigParser.ApplyConfigPlugin(plugin, envOptions);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // Log the exception but don't let it crash the application
+            Console.WriteLine($"Error occurred while processing config plugin: {ex.Message}");
+        }
+    }
+
     private static void RegisterEventHeaders(IServiceCollection services, ILogger startupLogger, ProxyConfig backendOptions)
     {
         var registered = false;
@@ -515,7 +553,8 @@ public class Program
                 services.AddHostedService(svc => new ReadinessMarker(svc.GetRequiredService<CompositeEventClient>()));
                 continue;
 
-            } else if (loggername == "file")
+            }
+            else if (loggername == "file")
             {
                 services.AddSingleton<LogFileEventClient>(svc =>
                     new LogFileEventClient(backendOptions.LogFileName, svc.GetRequiredService<CompositeEventClient>(), svc.GetRequiredService<IOptions<ProxyConfig>>()));
