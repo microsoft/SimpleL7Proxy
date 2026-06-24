@@ -221,6 +221,13 @@ namespace SimpleL7Proxy.Events
                 sb.Append($"{kvp.Key}: {kvp.Value} ");
               }
               Console.WriteLine($"[{Type}]: {sb} ");
+
+              if ( Type == EventType.Exception && Exception != null )
+              {
+                Console.WriteLine($"Exception: {Exception.Message}"); 
+                Console.WriteLine($"Inner Exception: {Exception.InnerException?.Message}");
+                //Console.WriteLine($"Stack Trace: {Exception.StackTrace}");
+              }
               break;
           }
         }
