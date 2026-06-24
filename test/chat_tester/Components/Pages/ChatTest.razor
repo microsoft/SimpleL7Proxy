@@ -170,7 +170,7 @@
     </div>
 </div>
 
-<div class="card shadow-sm history-card" tabindex="0" @onmouseleave="CancelPendingDelete" @onkeydown="OnHistoryKeyDown" @onclick="CancelPendingDelete">
+<div class="card shadow-sm history-card" tabindex="0" @onmouseenter="ShowDefaultHistoryPreview" @onmouseleave="OnHistoryPanelMouseLeave" @onkeydown="OnHistoryKeyDown" @onclick="CancelPendingDelete">
     <div class="card-header d-flex flex-wrap align-items-baseline gap-2">
         <span class="fw-semibold">Request history</span>
         <span class="history-count">@HistoryCountText</span>
@@ -186,9 +186,12 @@
             <div class="history-buttons" role="list" aria-label="Request history">
                 @foreach (var entry in HistoryEntries)
                 {
-                    <div class="history-item @(entry.Id == SelectedHistoryEntryId ? "active" : string.Empty)" role="listitem">
+                    <div class="history-item @GetHistoryStatusClass(entry) @(IsHistoryPreviewEntry(entry) ? "preview-active" : string.Empty) @(entry.Id == SelectedHistoryEntryId ? "active" : string.Empty)" role="listitem" @onmouseenter="() => ShowHistoryPreview(entry)" @onfocusin="() => ShowHistoryPreview(entry)">
                         <button class="history-button" type="button" @onclick="() => SelectHistoryEntry(entry)">
-                            <span class="history-date">@FormatHistoryDate(entry.CreatedAt)</span>
+                            <span class="history-line">
+                                <span class="history-date">@FormatHistoryDate(entry.CreatedAt)</span>
+                                <span class="history-status-code">@FormatHistoryStatus(entry)</span>
+                            </span>
                             <span class="history-age">@(entry.Id == SelectedHistoryEntryId ? "Showing" : FormatHistoryAge(entry.CreatedAt))</span>
                         </button>
                         <button class="history-delete @(entry.Id == PendingDeleteHistoryEntryId ? "confirm" : string.Empty)" type="button" title="Delete history item" aria-label="Delete history item from @FormatHistoryDate(entry.CreatedAt)" @onclick="() => DeleteHistoryEntryAsync(entry)" @onclick:stopPropagation="true">
@@ -203,6 +206,23 @@
                                 </svg>
                             }
                         </button>
+
+                        @if (IsHistoryPreviewEntry(entry))
+                        {
+                            var summary = GetHistoryRequestSummary(entry);
+
+                            <div class="history-request-summary" aria-hidden="true">
+                                <div class="history-summary-grid">
+                                    <span>Model</span>
+                                    <strong>@summary.Model</strong>
+                                    <span>API</span>
+                                    <strong>@summary.Api</strong>
+                                    <span>Stream</span>
+                                    <strong>@summary.Stream</strong>
+                                </div>
+                                <div class="history-summary-prompt">@summary.Prompt</div>
+                            </div>
+                        }
                     </div>
                 }
             </div>
@@ -382,6 +402,7 @@
     .history-card:hover,
     .history-card:focus-within {
         max-height: 12.5rem;
+        overflow: visible;
         box-shadow: 0 -0.5rem 1.25rem rgba(0, 0, 0, 0.18) !important;
     }
 
@@ -409,6 +430,7 @@
     }
 
     .history-panel-body {
+        position: relative;
         background: #fff;
         border-top: 1px solid rgba(0, 0, 0, 0.075);
     }
@@ -417,21 +439,27 @@
         display: flex;
         flex-wrap: wrap;
         align-content: flex-start;
-        gap: 0.5rem;
+        gap: 0.35rem;
         max-height: 8.75rem;
-        overflow-y: auto;
+        overflow: visible;
     }
 
     .history-item {
-        width: 11.5rem;
-        min-height: 3.5rem;
+        position: relative;
+        width: 9.25rem;
+        min-height: 2.8rem;
         border: 1px solid #ced4da;
         border-radius: 0.375rem;
         background: #fff;
         color: #212529;
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
-        overflow: hidden;
+        overflow: visible;
+    }
+
+    .history-item:hover,
+    .history-item:focus-within {
+        z-index: 2;
     }
 
     .history-item:hover {
@@ -439,10 +467,29 @@
         background: #f8fbff;
     }
 
-    .history-item.active {
-        border-color: #fd7e14;
+    .history-item.history-success {
+        border-color: #75b798;
+        background: #d1e7dd;
+    }
+
+    .history-item.history-failed {
+        border-color: #ea868f;
+        background: #f8d7da;
+    }
+
+    .history-item.history-rate-limited {
+        border-color: #ffda6a;
         background: #fff3cd;
-        box-shadow: inset 0 0 0 2px #fd7e14;
+    }
+
+    .history-item.active {
+        border-color: #0d6efd;
+        box-shadow: inset 0 0 0 2px #0d6efd;
+    }
+
+    .history-item.preview-active:not(.active) {
+        border-color: #0d6efd;
+        box-shadow: inset 0 0 0 1px #0d6efd;
     }
 
     .history-button,
@@ -452,14 +499,15 @@
     }
 
     .history-button {
+        position: relative;
         min-width: 0;
         text-align: left;
-        padding: 0.45rem 0.6rem;
+        padding: 0.35rem 0.45rem;
         color: inherit;
     }
 
     .history-delete {
-        width: 3rem;
+        width: 2.15rem;
         border-left: 1px solid rgba(0, 0, 0, 0.1);
         color: #842029;
         font-size: 0.72rem;
@@ -473,7 +521,7 @@
     }
 
     .history-delete.confirm {
-        width: 4.25rem;
+        width: 3.8rem;
         background: #dc3545;
         color: #fff;
     }
@@ -491,6 +539,7 @@
         vertical-align: middle;
     }
 
+    .history-line,
     .history-date,
     .history-age {
         display: block;
@@ -500,15 +549,80 @@
         white-space: nowrap;
     }
 
+    .history-line {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+    }
+
     .history-date {
         font-weight: 600;
-        font-size: 0.85rem;
+        font-size: 0.78rem;
+        min-width: 0;
+        flex: 1 1 auto;
     }
 
     .history-age {
-        color: #6c757d;
-        font-size: 0.78rem;
-        margin-top: 0.15rem;
+        color: rgba(33, 37, 41, 0.72);
+        font-size: 0.7rem;
+        margin-top: 0.05rem;
+    }
+
+    .history-status-code {
+        flex: 0 0 auto;
+        border-radius: 999px;
+        padding: 0.05rem 0.3rem;
+        background: rgba(255, 255, 255, 0.72);
+        color: #212529;
+        font-size: 0.68rem;
+        font-weight: 700;
+    }
+
+    .history-request-summary {
+        position: absolute;
+        left: 0;
+        bottom: calc(100% + 0.35rem);
+        z-index: 4;
+        width: min(20rem, calc(100vw - 2rem));
+        padding: 0.55rem 0.65rem;
+        border: 1px solid rgba(33, 37, 41, 0.16);
+        border-radius: 0.375rem;
+        background: #212529;
+        color: #fff;
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.22);
+        font-size: 0.74rem;
+        line-height: 1.25;
+        pointer-events: none;
+    }
+
+    .history-summary-grid {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 0.15rem 0.55rem;
+        margin-bottom: 0.35rem;
+    }
+
+    .history-summary-grid span {
+        color: rgba(255, 255, 255, 0.64);
+        font-weight: 600;
+    }
+
+    .history-summary-grid strong {
+        min-width: 0;
+        overflow: hidden;
+        color: #fff;
+        font-weight: 700;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .history-summary-prompt {
+        display: -webkit-box;
+        overflow: hidden;
+        color: rgba(255, 255, 255, 0.92);
+        white-space: pre-wrap;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
     }
 
     @@media (min-width: 992px) {
@@ -602,6 +716,8 @@
         public long TotalBytes { get; set; }
     }
 
+    private sealed record HistoryRequestSummary(string Model, string Api, string Stream, string Prompt);
+
     private const string DefaultPageTagline = "Send a chat-style request and inspect the returned stream.";
 
     private string InitialServerBaseUrl { get; set; } = string.Empty;
@@ -619,6 +735,8 @@
     private string PageTagline { get; set; } = DefaultPageTagline;
     private string? SelectedHistoryEntryId { get; set; }
     private string? PendingDeleteHistoryEntryId { get; set; }
+    private string? PreviewHistoryEntryId { get; set; }
+    private bool IsHistoryPreviewOpen { get; set; }
     private bool IsRunning { get; set; }
     private string StatusMessage { get; set; } = "Ready to send a single request.";
     private string ObservedResponse { get; set; } = "No response yet.";
@@ -636,6 +754,9 @@
     private bool HasProxyError { get; set; }
     private bool HasBackendLog => HasProxyError || ExtractBackendLogHeaders(ResponseHeadersText).Any();
     private IReadOnlyList<ChatHistoryEntry> HistoryEntries => ChatHistoryStore.Entries;
+    private ChatHistoryEntry? ActiveHistoryPreviewEntry => IsHistoryPreviewOpen
+        ? HistoryEntries.FirstOrDefault(entry => string.Equals(entry.Id, PreviewHistoryEntryId, StringComparison.Ordinal)) ?? HistoryEntries.LastOrDefault()
+        : null;
     private string HistoryCountText => HistoryEntries.Count == 1 ? "1 item" : $"{HistoryEntries.Count} items";
     private bool HasResponse => !string.IsNullOrWhiteSpace(ObservedResponse)
         && !ObservedResponse.Equals("No response yet.", StringComparison.OrdinalIgnoreCase)
@@ -802,6 +923,7 @@
         });
 
         SelectedHistoryEntryId = entry.Id;
+    PreviewHistoryEntryId = entry.Id;
         PageTagline = $"Showing response from {FormatHistoryTimestamp(entry.CreatedAt)}.";
     }
 
@@ -809,6 +931,7 @@
     {
         SelectedHistoryEntryId = entry.Id;
         PendingDeleteHistoryEntryId = null;
+        ShowHistoryPreview(entry);
         PageTagline = $"Showing response from {FormatHistoryTimestamp(entry.CreatedAt)}.";
         RequestHeadersText = entry.RequestHeadersText;
         ResponseHeadersText = entry.ResponseHeadersText;
@@ -843,6 +966,24 @@
         }
     }
 
+    private void ShowDefaultHistoryPreview()
+    {
+        IsHistoryPreviewOpen = true;
+        if (string.IsNullOrWhiteSpace(PreviewHistoryEntryId) || !HistoryEntries.Any(entry => string.Equals(entry.Id, PreviewHistoryEntryId, StringComparison.Ordinal)))
+        {
+            PreviewHistoryEntryId = HistoryEntries.LastOrDefault()?.Id;
+        }
+    }
+
+    private void ShowHistoryPreview(ChatHistoryEntry entry)
+    {
+        IsHistoryPreviewOpen = true;
+        PreviewHistoryEntryId = entry.Id;
+    }
+
+    private bool IsHistoryPreviewEntry(ChatHistoryEntry entry) =>
+        IsHistoryPreviewOpen && string.Equals(entry.Id, ActiveHistoryPreviewEntry?.Id, StringComparison.Ordinal);
+
     private async Task DeleteHistoryEntryAsync(ChatHistoryEntry entry)
     {
         if (!string.Equals(PendingDeleteHistoryEntryId, entry.Id, StringComparison.Ordinal))
@@ -855,12 +996,23 @@
         if (await ChatHistoryStore.DeleteAsync(entry.Id))
         {
             PendingDeleteHistoryEntryId = null;
+            if (string.Equals(PreviewHistoryEntryId, entry.Id, StringComparison.Ordinal))
+            {
+                PreviewHistoryEntryId = HistoryEntries.LastOrDefault()?.Id;
+            }
+
             if (wasSelected)
             {
                 SelectedHistoryEntryId = null;
                 PageTagline = DefaultPageTagline;
             }
         }
+    }
+
+    private void OnHistoryPanelMouseLeave()
+    {
+        CancelPendingDelete();
+        IsHistoryPreviewOpen = false;
     }
 
     private void CancelPendingDelete()
@@ -873,6 +1025,7 @@
         if (args.Key.Equals("Escape", StringComparison.OrdinalIgnoreCase))
         {
             CancelPendingDelete();
+            IsHistoryPreviewOpen = false;
         }
     }
 
@@ -1004,6 +1157,290 @@
 
     private static string FormatHistoryDate(DateTimeOffset value) =>
         value.LocalDateTime.ToString("MMM d, h:mm tt", CultureInfo.InvariantCulture);
+
+    private static string FormatHistoryStatus(ChatHistoryEntry entry)
+    {
+        var statusCode = GetHistoryStatusCode(entry);
+        if (statusCode is not null)
+        {
+            return statusCode.Value.ToString(CultureInfo.InvariantCulture);
+        }
+
+        return string.IsNullOrWhiteSpace(entry.Metrics.Status) ? "-" : entry.Metrics.Status;
+    }
+
+    private static HistoryRequestSummary GetHistoryRequestSummary(ChatHistoryEntry entry)
+    {
+        var model = ExtractModelFromEndpoint(entry.EndpointPath);
+        var stream = InferStreamFromEndpoint(entry.EndpointPath);
+
+        if (!string.IsNullOrWhiteSpace(entry.RequestBody))
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(entry.RequestBody);
+                var root = document.RootElement;
+
+                if (TryGetProperty(root, "model", out var modelElement))
+                {
+                    var modelValue = ExtractJsonContent(modelElement);
+                    if (!string.IsNullOrWhiteSpace(modelValue))
+                    {
+                        model = modelValue;
+                    }
+                }
+
+                if (TryGetProperty(root, "stream", out var streamElement))
+                {
+                    stream = FormatJsonBoolean(streamElement);
+                }
+            }
+            catch (JsonException)
+            {
+            }
+        }
+
+        return new HistoryRequestSummary(
+            string.IsNullOrWhiteSpace(model) ? "-" : model,
+            FormatHistoryApi(entry.EndpointPath),
+            stream,
+            FormatHistoryPromptPreview(entry));
+    }
+
+    private static string FormatHistoryPromptPreview(ChatHistoryEntry entry)
+    {
+        var requestBody = entry.RequestBody;
+        if (string.IsNullOrWhiteSpace(requestBody))
+        {
+            return "No prompt captured.";
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(requestBody);
+            if (TryExtractPromptPreview(document.RootElement, out var promptPreview))
+            {
+                return TakePreviewLines(promptPreview);
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return TakePreviewLines(requestBody);
+    }
+
+    private static string FormatHistoryApi(string endpointPath)
+    {
+        if (string.IsNullOrWhiteSpace(endpointPath))
+        {
+            return "-";
+        }
+
+        var endpoint = endpointPath.Split('?', 2)[0];
+        if (endpoint.Contains("chat/completions", StringComparison.OrdinalIgnoreCase))
+        {
+            return "chat/completions";
+        }
+
+        if (endpoint.Contains("responses", StringComparison.OrdinalIgnoreCase))
+        {
+            return "responses";
+        }
+
+        if (endpoint.Contains("messages", StringComparison.OrdinalIgnoreCase))
+        {
+            return "messages";
+        }
+
+        if (endpoint.Contains("streamGenerateContent", StringComparison.OrdinalIgnoreCase))
+        {
+            return "streamGenerateContent";
+        }
+
+        if (endpoint.Contains("generateContent", StringComparison.OrdinalIgnoreCase))
+        {
+            return "generateContent";
+        }
+
+        return endpoint;
+    }
+
+    private static string InferStreamFromEndpoint(string endpointPath) =>
+        endpointPath.Contains("stream", StringComparison.OrdinalIgnoreCase) ? "true" : "-";
+
+    private static string ExtractModelFromEndpoint(string endpointPath)
+    {
+        if (string.IsNullOrWhiteSpace(endpointPath))
+        {
+            return string.Empty;
+        }
+
+        const string marker = "/models/";
+        var markerIndex = endpointPath.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (markerIndex < 0)
+        {
+            return string.Empty;
+        }
+
+        var start = markerIndex + marker.Length;
+        var end = endpointPath.IndexOfAny(new[] { '/', ':', '?' }, start);
+        return end < 0 ? endpointPath[start..] : endpointPath[start..end];
+    }
+
+    private static string FormatJsonBoolean(JsonElement element) => element.ValueKind switch
+    {
+        JsonValueKind.True => "true",
+        JsonValueKind.False => "false",
+        JsonValueKind.String when bool.TryParse(element.GetString(), out var value) => value ? "true" : "false",
+        _ => "-"
+    };
+
+    private static bool TryExtractPromptPreview(JsonElement root, out string promptPreview)
+    {
+        if (TryGetProperty(root, "messages", out var messages) && messages.ValueKind == JsonValueKind.Array)
+        {
+            var fallbackMessage = string.Empty;
+            foreach (var message in messages.EnumerateArray())
+            {
+                var content = TryGetProperty(message, "content", out var contentElement)
+                    ? ExtractJsonContent(contentElement)
+                    : string.Empty;
+
+                if (string.IsNullOrWhiteSpace(content))
+                {
+                    continue;
+                }
+
+                fallbackMessage = content;
+                if (TryGetProperty(message, "role", out var roleElement)
+                    && string.Equals(roleElement.GetString(), "user", StringComparison.OrdinalIgnoreCase))
+                {
+                    promptPreview = content;
+                    return true;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(fallbackMessage))
+            {
+                promptPreview = fallbackMessage;
+                return true;
+            }
+        }
+
+        foreach (var propertyName in new[] { "prompt", "input", "query" })
+        {
+            if (TryGetProperty(root, propertyName, out var propertyValue))
+            {
+                var value = ExtractJsonContent(propertyValue);
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    promptPreview = value;
+                    return true;
+                }
+            }
+        }
+
+        promptPreview = string.Empty;
+        return false;
+    }
+
+    private static string ExtractJsonContent(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.String)
+        {
+            return element.GetString() ?? string.Empty;
+        }
+
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            return string.Join(Environment.NewLine, element.EnumerateArray()
+                .Select(ExtractJsonContent)
+                .Where(content => !string.IsNullOrWhiteSpace(content)));
+        }
+
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var propertyName in new[] { "text", "content", "value" })
+            {
+                if (TryGetProperty(element, propertyName, out var propertyValue))
+                {
+                    var value = ExtractJsonContent(propertyValue);
+                    if (!string.IsNullOrWhiteSpace(value))
+                    {
+                        return value;
+                    }
+                }
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static bool TryGetProperty(JsonElement element, string name, out JsonElement value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static string TakePreviewLines(string value)
+    {
+        var lines = value.Replace("\r", string.Empty)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Take(2)
+            .ToArray();
+
+        var preview = lines.Length == 0 ? value.Trim() : string.Join(Environment.NewLine, lines);
+        const int maximumLength = 220;
+        return preview.Length <= maximumLength ? preview : $"{preview[..maximumLength]}...";
+    }
+
+    private static string GetHistoryStatusClass(ChatHistoryEntry entry)
+    {
+        var statusCode = GetHistoryStatusCode(entry);
+        if (statusCode == 429)
+        {
+            return "history-rate-limited";
+        }
+
+        if (statusCode is >= 200 and < 400)
+        {
+            return "history-success";
+        }
+
+        if (statusCode is >= 400 || string.Equals(entry.Metrics.Status, "Failed", StringComparison.OrdinalIgnoreCase))
+        {
+            return "history-failed";
+        }
+
+        return string.Empty;
+    }
+
+    private static int? GetHistoryStatusCode(ChatHistoryEntry entry)
+    {
+        var status = entry.Metrics.Status;
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            return null;
+        }
+
+        var token = status.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        return int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var statusCode)
+            ? statusCode
+            : null;
+    }
 
     private static string FormatHistoryAge(DateTimeOffset value)
     {
