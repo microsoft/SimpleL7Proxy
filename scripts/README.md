@@ -3,6 +3,8 @@ The scripts in this directory can be used to enable Oauth2 between 3 application
 2. Container app ( which uses managed identity )
 3. APIM ( which only accepts connections from the container app )
 
+Note: On Windows/WSL, Azure CLI `-o tsv` may include trailing carriage returns (`\r`). Sanitize values with `| tr -d '\r'` before reusing IDs/principal values in later Azure commands.
+
 The scripts need to be run in the following order:
 
 1. ca2apimSetup.sh

@@ -54,7 +54,7 @@ fi
 echo -e "${YELLOW}Checking Azure login status...${NC}"
 az account show >/dev/null 2>&1 || az login >/dev/null
 
-SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
+SUBSCRIPTION_ID="$(az account show --query id -o tsv | tr -d '\r')"
 echo -e "${GREEN}Using subscription: ${SUBSCRIPTION_ID}${NC}"
 
 # Get VNet ID
@@ -62,7 +62,7 @@ echo -e "${YELLOW}Getting VNet ID...${NC}"
 VNET_ID=$(az network vnet show \
     --resource-group "${RESOURCE_GROUP}" \
     --name "${VNET_NAME}" \
-    --query id -o tsv)
+    --query id -o tsv | tr -d '\r')
 
 if [ -z "${VNET_ID}" ]; then
     echo -e "${RED}Error: Could not find VNet ${VNET_NAME}.${NC}"
