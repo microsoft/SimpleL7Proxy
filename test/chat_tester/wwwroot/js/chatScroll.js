@@ -20,6 +20,72 @@ window.chatScroll = {
     }
 };
 
+window.chatComposer = {
+    register: function (el, dotNetRef) {
+        if (!el || el._chatComposerRegistered) {
+            return;
+        }
+
+        el._chatComposerRegistered = true;
+        el.addEventListener('keydown', function (event) {
+            if (event.key !== 'Enter' || event.shiftKey) {
+                return;
+            }
+
+            event.preventDefault();
+            dotNetRef.invokeMethodAsync('SubmitComposerAsync');
+        });
+    }
+};
+
+window.chatResponseDetails = {
+    register: function (root) {
+        if (!root || root._chatResponseDetailsRegistered) {
+            return;
+        }
+
+        root._chatResponseDetailsRegistered = true;
+        const setActive = function (event) {
+            const trigger = event.target.closest('.metrics-host, .headers-host, .raw-host');
+            if (!trigger || !root.contains(trigger)) {
+                return;
+            }
+
+            const bubble = trigger.closest('.assistant-bubble');
+            if (!bubble) {
+                return;
+            }
+
+            if (trigger.classList.contains('metrics-host')) {
+                bubble.dataset.activeDetail = 'metrics';
+                return;
+            }
+
+            bubble.dataset.activeDetail = trigger.classList.contains('headers-host') ? 'headers' : 'raw';
+
+            const bubbleRect = bubble.getBoundingClientRect();
+            const rootRect = root.getBoundingClientRect();
+            const availableAbove = bubbleRect.top - rootRect.top;
+            const expectedPanelHeight = Math.min(416, Math.max(220, root.clientHeight * 0.55));
+            bubble.dataset.detailPlacement = availableAbove < expectedPanelHeight ? 'below' : 'above';
+        };
+
+        const clearActive = function (event) {
+            if (!event.target.classList || !event.target.classList.contains('assistant-bubble')) {
+                return;
+            }
+
+            if (root.contains(event.target)) {
+                delete event.target.dataset.activeDetail;
+            }
+        };
+
+        root.addEventListener('pointerenter', setActive, true);
+        root.addEventListener('focusin', setActive, true);
+        root.addEventListener('pointerleave', clearActive, true);
+    }
+};
+
 window.responseSearch = (function () {
     const roots = [];
     let current = null;

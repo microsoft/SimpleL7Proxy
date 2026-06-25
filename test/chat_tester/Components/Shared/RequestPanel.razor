@@ -45,9 +45,12 @@
                 @PromptContent
             </div>
 
-            <button class="btn @SubmitButtonClass" type="submit" disabled="@IsBusy">
-                @(IsBusy ? BusyLabel : SubmitLabel)
-            </button>
+            @if (ShowSubmitButton)
+            {
+                <button class="btn @SubmitButtonClass" type="submit" disabled="@IsBusy">
+                    @(IsBusy ? BusyLabel : SubmitLabel)
+                </button>
+            }
         </EditForm>
     </div>
 </div>
@@ -85,6 +88,9 @@
 
     [Parameter]
     public string SubmitButtonClass { get; set; } = "btn-success";
+
+    [Parameter]
+    public bool ShowSubmitButton { get; set; } = true;
 
     [Parameter]
     public EventCallback OnSubmit { get; set; }

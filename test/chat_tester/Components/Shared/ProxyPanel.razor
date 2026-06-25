@@ -5,7 +5,7 @@
 <div class="proxy-panel rounded border p-3 mb-3">
     <div class="mb-3">
         <label class="form-label">Server base URL</label>
-        <InputText class="form-control" @bind-Value="ServerBaseUrl" />
+        <InputText class="form-control" @bind-Value="Settings.ServerBaseUrl" />
     </div>
 
     <AuthTokenPanel @ref="AuthTokenPanel" Settings="Settings" />
@@ -25,14 +25,14 @@
     [Parameter]
     public string? InitialServerBaseUrl { get; set; }
 
-    public string ServerBaseUrl { get; set; } = string.Empty;
+    public string ServerBaseUrl => Settings.ServerBaseUrl;
     private AuthTokenPanel? AuthTokenPanel { get; set; }
 
     protected override void OnInitialized()
     {
-        if (!string.IsNullOrWhiteSpace(InitialServerBaseUrl))
+        if (string.IsNullOrWhiteSpace(Settings.ServerBaseUrl) && !string.IsNullOrWhiteSpace(InitialServerBaseUrl))
         {
-            ServerBaseUrl = InitialServerBaseUrl;
+            Settings.ServerBaseUrl = InitialServerBaseUrl;
         }
     }
 

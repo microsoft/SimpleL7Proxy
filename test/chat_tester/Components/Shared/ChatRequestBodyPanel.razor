@@ -7,6 +7,8 @@
                 @bind-SelectedModel="SelectedModel"
                 @bind-SelectedApi="SelectedApi"
                 @bind-SimpleMode="SimpleMode"
+                AllowModeToggle="AllowModeToggle"
+                ShowPrompt="ShowPrompt"
                 @bind-Message="SharedMessage"
                 @bind-ContentType="SharedContentType"
                 Rows="Rows" />
@@ -31,6 +33,12 @@
 
     [Parameter]
     public string? InitialContentType { get; set; }
+
+    [Parameter]
+    public bool AllowModeToggle { get; set; } = true;
+
+    [Parameter]
+    public bool ShowPrompt { get; set; } = true;
 
     private ModelPanel? Panel { get; set; }
 

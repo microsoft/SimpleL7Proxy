@@ -2,6 +2,8 @@ namespace chat_tester.Components.Shared;
 
 public class AuthTokenSettings
 {
+    public string ServerBaseUrl { get; set; } = string.Empty;
+    public bool UseAuthorization { get; set; }
     public string HeaderName { get; set; } = string.Empty;
     public string HeaderValuePrefix { get; set; } = "Bearer";
     public string AuthMode { get; set; } = "OAuth";

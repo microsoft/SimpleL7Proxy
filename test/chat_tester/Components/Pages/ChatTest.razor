@@ -1,4 +1,4 @@
-@page "/chat-test"
+@page "/analyze-query"
 @rendermode InteractiveServer
 @inject IOptions<ChatTesterOptions> Options
 @inject IJSRuntime JS
@@ -14,11 +14,11 @@
 @using System.Text.Json
 @using System.Linq
 
-<PageTitle>Chat test</PageTitle>
+<PageTitle>Analyze query</PageTitle>
 
 <SectionContent SectionName="page-heading">
     <div class="d-flex flex-wrap align-items-baseline gap-3">
-        <h1 class="h4 mb-0">Chat test</h1>
+        <h1 class="h4 mb-0">Analyze query</h1>
         <span class="text-muted small mb-0">@PageTagline</span>
     </div>
 </SectionContent>
@@ -31,7 +31,7 @@
                       HeaderSettings="HeaderSettings"
                       InitialServerBaseUrl="@InitialServerBaseUrl"
                       HeaderSubtitle="Send a chat request."
-                      CardTitle="Chat request"
+                      CardTitle="Analyze query"
                       SubmitLabel="Send single chat call"
                       BusyLabel="Sending..."
                       IsBusy="@IsRunning"

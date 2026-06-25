@@ -121,15 +121,14 @@
     [Parameter]
     public AuthTokenSettings Settings { get; set; } = new();
 
-    private bool useAuthorization;
     private bool IsExpanded { get; set; }
 
     private bool UseAuthorization
     {
-        get => useAuthorization;
+        get => Settings.UseAuthorization;
         set
         {
-            useAuthorization = value;
+            Settings.UseAuthorization = value;
             IsExpanded = value || IsExpanded;
             if (!value)
             {
@@ -139,6 +138,11 @@
     }
 
     private string ChevronText => IsExpanded ? "▾" : "▸";
+
+    protected override void OnInitialized()
+    {
+        IsExpanded = Settings.UseAuthorization;
+    }
 
     public async Task<string> ResolveHeaderValueAsync()
     {
