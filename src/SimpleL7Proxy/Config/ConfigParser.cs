@@ -130,29 +130,29 @@ public static class ConfigParser
 
     public static void ApplyConfigPlugin(IConfigPlugin plugin, ProxyConfig defaults)
     {
-        defaults.ContainerApp = plugin.ContainerName;
-        defaults.ReplicaName = plugin.InstanceID;
-        defaults.Revision = plugin.ConfigInstanceID;
+        defaults.ContainerApp = plugin?.ContainerName?.Trim() ?? "N/A";
+        defaults.ReplicaName = plugin?.InstanceID?.Trim() ?? "N/A";
+        defaults.Revision = plugin?.ConfigInstanceID?.Trim() ?? "N/A";
    }
 
 
-    public static void NonAzureOverrides(string ifExistsEnvVar, string propertyName)
-    {
-        var overrideEnvVarName = Environment.GetEnvironmentVariable(ifExistsEnvVar);
-        if (string.IsNullOrWhiteSpace(overrideEnvVarName) || string.IsNullOrWhiteSpace(propertyName))
-        {
-            return;
-        }
+    // public static void NonAzureOverrides(string ifExistsEnvVar, string propertyName)
+    // {
+    //     var overrideEnvVarName = Environment.GetEnvironmentVariable(ifExistsEnvVar);
+    //     if (string.IsNullOrWhiteSpace(overrideEnvVarName) || string.IsNullOrWhiteSpace(propertyName))
+    //     {
+    //         return;
+    //     }
 
-        // find the propertyName in the SimpleFields list
-        for (var i = 0; i < SimpleFields.Length; i++)
-        {
-            if (string.Equals(SimpleFields[i].property, propertyName, StringComparison.OrdinalIgnoreCase))
-            {
-                SimpleFields[i] = (ifExistsEnvVar, SimpleFields[i].property);
-            }
-        }
-    }
+    //     // find the propertyName in the SimpleFields list
+    //     for (var i = 0; i < SimpleFields.Length; i++)
+    //     {
+    //         if (string.Equals(SimpleFields[i].property, propertyName, StringComparison.OrdinalIgnoreCase))
+    //         {
+    //             SimpleFields[i] = (ifExistsEnvVar, SimpleFields[i].property);
+    //         }
+    //     }
+    // }
 
     // Creates a BackendOptions instance by applying environment variable overrides on top of the defaults
     public static ProxyConfig ApplyEnv(Dictionary<string, string> incoming, ProxyConfig defaults)
@@ -183,7 +183,7 @@ public static class ConfigParser
         // Prefer the container-app replica ID over the resolved HostName,
         // since Hostname may be explicitly overridden to a user-friendly value.
         var replicaId = !string.IsNullOrEmpty(opts.ReplicaName) ? opts.ReplicaName : opts.HostName;
-        opts.IDStr = $"{opts.IDStr}-{replicaId}-";
+        opts.CompleteIDstr = $"{opts.IDStr}{replicaId}-";
 
         ApplyDerivedSettingsFromConfigNames(
             opts,

@@ -333,6 +333,7 @@ public class ProxyConfig
     public List<HostConfig> Hosts { get; set; } = [];
     public Dictionary<int, int> PriorityWorkerDict { get; set; } = new() { { 2, 1 }, { 3, 1 } };
     public bool TrackWorkers { get; set; } = true;
+    public string CompleteIDstr { get; set; } = "";
 
     /// <summary>
     /// Creates a deep copy of this instance. Scalar properties are copied directly;
