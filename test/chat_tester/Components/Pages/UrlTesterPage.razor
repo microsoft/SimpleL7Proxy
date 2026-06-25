@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @inject IOptions<ChatTesterOptions> Options
 @inject IJSRuntime JS
+@inject ChatHistoryStore ChatHistoryStore
 @using chat_tester.Components.Shared
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.Extensions.Options
@@ -235,6 +236,7 @@
 
                         UserSettings.ApplyUser(request, requestIndex);
                         HeaderSettings.ApplyHeaders(request, requestIndex);
+                        var requestHeaders = ChatTesterHttp.SummarizeRequestHeaders(request);
 
                         var sw = Stopwatch.StartNew();
                         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
@@ -248,10 +250,44 @@
                         Results.Add(new ProbeResult(
                             requestIndex, endpoint.ToString(), (int)response.StatusCode, outcome,
                             responseHeaders, body, ttfb, sw.Elapsed, contentType, body.Length));
+                        await ChatHistoryStore.AddRequest(new RequestHistoryEntry
+                        {
+                            Source = "URL tester",
+                            Method = SelectedMethod,
+                            ServerBaseUrl = serverBaseUrl,
+                            EndpointPath = endpoint.PathAndQuery,
+                            ContentType = contentType,
+                            RequestHeadersText = requestHeaders,
+                            ResponseHeadersText = responseHeaders,
+                            RequestBody = Payload,
+                            ResponseBody = body,
+                            DisplayResponse = body,
+                            StatusMessage = $"{(int)response.StatusCode} {outcome}".Trim(),
+                            Metrics = new ChatHistoryMetrics
+                            {
+                                Status = $"{(int)response.StatusCode} {outcome}".Trim(),
+                                ContentType = contentType,
+                                TimeToFirstByte = ttfb,
+                                Duration = sw.Elapsed,
+                                TotalBytes = body.Length
+                            }
+                        });
                     }
                     catch (Exception ex)
                     {
                         Results.Add(new ProbeResult(requestIndex, endpoint.ToString(), 0, ex.Message));
+                        await ChatHistoryStore.AddRequest(new RequestHistoryEntry
+                        {
+                            Source = "URL tester",
+                            Method = SelectedMethod,
+                            ServerBaseUrl = serverBaseUrl,
+                            EndpointPath = endpoint.PathAndQuery,
+                            RequestBody = Payload,
+                            ResponseBody = ex.Message,
+                            DisplayResponse = ex.Message,
+                            StatusMessage = "Failed",
+                            Metrics = new ChatHistoryMetrics { Status = "Failed" }
+                        });
                     }
                 }
             }

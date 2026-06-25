@@ -108,6 +108,202 @@ window.probeTable = {
     }
 };
 
+window.requestDetailsPopup = {
+    _current: null,
+    _pending: null,
+    _armed: false,
+    _hideTimer: null,
+    _idleTimer: null,
+    register: function (root) {
+        if (!root || root._requestDetailsPopupRegistered) {
+            return;
+        }
+
+        root._requestDetailsPopupRegistered = true;
+        const self = this;
+
+        const showPanel = function (row, event) {
+            if (!row || !root.contains(row)) {
+                return;
+            }
+
+            if (row === self._current) {
+                return;
+            }
+
+            self.hideCurrent(false);
+            self._current = row;
+
+            const panel = row.querySelector('.request-details-panel');
+            if (!panel) {
+                return;
+            }
+
+            const rowRect = row.getBoundingClientRect();
+            const vh = window.innerHeight;
+            const vw = window.innerWidth;
+            const panelW = Math.min(1120, vw - 16);
+            const panelMaxH = 620;
+
+            const left = Math.max(8, Math.round((vw - panelW) / 2));
+
+            const placeBelow = (event?.clientY || rowRect.top) < vh / 2;
+            let top;
+            if (placeBelow) {
+                top = Math.round(rowRect.bottom);
+                top = Math.min(top, vh - Math.min(panelMaxH, vh - 16) - 8);
+            } else {
+                const availableAbove = Math.max(180, rowRect.top - 8);
+                top = Math.round(rowRect.top) - Math.min(panelMaxH, availableAbove);
+                top = Math.max(8, top);
+            }
+
+            panel.style.cssText =
+                'display:block; position:fixed; left:' + left + 'px; top:' + top + 'px;' +
+                ' width:' + panelW + 'px; max-height:' + panelMaxH + 'px;';
+        };
+
+        const queueShow = function (event) {
+            self.resetIdleTimer();
+            const row = event.target.closest('.request-detail-row');
+            if (!row || !root.contains(row)) {
+                return;
+            }
+
+            if (row === self._current) {
+                return;
+            }
+
+            if (self._hideTimer) {
+                window.clearTimeout(self._hideTimer);
+                self._hideTimer = null;
+            }
+
+            if (self._armed) {
+                showPanel(row, event);
+                return;
+            }
+
+            if (self._pending) {
+                window.clearTimeout(self._pending);
+            }
+
+            self._pending = window.setTimeout(function () {
+                self._armed = true;
+                showPanel(row, event);
+                self._pending = null;
+            }, 1500);
+        };
+
+        root.addEventListener('mouseover', queueShow);
+        root.addEventListener('focusin', queueShow);
+        root.addEventListener('click', function (event) {
+            const closeButton = event.target.closest('.rdp-close');
+            if (closeButton && root.contains(closeButton)) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (self._pending) {
+                    window.clearTimeout(self._pending);
+                    self._pending = null;
+                }
+
+                self.hideCurrent(true);
+                return;
+            }
+
+            const row = event.target.closest('.request-detail-row');
+            if (!row || !root.contains(row)) {
+                return;
+            }
+
+            if (self._pending) {
+                window.clearTimeout(self._pending);
+                self._pending = null;
+            }
+
+            self._armed = true;
+            showPanel(row, event);
+            self.resetIdleTimer();
+        });
+        root.addEventListener('mouseout', function (event) {
+            if (!self._current && !self._pending) {
+                return;
+            }
+
+            const next = event.relatedTarget;
+            const panel = self._current?.querySelector('.request-details-panel');
+            if ((next && self._current?.contains(next)) || (panel && next && panel.contains(next))) {
+                return;
+            }
+
+            self._hideTimer = window.setTimeout(function () {
+                const active = document.elementFromPoint(window._requestDetailsLastX || 0, window._requestDetailsLastY || 0);
+                if (active && (self._current?.contains(active) || panel?.contains(active))) {
+                    return;
+                }
+
+                if (self._pending) {
+                    window.clearTimeout(self._pending);
+                    self._pending = null;
+                }
+
+                self.hideCurrent(true);
+                self._hideTimer = null;
+            }, 350);
+        });
+
+        document.addEventListener('mousemove', function (event) {
+            window._requestDetailsLastX = event.clientX;
+            window._requestDetailsLastY = event.clientY;
+            self.resetIdleTimer();
+        }, { passive: true });
+    },
+    resetIdleTimer: function () {
+        if (this._idleTimer) {
+            window.clearTimeout(this._idleTimer);
+        }
+
+        if (!this._current && !this._pending) {
+            this._idleTimer = null;
+            return;
+        }
+
+        const self = this;
+        this._idleTimer = window.setTimeout(function () {
+            if (self._pending) {
+                window.clearTimeout(self._pending);
+                self._pending = null;
+            }
+
+            self.hideCurrent(true);
+            self._idleTimer = null;
+        }, 30000);
+    },
+    hideCurrent: function (resetArmed) {
+        if (!this._current) {
+            if (resetArmed) {
+                this._armed = false;
+            }
+            return;
+        }
+
+        const panel = this._current.querySelector('.request-details-panel');
+        if (panel) {
+            panel.style.display = 'none';
+        }
+
+        this._current = null;
+        if (resetArmed) {
+            this._armed = false;
+        }
+
+        if (!this._current && !this._pending && this._idleTimer) {
+            window.clearTimeout(this._idleTimer);
+            this._idleTimer = null;
+        }
+    }
+};
+
 window.chatResponseDetails = {
     register: function (root) {
         if (!root || root._chatResponseDetailsRegistered) {

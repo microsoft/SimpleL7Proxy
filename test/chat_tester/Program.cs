@@ -1,7 +1,10 @@
 using chat_tester.Components;
 using chat_tester.Components.Shared;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Configuration.AddJsonFile("chat-models.json", optional: false, reloadOnChange: true);
+builder.Configuration.AddJsonFile($"chat-models.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true);
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
@@ -9,6 +12,7 @@ builder.Services.AddRazorComponents()
 builder.Services.AddSingleton<AuthTokenSettings>();
 builder.Services.AddSingleton<UserSettings>();
 builder.Services.AddSingleton<HeaderSettings>();
+builder.Services.AddSingleton<HistorySettings>();
 builder.Services.AddSingleton<RequestDebugSettings>();
 builder.Services.AddSingleton<ModelDefaults>();
 builder.Services.AddSingleton<ChatHistoryStore>();
@@ -16,7 +20,9 @@ builder.Services.Configure<ChatTesterOptions>(
     builder.Configuration.GetSection(ChatTesterOptions.SectionName));
 
 var app = builder.Build();
-app.Services.GetRequiredService<ChatHistoryStore>();
+app.Services.GetRequiredService<HistorySettings>()
+    .ApplyDefaultsIfMissing(app.Services.GetRequiredService<IOptions<ChatTesterOptions>>().Value.History);
+await app.Services.GetRequiredService<ChatHistoryStore>().ReloadAsync();
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())

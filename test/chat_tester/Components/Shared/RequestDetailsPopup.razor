@@ -1,0 +1,279 @@
+@namespace chat_tester.Components.Shared
+@using System.Globalization
+
+@if (Entry is not null)
+{
+    <div class="request-details-panel">
+        <div class="rdp-header">
+            <div class="rdp-topline">
+                <div class="rdp-status-summary">
+                    <span class="rdp-status-label">Status - @StatusState</span>
+                    <span class="rdp-status">@Entry.Metrics.Status</span>
+                </div>
+                <button type="button" class="rdp-close" aria-label="Close request details" title="Close">×</button>
+            </div>
+            <div class="rdp-title">@RequestTitle</div>
+            <div class="rdp-subtitle">
+                <span>@Entry.Source</span>
+                <span>@FormatTimestamp(Entry.CreatedAt)</span>
+            </div>
+        </div>
+
+        <div class="rdp-grid">
+            <div>
+                <span>Request</span>
+                <strong>@Entry.Method @Entry.EndpointPath</strong>
+            </div>
+            <div>
+                <span>Target</span>
+                <strong>@Entry.ServerBaseUrl</strong>
+            </div>
+            <div>
+                <span>Content-Type</span>
+                <strong>@FormatValue(Entry.Metrics.ContentType)</strong>
+            </div>
+            <div>
+                <span>TTFB</span>
+                <strong>@FormatDuration(Entry.Metrics.TimeToFirstByte)</strong>
+            </div>
+            <div>
+                <span>Duration</span>
+                <strong>@FormatDuration(Entry.Metrics.Duration)</strong>
+            </div>
+            <div>
+                <span>Bytes</span>
+                <strong>@FormatBytes(Entry.Metrics.TotalBytes)</strong>
+            </div>
+        </div>
+
+        <div class="rdp-section">
+            <div class="rdp-label">Request headers</div>
+            <pre>@PreviewText(Entry.RequestHeadersText, 1600)</pre>
+        </div>
+
+        <div class="rdp-section">
+            <div class="rdp-label">Request body</div>
+            <pre>@PreviewText(Entry.RequestBody, 2200)</pre>
+        </div>
+
+        <div class="rdp-section">
+            <div class="rdp-label">Response headers</div>
+            <pre>@PreviewText(Entry.ResponseHeadersText, 1600)</pre>
+        </div>
+
+        <div class="rdp-section">
+            <div class="rdp-label">Response</div>
+            <pre>@PreviewText(ResponseText, 3000)</pre>
+        </div>
+    </div>
+}
+
+<style>
+    .request-details-panel {
+        display: none;
+        background: #fff;
+        border: 1px solid #dee2e6;
+        border-radius: 0.375rem;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+        padding: 0.875rem;
+        font-size: 0.8rem;
+        text-align: left;
+        overflow-y: auto;
+        z-index: 10000;
+    }
+
+    .rdp-header {
+        border-bottom: 1px solid #e9ecef;
+        padding-bottom: 0.75rem;
+        margin-bottom: 0.875rem;
+    }
+
+    .rdp-topline {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .rdp-status-summary {
+        display: inline-flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        min-width: 0;
+    }
+
+    .rdp-status-label {
+        color: #212529;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .rdp-title {
+        color: #212529;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 0.8rem;
+        font-weight: 700;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+    }
+
+    .rdp-subtitle {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        color: #6c757d;
+        font-size: 0.75rem;
+        margin-top: 0.25rem;
+    }
+
+    .rdp-status {
+        background: #6c757d;
+        color: white;
+        border-radius: 999px;
+        padding: 0.125rem 0.5rem;
+        white-space: nowrap;
+        font-weight: 600;
+    }
+
+    .rdp-close {
+        width: 1.75rem;
+        height: 1.75rem;
+        border: 1px solid #ced4da;
+        border-radius: 0.25rem;
+        background: #fff;
+        color: #495057;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.1rem;
+        line-height: 1;
+        padding: 0;
+    }
+
+    .rdp-close:hover,
+    .rdp-close:focus {
+        background: #f1f3f5;
+        color: #212529;
+    }
+
+    .rdp-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.5rem 0.75rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .rdp-grid span,
+    .rdp-label {
+        display: block;
+        color: #6c757d;
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+    }
+
+    .rdp-grid strong {
+        display: block;
+        color: #212529;
+        font-weight: 600;
+        word-break: break-word;
+    }
+
+    .rdp-section { margin-top: 0.625rem; }
+    .rdp-section pre {
+        background: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-radius: 0.25rem;
+        padding: 0.45rem 0.55rem;
+        margin: 0;
+        max-height: 11rem;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 0.74rem;
+    }
+
+    @@media (max-width: 768px) {
+        .rdp-grid { grid-template-columns: 1fr; }
+    }
+</style>
+
+@code {
+    [Parameter]
+    public ChatHistoryEntry? Entry { get; set; }
+
+    private string ResponseText => Entry is null
+        ? string.Empty
+        : string.IsNullOrWhiteSpace(Entry.DisplayResponse) ? Entry.ResponseBody : Entry.DisplayResponse;
+
+    private string StatusState => Entry is null ? "Unknown" : GetStatusState(Entry.Metrics.Status);
+
+    private string RequestTitle => Entry is null ? "-" : BuildRequestTitle(Entry.RequestBody);
+
+    private static string FormatTimestamp(DateTimeOffset value) =>
+        value.LocalDateTime.ToString("MMM d, yyyy h:mm tt", CultureInfo.InvariantCulture);
+
+    private static string FormatDuration(TimeSpan? value) =>
+        value is null ? "-" : $"{value.Value.TotalMilliseconds:0} ms";
+
+    private static string FormatBytes(long bytes) =>
+        bytes.ToString("N0", CultureInfo.InvariantCulture);
+
+    private static string FormatValue(string value) =>
+        string.IsNullOrWhiteSpace(value) ? "-" : value;
+
+    private static string GetStatusState(string status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            return "Unknown";
+        }
+
+        if (status.Contains("fail", StringComparison.OrdinalIgnoreCase) ||
+            status.Contains("error", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Failed";
+        }
+
+        if (status.Contains("cancel", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Canceled";
+        }
+
+        if (status.Contains("timeout", StringComparison.OrdinalIgnoreCase) ||
+            status.Contains("timed out", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Timed out";
+        }
+
+        return "Completed";
+    }
+
+    private static string BuildRequestTitle(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "No request body";
+        }
+
+        var lines = value.Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Split('\n', StringSplitOptions.None)
+            .Take(4);
+
+        return PreviewText(string.Join("\\n", lines), 260);
+    }
+
+    private static string PreviewText(string value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "-";
+        }
+
+        return value.Length <= maxLength ? value : $"{value[..maxLength]}...";
+    }
+}

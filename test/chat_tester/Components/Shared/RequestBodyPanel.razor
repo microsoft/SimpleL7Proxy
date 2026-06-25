@@ -59,6 +59,20 @@
 
     public string ContentType => Panel?.ContentType ?? SharedContentType;
 
+    public async Task LoadRequestAsync(ChatHistoryEntry entry)
+    {
+        InitialEndpointPath = entry.EndpointPath;
+        InitialBody = entry.RequestBody;
+        SharedContentType = string.IsNullOrWhiteSpace(entry.ContentType)
+            ? ChatTesterHttp.JsonContentType
+            : entry.ContentType;
+
+        if (Panel is not null)
+        {
+            await Panel.LoadRequestAsync(new ModelRequest(entry.EndpointPath, entry.RequestBody, SharedContentType));
+        }
+    }
+
     protected override void OnInitialized()
     {
         SharedContentType = !string.IsNullOrWhiteSpace(InitialContentType)

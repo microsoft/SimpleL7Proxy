@@ -78,4 +78,30 @@ public class ChatTesterOptions
     /// <c>{id}</c> token in a value to insert the sequential request number.
     /// </summary>
     public string[] DefaultHeaders { get; set; } = System.Array.Empty<string>();
+
+    public HistoryStorageSettings History { get; set; } = new();
+}
+
+public sealed class HistoryStorageSettings
+{
+    public string Mode { get; set; } = HistoryStorageMode.Disk;
+
+    public string DiskPath { get; set; } = string.Empty;
+
+    public string StorageAccountName { get; set; } = string.Empty;
+
+    public string BlobContainerName { get; set; } = "history";
+
+    public string CosmosAccount { get; set; } = string.Empty;
+
+    public string CosmosDatabase { get; set; } = string.Empty;
+
+    public string CosmosContainer { get; set; } = string.Empty;
+}
+
+public static class HistoryStorageMode
+{
+    public const string Disk = "Disk";
+    public const string BlobStorage = "BlobStorage";
+    public const string CosmosDb = "CosmosDb";
 }

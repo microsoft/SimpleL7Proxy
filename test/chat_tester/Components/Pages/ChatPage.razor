@@ -3,6 +3,7 @@
 @inject IOptions<ChatTesterOptions> Options
 @inject IJSRuntime JS
 @inject RequestDebugSettings DebugSettings
+@inject ChatHistoryStore ChatHistoryStore
 @implements IDisposable
 @using chat_tester.Components.Shared
 @using Microsoft.Extensions.Options
@@ -110,8 +111,8 @@
     }
 
     .multi-step-layout {
-        height: calc(100dvh - 5.75rem);
-        max-height: calc(100dvh - 5.75rem);
+        height: calc(100dvh - 9.25rem);
+        max-height: calc(100dvh - 9.25rem);
         min-height: 0;
         overflow: hidden;
         align-items: stretch;
@@ -190,6 +191,8 @@
     .chat-composer {
         flex: 0 0 auto;
         background: #fff;
+        padding: 0.625rem 1rem 0.875rem;
+        overflow: visible;
     }
 
     .chat-composer-row {
@@ -201,8 +204,13 @@
 
     .chat-composer textarea {
         resize: vertical;
-        min-height: 4.5rem;
-        max-height: 10rem;
+        min-height: 3.5rem;
+        max-height: 5.5rem;
+    }
+
+    .chat-composer .small {
+        min-height: 1.25rem;
+        line-height: 1.25rem;
     }
 
     .composer-send {
@@ -395,6 +403,29 @@
             }
 
             Conversation.Add(new MultiStepChatTurn(currentUserMessage, assistantText, DateTimeOffset.Now, finalStatus, metrics, requestHeadersText, responseHeadersText, rawResponseText));
+            await ChatHistoryStore.AddRequest(new RequestHistoryEntry
+            {
+                Source = "Chat",
+                Method = "POST",
+                ServerBaseUrl = serverBaseUrl,
+                EndpointPath = currentRequest.EndpointPath,
+                ContentType = currentRequest.ContentType,
+                RequestHeadersText = requestHeadersText,
+                ResponseHeadersText = responseHeadersText,
+                RequestBody = requestBody,
+                ResponseBody = rawResponseText,
+                DisplayResponse = assistantText,
+                StatusMessage = finalStatus,
+                Metrics = new ChatHistoryMetrics
+                {
+                    Status = metrics.Status,
+                    ContentType = metrics.ContentType,
+                    TimeToFirstByte = metrics.TimeToFirstByte,
+                    Duration = metrics.Duration,
+                    Chunks = metrics.Chunks,
+                    TotalBytes = metrics.TotalBytes
+                }
+            });
             PendingTurn = null;
             IsRunning = false;
             if (!string.Equals(finalStatus, "Failed", StringComparison.OrdinalIgnoreCase))

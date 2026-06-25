@@ -40,6 +40,14 @@
     public Task<string> ResolveHeaderValueAsync()
         => AuthPanel?.ResolveHeaderValueAsync() ?? Task.FromResult(string.Empty);
 
+    public void LoadServerBaseUrl(string serverBaseUrl)
+    {
+        if (!string.IsNullOrWhiteSpace(serverBaseUrl))
+        {
+            Settings.ServerBaseUrl = serverBaseUrl;
+        }
+    }
+
     /// <summary>Applies the configured authorization header to the request when enabled.</summary>
     public Task ApplyAuthorizationAsync(HttpRequestMessage request)
         => AuthPanel?.ApplyAuthorizationAsync(request) ?? Task.CompletedTask;

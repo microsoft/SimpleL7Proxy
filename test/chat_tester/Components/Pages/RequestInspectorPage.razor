@@ -753,7 +753,7 @@
     private ChatResponseMetrics ResponseMetrics { get; set; } = new();
     private bool HasProxyError { get; set; }
     private bool HasBackendLog => HasProxyError || ExtractBackendLogHeaders(ResponseHeadersText).Any();
-    private IReadOnlyList<ChatHistoryEntry> HistoryEntries => ChatHistoryStore.Entries;
+    private IReadOnlyList<ChatHistoryEntry> HistoryEntries => ChatHistoryStore.GetSnapshot();
     private ChatHistoryEntry? ActiveHistoryPreviewEntry => IsHistoryPreviewOpen
         ? HistoryEntries.FirstOrDefault(entry => string.Equals(entry.Id, PreviewHistoryEntryId, StringComparison.Ordinal)) ?? HistoryEntries.LastOrDefault()
         : null;
@@ -896,9 +896,10 @@
 
     private async Task SaveHistoryEntryAsync(string serverBaseUrl, string endpointPath, string contentType)
     {
-        var entry = await ChatHistoryStore.AddAsync(new ChatHistoryEntry
+        var entry = await ChatHistoryStore.AddRequest(new RequestHistoryEntry
         {
-            CreatedAt = DateTimeOffset.Now,
+            Source = "Request inspector",
+            Method = "POST",
             ServerBaseUrl = serverBaseUrl,
             EndpointPath = endpointPath,
             ContentType = contentType,
@@ -923,16 +924,22 @@
         });
 
         SelectedHistoryEntryId = entry.Id;
-    PreviewHistoryEntryId = entry.Id;
+        PreviewHistoryEntryId = entry.Id;
         PageTagline = $"Showing response from {FormatHistoryTimestamp(entry.CreatedAt)}.";
     }
 
-    private void SelectHistoryEntry(ChatHistoryEntry entry)
+    private async Task SelectHistoryEntry(ChatHistoryEntry entry)
     {
         SelectedHistoryEntryId = entry.Id;
         PendingDeleteHistoryEntryId = null;
         ShowHistoryPreview(entry);
         PageTagline = $"Showing response from {FormatHistoryTimestamp(entry.CreatedAt)}.";
+        FormPanel?.LoadServerBaseUrl(entry.ServerBaseUrl);
+        if (BodyPanel is not null)
+        {
+            await BodyPanel.LoadRequestAsync(entry);
+        }
+
         RequestHeadersText = entry.RequestHeadersText;
         ResponseHeadersText = entry.ResponseHeadersText;
         RequestBodyDisplay = entry.RequestBody;

@@ -123,6 +123,8 @@
     public void ApplyHeaders(HttpRequestMessage request, int requestIndex)
         => HeaderSettings.ApplyHeaders(request, requestIndex);
 
+    public void LoadServerBaseUrl(string serverBaseUrl) => ServerUrlPanel?.LoadServerBaseUrl(serverBaseUrl);
+
     private void SetActiveTab(string tab) => ActiveTab = tab;
 
     private Task HandleSubmitAsync() => OnSubmit.InvokeAsync();

@@ -6,9 +6,14 @@
     </div>
 
     <main>
-        <div class="top-row px-4 d-flex align-items-baseline gap-3">
-            <SectionOutlet SectionName="page-heading" />
-            <a class="ms-auto" href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
+        <div class="top-row px-4 d-flex align-items-center gap-3">
+            <div class="top-row-heading">
+                <SectionOutlet SectionName="page-heading" />
+            </div>
+            <div class="top-row-action ms-auto">
+                <SectionOutlet SectionName="page-action" />
+                <a class="top-row-about" href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
+            </div>
         </div>
 
         <article class="content px-4">

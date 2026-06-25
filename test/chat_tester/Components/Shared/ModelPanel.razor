@@ -227,6 +227,23 @@
     /// <summary>The current editable field defaults for the selected model and API.</summary>
     public IReadOnlyDictionary<string, string> Fields => _fieldValues;
 
+    public async Task LoadRequestAsync(ModelRequest request)
+    {
+        SimpleMode = false;
+        await SimpleModeChanged.InvokeAsync(SimpleMode);
+
+        ContentType = string.IsNullOrWhiteSpace(request.ContentType)
+            ? ChatTesterHttp.JsonContentType
+            : request.ContentType;
+        await ContentTypeChanged.InvokeAsync(ContentType);
+
+        _customBody = request.Body;
+        EnsureSelectedApi();
+        EnsureEndpointState();
+        _pathPrefixes[SelectionKey] = string.Empty;
+        _endpointPaths[SelectionKey] = request.EndpointPath;
+    }
+
     private IReadOnlyList<ApiInfo> AvailableApis => ModelDefaults.ApisForModel(SelectedModel);
 
     private IReadOnlyList<KeyValuePair<string, string>> FieldsForDisplay => _fieldValues

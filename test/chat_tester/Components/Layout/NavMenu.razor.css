@@ -162,7 +162,8 @@
 }
 
 /* Hide the empty section-label spacer entirely when collapsed */
-.nav-menu.collapsed .nav-item.mt-3 {
+.nav-menu.collapsed .nav-item.mt-3,
+.nav-menu.collapsed .nav-section-item {
     display: none;
 }
 

@@ -2,11 +2,15 @@
 @rendermode InteractiveServer
 @inject IOptions<ChatTesterOptions> Options
 @inject RequestDebugSettings DebugSettings
+@inject ChatHistoryStore ChatHistoryStore
+@inject IJSRuntime JS
 @using chat_tester.Components.Shared
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.Extensions.Options
+@using Microsoft.JSInterop
 @using System.Diagnostics
 @using System.Linq
+@using System.Text
 
 <PageTitle>Stress test</PageTitle>
 
@@ -78,7 +82,7 @@
                     </div>
 
                     <div style="max-height: 480px; overflow-y: auto;">
-                        <table class="table table-sm table-striped align-middle mb-0">
+                        <table class="table table-sm table-striped align-middle mb-0" @ref="ResultsTable">
                             <thead class="table-light sticky-top">
                                 <tr>
                                     <th>#</th>
@@ -91,7 +95,7 @@
                             <tbody>
                                 @foreach (var result in Results.OrderBy(r => r.Index))
                                 {
-                                    <tr class="@(result.IsSuccess ? string.Empty : "table-danger")">
+                                    <tr class="request-detail-row @(result.IsSuccess ? string.Empty : "table-danger")" tabindex="0">
                                         <td>@(result.Index + 1)</td>
                                         <td>
                                             @if (result.Error is not null)
@@ -105,7 +109,10 @@
                                         </td>
                                         <td class="text-end">@result.Bytes.ToString("N0")</td>
                                         <td class="text-end">@result.TtfbMs</td>
-                                        <td class="text-end">@result.TotalMs</td>
+                                        <td class="text-end">
+                                            @result.TotalMs
+                                            <RequestDetailsPopup Entry="result.HistoryEntry" />
+                                        </td>
                                     </tr>
                                 }
                             </tbody>
@@ -131,6 +138,7 @@
     private HeaderSettings HeaderSettings { get; set; } = default!;
     private TestFormPanel? FormPanel { get; set; }
     private RequestBodyPanel? BodyPanel { get; set; }
+    private ElementReference ResultsTable { get; set; }
     private string InitialRequestBody { get; set; } = string.Empty;
 
     private bool IsRunning { get; set; }
@@ -152,6 +160,22 @@
         AuthSettings.ApplyDefaultsIfMissing(options.AuthorizationHeaderName, options.AuthorizationHeaderPrefix);
         UserSettings.ApplyDefaultsIfMissing(options.UserHeaderName, options.PriorityKeyHeader, options.UserNames);
         HeaderSettings.ApplyDefaultsIfMissing(options.DefaultHeaders);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Results.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("requestDetailsPopup.register", ResultsTable);
+        }
+        catch (JSException)
+        {
+        }
     }
 
     private async Task RunStressTestAsync()
@@ -200,7 +224,7 @@
 
         var overall = Stopwatch.StartNew();
         var tasks = Enumerable.Range(0, count)
-            .Select(i => RunSingleAsync(client, i, uri, requestBody, contentType, headerName, headerValue))
+            .Select(i => RunSingleAsync(client, i, serverBaseUrl, endpointPath, uri, requestBody, contentType, headerName, headerValue))
             .ToArray();
 
         var results = await Task.WhenAll(tasks);
@@ -212,11 +236,13 @@
         StateHasChanged();
     }
 
-    private async Task<RequestResult> RunSingleAsync(HttpClient client, int index, Uri uri, string body, string contentType, string headerName, string headerValue)
+    private async Task<RequestResult> RunSingleAsync(HttpClient client, int index, string serverBaseUrl, string endpointPath, Uri uri, string body, string contentType, string headerName, string headerValue)
     {
         var stopwatch = Stopwatch.StartNew();
         long ttfb = -1;
         long bytes = 0;
+        var responsePreview = new StringBuilder();
+        var requestHeaders = string.Empty;
 
         try
         {
@@ -230,8 +256,10 @@
             UserSettings.ApplyUser(request, index);
             HeaderSettings.ApplyHeaders(request, index);
             ChatTesterHttp.ApplyDebugHeader(request, DebugSettings);
+            requestHeaders = ChatTesterHttp.SummarizeRequestHeaders(request);
 
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+            var responseHeaders = ChatTesterHttp.SummarizeResponseHeaders(response);
             using var stream = await response.Content.ReadAsStreamAsync();
             var buffer = new byte[8192];
             int read;
@@ -243,6 +271,10 @@
                 }
 
                 bytes += read;
+                if (responsePreview.Length < 65536)
+                {
+                    responsePreview.Append(Encoding.UTF8.GetString(buffer, 0, read));
+                }
             }
 
             stopwatch.Stop();
@@ -261,6 +293,29 @@
                 IsSuccess = response.IsSuccessStatusCode
             };
 
+            result.HistoryEntry = await ChatHistoryStore.AddRequest(new RequestHistoryEntry
+            {
+                Source = "Stress test",
+                Method = "POST",
+                ServerBaseUrl = serverBaseUrl,
+                EndpointPath = endpointPath,
+                ContentType = contentType,
+                RequestHeadersText = requestHeaders,
+                ResponseHeadersText = responseHeaders,
+                RequestBody = body,
+                ResponseBody = responsePreview.ToString(),
+                DisplayResponse = responsePreview.ToString(),
+                StatusMessage = result.StatusCode.ToString(),
+                Metrics = new ChatHistoryMetrics
+                {
+                    Status = result.StatusCode.ToString(),
+                    ContentType = response.Content.Headers.ContentType?.ToString() ?? "-",
+                    TimeToFirstByte = TimeSpan.FromMilliseconds(ttfb),
+                    Duration = TimeSpan.FromMilliseconds(result.TotalMs),
+                    TotalBytes = bytes
+                }
+            });
+
             await OnRequestCompletedAsync();
             return result;
         }
@@ -277,6 +332,26 @@
                 IsSuccess = false,
                 Error = ex.Message
             };
+
+            result.HistoryEntry = await ChatHistoryStore.AddRequest(new RequestHistoryEntry
+            {
+                Source = "Stress test",
+                Method = "POST",
+                ServerBaseUrl = serverBaseUrl,
+                EndpointPath = endpointPath,
+                ContentType = contentType,
+                RequestHeadersText = requestHeaders,
+                RequestBody = body,
+                ResponseBody = ex.Message,
+                DisplayResponse = ex.Message,
+                StatusMessage = "Failed",
+                Metrics = new ChatHistoryMetrics
+                {
+                    Status = "Failed",
+                    Duration = TimeSpan.FromMilliseconds(result.TotalMs),
+                    TotalBytes = bytes
+                }
+            });
 
             await OnRequestCompletedAsync();
             return result;
@@ -315,5 +390,6 @@
         public long TotalMs { get; set; }
         public bool IsSuccess { get; set; }
         public string? Error { get; set; }
+        public ChatHistoryEntry? HistoryEntry { get; set; }
     }
 }

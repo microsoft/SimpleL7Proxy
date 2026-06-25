@@ -1,6 +1,7 @@
 @page "/abort-test"
 @rendermode InteractiveServer
 @inject IOptions<ChatTesterOptions> Options
+@inject ChatHistoryStore ChatHistoryStore
 @using chat_tester.Components.Shared
 @using Microsoft.Extensions.Options
 
@@ -177,22 +178,65 @@
                 var targetPath = targets[(index - 1) % targets.Count];
                 var endpoint = ChatTesterHttp.BuildSessionEndpoint(serverBaseUrl, targetPath, index);
                 var request = BuildRequest(endpoint, index, headerName, headerValue);
+                var requestHeaders = ChatTesterHttp.SummarizeRequestHeaders(request);
                 var cts = new CancellationTokenSource(Math.Max(1, AbortDelayMilliseconds));
 
                 try
                 {
                     var sw = System.Diagnostics.Stopwatch.StartNew();
-                    await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cts.Token);
+                    using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cts.Token);
                     sw.Stop();
+                    var responseHeaders = ChatTesterHttp.SummarizeResponseHeaders(response);
                     Results.Add(new ScenarioResult(index, endpoint.ToString(), "Completed unexpectedly", (int)sw.ElapsedMilliseconds));
+                    await ChatHistoryStore.AddRequest(new RequestHistoryEntry
+                    {
+                        Source = "Abort test",
+                        Method = SelectedMethod,
+                        ServerBaseUrl = serverBaseUrl,
+                        EndpointPath = endpoint.PathAndQuery,
+                        RequestHeadersText = requestHeaders,
+                        ResponseHeadersText = responseHeaders,
+                        RequestBody = Payload,
+                        StatusMessage = "Completed unexpectedly",
+                        Metrics = new ChatHistoryMetrics
+                        {
+                            Status = $"{(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}".Trim(),
+                            ContentType = response.Content.Headers.ContentType?.ToString() ?? "-",
+                            Duration = sw.Elapsed
+                        }
+                    });
                 }
                 catch (OperationCanceledException)
                 {
                     Results.Add(new ScenarioResult(index, endpoint.ToString(), "Canceled before response", 0));
+                    await ChatHistoryStore.AddRequest(new RequestHistoryEntry
+                    {
+                        Source = "Abort test",
+                        Method = SelectedMethod,
+                        ServerBaseUrl = serverBaseUrl,
+                        EndpointPath = endpoint.PathAndQuery,
+                        RequestHeadersText = requestHeaders,
+                        RequestBody = Payload,
+                        StatusMessage = "Canceled before response",
+                        Metrics = new ChatHistoryMetrics { Status = "Canceled" }
+                    });
                 }
                 catch (Exception ex)
                 {
                     Results.Add(new ScenarioResult(index, endpoint.ToString(), ex.Message, 0));
+                    await ChatHistoryStore.AddRequest(new RequestHistoryEntry
+                    {
+                        Source = "Abort test",
+                        Method = SelectedMethod,
+                        ServerBaseUrl = serverBaseUrl,
+                        EndpointPath = endpoint.PathAndQuery,
+                        RequestHeadersText = requestHeaders,
+                        RequestBody = Payload,
+                        ResponseBody = ex.Message,
+                        DisplayResponse = ex.Message,
+                        StatusMessage = "Failed",
+                        Metrics = new ChatHistoryMetrics { Status = "Failed" }
+                    });
                 }
                 finally
                 {
