@@ -80,6 +80,8 @@ public class ChatTesterOptions
     public string[] DefaultHeaders { get; set; } = System.Array.Empty<string>();
 
     public HistoryStorageSettings History { get; set; } = new();
+
+    public ConversationStorageSettings Conversations { get; set; } = new();
 }
 
 public sealed class HistoryStorageSettings

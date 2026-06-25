@@ -13,16 +13,22 @@ builder.Services.AddSingleton<AuthTokenSettings>();
 builder.Services.AddSingleton<UserSettings>();
 builder.Services.AddSingleton<HeaderSettings>();
 builder.Services.AddSingleton<HistorySettings>();
+builder.Services.AddSingleton<ConversationSettings>();
 builder.Services.AddSingleton<RequestDebugSettings>();
 builder.Services.AddSingleton<ModelDefaults>();
 builder.Services.AddSingleton<ChatHistoryStore>();
+builder.Services.AddSingleton<ChatConversationStore>();
 builder.Services.Configure<ChatTesterOptions>(
     builder.Configuration.GetSection(ChatTesterOptions.SectionName));
 
 var app = builder.Build();
+var chatTesterOptions = app.Services.GetRequiredService<IOptions<ChatTesterOptions>>().Value;
 app.Services.GetRequiredService<HistorySettings>()
-    .ApplyDefaultsIfMissing(app.Services.GetRequiredService<IOptions<ChatTesterOptions>>().Value.History);
+    .ApplyDefaultsIfMissing(chatTesterOptions.History);
+app.Services.GetRequiredService<ConversationSettings>()
+    .ApplyDefaultsIfMissing(chatTesterOptions.Conversations);
 await app.Services.GetRequiredService<ChatHistoryStore>().ReloadAsync();
+await app.Services.GetRequiredService<ChatConversationStore>().ReloadAsync();
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())

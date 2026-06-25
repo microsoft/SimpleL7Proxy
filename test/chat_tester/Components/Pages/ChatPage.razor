@@ -4,6 +4,7 @@
 @inject IJSRuntime JS
 @inject RequestDebugSettings DebugSettings
 @inject ChatHistoryStore ChatHistoryStore
+@inject ChatConversationStore ChatConversationStore
 @implements IDisposable
 @using chat_tester.Components.Shared
 @using Microsoft.Extensions.Options
@@ -52,7 +53,17 @@
             <div class="card-header bg-primary text-white d-flex flex-wrap align-items-baseline gap-2">
                 <span class="fw-semibold">Chat</span>
                 <span class="text-white-50 small">@StatusMessage</span>
-                <button class="btn btn-sm btn-light ms-auto" type="button" disabled="@(IsRunning || Conversation.Count == 0)" @onclick="ClearConversation">Clear</button>
+                <div class="conversation-toolbar ms-auto">
+                    <select class="form-select form-select-sm conversation-select" value="@SelectedConversationId" @onchange="OnConversationChangedAsync" disabled="@IsRunning" title="Recall a previous conversation">
+                        <option value="">New conversation</option>
+                        @foreach (var conversation in ConversationChoices)
+                        {
+                            <option value="@conversation.Id">@FormatConversationOption(conversation)</option>
+                        }
+                    </select>
+                    <button class="btn btn-sm btn-light" type="button" disabled="@IsRunning" @onclick="StartNewConversation">New</button>
+                    <button class="btn btn-sm btn-light" type="button" disabled="@(IsRunning || Conversation.Count == 0)" @onclick="ClearConversation">Clear</button>
+                </div>
             </div>
             <div class="card-body p-0">
                 <div class="conversation-scroll" @ref="ConversationRef">
@@ -154,6 +165,17 @@
         overflow: hidden;
     }
 
+    .conversation-toolbar {
+        display: grid;
+        grid-template-columns: minmax(12rem, 20rem) auto auto;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    .conversation-select {
+        min-width: 0;
+    }
+
     .conversation-scroll {
         height: 100%;
         max-height: 100%;
@@ -237,6 +259,11 @@
             grid-template-columns: 1fr;
         }
 
+        .conversation-toolbar {
+            width: 100%;
+            grid-template-columns: minmax(0, 1fr) auto auto;
+        }
+
         .composer-send {
             width: 100%;
         }
@@ -277,6 +304,9 @@
     private ElementReference ConversationRef;
     private ElementReference ChatInputRef;
     private List<MultiStepChatTurn> Conversation { get; } = new();
+    private IReadOnlyList<ChatConversationSummary> ConversationChoices { get; set; } = Array.Empty<ChatConversationSummary>();
+    private string ActiveConversationId { get; set; } = string.Empty;
+    private string SelectedConversationId { get; set; } = string.Empty;
     private PendingChatTurn? PendingTurn { get; set; }
     private bool IsRunning { get; set; }
     private string StatusMessage { get; set; } = "Ready.";
@@ -294,6 +324,7 @@
         AuthSettings.ApplyDefaultsIfMissing(options.AuthorizationHeaderName, options.AuthorizationHeaderPrefix);
         UserSettings.ApplyDefaultsIfMissing(options.UserHeaderName, options.PriorityKeyHeader, options.UserNames);
         HeaderSettings.ApplyDefaultsIfMissing(options.DefaultHeaders);
+        RefreshConversationChoices();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -332,6 +363,7 @@
             return;
         }
 
+        var conversationId = EnsureConversationId();
         var requestBody = MultiStepChatRequestBuilder.Build(currentRequest.Body, Conversation, currentUserMessage);
         PendingTurn = new PendingChatTurn
         {
@@ -402,7 +434,24 @@
                 rawResponseText = assistantText;
             }
 
-            Conversation.Add(new MultiStepChatTurn(currentUserMessage, assistantText, DateTimeOffset.Now, finalStatus, metrics, requestHeadersText, responseHeadersText, rawResponseText));
+            var completedTurn = new MultiStepChatTurn(currentUserMessage, assistantText, DateTimeOffset.Now, finalStatus, metrics, requestHeadersText, responseHeadersText, rawResponseText);
+            Conversation.Add(completedTurn);
+            await ChatConversationStore.AddMessageAsync(new NewConversationMessage
+            {
+                ConversationId = conversationId,
+                Method = "POST",
+                ServerBaseUrl = serverBaseUrl,
+                EndpointPath = currentRequest.EndpointPath,
+                ContentType = currentRequest.ContentType,
+                RequestHeadersText = requestHeadersText,
+                ResponseHeadersText = responseHeadersText,
+                RequestBody = requestBody,
+                RawResponseText = rawResponseText,
+                UserMessage = currentUserMessage,
+                AssistantMessage = assistantText,
+                Status = finalStatus,
+                Metrics = metrics
+            });
             await ChatHistoryStore.AddRequest(new RequestHistoryEntry
             {
                 Source = "Chat",
@@ -435,6 +484,7 @@
 
             StatusMessage = $"{finalStatus} in {stopwatch.Elapsed.TotalMilliseconds:0} ms";
             LastRequestSummary = $"Last request included {Conversation.Count} turn(s).";
+            RefreshConversationChoices();
             StateHasChanged();
         }
     }
@@ -494,12 +544,110 @@
     [JSInvokable]
     public Task SubmitComposerAsync() => CanSend ? SendNextTurnAsync() : Task.CompletedTask;
 
-    private void ClearConversation()
+    private async Task OnConversationChangedAsync(ChangeEventArgs args)
+    {
+        var conversationId = args.Value?.ToString() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(conversationId))
+        {
+            StartNewConversation();
+            return;
+        }
+
+        await LoadConversationAsync(conversationId);
+    }
+
+    private async Task LoadConversationAsync(string conversationId)
+    {
+        var conversation = await ChatConversationStore.GetConversationAsync(conversationId);
+        if (conversation.Messages.Count == 0)
+        {
+            SelectedConversationId = ActiveConversationId;
+            StatusMessage = "Conversation not found.";
+            RefreshConversationChoices();
+            return;
+        }
+
+        Conversation.Clear();
+        foreach (var message in conversation.Messages)
+        {
+            Conversation.Add(new MultiStepChatTurn(
+                message.UserMessage,
+                message.AssistantMessage,
+                message.CreatedAt,
+                message.Status,
+                message.Metrics,
+                message.RequestHeadersText,
+                message.ResponseHeadersText,
+                message.RawResponseText));
+        }
+
+        ActiveConversationId = conversation.Id;
+        SelectedConversationId = conversation.Id;
+        PendingTurn = null;
+        IsRunning = false;
+        ChatInput = string.Empty;
+
+        var lastMessage = conversation.Messages.Last();
+        FormPanel?.LoadServerBaseUrl(lastMessage.ServerBaseUrl);
+        if (BodyPanel is not null)
+        {
+            await BodyPanel.LoadRequestAsync(new ChatHistoryEntry
+            {
+                EndpointPath = lastMessage.EndpointPath,
+                RequestBody = lastMessage.RequestBody,
+                ContentType = lastMessage.ContentType
+            });
+        }
+
+        RefreshConversationChoices();
+        StatusMessage = $"Loaded {Conversation.Count} turn{(Conversation.Count == 1 ? string.Empty : "s")}.";
+        LastRequestSummary = $"Continuing conversation {ShortId(ActiveConversationId)}.";
+    }
+
+    private void StartNewConversation()
     {
         Conversation.Clear();
         PendingTurn = null;
+        ActiveConversationId = string.Empty;
+        SelectedConversationId = string.Empty;
         StatusMessage = "Ready.";
         LastRequestSummary = "No request sent yet.";
+        ChatInput = string.Empty;
+        RefreshConversationChoices();
+    }
+
+    private void ClearConversation()
+    {
+        StartNewConversation();
+    }
+
+    private string EnsureConversationId()
+    {
+        if (string.IsNullOrWhiteSpace(ActiveConversationId))
+        {
+            ActiveConversationId = Guid.NewGuid().ToString("N");
+        }
+
+        SelectedConversationId = ActiveConversationId;
+        return ActiveConversationId;
+    }
+
+    private void RefreshConversationChoices()
+    {
+        ConversationChoices = ChatConversationStore.GetSnapshot();
+    }
+
+    private static string FormatConversationOption(ChatConversationSummary conversation)
+    {
+        var when = conversation.UpdatedAt.LocalDateTime.ToString("MMM d HH:mm", CultureInfo.InvariantCulture);
+        return $"{when} - {conversation.Title} ({conversation.MessageCount})";
+    }
+
+    private static string ShortId(string conversationId)
+    {
+        return string.IsNullOrWhiteSpace(conversationId)
+            ? "new"
+            : conversationId[..Math.Min(8, conversationId.Length)];
     }
 
     public void Dispose()
