@@ -237,7 +237,7 @@ public class Program
         // register the backend options
         var result = ConfigFactory.CreateOptions(appConfigBootstrap).GetAwaiter().GetResult();
 
-        // Load environment specific information
+        // Load cloud specific config information
         RegisterConfigOverrides(result.envOptions);
 
         // create a new logger based on configs loaded from App Config
@@ -467,6 +467,11 @@ public class Program
         services.AddHostedService<TemplateLoader>(sp => sp.GetRequiredService<TemplateLoader>());
     }
 
+
+    /// <summary>
+    /// Loads and applies the configured environment plugin so cloud-specific settings can override proxy options.
+    /// </summary>
+    
     private static void RegisterConfigOverrides(ProxyConfig envOptions)
     {
         try
@@ -492,6 +497,7 @@ public class Program
         }
     }
 
+    // Summary: Register the event headers for the proxy
     private static void RegisterEventHeaders(IServiceCollection services, ILogger startupLogger, ProxyConfig backendOptions)
     {
         var registered = false;

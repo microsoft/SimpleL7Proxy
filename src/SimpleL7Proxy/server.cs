@@ -359,12 +359,16 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                     int notEnquedCode = 0;
                     var retrymsg = "";
                     var logmsg = "";
+                    var requestGuid = Guid.NewGuid();
 
-                    counter++;
-                    var requestId = _options.IDStr + counter.ToString();
+                    var requestId = $"{_options.CompleteIDstr}{requestGuid}_{++counter}";
 
                     //delayCts.Cancel();
-                    var rd = new RequestData(lc, requestId);
+                    var rd = new RequestData(lc, requestId)
+                    {
+                        Guid = requestGuid
+                    };
+
                     ed = rd.EventData;
                     ed["Date"] = DateTime.UtcNow.ToString("o");
                     ed.Uri = rd.Context!.Request.Url!;
@@ -695,7 +699,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                 }
 
                                 // Determine priority boost based on the UserID
-                                rd.Guid = _userPriority.addRequest(rd.UserID);
+                                _userPriority.addRequest(requestGuid, rd.UserID );
                                 bool shouldBoost = _userPriority.boostIndicator(rd.UserID, out float boostValue);
                                 userPriorityBoost = shouldBoost ? 1 : 0;
 
