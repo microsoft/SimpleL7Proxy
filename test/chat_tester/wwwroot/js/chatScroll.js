@@ -38,6 +38,76 @@ window.chatComposer = {
     }
 };
 
+window.probeTable = {
+    _current: null,
+    register: function (tableEl) {
+        if (!tableEl || tableEl._probeTableRegistered) {
+            return;
+        }
+        tableEl._probeTableRegistered = true;
+        const self = this;
+
+        tableEl.addEventListener('mouseover', function (e) {
+            const row = e.target.closest('tr.result-row');
+            if (!row || !tableEl.contains(row)) {
+                return;
+            }
+            if (row === self._current) {
+                return;
+            }
+
+            // hide previous panel
+            if (self._current) {
+                const prev = self._current.querySelector('.probe-summary-panel');
+                if (prev) {
+                    prev.style.display = 'none';
+                }
+            }
+            self._current = row;
+
+            const panel = row.querySelector('.probe-summary-panel');
+            if (!panel) {
+                return;
+            }
+
+            const rowRect = row.getBoundingClientRect();
+            const vh = window.innerHeight;
+            const vw = window.innerWidth;
+            const panelW = 700;
+            const panelMaxH = 460;
+
+            // horizontal: align to right edge of row, clamped inside viewport
+            let left = Math.round(rowRect.right) - panelW;
+            left = Math.max(8, Math.min(left, vw - panelW - 8));
+
+            // vertical: show below when there is room, above otherwise
+            const spaceBelow = vh - rowRect.bottom - 8;
+            const spaceAbove = rowRect.top - 8;
+            let top;
+            if (spaceBelow >= 180 || spaceBelow >= spaceAbove) {
+                top = Math.round(rowRect.bottom) + 2;
+            } else {
+                const clampedH = Math.min(panelMaxH, spaceAbove);
+                top = Math.round(rowRect.top) - clampedH - 2;
+            }
+
+            panel.style.cssText =
+                'display:block; position:fixed; left:' + left + 'px; top:' + top + 'px;' +
+                ' width:' + panelW + 'px; max-height:' + panelMaxH + 'px;';
+        });
+
+        tableEl.addEventListener('mouseleave', function () {
+            if (self._current) {
+                const panel = self._current.querySelector('.probe-summary-panel');
+                if (panel) {
+                    panel.style.display = 'none';
+                }
+                self._current = null;
+            }
+        });
+    }
+};
+
 window.chatResponseDetails = {
     register: function (root) {
         if (!root || root._chatResponseDetailsRegistered) {
