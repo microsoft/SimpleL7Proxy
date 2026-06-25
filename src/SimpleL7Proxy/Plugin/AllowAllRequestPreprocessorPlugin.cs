@@ -1,4 +1,4 @@
-using SimpleL7Proxy.Plugin;
+namespace SimpleL7Proxy.Plugin;
 
 /// <summary>
 /// Default no-op plugin so the pipeline always has a safe baseline implementation.
