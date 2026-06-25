@@ -436,22 +436,31 @@
 
             var completedTurn = new MultiStepChatTurn(currentUserMessage, assistantText, DateTimeOffset.Now, finalStatus, metrics, requestHeadersText, responseHeadersText, rawResponseText);
             Conversation.Add(completedTurn);
-            await ChatConversationStore.AddMessageAsync(new NewConversationMessage
+            var conversationSaveError = string.Empty;
+            try
             {
-                ConversationId = conversationId,
-                Method = "POST",
-                ServerBaseUrl = serverBaseUrl,
-                EndpointPath = currentRequest.EndpointPath,
-                ContentType = currentRequest.ContentType,
-                RequestHeadersText = requestHeadersText,
-                ResponseHeadersText = responseHeadersText,
-                RequestBody = requestBody,
-                RawResponseText = rawResponseText,
-                UserMessage = currentUserMessage,
-                AssistantMessage = assistantText,
-                Status = finalStatus,
-                Metrics = metrics
-            });
+                await ChatConversationStore.AddTurnAsync(new NewConversationTurn
+                {
+                    ConversationId = conversationId,
+                    Method = "POST",
+                    ServerBaseUrl = serverBaseUrl,
+                    EndpointPath = currentRequest.EndpointPath,
+                    ContentType = currentRequest.ContentType,
+                    RequestHeadersText = requestHeadersText,
+                    ResponseHeadersText = responseHeadersText,
+                    RequestBody = currentRequest.Body,
+                    RawResponseText = rawResponseText,
+                    UserMessage = currentUserMessage,
+                    AssistantMessage = assistantText,
+                    Status = finalStatus,
+                    Metrics = metrics
+                });
+            }
+            catch (Exception ex)
+            {
+                conversationSaveError = ex.Message;
+            }
+
             await ChatHistoryStore.AddRequest(new RequestHistoryEntry
             {
                 Source = "Chat",
@@ -483,7 +492,9 @@
             }
 
             StatusMessage = $"{finalStatus} in {stopwatch.Elapsed.TotalMilliseconds:0} ms";
-            LastRequestSummary = $"Last request included {Conversation.Count} turn(s).";
+            LastRequestSummary = string.IsNullOrWhiteSpace(conversationSaveError)
+                ? $"Last request included {Conversation.Count} turn(s)."
+                : $"Conversation save failed: {conversationSaveError}";
             RefreshConversationChoices();
             StateHasChanged();
         }
@@ -559,7 +570,8 @@
     private async Task LoadConversationAsync(string conversationId)
     {
         var conversation = await ChatConversationStore.GetConversationAsync(conversationId);
-        if (conversation.Messages.Count == 0)
+        var turns = conversation.Turns;
+        if (turns.Count == 0)
         {
             SelectedConversationId = ActiveConversationId;
             StatusMessage = "Conversation not found.";
@@ -568,17 +580,17 @@
         }
 
         Conversation.Clear();
-        foreach (var message in conversation.Messages)
+    foreach (var turn in turns)
         {
             Conversation.Add(new MultiStepChatTurn(
-                message.UserMessage,
-                message.AssistantMessage,
-                message.CreatedAt,
-                message.Status,
-                message.Metrics,
-                message.RequestHeadersText,
-                message.ResponseHeadersText,
-                message.RawResponseText));
+        turn.UserMessage,
+        turn.AssistantMessage,
+        turn.CreatedAt,
+        turn.Status,
+        turn.Metrics,
+        turn.RequestHeadersText,
+        turn.ResponseHeadersText,
+        turn.RawResponseText));
         }
 
         ActiveConversationId = conversation.Id;
@@ -587,15 +599,15 @@
         IsRunning = false;
         ChatInput = string.Empty;
 
-        var lastMessage = conversation.Messages.Last();
-        FormPanel?.LoadServerBaseUrl(lastMessage.ServerBaseUrl);
+        var lastTurn = turns.Last();
+        FormPanel?.LoadServerBaseUrl(lastTurn.ServerBaseUrl);
         if (BodyPanel is not null)
         {
             await BodyPanel.LoadRequestAsync(new ChatHistoryEntry
             {
-                EndpointPath = lastMessage.EndpointPath,
-                RequestBody = lastMessage.RequestBody,
-                ContentType = lastMessage.ContentType
+                EndpointPath = lastTurn.EndpointPath,
+                RequestBody = lastTurn.RequestBody,
+                ContentType = lastTurn.ContentType
             });
         }
 

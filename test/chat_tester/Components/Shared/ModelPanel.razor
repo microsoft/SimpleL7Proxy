@@ -153,6 +153,7 @@
     private readonly Dictionary<string, string> _endpointPaths = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _pathPrefixes = new(StringComparer.OrdinalIgnoreCase);
     private string? _lastDefaultsKey;
+    private string? _loadedRequestBodyOverride;
     private string _customBody = string.Empty;
 
     private static readonly string[] ContentTypeOptions =
@@ -222,14 +223,14 @@
     public string EndpointPath => CombinePrefixAndPath(CurrentPathPrefix, CurrentEndpointPath);
 
     /// <summary>The generated request JSON for the selected model, API, and field values.</summary>
-    public string RequestBody => SimpleMode ? BuildRequestJson() : _customBody;
+    public string RequestBody => _loadedRequestBodyOverride ?? (SimpleMode ? BuildRequestJson() : _customBody);
 
     /// <summary>The current editable field defaults for the selected model and API.</summary>
     public IReadOnlyDictionary<string, string> Fields => _fieldValues;
 
     public async Task LoadRequestAsync(ModelRequest request)
     {
-        SimpleMode = false;
+        SimpleMode = !AllowModeToggle;
         await SimpleModeChanged.InvokeAsync(SimpleMode);
 
         ContentType = string.IsNullOrWhiteSpace(request.ContentType)
@@ -237,6 +238,7 @@
             : request.ContentType;
         await ContentTypeChanged.InvokeAsync(ContentType);
 
+        _loadedRequestBodyOverride = request.Body;
         _customBody = request.Body;
         EnsureSelectedApi();
         EnsureEndpointState();
@@ -285,6 +287,7 @@
 
     private async Task OnModelSelected(ChangeEventArgs args)
     {
+        ClearLoadedRequestOverride();
         SelectedModel = args.Value?.ToString() ?? string.Empty;
         await SelectedModelChanged.InvokeAsync(SelectedModel);
 
@@ -296,6 +299,7 @@
 
     private async Task OnApiSelected(ChangeEventArgs args)
     {
+        ClearLoadedRequestOverride();
         SelectedApi = args.Value?.ToString() ?? string.Empty;
         await SelectedApiChanged.InvokeAsync(SelectedApi);
         ResetFields();
@@ -314,6 +318,7 @@
 
     private async Task OnMessageInput(ChangeEventArgs args)
     {
+        ClearLoadedRequestOverride();
         Message = args.Value?.ToString() ?? string.Empty;
         await MessageChanged.InvokeAsync(Message);
     }
@@ -326,6 +331,7 @@
 
     private void OnStreamSelected(ChangeEventArgs args)
     {
+        ClearLoadedRequestOverride();
         if (SupportsStreaming)
         {
             _fieldValues["stream"] = args.Value?.ToString() ?? "false";
@@ -345,6 +351,7 @@
 
     private void OnCustomBodyInput(ChangeEventArgs args)
     {
+        ClearLoadedRequestOverride();
         _customBody = args.Value?.ToString() ?? string.Empty;
     }
 
@@ -356,7 +363,13 @@
 
     private void OnFieldChanged(string name, string value)
     {
+        ClearLoadedRequestOverride();
         _fieldValues[name] = value;
+    }
+
+    private void ClearLoadedRequestOverride()
+    {
+        _loadedRequestBodyOverride = null;
     }
 
     private void EnsureSelectedApi()
