@@ -77,11 +77,11 @@ public class ProxyConfig
     public string ValidateAuthAppFieldName { get; set; } = "authAppID";
 
     [ConfigOption("Profiles:Auth:Config")]
-    public string ValidateAuthConfig { get; set; } = "enabled=false, mode=key, header=S7P-KEY";
+    public string ValidateAuthConfig { get; set; } = "enabled=false, mode=none, header=S7P-KEY";
     [ConfigOption("Profiles:Auth:Key1")]
-    public string ValidateAuthKey1 { get; set; } = "key1";
+    public string ValidateAuthKey1 { get; set; } = "";
     [ConfigOption("Profiles:Auth:Key2")]
-    public string ValidateAuthKey2 { get; set; } = "key2";
+    public string ValidateAuthKey2 { get; set; } = "";
 
     [ConfigOption("Profiles:SuspendedUser:ConfigUrl")]
     public string SuspendedUserConfigUrl { get; set; } = ""; // e.g. "file:suspended.json" or "http://configservice/suspended"

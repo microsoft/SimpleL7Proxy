@@ -238,7 +238,21 @@ public class Server : BackgroundService, IConfigChangeSubscriber
     // Method to start the server and begin processing requests.
     protected override async Task ExecuteAsync(CancellationToken cancellationToken)
     {
-        string serverInfo = $"Port: {_options.Port}, Timeout: {_options.Timeout}ms, Workers: {_options.Workers}, LoadBalanceMode: {_options.LoadBalanceMode}, ValidateAuthAppID: {_options.ValidateAuthAppID}, AsyncModeEnabled: {_options.AsyncModeEnabled}";
+        var authStr = _authValidator.ValidateAuthMode switch
+        {
+            IncomingAuthModeEnum.Key => "Key",
+            IncomingAuthModeEnum.OAuth2 => "OAuth2",
+            IncomingAuthModeEnum.Mixed => "Mixed",
+            IncomingAuthModeEnum.None => "None",
+            _ => "Unknown"
+        };
+        if ( _options.ValidateAuthAppID )
+        {
+
+            authStr += ", App ID";
+        }
+
+        string serverInfo = $"Port: {_options.Port}, Timeout: {_options.Timeout}ms, Workers: {_options.Workers}, LoadBalanceMode: {_options.LoadBalanceMode}, Auth: {authStr}";
         try
         {
             _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -473,7 +487,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
 
                                     if (rd.Debug)
                                     {
-                                        _logger.LogInformation($"[{rd.MID}] Auth Length: {incomingKey?.Length ?? 0} isBearer: {isBearer}");
+                                        _logger.LogInformation($"[{rd.Guid}] Auth Length: {incomingKey?.Length ?? 0} isBearer: {isBearer}");
                                     }
 
                                     if (incomingKey is null)
@@ -510,7 +524,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                     if (!string.IsNullOrEmpty(authAppID) && _userProfile.IsAuthAppIDValid(authAppID))
                                     {
                                         if (rd.Debug)
-                                            _logger.LogInformation($"[{rd.MID}] AuthAppID {authAppID} is valid.");
+                                            _logger.LogInformation($"[{rd.Guid}] AuthAppID {authAppID} is valid.");
                                     }
                                     else
                                     {
@@ -665,7 +679,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                 // ASYNC: Determine if the request is allowed async operation
                                 if (doAsync && bool.TryParse(rd.Headers[_options.AsyncClientRequestHeader], out var asyncEnabled) && asyncEnabled)
                                 {
-                                    // Console.WriteLine($"[ASYNC] Request {rd.MID} has async header enabled, checking user profile for async config...------");
+                                    // Console.WriteLine($"[ASYNC] Request {rd.Guid} has async header enabled, checking user profile for async config...------");
                                     var clientInfo = _userProfile.GetAsyncParams(rd.profileUserId);
                                     if (clientInfo != null)
                                     {
@@ -695,7 +709,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                     rd.IsStatusCheck = true;
                                     ed["S7PType"] = "ResponseCheck";
 
-                                    Console.WriteLine($"[ASYNC] Received status check request for GUID {rd.Headers["Guid"]} on request {rd.MID}");
+                                    Console.WriteLine($"[ASYNC] Received status check request for GUID {rd.Headers["Guid"]}"); 
                                 }
 
                                 // Determine priority boost based on the UserID
@@ -829,7 +843,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                             ed["ActiveHosts"] = _backends.ActiveHostCount().ToString();
 
                             if (!_isShuttingDown)
-                                _logger.LogError($"[{rd.MID}] {logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}");
+                                _logger.LogError($"[{rd.Guid}] {logmsg}: Queue Length: {_requestsQueue.thrdSafeCount}, Active Hosts: {_backends.ActiveHostCount()}");
 
                             try
                             {
