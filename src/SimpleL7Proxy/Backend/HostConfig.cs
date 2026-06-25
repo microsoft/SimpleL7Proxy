@@ -188,6 +188,12 @@ namespace SimpleL7Proxy.Backend
       _logger?.LogDebug("[CONFIGS] Configuring backend host: {hostname}", hostname);
       ParsedConfig = TryParseConfig(hostname, probepath, ip);//, audience);
 
+      if (!ParsedConfig.Enabled)
+      {
+        _logger?.LogDebug("[CONFIGS] Host {Host} is disabled", ParsedConfig.Host);
+        throw new HostConfigDisabledException(ParsedConfig.Host);
+      }
+
       // parse the host, protocol and port
       Uri uri = new Uri(ParsedConfig.Host);
       Protocol = uri.Scheme;
@@ -238,6 +244,7 @@ namespace SimpleL7Proxy.Backend
         Host = hostname,
         ProbePath = probepath?.TrimStart('/') ?? "echo/resource?param1=sample",
         DirectMode = false,
+        Enabled = true,
         IpAddr = ip ?? "",
         PartialPath = "/",
         StripPrefix = true,
@@ -278,6 +285,9 @@ namespace SimpleL7Proxy.Backend
             case "api-key-header":
               result.ApiKeyHeader = kvp.Value;
               break;
+            case "enabled":
+                result.Enabled = kvp.Value.Equals("true", StringComparison.OrdinalIgnoreCase);
+                break;
             case "host":
               result.Host = NormalizeHostUrl(kvp.Value);
               break;
