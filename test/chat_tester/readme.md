@@ -116,7 +116,7 @@ The user list, header names, and priority key header name come from `appsettings
 **Custom headers** — Expand to add arbitrary request headers sent with every call.
 Use `{id}` in a value to insert the sequential request number.
 
-### Analyze query (`/analyze-query`)
+### Request inspector (`/inspect`)
 
 1. Set **Server base URL** and **Endpoint path** (default
    `/openai/v1/chat/completions`).
@@ -143,7 +143,7 @@ Use `{id}` in a value to insert the sequential request number.
 5. Continue sending messages; prior turns are included in every subsequent request.
 6. Click **Clear** in the card header to reset the conversation.
 
-### Rapid disconnect (`/rapid-disconnect`)
+### Rapid disconnect (`/abort-test`)
 
 1. Set **Server base URL**, **Method** (GET/POST), **Request count**, and
    **Abort delay (ms)** — how long to wait before aborting each request.
@@ -152,7 +152,7 @@ Use `{id}` in a value to insert the sequential request number.
 4. Review the run summary table: each row shows the endpoint, outcome, and elapsed
    milliseconds.
 
-### Authorization probe (`/authorization-probe`)
+### URL tester (`/url-tester`)
 
 1. Set **Server base URL** and **Method**.
 2. Configure the authorization panel with the header name and token to test.
@@ -162,7 +162,7 @@ Use `{id}` in a value to insert the sequential request number.
 5. Review the results table: each row shows the endpoint, HTTP status code, and
    outcome.
 
-### Burst test (`/burst-test`)
+### Burst test (`/stress-test`)
 
 1. Set **Server base URL**, **Endpoint path**, and **Content-Type**.
 2. Set **Parallel count** (1–2000) — the number of requests sent simultaneously.

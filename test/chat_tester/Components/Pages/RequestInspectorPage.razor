@@ -1,0 +1,1870 @@
+@page "/inspect"
+@rendermode InteractiveServer
+@inject IOptions<ChatTesterOptions> Options
+@inject IJSRuntime JS
+@inject RequestDebugSettings DebugSettings
+@inject ChatHistoryStore ChatHistoryStore
+@using chat_tester.Components.Shared
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.Extensions.Options
+@using System.Diagnostics
+@using System.Globalization
+@using System.Net
+@using System.Text
+@using System.Text.Json
+@using System.Linq
+
+<PageTitle>Request inspector</PageTitle>
+
+<SectionContent SectionName="page-heading">
+    <div class="d-flex flex-wrap align-items-baseline gap-3">
+        <h1 class="h4 mb-0">Request inspector</h1>
+        <span class="text-muted small mb-0">@PageTagline</span>
+    </div>
+</SectionContent>
+
+<div class="row g-4">
+    <div class="col-12 request-col">
+        <TestFormPanel @ref="FormPanel"
+                      Settings="AuthSettings"
+                      UserSettings="UserSettings"
+                      HeaderSettings="HeaderSettings"
+                      InitialServerBaseUrl="@InitialServerBaseUrl"
+                      HeaderSubtitle="Send a chat request."
+                      CardTitle="Request inspector"
+                      SubmitLabel="Send single chat call"
+                      BusyLabel="Sending..."
+                      IsBusy="@IsRunning"
+                      OnSubmit="SendSingleChatCallAsync">
+            <PromptContent>
+                <RequestBodyPanel @ref="BodyPanel" Rows="@RequestTextAreaRows" InitialBody="@InitialRequestBody" InitialEndpointPath="@InitialEndpointPath" InitialContentType="@InitialContentType" />
+            </PromptContent>
+        </TestFormPanel>
+    </div>
+
+    <div class="col-12 response-col">
+        <div class="response-stack">
+        <div class="card shadow-sm chat-card search-host @(IsChatResponseFullscreen ? "fs-overlay" : string.Empty)">
+            <div class="card-header bg-primary text-white d-flex align-items-center justify-content-between">
+                <span class="fw-semibold">Chat response</span>
+                <div class="d-flex flex-wrap align-items-center justify-content-end gap-3">
+                    <div class="form-check form-check-inline mb-0">
+                        <input class="form-check-input" type="checkbox" id="responseFormatText" checked="@(ResponseFormat == ResponseDisplayFormat.Text)" @onchange='() => SetResponseFormat(ResponseDisplayFormat.Text)' />
+                        <label class="form-check-label" for="responseFormatText">Text</label>
+                    </div>
+                    <div class="form-check form-check-inline mb-0">
+                        <input class="form-check-input" type="checkbox" id="responseFormatMarkdown" checked="@(ResponseFormat == ResponseDisplayFormat.Markdown)" @onchange='() => SetResponseFormat(ResponseDisplayFormat.Markdown)' />
+                        <label class="form-check-label" for="responseFormatMarkdown">Markdown</label>
+                    </div>
+                    <div class="form-check form-check-inline mb-0">
+                        <input class="form-check-input" type="checkbox" id="responseFormatHtml" checked="@(ResponseFormat == ResponseDisplayFormat.Html)" @onchange='() => SetResponseFormat(ResponseDisplayFormat.Html)' />
+                        <label class="form-check-label" for="responseFormatHtml">HTML</label>
+                    </div>
+                    <button class="btn btn-sm btn-light" type="button" @onclick="ToggleChatResponseFullscreen">
+                        @(IsChatResponseFullscreen ? "Exit full screen" : "Full screen")
+                    </button>
+                </div>
+            </div>
+            <div class="card-body @(IsChatResponseFullscreen ? "overflow-auto" : string.Empty)">
+                <div class="row g-3 h-100">
+                    <div class="col-12 col-xl-9">
+                        @if (ResponseFormat == ResponseDisplayFormat.Html)
+                        {
+                            <div @ref="ChatResponseRef" class="response-rendered border rounded p-3 bg-white" style="@(IsChatResponseFullscreen ? "max-height: calc(100vh - 145px);" : "max-height: 360px;") overflow-y: auto;">@((MarkupString)DisplayResponse)</div>
+                        }
+                        else if (ResponseFormat == ResponseDisplayFormat.Markdown)
+                        {
+                            <div @ref="ChatResponseRef" class="response-rendered border rounded p-3 bg-white" style="@(IsChatResponseFullscreen ? "max-height: calc(100vh - 145px);" : "max-height: 360px;") overflow-y: auto;">@((MarkupString)MarkdownToHtml(DisplayResponse))</div>
+                        }
+                        else
+                        {
+                            <pre @ref="ChatResponseRef" class="bg-dark text-light p-3 rounded mb-0" style="white-space: pre-wrap; @(IsChatResponseFullscreen ? "max-height: calc(100vh - 145px);" : "max-height: 360px;") overflow-y: auto;">@DisplayResponse</pre>
+                        }
+                    </div>
+                    <div class="col-12 col-xl-3">
+                        <div class="border rounded bg-light p-3 small response-metrics">
+                            <div class="fw-semibold mb-2">Metrics</div>
+                            <div class="metric-row">
+                                <span class="metric-name">Status</span>
+                                <span class="metric-value">@ResponseMetrics.Status</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-name">Content-Type</span>
+                                <span class="metric-value" title="@ResponseMetrics.ContentType">@FormatContentType(ResponseMetrics.ContentType)</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-name">Time to first byte</span>
+                                <span class="metric-value">@FormatDuration(ResponseMetrics.TimeToFirstByte)</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-name">Duration</span>
+                                <span class="metric-value">@FormatDuration(ResponseMetrics.Duration)</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-name">Chunks</span>
+                                <span class="metric-value">@ResponseMetrics.Chunks</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-name">Total bytes</span>
+                                <span class="metric-value">@ResponseMetrics.TotalBytes</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mt-3 raw-card search-host @(IsRawFullscreen ? "fs-overlay" : string.Empty)">
+            <div class="card-header bg-secondary text-white pb-0">
+                <div class="d-flex align-items-baseline gap-2 pt-1 pb-2">
+                    <span class="fw-semibold">Raw response</span>
+                    <span class="text-white-50 small">@StatusMessage</span>
+                    <button class="btn btn-sm btn-light ms-auto" type="button" @onclick="ToggleRawFullscreen">
+                        @(IsRawFullscreen ? "Exit full screen" : "Full screen")
+                    </button>
+                </div>
+                <ul class="nav nav-tabs card-header-tabs raw-tabs mb-0" role="tablist">
+                    <li class="nav-item">
+                        <button class="nav-link @(ActiveResponseTab == "request-headers" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveResponseTab("request-headers")'>Request headers</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link @(ActiveResponseTab == "response-headers" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveResponseTab("response-headers")'>Response headers</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link @(ActiveResponseTab == "request-body" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveResponseTab("request-body")'>Request body</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link @(ActiveResponseTab == "response-body" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveResponseTab("response-body")'>Response body</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link @(ActiveResponseTab == "backend-log" ? "active" : string.Empty)" type="button" disabled="@(!HasBackendLog)" @onclick='() => SetActiveResponseTab("backend-log")'>Backend Log</button>
+                    </li>
+                </ul>
+            </div>
+            <div class="card-body @(IsRawFullscreen ? "overflow-auto" : string.Empty)">
+                <div class="border rounded p-3 bg-light" style="@(IsRawFullscreen ? "max-height: calc(100vh - 180px);" : "max-height: 320px;") overflow-y: auto;" @ref="RawResponseRef">
+                    @if (ActiveResponseTab == "request-headers")
+                    {
+                        <pre class="mb-0" style="white-space: pre-wrap; word-break: break-all;">@RequestHeadersText</pre>
+                    }
+                    else if (ActiveResponseTab == "response-headers")
+                    {
+                        <pre class="mb-0" style="white-space: pre-wrap; word-break: break-all;">@ResponseHeadersText</pre>
+                    }
+                    else if (ActiveResponseTab == "request-body")
+                    {
+                        <pre class="mb-0" style="white-space: pre-wrap; word-break: break-word;">@RequestBodyDisplay</pre>
+                    }
+                    else if (ActiveResponseTab == "backend-log")
+                    {
+                        <div class="backend-log-view">@((MarkupString)RenderBackendLogPanel())</div>
+                    }
+                    else
+                    {
+                        <pre class="mb-0" style="white-space: pre-wrap; word-break: break-word;">@ObservedResponse</pre>
+                    }
+                </div>
+            </div>
+        </div>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow-sm history-card" tabindex="0" @onmouseenter="ShowDefaultHistoryPreview" @onmouseleave="OnHistoryPanelMouseLeave" @onkeydown="OnHistoryKeyDown" @onclick="CancelPendingDelete">
+    <div class="card-header d-flex flex-wrap align-items-baseline gap-2">
+        <span class="fw-semibold">Request history</span>
+        <span class="history-count">@HistoryCountText</span>
+        <span class="history-status small ms-auto">Hover to expand history.</span>
+    </div>
+    <div class="card-body history-panel-body py-3">
+        @if (HistoryEntries.Count == 0)
+        {
+            <div class="text-muted small">No saved requests yet.</div>
+        }
+        else
+        {
+            <div class="history-buttons" role="list" aria-label="Request history">
+                @foreach (var entry in HistoryEntries)
+                {
+                    <div class="history-item @GetHistoryStatusClass(entry) @(IsHistoryPreviewEntry(entry) ? "preview-active" : string.Empty) @(entry.Id == SelectedHistoryEntryId ? "active" : string.Empty)" role="listitem" @onmouseenter="() => ShowHistoryPreview(entry)" @onfocusin="() => ShowHistoryPreview(entry)">
+                        <button class="history-button" type="button" @onclick="() => SelectHistoryEntry(entry)">
+                            <span class="history-line">
+                                <span class="history-date">@FormatHistoryDate(entry.CreatedAt)</span>
+                                <span class="history-status-code">@FormatHistoryStatus(entry)</span>
+                            </span>
+                            <span class="history-age">@(entry.Id == SelectedHistoryEntryId ? "Showing" : FormatHistoryAge(entry.CreatedAt))</span>
+                        </button>
+                        <button class="history-delete @(entry.Id == PendingDeleteHistoryEntryId ? "confirm" : string.Empty)" type="button" title="Delete history item" aria-label="Delete history item from @FormatHistoryDate(entry.CreatedAt)" @onclick="() => DeleteHistoryEntryAsync(entry)" @onclick:stopPropagation="true">
+                            @if (entry.Id == PendingDeleteHistoryEntryId)
+                            {
+                                <span>Confirm</span>
+                            }
+                            else
+                            {
+                                <svg class="history-trash-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                                    <path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 6v9h2V9h-2Zm4 0v9h2V9h-2ZM7 9h2v9c0 1.1.9 2 2 2h2c1.1 0 2-.9 2-2V9h2v9c0 2.2-1.8 4-4 4h-2c-2.2 0-4-1.8-4-4V9Z" />
+                                </svg>
+                            }
+                        </button>
+
+                        @if (IsHistoryPreviewEntry(entry))
+                        {
+                            var summary = GetHistoryRequestSummary(entry);
+
+                            <div class="history-request-summary" aria-hidden="true">
+                                <div class="history-summary-grid">
+                                    <span>Model</span>
+                                    <strong>@summary.Model</strong>
+                                    <span>API</span>
+                                    <strong>@summary.Api</strong>
+                                    <span>Stream</span>
+                                    <strong>@summary.Stream</strong>
+                                </div>
+                                <div class="history-summary-prompt">@summary.Prompt</div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    :global(body) {
+        padding-bottom: 3.25rem;
+    }
+
+    .search-host.fs-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 1080;
+        margin: 0 !important;
+        border-radius: 0;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .search-host.fs-overlay .card-body {
+        flex: 1 1 auto;
+    }
+
+    .raw-tabs .nav-link {
+        color: rgba(255, 255, 255, 0.85);
+        border-color: transparent;
+        padding-top: 0.15rem;
+        padding-bottom: 0.15rem;
+    }
+
+    .raw-tabs .nav-link:hover {
+        color: #fff;
+        border-color: rgba(255, 255, 255, 0.4);
+    }
+
+    .raw-tabs .nav-link.active {
+        color: #495057;
+        background-color: #fff;
+        border-color: #fff #fff #fff;
+    }
+
+    .response-metrics .metric-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.45rem 0.5rem;
+        border-radius: 0.25rem;
+    }
+
+    .response-metrics .metric-row:nth-child(even) {
+        background: rgba(13, 110, 253, 0.08);
+    }
+
+    .response-metrics .metric-name {
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .response-metrics .metric-value {
+        text-align: right;
+        overflow-wrap: anywhere;
+    }
+
+    .search-host {
+        position: relative;
+    }
+
+    .response-search-popup {
+        position: absolute;
+        top: 3.25rem;
+        right: 1rem;
+        z-index: 25;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.35rem;
+        border: 1px solid rgba(0, 0, 0, 0.2);
+        border-radius: 0.375rem;
+        background: #fff;
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.18);
+    }
+
+    .response-search-popup input {
+        width: 14rem;
+        color: #212529;
+    }
+
+    .response-search-status {
+        min-width: 3.5rem;
+        text-align: center;
+        color: #6c757d;
+        font-size: 0.8rem;
+    }
+
+    .response-search-match {
+        background: #ffe08a;
+        color: #111;
+        padding: 0 0.05rem;
+    }
+
+    .response-search-match.active {
+        background: #ffb703;
+        color: #111;
+        outline: 2px solid #0d6efd;
+    }
+
+    .backend-log-view .proxy-message {
+        font-weight: 600;
+        color: #842029;
+        margin-bottom: 0.75rem;
+    }
+
+    .backend-log-view .proxy-json {
+        background: #1f2328;
+        color: #f8f9fa;
+        border-radius: 0.375rem;
+        padding: 0.75rem;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .backend-log-view .json-key {
+        color: #9cdcfe;
+    }
+
+    .backend-log-view .json-string {
+        color: #ce9178;
+    }
+
+    .backend-log-view .json-number {
+        color: #b5cea8;
+    }
+
+    .backend-log-view .json-literal {
+        color: #569cd6;
+    }
+
+    .backend-log-view .backend-log-item {
+        border-left: 4px solid #6c757d;
+        background: #fff;
+        padding: 0.45rem 0.65rem;
+        margin-bottom: 0.4rem;
+    }
+
+    .backend-log-view .backend-log-item.warning {
+        border-left-color: #ffc107;
+        background: #fff8e1;
+    }
+
+    .backend-log-view .backend-log-item.error {
+        border-left-color: #dc3545;
+        background: #f8d7da;
+    }
+
+    .backend-log-view .backend-log-item.success {
+        border-left-color: #198754;
+        background: #d1e7dd;
+    }
+
+    .history-card {
+        position: fixed;
+        left: 3.25rem;
+        right: 1rem;
+        bottom: 0;
+        z-index: 1030;
+        max-height: 2.75rem;
+        margin: 0;
+        overflow: hidden;
+        border-color: #0d6efd;
+        transition: max-height 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .history-card:hover,
+    .history-card:focus-within {
+        max-height: 12.5rem;
+        overflow: visible;
+        box-shadow: 0 -0.5rem 1.25rem rgba(0, 0, 0, 0.18) !important;
+    }
+
+    .history-card .card-header {
+        min-height: 2.75rem;
+        background: #0d6efd;
+        color: #fff;
+        border-color: #0d6efd;
+    }
+
+    .history-status {
+        color: rgba(255, 255, 255, 0.78);
+    }
+
+    .history-count {
+        display: inline-flex;
+        align-items: center;
+        min-height: 1.35rem;
+        padding: 0 0.45rem;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.18);
+        color: #fff;
+        font-size: 0.78rem;
+        font-weight: 600;
+    }
+
+    .history-panel-body {
+        position: relative;
+        background: #fff;
+        border-top: 1px solid rgba(0, 0, 0, 0.075);
+    }
+
+    .history-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        align-content: flex-start;
+        gap: 0.35rem;
+        max-height: 8.75rem;
+        overflow: visible;
+    }
+
+    .history-item {
+        position: relative;
+        width: 9.25rem;
+        min-height: 2.8rem;
+        border: 1px solid #ced4da;
+        border-radius: 0.375rem;
+        background: #fff;
+        color: #212529;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        overflow: visible;
+    }
+
+    .history-item:hover,
+    .history-item:focus-within {
+        z-index: 2;
+    }
+
+    .history-item:hover {
+        border-color: #0d6efd;
+        background: #f8fbff;
+    }
+
+    .history-item.history-success {
+        border-color: #75b798;
+        background: #d1e7dd;
+    }
+
+    .history-item.history-failed {
+        border-color: #ea868f;
+        background: #f8d7da;
+    }
+
+    .history-item.history-rate-limited {
+        border-color: #ffda6a;
+        background: #fff3cd;
+    }
+
+    .history-item.active {
+        border-color: #0d6efd;
+        box-shadow: inset 0 0 0 2px #0d6efd;
+    }
+
+    .history-item.preview-active:not(.active) {
+        border-color: #0d6efd;
+        box-shadow: inset 0 0 0 1px #0d6efd;
+    }
+
+    .history-button,
+    .history-delete {
+        border: 0;
+        background: transparent;
+    }
+
+    .history-button {
+        position: relative;
+        min-width: 0;
+        text-align: left;
+        padding: 0.35rem 0.45rem;
+        color: inherit;
+    }
+
+    .history-delete {
+        width: 2.15rem;
+        border-left: 1px solid rgba(0, 0, 0, 0.1);
+        color: #842029;
+        font-size: 0.72rem;
+        font-weight: 600;
+    }
+
+    .history-delete:hover,
+    .history-delete:focus {
+        background: #f8d7da;
+        color: #58151c;
+    }
+
+    .history-delete.confirm {
+        width: 3.8rem;
+        background: #dc3545;
+        color: #fff;
+    }
+
+    .history-delete.confirm:hover,
+    .history-delete.confirm:focus {
+        background: #bb2d3b;
+        color: #fff;
+    }
+
+    .history-trash-icon {
+        width: 1rem;
+        height: 1rem;
+        fill: currentColor;
+        vertical-align: middle;
+    }
+
+    .history-line,
+    .history-date,
+    .history-age {
+        display: block;
+        line-height: 1.25;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .history-line {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+    }
+
+    .history-date {
+        font-weight: 600;
+        font-size: 0.78rem;
+        min-width: 0;
+        flex: 1 1 auto;
+    }
+
+    .history-age {
+        color: rgba(33, 37, 41, 0.72);
+        font-size: 0.7rem;
+        margin-top: 0.05rem;
+    }
+
+    .history-status-code {
+        flex: 0 0 auto;
+        border-radius: 999px;
+        padding: 0.05rem 0.3rem;
+        background: rgba(255, 255, 255, 0.72);
+        color: #212529;
+        font-size: 0.68rem;
+        font-weight: 700;
+    }
+
+    .history-request-summary {
+        position: absolute;
+        left: 0;
+        bottom: calc(100% + 0.35rem);
+        z-index: 4;
+        width: min(20rem, calc(100vw - 2rem));
+        padding: 0.55rem 0.65rem;
+        border: 1px solid rgba(33, 37, 41, 0.16);
+        border-radius: 0.375rem;
+        background: #212529;
+        color: #fff;
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.22);
+        font-size: 0.74rem;
+        line-height: 1.25;
+        pointer-events: none;
+    }
+
+    .history-summary-grid {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 0.15rem 0.55rem;
+        margin-bottom: 0.35rem;
+    }
+
+    .history-summary-grid span {
+        color: rgba(255, 255, 255, 0.64);
+        font-weight: 600;
+    }
+
+    .history-summary-grid strong {
+        min-width: 0;
+        overflow: hidden;
+        color: #fff;
+        font-weight: 700;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .history-summary-prompt {
+        display: -webkit-box;
+        overflow: hidden;
+        color: rgba(255, 255, 255, 0.92);
+        white-space: pre-wrap;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+    }
+
+    @@media (min-width: 992px) {
+        .request-col {
+            flex: 0 0 40%;
+            max-width: 40%;
+            height: 85vh;
+        }
+
+        .request-col > .card {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .request-col > .card > .card-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+        }
+
+        .response-col {
+            flex: 0 0 60%;
+            max-width: 60%;
+            position: relative;
+        }
+
+        .response-stack {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-card {
+            flex: 1 1 50%;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-card .card-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+        }
+
+        .chat-card .card-body pre {
+            max-height: none !important;
+        }
+
+        .chat-card .response-rendered {
+            max-height: none !important;
+        }
+
+        .raw-card {
+            flex: 1 1 50%;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .raw-card .card-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+        }
+
+        .raw-card .card-body > div {
+            max-height: none !important;
+        }
+    }
+</style>
+
+@code {
+    private enum ResponseDisplayFormat
+    {
+        Text,
+        Markdown,
+        Html
+    }
+
+    private sealed class ChatResponseMetrics
+    {
+        public string Status { get; set; } = "-";
+        public string ContentType { get; set; } = "-";
+        public TimeSpan? TimeToFirstByte { get; set; }
+        public TimeSpan? Duration { get; set; }
+        public int Chunks { get; set; }
+        public long TotalBytes { get; set; }
+    }
+
+    private sealed record HistoryRequestSummary(string Model, string Api, string Stream, string Prompt);
+
+    private const string DefaultPageTagline = "Send a chat-style request and inspect the returned stream.";
+
+    private string InitialServerBaseUrl { get; set; } = string.Empty;
+    private string InitialEndpointPath { get; set; } = string.Empty;
+    private string InitialContentType { get; set; } = ChatTesterHttp.JsonContentType;
+    [Inject]
+    private AuthTokenSettings AuthSettings { get; set; } = default!;
+    [Inject]
+    private UserSettings UserSettings { get; set; } = default!;
+    [Inject]
+    private HeaderSettings HeaderSettings { get; set; } = default!;
+    private TestFormPanel? FormPanel { get; set; }
+    private RequestBodyPanel? BodyPanel { get; set; }
+    private string InitialRequestBody { get; set; } = string.Empty;
+    private string PageTagline { get; set; } = DefaultPageTagline;
+    private string? SelectedHistoryEntryId { get; set; }
+    private string? PendingDeleteHistoryEntryId { get; set; }
+    private string? PreviewHistoryEntryId { get; set; }
+    private bool IsHistoryPreviewOpen { get; set; }
+    private bool IsRunning { get; set; }
+    private string StatusMessage { get; set; } = "Ready to send a single request.";
+    private string ObservedResponse { get; set; } = "No response yet.";
+    private string DisplayResponse { get; set; } = "Waiting for the request ...";
+    private string ActiveResponseTab { get; set; } = "response-body";
+    private string RequestHeadersText { get; set; } = "No request has been sent yet.";
+    private string ResponseHeadersText { get; set; } = "No response has been received yet.";
+    private string RequestBodyDisplay { get; set; } = "No request body yet.";
+    private ElementReference ChatResponseRef;
+    private ElementReference RawResponseRef;
+    private bool IsChatResponseFullscreen { get; set; }
+    private bool IsRawFullscreen { get; set; }
+    private ResponseDisplayFormat ResponseFormat { get; set; } = ResponseDisplayFormat.Text;
+    private ChatResponseMetrics ResponseMetrics { get; set; } = new();
+    private bool HasProxyError { get; set; }
+    private bool HasBackendLog => HasProxyError || ExtractBackendLogHeaders(ResponseHeadersText).Any();
+    private IReadOnlyList<ChatHistoryEntry> HistoryEntries => ChatHistoryStore.Entries;
+    private ChatHistoryEntry? ActiveHistoryPreviewEntry => IsHistoryPreviewOpen
+        ? HistoryEntries.FirstOrDefault(entry => string.Equals(entry.Id, PreviewHistoryEntryId, StringComparison.Ordinal)) ?? HistoryEntries.LastOrDefault()
+        : null;
+    private string HistoryCountText => HistoryEntries.Count == 1 ? "1 item" : $"{HistoryEntries.Count} items";
+    private bool HasResponse => !string.IsNullOrWhiteSpace(ObservedResponse)
+        && !ObservedResponse.Equals("No response yet.", StringComparison.OrdinalIgnoreCase)
+        && !ObservedResponse.Equals("Awaiting response...", StringComparison.OrdinalIgnoreCase)
+        && !ObservedResponse.Equals("The server returned an empty response body.", StringComparison.OrdinalIgnoreCase);
+    private int RequestTextAreaRows => HasResponse ? 7 : 12;
+
+    protected override void OnInitialized()
+    {
+        var options = Options.Value;
+        InitialServerBaseUrl = options.ServerBaseUrl;
+        InitialEndpointPath = options.ChatEndpointPath;
+        InitialRequestBody = options.ChatRequestBody;
+        AuthSettings.ApplyDefaultsIfMissing(options.AuthorizationHeaderName, options.AuthorizationHeaderPrefix);
+        UserSettings.ApplyDefaultsIfMissing(options.UserHeaderName, options.PriorityKeyHeader, options.UserNames);
+        HeaderSettings.ApplyDefaultsIfMissing(options.DefaultHeaders);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try
+        {
+            if (firstRender)
+            {
+                await JS.InvokeVoidAsync("chatScroll.register", ChatResponseRef);
+            }
+
+            await JS.InvokeVoidAsync("responseSearch.register", ChatResponseRef);
+            await JS.InvokeVoidAsync("responseSearch.register", RawResponseRef);
+            await JS.InvokeVoidAsync("responseSearch.refresh");
+            await JS.InvokeVoidAsync("chatScroll.scrollIfStuck", ChatResponseRef);
+        }
+        catch (JSException)
+        {
+            // Ignore interop errors during prerender or disconnect.
+        }
+    }
+
+    private void ToggleChatResponseFullscreen()
+    {
+        IsChatResponseFullscreen = !IsChatResponseFullscreen;
+    }
+
+    private void ToggleRawFullscreen()
+    {
+        IsRawFullscreen = !IsRawFullscreen;
+    }
+
+    private void SetResponseFormat(ResponseDisplayFormat format)
+    {
+        ResponseFormat = format;
+    }
+
+    private async Task SendSingleChatCallAsync()
+    {
+        var serverBaseUrl = FormPanel?.ServerBaseUrl ?? string.Empty;
+        var endpointPath = BodyPanel?.EndpointPath ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(serverBaseUrl) || string.IsNullOrWhiteSpace(endpointPath))
+        {
+            StatusMessage = "Set both the server URL and endpoint path before sending the request.";
+            return;
+        }
+
+        var requestBody = BodyPanel?.RequestBody ?? string.Empty;
+        var contentType = BodyPanel?.ContentType ?? ChatTesterHttp.JsonContentType;
+        IsRunning = true;
+        SelectedHistoryEntryId = null;
+        PendingDeleteHistoryEntryId = null;
+        PageTagline = DefaultPageTagline;
+        StatusMessage = "Sending the chat request and waiting for the response...";
+        ObservedResponse = "Awaiting response...";
+        DisplayResponse = "Generating response stream...";
+        ResponseMetrics = new ChatResponseMetrics { Status = "Sending" };
+        HasProxyError = false;
+        RequestBodyDisplay = requestBody;
+        StateHasChanged();
+
+        using var metricsTimer = new CancellationTokenSource();
+        var stopwatch = Stopwatch.StartNew();
+        var metricsTimerTask = RunMetricsTimerAsync(stopwatch, metricsTimer.Token);
+
+        try
+        {
+            using var client = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Post, ChatTesterHttp.BuildUri(serverBaseUrl, endpointPath));
+            request.Content = new StringContent(requestBody, System.Text.Encoding.UTF8, contentType);
+            request.Headers.Add(ChatTesterHttp.AcceptHeaderName, ChatTesterHttp.EventStreamContentType);
+            ChatTesterHttp.ApplyDebugHeader(request, DebugSettings);
+
+            RequestHeadersText = ChatTesterHttp.SummarizeRequestHeaders(request);
+
+            if (FormPanel is not null)
+            {
+                await FormPanel.ApplyAuthorizationAsync(request);
+                FormPanel.ApplyUser(request, 0);
+                FormPanel.ApplyHeaders(request, 0);
+            }
+
+            RequestHeadersText = ChatTesterHttp.SummarizeRequestHeaders(request);
+
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+            ResponseMetrics.TimeToFirstByte = stopwatch.Elapsed;
+            ResponseMetrics.Status = $"{(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
+            ResponseMetrics.ContentType = response.Content.Headers.ContentType?.ToString() ?? "-";
+            ApplyDetectedResponseFormat(ResponseMetrics.ContentType);
+            ResponseHeadersText = ChatTesterHttp.SummarizeResponseHeaders(response);
+            StatusMessage = $"Streaming response: {(int)response.StatusCode} {response.ReasonPhrase ?? ""}".Trim();
+            await StreamResponseAsync(response, stopwatch);
+            ResponseMetrics.Duration = stopwatch.Elapsed;
+            StatusMessage = $"Completed with {(int)response.StatusCode} {response.ReasonPhrase ?? ""}".Trim();
+        }
+        catch (Exception ex)
+        {
+            ObservedResponse = ex.Message;
+            ResponseHeadersText = "No response headers available.";
+            DisplayResponse = $"I could not receive a stream from the server.\nReason: {ex.Message}";
+            StatusMessage = "The request failed before a full response was received.";
+            ResponseMetrics.Status = "Failed";
+        }
+        finally
+        {
+            metricsTimer.Cancel();
+            try
+            {
+                await metricsTimerTask;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            ResponseMetrics.Duration = stopwatch.Elapsed;
+            await SaveHistoryEntryAsync(serverBaseUrl, endpointPath, contentType);
+            IsRunning = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveHistoryEntryAsync(string serverBaseUrl, string endpointPath, string contentType)
+    {
+        var entry = await ChatHistoryStore.AddAsync(new ChatHistoryEntry
+        {
+            CreatedAt = DateTimeOffset.Now,
+            ServerBaseUrl = serverBaseUrl,
+            EndpointPath = endpointPath,
+            ContentType = contentType,
+            RequestHeadersText = RequestHeadersText,
+            ResponseHeadersText = ResponseHeadersText,
+            RequestBody = RequestBodyDisplay,
+            ResponseBody = ObservedResponse,
+            DisplayResponse = DisplayResponse,
+            StatusMessage = StatusMessage,
+            ResponseFormat = ResponseFormat.ToString(),
+            ActiveResponseTab = ActiveResponseTab,
+            HasProxyError = HasProxyError,
+            Metrics = new ChatHistoryMetrics
+            {
+                Status = ResponseMetrics.Status,
+                ContentType = ResponseMetrics.ContentType,
+                TimeToFirstByte = ResponseMetrics.TimeToFirstByte,
+                Duration = ResponseMetrics.Duration,
+                Chunks = ResponseMetrics.Chunks,
+                TotalBytes = ResponseMetrics.TotalBytes
+            }
+        });
+
+        SelectedHistoryEntryId = entry.Id;
+    PreviewHistoryEntryId = entry.Id;
+        PageTagline = $"Showing response from {FormatHistoryTimestamp(entry.CreatedAt)}.";
+    }
+
+    private void SelectHistoryEntry(ChatHistoryEntry entry)
+    {
+        SelectedHistoryEntryId = entry.Id;
+        PendingDeleteHistoryEntryId = null;
+        ShowHistoryPreview(entry);
+        PageTagline = $"Showing response from {FormatHistoryTimestamp(entry.CreatedAt)}.";
+        RequestHeadersText = entry.RequestHeadersText;
+        ResponseHeadersText = entry.ResponseHeadersText;
+        RequestBodyDisplay = entry.RequestBody;
+        ObservedResponse = entry.ResponseBody;
+        DisplayResponse = entry.DisplayResponse;
+        StatusMessage = entry.StatusMessage;
+        ActiveResponseTab = string.IsNullOrWhiteSpace(entry.ActiveResponseTab) ? "response-body" : entry.ActiveResponseTab;
+        if (ActiveResponseTab == "proxy-error")
+        {
+            ActiveResponseTab = "backend-log";
+        }
+
+        HasProxyError = entry.HasProxyError;
+        ResponseMetrics = new ChatResponseMetrics
+        {
+            Status = entry.Metrics.Status,
+            ContentType = entry.Metrics.ContentType,
+            TimeToFirstByte = entry.Metrics.TimeToFirstByte,
+            Duration = entry.Metrics.Duration,
+            Chunks = entry.Metrics.Chunks,
+            TotalBytes = entry.Metrics.TotalBytes
+        };
+
+        if (Enum.TryParse<ResponseDisplayFormat>(entry.ResponseFormat, out var responseFormat))
+        {
+            ResponseFormat = responseFormat;
+        }
+        else
+        {
+            ResponseFormat = ResponseDisplayFormat.Text;
+        }
+    }
+
+    private void ShowDefaultHistoryPreview()
+    {
+        IsHistoryPreviewOpen = true;
+        if (string.IsNullOrWhiteSpace(PreviewHistoryEntryId) || !HistoryEntries.Any(entry => string.Equals(entry.Id, PreviewHistoryEntryId, StringComparison.Ordinal)))
+        {
+            PreviewHistoryEntryId = HistoryEntries.LastOrDefault()?.Id;
+        }
+    }
+
+    private void ShowHistoryPreview(ChatHistoryEntry entry)
+    {
+        IsHistoryPreviewOpen = true;
+        PreviewHistoryEntryId = entry.Id;
+    }
+
+    private bool IsHistoryPreviewEntry(ChatHistoryEntry entry) =>
+        IsHistoryPreviewOpen && string.Equals(entry.Id, ActiveHistoryPreviewEntry?.Id, StringComparison.Ordinal);
+
+    private async Task DeleteHistoryEntryAsync(ChatHistoryEntry entry)
+    {
+        if (!string.Equals(PendingDeleteHistoryEntryId, entry.Id, StringComparison.Ordinal))
+        {
+            PendingDeleteHistoryEntryId = entry.Id;
+            return;
+        }
+
+        var wasSelected = string.Equals(SelectedHistoryEntryId, entry.Id, StringComparison.Ordinal);
+        if (await ChatHistoryStore.DeleteAsync(entry.Id))
+        {
+            PendingDeleteHistoryEntryId = null;
+            if (string.Equals(PreviewHistoryEntryId, entry.Id, StringComparison.Ordinal))
+            {
+                PreviewHistoryEntryId = HistoryEntries.LastOrDefault()?.Id;
+            }
+
+            if (wasSelected)
+            {
+                SelectedHistoryEntryId = null;
+                PageTagline = DefaultPageTagline;
+            }
+        }
+    }
+
+    private void OnHistoryPanelMouseLeave()
+    {
+        CancelPendingDelete();
+        IsHistoryPreviewOpen = false;
+    }
+
+    private void CancelPendingDelete()
+    {
+        PendingDeleteHistoryEntryId = null;
+    }
+
+    private void OnHistoryKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key.Equals("Escape", StringComparison.OrdinalIgnoreCase))
+        {
+            CancelPendingDelete();
+            IsHistoryPreviewOpen = false;
+        }
+    }
+
+    private async Task RunMetricsTimerAsync(Stopwatch stopwatch, CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            ResponseMetrics.Duration = stopwatch.Elapsed;
+            await InvokeAsync(StateHasChanged);
+            await Task.Delay(100, cancellationToken);
+        }
+    }
+
+    private async Task StreamResponseAsync(HttpResponseMessage response, Stopwatch stopwatch)
+    {
+        var rawBuilder = new StringBuilder();
+        var assistantBuilder = new StringBuilder();
+        var sawAssistantContent = false;
+        DisplayResponse = string.Empty;
+        ObservedResponse = string.Empty;
+        await InvokeAsync(StateHasChanged);
+
+        using var stream = await response.Content.ReadAsStreamAsync();
+        using var reader = new StreamReader(stream);
+
+        while (!reader.EndOfStream)
+        {
+            var line = await reader.ReadLineAsync();
+            if (line is null)
+            {
+                break;
+            }
+
+            ResponseMetrics.Chunks++;
+            ResponseMetrics.TotalBytes += Encoding.UTF8.GetByteCount(line) + 1;
+            rawBuilder.AppendLine(line);
+            ObservedResponse = rawBuilder.ToString();
+            UpdateProxyErrorState();
+
+            var payload = ChatStreamParser.ExtractDataPayload(line);
+            if (payload is not null)
+            {
+                var piece = ChatStreamParser.ExtractDeltaText(payload);
+                if (!string.IsNullOrEmpty(piece))
+                {
+                    assistantBuilder.Append(piece);
+                    sawAssistantContent = true;
+                    DisplayResponse = assistantBuilder.ToString();
+                }
+            }
+
+            ResponseMetrics.Duration = stopwatch.Elapsed;
+            await InvokeAsync(StateHasChanged);
+        }
+
+        if (rawBuilder.Length == 0)
+        {
+            ObservedResponse = "The server returned an empty response body.";
+            DisplayResponse = "I did not receive any content from the server.";
+        }
+        else if (!sawAssistantContent)
+        {
+            DisplayResponse = BuildDisplayResponse(rawBuilder.ToString());
+        }
+
+        UpdateProxyErrorState();
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void UpdateProxyErrorState()
+    {
+        if (!ObservedResponse.Contains("No active hosts were able", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (!HasProxyError)
+        {
+            HasProxyError = true;
+            ActiveResponseTab = "backend-log";
+        }
+    }
+
+    private string BuildDisplayResponse(string observed)
+    {
+        if (string.IsNullOrWhiteSpace(observed))
+        {
+            return "I did not receive any content from the server.";
+        }
+
+        var interpretedContent = ChatStreamParser.ExtractAllContent(observed);
+        if (!string.IsNullOrWhiteSpace(interpretedContent))
+        {
+            return interpretedContent;
+        }
+
+        interpretedContent = ChatStreamParser.ExtractDisplayContent(observed);
+        if (!string.IsNullOrWhiteSpace(interpretedContent))
+        {
+            return interpretedContent;
+        }
+
+        // Not an event stream (or no stream content found): show the entire response body.
+        return observed;
+    }
+
+    private void ApplyDetectedResponseFormat(string contentType)
+    {
+        if (contentType.Contains("html", StringComparison.OrdinalIgnoreCase))
+        {
+            ResponseFormat = ResponseDisplayFormat.Html;
+        }
+        else if (contentType.Contains("markdown", StringComparison.OrdinalIgnoreCase))
+        {
+            ResponseFormat = ResponseDisplayFormat.Markdown;
+        }
+        else
+        {
+            ResponseFormat = ResponseDisplayFormat.Text;
+        }
+    }
+
+    private static string FormatDuration(TimeSpan? value) =>
+        value is null ? "-" : $"{value.Value.TotalMilliseconds:0} ms";
+
+    private static string FormatHistoryTimestamp(DateTimeOffset value) =>
+        value.LocalDateTime.ToString("MMM d, yyyy h:mm tt", CultureInfo.InvariantCulture);
+
+    private static string FormatHistoryDate(DateTimeOffset value) =>
+        value.LocalDateTime.ToString("MMM d, h:mm tt", CultureInfo.InvariantCulture);
+
+    private static string FormatHistoryStatus(ChatHistoryEntry entry)
+    {
+        var statusCode = GetHistoryStatusCode(entry);
+        if (statusCode is not null)
+        {
+            return statusCode.Value.ToString(CultureInfo.InvariantCulture);
+        }
+
+        return string.IsNullOrWhiteSpace(entry.Metrics.Status) ? "-" : entry.Metrics.Status;
+    }
+
+    private static HistoryRequestSummary GetHistoryRequestSummary(ChatHistoryEntry entry)
+    {
+        var model = ExtractModelFromEndpoint(entry.EndpointPath);
+        var stream = InferStreamFromEndpoint(entry.EndpointPath);
+
+        if (!string.IsNullOrWhiteSpace(entry.RequestBody))
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(entry.RequestBody);
+                var root = document.RootElement;
+
+                if (TryGetProperty(root, "model", out var modelElement))
+                {
+                    var modelValue = ExtractJsonContent(modelElement);
+                    if (!string.IsNullOrWhiteSpace(modelValue))
+                    {
+                        model = modelValue;
+                    }
+                }
+
+                if (TryGetProperty(root, "stream", out var streamElement))
+                {
+                    stream = FormatJsonBoolean(streamElement);
+                }
+            }
+            catch (JsonException)
+            {
+            }
+        }
+
+        return new HistoryRequestSummary(
+            string.IsNullOrWhiteSpace(model) ? "-" : model,
+            FormatHistoryApi(entry.EndpointPath),
+            stream,
+            FormatHistoryPromptPreview(entry));
+    }
+
+    private static string FormatHistoryPromptPreview(ChatHistoryEntry entry)
+    {
+        var requestBody = entry.RequestBody;
+        if (string.IsNullOrWhiteSpace(requestBody))
+        {
+            return "No prompt captured.";
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(requestBody);
+            if (TryExtractPromptPreview(document.RootElement, out var promptPreview))
+            {
+                return TakePreviewLines(promptPreview);
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return TakePreviewLines(requestBody);
+    }
+
+    private static string FormatHistoryApi(string endpointPath)
+    {
+        if (string.IsNullOrWhiteSpace(endpointPath))
+        {
+            return "-";
+        }
+
+        var endpoint = endpointPath.Split('?', 2)[0];
+        if (endpoint.Contains("chat/completions", StringComparison.OrdinalIgnoreCase))
+        {
+            return "chat/completions";
+        }
+
+        if (endpoint.Contains("responses", StringComparison.OrdinalIgnoreCase))
+        {
+            return "responses";
+        }
+
+        if (endpoint.Contains("messages", StringComparison.OrdinalIgnoreCase))
+        {
+            return "messages";
+        }
+
+        if (endpoint.Contains("streamGenerateContent", StringComparison.OrdinalIgnoreCase))
+        {
+            return "streamGenerateContent";
+        }
+
+        if (endpoint.Contains("generateContent", StringComparison.OrdinalIgnoreCase))
+        {
+            return "generateContent";
+        }
+
+        return endpoint;
+    }
+
+    private static string InferStreamFromEndpoint(string endpointPath) =>
+        endpointPath.Contains("stream", StringComparison.OrdinalIgnoreCase) ? "true" : "-";
+
+    private static string ExtractModelFromEndpoint(string endpointPath)
+    {
+        if (string.IsNullOrWhiteSpace(endpointPath))
+        {
+            return string.Empty;
+        }
+
+        const string marker = "/models/";
+        var markerIndex = endpointPath.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (markerIndex < 0)
+        {
+            return string.Empty;
+        }
+
+        var start = markerIndex + marker.Length;
+        var end = endpointPath.IndexOfAny(new[] { '/', ':', '?' }, start);
+        return end < 0 ? endpointPath[start..] : endpointPath[start..end];
+    }
+
+    private static string FormatJsonBoolean(JsonElement element) => element.ValueKind switch
+    {
+        JsonValueKind.True => "true",
+        JsonValueKind.False => "false",
+        JsonValueKind.String when bool.TryParse(element.GetString(), out var value) => value ? "true" : "false",
+        _ => "-"
+    };
+
+    private static bool TryExtractPromptPreview(JsonElement root, out string promptPreview)
+    {
+        if (TryGetProperty(root, "messages", out var messages) && messages.ValueKind == JsonValueKind.Array)
+        {
+            var fallbackMessage = string.Empty;
+            foreach (var message in messages.EnumerateArray())
+            {
+                var content = TryGetProperty(message, "content", out var contentElement)
+                    ? ExtractJsonContent(contentElement)
+                    : string.Empty;
+
+                if (string.IsNullOrWhiteSpace(content))
+                {
+                    continue;
+                }
+
+                fallbackMessage = content;
+                if (TryGetProperty(message, "role", out var roleElement)
+                    && string.Equals(roleElement.GetString(), "user", StringComparison.OrdinalIgnoreCase))
+                {
+                    promptPreview = content;
+                    return true;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(fallbackMessage))
+            {
+                promptPreview = fallbackMessage;
+                return true;
+            }
+        }
+
+        foreach (var propertyName in new[] { "prompt", "input", "query" })
+        {
+            if (TryGetProperty(root, propertyName, out var propertyValue))
+            {
+                var value = ExtractJsonContent(propertyValue);
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    promptPreview = value;
+                    return true;
+                }
+            }
+        }
+
+        promptPreview = string.Empty;
+        return false;
+    }
+
+    private static string ExtractJsonContent(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.String)
+        {
+            return element.GetString() ?? string.Empty;
+        }
+
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            return string.Join(Environment.NewLine, element.EnumerateArray()
+                .Select(ExtractJsonContent)
+                .Where(content => !string.IsNullOrWhiteSpace(content)));
+        }
+
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var propertyName in new[] { "text", "content", "value" })
+            {
+                if (TryGetProperty(element, propertyName, out var propertyValue))
+                {
+                    var value = ExtractJsonContent(propertyValue);
+                    if (!string.IsNullOrWhiteSpace(value))
+                    {
+                        return value;
+                    }
+                }
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static bool TryGetProperty(JsonElement element, string name, out JsonElement value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static string TakePreviewLines(string value)
+    {
+        var lines = value.Replace("\r", string.Empty)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Take(2)
+            .ToArray();
+
+        var preview = lines.Length == 0 ? value.Trim() : string.Join(Environment.NewLine, lines);
+        const int maximumLength = 220;
+        return preview.Length <= maximumLength ? preview : $"{preview[..maximumLength]}...";
+    }
+
+    private static string GetHistoryStatusClass(ChatHistoryEntry entry)
+    {
+        var statusCode = GetHistoryStatusCode(entry);
+        if (statusCode == 429)
+        {
+            return "history-rate-limited";
+        }
+
+        if (statusCode is >= 200 and < 400)
+        {
+            return "history-success";
+        }
+
+        if (statusCode is >= 400 || string.Equals(entry.Metrics.Status, "Failed", StringComparison.OrdinalIgnoreCase))
+        {
+            return "history-failed";
+        }
+
+        return string.Empty;
+    }
+
+    private static int? GetHistoryStatusCode(ChatHistoryEntry entry)
+    {
+        var status = entry.Metrics.Status;
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            return null;
+        }
+
+        var token = status.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        return int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var statusCode)
+            ? statusCode
+            : null;
+    }
+
+    private static string FormatHistoryAge(DateTimeOffset value)
+    {
+        var age = DateTimeOffset.Now - value;
+        if (age.TotalMinutes < 1)
+        {
+            return "Just now";
+        }
+
+        if (age.TotalHours < 1)
+        {
+            var minutes = Math.Max(1, (int)age.TotalMinutes);
+            return minutes == 1 ? "1 minute ago" : $"{minutes} minutes ago";
+        }
+
+        if (age.TotalHours < 24)
+        {
+            var hours = Math.Max(1, (int)age.TotalHours);
+            return hours == 1 ? "1 hour ago" : $"{hours} hours ago";
+        }
+
+        return value.LocalDateTime.ToString("MMM d, yyyy", CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatContentType(string contentType)
+    {
+        if (string.IsNullOrWhiteSpace(contentType) || contentType == "-")
+        {
+            return "-";
+        }
+
+        if (contentType.Contains("event-stream", StringComparison.OrdinalIgnoreCase))
+        {
+            return "event-stream";
+        }
+
+        if (contentType.Contains("json", StringComparison.OrdinalIgnoreCase))
+        {
+            return "json";
+        }
+
+        if (contentType.Contains("html", StringComparison.OrdinalIgnoreCase))
+        {
+            return "html";
+        }
+
+        if (contentType.Contains("markdown", StringComparison.OrdinalIgnoreCase))
+        {
+            return "markdown";
+        }
+
+        if (contentType.Contains("text", StringComparison.OrdinalIgnoreCase))
+        {
+            return "text";
+        }
+
+        return contentType.Split(';', 2)[0];
+    }
+
+    private string RenderBackendLogPanel()
+    {
+        var headerLogs = ExtractBackendLogHeaders(ResponseHeadersText).ToList();
+        if (!HasProxyError && headerLogs.Count == 0)
+        {
+            return "<div class=\"text-muted\">No backend log detected.</div>";
+        }
+
+        var builder = new StringBuilder();
+        if (headerLogs.Count > 0)
+        {
+            builder.Append(RenderBackendLogEntries(headerLogs, "Backend log header"));
+        }
+
+        if (!HasProxyError)
+        {
+            return builder.ToString();
+        }
+
+        var (message, json) = SplitProxyError(ObservedResponse);
+        if (builder.Length > 0)
+        {
+            builder.AppendLine("<div class=\"fw-semibold mt-3 mb-2\">Proxy error</div>");
+        }
+
+        builder.Append("<div class=\"proxy-message\">").Append(WebUtility.HtmlEncode(message)).AppendLine("</div>");
+
+        if (TryParseProxyJson(json, out var document))
+        {
+            using (document)
+            {
+                builder.Append(RenderBackendLog(document.RootElement));
+                builder.Append("<div class=\"fw-semibold mt-3 mb-2\">Formatted JSON</div>");
+                builder.Append("<pre class=\"proxy-json mb-0\">").Append(ColorJson(JsonSerializer.Serialize(document.RootElement, new JsonSerializerOptions { WriteIndented = true }))).AppendLine("</pre>");
+            }
+        }
+        else
+        {
+            builder.Append("<pre class=\"proxy-json mb-0\">").Append(WebUtility.HtmlEncode(ObservedResponse)).AppendLine("</pre>");
+        }
+
+        return builder.ToString();
+    }
+
+    private static (string Message, string Json) SplitProxyError(string response)
+    {
+        var jsonStart = response.IndexOf('{');
+        if (jsonStart < 0)
+        {
+            return (response.Trim(), string.Empty);
+        }
+
+        var message = response[..jsonStart].Replace("Request Summary:", string.Empty, StringComparison.OrdinalIgnoreCase).Trim();
+        return (message, response[jsonStart..].Trim());
+    }
+
+    private static bool TryParseProxyJson(string json, out JsonDocument document)
+    {
+        try
+        {
+            document = JsonDocument.Parse(json);
+            return true;
+        }
+        catch
+        {
+            document = null!;
+            return false;
+        }
+    }
+
+    private static string RenderBackendLog(JsonElement root)
+    {
+        var logs = new List<string>();
+        CollectBackendLogs(root, logs);
+        return RenderBackendLogEntries(logs, "Backend log highlights");
+    }
+
+    private static string RenderBackendLogEntries(IEnumerable<string> logs, string title)
+    {
+        var builder = new StringBuilder();
+        var logList = logs.Where(log => !string.IsNullOrWhiteSpace(log)).ToList();
+        if (logList.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        builder.Append("<div class=\"fw-semibold mb-2\">").Append(WebUtility.HtmlEncode(title)).AppendLine("</div>");
+        foreach (var log in logList)
+        {
+            foreach (var part in log.Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            {
+                var severity = ClassifyBackendLogPart(part);
+                builder.Append("<div class=\"backend-log-item ").Append(severity).Append("\">")
+                    .Append(WebUtility.HtmlEncode(part.Trim()))
+                    .AppendLine("</div>");
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private static IEnumerable<string> ExtractBackendLogHeaders(string responseHeaders)
+    {
+        if (string.IsNullOrWhiteSpace(responseHeaders))
+        {
+            yield break;
+        }
+
+        foreach (var line in responseHeaders.Replace("\r\n", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var separator = line.IndexOf(':');
+            if (separator <= 0)
+            {
+                continue;
+            }
+
+            var name = line[..separator].Trim();
+            if (!IsBackendLogHeaderName(name))
+            {
+                continue;
+            }
+
+            var value = line[(separator + 1)..].Trim();
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                yield return value;
+            }
+        }
+    }
+
+    private static bool IsBackendLogHeaderName(string name) =>
+        string.Equals(name, "backendLog", StringComparison.OrdinalIgnoreCase) ||
+        name.EndsWith("-backendLog", StringComparison.OrdinalIgnoreCase);
+
+    private static string ClassifyBackendLogPart(string part)
+    {
+        var beginSeverity = ClassifyBeginLog(part);
+        if (!string.IsNullOrEmpty(beginSeverity))
+        {
+            return beginSeverity;
+        }
+
+        if (part.Contains("THROTTLED: (none)", StringComparison.OrdinalIgnoreCase))
+        {
+            return "success";
+        }
+
+        if (part.Contains("TIMEOUT", StringComparison.OrdinalIgnoreCase) ||
+            part.Contains("INCOMPLETE", StringComparison.OrdinalIgnoreCase) ||
+            part.Contains("exhausted", StringComparison.OrdinalIgnoreCase))
+        {
+            return "error";
+        }
+
+        if (part.Contains("THROTTLED", StringComparison.OrdinalIgnoreCase) ||
+            part.Contains("RETRIES", StringComparison.OrdinalIgnoreCase))
+        {
+            return "warning";
+        }
+
+        return string.Empty;
+    }
+
+    private static string ClassifyBeginLog(string part)
+    {
+        if (!part.Contains("Begin", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Empty;
+        }
+
+        var secondsSuffix = part.IndexOf('s');
+        if (secondsSuffix <= 0 || !double.TryParse(part[..secondsSuffix].Trim(), out var seconds))
+        {
+            return string.Empty;
+        }
+
+        if (seconds < 0.1)
+        {
+            return "success";
+        }
+
+        if (seconds < 1)
+        {
+            return "warning";
+        }
+
+        return "error";
+    }
+
+    private static void CollectBackendLogs(JsonElement element, List<string> logs)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (property.NameEquals("backendLog") && property.Value.ValueKind == JsonValueKind.String)
+                {
+                    logs.Add(property.Value.GetString() ?? string.Empty);
+                }
+                else
+                {
+                    CollectBackendLogs(property.Value, logs);
+                }
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                CollectBackendLogs(item, logs);
+            }
+        }
+    }
+
+    private static string ColorJson(string json)
+    {
+        var encoded = WebUtility.HtmlEncode(json);
+        var builder = new StringBuilder();
+        for (var index = 0; index < encoded.Length;)
+        {
+            if (encoded[index] == '&' && encoded[index..].StartsWith("&quot;", StringComparison.Ordinal))
+            {
+                var end = encoded.IndexOf("&quot;", index + 6, StringComparison.Ordinal);
+                if (end < 0)
+                {
+                    builder.Append(encoded[index..]);
+                    break;
+                }
+
+                var token = encoded[index..(end + 6)];
+                var after = end + 6;
+                var isKey = after < encoded.Length && encoded[after..].TrimStart().StartsWith(':');
+                builder.Append("<span class=\"").Append(isKey ? "json-key" : "json-string").Append("\">").Append(token).Append("</span>");
+                index = after;
+            }
+            else if (char.IsDigit(encoded[index]) || encoded[index] == '-')
+            {
+                var start = index;
+                while (index < encoded.Length && (char.IsDigit(encoded[index]) || encoded[index] is '-' or '.' or 'E' or 'e' or '+'))
+                {
+                    index++;
+                }
+                builder.Append("<span class=\"json-number\">").Append(encoded[start..index]).Append("</span>");
+            }
+            else if (encoded[index..].StartsWith("true", StringComparison.Ordinal) || encoded[index..].StartsWith("false", StringComparison.Ordinal) || encoded[index..].StartsWith("null", StringComparison.Ordinal))
+            {
+                var literal = encoded[index..].StartsWith("true", StringComparison.Ordinal) ? "true" : encoded[index..].StartsWith("false", StringComparison.Ordinal) ? "false" : "null";
+                builder.Append("<span class=\"json-literal\">").Append(literal).Append("</span>");
+                index += literal.Length;
+            }
+            else
+            {
+                builder.Append(encoded[index]);
+                index++;
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private static string MarkdownToHtml(string markdown)
+    {
+        if (string.IsNullOrEmpty(markdown))
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder();
+        var inList = false;
+        foreach (var rawLine in markdown.Replace("\r\n", "\n").Split('\n'))
+        {
+            var line = rawLine.TrimEnd();
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                if (inList)
+                {
+                    builder.AppendLine("</ul>");
+                    inList = false;
+                }
+                continue;
+            }
+
+            if (line.StartsWith("- ", StringComparison.Ordinal))
+            {
+                if (!inList)
+                {
+                    builder.AppendLine("<ul>");
+                    inList = true;
+                }
+                builder.Append("<li>").Append(InlineMarkdown(line[2..])).AppendLine("</li>");
+                continue;
+            }
+
+            if (inList)
+            {
+                builder.AppendLine("</ul>");
+                inList = false;
+            }
+
+            if (TryParseMarkdownHeading(line, out var headingLevel, out var headingText))
+            {
+                builder.Append("<h").Append(headingLevel).Append(">").Append(InlineMarkdown(headingText)).Append("</h").Append(headingLevel).AppendLine(">");
+            }
+            else
+            {
+                builder.Append("<p>").Append(InlineMarkdown(line)).AppendLine("</p>");
+            }
+        }
+
+        if (inList)
+        {
+            builder.AppendLine("</ul>");
+        }
+
+        return builder.ToString();
+    }
+
+    private static string InlineMarkdown(string value)
+    {
+        var encoded = WebUtility.HtmlEncode(value);
+        while (TryReplaceDelimited(ref encoded, "**", "<strong>", "</strong>")) { }
+        while (TryReplaceDelimited(ref encoded, "`", "<code>", "</code>")) { }
+        while (TryReplaceDelimited(ref encoded, "*", "<em>", "</em>")) { }
+        return encoded;
+    }
+
+    private static bool TryParseMarkdownHeading(string line, out int level, out string text)
+    {
+        level = 0;
+        text = string.Empty;
+        while (level < line.Length && level < 6 && line[level] == '#')
+        {
+            level++;
+        }
+
+        if (level == 0 || level >= line.Length || line[level] != ' ')
+        {
+            level = 0;
+            return false;
+        }
+
+        text = line[(level + 1)..];
+        return true;
+    }
+
+    private static bool TryReplaceDelimited(ref string value, string delimiter, string openTag, string closeTag)
+    {
+        var start = value.IndexOf(delimiter, StringComparison.Ordinal);
+        if (start < 0)
+        {
+            return false;
+        }
+
+        var end = value.IndexOf(delimiter, start + delimiter.Length, StringComparison.Ordinal);
+        if (end < 0)
+        {
+            return false;
+        }
+
+        value = value[..start] + openTag + value[(start + delimiter.Length)..end] + closeTag + value[(end + delimiter.Length)..];
+        return true;
+    }
+
+    private void SetActiveResponseTab(string tab)
+    {
+        ActiveResponseTab = tab;
+    }
+}

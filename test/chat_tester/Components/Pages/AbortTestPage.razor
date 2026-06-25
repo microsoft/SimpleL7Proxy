@@ -1,4 +1,4 @@
-@page "/rapid-disconnect"
+@page "/abort-test"
 @rendermode InteractiveServer
 @inject IOptions<ChatTesterOptions> Options
 @using chat_tester.Components.Shared
@@ -6,8 +6,12 @@
 
 <PageTitle>Rapid disconnect test</PageTitle>
 
-<h1>Rapid disconnect stress test</h1>
-<p class="lead">Run a burst of aborted requests against a configurable host and an editable list of target paths.</p>
+<SectionContent SectionName="page-heading">
+    <div class="d-flex flex-wrap align-items-baseline gap-3">
+        <h1 class="h4 mb-0">Rapid disconnect stress test</h1>
+        <span class="text-muted small mb-0">Run a burst of aborted requests against a configurable host and an editable list of target paths.</span>
+    </div>
+</SectionContent>
 
 <div class="row g-4">
     <div class="col-lg-5">
@@ -15,7 +19,7 @@
             <div class="card-body">
                 <h5 class="card-title">Scenario form</h5>
                 <EditForm Model="this" OnValidSubmit="RunScenarioAsync">
-                    <ProxyPanel @ref="ProxyPanel" Settings="AuthSettings" InitialServerBaseUrl="@InitialServerBaseUrl" />
+                    <ServerUrlPanel @ref="ServerUrlPanel" Settings="AuthSettings" InitialServerBaseUrl="@InitialServerBaseUrl" />
 
                     <div class="mb-3">
                         <label class="form-label">Method</label>
@@ -112,7 +116,7 @@
     private AuthTokenSettings AuthSettings { get; set; } = default!;
     [Inject]
     private UserSettings UserSettings { get; set; } = default!;
-    private ProxyPanel? ProxyPanel { get; set; }
+    private ServerUrlPanel? ServerUrlPanel { get; set; }
 
     protected override void OnInitialized()
     {
@@ -129,7 +133,7 @@
 
     private async Task RunScenarioAsync()
     {
-        var serverBaseUrl = ProxyPanel?.ServerBaseUrl ?? string.Empty;
+        var serverBaseUrl = ServerUrlPanel?.ServerBaseUrl ?? string.Empty;
         if (string.IsNullOrWhiteSpace(serverBaseUrl))
         {
             StatusMessage = "Set a server base URL before running the test.";
@@ -151,11 +155,11 @@
         // Resolve the authorization header once so every request in the burst reuses it.
         var headerName = AuthSettings.HeaderName;
         var headerValue = string.Empty;
-        if (ProxyPanel is not null)
+        if (ServerUrlPanel is not null)
         {
             try
             {
-                headerValue = await ProxyPanel.ResolveHeaderValueAsync();
+                headerValue = await ServerUrlPanel.ResolveHeaderValueAsync();
             }
             catch (Exception ex)
             {

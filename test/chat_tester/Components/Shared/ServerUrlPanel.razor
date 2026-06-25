@@ -8,7 +8,7 @@
         <InputText class="form-control" @bind-Value="Settings.ServerBaseUrl" />
     </div>
 
-    <AuthTokenPanel @ref="AuthTokenPanel" Settings="Settings" />
+    <AuthPanel @ref="AuthPanel" Settings="Settings" />
 </div>
 
 <style>
@@ -26,7 +26,7 @@
     public string? InitialServerBaseUrl { get; set; }
 
     public string ServerBaseUrl => Settings.ServerBaseUrl;
-    private AuthTokenPanel? AuthTokenPanel { get; set; }
+    private AuthPanel? AuthPanel { get; set; }
 
     protected override void OnInitialized()
     {
@@ -38,9 +38,9 @@
 
     /// <summary>Resolves the configured authorization header value (empty when authorization is disabled).</summary>
     public Task<string> ResolveHeaderValueAsync()
-        => AuthTokenPanel?.ResolveHeaderValueAsync() ?? Task.FromResult(string.Empty);
+        => AuthPanel?.ResolveHeaderValueAsync() ?? Task.FromResult(string.Empty);
 
     /// <summary>Applies the configured authorization header to the request when enabled.</summary>
     public Task ApplyAuthorizationAsync(HttpRequestMessage request)
-        => AuthTokenPanel?.ApplyAuthorizationAsync(request) ?? Task.CompletedTask;
+        => AuthPanel?.ApplyAuthorizationAsync(request) ?? Task.CompletedTask;
 }

@@ -30,7 +30,7 @@
         </div>
     </div>
 
-    @if (ShowPrompt)
+    @if (ShowPrompt && SimpleMode)
     {
         <textarea class="form-control" id="modelPanelPrompt" rows="3" value="@Message"
                   @oninput="OnMessageInput"></textarea>
@@ -82,7 +82,7 @@
 </div>
 
 <div class="row g-3 mb-3">
-    <div class="col-12 @(SupportsStreaming ? "col-md-8" : string.Empty)">
+    <div class="col-12 @(SupportsStreaming && SimpleMode ? "col-md-8" : string.Empty)">
         <label class="form-label" for="modelPanelContentType">Content-Type</label>
         <select class="form-select" id="modelPanelContentType" value="@ContentType" @onchange="OnContentTypeSelected">
             @foreach (var contentType in ContentTypeOptions)
@@ -92,7 +92,7 @@
         </select>
     </div>
 
-    @if (SupportsStreaming)
+    @if (SupportsStreaming && SimpleMode)
     {
         <div class="col-12 col-md-4">
             <label class="form-label" for="modelPanelStream">Stream</label>
@@ -137,7 +137,8 @@
 {
     <div class="mb-3">
         <label class="form-label" for="modelPanelRequestBody">Request JSON</label>
-        <textarea class="form-control font-monospace" id="modelPanelRequestBody" rows="@Rows" readonly>@RequestBody</textarea>
+        <textarea class="form-control font-monospace" id="modelPanelRequestBody" rows="@Rows"
+                  @oninput="OnCustomBodyInput">@_customBody</textarea>
     </div>
 }
 
@@ -152,6 +153,7 @@
     private readonly Dictionary<string, string> _endpointPaths = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _pathPrefixes = new(StringComparer.OrdinalIgnoreCase);
     private string? _lastDefaultsKey;
+    private string _customBody = string.Empty;
 
     private static readonly string[] ContentTypeOptions =
     {
@@ -220,7 +222,7 @@
     public string EndpointPath => CombinePrefixAndPath(CurrentPathPrefix, CurrentEndpointPath);
 
     /// <summary>The generated request JSON for the selected model, API, and field values.</summary>
-    public string RequestBody => BuildRequestJson();
+    public string RequestBody => SimpleMode ? BuildRequestJson() : _customBody;
 
     /// <summary>The current editable field defaults for the selected model and API.</summary>
     public IReadOnlyDictionary<string, string> Fields => _fieldValues;
@@ -315,8 +317,18 @@
 
     private async Task OnSimpleModeChanged(ChangeEventArgs args)
     {
-        SimpleMode = args.Value is bool value && value;
+        var newValue = args.Value is bool value && value;
+        if (!newValue && SimpleMode)
+        {
+            _customBody = BuildRequestJson();
+        }
+        SimpleMode = newValue;
         await SimpleModeChanged.InvokeAsync(SimpleMode);
+    }
+
+    private void OnCustomBodyInput(ChangeEventArgs args)
+    {
+        _customBody = args.Value?.ToString() ?? string.Empty;
     }
 
     private async Task OnDebugChanged(ChangeEventArgs args)

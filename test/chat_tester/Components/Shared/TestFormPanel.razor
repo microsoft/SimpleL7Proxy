@@ -33,7 +33,7 @@
         }
         <EditForm Model="this" OnValidSubmit="HandleSubmitAsync">
             <div class="@(ActiveTab == "server" ? string.Empty : "d-none")">
-                <ProxyPanel @ref="ProxyPanel" Settings="Settings" InitialServerBaseUrl="@InitialServerBaseUrl" />
+                <ServerUrlPanel @ref="ServerUrlPanel" Settings="Settings" InitialServerBaseUrl="@InitialServerBaseUrl" />
             </div>
             <div class="@(ActiveTab == "user" ? string.Empty : "d-none")">
                 <UserPanel @ref="UserPanel" Settings="UserSettings" />
@@ -98,22 +98,22 @@
     [Parameter]
     public RenderFragment? PromptContent { get; set; }
 
-    private ProxyPanel? ProxyPanel { get; set; }
+    private ServerUrlPanel? ServerUrlPanel { get; set; }
     private UserPanel? UserPanel { get; set; }
     private HeaderPanel? HeaderPanel { get; set; }
 
     public string ActiveTab { get; private set; } = "prompt";
 
     /// <summary>The server base URL entered in the Server tab.</summary>
-    public string ServerBaseUrl => ProxyPanel?.ServerBaseUrl ?? string.Empty;
+    public string ServerBaseUrl => ServerUrlPanel?.ServerBaseUrl ?? string.Empty;
 
     /// <summary>Resolves the configured authorization header value (empty when authorization is disabled).</summary>
     public Task<string> ResolveHeaderValueAsync()
-        => ProxyPanel?.ResolveHeaderValueAsync() ?? Task.FromResult(string.Empty);
+        => ServerUrlPanel?.ResolveHeaderValueAsync() ?? Task.FromResult(string.Empty);
 
     /// <summary>Applies the configured authorization header to the request when enabled.</summary>
     public Task ApplyAuthorizationAsync(HttpRequestMessage request)
-        => ProxyPanel?.ApplyAuthorizationAsync(request) ?? Task.CompletedTask;
+        => ServerUrlPanel?.ApplyAuthorizationAsync(request) ?? Task.CompletedTask;
 
     /// <summary>Applies the configured user identity header for the given request index.</summary>
     public void ApplyUser(HttpRequestMessage request, int requestIndex)

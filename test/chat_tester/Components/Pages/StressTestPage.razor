@@ -1,4 +1,4 @@
-@page "/burst-test"
+@page "/stress-test"
 @rendermode InteractiveServer
 @inject IOptions<ChatTesterOptions> Options
 @inject RequestDebugSettings DebugSettings
@@ -8,14 +8,18 @@
 @using System.Diagnostics
 @using System.Linq
 
-<PageTitle>Burst test</PageTitle>
+<PageTitle>Stress test</PageTitle>
 
-<h1>Burst test</h1>
-<p class="lead">Fire a configurable number of parallel requests and measure bytes, total time, and time to first byte for each.</p>
+<SectionContent SectionName="page-heading">
+    <div class="d-flex flex-wrap align-items-baseline gap-3">
+        <h1 class="h4 mb-0">Stress test</h1>
+        <span class="text-muted small mb-0">Fire a configurable number of parallel requests and measure bytes, total time, and time to first byte for each.</span>
+    </div>
+</SectionContent>
 
 <div class="row g-4 align-items-start">
     <div class="col-12 col-lg-5">
-        <RequestPanel @ref="RequestPanel"
+        <TestFormPanel @ref="FormPanel"
                       Settings="AuthSettings"
                       UserSettings="UserSettings"
                       HeaderSettings="HeaderSettings"
@@ -33,9 +37,9 @@
                     <div class="form-text">Number of requests to send simultaneously (1–2000).</div>
                 </div>
 
-                <ChatRequestBodyPanel @ref="BodyPanel" Rows="10" InitialBody="@InitialRequestBody" InitialEndpointPath="@InitialEndpointPath" InitialContentType="@InitialContentType" />
+                <RequestBodyPanel @ref="BodyPanel" Rows="10" InitialBody="@InitialRequestBody" InitialEndpointPath="@InitialEndpointPath" InitialContentType="@InitialContentType" />
             </PromptContent>
-        </RequestPanel>
+        </TestFormPanel>
     </div>
 
     <div class="col-12 col-lg-7">
@@ -125,8 +129,8 @@
     private UserSettings UserSettings { get; set; } = default!;
     [Inject]
     private HeaderSettings HeaderSettings { get; set; } = default!;
-    private RequestPanel? RequestPanel { get; set; }
-    private ChatRequestBodyPanel? BodyPanel { get; set; }
+    private TestFormPanel? FormPanel { get; set; }
+    private RequestBodyPanel? BodyPanel { get; set; }
     private string InitialRequestBody { get; set; } = string.Empty;
 
     private bool IsRunning { get; set; }
@@ -153,7 +157,7 @@
     private async Task RunStressTestAsync()
     {
         var endpointPath = BodyPanel?.EndpointPath ?? string.Empty;
-        var serverBaseUrl = RequestPanel?.ServerBaseUrl ?? string.Empty;
+        var serverBaseUrl = FormPanel?.ServerBaseUrl ?? string.Empty;
         if (string.IsNullOrWhiteSpace(serverBaseUrl) || string.IsNullOrWhiteSpace(endpointPath))
         {
             StatusMessage = "Set both the server URL and endpoint path before running the test.";
@@ -169,11 +173,11 @@
         // Resolve the authorization header once so all parallel requests reuse it.
         var headerName = AuthSettings.HeaderName;
         string headerValue = string.Empty;
-        if (RequestPanel is not null)
+        if (FormPanel is not null)
         {
             try
             {
-                headerValue = await RequestPanel.ResolveHeaderValueAsync();
+                headerValue = await FormPanel.ResolveHeaderValueAsync();
             }
             catch (Exception ex)
             {

@@ -21,7 +21,7 @@
 
 <div class="row g-4 multi-step-layout">
     <div class="col-12 request-col">
-        <RequestPanel @ref="RequestPanel"
+        <TestFormPanel @ref="FormPanel"
                       Settings="AuthSettings"
                       UserSettings="UserSettings"
                       HeaderSettings="HeaderSettings"
@@ -35,7 +35,7 @@
                       ShowSubmitButton="false"
                       OnSubmit="SendNextTurnAsync">
             <PromptContent>
-                <ChatRequestBodyPanel @ref="BodyPanel"
+                <RequestBodyPanel @ref="BodyPanel"
                                       Rows="8"
                                       InitialBody="@InitialRequestBody"
                                       InitialEndpointPath="@InitialEndpointPath"
@@ -43,7 +43,7 @@
                                       AllowModeToggle="false"
                                       ShowPrompt="false" />
             </PromptContent>
-        </RequestPanel>
+        </TestFormPanel>
     </div>
 
     <div class="col-12 chat-col">
@@ -65,8 +65,8 @@
                             @foreach (var turn in Conversation)
                             {
                                 <div class="turn-group">
-                                    <BubblePanel Role="User" Message="@turn.UserMessage" />
-                                    <BubblePanel Role="Assistant"
+                                    <ChatBubble Role="User" Message="@turn.UserMessage" />
+                                    <ChatBubble Role="Assistant"
                                                  Message="@turn.AssistantMessage"
                                                  Status="@turn.Status"
                                                  Metrics="@turn.Metrics"
@@ -79,8 +79,8 @@
                             @if (PendingTurn is not null)
                             {
                                 <div class="turn-group active-turn">
-                                    <BubblePanel Role="User" Message="@PendingTurn.UserMessage" />
-                                    <BubblePanel Role="Assistant" Message="@PendingTurn.AssistantMessage" Status="Streaming" />
+                                    <ChatBubble Role="User" Message="@PendingTurn.UserMessage" />
+                                    <ChatBubble Role="Assistant" Message="@PendingTurn.AssistantMessage" Status="Streaming" />
                                 </div>
                             }
                         }
@@ -264,8 +264,8 @@
     private UserSettings UserSettings { get; set; } = default!;
     [Inject]
     private HeaderSettings HeaderSettings { get; set; } = default!;
-    private RequestPanel? RequestPanel { get; set; }
-    private ChatRequestBodyPanel? BodyPanel { get; set; }
+    private TestFormPanel? FormPanel { get; set; }
+    private RequestBodyPanel? BodyPanel { get; set; }
     private ElementReference ConversationRef;
     private ElementReference ChatInputRef;
     private List<MultiStepChatTurn> Conversation { get; } = new();
@@ -274,7 +274,7 @@
     private string StatusMessage { get; set; } = "Ready.";
     private string LastRequestSummary { get; set; } = "No request sent yet.";
     private string ChatInput { get; set; } = "tell me a joke";
-    private DotNetObjectReference<MultiStepChat>? SelfReference { get; set; }
+    private DotNetObjectReference<ChatPage>? SelfReference { get; set; }
     private bool CanSend => !IsRunning && !string.IsNullOrWhiteSpace(ChatInput);
 
     protected override void OnInitialized()
@@ -309,7 +309,7 @@
 
     private async Task SendNextTurnAsync()
     {
-        var serverBaseUrl = RequestPanel?.ServerBaseUrl ?? string.Empty;
+        var serverBaseUrl = FormPanel?.ServerBaseUrl ?? string.Empty;
         var currentRequest = BodyPanel?.CurrentRequest ?? new ModelRequest(string.Empty, string.Empty, ChatTesterHttp.JsonContentType);
         var currentUserMessage = ChatInput.Trim();
         if (string.IsNullOrWhiteSpace(serverBaseUrl) || string.IsNullOrWhiteSpace(currentRequest.EndpointPath))
@@ -354,11 +354,11 @@
             request.Headers.Add(ChatTesterHttp.AcceptHeaderName, ChatTesterHttp.EventStreamContentType);
             ChatTesterHttp.ApplyDebugHeader(request, DebugSettings);
 
-            if (RequestPanel is not null)
+            if (FormPanel is not null)
             {
-                await RequestPanel.ApplyAuthorizationAsync(request);
-                RequestPanel.ApplyUser(request, Conversation.Count);
-                RequestPanel.ApplyHeaders(request, Conversation.Count);
+                await FormPanel.ApplyAuthorizationAsync(request);
+                FormPanel.ApplyUser(request, Conversation.Count);
+                FormPanel.ApplyHeaders(request, Conversation.Count);
             }
 
             requestHeadersText = ChatTesterHttp.SummarizeRequestHeaders(request);

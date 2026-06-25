@@ -1,4 +1,4 @@
-@page "/analyze-query"
+@page "/inspect"
 @rendermode InteractiveServer
 @inject IOptions<ChatTesterOptions> Options
 @inject IJSRuntime JS
@@ -14,32 +14,32 @@
 @using System.Text.Json
 @using System.Linq
 
-<PageTitle>Analyze query</PageTitle>
+<PageTitle>Request inspector</PageTitle>
 
 <SectionContent SectionName="page-heading">
     <div class="d-flex flex-wrap align-items-baseline gap-3">
-        <h1 class="h4 mb-0">Analyze query</h1>
+        <h1 class="h4 mb-0">Request inspector</h1>
         <span class="text-muted small mb-0">@PageTagline</span>
     </div>
 </SectionContent>
 
 <div class="row g-4">
     <div class="col-12 request-col">
-        <RequestPanel @ref="RequestPanel"
+        <TestFormPanel @ref="FormPanel"
                       Settings="AuthSettings"
                       UserSettings="UserSettings"
                       HeaderSettings="HeaderSettings"
                       InitialServerBaseUrl="@InitialServerBaseUrl"
                       HeaderSubtitle="Send a chat request."
-                      CardTitle="Analyze query"
+                      CardTitle="Request inspector"
                       SubmitLabel="Send single chat call"
                       BusyLabel="Sending..."
                       IsBusy="@IsRunning"
                       OnSubmit="SendSingleChatCallAsync">
             <PromptContent>
-                <ChatRequestBodyPanel @ref="BodyPanel" Rows="@RequestTextAreaRows" InitialBody="@InitialRequestBody" InitialEndpointPath="@InitialEndpointPath" InitialContentType="@InitialContentType" />
+                <RequestBodyPanel @ref="BodyPanel" Rows="@RequestTextAreaRows" InitialBody="@InitialRequestBody" InitialEndpointPath="@InitialEndpointPath" InitialContentType="@InitialContentType" />
             </PromptContent>
-        </RequestPanel>
+        </TestFormPanel>
     </div>
 
     <div class="col-12 response-col">
@@ -729,8 +729,8 @@
     private UserSettings UserSettings { get; set; } = default!;
     [Inject]
     private HeaderSettings HeaderSettings { get; set; } = default!;
-    private RequestPanel? RequestPanel { get; set; }
-    private ChatRequestBodyPanel? BodyPanel { get; set; }
+    private TestFormPanel? FormPanel { get; set; }
+    private RequestBodyPanel? BodyPanel { get; set; }
     private string InitialRequestBody { get; set; } = string.Empty;
     private string PageTagline { get; set; } = DefaultPageTagline;
     private string? SelectedHistoryEntryId { get; set; }
@@ -812,7 +812,7 @@
 
     private async Task SendSingleChatCallAsync()
     {
-        var serverBaseUrl = RequestPanel?.ServerBaseUrl ?? string.Empty;
+        var serverBaseUrl = FormPanel?.ServerBaseUrl ?? string.Empty;
         var endpointPath = BodyPanel?.EndpointPath ?? string.Empty;
         if (string.IsNullOrWhiteSpace(serverBaseUrl) || string.IsNullOrWhiteSpace(endpointPath))
         {
@@ -848,11 +848,11 @@
 
             RequestHeadersText = ChatTesterHttp.SummarizeRequestHeaders(request);
 
-            if (RequestPanel is not null)
+            if (FormPanel is not null)
             {
-                await RequestPanel.ApplyAuthorizationAsync(request);
-                RequestPanel.ApplyUser(request, 0);
-                RequestPanel.ApplyHeaders(request, 0);
+                await FormPanel.ApplyAuthorizationAsync(request);
+                FormPanel.ApplyUser(request, 0);
+                FormPanel.ApplyHeaders(request, 0);
             }
 
             RequestHeadersText = ChatTesterHttp.SummarizeRequestHeaders(request);
