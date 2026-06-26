@@ -116,7 +116,7 @@
                         <tr>
                             <th><button class="history-sort" type="button" @onclick='() => SetSort("time")'>Time @SortIndicator("time")</button></th>
                             <th>Source</th>
-                            <th>Request</th>
+                            <th>Message</th>
                             <th><button class="history-sort" type="button" @onclick='() => SetSort("status")'>Status @SortIndicator("status")</button></th>
                             <th class="text-end">TTFB</th>
                             <th class="text-end">Duration</th>
@@ -130,7 +130,10 @@
                             <tr class="request-detail-row" tabindex="0">
                                 <td class="text-nowrap">@FormatTimestamp(entry.CreatedAt)</td>
                                 <td>@entry.Source</td>
-                                <td><code>@entry.Method @entry.EndpointPath</code></td>
+                                <td>
+                                    <div class="history-request-message">@RequestSummaryFormatter.BuildRequestTitle(entry.RequestBody)</div>
+                                    <code class="history-request-path">@entry.Method @entry.EndpointPath</code>
+                                </td>
                                 <td>@entry.Metrics.Status</td>
                                 <td class="text-end">@FormatDuration(entry.Metrics.TimeToFirstByte)</td>
                                 <td class="text-end">@FormatDuration(entry.Metrics.Duration)</td>
@@ -182,6 +185,21 @@
 
     .history-table td:nth-child(3) {
         min-width: 22rem;
+        white-space: normal;
+    }
+
+    .history-request-message {
+        color: #212529;
+        font-weight: 600;
+        line-height: 1.25;
+        overflow-wrap: anywhere;
+    }
+
+    .history-request-path {
+        display: block;
+        margin-top: 0.15rem;
+        color: #6c757d;
+        font-size: 0.75rem;
         white-space: normal;
     }
 

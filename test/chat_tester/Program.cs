@@ -5,6 +5,8 @@ using Microsoft.Extensions.Options;
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("chat-models.json", optional: false, reloadOnChange: true);
 builder.Configuration.AddJsonFile($"chat-models.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true);
+builder.Configuration.AddJsonFile("vision-models.json", optional: false, reloadOnChange: true);
+builder.Configuration.AddJsonFile($"vision-models.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true);
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
@@ -16,6 +18,7 @@ builder.Services.AddSingleton<HistorySettings>();
 builder.Services.AddSingleton<ConversationSettings>();
 builder.Services.AddSingleton<RequestDebugSettings>();
 builder.Services.AddSingleton<ModelDefaults>();
+builder.Services.AddSingleton<VisionModelCatalog>();
 builder.Services.AddSingleton<ChatHistoryStore>();
 builder.Services.AddSingleton<ChatConversationStore>();
 builder.Services.Configure<ChatTesterOptions>(

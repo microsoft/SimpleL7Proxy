@@ -1,7 +1,5 @@
 @namespace chat_tester.Components.Shared
 @using System.Globalization
-@using System.Text.Json
-@using System.Text.RegularExpressions
 
 @if (Entry is not null)
 {
@@ -21,19 +19,22 @@
             </div>
         </div>
 
-        <div class="rdp-grid">
-            <div>
-                <span>Request</span>
-                <strong>@Entry.Method @Entry.EndpointPath</strong>
-            </div>
-            <div>
+        <div class="rdp-grid rdp-route-grid">
+            <div class="rdp-target">
                 <span>Target host</span>
-                <strong>@TargetHost</strong>
+                <strong class="rdp-truncate" title="@TargetHost">@TargetHost</strong>
             </div>
-            <div>
+            <div class="rdp-request">
+                <span>Request</span>
+                <strong class="rdp-truncate" title="@RequestLine">@RequestLine</strong>
+            </div>
+            <div class="rdp-proxy">
                 <span>Proxy</span>
-                <strong>@FormatValue(Entry.ServerBaseUrl)</strong>
+                <strong class="rdp-truncate" title="@ProxyUrl">@ProxyUrl</strong>
             </div>
+        </div>
+
+        <div class="rdp-grid rdp-metrics-grid">
             <div>
                 <span>Content-Type</span>
                 <strong>@FormatValue(Entry.Metrics.ContentType)</strong>
@@ -167,9 +168,28 @@
 
     .rdp-grid {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 0.5rem 0.75rem;
         margin-bottom: 0.75rem;
+    }
+
+    .rdp-route-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .rdp-metrics-grid {
+        grid-template-columns: minmax(0, 2fr) repeat(3, minmax(0, 1fr));
+    }
+
+    .rdp-grid > div {
+        min-width: 0;
+    }
+
+    .rdp-request {
+        grid-column: span 2;
+    }
+
+    .rdp-proxy {
+        grid-column: 1 / -1;
     }
 
     .rdp-grid span,
@@ -185,7 +205,16 @@
         display: block;
         color: #212529;
         font-weight: 600;
-        word-break: break-word;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        word-break: normal;
+    }
+
+    .rdp-grid strong.rdp-truncate {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        overflow-wrap: normal;
     }
 
     .rdp-section { margin-top: 0.625rem; }
@@ -203,7 +232,15 @@
     }
 
     @@media (max-width: 768px) {
-        .rdp-grid { grid-template-columns: 1fr; }
+        .rdp-route-grid,
+        .rdp-metrics-grid {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .rdp-request,
+        .rdp-proxy {
+            grid-column: 1 / -1;
+        }
     }
 </style>
 
@@ -217,9 +254,13 @@
 
     private string StatusState => Entry is null ? "Unknown" : GetStatusState(Entry.Metrics.Status);
 
-    private string RequestTitle => Entry is null ? "-" : BuildRequestTitle(Entry.RequestBody);
+    private string RequestTitle => Entry is null ? "-" : RequestSummaryFormatter.BuildRequestTitle(Entry.RequestBody);
 
-    private string TargetHost => Entry is null ? "-" : BuildTargetHost(Entry);
+    private string RequestLine => Entry is null ? "-" : $"{Entry.Method} {Entry.EndpointPath}";
+
+    private string TargetHost => Entry is null ? "-" : RequestSummaryFormatter.BuildTargetHost(Entry);
+
+    private string ProxyUrl => Entry is null ? "-" : FormatValue(Entry.ServerBaseUrl);
 
     private static string FormatTimestamp(DateTimeOffset value) =>
         value.LocalDateTime.ToString("MMM d, yyyy h:mm tt", CultureInfo.InvariantCulture);
@@ -260,243 +301,6 @@
         return "Completed";
     }
 
-    private static string BuildRequestTitle(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return "No request body";
-        }
-
-        if (TryExtractApiMessage(value, out var apiMessage))
-        {
-            return PreviewText(apiMessage, 260);
-        }
-
-        var lines = value.Replace("\r\n", "\n", StringComparison.Ordinal)
-            .Replace('\r', '\n')
-            .Split('\n', StringSplitOptions.None)
-            .Take(4);
-
-        return PreviewText(string.Join("\\n", lines), 260);
-    }
-
-    private static string BuildTargetHost(ChatHistoryEntry entry)
-    {
-        var backendUrl = ExtractBackendUrl(entry.ResponseHeadersText);
-        if (!string.IsNullOrWhiteSpace(backendUrl))
-        {
-            return FormatHost(backendUrl);
-        }
-
-        return FormatHost(entry.ServerBaseUrl);
-    }
-
-    private static string ExtractBackendUrl(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return string.Empty;
-        }
-
-        var match = Regex.Match(
-            value,
-            @"\bUsing\s+[^|\r\n]*?URL:\s*(?<url>https?://[^\s|]+)",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
-        return match.Success ? TrimUrl(match.Groups["url"].Value) : string.Empty;
-    }
-
-    private static string FormatHost(string value)
-    {
-        var trimmed = TrimUrl(value);
-        if (string.IsNullOrWhiteSpace(trimmed))
-        {
-            return "-";
-        }
-
-        return Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) && !string.IsNullOrWhiteSpace(uri.Host)
-            ? uri.Host
-            : trimmed;
-    }
-
-    private static string TrimUrl(string value) =>
-        value.Trim().TrimEnd('.', ',', ';', ')', ']');
-
-    private static bool TryExtractApiMessage(string value, out string message)
-    {
-        message = string.Empty;
-
-        try
-        {
-            using var document = JsonDocument.Parse(value);
-            var root = document.RootElement;
-
-            if (TryExtractLastMessageFromProperty(root, "messages", out message) ||
-                TryExtractLastMessageFromProperty(root, "input", out message) ||
-                TryExtractLastMessageFromProperty(root, "contents", out message))
-            {
-                return true;
-            }
-
-            foreach (var propertyName in new[] { "message", "prompt", "query", "question", "text", "input" })
-            {
-                if (TryGetPropertyIgnoreCase(root, propertyName, out var property) && TryExtractText(property, out message))
-                {
-                    return true;
-                }
-            }
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-
-        return false;
-    }
-
-    private static bool TryExtractLastMessageFromProperty(JsonElement root, string propertyName, out string message)
-    {
-        message = string.Empty;
-        return TryGetPropertyIgnoreCase(root, propertyName, out var property) &&
-            TryExtractLastMessage(property, out message);
-    }
-
-    private static bool TryExtractLastMessage(JsonElement value, out string message)
-    {
-        message = string.Empty;
-
-        if (value.ValueKind == JsonValueKind.String)
-        {
-            message = CompactWhitespace(value.GetString() ?? string.Empty);
-            return !string.IsNullOrWhiteSpace(message);
-        }
-
-        if (value.ValueKind != JsonValueKind.Array)
-        {
-            return TryExtractMessageText(value, out message);
-        }
-
-        var lastMessage = string.Empty;
-        var lastUserMessage = string.Empty;
-        foreach (var item in value.EnumerateArray())
-        {
-            if (!TryExtractMessageText(item, out var itemMessage))
-            {
-                continue;
-            }
-
-            lastMessage = itemMessage;
-            if (TryGetPropertyIgnoreCase(item, "role", out var role) &&
-                role.ValueKind == JsonValueKind.String &&
-                IsUserRole(role.GetString()))
-            {
-                lastUserMessage = itemMessage;
-            }
-        }
-
-        message = string.IsNullOrWhiteSpace(lastUserMessage) ? lastMessage : lastUserMessage;
-        return !string.IsNullOrWhiteSpace(message);
-    }
-
-    private static bool TryExtractMessageText(JsonElement value, out string message)
-    {
-        message = string.Empty;
-
-        if (value.ValueKind == JsonValueKind.String)
-        {
-            message = CompactWhitespace(value.GetString() ?? string.Empty);
-            return !string.IsNullOrWhiteSpace(message);
-        }
-
-        if (value.ValueKind != JsonValueKind.Object)
-        {
-            return TryExtractText(value, out message);
-        }
-
-        foreach (var propertyName in new[] { "content", "parts", "text", "message", "input", "prompt" })
-        {
-            if (TryGetPropertyIgnoreCase(value, propertyName, out var property) && TryExtractText(property, out message))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool TryExtractText(JsonElement value, out string text)
-    {
-        text = string.Empty;
-
-        if (value.ValueKind == JsonValueKind.String)
-        {
-            text = CompactWhitespace(value.GetString() ?? string.Empty);
-            return !string.IsNullOrWhiteSpace(text);
-        }
-
-        if (value.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var propertyName in new[] { "text", "content", "parts", "message", "input", "prompt" })
-            {
-                if (TryGetPropertyIgnoreCase(value, propertyName, out var property) && TryExtractText(property, out text))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        if (value.ValueKind != JsonValueKind.Array)
-        {
-            return false;
-        }
-
-        var parts = new List<string>();
-        foreach (var item in value.EnumerateArray())
-        {
-            if (TryExtractText(item, out var itemText))
-            {
-                parts.Add(itemText);
-            }
-        }
-
-        text = CompactWhitespace(string.Join(" ", parts));
-        return !string.IsNullOrWhiteSpace(text);
-    }
-
-    private static bool TryGetPropertyIgnoreCase(JsonElement value, string propertyName, out JsonElement property)
-    {
-        if (value.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var candidate in value.EnumerateObject())
-            {
-                if (string.Equals(candidate.Name, propertyName, StringComparison.OrdinalIgnoreCase))
-                {
-                    property = candidate.Value;
-                    return true;
-                }
-            }
-        }
-
-        property = default;
-        return false;
-    }
-
-    private static bool IsUserRole(string? role) =>
-        string.Equals(role, "user", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(role, "human", StringComparison.OrdinalIgnoreCase);
-
-    private static string CompactWhitespace(string value) =>
-        Regex.Replace(value.Trim(), @"\s+", " ");
-
-    private static string PreviewText(string value, int maxLength)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return "-";
-        }
-
-        return value.Length <= maxLength ? value : $"{value[..maxLength]}...";
-    }
+    private static string PreviewText(string value, int maxLength) =>
+        RequestSummaryFormatter.PreviewText(value, maxLength);
 }

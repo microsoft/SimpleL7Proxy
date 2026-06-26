@@ -1,5 +1,5 @@
 .chat-bubble {
-    width: min(82%, 48rem);
+    width: min(90%, 60rem);
     padding: 0.8rem 0.95rem;
     border: 1px solid rgba(0, 0, 0, 0.1);
     border-radius: 0.5rem;
@@ -16,7 +16,7 @@
 .assistant-bubble {
     position: relative;
     justify-self: start;
-    width: min(72%, calc(100% - 15.25rem), 48rem);
+    width: min(90%, 60rem);
     border-color: #b7d7c5;
     background: #f3fbf6;
     overflow: visible;

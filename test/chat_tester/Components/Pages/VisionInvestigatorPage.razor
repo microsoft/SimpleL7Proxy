@@ -1,0 +1,1863 @@
+@page "/vision-investigator"
+@page "/vision"
+@rendermode InteractiveServer
+@inject IOptions<ChatTesterOptions> Options
+@inject VisionModelCatalog VisionCatalog
+@inject RequestDebugSettings DebugSettings
+@using Microsoft.Extensions.Options
+@using System.Diagnostics
+@using System.Globalization
+@using System.Text
+@using System.Text.Json
+
+<PageTitle>Vision investigator</PageTitle>
+
+<SectionContent SectionName="page-heading">
+    <div class="d-flex flex-wrap align-items-baseline gap-3">
+        <h1 class="h4 mb-0">Vision investigator</h1>
+        <span class="text-muted small mb-0">@PageTagline</span>
+    </div>
+</SectionContent>
+
+<div class="row g-4">
+    <div class="col-12 request-col">
+        <TestFormPanel @ref="FormPanel"
+                       Settings="AuthSettings"
+                       UserSettings="UserSettings"
+                       HeaderSettings="HeaderSettings"
+                       InitialServerBaseUrl="@InitialServerBaseUrl"
+                       HeaderSubtitle="Send a vision request."
+                       PromptTabLabel="Vision"
+                       CardTitle="Vision investigator"
+                       SubmitLabel="Investigate image"
+                       BusyLabel="Investigating..."
+                       IsBusy="@IsRunning"
+                       OnSubmit="SendVisionRequestAsync">
+            <PromptContent>
+                <div class="vision-body-panel rounded border p-3 mb-3">
+                    <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
+                        @if (UsesPrompt)
+                        {
+                            <label class="form-label mb-0" for="visionPrompt">Prompt</label>
+                        }
+                        else
+                        {
+                            <span class="form-label mb-0">Image analysis</span>
+                        }
+                        <div class="form-check mb-0 ms-auto">
+                            <input class="form-check-input" type="checkbox" id="visionDebugCheck"
+                                   checked="@DebugSettings.DebugEnabled" @onchange="OnDebugChanged" />
+                            <label class="form-check-label" for="visionDebugCheck">Debug</label>
+                        </div>
+                        <div class="form-check mb-0">
+                            <input class="form-check-input" type="checkbox" id="visionCustomJsonCheck"
+                                   checked="@UseCustomJson" @onchange="OnCustomJsonChanged" />
+                            <label class="form-check-label" for="visionCustomJsonCheck">Edit JSON</label>
+                        </div>
+                    </div>
+
+                    @if (UsesPrompt)
+                    {
+                        <textarea class="form-control mb-3" id="visionPrompt" rows="3" value="@Prompt" @oninput="OnPromptChanged"></textarea>
+                    }
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-12 col-lg-6">
+                            <label class="form-label" for="visionModelSelect">@ModelSelectLabel</label>
+                            <select class="form-select" id="visionModelSelect" value="@SelectedModel" @onchange="OnModelSelected">
+                                <option value="">@ModelSelectPlaceholder</option>
+                                @foreach (var group in VisionCatalog.ListModels().GroupBy(model => model.Provider))
+                                {
+                                    <optgroup label="@group.Key">
+                                        @foreach (var model in group)
+                                        {
+                                            <option value="@model.Id">@model.DisplayName</option>
+                                        }
+                                    </optgroup>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="col-12 col-lg-6">
+                            <label class="form-label" for="visionApiSelect">API</label>
+                            <select class="form-select" id="visionApiSelect" value="@SelectedApi" @onchange="OnApiSelected" disabled="@(!AvailableApis.Any())">
+                                <option value="">API...</option>
+                                @foreach (var api in AvailableApis)
+                                {
+                                    <option value="@api.Id">@api.DisplayName</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-12 col-lg-4">
+                            <label class="form-label" for="visionImageSource">Image source</label>
+                            <select class="form-select" id="visionImageSource" value="@ImageSource" @onchange="OnImageSourceChanged">
+                                <option value="url">URL</option>
+                                @if (!RequiresExternalImageUrl)
+                                {
+                                    <option value="data-url">Data URL</option>
+                                    <option value="file">File</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="col-12 col-lg-8">
+                            @if (ImageSource == FileImageSource)
+                            {
+                                <label class="form-label" for="visionImageFile">Image file</label>
+                                <InputFile id="visionImageFile" class="form-control" OnChange="OnImageFileSelected" accept="image/*" />
+                                @if (!string.IsNullOrWhiteSpace(ImageFileName))
+                                {
+                                    <div class="form-text">@ImageFileName</div>
+                                }
+                            }
+                            else if (ImageSource == DataUrlImageSource)
+                            {
+                                <label class="form-label" for="visionDataUrl">Image data URL</label>
+                                <textarea class="form-control font-monospace" id="visionDataUrl" rows="3" value="@ImageUrl" @oninput="OnImageUrlChanged"></textarea>
+                            }
+                            else
+                            {
+                                <label class="form-label" for="visionImageUrl">Image URL</label>
+                                <input class="form-control" id="visionImageUrl" value="@ImageUrl" @oninput="OnImageUrlChanged" />
+                            }
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(ImagePreviewUrl))
+                    {
+                        <div class="vision-preview mb-3">
+                            <img src="@ImagePreviewUrl" alt="Selected vision input" />
+                        </div>
+                    }
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-12 col-lg-8">
+                            <label class="form-label" for="visionEndpointPath">Path</label>
+                            <input class="form-control" id="visionEndpointPath" value="@EndpointPath" @oninput="OnEndpointPathChanged" />
+                        </div>
+                        <div class="col-12 col-lg-4">
+                            <label class="form-label" for="visionContentType">Content-Type</label>
+                            <select class="form-select" id="visionContentType" value="@ContentType" @onchange="OnContentTypeChanged">
+                                <option value="application/json">application/json</option>
+                                <option value="application/json; charset=utf-8">application/json; charset=utf-8</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    @if (FieldValues.Count > 0)
+                    {
+                        <details class="mb-3">
+                            <summary class="fw-semibold mb-3">@ApiParametersLabel</summary>
+                            <div class="row g-3 mt-3">
+                                @foreach (var field in FieldsForDisplay)
+                                {
+                                    <div class="col-12 col-md-6 col-xl-4">
+                                        <label class="form-label" for="@GetFieldId(field.Key)">@field.Key</label>
+                                        @if (IsBooleanValue(field.Value))
+                                        {
+                                            <select class="form-select" id="@GetFieldId(field.Key)" value="@NormalizeBooleanValue(field.Value)" @onchange="args => OnFieldChanged(field.Key, args.Value?.ToString() ?? string.Empty)">
+                                                <option value="true">true</option>
+                                                <option value="false">false</option>
+                                            </select>
+                                        }
+                                        else
+                                        {
+                                            <input class="form-control" id="@GetFieldId(field.Key)" value="@field.Value" @oninput="args => OnFieldChanged(field.Key, args.Value?.ToString() ?? string.Empty)" />
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </details>
+                    }
+
+                    <div class="mb-0">
+                        <label class="form-label" for="visionRequestJson">@RequestBodyLabel</label>
+                        @if (UseCustomJson)
+                        {
+                            <textarea class="form-control font-monospace" id="visionRequestJson" rows="10" value="@CustomRequestBody" @oninput="OnCustomRequestBodyChanged"></textarea>
+                        }
+                        else
+                        {
+                            <textarea class="form-control font-monospace" id="visionRequestJson" rows="10" readonly value="@RequestBodyPreview"></textarea>
+                        }
+                    </div>
+                </div>
+            </PromptContent>
+        </TestFormPanel>
+    </div>
+
+    <div class="col-12 response-col">
+        <div class="response-stack">
+        <div class="card shadow-sm vision-response-card">
+            <div class="card-header bg-primary text-white pb-0">
+                <div class="d-flex flex-wrap align-items-baseline gap-2 pt-1 pb-2">
+                    <span class="fw-semibold">Vision result</span>
+                    <span class="text-white-50 small">@StatusMessage</span>
+                </div>
+                <ul class="nav nav-tabs card-header-tabs result-tabs mb-0" role="tablist">
+                    @foreach (var tab in ResultTabs)
+                    {
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link @(ActiveResultTab == tab.Id ? "active" : string.Empty)" type="button" @onclick="() => SetActiveResultTab(tab.Id)">
+                                @tab.Title
+                                @if (!string.IsNullOrWhiteSpace(tab.Badge))
+                                {
+                                    <span class="badge rounded-pill text-bg-light ms-1">@tab.Badge</span>
+                                }
+                            </button>
+                        </li>
+                    }
+                </ul>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-12 col-xl-9">
+                        <div class="vision-result-panel border rounded bg-white p-3">
+                            @if (ActiveResultTab == SummaryResultTab)
+                            {
+                                <div class="vision-summary">
+                                    @if (VisionResult.Caption is not null)
+                                    {
+                                        <div class="result-callout mb-3">
+                                            <div class="text-muted small text-uppercase fw-semibold">Caption</div>
+                                            <div class="fs-6 fw-semibold">@VisionResult.Caption.Text</div>
+                                            <div class="small text-muted">Confidence @FormatConfidence(VisionResult.Caption.Confidence)</div>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <pre class="vision-text-pre mb-3">@VisionResult.SummaryText</pre>
+                                    }
+
+                                    <div class="result-stat-grid mb-3">
+                                        <div><span>Dense captions</span><strong>@VisionResult.DenseCaptions.Count</strong></div>
+                                        <div><span>Tags</span><strong>@VisionResult.Tags.Count</strong></div>
+                                        <div><span>Objects</span><strong>@VisionResult.Objects.Count</strong></div>
+                                        <div><span>People</span><strong>@VisionResult.People.Count</strong></div>
+                                        <div><span>Read lines</span><strong>@VisionResult.ReadLines.Count</strong></div>
+                                    </div>
+
+                                    @if (VisionResult.Tags.Count > 0)
+                                    {
+                                        <div class="mb-3">
+                                            <div class="text-muted small text-uppercase fw-semibold mb-2">Top tags</div>
+                                            <div class="tag-cloud">
+                                                @foreach (var tag in VisionResult.Tags.Take(12))
+                                                {
+                                                    <span class="vision-tag">@tag.Name <span>@FormatConfidence(tag.Confidence)</span></span>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+
+                                    <div class="metadata-grid">
+                                        @if (!string.IsNullOrWhiteSpace(VisionResult.ModelVersion))
+                                        {
+                                            <div><span>Model version</span><strong>@VisionResult.ModelVersion</strong></div>
+                                        }
+                                        @if (VisionResult.Metadata.HasDimensions)
+                                        {
+                                            <div><span>Image size</span><strong>@VisionResult.Metadata.Width x @VisionResult.Metadata.Height</strong></div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                            else if (ActiveResultTab == CaptionResultTab)
+                            {
+                                @if (VisionResult.Caption is null)
+                                {
+                                    <div class="empty-result">No caption result was returned.</div>
+                                }
+                                else
+                                {
+                                    <div class="result-callout mb-3">
+                                        <div class="text-muted small text-uppercase fw-semibold">Caption</div>
+                                        <div class="fs-5 fw-semibold">@VisionResult.Caption.Text</div>
+                                        <div class="small text-muted">Confidence @FormatConfidence(VisionResult.Caption.Confidence)</div>
+                                    </div>
+                                }
+                            }
+                            else if (ActiveResultTab == DenseCaptionsResultTab)
+                            {
+                                @if (VisionResult.DenseCaptions.Count == 0)
+                                {
+                                    <div class="empty-result">No dense captions were returned.</div>
+                                }
+                                else
+                                {
+                                    <div class="table-responsive">
+                                        <table class="table table-sm align-middle vision-result-table mb-0">
+                                            <thead class="table-light">
+                                                <tr><th>Caption</th><th class="text-end">Confidence</th><th>Bounding box</th></tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var caption in VisionResult.DenseCaptions)
+                                                {
+                                                    <tr>
+                                                        <td>@caption.Text</td>
+                                                        <td class="text-end confidence-cell">@FormatConfidence(caption.Confidence)</td>
+                                                        <td class="text-nowrap">@caption.Box.DisplayText</td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                            }
+                            else if (ActiveResultTab == TagsResultTab)
+                            {
+                                @if (VisionResult.Tags.Count == 0)
+                                {
+                                    <div class="empty-result">No tags were returned.</div>
+                                }
+                                else
+                                {
+                                    <div class="tag-list">
+                                        @foreach (var tag in VisionResult.Tags)
+                                        {
+                                            <div class="tag-row">
+                                                <span class="fw-semibold">@tag.Name</span>
+                                                <div class="tag-confidence">
+                                                    <div class="tag-confidence-fill" style="width: @FormatConfidencePercent(tag.Confidence);"></div>
+                                                </div>
+                                                <span class="confidence-cell">@FormatConfidence(tag.Confidence)</span>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            }
+                            else if (ActiveResultTab == ObjectsResultTab)
+                            {
+                                @if (VisionResult.Objects.Count == 0)
+                                {
+                                    <div class="empty-result">No objects were returned.</div>
+                                }
+                                else
+                                {
+                                    <div class="table-responsive">
+                                        <table class="table table-sm align-middle vision-result-table mb-0">
+                                            <thead class="table-light">
+                                                <tr><th>Object</th><th class="text-end">Confidence</th><th>Bounding box</th></tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var item in VisionResult.Objects)
+                                                {
+                                                    <tr>
+                                                        <td>@item.Label</td>
+                                                        <td class="text-end confidence-cell">@FormatConfidence(item.Confidence)</td>
+                                                        <td class="text-nowrap">@item.Box.DisplayText</td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                            }
+                            else if (ActiveResultTab == PeopleResultTab)
+                            {
+                                @if (VisionResult.People.Count == 0)
+                                {
+                                    <div class="empty-result">No people were returned.</div>
+                                }
+                                else
+                                {
+                                    <div class="table-responsive">
+                                        <table class="table table-sm align-middle vision-result-table mb-0">
+                                            <thead class="table-light">
+                                                <tr><th>Person</th><th class="text-end">Confidence</th><th>Bounding box</th></tr>
+                                            </thead>
+                                            <tbody>
+                                                @for (var index = 0; index < VisionResult.People.Count; index++)
+                                                {
+                                                    var person = VisionResult.People[index];
+                                                    <tr>
+                                                        <td>Person @(index + 1)</td>
+                                                        <td class="text-end confidence-cell">@FormatConfidence(person.Confidence)</td>
+                                                        <td class="text-nowrap">@person.Box.DisplayText</td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                            }
+                            else if (ActiveResultTab == ReadResultTab)
+                            {
+                                @if (VisionResult.ReadLines.Count == 0)
+                                {
+                                    <div class="empty-result">No OCR text blocks were returned.</div>
+                                }
+                                else
+                                {
+                                    <ol class="read-lines mb-0">
+                                        @foreach (var line in VisionResult.ReadLines)
+                                        {
+                                            <li>@line</li>
+                                        }
+                                    </ol>
+                                }
+                            }
+                            else if (ActiveResultTab == MetadataResultTab)
+                            {
+                                <div class="metadata-grid metadata-grid-wide">
+                                    <div><span>Model version</span><strong>@FormatOptional(VisionResult.ModelVersion)</strong></div>
+                                    <div><span>Image width</span><strong>@FormatOptional(VisionResult.Metadata.Width)</strong></div>
+                                    <div><span>Image height</span><strong>@FormatOptional(VisionResult.Metadata.Height)</strong></div>
+                                </div>
+                            }
+                            else
+                            {
+                                <pre class="vision-json-pre mb-0">@VisionResult.RawText</pre>
+                            }
+                        </div>
+                    </div>
+                    <div class="col-12 col-xl-3">
+                        <div class="border rounded bg-light p-3 small response-metrics">
+                            <div class="fw-semibold mb-2">Metrics</div>
+                            <div class="metric-row">
+                                <span class="metric-name">Status</span>
+                                <span class="metric-value">@ResponseMetrics.Status</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-name">Content-Type</span>
+                                <span class="metric-value" title="@ResponseMetrics.ContentType">@FormatContentType(ResponseMetrics.ContentType)</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-name">Time to first byte</span>
+                                <span class="metric-value">@FormatDuration(ResponseMetrics.TimeToFirstByte)</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-name">Duration</span>
+                                <span class="metric-value">@FormatDuration(ResponseMetrics.Duration)</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-name">Chunks</span>
+                                <span class="metric-value">@ResponseMetrics.Chunks</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-name">Total bytes</span>
+                                <span class="metric-value">@ResponseMetrics.TotalBytes</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mt-3 raw-card">
+            <div class="card-header bg-secondary text-white pb-0">
+                <div class="d-flex align-items-baseline gap-2 pt-1 pb-2">
+                    <span class="fw-semibold">Raw exchange</span>
+                </div>
+                <ul class="nav nav-tabs card-header-tabs raw-tabs mb-0" role="tablist">
+                    <li class="nav-item"><button class="nav-link @(ActiveResponseTab == "request-headers" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveResponseTab("request-headers")'>Request headers</button></li>
+                    <li class="nav-item"><button class="nav-link @(ActiveResponseTab == "response-headers" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveResponseTab("response-headers")'>Response headers</button></li>
+                    <li class="nav-item"><button class="nav-link @(ActiveResponseTab == "request-body" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveResponseTab("request-body")'>Request body</button></li>
+                    <li class="nav-item"><button class="nav-link @(ActiveResponseTab == "response-body" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveResponseTab("response-body")'>Response body</button></li>
+                </ul>
+            </div>
+            <div class="card-body">
+                <div class="border rounded p-3 bg-light raw-panel">
+                    @if (ActiveResponseTab == "request-headers")
+                    {
+                        <pre class="mb-0">@RequestHeadersText</pre>
+                    }
+                    else if (ActiveResponseTab == "response-headers")
+                    {
+                        <pre class="mb-0">@ResponseHeadersText</pre>
+                    }
+                    else if (ActiveResponseTab == "request-body")
+                    {
+                        <pre class="mb-0">@RequestBodyDisplay</pre>
+                    }
+                    else
+                    {
+                        <pre class="mb-0">@ObservedResponse</pre>
+                    }
+                </div>
+            </div>
+        </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .vision-body-panel {
+        background-color: #eef4ff;
+        border-color: #cdddf7 !important;
+    }
+
+    .vision-preview {
+        max-width: 24rem;
+        border: 1px solid #cdddf7;
+        border-radius: 0.375rem;
+        background: #fff;
+        padding: 0.5rem;
+    }
+
+    .vision-preview img {
+        display: block;
+        width: 100%;
+        max-height: 18rem;
+        object-fit: contain;
+    }
+
+    .vision-result-panel {
+        min-height: 14rem;
+        max-height: 24rem;
+        overflow-y: auto;
+    }
+
+    .result-tabs .nav-link,
+    .raw-tabs .nav-link {
+        color: rgba(255, 255, 255, 0.85);
+        border-color: transparent;
+        padding-top: 0.15rem;
+        padding-bottom: 0.15rem;
+    }
+
+    .result-tabs .nav-link:hover,
+    .raw-tabs .nav-link:hover {
+        color: #fff;
+        border-color: rgba(255, 255, 255, 0.4);
+    }
+
+    .result-tabs .nav-link.active,
+    .raw-tabs .nav-link.active {
+        color: #495057;
+        background-color: #fff;
+        border-color: #fff #fff #fff;
+    }
+
+    .result-callout {
+        border-left: 4px solid #0d6efd;
+        background: #f4f8ff;
+        border-radius: 0.375rem;
+        padding: 0.75rem 1rem;
+    }
+
+    .result-stat-grid,
+    .metadata-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+        gap: 0.75rem;
+    }
+
+    .result-stat-grid > div,
+    .metadata-grid > div {
+        border: 1px solid #dee2e6;
+        border-radius: 0.375rem;
+        background: #f8f9fa;
+        padding: 0.65rem 0.75rem;
+    }
+
+    .result-stat-grid span,
+    .metadata-grid span {
+        display: block;
+        color: #6c757d;
+        font-size: 0.78rem;
+        line-height: 1.2;
+    }
+
+    .result-stat-grid strong,
+    .metadata-grid strong {
+        display: block;
+        margin-top: 0.2rem;
+        overflow-wrap: anywhere;
+    }
+
+    .metadata-grid-wide {
+        grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    }
+
+    .tag-cloud {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .vision-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        border-radius: 999px;
+        background: #e7f1ff;
+        color: #084298;
+        padding: 0.35rem 0.6rem;
+        font-size: 0.85rem;
+        font-weight: 600;
+    }
+
+    .vision-tag span {
+        color: #426786;
+        font-weight: 500;
+    }
+
+    .tag-list {
+        display: grid;
+        gap: 0.5rem;
+    }
+
+    .tag-row {
+        display: grid;
+        grid-template-columns: minmax(8rem, 1fr) minmax(8rem, 2fr) 4rem;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .tag-confidence {
+        height: 0.5rem;
+        border-radius: 999px;
+        background: #e9ecef;
+        overflow: hidden;
+    }
+
+    .tag-confidence-fill {
+        height: 100%;
+        border-radius: inherit;
+        background: #198754;
+    }
+
+    .confidence-cell {
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    .vision-result-table td,
+    .vision-result-table th {
+        vertical-align: top;
+    }
+
+    .vision-text-pre,
+    .vision-json-pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+        margin: 0;
+    }
+
+    .vision-json-pre {
+        font-family: var(--bs-font-monospace);
+        font-size: 0.82rem;
+    }
+
+    .empty-result {
+        color: #6c757d;
+        background: #f8f9fa;
+        border: 1px dashed #ced4da;
+        border-radius: 0.375rem;
+        padding: 1rem;
+    }
+
+    .read-lines li + li {
+        margin-top: 0.5rem;
+    }
+
+    .raw-panel {
+        max-height: 20rem;
+        overflow-y: auto;
+    }
+
+    .raw-panel pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .response-metrics .metric-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.45rem 0.5rem;
+        border-radius: 0.25rem;
+    }
+
+    .response-metrics .metric-row:nth-child(even) {
+        background: rgba(13, 110, 253, 0.08);
+    }
+
+    .response-metrics .metric-name {
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .response-metrics .metric-value {
+        text-align: right;
+        overflow-wrap: anywhere;
+    }
+
+    @@media (min-width: 992px) {
+        .request-col {
+            flex: 0 0 40%;
+            max-width: 40%;
+            height: 85vh;
+        }
+
+        .request-col > .card {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .request-col > .card > .card-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+        }
+
+        .response-col {
+            flex: 0 0 60%;
+            max-width: 60%;
+            height: 85vh;
+            position: relative;
+        }
+
+        .response-stack {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .vision-response-card {
+            flex: 1 1 50%;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .vision-response-card .card-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+        }
+
+        .vision-response-card .card-body > .row {
+            height: 100%;
+        }
+
+        .vision-result-panel {
+            max-height: none;
+            height: 100%;
+        }
+
+        .raw-card {
+            flex: 1 1 50%;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .raw-card .card-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+        }
+
+        .raw-panel {
+            max-height: none;
+            height: 100%;
+        }
+    }
+</style>
+
+@code {
+    private const string UrlImageSource = "url";
+    private const string DataUrlImageSource = "data-url";
+    private const string FileImageSource = "file";
+    private const string SummaryResultTab = "summary";
+    private const string CaptionResultTab = "caption";
+    private const string DenseCaptionsResultTab = "dense-captions";
+    private const string TagsResultTab = "tags";
+    private const string ObjectsResultTab = "objects";
+    private const string PeopleResultTab = "people";
+    private const string ReadResultTab = "read";
+    private const string MetadataResultTab = "metadata";
+    private const string RawResultTab = "raw";
+    private const int MaxImageBytes = 8 * 1024 * 1024;
+
+    private sealed class VisionResponseMetrics
+    {
+        public string Status { get; set; } = "-";
+        public string ContentType { get; set; } = "-";
+        public TimeSpan? TimeToFirstByte { get; set; }
+        public TimeSpan? Duration { get; set; }
+        public int Chunks { get; set; }
+        public long TotalBytes { get; set; }
+    }
+
+    private sealed record VisionResultTab(string Id, string Title, string Badge = "");
+
+    private sealed class VisionResultView
+    {
+        public string SummaryText { get; set; } = string.Empty;
+        public string RawText { get; set; } = string.Empty;
+        public string ModelVersion { get; set; } = string.Empty;
+        public bool HasCaptionResult { get; set; }
+        public bool HasDenseCaptionsResult { get; set; }
+        public bool HasTagsResult { get; set; }
+        public bool HasObjectsResult { get; set; }
+        public bool HasPeopleResult { get; set; }
+        public bool HasReadResult { get; set; }
+        public bool HasMetadataResult { get; set; }
+        public VisionCaptionItem? Caption { get; set; }
+        public List<VisionCaptionItem> DenseCaptions { get; } = new();
+        public List<VisionTagItem> Tags { get; } = new();
+        public List<VisionDetectionItem> Objects { get; } = new();
+        public List<VisionDetectionItem> People { get; } = new();
+        public List<string> ReadLines { get; } = new();
+        public VisionImageMetadata Metadata { get; set; } = new();
+    }
+
+    private sealed class VisionCaptionItem
+    {
+        public string Text { get; set; } = string.Empty;
+        public double? Confidence { get; set; }
+        public VisionBoundingBox Box { get; set; } = new();
+    }
+
+    private sealed class VisionTagItem
+    {
+        public string Name { get; set; } = string.Empty;
+        public double? Confidence { get; set; }
+    }
+
+    private sealed class VisionDetectionItem
+    {
+        public string Label { get; set; } = string.Empty;
+        public double? Confidence { get; set; }
+        public VisionBoundingBox Box { get; set; } = new();
+    }
+
+    private sealed class VisionBoundingBox
+    {
+        public int? X { get; set; }
+        public int? Y { get; set; }
+        public int? Width { get; set; }
+        public int? Height { get; set; }
+        public bool HasValue => X.HasValue || Y.HasValue || Width.HasValue || Height.HasValue;
+        public string DisplayText => HasValue
+            ? $"x {FormatOptional(X)}, y {FormatOptional(Y)}, w {FormatOptional(Width)}, h {FormatOptional(Height)}"
+            : "-";
+    }
+
+    private sealed class VisionImageMetadata
+    {
+        public int? Width { get; set; }
+        public int? Height { get; set; }
+        public bool HasDimensions => Width.HasValue || Height.HasValue;
+    }
+
+    private string InitialServerBaseUrl { get; set; } = string.Empty;
+    private string PageTagline { get; set; } = "Send an image to a configured vision API and inspect the proxy exchange.";
+    private string SelectedModel { get; set; } = string.Empty;
+    private string SelectedApi { get; set; } = string.Empty;
+    private string Prompt { get; set; } = string.Empty;
+    private string ImageSource { get; set; } = UrlImageSource;
+    private string ImageUrl { get; set; } = "https://raw.githubusercontent.com/Azure-Samples/cognitive-services-sample-data-files/master/ComputerVision/Images/faces.jpg";
+    private string ImageBase64 { get; set; } = string.Empty;
+    private string ImageMimeType { get; set; } = "image/jpeg";
+    private string ImageFileName { get; set; } = string.Empty;
+    private string EndpointPath { get; set; } = string.Empty;
+    private string ContentType { get; set; } = ChatTesterHttp.JsonContentType;
+    private bool UseCustomJson { get; set; }
+    private string CustomRequestBody { get; set; } = string.Empty;
+    private bool IsRunning { get; set; }
+    private string StatusMessage { get; set; } = "Ready to send a vision request.";
+    private string DisplayResponse { get; set; } = "Waiting for the request ...";
+    private string ObservedResponse { get; set; } = "No response yet.";
+    private string RequestHeadersText { get; set; } = "No request has been sent yet.";
+    private string ResponseHeadersText { get; set; } = "No response has been received yet.";
+    private string RequestBodyDisplay { get; set; } = "No request body yet.";
+    private string ActiveResultTab { get; set; } = SummaryResultTab;
+    private string ActiveResponseTab { get; set; } = "response-body";
+    private VisionResultView VisionResult { get; set; } = BuildPlainVisionResult("Waiting for the request ...");
+    private VisionResponseMetrics ResponseMetrics { get; set; } = new();
+    private Dictionary<string, string> FieldValues { get; } = new(StringComparer.OrdinalIgnoreCase);
+    [Inject]
+    private AuthTokenSettings AuthSettings { get; set; } = default!;
+    [Inject]
+    private UserSettings UserSettings { get; set; } = default!;
+    [Inject]
+    private HeaderSettings HeaderSettings { get; set; } = default!;
+    private TestFormPanel? FormPanel { get; set; }
+
+    private IReadOnlyList<VisionApiInfo> AvailableApis => VisionCatalog.ApisForModel(SelectedModel);
+
+    private VisionApiInfo? SelectedApiInfo => VisionCatalog.GetApi(SelectedApi);
+
+    private bool IsComputerVisionAnalysisApi => SelectedApiInfo?.RequestFormat.StartsWith("azure-ai-vision", StringComparison.OrdinalIgnoreCase) == true;
+
+    private bool UsesPrompt => !IsComputerVisionAnalysisApi;
+
+    private bool RequiresExternalImageUrl => VisionCatalog.RequiresExternalImageUrl(SelectedApi);
+
+    private string ModelSelectLabel => IsComputerVisionAnalysisApi ? "Vision API" : "Model";
+
+    private string ModelSelectPlaceholder => IsComputerVisionAnalysisApi ? "Vision API..." : "Model...";
+
+    private string ApiParametersLabel => IsComputerVisionAnalysisApi ? "Query parameters" : "API parameters";
+
+    private string RequestBodyLabel => IsComputerVisionAnalysisApi ? "Request body" : "Request JSON";
+
+    private IReadOnlyList<VisionResultTab> ResultTabs => BuildResultTabs();
+
+    private IEnumerable<KeyValuePair<string, string>> FieldsForDisplay => FieldValues.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase);
+
+    private string RequestBody => UseCustomJson ? CustomRequestBody : BuildGeneratedRequestBody();
+
+    private string RequestBodyPreview => RedactLargeImageData(RequestBody);
+
+    private string EffectiveImageUrl => ImageSource == FileImageSource && !string.IsNullOrWhiteSpace(ImageBase64)
+        ? $"data:{ImageMimeType};base64,{ImageBase64}"
+        : ImageUrl.Trim();
+
+    private string ImagePreviewUrl => EffectiveImageUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase) || EffectiveImageUrl.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase)
+        ? EffectiveImageUrl
+        : string.Empty;
+
+    private bool IsStreamingRequested => SelectedApiInfo?.SupportsStreaming == true
+        && FieldValues.TryGetValue("stream", out var streamValue)
+        && bool.TryParse(streamValue, out var stream)
+        && stream;
+
+    protected override void OnInitialized()
+    {
+        var options = Options.Value;
+        InitialServerBaseUrl = options.ServerBaseUrl;
+        AuthSettings.ApplyDefaultsIfMissing(options.AuthorizationHeaderName, options.AuthorizationHeaderPrefix);
+        UserSettings.ApplyDefaultsIfMissing(options.UserHeaderName, options.PriorityKeyHeader, options.UserNames);
+        HeaderSettings.ApplyDefaultsIfMissing(options.DefaultHeaders);
+
+        SelectedModel = !string.IsNullOrWhiteSpace(VisionCatalog.DefaultModel)
+            ? VisionCatalog.DefaultModel
+            : VisionCatalog.ListModels().FirstOrDefault()?.Id ?? string.Empty;
+        Prompt = VisionCatalog.DefaultPrompt;
+        EnsureSelectedApi(VisionCatalog.DefaultApi);
+        EnsureCompatibleImageSource();
+        ResetFields();
+        RefreshEndpointPath();
+    }
+
+    private async Task SendVisionRequestAsync()
+    {
+        var serverBaseUrl = FormPanel?.ServerBaseUrl ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(serverBaseUrl) || string.IsNullOrWhiteSpace(EndpointPath))
+        {
+            StatusMessage = "Set both the server URL and endpoint path before sending the request.";
+            return;
+        }
+
+        if (!ValidateImageInput())
+        {
+            return;
+        }
+
+        IsRunning = true;
+        StatusMessage = "Sending the vision request and waiting for the response...";
+        ObservedResponse = "Awaiting response...";
+        SetVisionResultMessage("Investigating image...");
+        ResponseHeadersText = "No response has been received yet.";
+        ResponseMetrics = new VisionResponseMetrics { Status = "Sending" };
+        RequestBodyDisplay = RequestBodyPreview;
+        StateHasChanged();
+
+        using var metricsTimer = new CancellationTokenSource();
+        var stopwatch = Stopwatch.StartNew();
+        var metricsTimerTask = RunMetricsTimerAsync(stopwatch, metricsTimer.Token);
+
+        try
+        {
+            using var client = new HttpClient();
+            using var request = ChatTesterHttp.CreateRequest(SelectedApiInfo?.Method ?? "POST", ChatTesterHttp.BuildUri(serverBaseUrl, EndpointPath), RequestBody, ContentType);
+            request.Headers.TryAddWithoutValidation(ChatTesterHttp.AcceptHeaderName, IsStreamingRequested ? ChatTesterHttp.EventStreamContentType : ChatTesterHttp.JsonContentType);
+            ChatTesterHttp.ApplyDebugHeader(request, DebugSettings);
+
+            if (FormPanel is not null)
+            {
+                await FormPanel.ApplyAuthorizationAsync(request);
+                FormPanel.ApplyUser(request, 0);
+                FormPanel.ApplyHeaders(request, 0);
+            }
+
+            RequestHeadersText = ChatTesterHttp.SummarizeRequestHeaders(request);
+
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+            ResponseMetrics.TimeToFirstByte = stopwatch.Elapsed;
+            ResponseMetrics.Status = $"{(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
+            ResponseMetrics.ContentType = response.Content.Headers.ContentType?.ToString() ?? "-";
+            ResponseHeadersText = ChatTesterHttp.SummarizeResponseHeaders(response);
+            StatusMessage = $"Reading response: {(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
+
+            if (ResponseMetrics.ContentType.Contains("event-stream", StringComparison.OrdinalIgnoreCase))
+            {
+                await StreamResponseAsync(response, stopwatch);
+            }
+            else
+            {
+                await ReadBufferedResponseAsync(response, stopwatch);
+            }
+
+            ResponseMetrics.Duration = stopwatch.Elapsed;
+            StatusMessage = $"Completed with {(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
+        }
+        catch (Exception ex)
+        {
+            ObservedResponse = ex.Message;
+            SetVisionResultMessage($"I could not receive a response from the server.\nReason: {ex.Message}");
+            ResponseHeadersText = "No response headers available.";
+            StatusMessage = "The request failed before a full response was received.";
+            ResponseMetrics.Status = "Failed";
+        }
+        finally
+        {
+            metricsTimer.Cancel();
+            try
+            {
+                await metricsTimerTask;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            ResponseMetrics.Duration = stopwatch.Elapsed;
+            IsRunning = false;
+            StateHasChanged();
+        }
+    }
+
+    private bool ValidateImageInput()
+    {
+        if (string.IsNullOrWhiteSpace(EffectiveImageUrl))
+        {
+            StatusMessage = "Select an image before sending the request.";
+            return false;
+        }
+
+        if (VisionCatalog.RequiresExternalImageUrl(SelectedApi) && EffectiveImageUrl.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        {
+            StatusMessage = "Azure AI Vision Image Analysis expects an externally reachable image URL.";
+            return false;
+        }
+
+        if (VisionCatalog.RequiresBase64Image(SelectedApi) && string.IsNullOrWhiteSpace(ResolveImageBase64()))
+        {
+            StatusMessage = "This API expects an uploaded image or data URL image.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private async Task StreamResponseAsync(HttpResponseMessage response, Stopwatch stopwatch)
+    {
+        var rawBuilder = new StringBuilder();
+        var displayBuilder = new StringBuilder();
+        SetVisionResultMessage(string.Empty);
+        ObservedResponse = string.Empty;
+
+        using var stream = await response.Content.ReadAsStreamAsync();
+        using var reader = new StreamReader(stream);
+        while (!reader.EndOfStream)
+        {
+            var line = await reader.ReadLineAsync();
+            if (line is null)
+            {
+                break;
+            }
+
+            ResponseMetrics.Chunks++;
+            ResponseMetrics.TotalBytes += Encoding.UTF8.GetByteCount(line) + 1;
+            rawBuilder.AppendLine(line);
+            ObservedResponse = rawBuilder.ToString();
+
+            var payload = ChatStreamParser.ExtractDataPayload(line);
+            if (payload is not null)
+            {
+                var piece = ChatStreamParser.ExtractDeltaText(payload);
+                if (!string.IsNullOrEmpty(piece))
+                {
+                    displayBuilder.Append(piece);
+                    DisplayResponse = displayBuilder.ToString();
+                    VisionResult = BuildPlainVisionResult(DisplayResponse);
+                    EnsureActiveResultTab();
+                }
+            }
+
+            ResponseMetrics.Duration = stopwatch.Elapsed;
+            await InvokeAsync(StateHasChanged);
+        }
+
+        if (rawBuilder.Length == 0)
+        {
+            ObservedResponse = "The server returned an empty response body.";
+            SetVisionResultMessage("I did not receive any content from the server.");
+        }
+        else if (string.IsNullOrWhiteSpace(DisplayResponse))
+        {
+            SetVisionResultFromObserved(rawBuilder.ToString());
+        }
+    }
+
+    private async Task ReadBufferedResponseAsync(HttpResponseMessage response, Stopwatch stopwatch)
+    {
+        var body = await response.Content.ReadAsStringAsync();
+        ResponseMetrics.Chunks = string.IsNullOrEmpty(body) ? 0 : 1;
+        ResponseMetrics.TotalBytes = Encoding.UTF8.GetByteCount(body);
+        ResponseMetrics.Duration = stopwatch.Elapsed;
+        ObservedResponse = string.IsNullOrWhiteSpace(body) ? "The server returned an empty response body." : body;
+        SetVisionResultFromObserved(ObservedResponse);
+    }
+
+    private async Task RunMetricsTimerAsync(Stopwatch stopwatch, CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            ResponseMetrics.Duration = stopwatch.Elapsed;
+            await InvokeAsync(StateHasChanged);
+            await Task.Delay(100, cancellationToken);
+        }
+    }
+
+    private string BuildGeneratedRequestBody()
+    {
+        return VisionCatalog.BuildRequestBody(new VisionRequestBuildContext
+        {
+            ApiId = SelectedApi,
+            ModelId = SelectedModel,
+            Prompt = Prompt,
+            ImageUrl = EffectiveImageUrl,
+            ImageBase64 = ResolveImageBase64(),
+            ImageMimeType = ResolveImageMimeType(),
+            Fields = FieldValues
+        });
+    }
+
+    private string ResolveImageBase64()
+    {
+        if (!string.IsNullOrWhiteSpace(ImageBase64))
+        {
+            return ImageBase64;
+        }
+
+        return TryParseDataUrl(EffectiveImageUrl, out _, out var data) ? data : string.Empty;
+    }
+
+    private string ResolveImageMimeType()
+    {
+        if (TryParseDataUrl(EffectiveImageUrl, out var mimeType, out _))
+        {
+            return mimeType;
+        }
+
+        return string.IsNullOrWhiteSpace(ImageMimeType) ? "image/jpeg" : ImageMimeType;
+    }
+
+    private void EnsureSelectedApi(string? preferredApi = null)
+    {
+        var apis = AvailableApis;
+        if (!string.IsNullOrWhiteSpace(SelectedApi) && apis.Any(api => string.Equals(api.Id, SelectedApi, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        SelectedApi = apis.FirstOrDefault(api => string.Equals(api.Id, preferredApi, StringComparison.OrdinalIgnoreCase))?.Id
+            ?? apis.FirstOrDefault()?.Id
+            ?? string.Empty;
+    }
+
+    private void ResetFields()
+    {
+        FieldValues.Clear();
+        foreach (var (name, value) in VisionCatalog.GetDefaults(SelectedModel, SelectedApi))
+        {
+            FieldValues[name] = value;
+        }
+    }
+
+    private void RefreshEndpointPath()
+    {
+        EndpointPath = VisionCatalog.ResolveEndpointPath(SelectedModel, SelectedApi, FieldValues);
+    }
+
+    private void OnModelSelected(ChangeEventArgs args)
+    {
+        SelectedModel = args.Value?.ToString() ?? string.Empty;
+        SelectedApi = string.Empty;
+        EnsureSelectedApi(VisionCatalog.DefaultApi);
+        EnsureCompatibleImageSource();
+        ResetFields();
+        RefreshEndpointPath();
+        RefreshCustomRequestBodyIfNeeded();
+    }
+
+    private void OnApiSelected(ChangeEventArgs args)
+    {
+        SelectedApi = args.Value?.ToString() ?? string.Empty;
+        EnsureCompatibleImageSource();
+        ResetFields();
+        RefreshEndpointPath();
+        RefreshCustomRequestBodyIfNeeded();
+    }
+
+    private void OnPromptChanged(ChangeEventArgs args)
+    {
+        Prompt = args.Value?.ToString() ?? string.Empty;
+        RefreshCustomRequestBodyIfNeeded();
+    }
+
+    private void OnImageSourceChanged(ChangeEventArgs args)
+    {
+        ImageSource = args.Value?.ToString() ?? UrlImageSource;
+        EnsureCompatibleImageSource();
+        RefreshCustomRequestBodyIfNeeded();
+    }
+
+    private void EnsureCompatibleImageSource()
+    {
+        if (!RequiresExternalImageUrl || ImageSource == UrlImageSource)
+        {
+            return;
+        }
+
+        ImageSource = UrlImageSource;
+        ImageBase64 = string.Empty;
+        ImageFileName = string.Empty;
+    }
+
+    private void OnImageUrlChanged(ChangeEventArgs args)
+    {
+        ImageUrl = args.Value?.ToString() ?? string.Empty;
+        ImageBase64 = string.Empty;
+        ImageFileName = string.Empty;
+        RefreshCustomRequestBodyIfNeeded();
+    }
+
+    private async Task OnImageFileSelected(InputFileChangeEventArgs args)
+    {
+        var file = args.File;
+        try
+        {
+            await using var stream = file.OpenReadStream(MaxImageBytes);
+            using var memory = new MemoryStream();
+            await stream.CopyToAsync(memory);
+            ImageBase64 = Convert.ToBase64String(memory.ToArray());
+            ImageMimeType = string.IsNullOrWhiteSpace(file.ContentType) ? "image/jpeg" : file.ContentType;
+            ImageFileName = file.Name;
+            ImageSource = FileImageSource;
+            RefreshCustomRequestBodyIfNeeded();
+            StatusMessage = "Image file loaded.";
+        }
+        catch (IOException ex)
+        {
+            StatusMessage = $"The image file could not be loaded: {ex.Message}";
+        }
+    }
+
+    private void OnEndpointPathChanged(ChangeEventArgs args)
+    {
+        EndpointPath = args.Value?.ToString() ?? string.Empty;
+    }
+
+    private void OnContentTypeChanged(ChangeEventArgs args)
+    {
+        ContentType = args.Value?.ToString() ?? ChatTesterHttp.JsonContentType;
+    }
+
+    private void OnFieldChanged(string name, string value)
+    {
+        FieldValues[name] = value;
+        RefreshEndpointPath();
+        RefreshCustomRequestBodyIfNeeded();
+    }
+
+    private void OnDebugChanged(ChangeEventArgs args)
+    {
+        DebugSettings.DebugEnabled = args.Value is bool value && value;
+    }
+
+    private void OnCustomJsonChanged(ChangeEventArgs args)
+    {
+        UseCustomJson = args.Value is bool value && value;
+        if (UseCustomJson)
+        {
+            CustomRequestBody = BuildGeneratedRequestBody();
+        }
+    }
+
+    private void OnCustomRequestBodyChanged(ChangeEventArgs args)
+    {
+        CustomRequestBody = args.Value?.ToString() ?? string.Empty;
+    }
+
+    private void RefreshCustomRequestBodyIfNeeded()
+    {
+        if (UseCustomJson)
+        {
+            CustomRequestBody = BuildGeneratedRequestBody();
+        }
+    }
+
+    private void SetActiveResponseTab(string tab)
+    {
+        ActiveResponseTab = tab;
+    }
+
+    private void SetActiveResultTab(string tab)
+    {
+        ActiveResultTab = tab;
+    }
+
+    private void SetVisionResultMessage(string message)
+    {
+        DisplayResponse = message;
+        VisionResult = BuildPlainVisionResult(message);
+        EnsureActiveResultTab();
+    }
+
+    private void SetVisionResultFromObserved(string observed)
+    {
+        DisplayResponse = BuildDisplayResponse(observed);
+        VisionResult = BuildVisionResultView(observed, DisplayResponse);
+        EnsureActiveResultTab();
+    }
+
+    private void EnsureActiveResultTab()
+    {
+        if (!ResultTabs.Any(tab => string.Equals(tab.Id, ActiveResultTab, StringComparison.Ordinal)))
+        {
+            ActiveResultTab = SummaryResultTab;
+        }
+    }
+
+    private IReadOnlyList<VisionResultTab> BuildResultTabs()
+    {
+        var tabs = new List<VisionResultTab>
+        {
+            new(SummaryResultTab, "Summary")
+        };
+
+        if (VisionResult.HasCaptionResult)
+        {
+            tabs.Add(new VisionResultTab(CaptionResultTab, "Caption"));
+        }
+
+        if (VisionResult.HasDenseCaptionsResult)
+        {
+            tabs.Add(new VisionResultTab(DenseCaptionsResultTab, "Dense", VisionResult.DenseCaptions.Count.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        if (VisionResult.HasTagsResult)
+        {
+            tabs.Add(new VisionResultTab(TagsResultTab, "Tags", VisionResult.Tags.Count.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        if (VisionResult.HasObjectsResult)
+        {
+            tabs.Add(new VisionResultTab(ObjectsResultTab, "Objects", VisionResult.Objects.Count.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        if (VisionResult.HasPeopleResult)
+        {
+            tabs.Add(new VisionResultTab(PeopleResultTab, "People", VisionResult.People.Count.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        if (VisionResult.HasReadResult)
+        {
+            tabs.Add(new VisionResultTab(ReadResultTab, "Read", VisionResult.ReadLines.Count.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        if (VisionResult.HasMetadataResult || VisionResult.Metadata.HasDimensions || !string.IsNullOrWhiteSpace(VisionResult.ModelVersion))
+        {
+            tabs.Add(new VisionResultTab(MetadataResultTab, "Metadata"));
+        }
+
+        tabs.Add(new VisionResultTab(RawResultTab, "Raw"));
+        return tabs;
+    }
+
+    private static VisionResultView BuildPlainVisionResult(string message)
+    {
+        return new VisionResultView
+        {
+            SummaryText = message,
+            RawText = message
+        };
+    }
+
+    private static VisionResultView BuildVisionResultView(string observed, string fallbackText)
+    {
+        var view = BuildPlainVisionResult(string.IsNullOrWhiteSpace(fallbackText) ? observed : fallbackText);
+        view.RawText = TryFormatJson(observed, out var formatted) ? formatted : observed;
+
+        if (!TryParseJson(observed, out var document))
+        {
+            return view;
+        }
+
+        using (document)
+        {
+            var root = document.RootElement;
+            view.ModelVersion = TryGetProperty(root, "modelVersion", out var modelVersion) ? modelVersion.GetString() ?? string.Empty : string.Empty;
+
+            if (TryGetProperty(root, "captionResult", out var captionResult))
+            {
+                view.HasCaptionResult = true;
+                view.Caption = ReadCaptionItem(captionResult);
+            }
+
+            if (TryGetProperty(root, "denseCaptionsResult", out var denseCaptionsResult))
+            {
+                view.HasDenseCaptionsResult = true;
+                view.DenseCaptions.AddRange(ReadCaptionValues(denseCaptionsResult));
+            }
+
+            if (TryGetProperty(root, "tagsResult", out var tagsResult))
+            {
+                view.HasTagsResult = true;
+                view.Tags.AddRange(ReadTagValues(tagsResult));
+            }
+
+            if (TryGetProperty(root, "objectsResult", out var objectsResult))
+            {
+                view.HasObjectsResult = true;
+                view.Objects.AddRange(ReadObjectValues(objectsResult));
+            }
+
+            if (TryGetProperty(root, "peopleResult", out var peopleResult))
+            {
+                view.HasPeopleResult = true;
+                view.People.AddRange(ReadPeopleValues(peopleResult));
+            }
+
+            if (TryGetProperty(root, "readResult", out var readResult))
+            {
+                view.HasReadResult = true;
+                view.ReadLines.AddRange(ReadTextLines(readResult));
+            }
+
+            if (TryGetProperty(root, "metadata", out var metadata))
+            {
+                view.HasMetadataResult = true;
+                view.Metadata = ReadMetadata(metadata);
+            }
+        }
+
+        return view;
+    }
+
+    private static VisionCaptionItem? ReadCaptionItem(JsonElement element)
+    {
+        var text = TryGetProperty(element, "text", out var textElement) ? textElement.GetString() ?? string.Empty : string.Empty;
+        if (string.IsNullOrWhiteSpace(text) && element.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        return new VisionCaptionItem
+        {
+            Text = text,
+            Confidence = TryGetProperty(element, "confidence", out var confidenceElement) ? ReadDouble(confidenceElement) : null,
+            Box = TryGetProperty(element, "boundingBox", out var boxElement) ? ReadBoundingBox(boxElement) : new VisionBoundingBox()
+        };
+    }
+
+    private static IEnumerable<VisionCaptionItem> ReadCaptionValues(JsonElement section)
+    {
+        if (!TryGetProperty(section, "values", out var values) || values.ValueKind != JsonValueKind.Array)
+        {
+            yield break;
+        }
+
+        foreach (var item in values.EnumerateArray())
+        {
+            var caption = ReadCaptionItem(item);
+            if (caption is not null && !string.IsNullOrWhiteSpace(caption.Text))
+            {
+                yield return caption;
+            }
+        }
+    }
+
+    private static IEnumerable<VisionTagItem> ReadTagValues(JsonElement section)
+    {
+        if (!TryGetProperty(section, "values", out var values) || values.ValueKind != JsonValueKind.Array)
+        {
+            yield break;
+        }
+
+        foreach (var item in values.EnumerateArray())
+        {
+            var tag = ReadTag(item);
+            if (!string.IsNullOrWhiteSpace(tag.Name))
+            {
+                yield return tag;
+            }
+        }
+    }
+
+    private static VisionTagItem ReadTag(JsonElement element)
+    {
+        return new VisionTagItem
+        {
+            Name = TryGetProperty(element, "name", out var nameElement) ? nameElement.GetString() ?? string.Empty : string.Empty,
+            Confidence = TryGetProperty(element, "confidence", out var confidenceElement) ? ReadDouble(confidenceElement) : null
+        };
+    }
+
+    private static IEnumerable<VisionDetectionItem> ReadObjectValues(JsonElement section)
+    {
+        if (!TryGetProperty(section, "values", out var values) || values.ValueKind != JsonValueKind.Array)
+        {
+            yield break;
+        }
+
+        foreach (var item in values.EnumerateArray())
+        {
+            var tags = TryGetProperty(item, "tags", out var tagsElement) && tagsElement.ValueKind == JsonValueKind.Array
+                ? tagsElement.EnumerateArray().Select(ReadTag).Where(tag => !string.IsNullOrWhiteSpace(tag.Name)).ToList()
+                : new List<VisionTagItem>();
+            var label = string.Join(", ", tags.Select(tag => tag.Name));
+            yield return new VisionDetectionItem
+            {
+                Label = string.IsNullOrWhiteSpace(label) ? "Object" : label,
+                Confidence = tags.FirstOrDefault()?.Confidence,
+                Box = TryGetProperty(item, "boundingBox", out var boxElement) ? ReadBoundingBox(boxElement) : new VisionBoundingBox()
+            };
+        }
+    }
+
+    private static IEnumerable<VisionDetectionItem> ReadPeopleValues(JsonElement section)
+    {
+        if (!TryGetProperty(section, "values", out var values) || values.ValueKind != JsonValueKind.Array)
+        {
+            yield break;
+        }
+
+        foreach (var item in values.EnumerateArray())
+        {
+            yield return new VisionDetectionItem
+            {
+                Label = "Person",
+                Confidence = TryGetProperty(item, "confidence", out var confidenceElement) ? ReadDouble(confidenceElement) : null,
+                Box = TryGetProperty(item, "boundingBox", out var boxElement) ? ReadBoundingBox(boxElement) : new VisionBoundingBox()
+            };
+        }
+    }
+
+    private static IEnumerable<string> ReadTextLines(JsonElement readResult)
+    {
+        var lines = new List<string>();
+        CollectTextLines(readResult, lines);
+        return lines.Distinct(StringComparer.Ordinal).Where(line => !string.IsNullOrWhiteSpace(line));
+    }
+
+    private static void CollectTextLines(JsonElement element, List<string> lines)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            if (TryGetProperty(element, "text", out var textElement) && textElement.ValueKind == JsonValueKind.String)
+            {
+                var text = textElement.GetString();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    lines.Add(text);
+                }
+            }
+
+            if (TryGetProperty(element, "content", out var contentElement) && contentElement.ValueKind == JsonValueKind.String)
+            {
+                var text = contentElement.GetString();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    lines.Add(text);
+                }
+            }
+
+            foreach (var property in element.EnumerateObject())
+            {
+                if (property.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
+                {
+                    CollectTextLines(property.Value, lines);
+                }
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                CollectTextLines(item, lines);
+            }
+        }
+    }
+
+    private static VisionImageMetadata ReadMetadata(JsonElement metadata)
+    {
+        return new VisionImageMetadata
+        {
+            Width = TryGetProperty(metadata, "width", out var widthElement) ? ReadInt(widthElement) : null,
+            Height = TryGetProperty(metadata, "height", out var heightElement) ? ReadInt(heightElement) : null
+        };
+    }
+
+    private static VisionBoundingBox ReadBoundingBox(JsonElement box)
+    {
+        return new VisionBoundingBox
+        {
+            X = TryGetProperty(box, "x", out var xElement) ? ReadInt(xElement) : null,
+            Y = TryGetProperty(box, "y", out var yElement) ? ReadInt(yElement) : null,
+            Width = TryGetProperty(box, "w", out var widthElement) ? ReadInt(widthElement) : null,
+            Height = TryGetProperty(box, "h", out var heightElement) ? ReadInt(heightElement) : null
+        };
+    }
+
+    private static int? ReadInt(JsonElement element)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.Number when element.TryGetInt32(out var value) => value,
+            JsonValueKind.String when int.TryParse(element.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) => value,
+            _ => null
+        };
+    }
+
+    private static double? ReadDouble(JsonElement element)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.Number when element.TryGetDouble(out var value) => value,
+            JsonValueKind.String when double.TryParse(element.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) => value,
+            _ => null
+        };
+    }
+
+    private static bool TryParseDataUrl(string value, out string mimeType, out string data)
+    {
+        mimeType = string.Empty;
+        data = string.Empty;
+        if (!value.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var commaIndex = value.IndexOf(',', StringComparison.Ordinal);
+        if (commaIndex < 0)
+        {
+            return false;
+        }
+
+        var metadata = value[5..commaIndex];
+        var metadataParts = metadata.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        mimeType = metadataParts.FirstOrDefault(part => part.Contains('/', StringComparison.Ordinal)) ?? "image/jpeg";
+        data = value[(commaIndex + 1)..];
+        return metadataParts.Any(part => part.Equals("base64", StringComparison.OrdinalIgnoreCase)) && !string.IsNullOrWhiteSpace(data);
+    }
+
+    private static string BuildDisplayResponse(string observed)
+    {
+        var interpreted = ChatStreamParser.ExtractAllContent(observed);
+        if (!string.IsNullOrWhiteSpace(interpreted))
+        {
+            return interpreted;
+        }
+
+        interpreted = ChatStreamParser.ExtractDisplayContent(observed);
+        if (!string.IsNullOrWhiteSpace(interpreted))
+        {
+            return interpreted;
+        }
+
+        interpreted = ExtractVisionDisplayContent(observed);
+        if (!string.IsNullOrWhiteSpace(interpreted))
+        {
+            return interpreted;
+        }
+
+        return TryFormatJson(observed, out var formatted) ? formatted : observed;
+    }
+
+    private static string ExtractVisionDisplayContent(string observed)
+    {
+        if (!TryParseJson(observed, out var document))
+        {
+            return string.Empty;
+        }
+
+        using (document)
+        {
+            var root = document.RootElement;
+            var parts = new List<string>();
+
+            if (TryGetProperty(root, "content", out var content) && content.ValueKind == JsonValueKind.Array)
+            {
+                parts.AddRange(content.EnumerateArray()
+                    .Select(item => TryGetProperty(item, "text", out var text) ? text.GetString() : string.Empty)
+                    .Where(text => !string.IsNullOrWhiteSpace(text))!);
+            }
+
+            if (TryGetProperty(root, "candidates", out var candidates) && candidates.ValueKind == JsonValueKind.Array)
+            {
+                parts.AddRange(candidates.EnumerateArray().SelectMany(ExtractGeminiText));
+            }
+
+            if (TryGetProperty(root, "captionResult", out var captionResult) && TryGetProperty(captionResult, "text", out var captionText))
+            {
+                parts.Add("Caption: " + captionText.GetString());
+            }
+
+            if (TryGetProperty(root, "tagsResult", out var tagsResult) && TryGetProperty(tagsResult, "values", out var tags) && tags.ValueKind == JsonValueKind.Array)
+            {
+                var tagNames = tags.EnumerateArray()
+                    .Select(tag => TryGetProperty(tag, "name", out var name) ? name.GetString() : string.Empty)
+                    .Where(name => !string.IsNullOrWhiteSpace(name));
+                var joinedTags = string.Join(", ", tagNames);
+                if (!string.IsNullOrWhiteSpace(joinedTags))
+                {
+                    parts.Add("Tags: " + joinedTags);
+                }
+            }
+
+            if (TryGetProperty(root, "readResult", out var readResult) && TryGetProperty(readResult, "content", out var readContent))
+            {
+                var text = readContent.GetString();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    parts.Add("Read: " + text);
+                }
+            }
+
+            return string.Join(Environment.NewLine + Environment.NewLine, parts.Where(part => !string.IsNullOrWhiteSpace(part)));
+        }
+    }
+
+    private static IEnumerable<string> ExtractGeminiText(JsonElement candidate)
+    {
+        if (!TryGetProperty(candidate, "content", out var content) || !TryGetProperty(content, "parts", out var parts) || parts.ValueKind != JsonValueKind.Array)
+        {
+            yield break;
+        }
+
+        foreach (var part in parts.EnumerateArray())
+        {
+            if (TryGetProperty(part, "text", out var text))
+            {
+                var value = text.GetString();
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    yield return value;
+                }
+            }
+        }
+    }
+
+    private static bool TryParseJson(string value, out JsonDocument document)
+    {
+        document = null!;
+        if (string.IsNullOrWhiteSpace(value) || !value.TrimStart().StartsWith("{", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        try
+        {
+            document = JsonDocument.Parse(value);
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryFormatJson(string value, out string formatted)
+    {
+        formatted = string.Empty;
+        if (!TryParseJson(value, out var document))
+        {
+            return false;
+        }
+
+        using (document)
+        {
+            formatted = JsonSerializer.Serialize(document.RootElement, new JsonSerializerOptions { WriteIndented = true });
+            return true;
+        }
+    }
+
+    private static bool TryGetProperty(JsonElement element, string name, out JsonElement value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static string RedactLargeImageData(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        return System.Text.RegularExpressions.Regex.Replace(
+            value,
+            "(data:image/[^;]+;base64,)[A-Za-z0-9+/=]{512,}",
+            match => match.Groups[1].Value + "...[base64 image omitted]...",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    }
+
+    private static bool IsBooleanValue(string value) => bool.TryParse(value, out _);
+
+    private static string NormalizeBooleanValue(string value) => bool.TryParse(value, out var boolValue) ? boolValue.ToString().ToLowerInvariant() : value;
+
+    private static string GetFieldId(string fieldName) => "visionField" + string.Concat(fieldName.Where(char.IsLetterOrDigit));
+
+    private static string FormatOptional(string value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+
+    private static string FormatOptional(int? value) => value?.ToString(CultureInfo.InvariantCulture) ?? "-";
+
+    private static string FormatConfidence(double? value) => value is null ? "-" : $"{Math.Clamp(value.Value, 0, 1):P1}";
+
+    private static string FormatConfidencePercent(double? value) => value is null
+        ? "0%"
+        : $"{Math.Clamp(value.Value, 0, 1) * 100:0.#}%";
+
+    private static string FormatDuration(TimeSpan? value) => value is null ? "-" : $"{value.Value.TotalMilliseconds:0} ms";
+
+    private static string FormatContentType(string contentType)
+    {
+        if (string.IsNullOrWhiteSpace(contentType) || contentType == "-")
+        {
+            return "-";
+        }
+
+        if (contentType.Contains("event-stream", StringComparison.OrdinalIgnoreCase))
+        {
+            return "event-stream";
+        }
+
+        if (contentType.Contains("json", StringComparison.OrdinalIgnoreCase))
+        {
+            return "json";
+        }
+
+        if (contentType.Contains("text", StringComparison.OrdinalIgnoreCase))
+        {
+            return "text";
+        }
+
+        return contentType.Split(';', 2)[0];
+    }
+}

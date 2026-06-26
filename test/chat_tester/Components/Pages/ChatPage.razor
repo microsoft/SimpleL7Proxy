@@ -107,23 +107,28 @@
                         @(IsRunning ? "Sending..." : "Send")
                     </button>
                 </div>
-                <div class="small text-muted d-flex flex-wrap gap-3 mt-2">
-                    <span>@Conversation.Count.ToString(CultureInfo.InvariantCulture) completed turn@(Conversation.Count == 1 ? string.Empty : "s")</span>
-                    <span>@LastRequestSummary</span>
-                </div>
             </div>
         </div>
     </div>
 </div>
 
 <style>
-    :global(body) {
+    body {
+        overflow: hidden;
+    }
+
+    article.content {
+        height: calc(100dvh - 3.5rem);
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
         overflow: hidden;
     }
 
     .multi-step-layout {
-        height: calc(100dvh - 9.25rem);
-        max-height: calc(100dvh - 9.25rem);
+        flex: 1 1 auto;
+        height: auto;
+        max-height: none;
         min-height: 0;
         overflow: hidden;
         align-items: stretch;
@@ -213,7 +218,7 @@
     .chat-composer {
         flex: 0 0 auto;
         background: #fff;
-        padding: 0.625rem 1rem 0.875rem;
+        padding: 0.5rem 1rem 0.625rem;
         overflow: visible;
     }
 
@@ -230,17 +235,12 @@
         max-height: 5.5rem;
     }
 
-    .chat-composer .small {
-        min-height: 1.25rem;
-        line-height: 1.25rem;
-    }
-
     .composer-send {
         min-width: 5.75rem;
     }
 
     @@media (max-width: 575.98px) {
-        :global(body) {
+        body {
             overflow: auto;
         }
 
@@ -248,6 +248,11 @@
             height: auto;
             max-height: none;
             min-height: calc(100vh - 7.25rem);
+            overflow: visible;
+        }
+
+        article.content {
+            height: auto;
             overflow: visible;
         }
 
@@ -310,7 +315,6 @@
     private PendingChatTurn? PendingTurn { get; set; }
     private bool IsRunning { get; set; }
     private string StatusMessage { get; set; } = "Ready.";
-    private string LastRequestSummary { get; set; } = "No request sent yet.";
     private string ChatInput { get; set; } = "tell me a joke";
     private DotNetObjectReference<ChatPage>? SelfReference { get; set; }
     private bool CanSend => !IsRunning && !string.IsNullOrWhiteSpace(ChatInput);
@@ -371,8 +375,7 @@
             AssistantMessage = "Waiting for response..."
         };
         IsRunning = true;
-        StatusMessage = "Sending next turn...";
-        LastRequestSummary = $"Sending {Conversation.Count + 1} turn(s) to {currentRequest.EndpointPath}";
+        StatusMessage = $"Sending turn {Conversation.Count + 1} to {currentRequest.EndpointPath}";
         StateHasChanged();
 
         var stopwatch = Stopwatch.StartNew();
@@ -491,9 +494,8 @@
                 ChatInput = string.Empty;
             }
 
-            StatusMessage = $"{finalStatus} in {stopwatch.Elapsed.TotalMilliseconds:0} ms";
-            LastRequestSummary = string.IsNullOrWhiteSpace(conversationSaveError)
-                ? $"Last request included {Conversation.Count} turn(s)."
+            StatusMessage = string.IsNullOrWhiteSpace(conversationSaveError)
+                ? $"{finalStatus} in {stopwatch.Elapsed.TotalMilliseconds:0} ms"
                 : $"Conversation save failed: {conversationSaveError}";
             RefreshConversationChoices();
             StateHasChanged();
@@ -613,7 +615,6 @@
 
         RefreshConversationChoices();
         StatusMessage = $"Loaded {Conversation.Count} turn{(Conversation.Count == 1 ? string.Empty : "s")}.";
-        LastRequestSummary = $"Continuing conversation {ShortId(ActiveConversationId)}.";
     }
 
     private void StartNewConversation()
@@ -623,7 +624,6 @@
         ActiveConversationId = string.Empty;
         SelectedConversationId = string.Empty;
         StatusMessage = "Ready.";
-        LastRequestSummary = "No request sent yet.";
         ChatInput = string.Empty;
         RefreshConversationChoices();
     }

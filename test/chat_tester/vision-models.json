@@ -1,0 +1,267 @@
+{
+  "vision-models": {
+    "defaultApi": "azure-ai-vision-image-analysis",
+    "defaultModel": "azure-ai-vision-4.0",
+    "defaultPrompt": "Describe the image and call out any visible text.",
+    "apis": [
+      {
+        "id": "openai-chat-vision",
+        "displayName": "OpenAI Chat Completions (vision)",
+        "endpoint": "/openai/v1/chat/completions",
+        "method": "POST",
+        "requestFormat": "openai-chat-image-url",
+        "modelParameter": "model",
+        "imageInputs": [ "image_url", "data_url" ],
+        "supportsStreaming": true
+      },
+      {
+        "id": "openai-responses-vision",
+        "displayName": "OpenAI Responses (vision)",
+        "endpoint": "/openai/v1/responses",
+        "method": "POST",
+        "requestFormat": "openai-responses-input-image",
+        "modelParameter": "model",
+        "imageInputs": [ "input_image", "image_url", "data_url" ],
+        "supportsStreaming": true
+      },
+      {
+        "id": "anthropic-messages-vision",
+        "displayName": "Anthropic Messages (vision)",
+        "endpoint": "/v1/messages",
+        "method": "POST",
+        "requestFormat": "anthropic-message-image-source",
+        "modelParameter": "model",
+        "imageInputs": [ "base64" ],
+        "supportsStreaming": true
+      },
+      {
+        "id": "gemini-generate-content-vision",
+        "displayName": "Gemini generateContent (vision)",
+        "endpoint": "/v1beta/models/{model}:generateContent",
+        "method": "POST",
+        "requestFormat": "gemini-parts-inline-data",
+        "modelParameter": "model",
+        "imageInputs": [ "inline_data", "file_data" ],
+        "supportsStreaming": false
+      },
+      {
+        "id": "azure-ai-vision-image-analysis",
+        "displayName": "Azure AI Vision Image Analysis",
+        "endpoint": "/computervision/imageanalysis:analyze?api-version=2024-02-01",
+        "method": "POST",
+        "requestFormat": "azure-ai-vision-image-url",
+        "modelParameter": "model-version",
+        "imageInputs": [ "url", "binary" ],
+        "supportsStreaming": false
+      }
+    ],
+    "models": [
+      {
+        "id": "gpt-4o",
+        "provider": "OpenAI",
+        "displayName": "GPT-4o",
+        "apis": [ "openai-chat-vision", "openai-responses-vision" ],
+        "inputModes": [ "text", "image" ]
+      },
+      {
+        "id": "gpt-4o-mini",
+        "provider": "OpenAI",
+        "displayName": "GPT-4o mini",
+        "apis": [ "openai-chat-vision", "openai-responses-vision" ],
+        "inputModes": [ "text", "image" ]
+      },
+      {
+        "id": "gpt-4.1",
+        "provider": "OpenAI",
+        "displayName": "GPT-4.1",
+        "apis": [ "openai-chat-vision", "openai-responses-vision" ],
+        "inputModes": [ "text", "image" ]
+      },
+      {
+        "id": "gpt-4.1-mini",
+        "provider": "OpenAI",
+        "displayName": "GPT-4.1 mini",
+        "apis": [ "openai-chat-vision", "openai-responses-vision" ],
+        "inputModes": [ "text", "image" ]
+      },
+      {
+        "id": "claude-sonnet-4-20250514",
+        "provider": "Anthropic",
+        "displayName": "Claude Sonnet 4",
+        "apis": [ "anthropic-messages-vision" ],
+        "inputModes": [ "text", "image" ]
+      },
+      {
+        "id": "claude-3-7-sonnet-20250219",
+        "provider": "Anthropic",
+        "displayName": "Claude 3.7 Sonnet",
+        "apis": [ "anthropic-messages-vision" ],
+        "inputModes": [ "text", "image" ]
+      },
+      {
+        "id": "claude-3-5-sonnet-20241022",
+        "provider": "Anthropic",
+        "displayName": "Claude 3.5 Sonnet",
+        "apis": [ "anthropic-messages-vision" ],
+        "inputModes": [ "text", "image" ]
+      },
+      {
+        "id": "gemini-2.5-pro",
+        "provider": "Google Gemini",
+        "displayName": "Gemini 2.5 Pro",
+        "apis": [ "gemini-generate-content-vision" ],
+        "inputModes": [ "text", "image" ]
+      },
+      {
+        "id": "gemini-2.0-flash",
+        "provider": "Google Gemini",
+        "displayName": "Gemini 2.0 Flash",
+        "apis": [ "gemini-generate-content-vision" ],
+        "inputModes": [ "text", "image" ]
+      },
+      {
+        "id": "azure-ai-vision-4.0",
+        "provider": "Azure AI Vision",
+        "displayName": "Image Analysis 4.0",
+        "apis": [ "azure-ai-vision-image-analysis" ],
+        "inputModes": [ "image" ]
+      }
+    ],
+    "modeldefaults": [
+      {
+        "appliesTo": [ "*" ],
+        "appliesToAPI": [ "openai-chat-vision" ],
+        "fields": [
+          { "temperature": "0.2" },
+          { "max_completion_tokens": "1024" },
+          { "stream": "false" }
+        ]
+      },
+      {
+        "appliesTo": [ "*" ],
+        "appliesToAPI": [ "openai-responses-vision" ],
+        "fields": [
+          { "temperature": "0.2" },
+          { "max_output_tokens": "1024" },
+          { "stream": "false" }
+        ]
+      },
+      {
+        "appliesTo": [ "*" ],
+        "appliesToAPI": [ "anthropic-messages-vision" ],
+        "fields": [
+          { "max_tokens": "1024" },
+          { "stream": "false" }
+        ]
+      },
+      {
+        "appliesTo": [ "*" ],
+        "appliesToAPI": [ "gemini-generate-content-vision" ],
+        "fields": [
+          { "temperature": "0.2" },
+          { "top_p": "0.95" },
+          { "max_output_tokens": "1024" }
+        ]
+      },
+      {
+        "appliesTo": [ "azure-ai-vision-4.0" ],
+        "appliesToAPI": [ "azure-ai-vision-image-analysis" ],
+        "fields": [
+          { "features": "caption,denseCaptions,read,tags,objects,people" },
+          { "model-version": "latest" },
+          { "language": "en" },
+          { "gender-neutral-caption": "false" }
+        ]
+      }
+    ],
+    "requestTemplates": [
+      {
+        "api": "openai-chat-vision",
+        "body": {
+          "model": "{{model}}",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                { "type": "text", "text": "{{prompt}}" },
+                { "type": "image_url", "image_url": { "url": "{{imageUrl}}" } }
+              ]
+            }
+          ],
+          "max_completion_tokens": 1024,
+          "stream": false
+        }
+      },
+      {
+        "api": "openai-responses-vision",
+        "body": {
+          "model": "{{model}}",
+          "input": [
+            {
+              "role": "user",
+              "content": [
+                { "type": "input_text", "text": "{{prompt}}" },
+                { "type": "input_image", "image_url": "{{imageUrl}}" }
+              ]
+            }
+          ],
+          "max_output_tokens": 1024,
+          "stream": false
+        }
+      },
+      {
+        "api": "anthropic-messages-vision",
+        "body": {
+          "model": "{{model}}",
+          "max_tokens": 1024,
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                { "type": "text", "text": "{{prompt}}" },
+                {
+                  "type": "image",
+                  "source": {
+                    "type": "base64",
+                    "media_type": "{{imageMimeType}}",
+                    "data": "{{imageBase64}}"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "api": "gemini-generate-content-vision",
+        "body": {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                { "text": "{{prompt}}" },
+                {
+                  "inline_data": {
+                    "mime_type": "{{imageMimeType}}",
+                    "data": "{{imageBase64}}"
+                  }
+                }
+              ]
+            }
+          ],
+          "generationConfig": {
+            "temperature": 0.2,
+            "topP": 0.95,
+            "maxOutputTokens": 1024
+          }
+        }
+      },
+      {
+        "api": "azure-ai-vision-image-analysis",
+        "body": {
+          "url": "{{imageUrl}}"
+        }
+      }
+    ]
+  }
+}

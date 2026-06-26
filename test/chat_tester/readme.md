@@ -75,7 +75,8 @@ be overridden in the UI per run.
 
 #### Model catalog
 
-The model picker is driven by three optional sections in `appsettings.json`:
+The chat model picker is driven by `chat-models.json` and optional
+`chat-models.{Environment}.json` overrides. The catalog uses three sections:
 
 - **`apis`** — Named API schemas, each with an `id`, `displayName`, and `endpoint`
   path. The endpoint may include a `{model}` placeholder (e.g. Gemini's
@@ -86,8 +87,9 @@ The model picker is driven by three optional sections in `appsettings.json`:
   Each entry has an `appliesTo` list (model ids, or `"*"` for all) and an
   `appliesToAPI` list, plus a `fields` array of single-key objects.
 
-Omitting these sections falls back to the built-in catalog in
-`Components/Shared/ModelCatalog.cs`.
+The computer vision catalog lives separately in `vision-models.json` under the
+`vision-models` section. It describes vision APIs, vision-capable models,
+per-API defaults, and request templates for image URL or base64 image inputs.
 
 ## Using each test
 
@@ -174,11 +176,11 @@ Use `{id}` in a value to insert the sequential request number.
 
 ## Adding model templates
 
-The preferred way to add models is via the `apis`, `models`, and `modeldefaults`
-sections in `appsettings.json` (see [Model catalog](#model-catalog) above). The
-configuration is loaded at startup and merged with the built-in catalog in
-[Components/Shared/ModelCatalog.cs](Components/Shared/ModelCatalog.cs).
+The preferred way to add chat models is via the `apis`, `models`, and
+`modeldefaults` sections in `chat-models.json` (see
+[Model catalog](#model-catalog) above). Add computer vision API and model
+definitions to `vision-models.json` under the `vision-models` section.
 
 To add a model that requires a completely new request body shape that
-`appsettings.json` cannot express, edit `ModelCatalog.cs` directly and add a case
+the catalog cannot express, edit `ModelCatalog.cs` directly and add a case
 to `BuildBody`.
