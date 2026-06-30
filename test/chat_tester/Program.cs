@@ -17,6 +17,7 @@ builder.Services.AddSingleton<HeaderSettings>();
 builder.Services.AddSingleton<HistorySettings>();
 builder.Services.AddSingleton<ConversationSettings>();
 builder.Services.AddSingleton<RequestDebugSettings>();
+builder.Services.AddSingleton<AutoCollapseSettings>();
 builder.Services.AddSingleton<ModelDefaults>();
 builder.Services.AddSingleton<VisionModelCatalog>();
 builder.Services.AddSingleton<ChatHistoryStore>();

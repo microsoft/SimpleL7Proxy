@@ -64,12 +64,16 @@ public static class ModelCatalog
         AddOpenAiCompatibleModel(templates, "llama-3.3-70b", "Meta Llama", "Llama 3.3 70B Instruct", "llama-3.3-70b-instruct");
         AddOpenAiCompatibleModel(templates, "llama-3.1-405b", "Meta Llama", "Llama 3.1 405B Instruct", "llama-3.1-405b-instruct");
 
+        AddOpenAiCompatibleModel(templates, "phi4-reasoning", "Microsoft Phi", "Phi-4 reasoning", "Phi-4-reasoning");
+        AddOpenAiCompatibleModel(templates, "phi-4-mini-reasoning", "Microsoft Phi", "Phi-4 mini reasoning", "Phi-4-mini-reasoning");
+
         AddOpenAiCompatibleModel(templates, "mistral-large", "Mistral", "Mistral Large", "mistral-large-latest");
         AddOpenAiCompatibleModel(templates, "mistral-small", "Mistral", "Mistral Small", "mistral-small-latest");
 
         AddOpenAiCompatibleModel(templates, "deepseek-chat", "DeepSeek", "DeepSeek V3 (chat)", "deepseek-chat");
         AddOpenAiCompatibleModel(templates, "deepseek-reasoner", "DeepSeek", "DeepSeek R1 (reasoner)", "deepseek-reasoner");
 
+        AddOpenAiCompatibleModel(templates, "grok", "xAI", "Grok", "grok");
         AddOpenAiCompatibleModel(templates, "grok-3", "xAI", "Grok 3", "grok-3");
         AddOpenAiCompatibleModel(templates, "grok-2", "xAI", "Grok 2", "grok-2-latest");
 

@@ -1,0 +1,36 @@
+@namespace chat_tester.Components.Shared
+
+<button class="btn btn-sm @ButtonClass @CssClass" type="button" title="@ButtonText" aria-label="@AriaLabel" aria-pressed="@IsFullscreen" @onclick="ToggleFullscreenAsync">@ButtonText</button>
+
+<style>
+    .panel-display-toggle {
+        min-width: 7.4rem;
+    }
+</style>
+
+@code {
+    [Parameter]
+    public PanelDisplayState State { get; set; } = PanelDisplayState.Expanded;
+
+    [Parameter]
+    public EventCallback<PanelDisplayState> StateChanged { get; set; }
+
+    [Parameter]
+    public string CssClass { get; set; } = string.Empty;
+
+    [Parameter]
+    public string AriaLabel { get; set; } = "Panel display mode";
+
+    private bool IsFullscreen => State == PanelDisplayState.Fullscreen;
+
+    private string ButtonText => IsFullscreen ? "Exit full screen" : "Full screen";
+
+    private string ButtonClass => IsFullscreen ? "btn-light panel-display-toggle" : "btn-outline-light panel-display-toggle";
+
+    private async Task ToggleFullscreenAsync()
+    {
+        var state = IsFullscreen ? PanelDisplayState.Expanded : PanelDisplayState.Fullscreen;
+        State = state;
+        await StateChanged.InvokeAsync(state);
+    }
+}

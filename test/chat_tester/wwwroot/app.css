@@ -20,6 +20,33 @@ a, .btn-link {
     padding-top: 1.1rem;
 }
 
+main:has(.inspector-page-shell) {
+    position: relative;
+    min-width: 0;
+    background: #fff;
+}
+
+main:has(.inspector-page-shell) > .top-row {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 37.25rem !important;
+    z-index: 20 !important;
+    background-color: rgba(247, 247, 247, 0.98) !important;
+}
+
+body main:has(.inspector-page-shell) > article.content.px-4 {
+    min-height: 100vh;
+    padding: 0 !important;
+    background: #fff;
+}
+
+@media (max-width: 767.98px) {
+    main:has(.inspector-page-shell) > .top-row {
+        right: 0 !important;
+    }
+}
+
 h1:focus {
     outline: none;
 }

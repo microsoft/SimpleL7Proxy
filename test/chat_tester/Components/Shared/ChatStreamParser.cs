@@ -110,6 +110,61 @@ public static class ChatStreamParser
         return payload;
     }
 
+    public static ChatTokenUsage ExtractTokenUsage(string responseText)
+    {
+        var result = new ChatTokenUsage();
+        if (string.IsNullOrWhiteSpace(responseText))
+        {
+            return result;
+        }
+
+        foreach (var line in responseText.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None))
+        {
+            var payload = ExtractDataPayload(line);
+            if (payload is not null && TryExtractTokenUsage(payload, out var streamUsage))
+            {
+                result.MergeFrom(streamUsage);
+            }
+        }
+
+        if (result.HasAny)
+        {
+            return result;
+        }
+
+        if (TryExtractTokenUsage(responseText.Trim(), out var bodyUsage))
+        {
+            result.MergeFrom(bodyUsage);
+        }
+
+        return result;
+    }
+
+    public static bool TryExtractTokenUsage(string dataPayload, out ChatTokenUsage usage)
+    {
+        usage = new ChatTokenUsage();
+        if (string.IsNullOrWhiteSpace(dataPayload) || !LooksLikeJson(dataPayload.TrimStart()))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(dataPayload);
+            if (!TryGetUsageElement(document.RootElement, out var usageElement))
+            {
+                return false;
+            }
+
+            usage = ReadTokenUsage(usageElement);
+            return usage.HasAny;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static void AppendContent(JsonElement root, StringBuilder builder)
     {
         if (root.ValueKind != JsonValueKind.Object)
@@ -198,8 +253,114 @@ public static class ChatStreamParser
         }
     }
 
+    private static bool TryGetUsageElement(JsonElement root, out JsonElement usageElement)
+    {
+        usageElement = default;
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        if (root.TryGetProperty("usage", out usageElement) && usageElement.ValueKind == JsonValueKind.Object)
+        {
+            return true;
+        }
+
+        if (root.TryGetProperty("response", out var response) &&
+            response.ValueKind == JsonValueKind.Object &&
+            response.TryGetProperty("usage", out usageElement) &&
+            usageElement.ValueKind == JsonValueKind.Object)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static ChatTokenUsage ReadTokenUsage(JsonElement usageElement)
+    {
+        var usage = new ChatTokenUsage
+        {
+            InputTokens = ReadInt32Property(usageElement, "input_tokens", "prompt_tokens"),
+            OutputTokens = ReadInt32Property(usageElement, "output_tokens", "completion_tokens"),
+            TotalTokens = ReadInt32Property(usageElement, "total_tokens"),
+            ReasoningTokens = ReadNestedInt32Property(usageElement, "output_tokens_details", "reasoning_tokens")
+                ?? ReadNestedInt32Property(usageElement, "completion_tokens_details", "reasoning_tokens"),
+            CachedInputTokens = ReadNestedInt32Property(usageElement, "input_tokens_details", "cached_tokens")
+                ?? ReadNestedInt32Property(usageElement, "prompt_tokens_details", "cached_tokens")
+        };
+
+        if (!usage.TotalTokens.HasValue && usage.InputTokens.HasValue && usage.OutputTokens.HasValue)
+        {
+            usage.TotalTokens = usage.InputTokens.Value + usage.OutputTokens.Value;
+        }
+
+        return usage;
+    }
+
+    private static int? ReadNestedInt32Property(JsonElement root, string objectName, string propertyName)
+    {
+        if (root.TryGetProperty(objectName, out var nested) && nested.ValueKind == JsonValueKind.Object)
+        {
+            return ReadInt32Property(nested, propertyName);
+        }
+
+        return null;
+    }
+
+    private static int? ReadInt32Property(JsonElement root, params string[] propertyNames)
+    {
+        foreach (var propertyName in propertyNames)
+        {
+            if (!root.TryGetProperty(propertyName, out var value))
+            {
+                continue;
+            }
+
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var intValue))
+            {
+                return intValue;
+            }
+
+            if (value.ValueKind == JsonValueKind.String && int.TryParse(value.GetString(), out intValue))
+            {
+                return intValue;
+            }
+        }
+
+        return null;
+    }
+
     private static bool LooksLikeJson(string payload)
     {
         return payload.StartsWith("{", StringComparison.Ordinal) || payload.StartsWith("[", StringComparison.Ordinal);
+    }
+}
+
+public sealed class ChatTokenUsage
+{
+    public int? InputTokens { get; set; }
+
+    public int? OutputTokens { get; set; }
+
+    public int? ReasoningTokens { get; set; }
+
+    public int? CachedInputTokens { get; set; }
+
+    public int? TotalTokens { get; set; }
+
+    public bool HasAny => InputTokens.HasValue
+        || OutputTokens.HasValue
+        || ReasoningTokens.HasValue
+        || CachedInputTokens.HasValue
+        || TotalTokens.HasValue;
+
+    public void MergeFrom(ChatTokenUsage usage)
+    {
+        InputTokens = usage.InputTokens ?? InputTokens;
+        OutputTokens = usage.OutputTokens ?? OutputTokens;
+        ReasoningTokens = usage.ReasoningTokens ?? ReasoningTokens;
+        CachedInputTokens = usage.CachedInputTokens ?? CachedInputTokens;
+        TotalTokens = usage.TotalTokens ?? TotalTokens;
     }
 }

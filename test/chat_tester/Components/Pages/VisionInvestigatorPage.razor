@@ -1,9 +1,16 @@
 @page "/vision-investigator"
 @page "/vision"
+@namespace chat_tester.Components.Pages
 @rendermode InteractiveServer
 @inject IOptions<ChatTesterOptions> Options
 @inject VisionModelCatalog VisionCatalog
 @inject RequestDebugSettings DebugSettings
+@inject AutoCollapseSettings AutoCollapseSettings
+@inject ChatHistoryStore ChatHistoryStore
+@using chat_tester.Components.Shared
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Web
 @using Microsoft.Extensions.Options
 @using System.Diagnostics
 @using System.Globalization
@@ -12,20 +19,28 @@
 
 <PageTitle>Vision investigator</PageTitle>
 
-<SectionContent SectionName="page-heading">
-    <div class="d-flex flex-wrap align-items-baseline gap-3">
-        <h1 class="h4 mb-0">Vision investigator</h1>
-        <span class="text-muted small mb-0">@PageTagline</span>
-    </div>
-</SectionContent>
-
-<div class="row g-4">
-    <div class="col-12 request-col">
+<InspectorPageShell Title="Vision investigator"
+                    Tagline="@PageTagline"
+                    HistoryEntries="HistoryEntries"
+                    SelectedHistoryEntryId="@SelectedHistoryEntryId"
+                    HistorySource="@HistorySource"
+                    AutoCollapse="@AutoCollapse"
+                    AutoCollapseChanged="SetAutoCollapseAsync"
+                    ShowRequestPanel="@ShowRequestPanel"
+                    RequestPanelVisibleChanged="SetRequestPanelVisibleAsync"
+                    ShowResultPanel="@ShowVisionResultPanel"
+                    ResultPanelVisibleChanged="SetVisionResultPanelVisibleAsync"
+                    ShowRawPanel="@ShowRawResponsePanel"
+                    RawPanelVisibleChanged="SetRawResponsePanelVisibleAsync">
+    <div class="row g-4 vision-workspace @WorkspaceStateCss">
+    <div class="col-12 request-col @(IsRequestPanelMinimized ? "d-none" : string.Empty)">
         <TestFormPanel @ref="FormPanel"
                        Settings="AuthSettings"
                        UserSettings="UserSettings"
                        HeaderSettings="HeaderSettings"
                        InitialServerBaseUrl="@InitialServerBaseUrl"
+                       DisplayState="@RequestPanelState"
+                       DisplayStateChanged="SetRequestPanelStateAsync"
                        HeaderSubtitle="Send a vision request."
                        PromptTabLabel="Vision"
                        CardTitle="Vision investigator"
@@ -36,7 +51,11 @@
             <PromptContent>
                 <div class="vision-body-panel rounded border p-3 mb-3">
                     <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
-                        @if (UsesPrompt)
+                        @if (!SimpleMode)
+                        {
+                            <span class="form-label mb-0">Request JSON</span>
+                        }
+                        else if (UsesPrompt)
                         {
                             <label class="form-label mb-0" for="visionPrompt">Prompt</label>
                         }
@@ -49,14 +68,14 @@
                                    checked="@DebugSettings.DebugEnabled" @onchange="OnDebugChanged" />
                             <label class="form-check-label" for="visionDebugCheck">Debug</label>
                         </div>
-                        <div class="form-check mb-0">
-                            <input class="form-check-input" type="checkbox" id="visionCustomJsonCheck"
-                                   checked="@UseCustomJson" @onchange="OnCustomJsonChanged" />
-                            <label class="form-check-label" for="visionCustomJsonCheck">Edit JSON</label>
+                           <div class="form-check mb-0">
+                            <input class="form-check-input" type="checkbox" id="visionSimpleModeCheck"
+                                checked="@SimpleMode" @onchange="OnSimpleModeChanged" />
+                            <label class="form-check-label" for="visionSimpleModeCheck">Simple</label>
                         </div>
                     </div>
 
-                    @if (UsesPrompt)
+                    @if (UsesPrompt && SimpleMode)
                     {
                         <textarea class="form-control mb-3" id="visionPrompt" rows="3" value="@Prompt" @oninput="OnPromptChanged"></textarea>
                     }
@@ -89,56 +108,13 @@
                             </select>
                         </div>
                     </div>
-
+                    
                     <div class="row g-3 mb-3">
-                        <div class="col-12 col-lg-4">
-                            <label class="form-label" for="visionImageSource">Image source</label>
-                            <select class="form-select" id="visionImageSource" value="@ImageSource" @onchange="OnImageSourceChanged">
-                                <option value="url">URL</option>
-                                @if (!RequiresExternalImageUrl)
-                                {
-                                    <option value="data-url">Data URL</option>
-                                    <option value="file">File</option>
-                                }
-                            </select>
-                        </div>
-
-                        <div class="col-12 col-lg-8">
-                            @if (ImageSource == FileImageSource)
-                            {
-                                <label class="form-label" for="visionImageFile">Image file</label>
-                                <InputFile id="visionImageFile" class="form-control" OnChange="OnImageFileSelected" accept="image/*" />
-                                @if (!string.IsNullOrWhiteSpace(ImageFileName))
-                                {
-                                    <div class="form-text">@ImageFileName</div>
-                                }
-                            }
-                            else if (ImageSource == DataUrlImageSource)
-                            {
-                                <label class="form-label" for="visionDataUrl">Image data URL</label>
-                                <textarea class="form-control font-monospace" id="visionDataUrl" rows="3" value="@ImageUrl" @oninput="OnImageUrlChanged"></textarea>
-                            }
-                            else
-                            {
-                                <label class="form-label" for="visionImageUrl">Image URL</label>
-                                <input class="form-control" id="visionImageUrl" value="@ImageUrl" @oninput="OnImageUrlChanged" />
-                            }
-                        </div>
-                    </div>
-
-                    @if (!string.IsNullOrWhiteSpace(ImagePreviewUrl))
-                    {
-                        <div class="vision-preview mb-3">
-                            <img src="@ImagePreviewUrl" alt="Selected vision input" />
-                        </div>
-                    }
-
-                    <div class="row g-3 mb-3">
-                        <div class="col-12 col-lg-8">
+                        <div class="col-12 col-lg-6">
                             <label class="form-label" for="visionEndpointPath">Path</label>
                             <input class="form-control" id="visionEndpointPath" value="@EndpointPath" @oninput="OnEndpointPathChanged" />
                         </div>
-                        <div class="col-12 col-lg-4">
+                        <div class="col-12 col-lg-6">
                             <label class="form-label" for="visionContentType">Content-Type</label>
                             <select class="form-select" id="visionContentType" value="@ContentType" @onchange="OnContentTypeChanged">
                                 <option value="application/json">application/json</option>
@@ -147,361 +123,247 @@
                         </div>
                     </div>
 
-                    @if (FieldValues.Count > 0)
+                    <div class="row g-3 mb-3">
+                        <div class="col-12">
+                            <label class="form-label" for="visionRequestCount">Number of requests</label>
+                            <input class="form-control" id="visionRequestCount" type="number" min="1" max="@MaxVisionRequestCount" value="@NumberOfRequests" @onchange="OnNumberOfRequestsChanged" />
+                        </div>
+                    </div>
+
+                    @if (SimpleMode && FieldValues.Count > 0)
                     {
                         <details class="mb-3">
                             <summary class="fw-semibold mb-3">@ApiParametersLabel</summary>
                             <div class="row g-3 mt-3">
                                 @foreach (var field in FieldsForDisplay)
                                 {
-                                    <div class="col-12 col-md-6 col-xl-4">
-                                        <label class="form-label" for="@GetFieldId(field.Key)">@field.Key</label>
-                                        @if (IsBooleanValue(field.Value))
-                                        {
-                                            <select class="form-select" id="@GetFieldId(field.Key)" value="@NormalizeBooleanValue(field.Value)" @onchange="args => OnFieldChanged(field.Key, args.Value?.ToString() ?? string.Empty)">
-                                                <option value="true">true</option>
-                                                <option value="false">false</option>
-                                            </select>
-                                        }
-                                        else
-                                        {
-                                            <input class="form-control" id="@GetFieldId(field.Key)" value="@field.Value" @oninput="args => OnFieldChanged(field.Key, args.Value?.ToString() ?? string.Empty)" />
-                                        }
-                                    </div>
+                                    @if (IsFeaturesField(field.Key))
+                                    {
+                                        <div class="col-12">
+                                            <div class="vision-features-row">
+                                                <span class="form-label mb-0">features</span>
+                                                <div class="vision-feature-checks">
+                                                    @foreach (var feature in FeatureOptions)
+                                                    {
+                                                        <div class="form-check mb-0">
+                                                            <input class="form-check-input" type="checkbox" id="@GetFeatureId(feature.Value)"
+                                                                   checked="@IsFeatureSelected(feature.Value)" @onchange="args => OnFeatureChanged(feature.Value, args.Value is bool selected && selected)" />
+                                                            <label class="form-check-label" for="@GetFeatureId(feature.Value)">@feature.Label</label>
+                                                        </div>
+                                                    }
+                                                </div>
+                                                <div class="vision-feature-extra">
+                                                    <label class="form-label" for="visionFeaturesExtra">Additional</label>
+                                                    <input class="form-control" id="visionFeaturesExtra" value="@AdditionalFeaturesText" @onchange="OnAdditionalFeaturesChanged" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="col-12 col-md-6 col-xl-4">
+                                            <label class="form-label" for="@GetFieldId(field.Key)">@field.Key</label>
+                                            @if (IsBooleanValue(field.Value))
+                                            {
+                                                <select class="form-select" id="@GetFieldId(field.Key)" value="@NormalizeBooleanValue(field.Value)" @onchange="args => OnFieldChanged(field.Key, args.Value?.ToString() ?? string.Empty)">
+                                                    <option value="true">true</option>
+                                                    <option value="false">false</option>
+                                                </select>
+                                            }
+                                            else
+                                            {
+                                                <input class="form-control" id="@GetFieldId(field.Key)" value="@field.Value" @oninput="args => OnFieldChanged(field.Key, args.Value?.ToString() ?? string.Empty)" />
+                                            }
+                                        </div>
+                                    }
                                 }
                             </div>
                         </details>
                     }
 
-                    <div class="mb-0">
-                        <label class="form-label" for="visionRequestJson">@RequestBodyLabel</label>
-                        @if (UseCustomJson)
-                        {
+                    @if (SimpleMode)
+                    {
+                        <div class="row g-3 mb-3 align-items-end">
+                            <div class="col-12 col-lg-3">
+                                <label class="form-label" for="visionImageSource">Image source</label>
+                                <select class="form-select" id="visionImageSource" value="@ImageSource" @onchange="OnImageSourceChanged">
+                                    <option value="url">URL</option>
+                                    @if (!RequiresExternalImageUrl)
+                                    {
+                                        <option value="data-url">Data URL</option>
+                                        <option value="file">File</option>
+                                    }
+                                </select>
+                            </div>
+
+                            <div class="col-12 col-lg">
+                                @if (ImageSource == FileImageSource)
+                                {
+                                    <label class="form-label" for="visionImageFile">Image file</label>
+                                    <InputFile id="visionImageFile" class="form-control" OnChange="OnImageFileSelected" accept="image/*" />
+                                    @if (!string.IsNullOrWhiteSpace(ImageFileName))
+                                    {
+                                        <div class="form-text">@ImageFileName</div>
+                                    }
+                                }
+                                else if (ImageSource == DataUrlImageSource)
+                                {
+                                    <label class="form-label" for="visionDataUrl">Image data URL</label>
+                                    <textarea class="form-control font-monospace" id="visionDataUrl" rows="3" value="@ImageUrl" @oninput="OnImageUrlChanged"></textarea>
+                                }
+                                else
+                                {
+                                    <label class="form-label" for="visionImageUrl">Image URL</label>
+                                    <input class="form-control" id="visionImageUrl" value="@ImageUrl" @oninput="OnImageUrlChanged" />
+                                }
+                            </div>
+
+                            <div class="col-12 col-lg-auto">
+                                <button class="btn btn-outline-primary w-100" type="button" disabled="@(!HasImagePreview)" @onclick="ShowImagePreview">Preview</button>
+                            </div>
+                        </div>
+                    }
+
+                    @if (UseCustomJson)
+                    {
+                        <div class="mb-0">
+                            <label class="form-label" for="visionRequestJson">@RequestBodyLabel</label>
                             <textarea class="form-control font-monospace" id="visionRequestJson" rows="10" value="@CustomRequestBody" @oninput="OnCustomRequestBodyChanged"></textarea>
-                        }
-                        else
-                        {
-                            <textarea class="form-control font-monospace" id="visionRequestJson" rows="10" readonly value="@RequestBodyPreview"></textarea>
-                        }
-                    </div>
+                        </div>
+                    }
                 </div>
             </PromptContent>
         </TestFormPanel>
     </div>
 
-    <div class="col-12 response-col">
+    <div class="col-12 response-col @(IsResponseColumnHidden ? "d-none" : string.Empty)">
+        @if (ShowMultiRequestStatus)
+        {
+            <div class="vision-batch-status-shell">
+                <MultiRequestStatus Items="@MultiRequestStatuses" />
+            </div>
+        }
+        @if (!ShowMultiRequestStatus)
+        {
         <div class="response-stack">
-        <div class="card shadow-sm vision-response-card">
-            <div class="card-header bg-primary text-white pb-0">
-                <div class="d-flex flex-wrap align-items-baseline gap-2 pt-1 pb-2">
-                    <span class="fw-semibold">Vision result</span>
-                    <span class="text-white-50 small">@StatusMessage</span>
-                </div>
-                <ul class="nav nav-tabs card-header-tabs result-tabs mb-0" role="tablist">
-                    @foreach (var tab in ResultTabs)
-                    {
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link @(ActiveResultTab == tab.Id ? "active" : string.Empty)" type="button" @onclick="() => SetActiveResultTab(tab.Id)">
-                                @tab.Title
-                                @if (!string.IsNullOrWhiteSpace(tab.Badge))
-                                {
-                                    <span class="badge rounded-pill text-bg-light ms-1">@tab.Badge</span>
-                                }
-                            </button>
-                        </li>
-                    }
-                </ul>
-            </div>
-            <div class="card-body">
-                <div class="row g-3">
-                    <div class="col-12 col-xl-9">
-                        <div class="vision-result-panel border rounded bg-white p-3">
-                            @if (ActiveResultTab == SummaryResultTab)
-                            {
-                                <div class="vision-summary">
-                                    @if (VisionResult.Caption is not null)
-                                    {
-                                        <div class="result-callout mb-3">
-                                            <div class="text-muted small text-uppercase fw-semibold">Caption</div>
-                                            <div class="fs-6 fw-semibold">@VisionResult.Caption.Text</div>
-                                            <div class="small text-muted">Confidence @FormatConfidence(VisionResult.Caption.Confidence)</div>
-                                        </div>
-                                    }
-                                    else
-                                    {
-                                        <pre class="vision-text-pre mb-3">@VisionResult.SummaryText</pre>
-                                    }
-
-                                    <div class="result-stat-grid mb-3">
-                                        <div><span>Dense captions</span><strong>@VisionResult.DenseCaptions.Count</strong></div>
-                                        <div><span>Tags</span><strong>@VisionResult.Tags.Count</strong></div>
-                                        <div><span>Objects</span><strong>@VisionResult.Objects.Count</strong></div>
-                                        <div><span>People</span><strong>@VisionResult.People.Count</strong></div>
-                                        <div><span>Read lines</span><strong>@VisionResult.ReadLines.Count</strong></div>
-                                    </div>
-
-                                    @if (VisionResult.Tags.Count > 0)
-                                    {
-                                        <div class="mb-3">
-                                            <div class="text-muted small text-uppercase fw-semibold mb-2">Top tags</div>
-                                            <div class="tag-cloud">
-                                                @foreach (var tag in VisionResult.Tags.Take(12))
-                                                {
-                                                    <span class="vision-tag">@tag.Name <span>@FormatConfidence(tag.Confidence)</span></span>
-                                                }
-                                            </div>
-                                        </div>
-                                    }
-
-                                    <div class="metadata-grid">
-                                        @if (!string.IsNullOrWhiteSpace(VisionResult.ModelVersion))
-                                        {
-                                            <div><span>Model version</span><strong>@VisionResult.ModelVersion</strong></div>
-                                        }
-                                        @if (VisionResult.Metadata.HasDimensions)
-                                        {
-                                            <div><span>Image size</span><strong>@VisionResult.Metadata.Width x @VisionResult.Metadata.Height</strong></div>
-                                        }
-                                    </div>
-                                </div>
-                            }
-                            else if (ActiveResultTab == CaptionResultTab)
-                            {
-                                @if (VisionResult.Caption is null)
-                                {
-                                    <div class="empty-result">No caption result was returned.</div>
-                                }
-                                else
-                                {
-                                    <div class="result-callout mb-3">
-                                        <div class="text-muted small text-uppercase fw-semibold">Caption</div>
-                                        <div class="fs-5 fw-semibold">@VisionResult.Caption.Text</div>
-                                        <div class="small text-muted">Confidence @FormatConfidence(VisionResult.Caption.Confidence)</div>
-                                    </div>
-                                }
-                            }
-                            else if (ActiveResultTab == DenseCaptionsResultTab)
-                            {
-                                @if (VisionResult.DenseCaptions.Count == 0)
-                                {
-                                    <div class="empty-result">No dense captions were returned.</div>
-                                }
-                                else
-                                {
-                                    <div class="table-responsive">
-                                        <table class="table table-sm align-middle vision-result-table mb-0">
-                                            <thead class="table-light">
-                                                <tr><th>Caption</th><th class="text-end">Confidence</th><th>Bounding box</th></tr>
-                                            </thead>
-                                            <tbody>
-                                                @foreach (var caption in VisionResult.DenseCaptions)
-                                                {
-                                                    <tr>
-                                                        <td>@caption.Text</td>
-                                                        <td class="text-end confidence-cell">@FormatConfidence(caption.Confidence)</td>
-                                                        <td class="text-nowrap">@caption.Box.DisplayText</td>
-                                                    </tr>
-                                                }
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                }
-                            }
-                            else if (ActiveResultTab == TagsResultTab)
-                            {
-                                @if (VisionResult.Tags.Count == 0)
-                                {
-                                    <div class="empty-result">No tags were returned.</div>
-                                }
-                                else
-                                {
-                                    <div class="tag-list">
-                                        @foreach (var tag in VisionResult.Tags)
-                                        {
-                                            <div class="tag-row">
-                                                <span class="fw-semibold">@tag.Name</span>
-                                                <div class="tag-confidence">
-                                                    <div class="tag-confidence-fill" style="width: @FormatConfidencePercent(tag.Confidence);"></div>
-                                                </div>
-                                                <span class="confidence-cell">@FormatConfidence(tag.Confidence)</span>
-                                            </div>
-                                        }
-                                    </div>
-                                }
-                            }
-                            else if (ActiveResultTab == ObjectsResultTab)
-                            {
-                                @if (VisionResult.Objects.Count == 0)
-                                {
-                                    <div class="empty-result">No objects were returned.</div>
-                                }
-                                else
-                                {
-                                    <div class="table-responsive">
-                                        <table class="table table-sm align-middle vision-result-table mb-0">
-                                            <thead class="table-light">
-                                                <tr><th>Object</th><th class="text-end">Confidence</th><th>Bounding box</th></tr>
-                                            </thead>
-                                            <tbody>
-                                                @foreach (var item in VisionResult.Objects)
-                                                {
-                                                    <tr>
-                                                        <td>@item.Label</td>
-                                                        <td class="text-end confidence-cell">@FormatConfidence(item.Confidence)</td>
-                                                        <td class="text-nowrap">@item.Box.DisplayText</td>
-                                                    </tr>
-                                                }
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                }
-                            }
-                            else if (ActiveResultTab == PeopleResultTab)
-                            {
-                                @if (VisionResult.People.Count == 0)
-                                {
-                                    <div class="empty-result">No people were returned.</div>
-                                }
-                                else
-                                {
-                                    <div class="table-responsive">
-                                        <table class="table table-sm align-middle vision-result-table mb-0">
-                                            <thead class="table-light">
-                                                <tr><th>Person</th><th class="text-end">Confidence</th><th>Bounding box</th></tr>
-                                            </thead>
-                                            <tbody>
-                                                @for (var index = 0; index < VisionResult.People.Count; index++)
-                                                {
-                                                    var person = VisionResult.People[index];
-                                                    <tr>
-                                                        <td>Person @(index + 1)</td>
-                                                        <td class="text-end confidence-cell">@FormatConfidence(person.Confidence)</td>
-                                                        <td class="text-nowrap">@person.Box.DisplayText</td>
-                                                    </tr>
-                                                }
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                }
-                            }
-                            else if (ActiveResultTab == ReadResultTab)
-                            {
-                                @if (VisionResult.ReadLines.Count == 0)
-                                {
-                                    <div class="empty-result">No OCR text blocks were returned.</div>
-                                }
-                                else
-                                {
-                                    <ol class="read-lines mb-0">
-                                        @foreach (var line in VisionResult.ReadLines)
-                                        {
-                                            <li>@line</li>
-                                        }
-                                    </ol>
-                                }
-                            }
-                            else if (ActiveResultTab == MetadataResultTab)
-                            {
-                                <div class="metadata-grid metadata-grid-wide">
-                                    <div><span>Model version</span><strong>@FormatOptional(VisionResult.ModelVersion)</strong></div>
-                                    <div><span>Image width</span><strong>@FormatOptional(VisionResult.Metadata.Width)</strong></div>
-                                    <div><span>Image height</span><strong>@FormatOptional(VisionResult.Metadata.Height)</strong></div>
-                                </div>
-                            }
-                            else
-                            {
-                                <pre class="vision-json-pre mb-0">@VisionResult.RawText</pre>
-                            }
-                        </div>
-                    </div>
-                    <div class="col-12 col-xl-3">
-                        <div class="border rounded bg-light p-3 small response-metrics">
-                            <div class="fw-semibold mb-2">Metrics</div>
-                            <div class="metric-row">
-                                <span class="metric-name">Status</span>
-                                <span class="metric-value">@ResponseMetrics.Status</span>
-                            </div>
-                            <div class="metric-row">
-                                <span class="metric-name">Content-Type</span>
-                                <span class="metric-value" title="@ResponseMetrics.ContentType">@FormatContentType(ResponseMetrics.ContentType)</span>
-                            </div>
-                            <div class="metric-row">
-                                <span class="metric-name">Time to first byte</span>
-                                <span class="metric-value">@FormatDuration(ResponseMetrics.TimeToFirstByte)</span>
-                            </div>
-                            <div class="metric-row">
-                                <span class="metric-name">Duration</span>
-                                <span class="metric-value">@FormatDuration(ResponseMetrics.Duration)</span>
-                            </div>
-                            <div class="metric-row">
-                                <span class="metric-name">Chunks</span>
-                                <span class="metric-value">@ResponseMetrics.Chunks</span>
-                            </div>
-                            <div class="metric-row">
-                                <span class="metric-name">Total bytes</span>
-                                <span class="metric-value">@ResponseMetrics.TotalBytes</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+        <div class="@(IsVisionResultMinimized ? "d-none" : string.Empty)">
+            <VisionResultPanel Result="@VisionResult"
+                               StatusMessage="@StatusMessage"
+                               ActiveTab="@ActiveResultTab"
+                               ActiveTabChanged="SetActiveResultTabAsync"
+                               DisplayState="@VisionResultState"
+                               DisplayStateChanged="SetVisionResultStateAsync"
+                               Status="@ResponseMetrics.Status"
+                               ContentType="@ResponseMetrics.ContentType"
+                               TimeToFirstByte="@ResponseMetrics.TimeToFirstByte"
+                               Duration="@ResponseMetrics.Duration"
+                               Chunks="@ResponseMetrics.Chunks"
+                               TotalBytes="@ResponseMetrics.TotalBytes"
+                               ResultRowCss="@VisionResultRowCss"
+                               ResultPanelLayoutCss="@VisionResultPanelLayoutCss" />
         </div>
 
-        <div class="card shadow-sm mt-3 raw-card">
-            <div class="card-header bg-secondary text-white pb-0">
-                <div class="d-flex align-items-baseline gap-2 pt-1 pb-2">
-                    <span class="fw-semibold">Raw exchange</span>
-                </div>
-                <ul class="nav nav-tabs card-header-tabs raw-tabs mb-0" role="tablist">
-                    <li class="nav-item"><button class="nav-link @(ActiveResponseTab == "request-headers" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveResponseTab("request-headers")'>Request headers</button></li>
-                    <li class="nav-item"><button class="nav-link @(ActiveResponseTab == "response-headers" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveResponseTab("response-headers")'>Response headers</button></li>
-                    <li class="nav-item"><button class="nav-link @(ActiveResponseTab == "request-body" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveResponseTab("request-body")'>Request body</button></li>
-                    <li class="nav-item"><button class="nav-link @(ActiveResponseTab == "response-body" ? "active" : string.Empty)" type="button" @onclick='() => SetActiveResponseTab("response-body")'>Response body</button></li>
-                </ul>
-            </div>
-            <div class="card-body">
-                <div class="border rounded p-3 bg-light raw-panel">
-                    @if (ActiveResponseTab == "request-headers")
-                    {
-                        <pre class="mb-0">@RequestHeadersText</pre>
-                    }
-                    else if (ActiveResponseTab == "response-headers")
-                    {
-                        <pre class="mb-0">@ResponseHeadersText</pre>
-                    }
-                    else if (ActiveResponseTab == "request-body")
-                    {
-                        <pre class="mb-0">@RequestBodyDisplay</pre>
-                    }
-                    else
-                    {
-                        <pre class="mb-0">@ObservedResponse</pre>
-                    }
-                </div>
-            </div>
+        <div class="@(IsRawResponseMinimized ? "d-none" : string.Empty)">
+            <RawResponsePanel Title="Raw exchange"
+                              StatusMessage="@StatusMessage"
+                              ActiveTab="@ActiveResponseTab"
+                              ActiveTabChanged="SetActiveResponseTabAsync"
+                              DisplayState="@RawResponseState"
+                              DisplayStateChanged="SetRawResponseStateAsync"
+                              RequestHeadersText="@RequestHeadersText"
+                              ResponseHeadersText="@ResponseHeadersText"
+                              RequestBodyDisplay="@RequestBodyDisplay"
+                              ObservedResponse="@ObservedResponse">
+            </RawResponsePanel>
         </div>
         </div>
+        }
     </div>
 </div>
+</InspectorPageShell>
+
+@if (IsImagePreviewOpen && HasImagePreview)
+{
+    <div class="vision-preview-backdrop" @onclick="CloseImagePreview"></div>
+    <div class="vision-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="visionPreviewTitle">
+        <div class="card shadow-lg">
+            <div class="card-header d-flex align-items-center gap-3">
+                <h2 class="h6 mb-0" id="visionPreviewTitle">Image preview</h2>
+                <button class="btn-close ms-auto" type="button" aria-label="Close" @onclick="CloseImagePreview"></button>
+            </div>
+            <div class="card-body">
+                <img src="@ImagePreviewUrl" alt="Selected vision input" />
+            </div>
+        </div>
+    </div>
+}
 
 <style>
+    .vision-workspace {
+        margin-left: 0;
+        margin-right: 0;
+    }
+
+    .vision-batch-status-shell {
+        margin-bottom: 1rem;
+        flex: 1 1 auto;
+        min-height: 0;
+    }
+
     .vision-body-panel {
         background-color: #eef4ff;
         border-color: #cdddf7 !important;
     }
 
-    .vision-preview {
-        max-width: 24rem;
-        border: 1px solid #cdddf7;
-        border-radius: 0.375rem;
-        background: #fff;
-        padding: 0.5rem;
+    .vision-features-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: end;
+        gap: 0.75rem 1.25rem;
     }
 
-    .vision-preview img {
+    .vision-feature-checks {
+        display: flex;
+        flex: 1 1 34rem;
+        flex-wrap: wrap;
+        gap: 0.5rem 1rem;
+    }
+
+    .vision-feature-extra {
+        flex: 1 1 16rem;
+    }
+
+    .vision-preview-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1090;
+        background: rgba(0, 0, 0, 0.55);
+    }
+
+    .vision-preview-dialog {
+        position: fixed;
+        inset: 2rem;
+        z-index: 1091;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+    }
+
+    .vision-preview-dialog .card {
+        max-width: min(72rem, 100%);
+        max-height: 100%;
+        pointer-events: auto;
+    }
+
+    .vision-preview-dialog .card-body {
+        overflow: auto;
+    }
+
+    .vision-preview-dialog img {
         display: block;
-        width: 100%;
-        max-height: 18rem;
+        max-width: 100%;
+        max-height: calc(100vh - 10rem);
         object-fit: contain;
     }
 
@@ -511,25 +373,54 @@
         overflow-y: auto;
     }
 
-    .result-tabs .nav-link,
-    .raw-tabs .nav-link {
+    @@media (min-width: 1200px) {
+        .vision-workspace.request-minimized .vision-result-panel.two-column-result {
+            column-count: 2;
+            column-gap: 1rem;
+        }
+
+        .vision-workspace.request-minimized .vision-result-panel.two-column-result > * {
+            break-inside: avoid;
+        }
+    }
+
+    .result-tabs .nav-link {
         color: rgba(255, 255, 255, 0.85);
         border-color: transparent;
         padding-top: 0.15rem;
         padding-bottom: 0.15rem;
     }
 
-    .result-tabs .nav-link:hover,
-    .raw-tabs .nav-link:hover {
+    .result-tabs .nav-link:hover {
         color: #fff;
         border-color: rgba(255, 255, 255, 0.4);
     }
 
-    .result-tabs .nav-link.active,
-    .raw-tabs .nav-link.active {
+    .result-tabs .nav-link.active {
         color: #495057;
         background-color: #fff;
         border-color: #fff #fff #fff;
+    }
+
+    .vision-response-card.fs-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 1080;
+        margin: 0 !important;
+        border-radius: 0;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .vision-response-card.fs-overlay .card-body {
+        flex: 1 1 auto;
+        min-height: 0;
+    }
+
+    .vision-response-card.panel-minimized {
+        flex: 0 0 auto !important;
+        min-height: 0 !important;
     }
 
     .result-callout {
@@ -655,43 +546,16 @@
         margin-top: 0.5rem;
     }
 
-    .raw-panel {
-        max-height: 20rem;
-        overflow-y: auto;
-    }
-
-    .raw-panel pre {
-        white-space: pre-wrap;
-        word-break: break-word;
-    }
-
-    .response-metrics .metric-row {
-        display: flex;
-        justify-content: space-between;
-        gap: 0.75rem;
-        padding: 0.45rem 0.5rem;
-        border-radius: 0.25rem;
-    }
-
-    .response-metrics .metric-row:nth-child(even) {
-        background: rgba(13, 110, 253, 0.08);
-    }
-
-    .response-metrics .metric-name {
-        font-weight: 600;
-        white-space: nowrap;
-    }
-
-    .response-metrics .metric-value {
-        text-align: right;
-        overflow-wrap: anywhere;
-    }
-
     @@media (min-width: 992px) {
         .request-col {
             flex: 0 0 40%;
             max-width: 40%;
             height: 85vh;
+        }
+
+        .vision-workspace.response-hidden .request-col {
+            flex: 0 0 100%;
+            max-width: 100%;
         }
 
         .request-col > .card {
@@ -710,14 +574,49 @@
             flex: 0 0 60%;
             max-width: 60%;
             height: 85vh;
-            position: relative;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .vision-workspace.request-minimized .response-col {
+            flex: 0 0 100%;
+            max-width: 100%;
+        }
+
+        .vision-workspace.manual-layout .request-col {
+            flex: 0 0 33.333333%;
+            max-width: 33.333333%;
+        }
+
+        .vision-workspace.manual-layout .response-col {
+            flex: 0 0 66.666667%;
+            max-width: 66.666667%;
+        }
+
+        .vision-workspace.multi-request-layout .vision-batch-status-shell {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .vision-workspace.multi-request-layout .multi-request-status {
+            display: flex;
+            flex: 1 1 auto;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .vision-workspace.multi-request-layout .multi-request-status-list {
+            flex: 1 1 auto;
+            max-height: none;
         }
 
         .response-stack {
-            position: absolute;
-            inset: 0;
             display: flex;
             flex-direction: column;
+            flex: 1 1 auto;
+            min-height: 0;
             overflow: hidden;
         }
 
@@ -738,6 +637,16 @@
             height: 100%;
         }
 
+        .vision-workspace.request-minimized .vision-result-wide .vision-result-content-col {
+            flex: 0 0 72%;
+            max-width: 72%;
+        }
+
+        .vision-workspace.request-minimized .vision-result-wide .vision-result-metrics-col {
+            flex: 0 0 28%;
+            max-width: 28%;
+        }
+
         .vision-result-panel {
             max-height: none;
             height: 100%;
@@ -756,10 +665,6 @@
             overflow-y: auto;
         }
 
-        .raw-panel {
-            max-height: none;
-            height: 100%;
-        }
     }
 </style>
 
@@ -767,6 +672,7 @@
     private const string UrlImageSource = "url";
     private const string DataUrlImageSource = "data-url";
     private const string FileImageSource = "file";
+    private const string DefaultPageTagline = "Send an image to a configured vision API and inspect the proxy exchange.";
     private const string SummaryResultTab = "summary";
     private const string CaptionResultTab = "caption";
     private const string DenseCaptionsResultTab = "dense-captions";
@@ -776,7 +682,22 @@
     private const string ReadResultTab = "read";
     private const string MetadataResultTab = "metadata";
     private const string RawResultTab = "raw";
+    private const string HistorySource = "Vision investigator";
+    private const string RequestPanel = PanelDisplayStateCoordinator.RequestPanel;
+    private const string ResultPanel = PanelDisplayStateCoordinator.ResultPanel;
+    private const string RawPanel = PanelDisplayStateCoordinator.RawPanel;
     private const int MaxImageBytes = 8 * 1024 * 1024;
+    private const int MaxVisionRequestCount = 100;
+
+    private static readonly (string Value, string Label)[] FeatureOptions =
+    {
+        ("caption", "Caption"),
+        ("denseCaptions", "Dense captions"),
+        ("read", "Read"),
+        ("tags", "Tags"),
+        ("objects", "Objects"),
+        ("people", "People")
+    };
 
     private sealed class VisionResponseMetrics
     {
@@ -788,70 +709,22 @@
         public long TotalBytes { get; set; }
     }
 
+    private sealed record PreparedVisionRequest(int RequestIndex, HttpRequestMessage Request, string RequestHeadersText);
+
+    private sealed record VisionBatchResult(
+        int RequestIndex,
+        string RequestHeadersText,
+        string ResponseHeadersText,
+        string ObservedResponse,
+        string DisplayResponse,
+        string StatusMessage,
+        VisionResponseMetrics Metrics,
+        VisionResultView VisionResult);
+
     private sealed record VisionResultTab(string Id, string Title, string Badge = "");
 
-    private sealed class VisionResultView
-    {
-        public string SummaryText { get; set; } = string.Empty;
-        public string RawText { get; set; } = string.Empty;
-        public string ModelVersion { get; set; } = string.Empty;
-        public bool HasCaptionResult { get; set; }
-        public bool HasDenseCaptionsResult { get; set; }
-        public bool HasTagsResult { get; set; }
-        public bool HasObjectsResult { get; set; }
-        public bool HasPeopleResult { get; set; }
-        public bool HasReadResult { get; set; }
-        public bool HasMetadataResult { get; set; }
-        public VisionCaptionItem? Caption { get; set; }
-        public List<VisionCaptionItem> DenseCaptions { get; } = new();
-        public List<VisionTagItem> Tags { get; } = new();
-        public List<VisionDetectionItem> Objects { get; } = new();
-        public List<VisionDetectionItem> People { get; } = new();
-        public List<string> ReadLines { get; } = new();
-        public VisionImageMetadata Metadata { get; set; } = new();
-    }
-
-    private sealed class VisionCaptionItem
-    {
-        public string Text { get; set; } = string.Empty;
-        public double? Confidence { get; set; }
-        public VisionBoundingBox Box { get; set; } = new();
-    }
-
-    private sealed class VisionTagItem
-    {
-        public string Name { get; set; } = string.Empty;
-        public double? Confidence { get; set; }
-    }
-
-    private sealed class VisionDetectionItem
-    {
-        public string Label { get; set; } = string.Empty;
-        public double? Confidence { get; set; }
-        public VisionBoundingBox Box { get; set; } = new();
-    }
-
-    private sealed class VisionBoundingBox
-    {
-        public int? X { get; set; }
-        public int? Y { get; set; }
-        public int? Width { get; set; }
-        public int? Height { get; set; }
-        public bool HasValue => X.HasValue || Y.HasValue || Width.HasValue || Height.HasValue;
-        public string DisplayText => HasValue
-            ? $"x {FormatOptional(X)}, y {FormatOptional(Y)}, w {FormatOptional(Width)}, h {FormatOptional(Height)}"
-            : "-";
-    }
-
-    private sealed class VisionImageMetadata
-    {
-        public int? Width { get; set; }
-        public int? Height { get; set; }
-        public bool HasDimensions => Width.HasValue || Height.HasValue;
-    }
-
     private string InitialServerBaseUrl { get; set; } = string.Empty;
-    private string PageTagline { get; set; } = "Send an image to a configured vision API and inspect the proxy exchange.";
+    private string PageTagline { get; set; } = DefaultPageTagline;
     private string SelectedModel { get; set; } = string.Empty;
     private string SelectedApi { get; set; } = string.Empty;
     private string Prompt { get; set; } = string.Empty;
@@ -863,6 +736,7 @@
     private string EndpointPath { get; set; } = string.Empty;
     private string ContentType { get; set; } = ChatTesterHttp.JsonContentType;
     private bool UseCustomJson { get; set; }
+    private bool IsImagePreviewOpen { get; set; }
     private string CustomRequestBody { get; set; } = string.Empty;
     private bool IsRunning { get; set; }
     private string StatusMessage { get; set; } = "Ready to send a vision request.";
@@ -873,8 +747,20 @@
     private string RequestBodyDisplay { get; set; } = "No request body yet.";
     private string ActiveResultTab { get; set; } = SummaryResultTab;
     private string ActiveResponseTab { get; set; } = "response-body";
+    private string ActivePanel { get; set; } = RequestPanel;
+    private PanelDisplayState RequestPanelState { get; set; } = PanelDisplayState.Expanded;
+    private PanelDisplayState VisionResultState { get; set; } = PanelDisplayState.Minimized;
+    private PanelDisplayState RawResponseState { get; set; } = PanelDisplayState.Minimized;
+    private bool AutoCollapse { get; set; } = true;
+    private int NumberOfRequests { get; set; } = 1;
+    private string? SelectedHistoryEntryId { get; set; }
+    private string? LoadedHistoryEntryId { get; set; }
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "historyEntryId")]
+    public string? HistoryEntryId { get; set; }
     private VisionResultView VisionResult { get; set; } = BuildPlainVisionResult("Waiting for the request ...");
     private VisionResponseMetrics ResponseMetrics { get; set; } = new();
+    private List<MultiRequestStatusItem> MultiRequestStatuses { get; } = new();
     private Dictionary<string, string> FieldValues { get; } = new(StringComparer.OrdinalIgnoreCase);
     [Inject]
     private AuthTokenSettings AuthSettings { get; set; } = default!;
@@ -883,6 +769,8 @@
     [Inject]
     private HeaderSettings HeaderSettings { get; set; } = default!;
     private TestFormPanel? FormPanel { get; set; }
+
+    private IReadOnlyList<ChatHistoryEntry> HistoryEntries => ChatHistoryStore.GetSnapshot();
 
     private IReadOnlyList<VisionApiInfo> AvailableApis => VisionCatalog.ApisForModel(SelectedModel);
 
@@ -900,15 +788,209 @@
 
     private string ApiParametersLabel => IsComputerVisionAnalysisApi ? "Query parameters" : "API parameters";
 
-    private string RequestBodyLabel => IsComputerVisionAnalysisApi ? "Request body" : "Request JSON";
+    private string RequestBodyLabel => "Request JSON";
+
+    private bool SimpleMode => !UseCustomJson;
 
     private IReadOnlyList<VisionResultTab> ResultTabs => BuildResultTabs();
+
+    private bool IsRequestPanelMinimized => RequestPanelState == PanelDisplayState.Minimized;
+
+    private bool ShowRequestPanel => !IsRequestPanelMinimized;
+
+    private bool IsVisionResultMinimized => VisionResultState == PanelDisplayState.Minimized;
+
+    private bool ShowVisionResultPanel => !ShowMultiRequestStatus && !IsVisionResultMinimized;
+
+    private bool IsVisionResultFullscreen => VisionResultState == PanelDisplayState.Fullscreen;
+
+    private bool IsRawResponseMinimized => RawResponseState == PanelDisplayState.Minimized;
+
+    private bool ShowRawResponsePanel => !ShowMultiRequestStatus && !IsRawResponseMinimized;
+
+    private bool IsResponseColumnHidden => ShowMultiRequestStatus ? false : IsVisionResultMinimized && IsRawResponseMinimized;
+
+    private bool ShowMultiRequestStatus => NumberOfRequests > 1;
+
+    private bool IsRequestHiddenWithExpandedResult => IsRequestPanelMinimized && !IsVisionResultMinimized;
+
+    private string WorkspaceStateCss
+    {
+        get
+        {
+            var classes = new List<string>();
+            if (IsRequestPanelMinimized)
+            {
+                classes.Add("request-minimized");
+            }
+
+            if (IsResponseColumnHidden)
+            {
+                classes.Add("response-hidden");
+            }
+
+            if (ShowMultiRequestStatus)
+            {
+                classes.Add("multi-request-layout");
+            }
+
+            if (!AutoCollapse)
+            {
+                classes.Add("manual-layout");
+            }
+
+            return string.Join(' ', classes);
+        }
+    }
+
+    private string VisionResultRowCss => IsRequestHiddenWithExpandedResult ? "vision-result-wide" : string.Empty;
+
+    private string VisionResultPanelLayoutCss => IsRequestHiddenWithExpandedResult ? "two-column-result" : string.Empty;
+
+    private string VisionResultCardStateCss => VisionResultState switch
+    {
+        PanelDisplayState.Minimized => "panel-minimized",
+        PanelDisplayState.Fullscreen => "fs-overlay",
+        _ => string.Empty
+    };
+
+    private Task SelectPanelAsync(string panel)
+    {
+        if (!AutoCollapse)
+        {
+            ActivePanel = panel;
+            EnsureAllPanesVisible();
+            return Task.CompletedTask;
+        }
+
+        ApplyPanelState(PanelDisplayStateCoordinator.SelectPanel(panel));
+        return Task.CompletedTask;
+    }
+
+    private Task SetAutoCollapseAsync(bool autoCollapse)
+    {
+        AutoCollapse = autoCollapse;
+        AutoCollapseSettings.Enabled = autoCollapse;
+
+        if (autoCollapse)
+        {
+            ApplyPanelState(PanelDisplayStateCoordinator.SelectPanel(ActivePanel));
+        }
+        else
+        {
+            EnsureAllPanesVisible();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task SetRequestPanelVisibleAsync(ChangeEventArgs args)
+    {
+        RequestPanelState = args.Value is bool selected && selected ? PanelDisplayState.Expanded : PanelDisplayState.Minimized;
+        if (RequestPanelState != PanelDisplayState.Minimized)
+        {
+            ActivePanel = RequestPanel;
+        }
+
+        NormalizePanelStates();
+        return Task.CompletedTask;
+    }
+
+    private Task SetVisionResultPanelVisibleAsync(ChangeEventArgs args)
+    {
+        VisionResultState = args.Value is bool selected && selected ? PanelDisplayState.Expanded : PanelDisplayState.Minimized;
+        if (VisionResultState != PanelDisplayState.Minimized)
+        {
+            ActivePanel = ResultPanel;
+        }
+
+        NormalizePanelStates();
+        return Task.CompletedTask;
+    }
+
+    private Task SetRawResponsePanelVisibleAsync(ChangeEventArgs args)
+    {
+        RawResponseState = args.Value is bool selected && selected ? PanelDisplayState.Expanded : PanelDisplayState.Minimized;
+        if (RawResponseState != PanelDisplayState.Minimized)
+        {
+            ActivePanel = RawPanel;
+        }
+
+        NormalizePanelStates();
+        return Task.CompletedTask;
+    }
+
+    private Task SetRequestPanelStateAsync(PanelDisplayState state)
+    {
+        RequestPanelState = state;
+        NormalizePanelStates();
+        return Task.CompletedTask;
+    }
+
+    private Task SetVisionResultStateAsync(PanelDisplayState state)
+    {
+        VisionResultState = state;
+        NormalizePanelStates();
+        return Task.CompletedTask;
+    }
+
+    private Task SetRawResponseStateAsync(PanelDisplayState state)
+    {
+        RawResponseState = state;
+        NormalizePanelStates();
+        return Task.CompletedTask;
+    }
+
+    private Task SetActiveResponseTabAsync(string tab)
+    {
+        ActiveResponseTab = tab;
+        return Task.CompletedTask;
+    }
+
+    private void ShowResultPanelAfterResponse()
+    {
+        if (!AutoCollapse)
+        {
+            ActivePanel = ResultPanel;
+            EnsureAllPanesVisible();
+            return;
+        }
+
+        ApplyPanelState(PanelDisplayStateCoordinator.SelectPanel(ResultPanel));
+    }
+
+    private void NormalizePanelStates()
+    {
+        ApplyPanelState(PanelDisplayStateCoordinator.Normalize(
+            RequestPanelState,
+            VisionResultState,
+            RawResponseState,
+            ActivePanel));
+    }
+
+    private void ApplyPanelState(PanelDisplayStateGroup panelState)
+    {
+        ActivePanel = panelState.ActivePanel;
+        RequestPanelState = panelState.Request;
+        VisionResultState = panelState.Result;
+        RawResponseState = panelState.Raw;
+    }
+
+    private void EnsureAllPanesVisible()
+    {
+        ActivePanel = string.IsNullOrWhiteSpace(ActivePanel) ? RequestPanel : ActivePanel;
+        RequestPanelState = PanelDisplayState.Expanded;
+        VisionResultState = PanelDisplayState.Expanded;
+        RawResponseState = PanelDisplayState.Expanded;
+    }
 
     private IEnumerable<KeyValuePair<string, string>> FieldsForDisplay => FieldValues.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase);
 
     private string RequestBody => UseCustomJson ? CustomRequestBody : BuildGeneratedRequestBody();
 
     private string RequestBodyPreview => RedactLargeImageData(RequestBody);
+
+    private string EffectiveEndpointPath => SimpleMode ? AppendFieldQueryParameters(EndpointPath, FieldValues) : EndpointPath;
 
     private string EffectiveImageUrl => ImageSource == FileImageSource && !string.IsNullOrWhiteSpace(ImageBase64)
         ? $"data:{ImageMimeType};base64,{ImageBase64}"
@@ -918,6 +1000,10 @@
         ? EffectiveImageUrl
         : string.Empty;
 
+    private bool HasImagePreview => !string.IsNullOrWhiteSpace(ImagePreviewUrl);
+
+    private string AdditionalFeaturesText => string.Join(", ", GetCurrentFeatures().Where(feature => !IsKnownFeature(feature)));
+
     private bool IsStreamingRequested => SelectedApiInfo?.SupportsStreaming == true
         && FieldValues.TryGetValue("stream", out var streamValue)
         && bool.TryParse(streamValue, out var stream)
@@ -925,6 +1011,12 @@
 
     protected override void OnInitialized()
     {
+        AutoCollapse = AutoCollapseSettings.Enabled;
+        if (!AutoCollapse)
+        {
+            EnsureAllPanesVisible();
+        }
+
         var options = Options.Value;
         InitialServerBaseUrl = options.ServerBaseUrl;
         AuthSettings.ApplyDefaultsIfMissing(options.AuthorizationHeaderName, options.AuthorizationHeaderPrefix);
@@ -941,10 +1033,54 @@
         RefreshEndpointPath();
     }
 
+    private void OnNumberOfRequestsChanged(ChangeEventArgs args)
+    {
+        NumberOfRequests = ClampRequestCount(args.Value?.ToString());
+        ResetMultiRequestStatuses();
+    }
+
+    private static int ClampRequestCount(string? value)
+    {
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var requestCount))
+        {
+            return 1;
+        }
+
+        return Math.Clamp(requestCount, 1, MaxVisionRequestCount);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await LoadRequestedHistoryEntryAsync();
+    }
+
+    private async Task LoadRequestedHistoryEntryAsync()
+    {
+        if (string.IsNullOrWhiteSpace(HistoryEntryId)
+            || string.Equals(LoadedHistoryEntryId, HistoryEntryId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        LoadedHistoryEntryId = HistoryEntryId;
+        var entry = HistoryEntries.FirstOrDefault(entry => string.Equals(entry.Id, HistoryEntryId, StringComparison.Ordinal)
+            && string.Equals(entry.Source, HistorySource, StringComparison.OrdinalIgnoreCase));
+        if (entry is null)
+        {
+            return;
+        }
+
+        await SelectHistoryEntry(entry);
+        StateHasChanged();
+    }
+
     private async Task SendVisionRequestAsync()
     {
         var serverBaseUrl = FormPanel?.ServerBaseUrl ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(serverBaseUrl) || string.IsNullOrWhiteSpace(EndpointPath))
+        var endpointPath = EffectiveEndpointPath;
+        var requestBody = RequestBody;
+        var requestBodyDisplay = RedactLargeImageData(requestBody);
+        if (string.IsNullOrWhiteSpace(serverBaseUrl) || string.IsNullOrWhiteSpace(endpointPath))
         {
             StatusMessage = "Set both the server URL and endpoint path before sending the request.";
             return;
@@ -955,41 +1091,90 @@
             return;
         }
 
+        NumberOfRequests = Math.Clamp(NumberOfRequests, 1, MaxVisionRequestCount);
+        ResetMultiRequestStatuses();
         IsRunning = true;
-        StatusMessage = "Sending the vision request and waiting for the response...";
+        SelectedHistoryEntryId = null;
+        PageTagline = DefaultPageTagline;
+        StatusMessage = NumberOfRequests == 1
+            ? "Sending the vision request and waiting for the response..."
+            : $"Sending {NumberOfRequests} vision requests...";
         ObservedResponse = "Awaiting response...";
         SetVisionResultMessage("Investigating image...");
         ResponseHeadersText = "No response has been received yet.";
         ResponseMetrics = new VisionResponseMetrics { Status = "Sending" };
-        RequestBodyDisplay = RequestBodyPreview;
+        RequestBodyDisplay = requestBodyDisplay;
         StateHasChanged();
-
-        using var metricsTimer = new CancellationTokenSource();
-        var stopwatch = Stopwatch.StartNew();
-        var metricsTimerTask = RunMetricsTimerAsync(stopwatch, metricsTimer.Token);
 
         try
         {
             using var client = new HttpClient();
-            using var request = ChatTesterHttp.CreateRequest(SelectedApiInfo?.Method ?? "POST", ChatTesterHttp.BuildUri(serverBaseUrl, EndpointPath), RequestBody, ContentType);
+            if (NumberOfRequests == 1)
+            {
+                await SendVisionRequestOnceAsync(client, serverBaseUrl, endpointPath, requestBody, requestIndex: 0);
+            }
+            else
+            {
+                await SendVisionRequestsInParallelAsync(client, serverBaseUrl, endpointPath, requestBody);
+            }
+
+            if (NumberOfRequests > 1)
+            {
+                StatusMessage = $"Completed {NumberOfRequests} vision requests. Latest status: {ResponseMetrics.Status}";
+            }
+        }
+        finally
+        {
+            await SaveHistoryEntryAsync(serverBaseUrl, endpointPath, requestBodyDisplay);
+            IsRunning = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SendVisionRequestOnceAsync(HttpClient client, string serverBaseUrl, string endpointPath, string requestBody, int requestIndex)
+    {
+        var requestNumber = requestIndex + 1;
+        var statusItem = StartMultiRequestStatus(requestIndex);
+        StatusMessage = NumberOfRequests == 1
+            ? "Sending the vision request and waiting for the response..."
+            : $"Sending request {requestNumber} of {NumberOfRequests}...";
+        ObservedResponse = "Awaiting response...";
+        SetVisionResultMessage("Investigating image...");
+        ResponseHeadersText = "No response has been received yet.";
+        ResponseMetrics = new VisionResponseMetrics { Status = "Sending" };
+        StateHasChanged();
+
+        using var metricsTimer = new CancellationTokenSource();
+        var stopwatch = Stopwatch.StartNew();
+        var metricsTimerTask = RunMetricsTimerAsync(stopwatch, metricsTimer.Token, ResponseMetrics, statusItem);
+
+        try
+        {
+            using var request = ChatTesterHttp.CreateRequest(SelectedApiInfo?.Method ?? "POST", ChatTesterHttp.BuildUri(serverBaseUrl, endpointPath), requestBody, ContentType);
             request.Headers.TryAddWithoutValidation(ChatTesterHttp.AcceptHeaderName, IsStreamingRequested ? ChatTesterHttp.EventStreamContentType : ChatTesterHttp.JsonContentType);
             ChatTesterHttp.ApplyDebugHeader(request, DebugSettings);
 
             if (FormPanel is not null)
             {
                 await FormPanel.ApplyAuthorizationAsync(request);
-                FormPanel.ApplyUser(request, 0);
-                FormPanel.ApplyHeaders(request, 0);
+                FormPanel.ApplyUser(request, requestIndex);
+                FormPanel.ApplyHeaders(request, requestIndex);
             }
 
             RequestHeadersText = ChatTesterHttp.SummarizeRequestHeaders(request);
 
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+            var statusCode = (int)response.StatusCode;
             ResponseMetrics.TimeToFirstByte = stopwatch.Elapsed;
-            ResponseMetrics.Status = $"{(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
+            ResponseMetrics.Status = $"{statusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
             ResponseMetrics.ContentType = response.Content.Headers.ContentType?.ToString() ?? "-";
             ResponseHeadersText = ChatTesterHttp.SummarizeResponseHeaders(response);
-            StatusMessage = $"Reading response: {(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
+            StatusMessage = NumberOfRequests == 1
+                ? $"Reading response: {statusCode} {response.ReasonPhrase ?? string.Empty}".Trim()
+                : $"Reading response {requestNumber} of {NumberOfRequests}: {statusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
+            UpdateMultiRequestStatus(statusItem, ResponseMetrics, statusCode, isComplete: false, isFailed: false, StatusMessage);
+            ShowResultPanelAfterResponse();
+            StateHasChanged();
 
             if (ResponseMetrics.ContentType.Contains("event-stream", StringComparison.OrdinalIgnoreCase))
             {
@@ -1001,15 +1186,23 @@
             }
 
             ResponseMetrics.Duration = stopwatch.Elapsed;
-            StatusMessage = $"Completed with {(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
+            StatusMessage = NumberOfRequests == 1
+                ? $"Completed with {statusCode} {response.ReasonPhrase ?? string.Empty}".Trim()
+                : $"Request {requestNumber} of {NumberOfRequests} completed with {statusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
+            UpdateMultiRequestStatus(statusItem, ResponseMetrics, statusCode, isComplete: true, isFailed: false, StatusMessage);
         }
         catch (Exception ex)
         {
             ObservedResponse = ex.Message;
             SetVisionResultMessage($"I could not receive a response from the server.\nReason: {ex.Message}");
             ResponseHeadersText = "No response headers available.";
-            StatusMessage = "The request failed before a full response was received.";
+            StatusMessage = NumberOfRequests == 1
+                ? "The request failed before a full response was received."
+                : $"Request {requestNumber} of {NumberOfRequests} failed before a full response was received.";
             ResponseMetrics.Status = "Failed";
+            ResponseMetrics.Duration = stopwatch.Elapsed;
+            UpdateMultiRequestStatus(statusItem, ResponseMetrics, null, isComplete: true, isFailed: true, StatusMessage);
+            ShowResultPanelAfterResponse();
         }
         finally
         {
@@ -1023,13 +1216,311 @@
             }
 
             ResponseMetrics.Duration = stopwatch.Elapsed;
-            IsRunning = false;
             StateHasChanged();
+        }
+    }
+
+    private async Task SendVisionRequestsInParallelAsync(HttpClient client, string serverBaseUrl, string endpointPath, string requestBody)
+    {
+        var preparedRequests = new List<PreparedVisionRequest>(NumberOfRequests);
+        for (var requestIndex = 0; requestIndex < NumberOfRequests; requestIndex++)
+        {
+            preparedRequests.Add(await PrepareVisionRequestAsync(serverBaseUrl, endpointPath, requestBody, requestIndex));
+        }
+
+        RequestHeadersText = preparedRequests.FirstOrDefault()?.RequestHeadersText ?? "No request has been sent yet.";
+        ShowResultPanelAfterResponse();
+        await InvokeAsync(StateHasChanged);
+
+        var results = await Task.WhenAll(preparedRequests.Select(request => SendVisionBatchRequestAsync(client, request)));
+        var representativeResult = results.OrderBy(result => result.RequestIndex).LastOrDefault();
+        if (representativeResult is not null)
+        {
+            ApplyVisionBatchResult(representativeResult);
+        }
+    }
+
+    private async Task<PreparedVisionRequest> PrepareVisionRequestAsync(string serverBaseUrl, string endpointPath, string requestBody, int requestIndex)
+    {
+        var request = ChatTesterHttp.CreateRequest(
+            SelectedApiInfo?.Method ?? "POST",
+            ChatTesterHttp.BuildUri(serverBaseUrl, endpointPath),
+            requestBody,
+            ContentType);
+
+        request.Headers.TryAddWithoutValidation(
+            ChatTesterHttp.AcceptHeaderName,
+            IsStreamingRequested ? ChatTesterHttp.EventStreamContentType : ChatTesterHttp.JsonContentType);
+        ChatTesterHttp.ApplyDebugHeader(request, DebugSettings);
+
+        if (FormPanel is not null)
+        {
+            await FormPanel.ApplyAuthorizationAsync(request);
+            FormPanel.ApplyUser(request, requestIndex);
+            FormPanel.ApplyHeaders(request, requestIndex);
+        }
+
+        return new PreparedVisionRequest(requestIndex, request, ChatTesterHttp.SummarizeRequestHeaders(request));
+    }
+
+    private async Task<VisionBatchResult> SendVisionBatchRequestAsync(HttpClient client, PreparedVisionRequest preparedRequest)
+    {
+        var statusItem = StartMultiRequestStatus(preparedRequest.RequestIndex);
+        var metrics = new VisionResponseMetrics { Status = "Sending" };
+        UpdateMultiRequestStatus(statusItem, metrics, null, isComplete: false, isFailed: false, $"Sending request {preparedRequest.RequestIndex + 1} of {NumberOfRequests}...");
+        await InvokeAsync(StateHasChanged);
+
+        using var metricsTimer = new CancellationTokenSource();
+        var stopwatch = Stopwatch.StartNew();
+        var metricsTimerTask = RunMetricsTimerAsync(stopwatch, metricsTimer.Token, metrics, statusItem);
+
+        try
+        {
+            using var response = await client.SendAsync(preparedRequest.Request, HttpCompletionOption.ResponseHeadersRead);
+            var statusCode = (int)response.StatusCode;
+            metrics.TimeToFirstByte = stopwatch.Elapsed;
+            metrics.Status = $"{statusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
+            metrics.ContentType = response.Content.Headers.ContentType?.ToString() ?? "-";
+            var responseHeaders = ChatTesterHttp.SummarizeResponseHeaders(response);
+            UpdateMultiRequestStatus(statusItem, metrics, statusCode, isComplete: false, isFailed: false, $"Reading response {preparedRequest.RequestIndex + 1} of {NumberOfRequests}: {metrics.Status}");
+            await InvokeAsync(StateHasChanged);
+
+            var body = await response.Content.ReadAsStringAsync();
+            metrics.Chunks = string.IsNullOrEmpty(body) ? 0 : 1;
+            metrics.TotalBytes = Encoding.UTF8.GetByteCount(body);
+            metrics.Duration = stopwatch.Elapsed;
+
+            var observed = string.IsNullOrWhiteSpace(body) ? "The server returned an empty response body." : body;
+            var display = BuildDisplayResponse(observed);
+            var visionResult = BuildVisionResultView(observed, display);
+            UpdateMultiRequestStatus(statusItem, metrics, statusCode, isComplete: true, isFailed: false, $"Request {preparedRequest.RequestIndex + 1} of {NumberOfRequests} completed with {metrics.Status}");
+            var result = new VisionBatchResult(
+                preparedRequest.RequestIndex,
+                preparedRequest.RequestHeadersText,
+                responseHeaders,
+                observed,
+                display,
+                $"Request {preparedRequest.RequestIndex + 1} of {NumberOfRequests} completed with {metrics.Status}",
+                metrics,
+                visionResult);
+            ApplyMultiRequestPayload(statusItem, result);
+            await InvokeAsync(StateHasChanged);
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            metrics.Status = "Failed";
+            metrics.Duration = stopwatch.Elapsed;
+            var observed = ex.Message;
+            var display = $"I could not receive a response from the server.\nReason: {ex.Message}";
+            UpdateMultiRequestStatus(statusItem, metrics, null, isComplete: true, isFailed: true, $"Request {preparedRequest.RequestIndex + 1} of {NumberOfRequests} failed before a full response was received.");
+            var result = new VisionBatchResult(
+                preparedRequest.RequestIndex,
+                preparedRequest.RequestHeadersText,
+                "No response headers available.",
+                observed,
+                display,
+                $"Request {preparedRequest.RequestIndex + 1} of {NumberOfRequests} failed before a full response was received.",
+                metrics,
+                BuildPlainVisionResult(display));
+            ApplyMultiRequestPayload(statusItem, result);
+            await InvokeAsync(StateHasChanged);
+
+            return result;
+        }
+        finally
+        {
+            metricsTimer.Cancel();
+            try
+            {
+                await metricsTimerTask;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            preparedRequest.Request.Dispose();
+        }
+    }
+
+    private void ApplyVisionBatchResult(VisionBatchResult result)
+    {
+        RequestHeadersText = result.RequestHeadersText;
+        ResponseHeadersText = result.ResponseHeadersText;
+        ObservedResponse = result.ObservedResponse;
+        DisplayResponse = result.DisplayResponse;
+        StatusMessage = result.StatusMessage;
+        ResponseMetrics = result.Metrics;
+        VisionResult = result.VisionResult;
+        EnsureActiveResultTab();
+        if (!ShowMultiRequestStatus)
+        {
+            ShowResultPanelAfterResponse();
+        }
+    }
+
+    private void ResetMultiRequestStatuses()
+    {
+        MultiRequestStatuses.Clear();
+        if (NumberOfRequests <= 1)
+        {
+            return;
+        }
+
+        for (var requestNumber = 1; requestNumber <= NumberOfRequests; requestNumber++)
+        {
+            MultiRequestStatuses.Add(new MultiRequestStatusItem { RequestNumber = requestNumber });
+        }
+    }
+
+    private MultiRequestStatusItem? StartMultiRequestStatus(int requestIndex)
+    {
+        if (NumberOfRequests <= 1 || requestIndex >= MultiRequestStatuses.Count)
+        {
+            return null;
+        }
+
+        var statusItem = MultiRequestStatuses[requestIndex];
+        statusItem.Status = "Sending";
+        statusItem.StatusMessage = $"Sending request {requestIndex + 1} of {NumberOfRequests}...";
+        statusItem.StatusCode = null;
+        statusItem.ContentType = "-";
+        statusItem.TimeToFirstByte = null;
+        statusItem.Duration = null;
+        statusItem.Chunks = 0;
+        statusItem.TotalBytes = 0;
+        statusItem.RequestHeadersText = string.Empty;
+        statusItem.ResponseHeadersText = string.Empty;
+        statusItem.RequestBodyDisplay = RequestBodyDisplay;
+        statusItem.ResponseBody = string.Empty;
+        statusItem.VisionResult = null;
+        statusItem.IsRunning = true;
+        statusItem.IsComplete = false;
+        statusItem.IsFailed = false;
+        return statusItem;
+    }
+
+    private void UpdateMultiRequestStatus(MultiRequestStatusItem? statusItem, VisionResponseMetrics metrics, int? statusCode, bool isComplete, bool isFailed, string? statusMessage = null)
+    {
+        if (statusItem is null)
+        {
+            return;
+        }
+
+        statusItem.Status = metrics.Status;
+        if (!string.IsNullOrWhiteSpace(statusMessage))
+        {
+            statusItem.StatusMessage = statusMessage;
+        }
+
+        statusItem.StatusCode = statusCode;
+        statusItem.ContentType = metrics.ContentType;
+        statusItem.TimeToFirstByte = metrics.TimeToFirstByte;
+        statusItem.Duration = metrics.Duration;
+        statusItem.Chunks = metrics.Chunks;
+        statusItem.TotalBytes = metrics.TotalBytes;
+        statusItem.IsRunning = !isComplete;
+        statusItem.IsComplete = isComplete;
+        statusItem.IsFailed = isFailed || statusCode is >= 400;
+    }
+
+    private static void ApplyMultiRequestPayload(MultiRequestStatusItem? statusItem, VisionBatchResult result)
+    {
+        if (statusItem is null)
+        {
+            return;
+        }
+
+        statusItem.RequestHeadersText = result.RequestHeadersText;
+        statusItem.ResponseHeadersText = result.ResponseHeadersText;
+        statusItem.ResponseBody = result.ObservedResponse;
+        statusItem.StatusMessage = result.StatusMessage;
+        statusItem.VisionResult = result.VisionResult;
+    }
+
+    private async Task SaveHistoryEntryAsync(string serverBaseUrl, string endpointPath, string requestBodyDisplay)
+    {
+        var entry = await ChatHistoryStore.AddRequest(new RequestHistoryEntry
+        {
+            Source = HistorySource,
+            Method = SelectedApiInfo?.Method ?? "POST",
+            ServerBaseUrl = serverBaseUrl,
+            EndpointPath = endpointPath,
+            ContentType = ContentType,
+            RequestHeadersText = RequestHeadersText,
+            ResponseHeadersText = ResponseHeadersText,
+            RequestBody = requestBodyDisplay,
+            ResponseBody = ObservedResponse,
+            DisplayResponse = DisplayResponse,
+            StatusMessage = StatusMessage,
+            ActiveResponseTab = ActiveResponseTab,
+            Metrics = new ChatHistoryMetrics
+            {
+                Status = ResponseMetrics.Status,
+                ContentType = ResponseMetrics.ContentType,
+                TimeToFirstByte = ResponseMetrics.TimeToFirstByte,
+                Duration = ResponseMetrics.Duration,
+                Chunks = ResponseMetrics.Chunks,
+                TotalBytes = ResponseMetrics.TotalBytes
+            }
+        });
+
+        SelectedHistoryEntryId = entry.Id;
+        PageTagline = $"Showing response from {FormatHistoryTimestamp(entry.CreatedAt)}.";
+    }
+
+    private Task SelectHistoryEntry(ChatHistoryEntry entry)
+    {
+        SelectedHistoryEntryId = entry.Id;
+        PageTagline = $"Showing response from {FormatHistoryTimestamp(entry.CreatedAt)}.";
+        FormPanel?.LoadServerBaseUrl(entry.ServerBaseUrl);
+
+        EndpointPath = entry.EndpointPath;
+        ContentType = string.IsNullOrWhiteSpace(entry.ContentType) ? ChatTesterHttp.JsonContentType : entry.ContentType;
+        UseCustomJson = true;
+        CustomRequestBody = entry.RequestBody;
+        RequestHeadersText = entry.RequestHeadersText;
+        ResponseHeadersText = entry.ResponseHeadersText;
+        RequestBodyDisplay = entry.RequestBody;
+        ObservedResponse = entry.ResponseBody;
+        DisplayResponse = entry.DisplayResponse;
+        StatusMessage = entry.StatusMessage;
+        ActiveResponseTab = string.IsNullOrWhiteSpace(entry.ActiveResponseTab) ? "response-body" : entry.ActiveResponseTab;
+        ResponseMetrics = new VisionResponseMetrics
+        {
+            Status = entry.Metrics.Status,
+            ContentType = entry.Metrics.ContentType,
+            TimeToFirstByte = entry.Metrics.TimeToFirstByte,
+            Duration = entry.Metrics.Duration,
+            Chunks = entry.Metrics.Chunks,
+            TotalBytes = entry.Metrics.TotalBytes
+        };
+        VisionResult = BuildVisionResultView(ObservedResponse, DisplayResponse);
+        ActiveResultTab = SummaryResultTab;
+        EnsureActiveResultTab();
+        ShowResultPanelAfterResponse();
+
+        return Task.CompletedTask;
+    }
+
+    private async Task DeleteHistoryEntryAsync(ChatHistoryEntry entry)
+    {
+        var wasSelected = string.Equals(SelectedHistoryEntryId, entry.Id, StringComparison.Ordinal);
+        if (await ChatHistoryStore.DeleteAsync(entry.Id) && wasSelected)
+        {
+            SelectedHistoryEntryId = null;
+            PageTagline = DefaultPageTagline;
         }
     }
 
     private bool ValidateImageInput()
     {
+        if (UseCustomJson)
+        {
+            return true;
+        }
+
         if (string.IsNullOrWhiteSpace(EffectiveImageUrl))
         {
             StatusMessage = "Select an image before sending the request.";
@@ -1060,14 +1551,8 @@
 
         using var stream = await response.Content.ReadAsStreamAsync();
         using var reader = new StreamReader(stream);
-        while (!reader.EndOfStream)
+        while (await reader.ReadLineAsync() is { } line)
         {
-            var line = await reader.ReadLineAsync();
-            if (line is null)
-            {
-                break;
-            }
-
             ResponseMetrics.Chunks++;
             ResponseMetrics.TotalBytes += Encoding.UTF8.GetByteCount(line) + 1;
             rawBuilder.AppendLine(line);
@@ -1111,11 +1596,19 @@
         SetVisionResultFromObserved(ObservedResponse);
     }
 
-    private async Task RunMetricsTimerAsync(Stopwatch stopwatch, CancellationToken cancellationToken)
+    private async Task RunMetricsTimerAsync(Stopwatch stopwatch, CancellationToken cancellationToken, VisionResponseMetrics metrics, MultiRequestStatusItem? statusItem = null)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            ResponseMetrics.Duration = stopwatch.Elapsed;
+            metrics.Duration = stopwatch.Elapsed;
+            if (statusItem is not null)
+            {
+                statusItem.Duration = metrics.Duration;
+                statusItem.TimeToFirstByte = metrics.TimeToFirstByte;
+                statusItem.Chunks = metrics.Chunks;
+                statusItem.TotalBytes = metrics.TotalBytes;
+            }
+
             await InvokeAsync(StateHasChanged);
             await Task.Delay(100, cancellationToken);
         }
@@ -1179,7 +1672,7 @@
 
     private void RefreshEndpointPath()
     {
-        EndpointPath = VisionCatalog.ResolveEndpointPath(SelectedModel, SelectedApi, FieldValues);
+        EndpointPath = StripManagedQueryParameters(VisionCatalog.ResolveEndpointPath(SelectedModel, SelectedApi), FieldValues.Keys);
     }
 
     private void OnModelSelected(ChangeEventArgs args)
@@ -1212,6 +1705,7 @@
     {
         ImageSource = args.Value?.ToString() ?? UrlImageSource;
         EnsureCompatibleImageSource();
+        IsImagePreviewOpen = false;
         RefreshCustomRequestBodyIfNeeded();
     }
 
@@ -1232,6 +1726,7 @@
         ImageUrl = args.Value?.ToString() ?? string.Empty;
         ImageBase64 = string.Empty;
         ImageFileName = string.Empty;
+        IsImagePreviewOpen = false;
         RefreshCustomRequestBodyIfNeeded();
     }
 
@@ -1247,6 +1742,7 @@
             ImageMimeType = string.IsNullOrWhiteSpace(file.ContentType) ? "image/jpeg" : file.ContentType;
             ImageFileName = file.Name;
             ImageSource = FileImageSource;
+            IsImagePreviewOpen = false;
             RefreshCustomRequestBodyIfNeeded();
             StatusMessage = "Image file loaded.";
         }
@@ -1258,7 +1754,15 @@
 
     private void OnEndpointPathChanged(ChangeEventArgs args)
     {
-        EndpointPath = args.Value?.ToString() ?? string.Empty;
+        var endpointPath = args.Value?.ToString() ?? string.Empty;
+        if (SimpleMode)
+        {
+            ApplyManagedQueryValues(endpointPath);
+            EndpointPath = StripManagedQueryParameters(endpointPath, FieldValues.Keys);
+            return;
+        }
+
+        EndpointPath = endpointPath;
     }
 
     private void OnContentTypeChanged(ChangeEventArgs args)
@@ -1266,11 +1770,117 @@
         ContentType = args.Value?.ToString() ?? ChatTesterHttp.JsonContentType;
     }
 
+    private void ApplyManagedQueryValues(string endpointPath)
+    {
+        var queryIndex = endpointPath.IndexOf('?', StringComparison.Ordinal);
+        if (queryIndex < 0)
+        {
+            return;
+        }
+
+        var query = endpointPath[(queryIndex + 1)..];
+        foreach (var part in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var pieces = part.Split('=', 2);
+            var name = DecodeQueryPart(pieces[0]);
+            if (!FieldValues.ContainsKey(name))
+            {
+                continue;
+            }
+
+            FieldValues[name] = pieces.Length > 1 ? DecodeQueryPart(pieces[1]) : string.Empty;
+        }
+    }
+
+    private static string AppendFieldQueryParameters(string endpointPath, IReadOnlyDictionary<string, string> fields)
+    {
+        var result = endpointPath.Trim();
+        if (string.IsNullOrWhiteSpace(result))
+        {
+            return result;
+        }
+
+        foreach (var (name, value) in fields)
+        {
+            if (!string.IsNullOrWhiteSpace(value) && !ContainsQueryParameter(result, name))
+            {
+                result = AppendQueryParameter(result, name, value);
+            }
+        }
+
+        return result;
+    }
+
+    private static string StripManagedQueryParameters(string endpointPath, IEnumerable<string> managedNames)
+    {
+        var queryIndex = endpointPath.IndexOf('?', StringComparison.Ordinal);
+        if (queryIndex < 0)
+        {
+            return endpointPath;
+        }
+
+        var managedNameSet = managedNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var basePath = endpointPath[..queryIndex];
+        var query = endpointPath[(queryIndex + 1)..];
+        var retainedParts = query.Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Where(part =>
+            {
+                var key = part.Split('=', 2)[0];
+                return !managedNameSet.Contains(DecodeQueryPart(key));
+            })
+            .ToArray();
+
+        return retainedParts.Length == 0 ? basePath : $"{basePath}?{string.Join('&', retainedParts)}";
+    }
+
+    private static string AppendQueryParameter(string endpointPath, string name, string value)
+    {
+        var separator = endpointPath.Contains('?', StringComparison.Ordinal) ? "&" : "?";
+        return endpointPath + separator + Uri.EscapeDataString(name) + "=" + Uri.EscapeDataString(value);
+    }
+
+    private static bool ContainsQueryParameter(string endpointPath, string name)
+    {
+        var queryIndex = endpointPath.IndexOf('?', StringComparison.Ordinal);
+        if (queryIndex < 0)
+        {
+            return false;
+        }
+
+        var query = endpointPath[(queryIndex + 1)..];
+        return query.Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Select(part => DecodeQueryPart(part.Split('=', 2)[0]))
+            .Any(key => string.Equals(key, name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string DecodeQueryPart(string value) => Uri.UnescapeDataString(value.Replace("+", "%20", StringComparison.Ordinal));
+
     private void OnFieldChanged(string name, string value)
     {
         FieldValues[name] = value;
-        RefreshEndpointPath();
         RefreshCustomRequestBodyIfNeeded();
+    }
+
+    private void OnFeatureChanged(string feature, bool isSelected)
+    {
+        var features = GetCurrentFeatures().ToList();
+        if (isSelected && !features.Contains(feature, StringComparer.OrdinalIgnoreCase))
+        {
+            features.Add(feature);
+        }
+        else if (!isSelected)
+        {
+            features.RemoveAll(item => string.Equals(item, feature, StringComparison.OrdinalIgnoreCase));
+        }
+
+        SetFeatures(features);
+    }
+
+    private void OnAdditionalFeaturesChanged(ChangeEventArgs args)
+    {
+        var selectedKnownFeatures = GetCurrentFeatures().Where(IsKnownFeature);
+        var additionalFeatures = ParseFeatureList(args.Value?.ToString() ?? string.Empty).Where(feature => !IsKnownFeature(feature));
+        SetFeatures(selectedKnownFeatures.Concat(additionalFeatures));
     }
 
     private void OnDebugChanged(ChangeEventArgs args)
@@ -1278,13 +1888,59 @@
         DebugSettings.DebugEnabled = args.Value is bool value && value;
     }
 
-    private void OnCustomJsonChanged(ChangeEventArgs args)
+    private void OnSimpleModeChanged(ChangeEventArgs args)
     {
-        UseCustomJson = args.Value is bool value && value;
-        if (UseCustomJson)
+        var newSimpleMode = args.Value is bool value && value;
+        if (!newSimpleMode && SimpleMode)
         {
             CustomRequestBody = BuildGeneratedRequestBody();
         }
+
+        UseCustomJson = !newSimpleMode;
+    }
+
+    private void ShowImagePreview()
+    {
+        if (HasImagePreview)
+        {
+            IsImagePreviewOpen = true;
+        }
+    }
+
+    private void CloseImagePreview()
+    {
+        IsImagePreviewOpen = false;
+    }
+
+    private bool IsFeaturesField(string name) => string.Equals(name, "features", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsFeatureSelected(string feature) => GetCurrentFeatures().Contains(feature, StringComparer.OrdinalIgnoreCase);
+
+    private string GetFeatureId(string feature) => $"visionFeature_{feature.Replace("-", "_", StringComparison.Ordinal).Replace(".", "_", StringComparison.Ordinal)}";
+
+    private IEnumerable<string> GetCurrentFeatures()
+    {
+        return FieldValues.TryGetValue("features", out var value)
+            ? ParseFeatureList(value)
+            : Enumerable.Empty<string>();
+    }
+
+    private static IEnumerable<string> ParseFeatureList(string value)
+    {
+        return value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(feature => !string.IsNullOrWhiteSpace(feature));
+    }
+
+    private static bool IsKnownFeature(string feature) => FeatureOptions.Any(option => string.Equals(option.Value, feature, StringComparison.OrdinalIgnoreCase));
+
+    private void SetFeatures(IEnumerable<string> features)
+    {
+        var normalized = features
+            .Select(feature => feature.Trim())
+            .Where(feature => !string.IsNullOrWhiteSpace(feature))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        OnFieldChanged("features", string.Join(',', normalized));
     }
 
     private void OnCustomRequestBodyChanged(ChangeEventArgs args)
@@ -1294,20 +1950,17 @@
 
     private void RefreshCustomRequestBodyIfNeeded()
     {
-        if (UseCustomJson)
-        {
-            CustomRequestBody = BuildGeneratedRequestBody();
-        }
-    }
-
-    private void SetActiveResponseTab(string tab)
-    {
-        ActiveResponseTab = tab;
     }
 
     private void SetActiveResultTab(string tab)
     {
         ActiveResultTab = tab;
+    }
+
+    private Task SetActiveResultTabAsync(string tab)
+    {
+        SetActiveResultTab(tab);
+        return Task.CompletedTask;
     }
 
     private void SetVisionResultMessage(string message)
@@ -1824,40 +2477,7 @@
 
     private static string GetFieldId(string fieldName) => "visionField" + string.Concat(fieldName.Where(char.IsLetterOrDigit));
 
-    private static string FormatOptional(string value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+    private static string FormatHistoryTimestamp(DateTimeOffset value) =>
+        value.LocalDateTime.ToString("MMM d, yyyy h:mm tt", CultureInfo.InvariantCulture);
 
-    private static string FormatOptional(int? value) => value?.ToString(CultureInfo.InvariantCulture) ?? "-";
-
-    private static string FormatConfidence(double? value) => value is null ? "-" : $"{Math.Clamp(value.Value, 0, 1):P1}";
-
-    private static string FormatConfidencePercent(double? value) => value is null
-        ? "0%"
-        : $"{Math.Clamp(value.Value, 0, 1) * 100:0.#}%";
-
-    private static string FormatDuration(TimeSpan? value) => value is null ? "-" : $"{value.Value.TotalMilliseconds:0} ms";
-
-    private static string FormatContentType(string contentType)
-    {
-        if (string.IsNullOrWhiteSpace(contentType) || contentType == "-")
-        {
-            return "-";
-        }
-
-        if (contentType.Contains("event-stream", StringComparison.OrdinalIgnoreCase))
-        {
-            return "event-stream";
-        }
-
-        if (contentType.Contains("json", StringComparison.OrdinalIgnoreCase))
-        {
-            return "json";
-        }
-
-        if (contentType.Contains("text", StringComparison.OrdinalIgnoreCase))
-        {
-            return "text";
-        }
-
-        return contentType.Split(';', 2)[0];
-    }
 }

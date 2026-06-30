@@ -82,10 +82,13 @@
     { "id": "gemini-1.5-pro", "provider": "Google Gemini", "displayName": "Gemini 1.5 Pro", "apis": [ "gemini-generate-content", "gemini-openai-chat" ] },
     { "id": "llama-3.3-70b-instruct", "provider": "Meta Llama", "displayName": "Llama 3.3 70B Instruct", "apis": [ "openai-chat" ] },
     { "id": "llama-3.1-405b-instruct", "provider": "Meta Llama", "displayName": "Llama 3.1 405B Instruct", "apis": [ "openai-chat" ] },
+    { "id": "Phi-4-reasoning", "provider": "Microsoft Phi", "displayName": "Phi-4 reasoning", "apis": [ "openai-chat" ] },
+    { "id": "Phi-4-mini-reasoning", "provider": "Microsoft Phi", "displayName": "Phi-4 mini reasoning", "apis": [ "openai-chat" ] },
     { "id": "mistral-large-latest", "provider": "Mistral", "displayName": "Mistral Large", "apis": [ "openai-chat" ] },
     { "id": "mistral-small-latest", "provider": "Mistral", "displayName": "Mistral Small", "apis": [ "openai-chat" ] },
     { "id": "deepseek-chat", "provider": "DeepSeek", "displayName": "DeepSeek V3 (chat)", "apis": [ "openai-chat" ] },
     { "id": "deepseek-reasoner", "provider": "DeepSeek", "displayName": "DeepSeek R1 (reasoner)", "apis": [ "openai-chat" ] },
+    { "id": "grok", "provider": "xAI", "displayName": "Grok", "apis": [ "openai-chat" ] },
     { "id": "grok-3", "provider": "xAI", "displayName": "Grok 3", "apis": [ "openai-chat" ] },
     { "id": "grok-2-latest", "provider": "xAI", "displayName": "Grok 2", "apis": [ "openai-chat" ] },
     { "id": "command-r-plus-08-2024", "provider": "Cohere", "displayName": "Command R+", "apis": [ "cohere-openai-chat", "cohere-v2-chat", "cohere-v1-chat" ] },
@@ -111,6 +114,21 @@
       "appliesToAPI": [ "openai-chat" ],
       "fields": [
         { "max_completion_tokens": "4096" }
+      ]
+    },
+    {
+      "appliesTo": [ "Phi-4-reasoning", "Phi-4-mini-reasoning" ],
+      "appliesToAPI": [ "openai-chat" ],
+      "fields": [
+        { "max_completion_tokens": "" },
+        { "seed": "" },
+        { "stream": "" },
+        { "stop": "" },
+        { "max_tokens": "4096" },
+        { "temperature": "0.8" },
+        { "top_p": "0.95" },
+        { "presence_penalty": "0" },
+        { "frequency_penalty": "0" }
       ]
     },
     {

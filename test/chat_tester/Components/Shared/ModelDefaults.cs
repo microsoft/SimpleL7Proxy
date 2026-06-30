@@ -155,7 +155,14 @@ public sealed class ModelDefaults
             {
                 foreach (var (name, value) in field)
                 {
-                    result[name] = value;
+                    if (string.IsNullOrWhiteSpace(value))
+                    {
+                        result.Remove(name);
+                    }
+                    else
+                    {
+                        result[name] = value;
+                    }
                 }
             }
         }

@@ -13,3 +13,29 @@
     background-color: #fff;
     border-color: #fff #fff #fff;
 }
+
+.request-card:not(.panel-minimized) .card-body {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.request-form {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.request-form-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.request-form-actions {
+    flex: 0 0 auto;
+    padding-top: 1rem;
+    background: #fff;
+}
