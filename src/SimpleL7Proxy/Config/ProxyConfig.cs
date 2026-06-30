@@ -101,8 +101,10 @@ public class ProxyConfig
     public int Timeout { get; set; } = 60*20*1000; // 20 minutes
     [ConfigOption("Request:DefaultTTLSecs")]
     public int DefaultTTLSecs { get; set; } = 300;
-    [ConfigOption("Request:DependancyHeaders")]
+    [ConfigOption("Request:DependancyHeaders", ConfigName = "DependancyHeaders")]
     public List<string> DependancyHeaders { get; set; } = ["Backend-Host", "Host-URL", "Status", "Duration", "Error", "Message", "Request-Date", "backendLog"];
+    [ConfigOption("Request:DetectModel", ConfigName = "DetectModel")]
+    public bool DetectModel { get; set; } = true;
     [ConfigOption("Request:DisallowedHeaders")]
     public List<string> DisallowedHeaders { get; set; } = [];
     [ConfigOption("Request:Headers:PriorityKeyHeader")]

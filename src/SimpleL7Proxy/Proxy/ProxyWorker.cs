@@ -33,7 +33,6 @@ public class ProxyWorker : IConfigChangeSubscriber
     private readonly WorkerContext _wrkCntxt;
     private readonly int _preferredPriority;
     private readonly CancellationToken _cancellationToken;
-    private static bool s_debug = false;            // dev time debug flag
     private static IConcurrentPriQueue<RequestData>? s_requestsQueue;
     private readonly IEndpointMonitorService _backends;
     private readonly ProxyConfig _options;
@@ -50,6 +49,8 @@ public class ProxyWorker : IConfigChangeSubscriber
     private static List<string> s_backendKeys = [];
     private static FrozenSet<string> s_stripRequestHeaders = FrozenSet.Create<string>();
     private static FrozenSet<string> s_stripResponseHeaders = FrozenSet.Create<string>();
+
+    private bool detectModel = false;
 
     //private readonly ProxyStreamWriter _proxyStreamWriter;
     // private readonly string _timeoutHeaderName;
@@ -91,6 +92,7 @@ public class ProxyWorker : IConfigChangeSubscriber
             options => options.AsyncTimeout,
             options => options.AsyncTriggerTimeout,
             options => options.DependancyHeaders,
+            options => options.DetectModel,
             options => options.IterationMode,
             options => options.LoadBalanceMode,
             options => options.MaxAttempts,
@@ -106,6 +108,7 @@ public class ProxyWorker : IConfigChangeSubscriber
         s_backendKeys = _options.DependancyHeaders;
         s_stripRequestHeaders = _options.StripRequestHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
         s_stripResponseHeaders = _options.StripResponseHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+        detectModel = _options.DetectModel;
     }
 
 
@@ -350,11 +353,12 @@ public class ProxyWorker : IConfigChangeSubscriber
                     var conlen = pr.ContentHeaders?["Content-Length"] ?? "N/A";
                     var proxyLatency = (DateTime.UtcNow - incomingRequest.DequeueTime).TotalMilliseconds.ToString("F3");
 
-                    _logger.LogCritical("[{Guid}] Pri: {Priority}, Stat: {StatusCode}, User: {User}, Type: {RequestType}, Proc: {Processor}, Len: {ContentLength}, Deq: {DequeueTime}, Lat: {ProxyTime} ms, {FullURL}",
+                    _logger.LogCritical("[{Guid}] Pri: {Priority}, Stat: {StatusCode}, User: {User}, Type: {RequestType}, Model: {Rodel} Proc: {Processor}, Len: {ContentLength}, Deq: {DequeueTime}, Lat: {ProxyTime} ms, {FullURL}",
                         incomingRequest.Guid,
                         incomingRequest.Priority, statusCodeInt,
                         incomingRequest.UserID ?? "N/A",
                         incomingRequest.Type,
+                        detectModel ? incomingRequest.Model ?? "N/A" : "-",
                         pr.StreamingProcessor,
                         conlen, 
                         incomingRequest.DequeueTime.ToLocalTime().ToString("T"), proxyLatency,
@@ -826,7 +830,7 @@ public class ProxyWorker : IConfigChangeSubscriber
 
         List<Dictionary<string, string>> incompleteRequests = request.incompleteRequests;
 
-        request.Debug = s_debug || (request.Headers["S7PDEBUG"] != null && string.Equals(request.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase));
+        // request.Debug = s_debug || (request.Headers["S7PDEBUG"] != null && string.Equals(request.Headers["S7PDEBUG"], "true", StringComparison.OrdinalIgnoreCase));
         HttpStatusCode lastStatusCode = HttpStatusCode.ServiceUnavailable;
         var requestSummary = request.EventData;
         int intCode = 0;
@@ -1001,6 +1005,7 @@ public class ProxyWorker : IConfigChangeSubscriber
 
                     proxyRequest.Headers.Add("x-PolicyCycleCounter", request.PolicyCycleCounter.ToString());
                     proxyRequest.Headers.Add("x-LifetimePolicyCycleCounter", request.LifetimePolicyCycleCounter.ToString());
+                    proxyRequest.Headers.Add("x-LLMModel", request.Model);
                     ProxyHelperUtils.CopyHeaders(request.Headers, proxyRequest, true, s_stripRequestHeaders);
 
                     // add S7PDEBUG back in if it was requested
