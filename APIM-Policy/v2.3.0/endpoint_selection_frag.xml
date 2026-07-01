@@ -1,0 +1,95 @@
+<fragment>
+
+  <!-- ================= Model Selection ================= -->
+  <set-variable name="model" value="@{
+      string defaultModel = (string)context.Variables["DefaultModel"];
+      string model = context.Request.Headers
+          .GetValueOrDefault("x-LLMModel", defaultModel)?.Trim().ToLowerInvariant();
+      return string.IsNullOrWhiteSpace(model)
+          ? defaultModel?.Trim().ToLowerInvariant()
+          : model;
+  }" />
+
+  <!-- ================= Priority Configuration ================= -->
+  <set-variable name="priorityCfg" value="@{
+      return new JObject {
+          ["1"] = new JObject { ["retryCount"] = 2, ["requeue"] = false },
+          ["2"] = new JObject { ["retryCount"] = 2, ["requeue"] = false },
+          ["3"] = new JObject { ["retryCount"] = 2, ["requeue"] = false }
+      };
+  }" />
+
+  <!-- ================= Backend Selection ================= -->
+  <set-variable name="selectedBackends" value="@{
+      JArray backends = new JArray();
+
+      string model = (string)context.Variables["model"];
+
+      // Common constants (reduces duplication)
+      JArray priorities = new JArray(1, 2, 3);
+
+      if (model == "gpt-4o")
+      {
+          backends.Add(new JObject {
+              ["url"] = "https://nvm2sd.openai.azure.com/",
+              ["path"] = "openai",
+              ["priorityGroup"] = 1,
+              ["label"] = "BAD-PAYGO",
+              ["acceptablePriorities"] = priorities,
+              ["timeout"] = 10,
+              ["auth"] = "MI"
+          });
+
+          backends.Add(new JObject {
+              ["url"] = "https://nvm2.openai.azure.com/",
+              ["path"] = "openai",
+              ["priorityGroup"] = 2,
+              ["label"] = "PAYGO",
+              ["acceptablePriorities"] = priorities,
+              ["timeout"] = 10,
+              ["auth"] = "MI"
+          });
+      }
+      else if (model == "phi-4-reasoning")
+      {
+          backends.Add(new JObject {
+              ["url"] = "https://nvmaitest.services.ai.azure.com/",
+              ["path"] = "openai",
+              ["priorityGroup"] = 2,
+              ["label"] = "PHI-4",
+              ["acceptablePriorities"] = priorities,
+              ["timeout"] = 40,
+              ["auth"] = "MI"
+          });
+      }
+      else if (model == "computervision")
+      {
+          backends.Add(new JObject {
+              ["url"] = "https://nvm2com.openai.azure.com/",
+              ["path"] = "openai",
+              ["priorityGroup"] = 2,
+              ["label"] = "DEFAULT",
+              ["acceptablePriorities"] = priorities,
+              ["timeout"] = 10,
+              ["auth"] = "MI"
+          });
+        }
+
+      // Default fallback (always executed ensures at least one backend)
+      if (backends.Count == 0)
+      {
+          backends.Add(new JObject {
+              ["url"] = "https://nvm2.openai.azure.com/",
+              ["path"] = "openai",
+              ["priorityGroup"] = 2,
+              ["label"] = "DEFAULT",
+              ["acceptablePriorities"] = priorities,
+              ["timeout"] = 10,
+              ["auth"] = "MI"
+          });
+      }
+
+      return backends;
+  }" />
+
+</fragment>

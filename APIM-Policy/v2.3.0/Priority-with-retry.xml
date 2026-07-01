@@ -2,11 +2,13 @@
 =============================================================================
 Azure API Policy Template
 =============================================================================
-Version:	 2.2.0
+Version:	 2.3.0
 Mode:	 Standard
-Updated:	 2026-06-26
+Updated:	 2026-06-29
  
 KEY CHANGES:
+- Uses endpoint_selection_frag to select the appropriate backend.
+- Add detail in ActivityLog when no backends selected
 - Throttle if temp error and call is not completed
 - When S7PDEBUG is true, additional debug information is logged.
 - Added context window exceeded error handling (routes to PAYGO, skips PTU)
@@ -23,49 +25,27 @@ KEY CHANGES:
 	<inbound>
 		<base />
 		<cache-lookup-value key="@("listBackends-" + context.Api.Id)" variable-name="listBackends" />
+		<cache-lookup-value key="@("priorityCfg-" + context.Api.Id)" variable-name="priorityCfg" />
 		<!-- set the request ID in case we need to debug with OpenAI Service -->
 		<set-header name="x-ms-client-request-id" exists-action="override">
 			<value>@(context.Request.Headers.GetValueOrDefault("x-S7P-id", Guid.NewGuid().ToString()))</value>
 		</set-header>
-		<!-- Check if the response is in cache -->
-		<!-- If we can't find the variable, initialize it -->
-		<set-variable name="priorityCfg" value="@{
-			// Create a JObject for priority configuration
-			JObject cfg = new JObject();
-			cfg["1"] = new JObject { { "retryCount", 1 }, { "requeue", false  } };
-			cfg["2"] = new JObject { { "retryCount", 1  }, { "requeue", false } };
-			cfg["3"] = new JObject { { "retryCount", 1  }, { "requeue", false  } };
-			return cfg;
-		}" />
+
 		<set-variable name="priorityHeaderName" value="x-S7PPriority" />
 		<set-variable name="PolicyCycleCounterHeaderName" value="x-PolicyCycleCounter" />
 		<set-variable name="AffinityHeaderName" value="x-backend-affinity" />
+
+		<!-- Check if the response is in cache, If we can't find the variable, initialize it -->
 		<choose>
-			<when condition="@(context.Variables.ContainsKey("listBackends") == false || context.Variables["listBackends"] == null)">
-				<set-variable name="listBackends" value="@{
-					JArray backends = new JArray();
-					string salt = "0123456789"; // 10-digit salt
-					
-					backends.Add(new JObject()
-					{
-						{ "url", "https://nvm2sd.openai.azure.com/" },
-						{ "path", "/openai"},
-						{ "priorityGroup", 1},
-						{ "label", "BAD-PAYGO" },
-						{ "acceptablePriorities", new JArray(1,2,3) }, // Acceptable priorities for this backend
-						{ "timeout" , 10},
-						{ "auth", "MI"}
-					});
-                    backends.Add(new JObject()
-					{
-						{ "url", "https://nvm2.openai.azure.com/" },
-						{ "path", "/openai"},
-						{ "priorityGroup", 2},
-						{ "label", "PAYGO" },
-						{ "acceptablePriorities", new JArray(1,2,3) }, // Acceptable priorities for this backend
-						{ "timeout" , 10},
-						{ "auth", "MI"}
-					});
+			<when condition="@(context.Variables.ContainsKey("listBackends") == false || context.Variables["listBackends"] == null || context.Variables.ContainsKey("priorityCfg") == false || context.Variables["priorityCfg"] == null)">
+
+				<set-variable name="DefaultModel" value="computervision" />
+                <!-- set up the endpoint selections based on the model and priority -->
+                <include-fragment fragment-id="endpoint_selection_frag" />
+
+                <set-variable name="listBackends" value="@{
+                    JArray backends = (JArray)context.Variables["selectedBackends"];
+                    string salt = "0123456789"; // 10-digit salt
 
 					// Normalize any field names that start with uppercase: lowercase the first char
 					foreach (JObject backend in backends) {
@@ -111,6 +91,7 @@ KEY CHANGES:
 
 				<!-- And store the variable into cache again -->
 				<cache-store-value key="@("listBackends-" + context.Api.Id)" value="@((JArray)context.Variables["listBackends"])" duration="60" />
+				<cache-store-value key="@("priorityCfg-" + context.Api.Id)" value="@((JObject)context.Variables["priorityCfg"])" duration="60" />
 			</when>
 		</choose>
 		<!--  set the priority to 3 if not set -->
@@ -555,6 +536,42 @@ KEY CHANGES:
 						return arr;
 					}" />
 				</when>
+				<otherwise>
+					<!-- No backend was selected (backendIndex == -1): record the reason in the activity log -->
+					<set-variable name="activityLog" value="@{
+						// No Backend
+						var arr = context.Variables.GetValueOrDefault<JArray>("activityLog", new JArray());
+						var priorityBackendIndxs = context.Variables.GetValueOrDefault<JArray>("PriBackendIndxs", new JArray());
+						int retryCount = context.Variables.GetValueOrDefault<int>("RetryCount", 0);
+						string message;
+
+						if (priorityBackendIndxs.Count == 0) {
+							message = "NO BACKENDS: none configured for priority " + context.Variables.GetValueOrDefault<int>("RequestPriority", 3);
+						} else if (retryCount <= 0) {
+							message = "NO BACKENDS: retries exhausted";
+						} else {
+							var backends = context.Variables.GetValueOrDefault<JArray>("listBackends", new JArray());
+							bool contextWindowExceeded = context.Variables.GetValueOrDefault<bool>("contextWindowExceeded", false);
+							var now = DateTime.UtcNow;
+							var throttled = new List<string>();
+							foreach (int i in priorityBackendIndxs) {
+								JObject b = (JObject)backends[i];
+								if (contextWindowExceeded && b.Value<string>("label") == "PTU") { continue; }
+								if (!b.Value<bool>("isThrottling")) { continue; }
+								var retryAfter = b.Value<DateTime>("retryAfter");
+								var secs = retryAfter > now ? (int)Math.Ceiling((retryAfter - now).TotalSeconds) : 0;
+								throttled.Add(b.Value<string>("label") + " - " + string.Format("{0:00}:{1:00}", secs / 60, secs % 60));
+							}
+							message = "NO BACKENDS: all throttled (" + (throttled.Count > 0 ? string.Join(", ", throttled) : "none") + ")";
+						}
+
+						arr.Add(new JObject {
+							{ "Elapsed", context.Elapsed.TotalSeconds.ToString("F3") },
+							{ "message", message }
+						});
+						return arr;
+					}" />
+				</otherwise>
 			</choose>
 			<!-- Set contextWindowExceeded flag separately after checking isPermError -->
 			<set-variable name="contextWindowExceeded" value="@{
