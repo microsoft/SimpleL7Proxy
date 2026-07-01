@@ -55,27 +55,14 @@ public sealed class VisionRequestBuildContext
     public IReadOnlyDictionary<string, string> Fields { get; init; } = new Dictionary<string, string>();
 }
 
-internal sealed class VisionRequestTemplate
-{
-    public string Api { get; init; } = string.Empty;
-
-    public JsonNode? Body { get; init; }
-}
-
 public sealed class VisionModelCatalog
 {
     public const string SectionName = "vision-models";
 
-    private static readonly JsonSerializerOptions SerializerOptions = new()
-    {
-        WriteIndented = true,
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-    };
-
     private readonly IReadOnlyList<VisionApiInfo> _apis;
     private readonly IReadOnlyList<VisionModelInfo> _models;
     private readonly IReadOnlyList<ModelDefaultRule> _rules;
-    private readonly IReadOnlyList<VisionRequestTemplate> _templates;
+    private readonly IReadOnlyList<RequestTemplate> _templates;
 
     public VisionModelCatalog(IConfiguration configuration)
     {
@@ -87,11 +74,7 @@ public sealed class VisionModelCatalog
         _apis = section.GetSection("apis").Get<List<VisionApiInfo>>() ?? new List<VisionApiInfo>();
         _models = section.GetSection("models").Get<List<VisionModelInfo>>() ?? new List<VisionModelInfo>();
         _rules = section.GetSection("modeldefaults").Get<List<ModelDefaultRule>>() ?? new List<ModelDefaultRule>();
-        _templates = section.GetSection("requestTemplates")
-            .GetChildren()
-            .Select(ReadTemplate)
-            .Where(template => !string.IsNullOrWhiteSpace(template.Api) && template.Body is not null)
-            .ToList();
+        _templates = RequestTemplateEngine.LoadTemplates(section.GetSection("requestTemplates"));
     }
 
     public string DefaultApi { get; }
@@ -191,21 +174,27 @@ public sealed class VisionModelCatalog
 
     public string BuildRequestBody(VisionRequestBuildContext context)
     {
-        var template = _templates.FirstOrDefault(item => string.Equals(item.Api, context.ApiId, StringComparison.OrdinalIgnoreCase));
+        var template = RequestTemplateEngine.FindTemplate(_templates, context.ApiId);
         var body = template?.Body?.DeepClone() ?? BuildFallbackRequestBody(context);
-        ReplaceTemplateValues(body, context);
-        ApplyFieldValues(body, context.ApiId, context.Fields);
-        return body.ToJsonString(SerializerOptions);
+        RequestTemplateEngine.ReplaceTokens(body, BuildTokens(context));
+        RequestTemplateEngine.ApplyFields(body, context.Fields, ResolveFieldPlacement(context.ApiId));
+        return RequestTemplateEngine.Serialize(body);
     }
 
-    private static VisionRequestTemplate ReadTemplate(IConfigurationSection section)
-    {
-        return new VisionRequestTemplate
+    private static IReadOnlyDictionary<string, string> BuildTokens(VisionRequestBuildContext context) =>
+        new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            Api = section["api"] ?? string.Empty,
-            Body = BuildJsonNode(section.GetSection("body"))
+            ["model"] = context.ModelId,
+            ["prompt"] = context.Prompt,
+            ["imageUrl"] = context.ImageUrl,
+            ["imageBase64"] = context.ImageBase64,
+            ["imageMimeType"] = context.ImageMimeType
         };
-    }
+
+    private static FieldPlacement ResolveFieldPlacement(string apiId) =>
+        apiId.StartsWith("azure-ai-vision", StringComparison.OrdinalIgnoreCase) ? FieldPlacement.Skip
+        : apiId.Contains("generate-content", StringComparison.OrdinalIgnoreCase) ? FieldPlacement.GeminiGenerationConfig
+        : FieldPlacement.TopLevel;
 
     private static JsonNode BuildFallbackRequestBody(VisionRequestBuildContext context)
     {
@@ -230,130 +219,6 @@ public sealed class VisionModelCatalog
             }
         };
     }
-
-    private static JsonNode? BuildJsonNode(IConfigurationSection section)
-    {
-        var children = section.GetChildren().ToList();
-        if (children.Count == 0)
-        {
-            return ParseScalar(section.Value);
-        }
-
-        if (children.All(child => int.TryParse(child.Key, NumberStyles.Integer, CultureInfo.InvariantCulture, out _)))
-        {
-            var array = new JsonArray();
-            foreach (var child in children.OrderBy(child => int.Parse(child.Key, CultureInfo.InvariantCulture)))
-            {
-                array.Add(BuildJsonNode(child));
-            }
-
-            return array;
-        }
-
-        var obj = new JsonObject();
-        foreach (var child in children)
-        {
-            obj[child.Key] = BuildJsonNode(child);
-        }
-
-        return obj;
-    }
-
-    private static JsonNode? ParseScalar(string? value)
-    {
-        if (value is null)
-        {
-            return null;
-        }
-
-        if (bool.TryParse(value, out var boolValue))
-        {
-            return JsonValue.Create(boolValue);
-        }
-
-        if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var longValue))
-        {
-            return JsonValue.Create(longValue);
-        }
-
-        if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var doubleValue))
-        {
-            return JsonValue.Create(doubleValue);
-        }
-
-        return JsonValue.Create(value);
-    }
-
-    private static void ReplaceTemplateValues(JsonNode? node, VisionRequestBuildContext context)
-    {
-        switch (node)
-        {
-            case JsonObject obj:
-                foreach (var property in obj.ToList())
-                {
-                    ReplaceTemplateValues(property.Value, context);
-                }
-                break;
-
-            case JsonArray array:
-                foreach (var item in array)
-                {
-                    ReplaceTemplateValues(item, context);
-                }
-                break;
-
-            case JsonValue value when value.TryGetValue<string>(out var text):
-                node.ReplaceWith(JsonValue.Create(ReplaceTokens(text, context))!);
-                break;
-        }
-    }
-
-    private static string ReplaceTokens(string value, VisionRequestBuildContext context)
-    {
-        return value
-            .Replace("{{model}}", context.ModelId, StringComparison.Ordinal)
-            .Replace("{{prompt}}", context.Prompt, StringComparison.Ordinal)
-            .Replace("{{imageUrl}}", context.ImageUrl, StringComparison.Ordinal)
-            .Replace("{{imageBase64}}", context.ImageBase64, StringComparison.Ordinal)
-            .Replace("{{imageMimeType}}", context.ImageMimeType, StringComparison.Ordinal);
-    }
-
-    private static void ApplyFieldValues(JsonNode? body, string apiId, IReadOnlyDictionary<string, string> fields)
-    {
-        if (body is not JsonObject obj || fields.Count == 0 || apiId.StartsWith("azure-ai-vision", StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
-        if (apiId.Contains("gemini", StringComparison.OrdinalIgnoreCase))
-        {
-            if (obj["generationConfig"] is not JsonObject generationConfig)
-            {
-                generationConfig = new JsonObject();
-                obj["generationConfig"] = generationConfig;
-            }
-
-            foreach (var (name, value) in fields)
-            {
-                generationConfig[ToGeminiFieldName(name)] = ParseScalar(value);
-            }
-
-            return;
-        }
-
-        foreach (var (name, value) in fields)
-        {
-            obj[name] = ParseScalar(value);
-        }
-    }
-
-    private static string ToGeminiFieldName(string name) => name.ToLowerInvariant() switch
-    {
-        "top_p" => "topP",
-        "top_k" => "topK",
-        "max_output_tokens" => "maxOutputTokens",
-        _ => name
-    };
 
     private static bool UsesQueryParameters(VisionApiInfo api) =>
         api.Id.StartsWith("azure-ai-vision", StringComparison.OrdinalIgnoreCase);

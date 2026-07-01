@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.Configuration;
 
 namespace chat_tester.Components.Shared;
@@ -66,6 +67,18 @@ public sealed class ModelInfo
     public string[] Apis { get; set; } = Array.Empty<string>();
 }
 
+/// <summary>Inputs for building a chat request body from a configured template.</summary>
+public sealed class ChatRequestBuildContext
+{
+    public string ApiId { get; init; } = string.Empty;
+
+    public string ModelId { get; init; } = string.Empty;
+
+    public string Prompt { get; init; } = string.Empty;
+
+    public IReadOnlyDictionary<string, string> Fields { get; init; } = new Dictionary<string, string>();
+}
+
 /// <summary>
 /// Singleton that resolves per-model default field values from the <c>modeldefaults</c>
 /// configuration section. Rules are evaluated in order; a later matching rule overrides
@@ -86,6 +99,7 @@ public sealed class ModelDefaults
     private readonly IReadOnlyList<ModelDefaultRule> _rules;
     private readonly IReadOnlyList<ModelInfo> _models;
     private readonly IReadOnlyList<ApiInfo> _apis;
+    private readonly IReadOnlyList<RequestTemplate> _templates;
 
     public ModelDefaults(IConfiguration configuration)
     {
@@ -95,6 +109,7 @@ public sealed class ModelDefaults
             ?? new List<ModelInfo>();
         _apis = configuration.GetSection(ApisSectionName).Get<List<ApiInfo>>()
             ?? new List<ApiInfo>();
+        _templates = RequestTemplateEngine.LoadTemplates(configuration.GetSection("requestTemplates"));
     }
 
     /// <summary>Returns the list of all configured models, including provider and display name.</summary>
@@ -123,6 +138,43 @@ public sealed class ModelDefaults
             .Select(a => a!)
             .ToList();
     }
+
+    /// <summary>Builds the request body for the given chat model/API from the configured template.</summary>
+    public string BuildRequestBody(ChatRequestBuildContext context)
+    {
+        var template = RequestTemplateEngine.FindTemplate(_templates, context.ApiId);
+        var body = template?.Body?.DeepClone() ?? BuildFallbackBody(context);
+        RequestTemplateEngine.ReplaceTokens(body, new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["model"] = context.ModelId,
+            ["prompt"] = context.Prompt
+        });
+        RequestTemplateEngine.ApplyFields(body, context.Fields, ResolveFieldPlacement(context.ApiId));
+        return RequestTemplateEngine.Serialize(body);
+    }
+
+    /// <summary>Resolves the endpoint path for a chat model/API, substituting any <c>{model}</c> placeholder.</summary>
+    public string ResolveEndpointPath(string? modelId, string? apiId)
+    {
+        var api = GetApi(apiId);
+        return api is null
+            ? string.Empty
+            : api.Endpoint.Replace("{model}", modelId ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static FieldPlacement ResolveFieldPlacement(string apiId) =>
+        apiId.Contains("generate-content", StringComparison.OrdinalIgnoreCase)
+            ? FieldPlacement.GeminiGenerationConfig
+            : FieldPlacement.TopLevel;
+
+    private static JsonNode BuildFallbackBody(ChatRequestBuildContext context) => new JsonObject
+    {
+        ["model"] = context.ModelId,
+        ["messages"] = new JsonArray
+        {
+            new JsonObject { ["role"] = "user", ["content"] = context.Prompt }
+        }
+    };
 
 
     /// <summary>

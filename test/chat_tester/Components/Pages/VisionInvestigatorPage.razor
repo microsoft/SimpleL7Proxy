@@ -8,6 +8,7 @@
 @inject RequestDebugSettings DebugSettings
 @inject AutoCollapseSettings AutoCollapseSettings
 @inject ChatHistoryStore ChatHistoryStore
+@inject ModelDefaults ChatCatalog
 @using chat_tester.Components.Shared
 @using Microsoft.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Forms
@@ -18,9 +19,9 @@
 @using System.Text
 @using System.Text.Json
 
-<PageTitle>Vision investigator</PageTitle>
+<PageTitle>Model investigator</PageTitle>
 
-<InspectorPageShell Title="Vision investigator"
+<InspectorPageShell Title="Model investigator"
                     Tagline="@PageTagline"
                     HistoryEntries="HistoryEntries"
                     SelectedHistoryEntryId="@SelectedHistoryEntryId"
@@ -44,7 +45,6 @@
                        DisplayStateChanged="SetRequestPanelStateAsync"
                        HeaderSubtitle="Send a vision request."
                        PromptTabLabel="Vision"
-                       CardTitle="Vision investigator"
                        SubmitLabel="Investigate image"
                        BusyLabel="Investigating..."
                        IsBusy="@IsRunning"
@@ -52,41 +52,29 @@
             <PromptContent>
                 <div class="vision-body-panel rounded border p-3 mb-3">
                     <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
-                        @if (!SimpleMode)
-                        {
-                            <span class="form-label mb-0">Request JSON</span>
-                        }
-                        else if (UsesPrompt)
-                        {
-                            <label class="form-label mb-0" for="visionPrompt">Prompt</label>
-                        }
-                        else
-                        {
-                            <span class="form-label mb-0">Image analysis</span>
-                        }
+                        <label class="form-label mb-0" for="visionModelFilter">Filter models</label>
+                        <input class="form-control flex-grow-1" id="visionModelFilter" type="search" style="min-width: 14rem;"
+                               placeholder="Type to filter (blank or * shows all)"
+                               value="@ModelFilter" @oninput="OnModelFilterChanged" />
                         <div class="form-check mb-0 ms-auto">
                             <input class="form-check-input" type="checkbox" id="visionDebugCheck"
                                    checked="@DebugSettings.DebugEnabled" @onchange="OnDebugChanged" />
                             <label class="form-check-label" for="visionDebugCheck">Debug</label>
                         </div>
-                           <div class="form-check mb-0">
+                        <div class="form-check mb-0">
                             <input class="form-check-input" type="checkbox" id="visionSimpleModeCheck"
                                 checked="@SimpleMode" @onchange="OnSimpleModeChanged" />
                             <label class="form-check-label" for="visionSimpleModeCheck">Simple</label>
                         </div>
                     </div>
 
-                    @if (UsesPrompt && SimpleMode)
-                    {
-                        <textarea class="form-control mb-3" id="visionPrompt" rows="3" value="@Prompt" @oninput="OnPromptChanged"></textarea>
-                    }
-
+                    <div class="vision-advanced-collapsible @(UpperRowsCollapsed ? "collapsed" : string.Empty)">
                     <div class="row g-3 mb-3">
                         <div class="col-12 col-lg-6">
                             <label class="form-label" for="visionModelSelect">@ModelSelectLabel</label>
                             <select class="form-select" id="visionModelSelect" value="@SelectedModel" @onchange="OnModelSelected">
                                 <option value="">@ModelSelectPlaceholder</option>
-                                @foreach (var group in VisionCatalog.ListModels().GroupBy(model => model.Provider))
+                                @foreach (var group in FilteredModels.GroupBy(model => model.Provider))
                                 {
                                     <optgroup label="@group.Key">
                                         @foreach (var model in group)
@@ -100,16 +88,21 @@
 
                         <div class="col-12 col-lg-6">
                             <label class="form-label" for="visionApiSelect">API</label>
-                            <select class="form-select" id="visionApiSelect" value="@SelectedApi" @onchange="OnApiSelected" disabled="@(!AvailableApis.Any())">
+                            <select class="form-select" id="visionApiSelect" value="@SelectedApi" @onchange="OnApiSelected" disabled="@(!AvailableApiOptions.Any())">
                                 <option value="">API...</option>
-                                @foreach (var api in AvailableApis)
+                                @foreach (var group in AvailableApiOptions.GroupBy(api => api.Kind))
                                 {
-                                    <option value="@api.Id">@api.DisplayName</option>
+                                    <optgroup label="@group.Key">
+                                        @foreach (var api in group)
+                                        {
+                                            <option value="@api.Id">@api.DisplayName</option>
+                                        }
+                                    </optgroup>
                                 }
                             </select>
                         </div>
                     </div>
-                    
+
                     <div class="row g-3 mb-3">
                         <div class="col-12 col-lg-6">
                             <label class="form-label" for="visionEndpointPath">Path</label>
@@ -130,59 +123,29 @@
                             <input class="form-control" id="visionRequestCount" type="number" min="1" max="@MaxVisionRequestCount" value="@NumberOfRequests" @onchange="OnNumberOfRequestsChanged" />
                         </div>
                     </div>
+                    </div>
+
+                    @if (UsesPrompt && SimpleMode)
+                    {
+                        <div class="row g-3 mb-3">
+                            <div class="col-12">
+                                <label class="form-label" for="visionPrompt">Prompt</label>
+                                <textarea class="form-control" id="visionPrompt" rows="3" value="@Prompt" @oninput="OnPromptChanged"></textarea>
+                            </div>
+                        </div>
+                    }
 
                     @if (SimpleMode && FieldValues.Count > 0)
                     {
-                        <details class="mb-3">
-                            <summary class="fw-semibold mb-3">@ApiParametersLabel</summary>
-                            <div class="row g-3 mt-3">
-                                @foreach (var field in FieldsForDisplay)
-                                {
-                                    @if (IsFeaturesField(field.Key))
-                                    {
-                                        <div class="col-12">
-                                            <div class="vision-features-row">
-                                                <span class="form-label mb-0">features</span>
-                                                <div class="vision-feature-checks">
-                                                    @foreach (var feature in FeatureOptions)
-                                                    {
-                                                        <div class="form-check mb-0">
-                                                            <input class="form-check-input" type="checkbox" id="@GetFeatureId(feature.Value)"
-                                                                   checked="@IsFeatureSelected(feature.Value)" @onchange="args => OnFeatureChanged(feature.Value, args.Value is bool selected && selected)" />
-                                                            <label class="form-check-label" for="@GetFeatureId(feature.Value)">@feature.Label</label>
-                                                        </div>
-                                                    }
-                                                </div>
-                                                <div class="vision-feature-extra">
-                                                    <label class="form-label" for="visionFeaturesExtra">Additional</label>
-                                                    <input class="form-control" id="visionFeaturesExtra" value="@AdditionalFeaturesText" @onchange="OnAdditionalFeaturesChanged" />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    }
-                                    else
-                                    {
-                                        <div class="col-12 col-md-6 col-xl-4">
-                                            <label class="form-label" for="@GetFieldId(field.Key)">@field.Key</label>
-                                            @if (IsBooleanValue(field.Value))
-                                            {
-                                                <select class="form-select" id="@GetFieldId(field.Key)" value="@NormalizeBooleanValue(field.Value)" @onchange="args => OnFieldChanged(field.Key, args.Value?.ToString() ?? string.Empty)">
-                                                    <option value="true">true</option>
-                                                    <option value="false">false</option>
-                                                </select>
-                                            }
-                                            else
-                                            {
-                                                <input class="form-control" id="@GetFieldId(field.Key)" value="@field.Value" @oninput="args => OnFieldChanged(field.Key, args.Value?.ToString() ?? string.Empty)" />
-                                            }
-                                        </div>
-                                    }
-                                }
-                            </div>
-                        </details>
+                        <ModelParameters Label="@ApiParametersLabel"
+                                         ModelId="@SelectedModel"
+                                         Fields="FieldValues"
+                                         FieldChanged="args => OnFieldChanged(args.Name, args.Value)"
+                                         FeatureChanged="args => OnFeatureChanged(args.Feature, args.Selected)"
+                                         AdditionalFeaturesChanged="OnAdditionalFeaturesChanged" />
                     }
 
-                    @if (SimpleMode)
+                    @if (SimpleMode && SelectedApiInfo is not null)
                     {
                         <div class="row g-3 mb-3 align-items-end">
                             <div class="col-12 col-lg-3">
@@ -227,7 +190,8 @@
 
                     @if (UseCustomJson)
                     {
-                        <div class="mb-0">
+                        <div class="mb-0 vision-json-area @(UpperRowsCollapsed ? "expanded" : string.Empty)"
+                             @onmouseenter="() => UpperRowsCollapsed = true" @onmouseleave="() => UpperRowsCollapsed = false">
                             <label class="form-label" for="visionRequestJson">@RequestBodyLabel</label>
                             <textarea class="form-control font-monospace" id="visionRequestJson" rows="10" value="@CustomRequestBody" @oninput="OnCustomRequestBodyChanged"></textarea>
                         </div>
@@ -667,6 +631,28 @@
         }
 
     }
+
+    .vision-advanced-collapsible {
+        overflow: hidden;
+        max-height: 40rem;
+        opacity: 1;
+        transition: max-height 0.25s ease, opacity 0.2s ease, margin 0.25s ease;
+    }
+
+    .vision-advanced-collapsible.collapsed {
+        max-height: 0;
+        opacity: 0;
+        margin-bottom: 0 !important;
+        pointer-events: none;
+    }
+
+    .vision-json-area textarea {
+        transition: height 0.25s ease;
+    }
+
+    .vision-json-area.expanded textarea {
+        height: 34rem;
+    }
 </style>
 
 @code {
@@ -724,10 +710,15 @@
 
     private sealed record VisionResultTab(string Id, string Title, string Badge = "");
 
+    private sealed record BlendedModelOption(string Id, string Provider, string DisplayName);
+
+    private sealed record ApiOption(string Id, string DisplayName, string Kind);
+
     private string InitialServerBaseUrl { get; set; } = string.Empty;
     private string PageTagline { get; set; } = DefaultPageTagline;
     private string SelectedModel { get; set; } = string.Empty;
     private string SelectedApi { get; set; } = string.Empty;
+    private string ModelFilter { get; set; } = string.Empty;
     private string Prompt { get; set; } = string.Empty;
     private string ImageSource { get; set; } = UrlImageSource;
     private string ImageUrl { get; set; } = "https://raw.githubusercontent.com/Azure-Samples/cognitive-services-sample-data-files/master/ComputerVision/Images/faces.jpg";
@@ -739,6 +730,8 @@
     private bool UseCustomJson { get; set; }
     private bool IsImagePreviewOpen { get; set; }
     private string CustomRequestBody { get; set; } = string.Empty;
+    private bool CustomRequestBodyDirty { get; set; }
+    private bool UpperRowsCollapsed { get; set; }
     private bool IsRunning { get; set; }
     private string StatusMessage { get; set; } = "Ready to send a vision request.";
     private string DisplayResponse { get; set; } = "Waiting for the request ...";
@@ -775,7 +768,84 @@
 
     private IReadOnlyList<VisionApiInfo> AvailableApis => VisionCatalog.ApisForModel(SelectedModel);
 
+    private IReadOnlyList<BlendedModelOption> BlendedModels => BuildBlendedModels();
+
+    private IReadOnlyList<BlendedModelOption> FilteredModels
+    {
+        get
+        {
+            var query = ModelFilter?.Trim() ?? string.Empty;
+            if (query.Length == 0 || query == "*")
+            {
+                return BlendedModels;
+            }
+
+            return BlendedModels
+                .Where(model => model.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase)
+                    || model.Provider.Contains(query, StringComparison.OrdinalIgnoreCase)
+                    || model.Id.Contains(query, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+    }
+
+    private IReadOnlyList<ApiOption> AvailableApiOptions
+    {
+        get
+        {
+            var options = new List<ApiOption>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var api in ChatCatalog.ApisForModel(SelectedModel))
+            {
+                if (seen.Add(api.Id))
+                {
+                    options.Add(new ApiOption(api.Id, api.DisplayName, "Chat"));
+                }
+            }
+
+            foreach (var api in VisionCatalog.ApisForModel(SelectedModel))
+            {
+                if (seen.Add(api.Id))
+                {
+                    options.Add(new ApiOption(api.Id, api.DisplayName, "Vision"));
+                }
+            }
+
+            return options;
+        }
+    }
+
+    private IReadOnlyList<BlendedModelOption> BuildBlendedModels()
+    {
+        var byId = new Dictionary<string, BlendedModelOption>(StringComparer.OrdinalIgnoreCase);
+        var order = new List<string>();
+
+        void Add(string id, string provider, string displayName)
+        {
+            if (string.IsNullOrWhiteSpace(id) || byId.ContainsKey(id))
+            {
+                return;
+            }
+
+            byId[id] = new BlendedModelOption(id, provider, displayName);
+            order.Add(id);
+        }
+
+        foreach (var model in VisionCatalog.ListModels())
+        {
+            Add(model.Id, model.Provider, model.DisplayName);
+        }
+
+        foreach (var model in ChatCatalog.ListModels())
+        {
+            Add(model.Id, model.Provider, model.DisplayName);
+        }
+
+        return order.Select(id => byId[id]).ToList();
+    }
+
     private VisionApiInfo? SelectedApiInfo => VisionCatalog.GetApi(SelectedApi);
+
+    private bool IsChatApi => VisionCatalog.GetApi(SelectedApi) is null && ChatCatalog.GetApi(SelectedApi) is not null;
 
     private bool IsComputerVisionAnalysisApi => SelectedApiInfo?.RequestFormat.StartsWith("azure-ai-vision", StringComparison.OrdinalIgnoreCase) == true;
 
@@ -783,9 +853,9 @@
 
     private bool RequiresExternalImageUrl => VisionCatalog.RequiresExternalImageUrl(SelectedApi);
 
-    private string ModelSelectLabel => IsComputerVisionAnalysisApi ? "Vision API" : "Model";
+    private string ModelSelectLabel => "Model";
 
-    private string ModelSelectPlaceholder => IsComputerVisionAnalysisApi ? "Vision API..." : "Model...";
+    private string ModelSelectPlaceholder => "Model...";
 
     private string ApiParametersLabel => IsComputerVisionAnalysisApi ? "Query parameters" : "API parameters";
 
@@ -985,13 +1055,11 @@
         RawResponseState = PanelDisplayState.Expanded;
     }
 
-    private IEnumerable<KeyValuePair<string, string>> FieldsForDisplay => FieldValues.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase);
-
     private string RequestBody => UseCustomJson ? CustomRequestBody : BuildGeneratedRequestBody();
 
     private string RequestBodyPreview => RedactLargeImageData(RequestBody);
 
-    private string EffectiveEndpointPath => SimpleMode ? AppendFieldQueryParameters(EndpointPath, FieldValues) : EndpointPath;
+    private string EffectiveEndpointPath => (SimpleMode && !IsChatApi) ? AppendFieldQueryParameters(EndpointPath, FieldValues) : EndpointPath;
 
     private string EffectiveImageUrl => ImageSource == FileImageSource && !string.IsNullOrWhiteSpace(ImageBase64)
         ? $"data:{ImageMimeType};base64,{ImageBase64}"
@@ -1003,9 +1071,7 @@
 
     private bool HasImagePreview => !string.IsNullOrWhiteSpace(ImagePreviewUrl);
 
-    private string AdditionalFeaturesText => string.Join(", ", GetCurrentFeatures().Where(feature => !IsKnownFeature(feature)));
-
-    private bool IsStreamingRequested => SelectedApiInfo?.SupportsStreaming == true
+    private bool IsStreamingRequested => (SelectedApiInfo?.SupportsStreaming == true || IsChatApi)
         && FieldValues.TryGetValue("stream", out var streamValue)
         && bool.TryParse(streamValue, out var stream)
         && stream;
@@ -1481,6 +1547,7 @@
         ContentType = string.IsNullOrWhiteSpace(entry.ContentType) ? ChatTesterHttp.JsonContentType : entry.ContentType;
         UseCustomJson = true;
         CustomRequestBody = entry.RequestBody;
+        CustomRequestBodyDirty = true;
         RequestHeadersText = entry.RequestHeadersText;
         ResponseHeadersText = entry.ResponseHeadersText;
         RequestBodyDisplay = entry.RequestBody;
@@ -1517,7 +1584,7 @@
 
     private bool ValidateImageInput()
     {
-        if (UseCustomJson)
+        if (UseCustomJson || IsChatApi)
         {
             return true;
         }
@@ -1617,6 +1684,17 @@
 
     private string BuildGeneratedRequestBody()
     {
+        if (IsChatApi)
+        {
+            return ChatCatalog.BuildRequestBody(new ChatRequestBuildContext
+            {
+                ApiId = SelectedApi,
+                ModelId = SelectedModel,
+                Prompt = Prompt,
+                Fields = FieldValues
+            });
+        }
+
         return VisionCatalog.BuildRequestBody(new VisionRequestBuildContext
         {
             ApiId = SelectedApi,
@@ -1651,7 +1729,7 @@
 
     private void EnsureSelectedApi(string? preferredApi = null)
     {
-        var apis = AvailableApis;
+        var apis = AvailableApiOptions;
         if (!string.IsNullOrWhiteSpace(SelectedApi) && apis.Any(api => string.Equals(api.Id, SelectedApi, StringComparison.OrdinalIgnoreCase)))
         {
             return;
@@ -1665,7 +1743,10 @@
     private void ResetFields()
     {
         FieldValues.Clear();
-        foreach (var (name, value) in VisionCatalog.GetDefaults(SelectedModel, SelectedApi))
+        var defaults = IsChatApi
+            ? ChatCatalog.GetDefaults(SelectedModel, SelectedApi)
+            : VisionCatalog.GetDefaults(SelectedModel, SelectedApi);
+        foreach (var (name, value) in defaults)
         {
             FieldValues[name] = value;
         }
@@ -1673,7 +1754,14 @@
 
     private void RefreshEndpointPath()
     {
-        EndpointPath = StripManagedQueryParameters(VisionCatalog.ResolveEndpointPath(SelectedModel, SelectedApi), FieldValues.Keys);
+        EndpointPath = IsChatApi
+            ? ChatCatalog.ResolveEndpointPath(SelectedModel, SelectedApi)
+            : StripManagedQueryParameters(VisionCatalog.ResolveEndpointPath(SelectedModel, SelectedApi), FieldValues.Keys);
+    }
+
+    private void OnModelFilterChanged(ChangeEventArgs args)
+    {
+        ModelFilter = args.Value?.ToString() ?? string.Empty;
     }
 
     private void OnModelSelected(ChangeEventArgs args)
@@ -1684,6 +1772,7 @@
         EnsureCompatibleImageSource();
         ResetFields();
         RefreshEndpointPath();
+        CustomRequestBodyDirty = false;
         RefreshCustomRequestBodyIfNeeded();
     }
 
@@ -1693,6 +1782,7 @@
         EnsureCompatibleImageSource();
         ResetFields();
         RefreshEndpointPath();
+        CustomRequestBodyDirty = false;
         RefreshCustomRequestBodyIfNeeded();
     }
 
@@ -1877,10 +1967,10 @@
         SetFeatures(features);
     }
 
-    private void OnAdditionalFeaturesChanged(ChangeEventArgs args)
+    private void OnAdditionalFeaturesChanged(string text)
     {
         var selectedKnownFeatures = GetCurrentFeatures().Where(IsKnownFeature);
-        var additionalFeatures = ParseFeatureList(args.Value?.ToString() ?? string.Empty).Where(feature => !IsKnownFeature(feature));
+        var additionalFeatures = ParseFeatureList(text).Where(feature => !IsKnownFeature(feature));
         SetFeatures(selectedKnownFeatures.Concat(additionalFeatures));
     }
 
@@ -1895,6 +1985,7 @@
         if (!newSimpleMode && SimpleMode)
         {
             CustomRequestBody = BuildGeneratedRequestBody();
+            CustomRequestBodyDirty = false;
         }
 
         UseCustomJson = !newSimpleMode;
@@ -1912,12 +2003,6 @@
     {
         IsImagePreviewOpen = false;
     }
-
-    private bool IsFeaturesField(string name) => string.Equals(name, "features", StringComparison.OrdinalIgnoreCase);
-
-    private bool IsFeatureSelected(string feature) => GetCurrentFeatures().Contains(feature, StringComparer.OrdinalIgnoreCase);
-
-    private string GetFeatureId(string feature) => $"visionFeature_{feature.Replace("-", "_", StringComparison.Ordinal).Replace(".", "_", StringComparison.Ordinal)}";
 
     private IEnumerable<string> GetCurrentFeatures()
     {
@@ -1947,10 +2032,17 @@
     private void OnCustomRequestBodyChanged(ChangeEventArgs args)
     {
         CustomRequestBody = args.Value?.ToString() ?? string.Empty;
+        CustomRequestBodyDirty = true;
     }
 
     private void RefreshCustomRequestBodyIfNeeded()
     {
+        if (!UseCustomJson || CustomRequestBodyDirty)
+        {
+            return;
+        }
+
+        CustomRequestBody = BuildGeneratedRequestBody();
     }
 
     private void SetActiveResultTab(string tab)
@@ -2471,12 +2563,6 @@
             match => match.Groups[1].Value + "...[base64 image omitted]...",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     }
-
-    private static bool IsBooleanValue(string value) => bool.TryParse(value, out _);
-
-    private static string NormalizeBooleanValue(string value) => bool.TryParse(value, out var boolValue) ? boolValue.ToString().ToLowerInvariant() : value;
-
-    private static string GetFieldId(string fieldName) => "visionField" + string.Concat(fieldName.Where(char.IsLetterOrDigit));
 
     private static string FormatHistoryTimestamp(DateTimeOffset value) =>
         value.LocalDateTime.ToString("MMM d, yyyy h:mm tt", CultureInfo.InvariantCulture);
