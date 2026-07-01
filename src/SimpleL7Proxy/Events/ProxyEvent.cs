@@ -142,7 +142,7 @@ namespace SimpleL7Proxy.Events
       MetricValues?.Clear();
     }
 
-    public ProxyEvent(ProxyEvent other) : base(other)
+    public ProxyEvent(ProxyEvent other) : base(other, StringComparer.OrdinalIgnoreCase)
     {
       if (other == null) throw new ArgumentNullException(nameof(other));
       Type = other.Type;

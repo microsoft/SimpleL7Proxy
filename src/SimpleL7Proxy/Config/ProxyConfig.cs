@@ -102,7 +102,7 @@ public class ProxyConfig
     [ConfigOption("Request:DefaultTTLSecs")]
     public int DefaultTTLSecs { get; set; } = 300;
     [ConfigOption("Request:DependancyHeaders", ConfigName = "DependancyHeaders")]
-    public List<string> DependancyHeaders { get; set; } = ["Backend-Host", "Host-URL", "Status", "Duration", "Error", "Message", "Request-Date", "backendLog"];
+    public List<string> DependancyHeaders { get; set; } = ["Backend-Host", "Host-URL", "Status", "Duration", "Error", "Message", "Request-Date", "backendLog", "retry-after"];
     [ConfigOption("Request:DetectModel", ConfigName = "DetectModel")]
     public bool DetectModel { get; set; } = true;
     [ConfigOption("Request:DisallowedHeaders")]

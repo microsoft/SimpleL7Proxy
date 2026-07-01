@@ -26,7 +26,7 @@ KEY CHANGES:
 		<base />
 		<cache-lookup-value key="@("listBackends-" + context.Api.Id)" variable-name="listBackends" />
 		<cache-lookup-value key="@("priorityCfg-" + context.Api.Id)" variable-name="priorityCfg" />
-		<!-- set the request ID in case we need to debug with OpenAI Service -->
+		<!-- set the request ID in case we need to debug -->
 		<set-header name="x-ms-client-request-id" exists-action="override">
 			<value>@(context.Request.Headers.GetValueOrDefault("x-S7P-id", Guid.NewGuid().ToString()))</value>
 		</set-header>
@@ -37,7 +37,10 @@ KEY CHANGES:
 
 		<!-- Check if the response is in cache, If we can't find the variable, initialize it -->
 		<choose>
-			<when condition="@(context.Variables.ContainsKey("listBackends") == false || context.Variables["listBackends"] == null || context.Variables.ContainsKey("priorityCfg") == false || context.Variables["priorityCfg"] == null)">
+			<when condition="@(context.Variables.ContainsKey("listBackends") == false || 
+				context.Variables["listBackends"] == null || 
+				context.Variables.ContainsKey("priorityCfg") == false || 
+				context.Variables["priorityCfg"] == null)">
 
 				<set-variable name="DefaultModel" value="computervision" />
                 <!-- set up the endpoint selections based on the model and priority -->
@@ -257,6 +260,7 @@ KEY CHANGES:
 				bool likelyTimeout = deltaSeconds >= (requestTimeout * 0.9);
 
 				JObject backend = (JObject)backends[backendIndex];
+				string label = backend.Value<string>("label");
 
 				if ( callCompleted ) {
 					if (lastStatusCode==200) {
@@ -265,15 +269,20 @@ KEY CHANGES:
 						return 1; // error
 					}
 				} else if ( likelyTimeout) {
-					arr.Add(new JObject {{ "Elapsed", elapsedStr },{ "message", $"Throttling [{backendIndex}] by 10s, likely timeout Elapsed: {deltaSeconds:F1}s Timeout: {requestTimeout}s" }});
+					arr.Add(new JObject {{ "Elapsed", elapsedStr },{ "message", $"Throttling {label} by 10s, likely timeout Elapsed: {deltaSeconds:F1}s Timeout: {requestTimeout}s" }});
 					backend["isThrottling"] = true;
 					backend["retryAfter"] = DateTime.UtcNow.AddSeconds(10);
 					return 2; // timeout
 				} else if ( wasLimited ) {
-					arr.Add(new JObject {{ "Elapsed", elapsedStr },{ "message", $"Throttling [{backendIndex}] by 10s due to concurrency limit" }});
+					arr.Add(new JObject {{ "Elapsed", elapsedStr },{ "message", $"Throttling {label} by 10s, concurrency limit" }});
 					backend["isThrottling"] = true;
 					backend["retryAfter"] = DateTime.UtcNow.AddSeconds(10);
 					return 3; // concurrency limit
+				} else if ( lastStatusCode >= 500 ) {
+					arr.Add(new JObject {{ "Elapsed", elapsedStr },{ "message", $"Throttling {label} by 10s, status {lastStatusCode}" }});
+					backend["isThrottling"] = true;
+					backend["retryAfter"] = DateTime.UtcNow.AddSeconds(10);
+					return 1; // error
 				} else {
 					arr.Add(new JObject {{ "Elapsed", elapsedStr },{ "message", $"Error status {lastStatusCode} after {deltaSeconds:F1}s" }});
 					return 4; // unknown
