@@ -2,6 +2,7 @@
 @using chat_tester.Components.Shared
 @using Microsoft.AspNetCore.Components.Forms
 @using System.Net.Http.Headers
+@inject HttpClient Http
 
 <div class="card border-light-subtle mb-3">
     <div class="card-body py-3">
@@ -181,7 +182,7 @@
     {
         if (Settings.TokenSource == "Fetch")
         {
-            using var client = new HttpClient();
+            var client = Http;
             var request = new HttpRequestMessage(
                 Settings.TokenFetchMethod.Equals("POST", StringComparison.OrdinalIgnoreCase) ? HttpMethod.Post : HttpMethod.Get,
                 Settings.TokenFetchUrl);

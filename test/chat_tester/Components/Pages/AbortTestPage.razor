@@ -1,6 +1,7 @@
 @page "/abort-test"
 @rendermode InteractiveServer
 @inject IOptions<ChatTesterOptions> Options
+@inject HttpClient Http
 @inject ChatHistoryStore ChatHistoryStore
 @using chat_tester.Components.Shared
 @using Microsoft.Extensions.Options
@@ -172,7 +173,7 @@
 
         try
         {
-            using var client = new HttpClient();
+            var client = Http;
             for (var index = 1; index <= RequestCount; index++)
             {
                 var targetPath = targets[(index - 1) % targets.Count];

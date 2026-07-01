@@ -40,6 +40,9 @@ public partial class RequestInspectorPage
     private IOptions<ChatTesterOptions> Options { get; set; } = default!;
 
     [Inject]
+    private HttpClient Http { get; set; } = default!;
+
+    [Inject]
     private IJSRuntime JS { get; set; } = default!;
 
     [Inject]
@@ -418,7 +421,7 @@ public partial class RequestInspectorPage
 
         try
         {
-            using var client = new HttpClient();
+            var client = Http;
             using var request = new HttpRequestMessage(HttpMethod.Post, ChatTesterHttp.BuildUri(serverBaseUrl, endpointPath));
             request.Content = new StringContent(requestBody, System.Text.Encoding.UTF8, contentType);
             request.Headers.Add(ChatTesterHttp.AcceptHeaderName, ChatTesterHttp.EventStreamContentType);

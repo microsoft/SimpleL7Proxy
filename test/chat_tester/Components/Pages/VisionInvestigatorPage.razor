@@ -3,6 +3,7 @@
 @namespace chat_tester.Components.Pages
 @rendermode InteractiveServer
 @inject IOptions<ChatTesterOptions> Options
+@inject HttpClient Http
 @inject VisionModelCatalog VisionCatalog
 @inject RequestDebugSettings DebugSettings
 @inject AutoCollapseSettings AutoCollapseSettings
@@ -1108,7 +1109,7 @@
 
         try
         {
-            using var client = new HttpClient();
+            var client = Http;
             if (NumberOfRequests == 1)
             {
                 await SendVisionRequestOnceAsync(client, serverBaseUrl, endpointPath, requestBody, requestIndex: 0);

@@ -11,6 +11,10 @@ builder.Configuration.AddJsonFile($"vision-models.{builder.Environment.Environme
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+builder.Services.AddSingleton(new HttpClient
+{
+    Timeout = TimeSpan.FromMinutes(5)
+});
 builder.Services.AddSingleton<AuthTokenSettings>();
 builder.Services.AddSingleton<UserSettings>();
 builder.Services.AddSingleton<HeaderSettings>();

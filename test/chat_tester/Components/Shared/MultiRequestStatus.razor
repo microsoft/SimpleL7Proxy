@@ -265,6 +265,14 @@
     .multi-request-detail-body .raw-card .card-body {
         min-height: 0;
         overflow: auto;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .multi-request-detail-body .raw-card .card-body > div {
+        flex: 1 1 auto;
+        min-height: 0;
+        max-height: none !important;
     }
 </style>
 

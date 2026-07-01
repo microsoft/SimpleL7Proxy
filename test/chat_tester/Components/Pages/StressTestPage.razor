@@ -1,6 +1,7 @@
 @page "/stress-test"
 @rendermode InteractiveServer
 @inject IOptions<ChatTesterOptions> Options
+@inject HttpClient Http
 @inject RequestDebugSettings DebugSettings
 @inject ChatHistoryStore ChatHistoryStore
 @inject IJSRuntime JS
@@ -217,10 +218,7 @@
         StatusMessage = $"Running {count} parallel requests...";
         StateHasChanged();
 
-        using var client = new HttpClient
-        {
-            Timeout = TimeSpan.FromMinutes(5)
-        };
+        var client = Http;
 
         var overall = Stopwatch.StartNew();
         var tasks = Enumerable.Range(0, count)
