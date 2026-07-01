@@ -632,10 +632,22 @@ public class ProxyWorker : IConfigChangeSubscriber
             // Set the response status code
             context.Response.StatusCode = (int)pr.StatusCode;
 
-            // Copy headers to the response
-            //ProxyHelperUtils.CopyHeaders(request.Headers, proxyRequest, true, _options.StripRequestHeaders);
+            // Add attempt counters to the client response. These can't be set on pr.Headers
+            // earlier because CaptureResponseStream already copied pr.Headers into the response
+            // by value, so late additions wouldn't propagate.
+            context.Response.Headers["Attempts"] = request.BackendAttempts.ToString();
+            context.Response.Headers["Lifetime-Attempts"] = request.LifetimeBackendAttempts.ToString();
 
-            //CopyHeadersToResponse(pr.Headers, context.Response.Headers);            // Already done?
+            // These were also added to pr.Headers after the by-value copy in CaptureResponseStream,
+            // so forward them here too. Read back from pr.Headers (single computation, consistent
+            // with telemetry) and skip any that aren't present (e.g. on the error path).
+            if (pr.Headers != null)
+            {
+                if (pr.Headers["BackendHost"] is { } backendHost) context.Response.Headers["BackendHost"] = backendHost;
+                if (pr.Headers["Request-Queue-Duration"] is { } queueDuration) context.Response.Headers["Request-Queue-Duration"] = queueDuration;
+                if (pr.Headers["Request-Process-Duration"] is { } processDuration) context.Response.Headers["Request-Process-Duration"] = processDuration;
+                if (pr.Headers["Total-Latency"] is { } totalLatency) context.Response.Headers["Total-Latency"] = totalLatency;
+            }
 
             // Set content-specific headers
             if (pr.ContentHeaders != null)
