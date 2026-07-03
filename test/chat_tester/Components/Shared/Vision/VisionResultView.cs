@@ -21,6 +21,16 @@ public sealed class VisionResultView
     public List<VisionDetectionItem> People { get; } = new();
     public List<string> ReadLines { get; } = new();
     public VisionImageMetadata Metadata { get; set; } = new();
+
+    public bool HasAnyVisionResult =>
+        HasCaptionResult
+        || HasDenseCaptionsResult
+        || HasTagsResult
+        || HasObjectsResult
+        || HasPeopleResult
+        || HasReadResult
+        || HasMetadataResult
+        || Metadata.HasDimensions;
 }
 
 public sealed class VisionCaptionItem

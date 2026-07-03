@@ -4,8 +4,8 @@
 <div class="card shadow-sm vision-response-card @CardStateCss">
     <div class="card-header bg-primary text-white @(IsMinimized ? string.Empty : "pb-0")">
         <div class="d-flex flex-wrap align-items-baseline gap-2 pt-1 pb-2">
-            <span class="fw-semibold">@Title</span>
-            <span class="text-white-50 small">@StatusMessage</span>
+            <span class="fw-semibold">@EffectiveTitle</span>
+            <span class="text-white-50 small">@EffectiveStatusMessage</span>
             <div class="d-flex flex-wrap align-items-center justify-content-end gap-2 ms-auto">
                 @HeaderActions
                 @if (ShowDisplayToggle)
@@ -14,7 +14,7 @@
                 }
             </div>
         </div>
-        @if (!IsMinimized)
+        @if (!IsMinimized && HasResult)
         {
             <ul class="nav nav-tabs card-header-tabs result-tabs mb-0" role="tablist">
                 @foreach (var tab in ResultTabs)
@@ -32,7 +32,13 @@
             </ul>
         }
     </div>
-    @if (!IsMinimized)
+    @if (!IsMinimized && !HasResult)
+    {
+        <div class="card-body @(IsFullscreen ? "overflow-auto" : string.Empty)">
+            <div class="vision-result-panel border rounded bg-white p-3 text-muted">No results</div>
+        </div>
+    }
+    else if (!IsMinimized)
     {
         <div class="card-body @(IsFullscreen ? "overflow-auto" : string.Empty)">
             <div class="row g-3 @ResultRowCss">
@@ -40,7 +46,7 @@
                     <div class="vision-result-panel border rounded bg-white p-3 @ResultPanelLayoutCss">
                         @if (EffectiveActiveTab == SummaryResultTab)
                         {
-                            <VisionSummaryResultPanel Result="@Result" />
+                            <VisionSummaryResultPanel Result="@Result" IsChat="@IsChat" />
                         }
                         else if (EffectiveActiveTab == CaptionResultTab)
                         {
@@ -112,6 +118,12 @@
     public string StatusMessage { get; set; } = string.Empty;
 
     [Parameter]
+    public bool HasResult { get; set; } = true;
+
+    [Parameter]
+    public bool IsChat { get; set; }
+
+    [Parameter]
     public VisionResultView Result { get; set; } = new();
 
     [Parameter]
@@ -160,6 +172,10 @@
     public string ResultPanelLayoutCss { get; set; } = string.Empty;
 
     private IReadOnlyList<VisionResultTab> ResultTabs => BuildResultTabs();
+
+    private string EffectiveTitle => HasResult ? (IsChat ? "Chat result" : Title) : "No Results";
+
+    private string EffectiveStatusMessage => HasResult ? StatusMessage : string.Empty;
 
     private bool IsMinimized => DisplayState == PanelDisplayState.Minimized;
 

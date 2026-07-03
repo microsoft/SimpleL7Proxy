@@ -214,6 +214,8 @@
         <div class="@(IsVisionResultMinimized ? "d-none" : string.Empty)">
             <VisionResultPanel Result="@VisionResult"
                                StatusMessage="@StatusMessage"
+                               HasResult="@HasVisionResult"
+                               IsChat="@ResultIsChat"
                                ActiveTab="@ActiveResultTab"
                                ActiveTabChanged="SetActiveResultTabAsync"
                                DisplayState="@VisionResultState"
@@ -753,6 +755,8 @@
     [SupplyParameterFromQuery(Name = "historyEntryId")]
     public string? HistoryEntryId { get; set; }
     private VisionResultView VisionResult { get; set; } = BuildPlainVisionResult("Waiting for the request ...");
+    private bool HasVisionResult { get; set; }
+    private bool ResultIsChat { get; set; }
     private VisionResponseMetrics ResponseMetrics { get; set; } = new();
     private List<MultiRequestStatusItem> MultiRequestStatuses { get; } = new();
     private Dictionary<string, string> FieldValues { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -1161,6 +1165,8 @@
         NumberOfRequests = Math.Clamp(NumberOfRequests, 1, MaxVisionRequestCount);
         ResetMultiRequestStatuses();
         IsRunning = true;
+        HasVisionResult = true;
+        ResultIsChat = IsChatApi;
         SelectedHistoryEntryId = null;
         PageTagline = DefaultPageTagline;
         StatusMessage = NumberOfRequests == 1
@@ -1420,6 +1426,7 @@
         StatusMessage = result.StatusMessage;
         ResponseMetrics = result.Metrics;
         VisionResult = result.VisionResult;
+        HasVisionResult = true;
         EnsureActiveResultTab();
         if (!ShowMultiRequestStatus)
         {
@@ -1565,6 +1572,8 @@
             TotalBytes = entry.Metrics.TotalBytes
         };
         VisionResult = BuildVisionResultView(ObservedResponse, DisplayResponse);
+        HasVisionResult = true;
+        ResultIsChat = !VisionResult.HasAnyVisionResult;
         ActiveResultTab = SummaryResultTab;
         EnsureActiveResultTab();
         ShowResultPanelAfterResponse();
