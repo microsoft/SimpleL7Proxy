@@ -86,7 +86,7 @@ az account show &> /dev/null || {
 }
 
 # Get current subscription
-SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+SUBSCRIPTION_ID=$(az account show --query id -o tsv | tr -d '\r')
 echo -e "${GREEN}Using subscription: ${SUBSCRIPTION_ID}${NC}"
 
 echo -e "${YELLOW}Ensuring resource group ${RESOURCE_GROUP} exists...${NC}"
@@ -109,7 +109,7 @@ echo -e "${YELLOW}Getting Container Apps Environment...${NC}"
 MANAGED_ENV_ID=$(az containerapp env show \
     --name "$ENVIRONMENT_NAME" \
     --resource-group "$RESOURCE_GROUP" \
-    --query id -o tsv 2>/dev/null || echo "")
+    --query id -o tsv 2>/dev/null | tr -d '\r' || echo "")
 
 wait_for_managed_env() {
     local env_id=""
@@ -149,7 +149,12 @@ if [ -z "$MANAGED_ENV_ID" ]; then
         --name "$ENVIRONMENT_NAME" \
         --resource-group "$RESOURCE_GROUP" \
         --location "$LOCATION"
-
+    
+    MANAGED_ENV_ID=$(az containerapp env show \
+        --name "$ENVIRONMENT_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --query id -o tsv | tr -d '\r')
+    
     wait_for_managed_env
 else
     wait_for_managed_env
@@ -203,7 +208,7 @@ if [ -n "$REGISTRY_SERVER" ]; then
         if az acr repository show-tags \
             --name "${REGISTRY_SERVER%%.*}" \
             --repository "$IMAGE_REPO" \
-            --query "[?@=='$IMAGE_TAG'] | [0]" -o tsv 2>/dev/null | grep -qx "$IMAGE_TAG"; then
+            --query "[?@=='$IMAGE_TAG'] | [0]" -o tsv 2>/dev/null | tr -d '\r' | grep -qx "$IMAGE_TAG"; then
             echo -e "${GREEN}✓ Found ${IMAGE_REPO}:${IMAGE_TAG}${NC}"
         else
             echo -e "${RED}Error: Missing ACR image ${IMAGE_REPO}:${IMAGE_TAG}.${NC}"
@@ -222,7 +227,7 @@ echo -e "${YELLOW}Checking Container App managed identity and ACR access...${NC}
 EXISTING_APP_NAME=$(az containerapp show \
     --name "$CONTAINER_APP_NAME" \
     --resource-group "$RESOURCE_GROUP" \
-    --query "name" -o tsv 2>/dev/null || echo "")
+    --query "name" -o tsv 2>/dev/null | tr -d '\r' || echo "")
 
 if [ -z "$EXISTING_APP_NAME" ] && [ -n "$REGISTRY_SERVER" ]; then
     echo -e "${YELLOW}Container App doesn't exist yet. Creating placeholder app to establish managed identity...${NC}"
@@ -242,7 +247,7 @@ fi
 EXISTING_APP_PRINCIPAL_ID=$(az containerapp show \
     --name "$CONTAINER_APP_NAME" \
     --resource-group "$RESOURCE_GROUP" \
-    --query "identity.principalId" -o tsv 2>/dev/null || echo "")
+    --query "identity.principalId" -o tsv 2>/dev/null | tr -d '\r' || echo "")
 
 if [ -z "$EXISTING_APP_PRINCIPAL_ID" ] || [ "$EXISTING_APP_PRINCIPAL_ID" = "null" ]; then
     echo -e "${YELLOW}Enabling system-assigned managed identity...${NC}"
@@ -255,20 +260,20 @@ if [ -z "$EXISTING_APP_PRINCIPAL_ID" ] || [ "$EXISTING_APP_PRINCIPAL_ID" = "null
     EXISTING_APP_PRINCIPAL_ID=$(az containerapp show \
         --name "$CONTAINER_APP_NAME" \
         --resource-group "$RESOURCE_GROUP" \
-        --query "identity.principalId" -o tsv)
+        --query "identity.principalId" -o tsv | tr -d '\r')
 fi
 
 if [ -n "$EXISTING_APP_PRINCIPAL_ID" ] && [ -n "$REGISTRY_SERVER" ]; then
     echo -e "${YELLOW}Ensuring AcrPull role for Container App managed identity...${NC}"
     ACR_NAME=$(echo "$REGISTRY_SERVER" | cut -d'.' -f1)
-    ACR_RESOURCE_ID=$(az acr show --name "$ACR_NAME" --query id -o tsv 2>/dev/null || echo "")
+    ACR_RESOURCE_ID=$(az acr show --name "$ACR_NAME" --query id -o tsv 2>/dev/null | tr -d '\r' || echo "")
     
     if [ -n "$ACR_RESOURCE_ID" ]; then
         ROLE_EXISTS=$(az role assignment list \
             --assignee "$EXISTING_APP_PRINCIPAL_ID" \
             --role "AcrPull" \
             --scope "$ACR_RESOURCE_ID" \
-            --query "[0].id" -o tsv 2>/dev/null || echo "")
+            --query "[0].id" -o tsv 2>/dev/null | tr -d '\r' || echo "")
 
         if [ -n "$ROLE_EXISTS" ]; then
             echo -e "${GREEN}AcrPull role already assigned${NC}"
@@ -310,17 +315,17 @@ echo -e "${YELLOW}Retrieving deployment outputs...${NC}"
 FQDN=$(az deployment group show \
     --name "$DEPLOYMENT_NAME" \
     --resource-group "$RESOURCE_GROUP" \
-    --query "properties.outputs.fqdn.value" -o tsv)
+    --query "properties.outputs.fqdn.value" -o tsv | tr -d '\r')
 
 RESOURCE_ID=$(az deployment group show \
     --name "$DEPLOYMENT_NAME" \
     --resource-group "$RESOURCE_GROUP" \
-    --query "properties.outputs.resourceId.value" -o tsv)
+    --query "properties.outputs.resourceId.value" -o tsv | tr -d '\r')
 
 REVISION_NAME=$(az deployment group show \
     --name "$DEPLOYMENT_NAME" \
     --resource-group "$RESOURCE_GROUP" \
-    --query "properties.outputs.latestRevisionName.value" -o tsv)
+    --query "properties.outputs.latestRevisionName.value" -o tsv | tr -d '\r')
 
 echo -e "${GREEN}======================================${NC}"
 echo -e "${GREEN}Deployment Complete!${NC}"

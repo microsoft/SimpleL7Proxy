@@ -90,12 +90,22 @@ public class WorkerFactory : BackgroundService, IReadinessParticipant
     
     while (!allTasksCompletion.IsCompleted)
     {
-      var completedTask = await Task.WhenAny(allTasksCompletion, Task.Delay(logInterval, cancellationToken))
+      // Heartbeat timer is intentionally NOT bound to the shutdown cancellationToken.
+      // During shutdown that token is already signaled, which would make Task.Delay
+      // complete immediately and turn this into a CPU-spinning log-spam loop.
+      var completedTask = await Task.WhenAny(allTasksCompletion, Task.Delay(logInterval))
         .ConfigureAwait(false);
-      
+
       if (completedTask != allTasksCompletion)
       {
-        _logger.LogInformation("[WORKER] ⏳ Waiting for {count} workers to complete...", _tasks.Count(t => !t.IsCompleted));
+        // Task.WhenAll flips to completed asynchronously after its children, so there is
+        // a brief window where every task reports completed but allTasksCompletion has not.
+        // Skip the log in that window to avoid the misleading "Waiting for 0 workers" message.
+        var remaining = _tasks.Count(t => !t.IsCompleted);
+        if (remaining > 0)
+        {
+          _logger.LogInformation("[WORKER] ⏳ Waiting for {count} workers to complete...", remaining);
+        }
       }
     }
     

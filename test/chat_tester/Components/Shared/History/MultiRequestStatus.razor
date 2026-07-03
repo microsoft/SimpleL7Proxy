@@ -1,0 +1,635 @@
+@namespace chat_tester.Components.Shared
+@using chat_tester.Components.Shared
+@using System.Globalization
+@using Microsoft.AspNetCore.Components.Web
+
+<div class="multi-request-status border rounded bg-white shadow-sm">
+    <div class="multi-request-status-header">
+        <span class="fw-semibold">Request status</span>
+        <span class="text-muted small">@CompletedCount/@Items.Count complete</span>
+    </div>
+
+    <div class="multi-request-status-list" role="list">
+        @foreach (var item in Items)
+        {
+            <button class="multi-request-row" type="button" role="listitem"
+                    @onclick="() => SelectItem(item)"
+                    @onmouseenter="args => ShowMetrics(item, args)"
+                    @onmousemove="MoveMetrics"
+                    @onmouseleave="HideMetrics">
+                <div class="multi-request-label">@item.RequestNumber</div>
+                <div class="multi-request-thermometer @GetThermometerClass(item)">
+                    <div class="multi-request-fill" style="width: @GetFillWidth(item);"></div>
+                    <span class="multi-request-duration">@FormatDuration(item.Duration)</span>
+                </div>
+                <div class="multi-request-status-code @GetStatusClass(item)">@FormatStatus(item)</div>
+            </button>
+        }
+    </div>
+</div>
+
+@if (Items.Count > 0)
+{
+    <div class="multi-request-stats border rounded bg-white shadow-sm">
+        <div class="multi-request-stats-title">Statistics:</div>
+        <div class="multi-request-stats-overview">
+            <div class="multi-request-stats-primary">
+                <div class="multi-request-stats-thermometer">
+                    @if (CompleteCount > 0)
+                    {
+                        <div class="multi-request-stats-segment complete" style="flex-grow: @CompleteCount;" title="Complete- @CompleteCount">
+                            <span class="multi-request-stats-segment-label">Complete- @CompleteCount</span>
+                        </div>
+                    }
+                    @if (IncompleteCount > 0)
+                    {
+                        <div class="multi-request-stats-segment incomplete" style="flex-grow: @IncompleteCount;" title="Incomplete: @IncompleteCount">
+                            <span class="multi-request-stats-segment-label">Incomplete: @IncompleteCount</span>
+                        </div>
+                    }
+                </div>
+                <div class="multi-request-stats-status-grid">
+                    @foreach (var group in StatusGroups)
+                    {
+                        <div class="multi-request-stats-status">
+                            <div class="multi-request-stats-status-code">Status: @group.StatusCode</div>
+                            <div>Total: @group.Count</div>
+                            <div>TTFB: @group.TtfbText</div>
+                            <div>Avg: @group.AvgText</div>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="multi-request-stats-totals">
+                <div>Total: @CompleteCount/@Items.Count</div>
+                <div>Average TTFB: @OverallTtfbText</div>
+                <div>Average Time: @OverallAvgText</div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (HoveredItem is not null)
+{
+    <div class="multi-request-hover-metrics" style="left: @HoverLeft; top: @HoverTop;">
+        <ResponseMetricsPanel Status="@HoveredItem.Status"
+                              ContentType="@HoveredItem.ContentType"
+                              TimeToFirstByte="@HoveredItem.TimeToFirstByte"
+                              Duration="@HoveredItem.Duration"
+                              Chunks="@HoveredItem.Chunks"
+                              TotalBytes="@HoveredItem.TotalBytes" />
+    </div>
+}
+
+@if (SelectedItem is not null)
+{
+    <div class="multi-request-detail-backdrop" @onclick="CloseDetail"></div>
+    <div class="multi-request-detail" role="dialog" aria-modal="true" aria-label="Request @SelectedItem.RequestNumber result" @onclick:stopPropagation="true">
+        <div class="multi-request-detail-header">
+            <div>
+                <div class="text-muted small text-uppercase fw-semibold">Request @SelectedItem.RequestNumber</div>
+                <div class="fw-semibold">@FormatStatus(SelectedItem) @FormatDuration(SelectedItem.Duration)</div>
+            </div>
+            <div class="btn-group btn-group-sm" role="group" aria-label="Result view">
+                <button type="button" class="btn @GetDetailModeButtonClass(DetailMode.VisionResult)" @onclick="() => SetDetailMode(DetailMode.VisionResult)">Vision result</button>
+                <button type="button" class="btn @GetDetailModeButtonClass(DetailMode.RawResult)" @onclick="() => SetDetailMode(DetailMode.RawResult)">Raw result</button>
+            </div>
+            <button class="btn-close" type="button" aria-label="Close request detail" @onclick="CloseDetail"></button>
+        </div>
+        <div class="multi-request-detail-body">
+            @if (SelectedDetailMode == DetailMode.VisionResult)
+            {
+                @if (SelectedItem.VisionResult is not null)
+                {
+                    <VisionResultPanel Result="@SelectedItem.VisionResult"
+                                       StatusMessage="@GetSelectedStatusMessage()"
+                                       ActiveTab="@SelectedVisionTab"
+                                       ActiveTabChanged="SetSelectedVisionTabAsync"
+                                       DisplayState="@SelectedVisionDisplayState"
+                                       DisplayStateChanged="SetSelectedVisionDisplayStateAsync"
+                                       Status="@SelectedItem.Status"
+                                       ContentType="@SelectedItem.ContentType"
+                                       TimeToFirstByte="@SelectedItem.TimeToFirstByte"
+                                       Duration="@SelectedItem.Duration"
+                                       Chunks="@SelectedItem.Chunks"
+                                       TotalBytes="@SelectedItem.TotalBytes" />
+                }
+                else
+                {
+                    <div class="empty-result">No parsed vision result is available for this request.</div>
+                }
+            }
+            else
+            {
+                <RawResponsePanel Title="Raw exchange"
+                                  StatusMessage="@GetSelectedStatusMessage()"
+                                  ActiveTab="@SelectedRawTab"
+                                  ActiveTabChanged="SetSelectedRawTabAsync"
+                                  DisplayState="@SelectedRawDisplayState"
+                                  DisplayStateChanged="SetSelectedRawDisplayStateAsync"
+                                  RequestHeadersText="@SelectedItem.RequestHeadersText"
+                                  ResponseHeadersText="@SelectedItem.ResponseHeadersText"
+                                  RequestBodyDisplay="@SelectedItem.RequestBodyDisplay"
+                                  ObservedResponse="@SelectedItem.ResponseBody"
+                                  HasProxyError="@SelectedItem.IsFailed" />
+            }
+        </div>
+    </div>
+}
+
+<style>
+    .multi-request-status {
+        padding: 0.75rem;
+    }
+
+    .multi-request-status-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .multi-request-status-list {
+        display: grid;
+        gap: 0.45rem;
+        max-height: min(58vh, 34rem);
+        overflow-y: auto;
+        padding-right: 0.25rem;
+    }
+
+    .multi-request-row {
+        display: grid;
+        grid-template-columns: 2.5rem minmax(8rem, 1fr) 5.5rem;
+        align-items: center;
+        gap: 0.65rem;
+        width: 100%;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        text-align: left;
+    }
+
+    .multi-request-row:hover .multi-request-thermometer,
+    .multi-request-row:focus-visible .multi-request-thermometer {
+        outline: 2px solid rgba(13, 110, 253, 0.45);
+        outline-offset: 1px;
+    }
+
+    .multi-request-label {
+        color: #6c757d;
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-align: right;
+    }
+
+    .multi-request-thermometer {
+        position: relative;
+        height: 1.35rem;
+        overflow: hidden;
+        border: 1px solid #adb5bd;
+        background: #f8f9fa;
+    }
+
+    .multi-request-thermometer.success {
+        border-color: #79ad69;
+        background: #d8ecd3;
+    }
+
+    .multi-request-thermometer.failed {
+        border-color: #d66a6a;
+        background: #f4c7c7;
+    }
+
+    .multi-request-thermometer.running {
+        border-color: #6ea8fe;
+        background: #e7f1ff;
+    }
+
+    .multi-request-fill {
+        position: absolute;
+        inset: 0 auto 0 0;
+        background: rgba(13, 110, 253, 0.18);
+    }
+
+    .multi-request-duration {
+        position: relative;
+        z-index: 1;
+        display: block;
+        padding: 0.05rem 0.5rem;
+        color: #111;
+        font-size: 0.8rem;
+        font-variant-numeric: tabular-nums;
+        font-weight: 700;
+        text-align: right;
+    }
+
+    .multi-request-status-code {
+        color: #495057;
+        font-size: 0.8rem;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    .multi-request-status-code.success {
+        color: #146c43;
+    }
+
+    .multi-request-status-code.failed {
+        color: #b02a37;
+    }
+
+    .multi-request-status-code.running {
+        color: #0d6efd;
+    }
+
+    .multi-request-hover-metrics {
+        position: fixed;
+        z-index: 1100;
+        width: 14rem;
+        pointer-events: none;
+        filter: drop-shadow(0 0.75rem 1rem rgba(0, 0, 0, 0.22));
+    }
+
+    .multi-request-stats {
+        margin-top: 0.75rem;
+        padding: 1rem;
+    }
+
+    .multi-request-stats-title {
+        font-weight: 700;
+        font-size: 1.35rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .multi-request-stats-overview {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 1.5rem 2.5rem;
+    }
+
+    .multi-request-stats-primary {
+        flex: 1 1 28rem;
+        min-width: 20rem;
+    }
+
+    .multi-request-stats-thermometer {
+        display: flex;
+        width: 100%;
+        height: 2.5rem;
+        overflow: hidden;
+        border-radius: 0.35rem;
+        border: 1px solid #adb5bd;
+    }
+
+    .multi-request-stats-segment {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 0;
+        flex-basis: 0;
+    }
+
+    .multi-request-stats-segment.complete {
+        background: #2f9e44;
+    }
+
+    .multi-request-stats-segment.incomplete {
+        background: #e8590c;
+    }
+
+    .multi-request-stats-segment-label {
+        padding: 0 0.5rem;
+        color: #fff;
+        font-weight: 700;
+        font-size: 1.15rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+    }
+
+    .multi-request-stats-status-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem 2.75rem;
+        margin-top: 0.85rem;
+    }
+
+    .multi-request-stats-status {
+        min-width: 6.5rem;
+        color: #212529;
+        font-size: 0.9rem;
+        line-height: 1.4;
+    }
+
+    .multi-request-stats-status-code {
+        font-weight: 700;
+    }
+
+    .multi-request-stats-totals {
+        flex: 0 0 auto;
+        color: #212529;
+        font-size: 0.95rem;
+        line-height: 1.5;
+        white-space: nowrap;
+    }
+
+    .multi-request-detail-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1110;
+        background: rgba(15, 23, 42, 0.35);
+    }
+
+    .multi-request-detail {
+        position: fixed;
+        top: 4vh;
+        left: 50%;
+        z-index: 1111;
+        width: min(96rem, calc(100vw - 3rem));
+        height: 92vh;
+        max-height: 92vh;
+        display: flex;
+        flex-direction: column;
+        transform: translateX(-50%);
+        border: 1px solid rgba(0, 0, 0, 0.16);
+        border-radius: 0.5rem;
+        background: #fff;
+        box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.28);
+    }
+
+    .multi-request-detail-header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 0.8rem 1rem;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    .multi-request-detail-header .btn-group {
+        margin-left: auto;
+    }
+
+    .multi-request-detail-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+        padding: 1rem;
+    }
+
+    .multi-request-detail-body .vision-response-card,
+    .multi-request-detail-body .raw-card {
+        min-height: 100%;
+        margin-top: 0 !important;
+    }
+
+    .multi-request-detail-body .vision-response-card .card-body,
+    .multi-request-detail-body .raw-card .card-body {
+        min-height: 0;
+        overflow: auto;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .multi-request-detail-body .raw-card .card-body > div {
+        flex: 1 1 auto;
+        min-height: 0;
+        max-height: none !important;
+    }
+</style>
+
+@code {
+    private enum DetailMode
+    {
+        VisionResult,
+        RawResult
+    }
+
+    [Parameter]
+    public IReadOnlyList<MultiRequestStatusItem> Items { get; set; } = [];
+
+    private MultiRequestStatusItem? HoveredItem { get; set; }
+
+    private MultiRequestStatusItem? SelectedItem { get; set; }
+
+    private DetailMode SelectedDetailMode { get; set; } = DetailMode.VisionResult;
+
+    private string SelectedVisionTab { get; set; } = "summary";
+
+    private PanelDisplayState SelectedVisionDisplayState { get; set; } = PanelDisplayState.Expanded;
+
+    private string SelectedRawTab { get; set; } = "response-body";
+
+    private PanelDisplayState SelectedRawDisplayState { get; set; } = PanelDisplayState.Expanded;
+
+    private string HoverLeft { get; set; } = "0px";
+
+    private string HoverTop { get; set; } = "0px";
+
+    private int CompletedCount => Items.Count(item => item.IsComplete);
+
+    private double MaxDurationMilliseconds => Items
+        .Select(item => item.Duration?.TotalMilliseconds ?? 0)
+        .DefaultIfEmpty(0)
+        .Max();
+
+    private int CompleteCount => Items.Count(item => item.IsComplete);
+
+    private int IncompleteCount => Items.Count - CompleteCount;
+
+    private string OverallTtfbText =>
+        FormatMilliseconds(AverageMilliseconds(Items.Select(item => item.TimeToFirstByte)));
+
+    private string OverallAvgText =>
+        FormatMilliseconds(AverageMilliseconds(Items.Select(item => item.Duration)));
+
+    private sealed record StatusGroup(
+        int StatusCode,
+        int Count,
+        string TtfbText,
+        string AvgText);
+
+    private IReadOnlyList<StatusGroup> StatusGroups => BuildStatusGroups();
+
+    private IReadOnlyList<StatusGroup> BuildStatusGroups()
+    {
+        return Items
+            .Where(item => item.StatusCode.HasValue)
+            .GroupBy(item => item.StatusCode!.Value)
+            .OrderBy(group => group.Key)
+            .Select(group => new StatusGroup(
+                group.Key,
+                group.Count(),
+                FormatMilliseconds(AverageMilliseconds(group.Select(item => item.TimeToFirstByte))),
+                FormatMilliseconds(AverageMilliseconds(group.Select(item => item.Duration)))))
+            .ToList();
+    }
+
+    private static double? AverageMilliseconds(IEnumerable<TimeSpan?> values)
+    {
+        var samples = values
+            .Where(value => value.HasValue)
+            .Select(value => value!.Value.TotalMilliseconds)
+            .ToList();
+
+        return samples.Count == 0 ? null : samples.Average();
+    }
+
+    private static string FormatMilliseconds(double? value) =>
+        value is null
+            ? "-"
+            : value.Value.ToString("0", CultureInfo.InvariantCulture) + "ms";
+
+    protected override void OnParametersSet()
+    {
+        if (HoveredItem is not null && !Items.Contains(HoveredItem))
+        {
+            HoveredItem = null;
+        }
+
+        if (SelectedItem is not null && !Items.Contains(SelectedItem))
+        {
+            SelectedItem = null;
+        }
+    }
+
+    private void SelectItem(MultiRequestStatusItem item)
+    {
+        SelectedItem = item;
+        SelectedDetailMode = DetailMode.VisionResult;
+        SelectedVisionTab = "summary";
+        SelectedVisionDisplayState = PanelDisplayState.Expanded;
+        SelectedRawTab = "response-body";
+        SelectedRawDisplayState = PanelDisplayState.Expanded;
+    }
+
+    private void CloseDetail()
+    {
+        SelectedItem = null;
+    }
+
+    private void SetDetailMode(DetailMode mode)
+    {
+        SelectedDetailMode = mode;
+    }
+
+    private Task SetSelectedVisionTabAsync(string tab)
+    {
+        SelectedVisionTab = tab;
+        return Task.CompletedTask;
+    }
+
+    private Task SetSelectedVisionDisplayStateAsync(PanelDisplayState state)
+    {
+        SelectedVisionDisplayState = state;
+        return Task.CompletedTask;
+    }
+
+    private Task SetSelectedRawTabAsync(string tab)
+    {
+        SelectedRawTab = tab;
+        return Task.CompletedTask;
+    }
+
+    private Task SetSelectedRawDisplayStateAsync(PanelDisplayState state)
+    {
+        SelectedRawDisplayState = state;
+        return Task.CompletedTask;
+    }
+
+    private void ShowMetrics(MultiRequestStatusItem item, MouseEventArgs args)
+    {
+        HoveredItem = item;
+        MoveMetrics(args);
+    }
+
+    private void MoveMetrics(MouseEventArgs args)
+    {
+        HoverLeft = (args.ClientX + 16).ToString("0", CultureInfo.InvariantCulture) + "px";
+        HoverTop = (args.ClientY + 16).ToString("0", CultureInfo.InvariantCulture) + "px";
+    }
+
+    private void HideMetrics()
+    {
+        HoveredItem = null;
+    }
+
+    private string GetDetailModeButtonClass(DetailMode mode) =>
+        SelectedDetailMode == mode ? "btn-primary" : "btn-outline-primary";
+
+    private string GetSelectedStatusMessage()
+    {
+        if (SelectedItem is null)
+        {
+            return string.Empty;
+        }
+
+        return string.IsNullOrWhiteSpace(SelectedItem.StatusMessage)
+            ? $"Request {SelectedItem.RequestNumber} {FormatStatus(SelectedItem)} {FormatDuration(SelectedItem.Duration)}".Trim()
+            : SelectedItem.StatusMessage;
+    }
+
+    private string GetFillWidth(MultiRequestStatusItem item)
+    {
+        var durationMilliseconds = item.Duration?.TotalMilliseconds ?? 0;
+        if (durationMilliseconds <= 0 || MaxDurationMilliseconds <= 0)
+        {
+            return item.IsRunning ? "8%" : "0%";
+        }
+
+        var width = Math.Clamp(durationMilliseconds / MaxDurationMilliseconds * 100, 3, 100);
+        return width.ToString("0.##", CultureInfo.InvariantCulture) + "%";
+    }
+
+    private static string GetThermometerClass(MultiRequestStatusItem item)
+    {
+        if (item.IsFailed)
+        {
+            return "failed";
+        }
+
+        if (item.IsComplete)
+        {
+            return "success";
+        }
+
+        return item.IsRunning ? "running" : string.Empty;
+    }
+
+    private static string GetStatusClass(MultiRequestStatusItem item)
+    {
+        if (item.IsFailed)
+        {
+            return "failed";
+        }
+
+        if (item.IsComplete)
+        {
+            return "success";
+        }
+
+        return item.IsRunning ? "running" : string.Empty;
+    }
+
+    private static string FormatDuration(TimeSpan? duration) =>
+        duration is null ? string.Empty : $"{duration.Value.TotalMilliseconds.ToString("0", CultureInfo.InvariantCulture)} ms";
+
+    private static string FormatStatus(MultiRequestStatusItem item)
+    {
+        if (item.StatusCode.HasValue)
+        {
+            return item.StatusCode.Value.ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (item.IsFailed)
+        {
+            return "Failed";
+        }
+
+        return item.IsRunning ? "..." : "-";
+    }
+}

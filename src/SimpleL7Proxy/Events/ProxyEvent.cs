@@ -142,7 +142,7 @@ namespace SimpleL7Proxy.Events
       MetricValues?.Clear();
     }
 
-    public ProxyEvent(ProxyEvent other) : base(other)
+    public ProxyEvent(ProxyEvent other) : base(other, StringComparer.OrdinalIgnoreCase)
     {
       if (other == null) throw new ArgumentNullException(nameof(other));
       Type = other.Type;
@@ -212,15 +212,22 @@ namespace SimpleL7Proxy.Events
             case EventType.Exception:
             case EventType.ServerError:
             case EventType.ProxyError:
-              Console.WriteLine("Sending event data to the console .. type: " + Type);
-              break;
-
             default:
+              // Console.WriteLine("Sending event data to the console .. type: " + Type);
+              // break;
+
               foreach (var kvp in this)
               {
                 sb.Append($"{kvp.Key}: {kvp.Value} ");
               }
               Console.WriteLine($"[{Type}]: {sb} ");
+
+              if ( Type == EventType.Exception && Exception != null )
+              {
+                Console.WriteLine($"Exception: {Exception.Message}"); 
+                Console.WriteLine($"Inner Exception: {Exception.InnerException?.Message}");
+                //Console.WriteLine($"Stack Trace: {Exception.StackTrace}");
+              }
               break;
           }
         }

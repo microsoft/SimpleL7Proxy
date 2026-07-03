@@ -89,7 +89,7 @@ fi
 echo -e "${YELLOW}Checking Azure login status...${NC}"
 az account show >/dev/null 2>&1 || az login >/dev/null
 
-SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
+SUBSCRIPTION_ID="$(az account show --query id -o tsv | tr -d '\r')"
 echo -e "${GREEN}Using subscription: ${SUBSCRIPTION_ID}${NC}"
 
 # ----------------------------------------------------------------------------

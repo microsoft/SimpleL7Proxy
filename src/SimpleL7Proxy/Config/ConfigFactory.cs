@@ -70,16 +70,17 @@ public static class ConfigFactory
 
     ProxyConfig envOptions;
 
-    if (warmSettings == null && coldSettings == null) {
+    if (warmSettings == null && coldSettings == null)
+    {
       envOptions = baseOptions.DeepClone();
     }
     else
     {
       var incoming = new Dictionary<string, string>(coldSettings ?? new Dictionary<string, string>());
-      if ( warmSettings != null)
+      if (warmSettings != null)
         foreach (var kvp in warmSettings) incoming[kvp.Key] = kvp.Value;
 
-      envOptions = ConfigParser.ApplyEnv(incoming, baseOptions);      
+      envOptions = ConfigParser.ApplyEnv(incoming, baseOptions);
     }
 
     ConfigParser.ConfigureHttpClient(envOptions);
@@ -103,46 +104,46 @@ public static class ConfigFactory
   {
     var (changes, parsedValues, hostChanges) = DetectWarmChanges(liveOptions, warm, logger);
     if (changes.Count == 0 && hostChanges.Count == 0)
-        return;
+      return;
 
     var fields = ConfigMetadata.GetFieldsByConfigName();
     var ds = new Dictionary<string, string>(1);
 
     foreach (var kvp in parsedValues)
     {
-        var field = fields[kvp.Key];
-        var before = field.GetValue(liveOptions); // TODO: remove debug
-        ds.Clear();
-        ds[kvp.Key] = kvp.Value?.ToString() ?? "";
-        liveOptions.ApplyFieldFromEnv(ds, kvp.Key, field.Name);
-        var after = field.GetValue(liveOptions); // TODO: remove debug
-        // Console.WriteLine($"[WARM] Applied {kvp.Key} ({field.Name}): '{before}' -> '{after}'"); // TODO: remove debug
+      var field = fields[kvp.Key];
+      var before = field.GetValue(liveOptions); // TODO: remove debug
+      ds.Clear();
+      ds[kvp.Key] = kvp.Value?.ToString() ?? "";
+      liveOptions.ApplyFieldFromEnv(ds, kvp.Key, field.Name);
+      var after = field.GetValue(liveOptions); // TODO: remove debug
+                                               // Console.WriteLine($"[WARM] Applied {kvp.Key} ({field.Name}): '{before}' -> '{after}'"); // TODO: remove debug
     }
 
     // Collect changed PropertyInfos for derived-settings recalculation.
     var changedProps = new List<System.Reflection.PropertyInfo>(changes.Count);
     foreach (var change in changes)
     {
-        if (fields.TryGetValue(change.PropertyName, out var prop))
-            changedProps.Add(prop);
+      if (fields.TryGetValue(change.PropertyName, out var prop))
+        changedProps.Add(prop);
     }
     // Console.WriteLine($"[WARM] {changedProps.Count} derived-settings prop(s) to recalculate"); // TODO: remove debug
     if (changedProps.Count > 0)
-        ConfigParser.ApplyDerivedSettings(liveOptions, [.. changedProps]);
+      ConfigParser.ApplyDerivedSettings(liveOptions, [.. changedProps]);
 
     if (hostChanges.Count > 0)
     {
-        // Console.WriteLine($"[WARM] {hostChanges.Count} host change(s) detected, re-registering backends"); // TODO: remove debug
-        RegisterBackends(liveOptions, null, hostChanges, hostCollection);
+      // Console.WriteLine($"[WARM] {hostChanges.Count} host change(s) detected, re-registering backends"); // TODO: remove debug
+      RegisterBackends(liveOptions, null, hostChanges, hostCollection);
     }
 
     if (changes.Count > 0)
     {
-        // Console.WriteLine($"[WARM] Notifying {changes.Count} change(s): {string.Join(", ", changes.Select(c => c.PropertyName))}"); // TODO: remove debug
-        logger.LogInformation("[BOOTSTRAP] Applied {Count} warm change(s): {Names}",
-            changes.Count, string.Join(", ", changes.Select(c => c.PropertyName)));
-        if (notifier != null)
-            await notifier.NotifyAsync(changes, liveOptions, ct);
+      // Console.WriteLine($"[WARM] Notifying {changes.Count} change(s): {string.Join(", ", changes.Select(c => c.PropertyName))}"); // TODO: remove debug
+      logger.LogInformation("[BOOTSTRAP] Applied {Count} warm change(s): {Names}",
+          changes.Count, string.Join(", ", changes.Select(c => c.PropertyName)));
+      if (notifier != null)
+        await notifier.NotifyAsync(changes, liveOptions, ct);
     }
   }
 
@@ -168,70 +169,70 @@ public static class ConfigFactory
 
     foreach (var kvp in warm)
     {
-        var (key, rawValue) = (kvp.Key, kvp.Value);
-        if (string.IsNullOrEmpty(rawValue)) continue;
+      var (key, rawValue) = (kvp.Key, kvp.Value);
+      if (string.IsNullOrEmpty(rawValue)) continue;
 
-        // Host keys are handled separately via RegisterBackends.
-        if (key.StartsWith("Host", StringComparison.OrdinalIgnoreCase)
-          || key.StartsWith("Probe", StringComparison.OrdinalIgnoreCase)
-          || key.StartsWith("IP", StringComparison.OrdinalIgnoreCase)
-          || key.StartsWith("Api_Key", StringComparison.OrdinalIgnoreCase))
-        {
-            hostChanges[key] = rawValue;
-            continue;
-        }
+      // Host keys are handled separately via RegisterBackends.
+      if (key.StartsWith("Host", StringComparison.OrdinalIgnoreCase)
+        || key.StartsWith("Probe", StringComparison.OrdinalIgnoreCase)
+        || key.StartsWith("IP", StringComparison.OrdinalIgnoreCase)
+        || key.StartsWith("Api_Key", StringComparison.OrdinalIgnoreCase))
+      {
+        hostChanges[key] = rawValue;
+        continue;
+      }
 
-        // Resolve the warm descriptor (try key-path first, then config name).
-        if (!ConfigMetadata.WarmDescriptorsByKeyPath.TryGetValue(key, out var descriptor)
-            && !ConfigMetadata.WarmDescriptorsByConfigName.TryGetValue(key, out descriptor))
-            continue;
+      // Resolve the warm descriptor (try key-path first, then config name).
+      if (!ConfigMetadata.WarmDescriptorsByKeyPath.TryGetValue(key, out var descriptor)
+          && !ConfigMetadata.WarmDescriptorsByConfigName.TryGetValue(key, out descriptor))
+        continue;
 
-        var configName = descriptor.ConfigName;
-        if (!ConfigMetadata.TryGetFieldByConfigName(configName, out var field) || field == null)
-            continue;
+      var configName = descriptor.ConfigName;
+      if (!ConfigMetadata.TryGetFieldByConfigName(configName, out var field) || field == null)
+        continue;
 
-        // Capture the current live value before applying.
-        var currentValue = field.GetValue(liveOptions);
+      // Capture the current live value before applying.
+      var currentValue = field.GetValue(liveOptions);
 
-        // Parse the raw value by applying directly to liveOptions (single parse).
-        env.Clear();
-        env[configName] = rawValue;
-        liveOptions.ApplyFieldFromEnv(env, configName, field.Name);
-        var newValue = field.GetValue(liveOptions);
+      // Parse the raw value by applying directly to liveOptions (single parse).
+      env.Clear();
+      env[configName] = rawValue;
+      liveOptions.ApplyFieldFromEnv(env, configName, field.Name);
+      var newValue = field.GetValue(liveOptions);
 
-        // If unchanged, skip.
-        if (DeepEquals(currentValue, newValue)) continue;
+      // If unchanged, skip.
+      if (DeepEquals(currentValue, newValue)) continue;
 
-        Console.WriteLine($"[WARM-V2] Applied {configName} ({field.Name}): '{currentValue}' -> '{newValue}'"); // TODO: remove debug
+      Console.WriteLine($"[WARM-V2] Applied {configName} ({field.Name}): '{currentValue}' -> '{newValue}'"); // TODO: remove debug
 
-        changedProps.Add(field);
-        changeList.Add(new ConfigChange
-        {
-            PropertyName = configName,
-            KeyPath = descriptor.Attribute.KeyPath,
-            RawOldValue = currentValue,
-            RawNewValue = newValue
-        });
+      changedProps.Add(field);
+      changeList.Add(new ConfigChange
+      {
+        PropertyName = configName,
+        KeyPath = descriptor.Attribute.KeyPath,
+        RawOldValue = currentValue,
+        RawNewValue = newValue
+      });
     }
 
     if (changeList.Count == 0 && hostChanges.Count == 0)
-        return;
+      return;
 
     // Recalculate derived settings for any changed properties.
     if (changedProps.Count > 0)
-        ConfigParser.ApplyDerivedSettings(liveOptions, [.. changedProps]);
+      ConfigParser.ApplyDerivedSettings(liveOptions, [.. changedProps]);
 
     // Re-register backends if host keys changed.
     if (hostChanges.Count > 0)
-        RegisterBackends(liveOptions, null, hostChanges, hostCollection);
+      RegisterBackends(liveOptions, null, hostChanges, hostCollection);
 
     // Notify subscribers.
     if (changeList.Count > 0)
     {
-        logger.LogInformation("[BOOTSTRAP] Applied {Count} warm change(s): {Names}",
-            changeList.Count, string.Join(", ", changeList.Select(c => c.PropertyName)));
-        if (notifier != null)
-            await notifier.NotifyAsync(changeList, liveOptions, ct);
+      logger.LogInformation("[BOOTSTRAP] Applied {Count} warm change(s): {Names}",
+          changeList.Count, string.Join(", ", changeList.Select(c => c.PropertyName)));
+      if (notifier != null)
+        await notifier.NotifyAsync(changeList, liveOptions, ct);
     }
   }
 
@@ -252,46 +253,46 @@ public static class ConfigFactory
 
     foreach (var kvp in warmSettings)
     {
-        var rawValue = kvp.Value;
-        if (string.IsNullOrEmpty(rawValue)) continue;
+      var rawValue = kvp.Value;
+      if (string.IsNullOrEmpty(rawValue)) continue;
 
-        var key = kvp.Key;
-        if (key.StartsWith("Host", StringComparison.OrdinalIgnoreCase)
-          || key.StartsWith("Probe", StringComparison.OrdinalIgnoreCase)
-          || key.StartsWith("IP", StringComparison.OrdinalIgnoreCase)
-          || key.StartsWith("Api_Key", StringComparison.OrdinalIgnoreCase))
-        {
-            hostChanges[key] = rawValue;
-            continue;
-        }
+      var key = kvp.Key;
+      if (key.StartsWith("Host", StringComparison.OrdinalIgnoreCase)
+        || key.StartsWith("Probe", StringComparison.OrdinalIgnoreCase)
+        || key.StartsWith("IP", StringComparison.OrdinalIgnoreCase)
+        || key.StartsWith("Api_Key", StringComparison.OrdinalIgnoreCase))
+      {
+        hostChanges[key] = rawValue;
+        continue;
+      }
 
-        if (!ConfigMetadata.WarmDescriptorsByKeyPath.TryGetValue(key, out var descriptor)
-            && !ConfigMetadata.WarmDescriptorsByConfigName.TryGetValue(key, out descriptor))
-            continue;
+      if (!ConfigMetadata.WarmDescriptorsByKeyPath.TryGetValue(key, out var descriptor)
+          && !ConfigMetadata.WarmDescriptorsByConfigName.TryGetValue(key, out descriptor))
+        continue;
 
-        var configName = descriptor.ConfigName;
-        if (!ConfigMetadata.TryGetFieldByConfigName(configName, out var field) || field == null)
-            continue;
+      var configName = descriptor.ConfigName;
+      if (!ConfigMetadata.TryGetFieldByConfigName(configName, out var field) || field == null)
+        continue;
 
-        var currentValue = field.GetValue(liveOptions);
+      var currentValue = field.GetValue(liveOptions);
 
-        // Parse the raw value via ApplyFieldFromEnv on a throwaway target.
-        env.Clear();
-        env[configName] = rawValue;
+      // Parse the raw value via ApplyFieldFromEnv on a throwaway target.
+      env.Clear();
+      env[configName] = rawValue;
 
-        defaultTarget.ApplyFieldFromEnv(env, configName, field.Name);
-        var newValue = field.GetValue(defaultTarget);
+      defaultTarget.ApplyFieldFromEnv(env, configName, field.Name);
+      var newValue = field.GetValue(defaultTarget);
 
-        if (DeepEquals(currentValue, newValue)) continue;
+      if (DeepEquals(currentValue, newValue)) continue;
 
-        updates[configName] = newValue;
-        changeList.Add(new ConfigChange
-        {
-            PropertyName = configName,
-            KeyPath = descriptor.Attribute.KeyPath,
-            RawOldValue = currentValue,
-            RawNewValue = newValue
-        });
+      updates[configName] = newValue;
+      changeList.Add(new ConfigChange
+      {
+        PropertyName = configName,
+        KeyPath = descriptor.Attribute.KeyPath,
+        RawOldValue = currentValue,
+        RawNewValue = newValue
+      });
     }
 
     return (changeList, updates, hostChanges);
@@ -306,14 +307,14 @@ public static class ConfigFactory
 
     return (a, b) switch
     {
-        (int[] la, int[] lb) => la.SequenceEqual(lb),
-        (IList<string> la, IList<string> lb) => la.SequenceEqual(lb),
-        (IList<int> la, IList<int> lb) => la.SequenceEqual(lb),
-        (IDictionary<string, string> da, IDictionary<string, string> db) =>
-            da.Count == db.Count && da.All(kvp => db.TryGetValue(kvp.Key, out var v) && v == kvp.Value),
-        (IDictionary<int, int> da, IDictionary<int, int> db) =>
-            da.Count == db.Count && da.All(kvp => db.TryGetValue(kvp.Key, out var v) && v == kvp.Value),
-        _ => Equals(a, b)
+      (int[] la, int[] lb) => la.SequenceEqual(lb),
+      (IList<string> la, IList<string> lb) => la.SequenceEqual(lb),
+      (IList<int> la, IList<int> lb) => la.SequenceEqual(lb),
+      (IDictionary<string, string> da, IDictionary<string, string> db) =>
+          da.Count == db.Count && da.All(kvp => db.TryGetValue(kvp.Key, out var v) && v == kvp.Value),
+      (IDictionary<int, int> da, IDictionary<int, int> db) =>
+          da.Count == db.Count && da.All(kvp => db.TryGetValue(kvp.Key, out var v) && v == kvp.Value),
+      _ => Equals(a, b)
     };
   }
 
@@ -350,7 +351,7 @@ public static class ConfigFactory
         _ => hidden
       };
       bucket[$"{attr.Mode}:{attr.KeyPath}"] = display;
-      pe[attr.KeyPath]= display;  
+      pe[attr.KeyPath] = display;
     }
 
     pe.SendEvent();
@@ -472,9 +473,9 @@ public static class ConfigFactory
   /// Optionally appends to /etc/hosts for Linux container deployments.
   /// </summary>
   public static void RegisterBackends(
-    ProxyConfig backendOptions, 
-    IConfiguration? fallbackConfig = null, 
-    Dictionary<string, string>? appConfigSettings = null, 
+    ProxyConfig backendOptions,
+    IConfiguration? fallbackConfig = null,
+    Dictionary<string, string>? appConfigSettings = null,
     IHostHealthCollection? hostCollection = null)
   {
     // Resolve a key using cascading priority:
@@ -498,10 +499,12 @@ public static class ConfigFactory
 
     var hostsFileContent = new StringBuilder();
 
-    foreach (var entry in ReadHostEntries(ReadWithFallback))
+    var namedHostKeys = CollectNamedHostKeys(appConfigSettings, fallbackConfig);
+
+    foreach (var entry in ReadHostEntries(ReadWithFallback, namedHostKeys))
     {
-        try
-        {
+      try
+      {
         var hostname = entry.Hostname;
         if (!string.IsNullOrWhiteSpace(entry.ApiKey))
         {
@@ -509,13 +512,17 @@ public static class ConfigFactory
         }
 
         var hostConfig = new HostConfig(hostname, entry.ProbePath, entry.Ip);//, backendOptions.OAuthAudience);
-            hostCollection?.StageHost(hostConfig);
-            hostsFileContent.AppendLine($"{entry.Ip} {hostConfig.Host}");
-        }
-        catch (UriFormatException e)
-        {
-            _logger?.LogError(e, "Could not add {HostKey} with {Hostname}", entry.HostKey, entry.Hostname);
-        }
+        hostCollection?.StageHost(hostConfig);
+        hostsFileContent.AppendLine($"{entry.Ip} {hostConfig.Host}");
+      }
+      catch (HostConfigDisabledException e)
+      {
+        _logger?.LogInformation(e, "Skipping disabled backend host {HostKey}: {Host}", entry.HostKey, e.Host);
+      }
+      catch (UriFormatException e)
+      {
+        _logger?.LogError(e, "Could not add {HostKey} with {Hostname}", entry.HostKey, entry.Hostname);
+      }
     }
 
     AppendHostsFileIfEnabled(
@@ -527,13 +534,22 @@ public static class ConfigFactory
 
   private record ParsedHostEntry(string HostKey, string Hostname, string? ProbePath, string? Ip, string? ApiKey);
 
-  /// <summary>Yields Host1..N entries until a gap is found.</summary>
-  private static IEnumerable<ParsedHostEntry> ReadHostEntries(Func<string, string?> readWithFallback)
+  private static readonly string[] s_hostApiKeySuffixes = ["-api-key", "_api_key", "-api_key", "_api-key"];
+
+  /// <summary>
+  /// Yields backend host entries: first the numeric Host1..N series (stopping at the first
+  /// gap), then any named Host-&lt;name&gt;/Host_&lt;name&gt; entries discovered in configuration.
+  /// For a named host, the paired keys mirror the suffix: e.g. Host-eastus pairs with
+  /// IP-eastus, Probe_path-eastus, and Host-eastus-api-key.
+  /// </summary>
+  private static IEnumerable<ParsedHostEntry> ReadHostEntries(
+      Func<string, string?> readWithFallback,
+      IEnumerable<string> namedHostKeys)
   {
     for (int i = 1; ; i++)
     {
       var hostname = readWithFallback($"Host{i}");
-      if (string.IsNullOrEmpty(hostname)) yield break;
+      if (string.IsNullOrEmpty(hostname)) break;
 
       var apiKey = readWithFallback($"Host{i}-api-key") ?? readWithFallback($"Host{i}-api_key") ?? readWithFallback($"Host{i}_api_key");
 
@@ -545,6 +561,127 @@ public static class ConfigFactory
           apiKey
       );
     }
+
+    foreach (var hostKey in namedHostKeys)
+    {
+      var hostname = readWithFallback(hostKey);
+      if (string.IsNullOrEmpty(hostname)) continue;
+
+      // Suffix after "Host", including the separator (e.g. "-eastus"). Paired IP/Probe_path
+      // keys reuse the same suffix so naming stays consistent with the numeric series.
+      var suffix = hostKey["Host".Length..];
+
+      var apiKey = readWithFallback($"{hostKey}-api-key")
+          ?? readWithFallback($"{hostKey}-api_key")
+          ?? readWithFallback($"{hostKey}_api_key");
+
+      yield return new ParsedHostEntry(
+          hostKey,
+          hostname,
+          readWithFallback($"Probe_path{suffix}"),
+          readWithFallback($"IP{suffix}"),
+          apiKey
+      );
+    }
+  }
+
+  /// <summary>
+  /// Discovers named backend host root keys (Host-&lt;name&gt; / Host_&lt;name&gt;) across all
+  /// configuration sources: the App Configuration snapshot, the fallback IConfiguration
+  /// (Warm:/Cold: prefixes stripped), and OS environment variables. API-key variants and
+  /// the numeric Host1..N series are excluded; results are de-duplicated case-insensitively.
+  /// </summary>
+  private static List<string> CollectNamedHostKeys(
+      Dictionary<string, string>? appConfigSettings,
+      IConfiguration? fallbackConfig)
+  {
+    var roots = new List<string>();
+    var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    foreach (var rawKey in EnumerateConfigKeys(appConfigSettings, fallbackConfig))
+    {
+      var key = StripWarmColdPrefix(rawKey);
+      if (IsNamedHostRoot(key) && seen.Add(key))
+      {
+        roots.Add(key);
+      }
+    }
+
+    return roots;
+  }
+
+  private static IEnumerable<string> EnumerateConfigKeys(
+      Dictionary<string, string>? appConfigSettings,
+      IConfiguration? fallbackConfig)
+  {
+    if (appConfigSettings != null)
+    {
+      foreach (var key in appConfigSettings.Keys)
+      {
+        yield return key;
+      }
+    }
+
+    if (fallbackConfig != null)
+    {
+      foreach (var pair in fallbackConfig.AsEnumerable())
+      {
+        if (pair.Key != null)
+        {
+          yield return pair.Key;
+        }
+      }
+    }
+
+    foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
+    {
+      if (entry.Key is string key)
+      {
+        yield return key;
+      }
+    }
+  }
+
+  private static string StripWarmColdPrefix(string key)
+  {
+    if (key.StartsWith("Warm:", StringComparison.OrdinalIgnoreCase))
+    {
+      return key["Warm:".Length..];
+    }
+    if (key.StartsWith("Cold:", StringComparison.OrdinalIgnoreCase))
+    {
+      return key["Cold:".Length..];
+    }
+    return key;
+  }
+
+  /// <summary>
+  /// True when <paramref name="key"/> names a named host root: "Host" followed by a
+  /// '-'/'_' separator and at least one more character, and not an api-key variant.
+  /// This deliberately excludes "HostN" (numeric) and the unrelated "Hostname" setting.
+  /// </summary>
+  private static bool IsNamedHostRoot(string key)
+  {
+    if (key.Length < 6 || !key.StartsWith("Host", StringComparison.OrdinalIgnoreCase))
+    {
+      return false;
+    }
+
+    var separator = key["Host".Length];
+    if (separator != '-' && separator != '_')
+    {
+      return false;
+    }
+
+    foreach (var apiKeySuffix in s_hostApiKeySuffixes)
+    {
+      if (key.EndsWith(apiKeySuffix, StringComparison.OrdinalIgnoreCase))
+      {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   /// <summary>Appends host/IP pairs to /etc/hosts when APPENDHOSTSFILE=true.</summary>

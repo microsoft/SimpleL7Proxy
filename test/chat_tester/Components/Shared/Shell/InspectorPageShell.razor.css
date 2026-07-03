@@ -1,0 +1,137 @@
+.inspector-page-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+    width: 100%;
+    min-width: 0;
+}
+
+.inspector-page-title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 1rem;
+    min-width: 0;
+}
+
+.inspector-page-shell {
+    position: relative;
+    min-height: 100vh;
+    padding: 5.25rem 1.25rem 1.25rem 1.75rem;
+    background: #fff;
+}
+
+.inspector-page-controls {
+    position: absolute;
+    top: 0.5rem;
+    right: 1.5rem;
+    left: auto;
+    width: 28rem;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.25rem;
+    max-width: none;
+    min-height: 2.4rem;
+    padding: 0.35rem 0.75rem 0.4rem;
+    background: rgba(247, 247, 247, 0.98);
+    border: 1px solid #d6d5d5;
+    border-radius: 0.25rem;
+}
+
+.inspector-page-control-row {
+    display: flex;
+    align-items: stretch;
+    justify-content: space-between;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.inspector-page-control-row ::deep .history-top-selector {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.inspector-page-control-row ::deep .history-top-select {
+    width: 100%;
+    min-width: 0;
+}
+
+.inspector-collapse-controls {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 0.35rem;
+}
+
+.inspector-collapse-controls ::deep .form-check {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.inspector-panel-toggles {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.85rem;
+    min-height: 1.35rem;
+    color: #495057;
+    font-size: 0.86rem;
+    font-weight: 600;
+}
+
+.inspector-panel-toggles .form-check-inline {
+    margin-right: 0;
+}
+
+.inspector-panel-toggles .form-check-input {
+    margin-top: 0.18rem;
+}
+
+.inspector-page-content {
+    width: 100%;
+    max-width: none;
+}
+
+@media (max-width: 767.98px) {
+    .inspector-page-heading {
+        width: 100%;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.75rem;
+    }
+
+    .inspector-page-title {
+        gap: 0.5rem;
+    }
+
+    .inspector-page-shell {
+        padding: 10.25rem 0.75rem 0.75rem;
+    }
+
+    .inspector-page-controls {
+        top: 3.85rem;
+        right: 0.75rem;
+        left: 0.75rem;
+        width: auto;
+    }
+
+    .inspector-page-control-row {
+        flex-wrap: wrap;
+        justify-content: flex-start;
+    }
+
+    .inspector-collapse-controls {
+        width: 100%;
+        align-items: flex-start;
+    }
+
+    .inspector-panel-toggles {
+        justify-content: flex-start;
+        flex-wrap: wrap;
+    }
+}

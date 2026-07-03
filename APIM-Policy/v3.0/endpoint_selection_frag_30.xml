@@ -1,0 +1,178 @@
+<fragment>
+
+<!--
+    =========================================================================
+    ENDPOINT CONFIGURATION
+    =========================================================================
+    Edit this file to configure the endpoints for your models.
+        1. Headers          - header names your client sends
+        2. BACKEND CATALOG  - the list of backends for each model.
+        3. PRIORITY RULES   - how many retries each request priority gets.
+        4. AUTH RESOURCE    - the token audience for each model if using MI
+
+    Each model maps to a set of named backends. The name (e.g. "PAYGO") is the
+    label shown in the logs. Each backend has these fields:
+        url                   the base address of the backend service
+        path                  appended to the url (usually "openai")
+        priority              lower number is tried first (1 before 2)
+        acceptablePriorities  which request priorities it serves (1, 2, 3)
+        timeout               seconds to wait before giving up
+        auth                  "MI" for Managed Identity
+
+    To ADD a backend:  copy an existing line and change the name/values.
+    To ADD a model:    copy an existing model block in the BACKEND CATALOG,
+                        rename it, then add a matching entry in AUTH RESOURCE.
+    =========================================================================
+-->
+    <!-- Headers your client sends to the APIM -->
+    <set-variable name="priorityHeaderName" value="x-S7PPriority" />
+    <set-variable name="PolicyCycleCounterHeaderName" value="x-PolicyCycleCounter" />
+    <set-variable name="AffinityHeaderName" value="x-backend-affinity" />
+    <set-variable name="modelHeaderName" value="x-LLMModel" />
+
+    <!-- ================= BACKEND CATALOG (edit me) =================
+        Each model name maps to the list of backends it may use.
+        "DEFAULT" is used when the requested model is not listed here. -->
+    <set-variable name="backendCatalog" value="@{
+        return new JObject {
+
+            ["gpt-4o"] = new JObject {
+                ["BAD-PAYGO"] = new JObject { ["url"] = "https://nvm2sd.openai.azure.com/", ["path"] = "openai", ["priority"] = 1, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 10, ["auth"] = "MI" },
+                ["PAYGO"]     = new JObject { ["url"] = "https://nvm2.openai.azure.com/",   ["path"] = "openai", ["priority"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 10, ["auth"] = "MI" }
+            },
+
+            ["phi-4-reasoning"] = new JObject {
+                ["PHI-4"] = new JObject { ["url"] = "https://nvmaitest.services.ai.azure.com/", ["path"] = "openai", ["priority"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 40, ["auth"] = "MI" }
+            },
+
+            ["computervision"] = new JObject {
+                ["DEFAULT"] = new JObject { ["url"] = "https://cvnvm2.cognitiveservices.azure.com/", ["path"] = "", ["priority"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 10, ["auth"] = "MI" }
+            },
+
+            ["DEFAULT"] = new JObject {
+                ["DEFAULT"] = new JObject { ["url"] = "https://nvm2.openai.azure.com/", ["path"] = "openai", ["priority"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 10, ["auth"] = "MI" }
+            }
+        };
+    }" />
+
+    <!-- ================= PRIORITY RULES (edit me) =================
+        For each request priority (1, 2, 3), set:
+            retryCount = how many times to retry
+            requeue    = whether the request may be sent back to the queue -->
+    <set-variable name="priorityCfg" value="@{
+        return new JObject {
+            ["1"] = new JObject { ["retryCount"] = 2, ["requeue"] = false },
+            ["2"] = new JObject { ["retryCount"] = 2, ["requeue"] = false },
+            ["3"] = new JObject { ["retryCount"] = 2, ["requeue"] = false }
+        };
+    }" />
+
+    <!-- ================= AUTH RESOURCE (edit me) =================
+        Managed Identity token audience (resource) for each model. All backends
+        for a model share one token, so this is set per model, not per backend.
+        "DEFAULT" is used when the model is not listed. -->
+    <set-variable name="authResourceByModel" value="@{
+        return new JObject {
+            ["gpt-4o"]          = "https://cognitiveservices.azure.com",
+            ["phi-4-reasoning"] = "https://cognitiveservices.azure.com",
+            ["computervision"]  = "https://cognitiveservices.azure.com",
+            ["DEFAULT"]         = "https://cognitiveservices.azure.com"
+        };
+    }" />
+
+    <!-- Which model does this request want?
+        Callers pass the model header (modelHeaderName). If it is missing we use
+        DefaultModel (set in the main policy). No need to edit this. -->
+    <set-variable name="model" value="@{
+        string defaultModel = (string)context.Variables["DefaultModel"];
+        string modelHeaderName = (string)context.Variables["modelHeaderName"];
+        string requested = context.Request.Headers.GetValueOrDefault(modelHeaderName, defaultModel);
+        requested = requested?.Trim().ToLowerInvariant();
+        return string.IsNullOrWhiteSpace(requested) ? defaultModel?.Trim().ToLowerInvariant() : requested;
+    }" />
+
+    <!-- Picks the backend list for this request's model from the catalog above.
+        Falls back to "DEFAULT" if the model is unknown. No need to edit this. -->
+    <set-variable name="selectedBackends" value="@{
+        JObject catalog = (JObject)context.Variables["backendCatalog"];
+        string model = (string)context.Variables["model"];
+        JObject backends = !string.IsNullOrEmpty(model) ? catalog[model] as JObject : null;
+        if (backends == null || backends.Count == 0) {
+            backends = (JObject)catalog["DEFAULT"];
+        }
+        return backends;
+    }" />
+
+    <!-- Picks the token audience for this request's model. No need to edit. -->
+    <set-variable name="authResource" value="@{
+        JObject map = (JObject)context.Variables["authResourceByModel"];
+        string model = (string)context.Variables["model"];
+        string res = !string.IsNullOrEmpty(model) ? map[model]?.ToString() : null;
+        return string.IsNullOrEmpty(res) ? map["DEFAULT"].ToString() : res;
+    }" />
+
+    <!-- Convert the editable catalog rows into the runtime backend list:
+        join url+path, apply defaults, compute the affinity id (hash of url+label),
+        and initialize throttle state. No need to edit. -->
+    <set-variable name="listBackends" value="@{
+        JObject selected = (JObject)context.Variables["selectedBackends"];
+        JArray backends = new JArray();
+        string salt = "0123456789"; // 10-digit salt
+        using (var sha = System.Security.Cryptography.SHA256.Create()) {
+        foreach (var prop in selected.Properties()) {
+            JObject src = (JObject)prop.Value;
+            JObject backend = new JObject();
+
+            // The property name is the backend label shown in the logs.
+            backend["label"] = prop.Name;
+
+            // Required fields.
+            backend["url"] = src.Value<string>("url") ?? "";
+            backend["priorityGroup"] = src["priority"]?.Value<int>() ?? src["priorityGroup"]?.Value<int>() ?? 1;
+            backend["timeout"] = (src["timeout"] != null && src["timeout"].Type != JTokenType.Null) ? src.Value<int>("timeout") : 10;
+
+            // Optional fields with defaults.
+            backend["path"] = (src["path"] != null && src["path"].Type != JTokenType.Null) ? src.Value<string>("path") : "openai";
+            backend["auth"] = (src["auth"] != null && src["auth"].Type != JTokenType.Null) ? src.Value<string>("auth") : "MI";
+            // acceptablePriorities may be a JArray ([1,2,3]) or a comma-separated string ("1,2,3").
+            JToken ap = src["acceptablePriorities"];
+            JArray priorities;
+            if (ap != null && ap.Type == JTokenType.Array) {
+                priorities = (JArray)ap.DeepClone();
+            } else if (ap != null && ap.Type == JTokenType.String) {
+                priorities = new JArray();
+                foreach (string part in ap.Value<string>().Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries)) {
+                    if (int.TryParse(part.Trim(), out int p)) { priorities.Add(p); }
+                }
+            } else {
+                priorities = new JArray();
+            }
+            if (priorities.Count == 0) { priorities = new JArray(1, 2, 3); }
+            backend["acceptablePriorities"] = priorities;
+            backend["limitConcurrency"] = string.IsNullOrWhiteSpace(src.Value<string>("limitConcurrency")) ? "off" : src.Value<string>("limitConcurrency");
+            backend["bufferResponse"] = (src["bufferResponse"] != null && src["bufferResponse"].Type != JTokenType.Null) ? src["bufferResponse"].DeepClone() : true;
+
+            // Join url + path.
+            string rawUrl = (backend.Value<string>("url") ?? "").TrimEnd('/');
+            string rawPath = (backend.Value<string>("path") ?? "").TrimStart('/');
+            string joinedUrl = string.IsNullOrEmpty(rawPath) ? rawUrl : (rawUrl + "/" + rawPath);
+            backend["url"] = joinedUrl;
+
+            // Unique per-backend id: hash of url + label.
+            string saltedUrl = salt + joinedUrl + prop.Name;
+            backend["affinity"] = string.Concat(
+                sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(saltedUrl))
+                .Take(10)
+                .Select(x => x.ToString("x2"))
+            );
+            backend["isThrottling"] = false;
+            backend["retryAfter"] = DateTime.MinValue;
+            backend["defaultRetryAfter"] = 10;
+
+            backends.Add(backend);
+        }
+        }
+        return backends;
+    }" />
+
+    </fragment>

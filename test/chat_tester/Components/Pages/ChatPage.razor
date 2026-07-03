@@ -1,0 +1,671 @@
+@page "/chat"
+@namespace chat_tester.Components.Pages
+@rendermode InteractiveServer
+@inject IOptions<ChatTesterOptions> Options
+@inject HttpClient Http
+@inject IJSRuntime JS
+@inject RequestDebugSettings DebugSettings
+@inject ChatHistoryStore ChatHistoryStore
+@inject ChatConversationStore ChatConversationStore
+@implements IDisposable
+@using chat_tester.Components.Shared
+@using Microsoft.Extensions.Options
+@using System.Diagnostics
+@using System.Globalization
+@using System.Text
+
+<PageTitle>Chat</PageTitle>
+
+<SectionContent SectionName="page-heading">
+    <div class="d-flex flex-wrap align-items-baseline gap-3">
+        <h1 class="h4 mb-0">Chat</h1>
+        <span class="text-muted small mb-0">Send each prompt with the conversation history.</span>
+    </div>
+</SectionContent>
+
+<div class="row g-4 multi-step-layout">
+    <div class="col-12 request-col">
+        <TestFormPanel @ref="FormPanel"
+                      Settings="AuthSettings"
+                      UserSettings="UserSettings"
+                      HeaderSettings="HeaderSettings"
+                      InitialServerBaseUrl="@InitialServerBaseUrl"
+                      HeaderSubtitle="Each request includes the prior turns."
+                      CardTitle="Chat settings"
+                      PromptTabLabel="Model"
+                      SubmitLabel="Send next turn"
+                      BusyLabel="Sending..."
+                      IsBusy="@IsRunning"
+                      ShowSubmitButton="false"
+                      OnSubmit="SendNextTurnAsync">
+            <PromptContent>
+                <RequestBodyPanel @ref="BodyPanel"
+                                      Rows="8"
+                                      InitialBody="@InitialRequestBody"
+                                      InitialEndpointPath="@InitialEndpointPath"
+                                      InitialContentType="@InitialContentType"
+                                      AllowModeToggle="false"
+                                      ShowPrompt="false" />
+            </PromptContent>
+        </TestFormPanel>
+    </div>
+
+    <div class="col-12 chat-col">
+        <div class="card shadow-sm multi-chat-card h-100">
+            <div class="card-header bg-primary text-white d-flex flex-wrap align-items-baseline gap-2">
+                <span class="fw-semibold">Chat</span>
+                <span class="text-white-50 small">@StatusMessage</span>
+                <div class="conversation-toolbar ms-auto">
+                    <select class="form-select form-select-sm conversation-select" value="@SelectedConversationId" @onchange="OnConversationChangedAsync" disabled="@IsRunning" title="Recall a previous conversation">
+                        <option value="">New conversation</option>
+                        @foreach (var conversation in ConversationChoices)
+                        {
+                            <option value="@conversation.Id">@FormatConversationOption(conversation)</option>
+                        }
+                    </select>
+                    <button class="btn btn-sm btn-light" type="button" disabled="@IsRunning" @onclick="StartNewConversation">New</button>
+                    <button class="btn btn-sm btn-light" type="button" disabled="@(IsRunning || Conversation.Count == 0)" @onclick="ClearConversation">Clear</button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="conversation-scroll" @ref="ConversationRef">
+                    <div class="conversation-content">
+                        @if (Conversation.Count == 0 && !IsRunning)
+                        {
+                            <div class="empty-conversation text-muted">No turns yet.</div>
+                        }
+                        else
+                        {
+                            @foreach (var turn in Conversation)
+                            {
+                                <div class="turn-group">
+                                    <ChatBubble Role="User" Message="@turn.UserMessage" />
+                                    <ChatBubble Role="Assistant"
+                                                 Message="@turn.AssistantMessage"
+                                                 Status="@turn.Status"
+                                                 Metrics="@turn.Metrics"
+                                                 RequestHeadersText="@turn.RequestHeadersText"
+                                                 ResponseHeadersText="@turn.ResponseHeadersText"
+                                                 RawResponseText="@turn.RawResponseText" />
+                                </div>
+                            }
+
+                            @if (PendingTurn is not null)
+                            {
+                                <div class="turn-group active-turn">
+                                    <ChatBubble Role="User" Message="@PendingTurn.UserMessage" />
+                                    <ChatBubble Role="Assistant" Message="@PendingTurn.AssistantMessage" Status="Streaming" />
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer chat-composer">
+                <label class="form-label small text-muted" for="multiStepChatInput">Message</label>
+                <div class="chat-composer-row">
+                    <textarea class="form-control" id="multiStepChatInput" rows="3" placeholder="Type the next message..." @ref="ChatInputRef" @bind="ChatInput" @bind:event="oninput"></textarea>
+                    <button class="btn btn-primary composer-send" type="button" disabled="@(!CanSend)" @onclick="SendNextTurnAsync">
+                        @(IsRunning ? "Sending..." : "Send")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    body {
+        overflow: hidden;
+    }
+
+    article.content {
+        height: calc(100dvh - 3.5rem);
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .multi-step-layout {
+        flex: 1 1 auto;
+        height: auto;
+        max-height: none;
+        min-height: 0;
+        overflow: hidden;
+        align-items: stretch;
+    }
+
+    .multi-step-layout > .request-col,
+    .multi-step-layout > .chat-col {
+        height: 100%;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .multi-step-layout > .request-col > .card,
+    .multi-step-layout > .chat-col > .card {
+        width: 100%;
+        height: 100%;
+        max-height: 100%;
+        min-height: 0;
+    }
+
+    .multi-step-layout > .request-col > .card > .card-body {
+        min-height: 0;
+        overflow-y: auto;
+    }
+
+    .multi-chat-card {
+        display: flex;
+        height: 100%;
+        max-height: 100%;
+        min-height: 0;
+        overflow: hidden;
+        flex-direction: column;
+    }
+
+    .multi-chat-card .card-body {
+        min-height: 0;
+        flex: 1 1 auto;
+        overflow: hidden;
+    }
+
+    .conversation-toolbar {
+        display: grid;
+        grid-template-columns: minmax(12rem, 20rem) auto auto;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    .conversation-select {
+        min-width: 0;
+    }
+
+    .conversation-scroll {
+        height: 100%;
+        max-height: 100%;
+        min-height: 0;
+        overflow-y: scroll;
+        overflow-x: hidden;
+        padding: 1rem;
+        background: #f6f8fb;
+        display: flex;
+        flex-direction: column;
+        scrollbar-gutter: stable;
+    }
+
+    .conversation-content {
+        width: 100%;
+        min-height: min-content;
+    }
+
+    .empty-conversation {
+        display: flex;
+        min-height: 18rem;
+        align-items: center;
+        justify-content: center;
+        border: 1px dashed #ced4da;
+        border-radius: 0.5rem;
+        background: #fff;
+    }
+
+    .turn-group {
+        display: grid;
+        gap: 0.65rem;
+        margin-bottom: 1rem;
+    }
+
+    .chat-composer {
+        flex: 0 0 auto;
+        background: #fff;
+        padding: 0.5rem 1rem 0.625rem;
+        overflow: visible;
+    }
+
+    .chat-composer-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.75rem;
+        align-items: end;
+    }
+
+    .chat-composer textarea {
+        resize: vertical;
+        min-height: 3.5rem;
+        max-height: 5.5rem;
+    }
+
+    .composer-send {
+        min-width: 5.75rem;
+    }
+
+    @@media (max-width: 575.98px) {
+        body {
+            overflow: auto;
+        }
+
+        .multi-step-layout {
+            height: auto;
+            max-height: none;
+            min-height: calc(100vh - 7.25rem);
+            overflow: visible;
+        }
+
+        article.content {
+            height: auto;
+            overflow: visible;
+        }
+
+        .conversation-scroll {
+            height: 55vh;
+        }
+
+        .chat-composer-row {
+            grid-template-columns: 1fr;
+        }
+
+        .conversation-toolbar {
+            width: 100%;
+            grid-template-columns: minmax(0, 1fr) auto auto;
+        }
+
+        .composer-send {
+            width: 100%;
+        }
+    }
+
+    @@media (min-width: 992px) {
+        .multi-step-layout .request-col {
+            flex: 0 0 40%;
+            max-width: 40%;
+        }
+
+        .multi-step-layout .chat-col {
+            flex: 0 0 60%;
+            max-width: 60%;
+        }
+    }
+</style>
+
+@code {
+    private sealed class PendingChatTurn
+    {
+        public string UserMessage { get; init; } = string.Empty;
+        public string AssistantMessage { get; set; } = string.Empty;
+    }
+
+    private string InitialServerBaseUrl { get; set; } = string.Empty;
+    private string InitialEndpointPath { get; set; } = string.Empty;
+    private string InitialContentType { get; set; } = ChatTesterHttp.JsonContentType;
+    private string InitialRequestBody { get; set; } = string.Empty;
+    [Inject]
+    private AuthTokenSettings AuthSettings { get; set; } = default!;
+    [Inject]
+    private UserSettings UserSettings { get; set; } = default!;
+    [Inject]
+    private HeaderSettings HeaderSettings { get; set; } = default!;
+    private TestFormPanel? FormPanel { get; set; }
+    private RequestBodyPanel? BodyPanel { get; set; }
+    private ElementReference ConversationRef;
+    private ElementReference ChatInputRef;
+    private List<MultiStepChatTurn> Conversation { get; } = new();
+    private IReadOnlyList<ChatConversationSummary> ConversationChoices { get; set; } = Array.Empty<ChatConversationSummary>();
+    private string ActiveConversationId { get; set; } = string.Empty;
+    private string SelectedConversationId { get; set; } = string.Empty;
+    private PendingChatTurn? PendingTurn { get; set; }
+    private bool IsRunning { get; set; }
+    private string StatusMessage { get; set; } = "Ready.";
+    private string ChatInput { get; set; } = "tell me a joke";
+    private DotNetObjectReference<ChatPage>? SelfReference { get; set; }
+    private bool CanSend => !IsRunning && !string.IsNullOrWhiteSpace(ChatInput);
+
+    protected override void OnInitialized()
+    {
+        var options = Options.Value;
+        InitialServerBaseUrl = options.ServerBaseUrl;
+        InitialEndpointPath = options.ChatEndpointPath;
+        InitialRequestBody = options.ChatRequestBody;
+        AuthSettings.ApplyDefaultsIfMissing(options.AuthorizationHeaderName, options.AuthorizationHeaderPrefix);
+        UserSettings.ApplyDefaultsIfMissing(options.UserHeaderName, options.PriorityKeyHeader, options.UserNames);
+        HeaderSettings.ApplyDefaultsIfMissing(options.DefaultHeaders);
+        RefreshConversationChoices();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try
+        {
+            if (firstRender)
+            {
+                SelfReference = DotNetObjectReference.Create(this);
+                await JS.InvokeVoidAsync("chatComposer.register", ChatInputRef, SelfReference);
+                await JS.InvokeVoidAsync("chatScroll.register", ConversationRef);
+                await JS.InvokeVoidAsync("chatResponseDetails.register", ConversationRef);
+            }
+
+            await JS.InvokeVoidAsync("chatScroll.scrollIfStuck", ConversationRef);
+        }
+        catch (JSException)
+        {
+        }
+    }
+
+    private async Task SendNextTurnAsync()
+    {
+        var serverBaseUrl = FormPanel?.ServerBaseUrl ?? string.Empty;
+        var currentRequest = BodyPanel?.CurrentRequest ?? new ModelRequest(string.Empty, string.Empty, ChatTesterHttp.JsonContentType);
+        var currentUserMessage = ChatInput.Trim();
+        if (string.IsNullOrWhiteSpace(serverBaseUrl) || string.IsNullOrWhiteSpace(currentRequest.EndpointPath))
+        {
+            StatusMessage = "Set both the server URL and endpoint path before sending the request.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(currentUserMessage))
+        {
+            StatusMessage = "Enter a user message before sending the next turn.";
+            return;
+        }
+
+        var conversationId = EnsureConversationId();
+        var requestBody = MultiStepChatRequestBuilder.Build(currentRequest.Body, Conversation, currentUserMessage);
+        PendingTurn = new PendingChatTurn
+        {
+            UserMessage = currentUserMessage,
+            AssistantMessage = "Waiting for response..."
+        };
+        IsRunning = true;
+        StatusMessage = $"Sending turn {Conversation.Count + 1} to {currentRequest.EndpointPath}";
+        StateHasChanged();
+
+        var stopwatch = Stopwatch.StartNew();
+        var assistantText = string.Empty;
+        var finalStatus = "Completed";
+        var requestHeadersText = "No request headers.";
+        var responseHeadersText = "No response headers.";
+        var rawResponseText = string.Empty;
+        var metrics = new MultiStepChatMetrics
+        {
+            Status = "Sending"
+        };
+
+        try
+        {
+            var client = Http;
+            using var request = new HttpRequestMessage(HttpMethod.Post, ChatTesterHttp.BuildUri(serverBaseUrl, currentRequest.EndpointPath));
+            request.Content = new StringContent(requestBody, Encoding.UTF8, currentRequest.ContentType);
+            request.Headers.Add(ChatTesterHttp.AcceptHeaderName, ChatTesterHttp.EventStreamContentType);
+            ChatTesterHttp.ApplyDebugHeader(request, DebugSettings);
+
+            if (FormPanel is not null)
+            {
+                await FormPanel.ApplyAuthorizationAsync(request);
+                FormPanel.ApplyUser(request, Conversation.Count);
+                FormPanel.ApplyHeaders(request, Conversation.Count);
+            }
+
+            requestHeadersText = ChatTesterHttp.SummarizeRequestHeaders(request);
+
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+            metrics.TimeToFirstByte = stopwatch.Elapsed;
+            metrics.Status = $"{(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
+            metrics.ContentType = response.Content.Headers.ContentType?.ToString() ?? "-";
+            responseHeadersText = ChatTesterHttp.SummarizeResponseHeaders(response);
+            StatusMessage = $"Receiving {(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
+            var responseBody = await ReadAssistantResponseAsync(response, metrics);
+            assistantText = responseBody.DisplayText;
+            rawResponseText = responseBody.RawText;
+            if (string.IsNullOrWhiteSpace(assistantText))
+            {
+                assistantText = "The server returned an empty response body.";
+            }
+
+            finalStatus = $"{(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
+        }
+        catch (Exception ex)
+        {
+            assistantText = $"Request failed: {ex.Message}";
+            finalStatus = "Failed";
+            metrics.Status = "Failed";
+        }
+        finally
+        {
+            stopwatch.Stop();
+            metrics.Duration = stopwatch.Elapsed;
+            if (string.IsNullOrWhiteSpace(rawResponseText))
+            {
+                rawResponseText = assistantText;
+            }
+
+            var completedTurn = new MultiStepChatTurn(currentUserMessage, assistantText, DateTimeOffset.Now, finalStatus, metrics, requestHeadersText, responseHeadersText, rawResponseText);
+            Conversation.Add(completedTurn);
+            var conversationSaveError = string.Empty;
+            try
+            {
+                await ChatConversationStore.AddTurnAsync(new NewConversationTurn
+                {
+                    ConversationId = conversationId,
+                    Method = "POST",
+                    ServerBaseUrl = serverBaseUrl,
+                    EndpointPath = currentRequest.EndpointPath,
+                    ContentType = currentRequest.ContentType,
+                    RequestHeadersText = requestHeadersText,
+                    ResponseHeadersText = responseHeadersText,
+                    RequestBody = currentRequest.Body,
+                    RawResponseText = rawResponseText,
+                    UserMessage = currentUserMessage,
+                    AssistantMessage = assistantText,
+                    Status = finalStatus,
+                    Metrics = metrics
+                });
+            }
+            catch (Exception ex)
+            {
+                conversationSaveError = ex.Message;
+            }
+
+            await ChatHistoryStore.AddRequest(new RequestHistoryEntry
+            {
+                Source = "Chat",
+                Method = "POST",
+                ServerBaseUrl = serverBaseUrl,
+                EndpointPath = currentRequest.EndpointPath,
+                ContentType = currentRequest.ContentType,
+                RequestHeadersText = requestHeadersText,
+                ResponseHeadersText = responseHeadersText,
+                RequestBody = requestBody,
+                ResponseBody = rawResponseText,
+                DisplayResponse = assistantText,
+                StatusMessage = finalStatus,
+                Metrics = new ChatHistoryMetrics
+                {
+                    Status = metrics.Status,
+                    ContentType = metrics.ContentType,
+                    TimeToFirstByte = metrics.TimeToFirstByte,
+                    Duration = metrics.Duration,
+                    Chunks = metrics.Chunks,
+                    TotalBytes = metrics.TotalBytes
+                }
+            });
+            PendingTurn = null;
+            IsRunning = false;
+            if (!string.Equals(finalStatus, "Failed", StringComparison.OrdinalIgnoreCase))
+            {
+                ChatInput = string.Empty;
+            }
+
+            StatusMessage = string.IsNullOrWhiteSpace(conversationSaveError)
+                ? $"{finalStatus} in {stopwatch.Elapsed.TotalMilliseconds:0} ms"
+                : $"Conversation save failed: {conversationSaveError}";
+            RefreshConversationChoices();
+            StateHasChanged();
+        }
+    }
+
+    private async Task<(string DisplayText, string RawText)> ReadAssistantResponseAsync(HttpResponseMessage response, MultiStepChatMetrics metrics)
+    {
+        var rawBuilder = new StringBuilder();
+        var assistantBuilder = new StringBuilder();
+        using var stream = await response.Content.ReadAsStreamAsync();
+        using var reader = new StreamReader(stream);
+
+        while (!reader.EndOfStream)
+        {
+            var line = await reader.ReadLineAsync();
+            if (line is null)
+            {
+                break;
+            }
+
+            metrics.Chunks++;
+            metrics.TotalBytes += Encoding.UTF8.GetByteCount(line) + 1;
+            rawBuilder.AppendLine(line);
+            var payload = ChatStreamParser.ExtractDataPayload(line);
+            if (payload is not null)
+            {
+                var piece = ChatStreamParser.ExtractDeltaText(payload);
+                if (!string.IsNullOrEmpty(piece))
+                {
+                    assistantBuilder.Append(piece);
+                    if (PendingTurn is not null)
+                    {
+                        PendingTurn.AssistantMessage = assistantBuilder.ToString();
+                    }
+
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+        }
+
+        var rawResponse = rawBuilder.ToString();
+        var streamedText = assistantBuilder.ToString().Trim();
+        if (!string.IsNullOrWhiteSpace(streamedText))
+        {
+            return (streamedText, rawResponse);
+        }
+
+        var extractedText = ChatStreamParser.ExtractAllContent(rawResponse);
+        if (!string.IsNullOrWhiteSpace(extractedText))
+        {
+            return (extractedText, rawResponse);
+        }
+
+        extractedText = ChatStreamParser.ExtractDisplayContent(rawResponse);
+        return (string.IsNullOrWhiteSpace(extractedText) ? rawResponse.Trim() : extractedText, rawResponse);
+    }
+
+    [JSInvokable]
+    public Task SubmitComposerAsync() => CanSend ? SendNextTurnAsync() : Task.CompletedTask;
+
+    private async Task OnConversationChangedAsync(ChangeEventArgs args)
+    {
+        var conversationId = args.Value?.ToString() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(conversationId))
+        {
+            StartNewConversation();
+            return;
+        }
+
+        await LoadConversationAsync(conversationId);
+    }
+
+    private async Task LoadConversationAsync(string conversationId)
+    {
+        var conversation = await ChatConversationStore.GetConversationAsync(conversationId);
+        var turns = conversation.Turns;
+        if (turns.Count == 0)
+        {
+            SelectedConversationId = ActiveConversationId;
+            StatusMessage = "Conversation not found.";
+            RefreshConversationChoices();
+            return;
+        }
+
+        Conversation.Clear();
+    foreach (var turn in turns)
+        {
+            Conversation.Add(new MultiStepChatTurn(
+        turn.UserMessage,
+        turn.AssistantMessage,
+        turn.CreatedAt,
+        turn.Status,
+        turn.Metrics,
+        turn.RequestHeadersText,
+        turn.ResponseHeadersText,
+        turn.RawResponseText));
+        }
+
+        ActiveConversationId = conversation.Id;
+        SelectedConversationId = conversation.Id;
+        PendingTurn = null;
+        IsRunning = false;
+        ChatInput = string.Empty;
+
+        var lastTurn = turns.Last();
+        FormPanel?.LoadServerBaseUrl(lastTurn.ServerBaseUrl);
+        if (BodyPanel is not null)
+        {
+            await BodyPanel.LoadRequestAsync(new ChatHistoryEntry
+            {
+                EndpointPath = lastTurn.EndpointPath,
+                RequestBody = lastTurn.RequestBody,
+                ContentType = lastTurn.ContentType
+            });
+        }
+
+        RefreshConversationChoices();
+        StatusMessage = $"Loaded {Conversation.Count} turn{(Conversation.Count == 1 ? string.Empty : "s")}.";
+    }
+
+    private void StartNewConversation()
+    {
+        Conversation.Clear();
+        PendingTurn = null;
+        ActiveConversationId = string.Empty;
+        SelectedConversationId = string.Empty;
+        StatusMessage = "Ready.";
+        ChatInput = string.Empty;
+        RefreshConversationChoices();
+    }
+
+    private void ClearConversation()
+    {
+        StartNewConversation();
+    }
+
+    private string EnsureConversationId()
+    {
+        if (string.IsNullOrWhiteSpace(ActiveConversationId))
+        {
+            ActiveConversationId = Guid.NewGuid().ToString("N");
+        }
+
+        SelectedConversationId = ActiveConversationId;
+        return ActiveConversationId;
+    }
+
+    private void RefreshConversationChoices()
+    {
+        ConversationChoices = ChatConversationStore.GetSnapshot();
+    }
+
+    private static string FormatConversationOption(ChatConversationSummary conversation)
+    {
+        var when = conversation.UpdatedAt.LocalDateTime.ToString("MMM d HH:mm", CultureInfo.InvariantCulture);
+        return $"{when} - {conversation.Title} ({conversation.MessageCount})";
+    }
+
+    private static string ShortId(string conversationId)
+    {
+        return string.IsNullOrWhiteSpace(conversationId)
+            ? "new"
+            : conversationId[..Math.Min(8, conversationId.Length)];
+    }
+
+    public void Dispose()
+    {
+        SelfReference?.Dispose();
+    }
+}

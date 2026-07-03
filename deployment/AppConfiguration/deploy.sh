@@ -92,7 +92,7 @@ fi
 echo -e "${YELLOW}Checking Azure login status...${NC}"
 az account show >/dev/null 2>&1 || az login >/dev/null
 
-SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
+SUBSCRIPTION_ID="$(az account show --query id -o tsv | tr -d '\r')"
 echo -e "${GREEN}Using subscription: ${SUBSCRIPTION_ID}${NC}"
 
 # ----------------------------------------------------------------------------
@@ -126,7 +126,7 @@ echo -e "${GREEN}Loaded ${#CA_ENV_VARS[@]} env vars from Container App${NC}"
 echo -e "${YELLOW}Ensuring resource group '${RESOURCE_GROUP}' exists...${NC}"
 az group create --name "${RESOURCE_GROUP}" --location "${LOCATION}" >/dev/null
 
-EXISTING_APP_CONFIG="$(az appconfig show --name "${APPCONFIG_NAME}" --resource-group "${RESOURCE_GROUP}" --query name -o tsv 2>/dev/null || true)"
+EXISTING_APP_CONFIG="$(az appconfig show --name "${APPCONFIG_NAME}" --resource-group "${RESOURCE_GROUP}" --query name -o tsv 2>/dev/null | tr -d '\r' || true)"
 if [ -z "${EXISTING_APP_CONFIG}" ]; then
     echo -e "${YELLOW}Creating App Configuration store '${APPCONFIG_NAME}'...${NC}"
     CREATE_ERROR_FILE="$(mktemp)"
@@ -155,19 +155,19 @@ else
     echo -e "${GREEN}Using existing App Configuration store: ${APPCONFIG_NAME}${NC}"
 fi
 
-APPCONFIG_ENDPOINT="$(az appconfig show --name "${APPCONFIG_NAME}" --resource-group "${RESOURCE_GROUP}" --query endpoint -o tsv)"
-APPCONFIG_RESOURCE_ID="$(az appconfig show --name "${APPCONFIG_NAME}" --resource-group "${RESOURCE_GROUP}" --query id -o tsv)"
+APPCONFIG_ENDPOINT="$(az appconfig show --name "${APPCONFIG_NAME}" --resource-group "${RESOURCE_GROUP}" --query endpoint -o tsv | tr -d '\r')"
+APPCONFIG_RESOURCE_ID="$(az appconfig show --name "${APPCONFIG_NAME}" --resource-group "${RESOURCE_GROUP}" --query id -o tsv | tr -d '\r')"
 
 # ----------------------------------------------------------------------------
 # Ensure the logged-in identity has data-plane write access (RBAC)
 # ----------------------------------------------------------------------------
-PRINCIPAL_ID="$(az ad signed-in-user show --query id -o tsv 2>/dev/null || true)"
+PRINCIPAL_ID="$(az ad signed-in-user show --query id -o tsv 2>/dev/null | tr -d '\r' || true)"
 if [ -n "${PRINCIPAL_ID}" ]; then
     EXISTING_ROLE="$(az role assignment list \
         --assignee "${PRINCIPAL_ID}" \
         --role "App Configuration Data Owner" \
         --scope "${APPCONFIG_RESOURCE_ID}" \
-        --query "[0].id" -o tsv 2>/dev/null || true)"
+        --query "[0].id" -o tsv 2>/dev/null | tr -d '\r' || true)"
 
     if [ -z "${EXISTING_ROLE}" ]; then
         echo -e "${YELLOW}Assigning 'App Configuration Data Owner' role to current user...${NC}"
@@ -194,7 +194,7 @@ if [ -n "${CA_PRINCIPAL_ID}" ]; then
         --assignee "${CA_PRINCIPAL_ID}" \
         --role "App Configuration Data Reader" \
         --scope "${APPCONFIG_RESOURCE_ID}" \
-        --query "[0].id" -o tsv 2>/dev/null || true)"
+        --query "[0].id" -o tsv 2>/dev/null | tr -d '\r' || true)"
 
     if [ -z "${EXISTING_CA_ROLE}" ]; then
         echo -e "${YELLOW}Assigning 'App Configuration Data Reader' role to Container App managed identity (${CA_PRINCIPAL_ID})...${NC}"

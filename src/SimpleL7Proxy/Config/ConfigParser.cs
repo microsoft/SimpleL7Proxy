@@ -4,6 +4,8 @@ using SimpleL7Proxy.Backend.Iterators;
 using SimpleL7Proxy.Events;
 using System.Reflection;
 
+using SimpleL7Proxy.Plugin;
+
 namespace SimpleL7Proxy.Config;
 
 public static class ConfigParser
@@ -29,7 +31,9 @@ public static class ConfigParser
         ("DefaultPriority", "DefaultPriority"),
         ("DefaultTTLSecs", "DefaultTTLSecs"),
         ("DependancyHeaders", "DependancyHeaders"),
+        ("DetectModel", "DetectModel"),
         ("DisallowedHeaders", "DisallowedHeaders"),
+        ("EnvPluginClass", "EnvPluginClass"),
         ("HealthProbeSidecar", "HealthProbeSidecar"),
         ("LoadBalanceMode", "LoadBalanceMode"),
         ("LogAllRequestHeaders", "LogAllRequestHeaders"),
@@ -121,19 +125,42 @@ public static class ConfigParser
         ("IgnoreSSLCert", "IgnoreSSLCert"),
 
         // ── Identity ──
-        ("CONTAINER_APP_NAME", "ContainerApp"),
-        ("CONTAINER_APP_REVISION", "Revision"),
-        ("CONTAINER_APP_REPLICA_NAME", "ReplicaName"),
         ("Hostname", "HostName"),
         ("RequestIDPrefix", "IDStr"),
     ];
 
+    public static void ApplyConfigPlugin(IConfigPlugin plugin, ProxyConfig defaults)
+    {
+        defaults.ContainerApp = plugin?.ContainerName?.Trim() ?? "N/A";
+        defaults.ReplicaName = plugin?.InstanceID?.Trim() ?? "N/A";
+        defaults.Revision = plugin?.ConfigInstanceID?.Trim() ?? "N/A";
+   }
+
+
+    // public static void NonAzureOverrides(string ifExistsEnvVar, string propertyName)
+    // {
+    //     var overrideEnvVarName = Environment.GetEnvironmentVariable(ifExistsEnvVar);
+    //     if (string.IsNullOrWhiteSpace(overrideEnvVarName) || string.IsNullOrWhiteSpace(propertyName))
+    //     {
+    //         return;
+    //     }
+
+    //     // find the propertyName in the SimpleFields list
+    //     for (var i = 0; i < SimpleFields.Length; i++)
+    //     {
+    //         if (string.Equals(SimpleFields[i].property, propertyName, StringComparison.OrdinalIgnoreCase))
+    //         {
+    //             SimpleFields[i] = (ifExistsEnvVar, SimpleFields[i].property);
+    //         }
+    //     }
+    // }
 
     // Creates a BackendOptions instance by applying environment variable overrides on top of the defaults
     public static ProxyConfig ApplyEnv(Dictionary<string, string> incoming, ProxyConfig defaults)
     {
         // Start from a copy of the defaults; the loop only overwrites keys present in incoming.
         var opts = defaults.DeepClone();
+
 
         foreach (var (envVarName, propertyName) in SimpleFields)
         {
@@ -157,7 +184,7 @@ public static class ConfigParser
         // Prefer the container-app replica ID over the resolved HostName,
         // since Hostname may be explicitly overridden to a user-friendly value.
         var replicaId = !string.IsNullOrEmpty(opts.ReplicaName) ? opts.ReplicaName : opts.HostName;
-        opts.IDStr = $"{opts.IDStr}-{replicaId}-";
+        opts.CompleteIDstr = $"{opts.IDStr}{replicaId}-";
 
         ApplyDerivedSettingsFromConfigNames(
             opts,
@@ -212,9 +239,9 @@ public static class ConfigParser
                 case nameof(ProxyConfig.ValidateHeaders):
                     ValidateHeaderSettings(backendOptions);
                     break;
-                case nameof(ProxyConfig.ValidateAuthConfig):
-                    ValidateAuthSettings(backendOptions);
-                    break;
+                    //case nameof(ProxyConfig.ValidateAuthConfig):
+                    //    ValidateAuthSettings(backendOptions);
+                    //    break;
             }
         }
 
@@ -293,28 +320,33 @@ public static class ConfigParser
                 return false;
             }
 
-            var indexStart = "Host".Length;
-            var indexEnd = indexStart;
-            while (indexEnd < value.Length && char.IsDigit(value[indexEnd]))
+            // Strip a recognized api-key suffix (e.g. "Host1-api-key", "Host-eastus-api-key").
+            var core = value;
+            string[] apiKeySuffixes = ["-api-key", "_api_key", "-api_key", "_api-key"];
+            foreach (var apiKeySuffix in apiKeySuffixes)
             {
-                indexEnd++;
+                if (core.EndsWith(apiKeySuffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    core = core[..^apiKeySuffix.Length];
+                    break;
+                }
             }
 
-            if (indexEnd == indexStart)
+            var token = core["Host".Length..];
+            if (token.Length == 0)
             {
-                return false;
+                return false; // bare "Host" (or "Host-api-key") is not a host variant
             }
 
-            if (indexEnd == value.Length)
+            // HostN: numeric index immediately after "Host".
+            if (token.All(char.IsDigit))
             {
-                return true; // HostN
+                return true;
             }
 
-            var suffix = value[indexEnd..];
-            return suffix.Equals("-api-key", StringComparison.OrdinalIgnoreCase)
-                || suffix.Equals("_api_key", StringComparison.OrdinalIgnoreCase)
-                || suffix.Equals("-api_key", StringComparison.OrdinalIgnoreCase)
-                || suffix.Equals("_api-key", StringComparison.OrdinalIgnoreCase);
+            // Host-<name> / Host_<name>: a leading separator distinguishes a named host
+            // from the unrelated "Hostname" setting.
+            return (token[0] == '-' || token[0] == '_') && token.Length > 1;
         }
 
         return IsHostIndexedVariant(normalized)
@@ -424,37 +456,7 @@ public static class ConfigParser
         // Keep derived key values in sync with top-level key settings.
         backendOptions.ValidateAuthKey1 = backendOptions.ValidateAuthKey1.ToLowerInvariant();
         backendOptions.ValidateAuthKey2 = backendOptions.ValidateAuthKey2.ToLowerInvariant();
-
-        if (string.IsNullOrWhiteSpace(backendOptions.ValidateAuthConfig))
-        {
-            backendOptions.ValidateAuthViaKey = false;
-            return;
-        }
-
-        var authSettings = KVStringPairs(ToListOfString(backendOptions.ValidateAuthConfig));
-
-        bool enabled = false;
-        string mode = "key";
-
-        if (authSettings.TryGetValue("enabled", out var enabledValue))
-        {
-            enabled = enabledValue.Equals("true", StringComparison.OrdinalIgnoreCase);
-        }
-
-        if (authSettings.TryGetValue("mode", out var modeValue) && !string.IsNullOrWhiteSpace(modeValue))
-        {
-            mode = modeValue.Trim();
-        }
-
-        if (authSettings.TryGetValue("header", out var headerValue) && !string.IsNullOrWhiteSpace(headerValue))
-        {
-            backendOptions.ValidateAuthViaKeyHeader = headerValue.Trim();
-        }
-
-        backendOptions.ValidateAuthViaKey =
-            enabled && mode.Equals("key", StringComparison.OrdinalIgnoreCase);
     }
-
     private static bool TryEvaluateMathExpression(string expression, out double result)
     {
         result = 0;
