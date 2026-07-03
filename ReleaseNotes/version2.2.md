@@ -1,5 +1,27 @@
 # Release Notes #
 
+2.2.15
+
+Proxy:
+* Add configPlugin to support other clouds
+* Added enabled=false to hostconfig to optionally disable the host
+* Add GUID to S7PID
+* Added DetectModel=true to trigger model detection
+* BUG FIX:  forward missing headers on a 429
+
+APIM-POLICY:
+* Added a shared policy that supports multiple models
+* backendLog enhancements for readability 
+* Return 429 "No Backends Available" instead of a bare 500 when all backends are throttled
+* on-error logs entry diagnostics (callCompleted, backendIndex, LastError)
+* Backend id now hashes url + label, giving each label independent throttle state.
+* Managed Identity token audience is resolved per model
+* Fixed cross-model backend mix-up caused by caching the whole backend list per API.
+* Debug output now uses the configured priority header name.
+* limit-concurrency is now keyed per backend instead of a shared key.
+* Outbound affinity header no longer throws when no backend was selected.
+* Removed a duplicated condition in the ErrorScenario classification.
+  
 2.2.14
 
 Proxy:

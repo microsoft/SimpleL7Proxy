@@ -9,13 +9,10 @@ Updated:	 2026-07-03
 KEY CHANGES:
 
 IMPROVEMENTS:
-- Return 429 "No Backends Available" instead of a bare 500 when all backends are
-  throttled, so clients can back off and requeue correctly.
-- on-error logs entry diagnostics (callCompleted, backendIndex, LastError) for
-  easier troubleshooting.
+- Return 429 "No Backends Available" instead of a bare 500 when all backends are throttled
+- on-error logs entry diagnostics (callCompleted, backendIndex, LastError)
 - Backend id now hashes url + label, giving each label independent throttle state.
-- Managed Identity token audience is resolved per model, enabling multiple models
-  with different auth scopes.
+- Managed Identity token audience is resolved per model
 
 BUG FIXES:
 - Fixed cross-model backend mix-up caused by caching the whole backend list per API.
