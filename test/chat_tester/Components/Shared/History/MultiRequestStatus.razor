@@ -28,6 +28,47 @@
     </div>
 </div>
 
+@if (Items.Count > 0)
+{
+    <div class="multi-request-stats border rounded bg-white shadow-sm">
+        <div class="multi-request-stats-title">Statistics:</div>
+        <div class="multi-request-stats-overview">
+            <div class="multi-request-stats-primary">
+                <div class="multi-request-stats-thermometer">
+                    @if (CompleteCount > 0)
+                    {
+                        <div class="multi-request-stats-segment complete" style="flex-grow: @CompleteCount;" title="Complete- @CompleteCount">
+                            <span class="multi-request-stats-segment-label">Complete- @CompleteCount</span>
+                        </div>
+                    }
+                    @if (IncompleteCount > 0)
+                    {
+                        <div class="multi-request-stats-segment incomplete" style="flex-grow: @IncompleteCount;" title="Incomplete: @IncompleteCount">
+                            <span class="multi-request-stats-segment-label">Incomplete: @IncompleteCount</span>
+                        </div>
+                    }
+                </div>
+                <div class="multi-request-stats-status-grid">
+                    @foreach (var group in StatusGroups)
+                    {
+                        <div class="multi-request-stats-status">
+                            <div class="multi-request-stats-status-code">Status: @group.StatusCode</div>
+                            <div>Total: @group.Count</div>
+                            <div>TTFB: @group.TtfbText</div>
+                            <div>Avg: @group.AvgText</div>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="multi-request-stats-totals">
+                <div>Total: @CompleteCount/@Items.Count</div>
+                <div>Average TTFB: @OverallTtfbText</div>
+                <div>Average Time: @OverallAvgText</div>
+            </div>
+        </div>
+    </div>
+}
+
 @if (HoveredItem is not null)
 {
     <div class="multi-request-hover-metrics" style="left: @HoverLeft; top: @HoverTop;">
@@ -138,14 +179,14 @@
 
     .multi-request-label {
         color: #6c757d;
-        font-size: 0.82rem;
+        font-size: 0.72rem;
         font-weight: 700;
         text-align: right;
     }
 
     .multi-request-thermometer {
         position: relative;
-        height: 2rem;
+        height: 1.35rem;
         overflow: hidden;
         border: 1px solid #adb5bd;
         background: #f8f9fa;
@@ -176,9 +217,9 @@
         position: relative;
         z-index: 1;
         display: block;
-        padding: 0.22rem 0.6rem;
+        padding: 0.05rem 0.5rem;
         color: #111;
-        font-size: 1rem;
+        font-size: 0.8rem;
         font-variant-numeric: tabular-nums;
         font-weight: 700;
         text-align: right;
@@ -186,7 +227,7 @@
 
     .multi-request-status-code {
         color: #495057;
-        font-size: 0.95rem;
+        font-size: 0.8rem;
         font-weight: 700;
         font-variant-numeric: tabular-nums;
         white-space: nowrap;
@@ -210,6 +251,91 @@
         width: 14rem;
         pointer-events: none;
         filter: drop-shadow(0 0.75rem 1rem rgba(0, 0, 0, 0.22));
+    }
+
+    .multi-request-stats {
+        margin-top: 0.75rem;
+        padding: 1rem;
+    }
+
+    .multi-request-stats-title {
+        font-weight: 700;
+        font-size: 1.35rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .multi-request-stats-overview {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 1.5rem 2.5rem;
+    }
+
+    .multi-request-stats-primary {
+        flex: 1 1 28rem;
+        min-width: 20rem;
+    }
+
+    .multi-request-stats-thermometer {
+        display: flex;
+        width: 100%;
+        height: 2.5rem;
+        overflow: hidden;
+        border-radius: 0.35rem;
+        border: 1px solid #adb5bd;
+    }
+
+    .multi-request-stats-segment {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 0;
+        flex-basis: 0;
+    }
+
+    .multi-request-stats-segment.complete {
+        background: #2f9e44;
+    }
+
+    .multi-request-stats-segment.incomplete {
+        background: #e8590c;
+    }
+
+    .multi-request-stats-segment-label {
+        padding: 0 0.5rem;
+        color: #fff;
+        font-weight: 700;
+        font-size: 1.15rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+    }
+
+    .multi-request-stats-status-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem 2.75rem;
+        margin-top: 0.85rem;
+    }
+
+    .multi-request-stats-status {
+        min-width: 6.5rem;
+        color: #212529;
+        font-size: 0.9rem;
+        line-height: 1.4;
+    }
+
+    .multi-request-stats-status-code {
+        font-weight: 700;
+    }
+
+    .multi-request-stats-totals {
+        flex: 0 0 auto;
+        color: #212529;
+        font-size: 0.95rem;
+        line-height: 1.5;
+        white-space: nowrap;
     }
 
     .multi-request-detail-backdrop {
@@ -310,6 +436,53 @@
         .Select(item => item.Duration?.TotalMilliseconds ?? 0)
         .DefaultIfEmpty(0)
         .Max();
+
+    private int CompleteCount => Items.Count(item => item.IsComplete);
+
+    private int IncompleteCount => Items.Count - CompleteCount;
+
+    private string OverallTtfbText =>
+        FormatMilliseconds(AverageMilliseconds(Items.Select(item => item.TimeToFirstByte)));
+
+    private string OverallAvgText =>
+        FormatMilliseconds(AverageMilliseconds(Items.Select(item => item.Duration)));
+
+    private sealed record StatusGroup(
+        int StatusCode,
+        int Count,
+        string TtfbText,
+        string AvgText);
+
+    private IReadOnlyList<StatusGroup> StatusGroups => BuildStatusGroups();
+
+    private IReadOnlyList<StatusGroup> BuildStatusGroups()
+    {
+        return Items
+            .Where(item => item.StatusCode.HasValue)
+            .GroupBy(item => item.StatusCode!.Value)
+            .OrderBy(group => group.Key)
+            .Select(group => new StatusGroup(
+                group.Key,
+                group.Count(),
+                FormatMilliseconds(AverageMilliseconds(group.Select(item => item.TimeToFirstByte))),
+                FormatMilliseconds(AverageMilliseconds(group.Select(item => item.Duration)))))
+            .ToList();
+    }
+
+    private static double? AverageMilliseconds(IEnumerable<TimeSpan?> values)
+    {
+        var samples = values
+            .Where(value => value.HasValue)
+            .Select(value => value!.Value.TotalMilliseconds)
+            .ToList();
+
+        return samples.Count == 0 ? null : samples.Average();
+    }
+
+    private static string FormatMilliseconds(double? value) =>
+        value is null
+            ? "-"
+            : value.Value.ToString("0", CultureInfo.InvariantCulture) + "ms";
 
     protected override void OnParametersSet()
     {

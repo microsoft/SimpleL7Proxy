@@ -57,6 +57,9 @@ rm -f "$ZIP_FILE"
 mkdir -p "$PUBLISH_DIR" "$(dirname "$ZIP_FILE")"
 
 echo "Publishing $PROJECT_FILE ($CONFIGURATION)..."
+# Remove stale build artifacts so the Razor source generator regenerates
+# component classes from scratch (avoids intermittent Components.* namespace errors).
+rm -rf "$SCRIPT_DIR/obj" "$SCRIPT_DIR/bin"
 dotnet restore "$PROJECT_FILE"
 dotnet publish "$PROJECT_FILE" \
     --configuration "$CONFIGURATION" \

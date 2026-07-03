@@ -30,7 +30,7 @@ main:has(.inspector-page-shell) > .top-row {
     position: absolute !important;
     top: 0 !important;
     left: 0 !important;
-    right: 37.25rem !important;
+    right: 30.25rem !important;
     z-index: 20 !important;
     background-color: rgba(247, 247, 247, 0.98) !important;
 }

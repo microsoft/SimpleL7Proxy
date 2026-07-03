@@ -19,9 +19,9 @@
 @using System.Text
 @using System.Text.Json
 
-<PageTitle>Model investigator</PageTitle>
+<PageTitle>Investigator</PageTitle>
 
-<InspectorPageShell Title="Model investigator"
+<InspectorPageShell Title="Investigator"
                     Tagline="@PageTagline"
                     HistoryEntries="HistoryEntries"
                     SelectedHistoryEntryId="@SelectedHistoryEntryId"
@@ -45,7 +45,7 @@
                        DisplayStateChanged="SetRequestPanelStateAsync"
                        HeaderSubtitle="Send a vision request."
                        PromptTabLabel="Vision"
-                       SubmitLabel="Investigate image"
+                       SubmitLabel="Investigate"
                        BusyLabel="Investigating..."
                        IsBusy="@IsRunning"
                        OnSubmit="SendVisionRequestAsync">

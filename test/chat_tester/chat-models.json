@@ -168,5 +168,15 @@
         { "stream": "true" }
       ]
     }
+  ],
+  "requestTemplates": [
+    { "api": "openai-chat", "body": { "model": "{{model}}", "messages": [ { "role": "user", "content": "{{prompt}}" } ] } },
+    { "api": "openai-responses", "body": { "model": "{{model}}", "input": [ { "role": "user", "content": "{{prompt}}" } ] } },
+    { "api": "anthropic-messages", "body": { "model": "{{model}}", "messages": [ { "role": "user", "content": "{{prompt}}" } ] } },
+    { "api": "gemini-generate-content", "body": { "contents": [ { "role": "user", "parts": [ { "text": "{{prompt}}" } ] } ] } },
+    { "api": "gemini-openai-chat", "body": { "model": "{{model}}", "messages": [ { "role": "user", "content": "{{prompt}}" } ] } },
+    { "api": "cohere-openai-chat", "body": { "model": "{{model}}", "messages": [ { "role": "user", "content": "{{prompt}}" } ] } },
+    { "api": "cohere-v2-chat", "body": { "model": "{{model}}", "messages": [ { "role": "user", "content": "{{prompt}}" } ] } },
+    { "api": "cohere-v1-chat", "body": { "model": "{{model}}", "message": "{{prompt}}" } }
   ]
 }
