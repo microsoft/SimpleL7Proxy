@@ -1174,7 +1174,15 @@ public class ProxyWorker : IConfigChangeSubscriber
                             }
                             else if (intCode == 429)
                             {
-                                // S7PREQUEUE was not "true" — try next host
+                                // S7PREQUEUE was not "true" — capture backend response headers
+                                // (e.g. backendLog, retry-after) into the attempt summary before
+                                // trying the next host, matching the 3xx/4xx/5xx failure path.
+                                foreach (var header in proxyResponse.Headers)
+                                {
+                                    if (s_excludedHeaders.Contains(header.Key)) continue;
+                                    requestAttempt[header.Key] = string.Join(", ", header.Value);
+                                }
+
                                 continue;
                             }
                             else
