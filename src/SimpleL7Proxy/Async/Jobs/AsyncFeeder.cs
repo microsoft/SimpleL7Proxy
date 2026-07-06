@@ -320,12 +320,12 @@ namespace SimpleL7Proxy.Async.Jobs
         public async Task<RequestData?> ConvertToNewRequestAsync(RequestMessage message, IRequestProcessor recoveryProcessor)
         {
             Interlocked.Increment(ref counter);
-            var requestId = _options.IDStr + "_Feeder_" + counter.ToString();
             var messageGuid = ((IRequestData)message).Guid;
-            var guid = string.IsNullOrEmpty(messageGuid) ? Guid.NewGuid() : new Guid(messageGuid);
+            var requestGuid = string.IsNullOrEmpty(messageGuid) ? Guid.NewGuid() : new Guid(messageGuid);
+            var requestId = $"{_options.CompleteIDstr}{requestGuid}_Feeder_{++counter}";
 
             RequestData rd = new("foo",
-                guid, // Use the resolved guid instead of message.Guid
+                requestGuid, // Use the resolved guid instead of message.Guid
                 requestId,
                 message.Path ?? "/",
                 "POST",

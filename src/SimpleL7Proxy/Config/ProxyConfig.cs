@@ -77,11 +77,11 @@ public class ProxyConfig
     public string ValidateAuthAppFieldName { get; set; } = "authAppID";
 
     [ConfigOption("Profiles:Auth:Config")]
-    public string ValidateAuthConfig { get; set; } = "enabled=false, mode=key, header=S7P-KEY";
+    public string ValidateAuthConfig { get; set; } = "enabled=false, mode=none, header=S7P-KEY";
     [ConfigOption("Profiles:Auth:Key1")]
-    public string ValidateAuthKey1 { get; set; } = "key1";
+    public string ValidateAuthKey1 { get; set; } = "";
     [ConfigOption("Profiles:Auth:Key2")]
-    public string ValidateAuthKey2 { get; set; } = "key2";
+    public string ValidateAuthKey2 { get; set; } = "";
 
     [ConfigOption("Profiles:SuspendedUser:ConfigUrl")]
     public string SuspendedUserConfigUrl { get; set; } = ""; // e.g. "file:suspended.json" or "http://configservice/suspended"
@@ -101,8 +101,10 @@ public class ProxyConfig
     public int Timeout { get; set; } = 60*20*1000; // 20 minutes
     [ConfigOption("Request:DefaultTTLSecs")]
     public int DefaultTTLSecs { get; set; } = 300;
-    [ConfigOption("Request:DependancyHeaders")]
-    public List<string> DependancyHeaders { get; set; } = ["Backend-Host", "Host-URL", "Status", "Duration", "Error", "Message", "Request-Date", "backendLog"];
+    [ConfigOption("Request:DependancyHeaders", ConfigName = "DependancyHeaders")]
+    public List<string> DependancyHeaders { get; set; } = ["Backend-Host", "Host-URL", "Status", "Duration", "Error", "Message", "Request-Date", "backendLog", "retry-after"];
+    [ConfigOption("Request:DetectModel", ConfigName = "DetectModel")]
+    public bool DetectModel { get; set; } = true;
     [ConfigOption("Request:DisallowedHeaders")]
     public List<string> DisallowedHeaders { get; set; } = [];
     [ConfigOption("Request:Headers:PriorityKeyHeader")]
@@ -120,11 +122,11 @@ public class ProxyConfig
     [ConfigOption("Request:Priority:GreedyUserThreshold")]
     public float UserPriorityThreshold { get; set; } = 0.1f;
     [ConfigOption("Request:Priority:PriorityKeys")]
-    public List<string> PriorityKeys { get; set; } = ["12345", "234"];
+    public List<string> PriorityKeys { get; set; } = ["high", "medium", "low"];
     [ConfigOption("Request:Priority:PriorityWorker", ConfigName = "PriorityWorker")]
     public string PriorityWorker { get; set; } = "2:1,3:1";
     [ConfigOption("Request:Priority:PriorityValues")]
-    public List<int> PriorityValues { get; set; } = [1, 3];
+    public List<int> PriorityValues { get; set; } = [1, 2, 3];
     [ConfigOption("Request:RequiredHeaders")]
     public List<string> RequiredHeaders { get; set; } = [];
     [ConfigOption("Request:StripRequestHeaders")]
@@ -216,6 +218,8 @@ public class ProxyConfig
     // public bool UseOAuth { get; set; } = false;
 
     // ── Server ──
+    [ConfigOption("Server:EnvPluginClass", ConfigName = "EnvPluginClass", Mode = ConfigMode.Cold)]
+    public string EnvPluginClass { get; set; } = "SimpleL7Proxy.Plugins.AzureConfigPlugin";
     [ConfigOption("Server:GC2InternalSecs", ConfigName = "GC2InternalSecs", Mode = ConfigMode.Cold)]
     public int GC2InternalSecs { get; set; } = 300; // 5 minutes
     [ConfigOption("Server:StreamFlushInterval", ConfigName = "StreamFlushInterval", Mode = ConfigMode.Cold)]
@@ -328,11 +332,10 @@ public class ProxyConfig
     public HttpClient? Client { get; set; }
     public bool HealthProbeSidecarEnabled { get; set; } = false;
     public string HealthProbeSidecarUrl { get; set; } = "http://localhost/9000";
-    public string ValidateAuthViaKeyHeader { get; set; } = "S7P-KEY";
-    public bool ValidateAuthViaKey { get; set; } = false;
     public List<HostConfig> Hosts { get; set; } = [];
     public Dictionary<int, int> PriorityWorkerDict { get; set; } = new() { { 2, 1 }, { 3, 1 } };
     public bool TrackWorkers { get; set; } = true;
+    public string CompleteIDstr { get; set; } = "";
 
     /// <summary>
     /// Creates a deep copy of this instance. Scalar properties are copied directly;

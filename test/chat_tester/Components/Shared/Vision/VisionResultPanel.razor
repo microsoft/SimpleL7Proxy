@@ -1,0 +1,252 @@
+@namespace chat_tester.Components.Shared
+@using System.Globalization
+
+<div class="card shadow-sm vision-response-card @CardStateCss">
+    <div class="card-header bg-primary text-white @(IsMinimized ? string.Empty : "pb-0")">
+        <div class="d-flex flex-wrap align-items-baseline gap-2 pt-1 pb-2">
+            <span class="fw-semibold">@EffectiveTitle</span>
+            <span class="text-white-50 small">@EffectiveStatusMessage</span>
+            <div class="d-flex flex-wrap align-items-center justify-content-end gap-2 ms-auto">
+                @HeaderActions
+                @if (ShowDisplayToggle)
+                {
+                    <PanelDisplayToggle State="@DisplayState" StateChanged="SetDisplayStateAsync" AriaLabel="@($"Toggle {Title} full screen")" />
+                }
+            </div>
+        </div>
+        @if (!IsMinimized && HasResult)
+        {
+            <ul class="nav nav-tabs card-header-tabs result-tabs mb-0" role="tablist">
+                @foreach (var tab in ResultTabs)
+                {
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link @(EffectiveActiveTab == tab.Id ? "active" : string.Empty)" type="button" @onclick="() => SetActiveTabAsync(tab.Id)">
+                            @tab.Title
+                            @if (!string.IsNullOrWhiteSpace(tab.Badge))
+                            {
+                                <span class="badge rounded-pill text-bg-light ms-1">@tab.Badge</span>
+                            }
+                        </button>
+                    </li>
+                }
+            </ul>
+        }
+    </div>
+    @if (!IsMinimized && !HasResult)
+    {
+        <div class="card-body @(IsFullscreen ? "overflow-auto" : string.Empty)">
+            <div class="vision-result-panel border rounded bg-white p-3 text-muted">No results</div>
+        </div>
+    }
+    else if (!IsMinimized)
+    {
+        <div class="card-body @(IsFullscreen ? "overflow-auto" : string.Empty)">
+            <div class="row g-3 @ResultRowCss">
+                <div class="col-12 @(ShowMetrics ? "col-xl-9" : string.Empty) vision-result-content-col">
+                    <div class="vision-result-panel border rounded bg-white p-3 @ResultPanelLayoutCss">
+                        @if (EffectiveActiveTab == SummaryResultTab)
+                        {
+                            <VisionSummaryResultPanel Result="@Result" IsChat="@IsChat" />
+                        }
+                        else if (EffectiveActiveTab == CaptionResultTab)
+                        {
+                            <VisionCaptionResultPanel Result="@Result" />
+                        }
+                        else if (EffectiveActiveTab == DenseCaptionsResultTab)
+                        {
+                            <VisionDenseCaptionsResultPanel Result="@Result" />
+                        }
+                        else if (EffectiveActiveTab == TagsResultTab)
+                        {
+                            <VisionTagsResultPanel Result="@Result" />
+                        }
+                        else if (EffectiveActiveTab == ObjectsResultTab)
+                        {
+                            <VisionObjectsResultPanel Result="@Result" />
+                        }
+                        else if (EffectiveActiveTab == PeopleResultTab)
+                        {
+                            <VisionPeopleResultPanel Result="@Result" />
+                        }
+                        else if (EffectiveActiveTab == ReadResultTab)
+                        {
+                            <VisionReadResultPanel Result="@Result" />
+                        }
+                        else if (EffectiveActiveTab == MetadataResultTab)
+                        {
+                            <VisionMetadataResultPanel Result="@Result" />
+                        }
+                        else
+                        {
+                            <VisionRawResultPanel Result="@Result" />
+                        }
+                    </div>
+                </div>
+                @if (ShowMetrics)
+                {
+                    <div class="col-12 col-xl-3 vision-result-metrics-col">
+                        <ResponseMetricsPanel Status="@Status"
+                                              ContentType="@ContentType"
+                                              TimeToFirstByte="@TimeToFirstByte"
+                                              Duration="@Duration"
+                                              Chunks="@Chunks"
+                                              TotalBytes="@TotalBytes" />
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private const string SummaryResultTab = "summary";
+    private const string CaptionResultTab = "caption";
+    private const string DenseCaptionsResultTab = "dense-captions";
+    private const string TagsResultTab = "tags";
+    private const string ObjectsResultTab = "objects";
+    private const string PeopleResultTab = "people";
+    private const string ReadResultTab = "read";
+    private const string MetadataResultTab = "metadata";
+    private const string RawResultTab = "raw";
+
+    private sealed record VisionResultTab(string Id, string Title, string Badge = "");
+
+    [Parameter]
+    public string Title { get; set; } = "Vision result";
+
+    [Parameter]
+    public string StatusMessage { get; set; } = string.Empty;
+
+    [Parameter]
+    public bool HasResult { get; set; } = true;
+
+    [Parameter]
+    public bool IsChat { get; set; }
+
+    [Parameter]
+    public VisionResultView Result { get; set; } = new();
+
+    [Parameter]
+    public string ActiveTab { get; set; } = SummaryResultTab;
+
+    [Parameter]
+    public EventCallback<string> ActiveTabChanged { get; set; }
+
+    [Parameter]
+    public PanelDisplayState DisplayState { get; set; } = PanelDisplayState.Expanded;
+
+    [Parameter]
+    public EventCallback<PanelDisplayState> DisplayStateChanged { get; set; }
+
+    [Parameter]
+    public RenderFragment? HeaderActions { get; set; }
+
+    [Parameter]
+    public bool ShowDisplayToggle { get; set; } = true;
+
+    [Parameter]
+    public bool ShowMetrics { get; set; } = true;
+
+    [Parameter]
+    public string Status { get; set; } = "-";
+
+    [Parameter]
+    public string ContentType { get; set; } = "-";
+
+    [Parameter]
+    public TimeSpan? TimeToFirstByte { get; set; }
+
+    [Parameter]
+    public TimeSpan? Duration { get; set; }
+
+    [Parameter]
+    public int Chunks { get; set; }
+
+    [Parameter]
+    public long TotalBytes { get; set; }
+
+    [Parameter]
+    public string ResultRowCss { get; set; } = string.Empty;
+
+    [Parameter]
+    public string ResultPanelLayoutCss { get; set; } = string.Empty;
+
+    private IReadOnlyList<VisionResultTab> ResultTabs => BuildResultTabs();
+
+    private string EffectiveTitle => HasResult ? (IsChat ? "Chat result" : Title) : "No Results";
+
+    private string EffectiveStatusMessage => HasResult ? StatusMessage : string.Empty;
+
+    private bool IsMinimized => DisplayState == PanelDisplayState.Minimized;
+
+    private bool IsFullscreen => DisplayState == PanelDisplayState.Fullscreen;
+
+    private string EffectiveActiveTab => ResultTabs.Any(tab => string.Equals(tab.Id, ActiveTab, StringComparison.Ordinal))
+        ? ActiveTab
+        : SummaryResultTab;
+
+    private string CardStateCss => DisplayState switch
+    {
+        PanelDisplayState.Minimized => "panel-minimized",
+        PanelDisplayState.Fullscreen => "fs-overlay",
+        _ => string.Empty
+    };
+
+    private async Task SetActiveTabAsync(string tab)
+    {
+        ActiveTab = tab;
+        await ActiveTabChanged.InvokeAsync(tab);
+    }
+
+    private async Task SetDisplayStateAsync(PanelDisplayState state)
+    {
+        DisplayState = state;
+        await DisplayStateChanged.InvokeAsync(state);
+    }
+
+    private IReadOnlyList<VisionResultTab> BuildResultTabs()
+    {
+        var tabs = new List<VisionResultTab>
+        {
+            new(SummaryResultTab, "Summary")
+        };
+
+        if (Result.HasCaptionResult)
+        {
+            tabs.Add(new VisionResultTab(CaptionResultTab, "Caption"));
+        }
+
+        if (Result.HasDenseCaptionsResult)
+        {
+            tabs.Add(new VisionResultTab(DenseCaptionsResultTab, "Dense", Result.DenseCaptions.Count.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        if (Result.HasTagsResult)
+        {
+            tabs.Add(new VisionResultTab(TagsResultTab, "Tags", Result.Tags.Count.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        if (Result.HasObjectsResult)
+        {
+            tabs.Add(new VisionResultTab(ObjectsResultTab, "Objects", Result.Objects.Count.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        if (Result.HasPeopleResult)
+        {
+            tabs.Add(new VisionResultTab(PeopleResultTab, "People", Result.People.Count.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        if (Result.HasReadResult)
+        {
+            tabs.Add(new VisionResultTab(ReadResultTab, "Read", Result.ReadLines.Count.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        if (Result.HasMetadataResult || Result.Metadata.HasDimensions || !string.IsNullOrWhiteSpace(Result.ModelVersion))
+        {
+            tabs.Add(new VisionResultTab(MetadataResultTab, "Metadata"));
+        }
+
+        tabs.Add(new VisionResultTab(RawResultTab, "Raw"));
+        return tabs;
+    }
+}

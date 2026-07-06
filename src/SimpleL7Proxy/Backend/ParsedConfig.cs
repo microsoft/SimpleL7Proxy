@@ -44,5 +44,6 @@ namespace SimpleL7Proxy.Backend
         public bool StripPrefix;
         public bool UsesRetryAfter;
         public AuthModeEnum AuthMode;
+        public bool Enabled;
     }
 }

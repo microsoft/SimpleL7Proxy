@@ -1,0 +1,370 @@
+@page "/history"
+@namespace chat_tester.Components.Pages
+@rendermode InteractiveServer
+@inject ChatHistoryStore HistoryStore
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@using chat_tester.Components.Shared
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.JSInterop
+@using System.Globalization
+
+<PageTitle>History</PageTitle>
+
+<SectionContent SectionName="page-heading">
+    <div class="d-flex flex-wrap align-items-center gap-3">
+        <h1 class="h4 mb-0">History</h1>
+    </div>
+</SectionContent>
+
+<SectionContent SectionName="page-action">
+    <a class="btn btn-outline-secondary history-settings-button" href="/history?settings=open" title="History storage settings">
+        <span class="history-gear" aria-hidden="true">⚙</span>
+        <span>User Settings</span>
+    </a>
+</SectionContent>
+
+@if (IsStorageOpen)
+{
+    <div class="modal-backdrop fade show"></div>
+    <div class="modal fade show history-settings-modal" tabindex="-1" role="dialog" aria-modal="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">User Settings</h5>
+                    <button type="button" class="btn-close" aria-label="Close" @onclick="CloseStorageSettings"></button>
+                </div>
+                <EditForm Model="Settings" OnValidSubmit="SaveSettingsAsync">
+                    <div class="modal-body">
+                        <div class="row g-3 align-items-end">
+                            <div class="col-12 col-md-4">
+                                <label class="form-label">History storage</label>
+                                <InputSelect class="form-select" @bind-Value="Settings.Mode">
+                                    <option value="@HistoryStorageMode.Disk">Save to disk</option>
+                                    <option value="@HistoryStorageMode.BlobStorage">Save to Storage Account</option>
+                                    <option value="@HistoryStorageMode.CosmosDb">Save to CosmosDB</option>
+                                </InputSelect>
+                            </div>
+
+                            @if (Settings.Mode == HistoryStorageMode.Disk)
+                            {
+                                <div class="col-12 col-md-8">
+                                    <label class="form-label">Path</label>
+                                    <InputText class="form-control" @bind-Value="Settings.DiskPath" />
+                                </div>
+                            }
+                            else if (Settings.Mode == HistoryStorageMode.BlobStorage)
+                            {
+                                <div class="col-12 col-md-4">
+                                    <label class="form-label">Storage account name</label>
+                                    <InputText class="form-control" @bind-Value="Settings.StorageAccountName" />
+                                </div>
+                                <div class="col-12 col-md-4">
+                                    <label class="form-label">Blob container</label>
+                                    <InputText class="form-control" @bind-Value="Settings.BlobContainerName" />
+                                </div>
+                            }
+                            else if (Settings.Mode == HistoryStorageMode.CosmosDb)
+                            {
+                                <div class="col-12 col-md-3">
+                                    <label class="form-label">Account</label>
+                                    <InputText class="form-control" @bind-Value="Settings.CosmosAccount" />
+                                </div>
+                                <div class="col-12 col-md-3">
+                                    <label class="form-label">Database</label>
+                                    <InputText class="form-control" @bind-Value="Settings.CosmosDatabase" />
+                                </div>
+                                <div class="col-12 col-md-2">
+                                    <label class="form-label">Container</label>
+                                    <InputText class="form-control" @bind-Value="Settings.CosmosContainer" />
+                                </div>
+                            }
+                        </div>
+
+                        <div class="border-top pt-3 mt-3 small text-muted">
+                            <div class="fw-semibold text-body">Active target</div>
+                            <div class="text-break">@HistoryStore.StorageDescription</div>
+                            <div class="mt-2">@HistoryStatusText</div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-outline-secondary" type="button" disabled="@(IsSaving || IsRefreshing)" @onclick="RefreshHistoryAsync">@(IsRefreshing ? "Refreshing..." : "Refresh")</button>
+                        <button class="btn btn-secondary" type="button" @onclick="CloseStorageSettings">Close</button>
+                        <button class="btn btn-primary" type="submit" disabled="@(IsSaving || IsRefreshing)">@(IsSaving ? "Saving..." : "Save settings")</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="card shadow-sm">
+    <div class="card-header bg-secondary text-white d-flex align-items-baseline gap-2">
+        <span class="fw-semibold">Saved requests</span>
+        <span class="text-white-50 small">@HistoryCountText</span>
+        <button class="btn btn-sm btn-light ms-auto" type="button" disabled="@(IsSaving || IsRefreshing)" @onclick="RefreshHistoryAsync">@(IsRefreshing ? "Refreshing..." : "Refresh")</button>
+    </div>
+    <div class="card-body">
+        @if (!HistoryStore.HasEntries)
+        {
+            <p class="text-muted mb-0">No requests have been saved yet.</p>
+        }
+        else
+        {
+            <div class="table-responsive" style="max-height: 680px; overflow-y: auto;" @ref="HistoryTable">
+                <table class="table table-sm table-striped align-middle mb-0 history-table">
+                    <thead class="table-light sticky-top">
+                        <tr>
+                            <th><button class="history-sort" type="button" @onclick='() => SetSort("time")'>Time @SortIndicator("time")</button></th>
+                            <th>Source</th>
+                            <th>Message</th>
+                            <th><button class="history-sort" type="button" @onclick='() => SetSort("status")'>Status @SortIndicator("status")</button></th>
+                            <th class="text-end">TTFB</th>
+                            <th class="text-end">Duration</th>
+                            <th class="text-end">Chunks</th>
+                            <th class="text-end">Bytes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var entry in SortedHistoryEntries)
+                        {
+                            <tr class="request-detail-row" tabindex="0">
+                                <td class="text-nowrap">@FormatTimestamp(entry.CreatedAt)</td>
+                                <td>@entry.Source</td>
+                                <td>
+                                    <div class="history-request-message">@RequestSummaryFormatter.BuildRequestTitle(entry.RequestBody)</div>
+                                    <code class="history-request-path">@entry.Method @entry.EndpointPath</code>
+                                </td>
+                                <td>@entry.Metrics.Status</td>
+                                <td class="text-end">@FormatDuration(entry.Metrics.TimeToFirstByte)</td>
+                                <td class="text-end">@FormatDuration(entry.Metrics.Duration)</td>
+                                <td class="text-end">@entry.Metrics.Chunks.ToString("N0", CultureInfo.InvariantCulture)</td>
+                                <td class="text-end">
+                                    @entry.Metrics.TotalBytes.ToString("N0", CultureInfo.InvariantCulture)
+                                    <RequestDetailsPopup Entry="entry" />
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .history-settings-button {
+        min-height: 2.25rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        font-weight: 600;
+    }
+
+    .history-gear {
+        width: 1.25rem;
+        height: 1.25rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
+        font-size: 1rem;
+    }
+
+    .history-settings-modal {
+        display: block;
+    }
+
+    .history-table th,
+    .history-table td {
+        white-space: nowrap;
+    }
+
+    .history-table td:nth-child(3) {
+        min-width: 22rem;
+        white-space: normal;
+    }
+
+    .history-request-message {
+        color: #212529;
+        font-weight: 600;
+        line-height: 1.25;
+        overflow-wrap: anywhere;
+    }
+
+    .history-request-path {
+        display: block;
+        margin-top: 0.15rem;
+        color: #6c757d;
+        font-size: 0.75rem;
+        white-space: normal;
+    }
+
+    .history-sort {
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        font-weight: 700;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+
+    .request-detail-row { cursor: default; }
+    .request-detail-row:hover { background-color: rgba(13, 110, 253, 0.08) !important; }
+</style>
+
+@code {
+    private ElementReference HistoryTable { get; set; }
+
+    [SupplyParameterFromQuery(Name = "settings")]
+    public string? SettingsQuery { get; set; }
+
+    private HistoryStorageSettings Settings { get; set; } = new();
+    private bool IsSaving { get; set; }
+    private bool IsRefreshing { get; set; }
+    private bool IsStorageOpen { get; set; }
+    private string SortField { get; set; } = "time";
+    private string SortDirection { get; set; } = "desc";
+    private string StatusMessage { get; set; } = "Settings loaded from appsettings.json.";
+    private string HistoryStatusText => string.IsNullOrWhiteSpace(HistoryStore.LastStorageError)
+        ? StatusMessage
+        : $"{StatusMessage} Storage error: {HistoryStore.LastStorageError}";
+    private string HistoryCountText => HistoryStore.Count == 1 ? "1 request" : $"{HistoryStore.Count} requests";
+    private IEnumerable<ChatHistoryEntry> SortedHistoryEntries => SortField == "status"
+        ? Sort(SortDirection == "asc", entry => GetStatusSortKey(entry), entry => entry.CreatedAt)
+        : Sort(SortDirection == "asc", entry => entry.CreatedAt, entry => GetStatusSortKey(entry));
+
+    protected override void OnInitialized()
+    {
+        Settings = HistoryStore.Settings;
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (string.Equals(SettingsQuery, "open", StringComparison.OrdinalIgnoreCase))
+        {
+            OpenStorageSettings();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!HistoryStore.HasEntries)
+        {
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("requestDetailsPopup.register", HistoryTable);
+        }
+        catch (JSException)
+        {
+        }
+    }
+
+    private void OpenStorageSettings()
+    {
+        Settings = HistoryStore.Settings;
+        IsStorageOpen = true;
+    }
+
+    private void CloseStorageSettings()
+    {
+        IsStorageOpen = false;
+        Navigation.NavigateTo("/history", replace: true);
+    }
+
+    private void SetSort(string field)
+    {
+        if (SortField == field)
+        {
+            SortDirection = SortDirection == "asc" ? "desc" : "asc";
+            return;
+        }
+
+        SortField = field;
+        SortDirection = field == "time" ? "desc" : "asc";
+    }
+
+    private string SortIndicator(string field) =>
+        SortField == field ? (SortDirection == "asc" ? "↑" : "↓") : string.Empty;
+
+    private async Task SaveSettingsAsync()
+    {
+        IsSaving = true;
+        StatusMessage = "Loading history from the selected target...";
+        try
+        {
+            await HistoryStore.ApplySettingsAsync(Settings);
+            Settings = HistoryStore.Settings;
+            StatusMessage = "History settings applied and refreshed.";
+            IsStorageOpen = false;
+            Navigation.NavigateTo("/history", replace: true);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Could not apply history settings: {ex.Message}";
+        }
+        finally
+        {
+            IsSaving = false;
+        }
+    }
+
+    private async Task RefreshHistoryAsync()
+    {
+        IsRefreshing = true;
+        StatusMessage = "Refreshing history...";
+        try
+        {
+            await HistoryStore.RefreshAsync();
+            Settings = HistoryStore.Settings;
+            StatusMessage = "History refreshed.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Could not refresh history: {ex.Message}";
+        }
+        finally
+        {
+            IsRefreshing = false;
+        }
+    }
+
+    private static string FormatTimestamp(DateTimeOffset value) =>
+        value.LocalDateTime.ToString("MMM d, yyyy h:mm tt", CultureInfo.InvariantCulture);
+
+    private static string FormatDuration(TimeSpan? value) =>
+        value is null ? "-" : $"{value.Value.TotalMilliseconds:0} ms";
+
+    private static int GetStatusSortKey(ChatHistoryEntry entry)
+    {
+        var status = entry.Metrics.Status;
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            return int.MaxValue;
+        }
+
+        var firstToken = status.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        if (int.TryParse(firstToken, NumberStyles.Integer, CultureInfo.InvariantCulture, out var statusCode))
+        {
+            return statusCode;
+        }
+
+        if (status.Equals("Canceled", StringComparison.OrdinalIgnoreCase))
+        {
+            return 499;
+        }
+
+        return status.Equals("Failed", StringComparison.OrdinalIgnoreCase) ? 599 : int.MaxValue;
+    }
+
+    private IEnumerable<ChatHistoryEntry> Sort<TKey, TThen>(bool ascending, Func<ChatHistoryEntry, TKey> keySelector, Func<ChatHistoryEntry, TThen> thenSelector) =>
+        ascending
+            ? HistoryStore.GetSnapshot().OrderBy(keySelector).ThenBy(thenSelector)
+            : HistoryStore.GetSnapshot().OrderByDescending(keySelector).ThenByDescending(thenSelector);
+}

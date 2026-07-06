@@ -90,7 +90,19 @@ public static class ProxyHelperUtils
     {
         foreach (var header in headers)
         {
-            logger.LogDebug("{Prefix} {HeaderKey} : {HeaderValues}", prefix, header.Key, string.Join(", ", header.Value));
+            var firstValue = header.Value.FirstOrDefault();
+            var shouldRedact = firstValue is not null &&
+                (firstValue.StartsWith("Bearer", StringComparison.OrdinalIgnoreCase) ||
+                 header.Key.EndsWith("-key", StringComparison.OrdinalIgnoreCase));
+
+            if (shouldRedact)
+            {
+                logger.LogInformation("{Prefix} {HeaderKey} : <REDACTED>", prefix, header.Key);
+            }
+            else
+            {
+                logger.LogInformation("{Prefix} {HeaderKey} : {HeaderValues}", prefix, header.Key, string.Join(", ", header.Value));
+            }
         }
     }
 

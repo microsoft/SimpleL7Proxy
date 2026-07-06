@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.IO;
 using System.Net;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 using Microsoft.Extensions.ObjectPool;
@@ -220,6 +221,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     public string FullURL { get; set; }
     public string Method { get; set; }
     public string MID { get; set; } = "";
+    public string Model { get; set; } = "";
     public string ParentId { get; set; } = "";
     public string Path { get; set; }
     public bool Requeued { get; set; } = false;
@@ -372,7 +374,6 @@ public class RequestData : IDisposable, IAsyncDisposable
 
     public async Task<byte[]> CacheBodyAsync()
     {
-
         if (BodyBytes != null)
         {
             return BodyBytes;
@@ -383,14 +384,85 @@ public class RequestData : IDisposable, IAsyncDisposable
             return [];
         }
 
-        // Read the body stream once and reuse it
-        using (MemoryStream ms = new())
+        try
         {
-            await Body.CopyToAsync(ms);
-            BodyBytes = ms.ToArray();
-        }
+            long contentLength = Context?.Request.ContentLength64 ?? -1;
 
-        return BodyBytes;
+            if (contentLength == 0)
+            {
+                BodyBytes = [];
+                return BodyBytes;
+            }
+
+            if (contentLength > 0 && contentLength <= int.MaxValue)
+            {
+                var bodyBytes = GC.AllocateUninitializedArray<byte>((int)contentLength);
+                await Body.ReadExactlyAsync(bodyBytes).ConfigureAwait(false);
+                BodyBytes = bodyBytes;
+                return BodyBytes;
+            }
+
+            // Unknown-length bodies, such as chunked requests, still need a growable buffer.
+            using (MemoryStream ms = new())
+            {
+                await Body.CopyToAsync(ms).ConfigureAwait(false);
+                BodyBytes = ms.ToArray();
+            }
+
+            return BodyBytes;
+        }
+        finally
+        {
+            if (BodyBytes is { Length: > 0 })
+            {
+                try
+                {
+                    var reader = new Utf8JsonReader(BodyBytes, isFinalBlock: true, state: default);
+
+                    if (reader.Read() && reader.TokenType == JsonTokenType.StartObject)
+                    {
+                        while (reader.Read())
+                        {
+                            if (reader.TokenType == JsonTokenType.EndObject)
+                            {
+                                break;
+                            }
+
+                            if (reader.TokenType != JsonTokenType.PropertyName)
+                            {
+                                continue;
+                            }
+
+                            bool isModelProperty = reader.ValueTextEquals("model"u8);
+                            if (!reader.Read())
+                            {
+                                break;
+                            }
+
+                            if (isModelProperty && reader.TokenType == JsonTokenType.String)
+                            {
+                                var model = reader.GetString();
+                                if (!string.IsNullOrWhiteSpace(model))
+                                {
+                                    Model = model;
+                                }
+
+                                break;
+                            }
+
+                            reader.Skip();
+                        }
+                    }
+                }
+                catch (JsonException)
+                {
+                    if (string.IsNullOrEmpty(Model) )
+                    {
+                        Model = "Error parsing model";
+                    }
+                }
+            }
+        }
     }
 
     public void CalculateExpiration(int defaultTTLSecs, string TtlHeaderName)
