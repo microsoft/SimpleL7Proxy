@@ -1,7 +1,4 @@
 using System.Text.Json;
-using Azure.Identity;
-using Azure.Storage.Blobs;
-using Microsoft.Azure.Cosmos;
 
 namespace chat_tester.Components.Shared;
 
@@ -24,14 +21,19 @@ public sealed class ChatConversationStore
     private ChatConversationSummary[] _snapshot = [];
 
     private ConversationStorageSettings _settings = new();
-    private CosmosClient? _cosmosClient;
-    private string _cosmosAccount = string.Empty;
+    private readonly DocumentStorageRepository<ChatConversationMessage> _repository;
 
     public ChatConversationStore(IWebHostEnvironment environment, ConversationSettings conversationSettings)
     {
         _environment = environment;
         _conversationSettings = conversationSettings;
         _settings = NormalizeSettings(conversationSettings.Current);
+        _repository = new DocumentStorageRepository<ChatConversationMessage>(
+            JsonOptions,
+            environment.ContentRootPath,
+            nameof(ChatConversationMessage),
+            Path.Combine(DefaultDataDirectoryName, DefaultConversationDirectoryName),
+            BuildConversationPath);
     }
 
     public int Count => _snapshot.Length;
@@ -154,7 +156,7 @@ public sealed class ChatConversationStore
             {
                 foreach (var message in messages)
                 {
-                    await SaveMessageCoreAsync(_settings, message);
+                    await _repository.SaveAsync(_settings, message);
                 }
 
                 LastStorageError = string.Empty;
@@ -185,12 +187,7 @@ public sealed class ChatConversationStore
     {
         try
         {
-            return settings.Mode switch
-            {
-                HistoryStorageMode.BlobStorage => await LoadFromBlobStorageAsync(settings),
-                HistoryStorageMode.CosmosDb => await LoadFromCosmosAsync(settings),
-                _ => await LoadFromDiskAsync(settings)
-            };
+            return NormalizeMessages(await _repository.LoadAsync(settings));
         }
         catch (Exception ex)
         {
@@ -199,175 +196,8 @@ public sealed class ChatConversationStore
         }
     }
 
-    private async Task<IReadOnlyList<ChatConversationMessage>> LoadFromDiskAsync(ConversationStorageSettings settings)
-    {
-        var messages = new List<ChatConversationMessage>();
-        var directory = ResolveDiskDirectory(settings.DiskPath);
-        Directory.CreateDirectory(directory);
-
-        foreach (var file in Directory.EnumerateFiles(directory, "*.json", SearchOption.AllDirectories))
-        {
-            var message = JsonSerializer.Deserialize<ChatConversationMessage>(await File.ReadAllTextAsync(file), JsonOptions);
-            if (message is not null)
-            {
-                messages.Add(message);
-            }
-        }
-
-        return NormalizeMessages(messages);
-    }
-
-    private async Task<IReadOnlyList<ChatConversationMessage>> LoadFromBlobStorageAsync(ConversationStorageSettings settings)
-    {
-        if (string.IsNullOrWhiteSpace(settings.StorageAccountName) || string.IsNullOrWhiteSpace(settings.BlobContainerName))
-        {
-            return Array.Empty<ChatConversationMessage>();
-        }
-
-        var messages = new List<ChatConversationMessage>();
-        var container = CreateBlobContainerClient(settings);
-        await container.CreateIfNotExistsAsync();
-        await foreach (var blobItem in container.GetBlobsAsync())
-        {
-            if (!blobItem.Name.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var blob = container.GetBlobClient(blobItem.Name);
-            var response = await blob.DownloadContentAsync();
-            var message = response.Value.Content.ToObjectFromJson<ChatConversationMessage>(JsonOptions);
-            if (message is not null)
-            {
-                messages.Add(message);
-            }
-        }
-
-        return NormalizeMessages(messages);
-    }
-
-    private async Task<IReadOnlyList<ChatConversationMessage>> LoadFromCosmosAsync(ConversationStorageSettings settings)
-    {
-        if (string.IsNullOrWhiteSpace(settings.CosmosAccount) || string.IsNullOrWhiteSpace(settings.CosmosDatabase) || string.IsNullOrWhiteSpace(settings.CosmosContainer))
-        {
-            return Array.Empty<ChatConversationMessage>();
-        }
-
-        var container = await GetCosmosContainerAsync(settings);
-        var messages = new List<ChatConversationMessage>();
-        using var iterator = container.GetItemQueryIterator<ChatConversationMessage>(
-            new QueryDefinition("SELECT * FROM c WHERE c.documentType = @documentType ORDER BY c.createdAt")
-                .WithParameter("@documentType", nameof(ChatConversationMessage)));
-
-        while (iterator.HasMoreResults)
-        {
-            foreach (var message in await iterator.ReadNextAsync())
-            {
-                messages.Add(message);
-            }
-        }
-
-        return NormalizeMessages(messages);
-    }
-
-    private async Task SaveMessageCoreAsync(ConversationStorageSettings settings, ChatConversationMessage message)
-    {
-        switch (settings.Mode)
-        {
-            case HistoryStorageMode.BlobStorage:
-                await SaveToBlobStorageAsync(settings, message);
-                break;
-            case HistoryStorageMode.CosmosDb:
-                await SaveToCosmosAsync(settings, message);
-                break;
-            default:
-                await SaveToDiskAsync(settings, message);
-                break;
-        }
-    }
-
-    private async Task SaveToDiskAsync(ConversationStorageSettings settings, ChatConversationMessage message)
-    {
-        var path = Path.Combine(ResolveDiskDirectory(settings.DiskPath), BuildConversationPath(message));
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        await using var stream = File.Create(path);
-        await JsonSerializer.SerializeAsync(stream, message, JsonOptions);
-    }
-
-    private async Task SaveToBlobStorageAsync(ConversationStorageSettings settings, ChatConversationMessage message)
-    {
-        if (string.IsNullOrWhiteSpace(settings.StorageAccountName) || string.IsNullOrWhiteSpace(settings.BlobContainerName))
-        {
-            return;
-        }
-
-        var container = CreateBlobContainerClient(settings);
-        await container.CreateIfNotExistsAsync();
-        var blob = container.GetBlobClient(BuildConversationPath(message).Replace(Path.DirectorySeparatorChar, '/'));
-        await using var stream = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(message, JsonOptions));
-        await blob.UploadAsync(stream, overwrite: true);
-    }
-
-    private async Task SaveToCosmosAsync(ConversationStorageSettings settings, ChatConversationMessage message)
-    {
-        if (string.IsNullOrWhiteSpace(settings.CosmosAccount) || string.IsNullOrWhiteSpace(settings.CosmosDatabase) || string.IsNullOrWhiteSpace(settings.CosmosContainer))
-        {
-            return;
-        }
-
-        var container = await GetCosmosContainerAsync(settings);
-        await container.UpsertItemAsync(message, new PartitionKey(message.PartitionKey));
-    }
-
-    private async Task<Container> GetCosmosContainerAsync(ConversationStorageSettings settings)
-    {
-        var endpoint = BuildCosmosEndpoint(settings.CosmosAccount);
-        if (_cosmosClient is null || !string.Equals(_cosmosAccount, endpoint, StringComparison.OrdinalIgnoreCase))
-        {
-            _cosmosClient?.Dispose();
-            _cosmosClient = new CosmosClient(endpoint, new DefaultAzureCredential(), new CosmosClientOptions
-            {
-                ConnectionMode = ConnectionMode.Direct
-            });
-            _cosmosAccount = endpoint;
-        }
-
-        var database = await _cosmosClient.CreateDatabaseIfNotExistsAsync(settings.CosmosDatabase);
-        var container = await database.Database.CreateContainerIfNotExistsAsync(settings.CosmosContainer, "/partitionKey");
-        return container.Container;
-    }
-
-    private static BlobContainerClient CreateBlobContainerClient(ConversationStorageSettings settings)
-    {
-        var accountName = settings.StorageAccountName.Trim();
-        var containerName = settings.BlobContainerName.Trim();
-        var containerUri = new Uri($"https://{accountName}.blob.core.windows.net/{containerName}");
-        return new BlobContainerClient(containerUri, new DefaultAzureCredential());
-    }
-
-    private string ResolveDiskDirectory(string diskPath)
-    {
-        var configuredPath = string.IsNullOrWhiteSpace(diskPath)
-            ? Path.Combine(DefaultDataDirectoryName, DefaultConversationDirectoryName)
-            : diskPath;
-
-        return Path.IsPathRooted(configuredPath)
-            ? configuredPath
-            : Path.Combine(_environment.ContentRootPath, configuredPath);
-    }
-
     private static string BuildConversationPath(ChatConversationMessage message) =>
         Path.Combine(message.ConversationId, $"{message.Id}.json");
-
-    private static string BuildCosmosEndpoint(string account)
-    {
-        if (account.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || account.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-        {
-            return account;
-        }
-
-        return $"https://{account}.documents.azure.com:443/";
-    }
 
     private static void PrepareMessage(ChatConversationMessage message)
     {
@@ -536,7 +366,7 @@ public sealed class ChatConversationSummary
     }
 }
 
-public sealed class ChatConversationMessage
+public sealed class ChatConversationMessage : IStorageDocument
 {
     public string Id { get; set; } = string.Empty;
 
@@ -838,7 +668,7 @@ public static class ChatConversationRole
     };
 }
 
-public sealed class ConversationStorageSettings
+public sealed class ConversationStorageSettings : IStorageSettings
 {
     public string Mode { get; set; } = HistoryStorageMode.Disk;
 

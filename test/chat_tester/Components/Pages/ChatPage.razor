@@ -119,9 +119,18 @@
         overflow: hidden;
     }
 
-    article.content {
-        height: calc(100dvh - 3.5rem);
+    main {
+        display: flex;
+        flex-direction: column;
+        height: 100dvh;
         min-height: 0;
+        overflow: hidden;
+    }
+
+    article.content {
+        flex: 1 1 auto;
+        min-height: 0;
+        padding-bottom: 0.5rem;
         display: flex;
         flex-direction: column;
         overflow: hidden;
@@ -414,12 +423,20 @@
             metrics.ContentType = response.Content.Headers.ContentType?.ToString() ?? "-";
             responseHeadersText = ChatTesterHttp.SummarizeResponseHeaders(response);
             StatusMessage = $"Receiving {(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
+            if (PendingTurn is not null)
+            {
+                PendingTurn.AssistantMessage = $"Received {(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}...".Trim();
+            }
+
+            await InvokeAsync(StateHasChanged);
             var responseBody = await ReadAssistantResponseAsync(response, metrics);
             assistantText = responseBody.DisplayText;
             rawResponseText = responseBody.RawText;
             if (string.IsNullOrWhiteSpace(assistantText))
             {
-                assistantText = "The server returned an empty response body.";
+                assistantText = response.IsSuccessStatusCode
+                    ? "The server returned an empty response body."
+                    : $"Request failed with {(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}.".Trim();
             }
 
             finalStatus = $"{(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
@@ -506,19 +523,25 @@
 
     private async Task<(string DisplayText, string RawText)> ReadAssistantResponseAsync(HttpResponseMessage response, MultiStepChatMetrics metrics)
     {
+        var contentType = response.Content.Headers.ContentType?.ToString() ?? string.Empty;
+        if (!contentType.Contains("event-stream", StringComparison.OrdinalIgnoreCase))
+        {
+            // Non-streaming responses (including auth failures such as 401/403) are buffered so the
+            // reader cannot block waiting for stream data that will never arrive on a kept-alive connection.
+            var body = await response.Content.ReadAsStringAsync();
+            metrics.Chunks = string.IsNullOrEmpty(body) ? 0 : 1;
+            metrics.TotalBytes = Encoding.UTF8.GetByteCount(body);
+            var displayText = ChatStreamParser.ExtractDisplayContent(body);
+            return (string.IsNullOrWhiteSpace(displayText) ? body.Trim() : displayText, body);
+        }
+
         var rawBuilder = new StringBuilder();
         var assistantBuilder = new StringBuilder();
         using var stream = await response.Content.ReadAsStreamAsync();
         using var reader = new StreamReader(stream);
 
-        while (!reader.EndOfStream)
+        while (await reader.ReadLineAsync() is { } line)
         {
-            var line = await reader.ReadLineAsync();
-            if (line is null)
-            {
-                break;
-            }
-
             metrics.Chunks++;
             metrics.TotalBytes += Encoding.UTF8.GetByteCount(line) + 1;
             rawBuilder.AppendLine(line);

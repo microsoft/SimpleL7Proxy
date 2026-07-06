@@ -26,6 +26,7 @@ builder.Services.AddSingleton<ModelDefaults>();
 builder.Services.AddSingleton<VisionModelCatalog>();
 builder.Services.AddSingleton<ChatHistoryStore>();
 builder.Services.AddSingleton<ChatConversationStore>();
+builder.Services.AddScoped<UserPreferencesService>();
 builder.Services.Configure<ChatTesterOptions>(
     builder.Configuration.GetSection(ChatTesterOptions.SectionName));
 

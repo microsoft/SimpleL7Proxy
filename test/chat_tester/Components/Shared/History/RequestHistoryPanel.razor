@@ -1,7 +1,5 @@
 @namespace chat_tester.Components.Shared
 @using Microsoft.AspNetCore.Components.Web
-@using System.Globalization
-@using System.Text.Json
 @using System.Linq
 
 @{
@@ -34,15 +32,15 @@
                 <div class="history-buttons" role="list" aria-label="Request history">
                     @foreach (var entry in historyEntries)
                     {
-                        <div class="history-item @GetHistoryStatusClass(entry) @(IsHistoryPreviewEntry(entry) ? "preview-active" : string.Empty) @(entry.Id == SelectedEntryId ? "active" : string.Empty)" role="listitem" @onmouseenter="() => ShowHistoryPreview(entry)" @onfocusin="() => ShowHistoryPreview(entry)">
+                        <div class="history-item @HistoryEntryFormatter.GetHistoryStatusClass(entry) @(IsHistoryPreviewEntry(entry) ? "preview-active" : string.Empty) @(entry.Id == SelectedEntryId ? "active" : string.Empty)" role="listitem" @onmouseenter="() => ShowHistoryPreview(entry)" @onfocusin="() => ShowHistoryPreview(entry)">
                             <button class="history-button" type="button" @onclick="() => SelectHistoryEntryAsync(entry)">
                                 <span class="history-line">
-                                    <span class="history-date">@FormatHistoryDate(entry.CreatedAt)</span>
-                                    <span class="history-status-code">@FormatHistoryStatus(entry)</span>
+                                    <span class="history-date">@HistoryEntryFormatter.FormatHistoryDate(entry.CreatedAt)</span>
+                                    <span class="history-status-code">@HistoryEntryFormatter.FormatHistoryStatus(entry)</span>
                                 </span>
-                                <span class="history-age">@(entry.Id == SelectedEntryId ? "Showing" : FormatHistoryAge(entry.CreatedAt))</span>
+                                <span class="history-age">@(entry.Id == SelectedEntryId ? "Showing" : HistoryEntryFormatter.FormatHistoryAge(entry.CreatedAt))</span>
                             </button>
-                            <button class="history-delete @(entry.Id == PendingDeleteEntryId ? "confirm" : string.Empty)" type="button" title="Delete history item" aria-label="Delete history item from @FormatHistoryDate(entry.CreatedAt)" @onclick="() => DeleteHistoryEntryAsync(entry)" @onclick:stopPropagation="true">
+                            <button class="history-delete @(entry.Id == PendingDeleteEntryId ? "confirm" : string.Empty)" type="button" title="Delete history item" aria-label="Delete history item from @HistoryEntryFormatter.FormatHistoryDate(entry.CreatedAt)" @onclick="() => DeleteHistoryEntryAsync(entry)" @onclick:stopPropagation="true">
                                 @if (entry.Id == PendingDeleteEntryId)
                                 {
                                     <span>Confirm</span>
@@ -57,7 +55,7 @@
 
                             @if (IsHistoryPreviewEntry(entry))
                             {
-                                var summary = GetHistoryRequestSummary(entry);
+                                var summary = HistoryEntryFormatter.GetHistoryRequestSummary(entry);
 
                                 <div class="history-request-summary" aria-hidden="true">
                                     <div class="history-summary-grid">
@@ -358,8 +356,6 @@
 </style>
 
 @code {
-    private sealed record HistoryRequestSummary(string Model, string Api, string Stream, string Prompt);
-
     private enum HistoryEntryType
     {
         Request,
@@ -533,315 +529,5 @@
     {
         var label = ActiveFilter == HistoryEntryType.Request ? "request" : "chat";
         return count == 1 ? $"1 {label} item" : $"{count} {label} items";
-    }
-
-    private static string FormatHistoryDate(DateTimeOffset value) =>
-        value.LocalDateTime.ToString("MMM d, h:mm tt", CultureInfo.InvariantCulture);
-
-    private static string FormatHistoryStatus(ChatHistoryEntry entry)
-    {
-        var statusCode = GetHistoryStatusCode(entry);
-        if (statusCode is not null)
-        {
-            return statusCode.Value.ToString(CultureInfo.InvariantCulture);
-        }
-
-        return string.IsNullOrWhiteSpace(entry.Metrics.Status) ? "-" : entry.Metrics.Status;
-    }
-
-    private static HistoryRequestSummary GetHistoryRequestSummary(ChatHistoryEntry entry)
-    {
-        var model = ExtractModelFromEndpoint(entry.EndpointPath);
-        var stream = InferStreamFromEndpoint(entry.EndpointPath);
-
-        if (!string.IsNullOrWhiteSpace(entry.RequestBody))
-        {
-            try
-            {
-                using var document = JsonDocument.Parse(entry.RequestBody);
-                var root = document.RootElement;
-
-                if (TryGetProperty(root, "model", out var modelElement))
-                {
-                    var modelValue = ExtractJsonContent(modelElement);
-                    if (!string.IsNullOrWhiteSpace(modelValue))
-                    {
-                        model = modelValue;
-                    }
-                }
-
-                if (TryGetProperty(root, "stream", out var streamElement))
-                {
-                    stream = FormatJsonBoolean(streamElement);
-                }
-            }
-            catch (JsonException)
-            {
-            }
-        }
-
-        return new HistoryRequestSummary(
-            string.IsNullOrWhiteSpace(model) ? "-" : model,
-            FormatHistoryApi(entry.EndpointPath),
-            stream,
-            FormatHistoryPromptPreview(entry));
-    }
-
-    private static string FormatHistoryPromptPreview(ChatHistoryEntry entry)
-    {
-        var requestBody = entry.RequestBody;
-        if (string.IsNullOrWhiteSpace(requestBody))
-        {
-            return "No prompt captured.";
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(requestBody);
-            if (TryExtractPromptPreview(document.RootElement, out var promptPreview))
-            {
-                return TakePreviewLines(promptPreview);
-            }
-        }
-        catch (JsonException)
-        {
-        }
-
-        return TakePreviewLines(requestBody);
-    }
-
-    private static string FormatHistoryApi(string endpointPath)
-    {
-        if (string.IsNullOrWhiteSpace(endpointPath))
-        {
-            return "-";
-        }
-
-        var endpoint = endpointPath.Split('?', 2)[0];
-        if (endpoint.Contains("chat/completions", StringComparison.OrdinalIgnoreCase))
-        {
-            return "chat/completions";
-        }
-
-        if (endpoint.Contains("responses", StringComparison.OrdinalIgnoreCase))
-        {
-            return "responses";
-        }
-
-        if (endpoint.Contains("messages", StringComparison.OrdinalIgnoreCase))
-        {
-            return "messages";
-        }
-
-        if (endpoint.Contains("streamGenerateContent", StringComparison.OrdinalIgnoreCase))
-        {
-            return "streamGenerateContent";
-        }
-
-        if (endpoint.Contains("generateContent", StringComparison.OrdinalIgnoreCase))
-        {
-            return "generateContent";
-        }
-
-        return endpoint;
-    }
-
-    private static string InferStreamFromEndpoint(string endpointPath) =>
-        endpointPath.Contains("stream", StringComparison.OrdinalIgnoreCase) ? "true" : "-";
-
-    private static string ExtractModelFromEndpoint(string endpointPath)
-    {
-        if (string.IsNullOrWhiteSpace(endpointPath))
-        {
-            return string.Empty;
-        }
-
-        const string marker = "/models/";
-        var markerIndex = endpointPath.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-        if (markerIndex < 0)
-        {
-            return string.Empty;
-        }
-
-        var start = markerIndex + marker.Length;
-        var end = endpointPath.IndexOfAny(new[] { '/', ':', '?' }, start);
-        return end < 0 ? endpointPath[start..] : endpointPath[start..end];
-    }
-
-    private static string FormatJsonBoolean(JsonElement element) => element.ValueKind switch
-    {
-        JsonValueKind.True => "true",
-        JsonValueKind.False => "false",
-        JsonValueKind.String when bool.TryParse(element.GetString(), out var value) => value ? "true" : "false",
-        _ => "-"
-    };
-
-    private static bool TryExtractPromptPreview(JsonElement root, out string promptPreview)
-    {
-        if (TryGetProperty(root, "messages", out var messages) && messages.ValueKind == JsonValueKind.Array)
-        {
-            var fallbackMessage = string.Empty;
-            foreach (var message in messages.EnumerateArray())
-            {
-                var content = TryGetProperty(message, "content", out var contentElement)
-                    ? ExtractJsonContent(contentElement)
-                    : string.Empty;
-
-                if (string.IsNullOrWhiteSpace(content))
-                {
-                    continue;
-                }
-
-                fallbackMessage = content;
-                if (TryGetProperty(message, "role", out var roleElement)
-                    && string.Equals(roleElement.GetString(), "user", StringComparison.OrdinalIgnoreCase))
-                {
-                    promptPreview = content;
-                    return true;
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(fallbackMessage))
-            {
-                promptPreview = fallbackMessage;
-                return true;
-            }
-        }
-
-        foreach (var propertyName in new[] { "prompt", "input", "query" })
-        {
-            if (TryGetProperty(root, propertyName, out var propertyValue))
-            {
-                var value = ExtractJsonContent(propertyValue);
-                if (!string.IsNullOrWhiteSpace(value))
-                {
-                    promptPreview = value;
-                    return true;
-                }
-            }
-        }
-
-        promptPreview = string.Empty;
-        return false;
-    }
-
-    private static string ExtractJsonContent(JsonElement element)
-    {
-        if (element.ValueKind == JsonValueKind.String)
-        {
-            return element.GetString() ?? string.Empty;
-        }
-
-        if (element.ValueKind == JsonValueKind.Array)
-        {
-            return string.Join(Environment.NewLine, element.EnumerateArray()
-                .Select(ExtractJsonContent)
-                .Where(content => !string.IsNullOrWhiteSpace(content)));
-        }
-
-        if (element.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var propertyName in new[] { "text", "content", "value" })
-            {
-                if (TryGetProperty(element, propertyName, out var propertyValue))
-                {
-                    var value = ExtractJsonContent(propertyValue);
-                    if (!string.IsNullOrWhiteSpace(value))
-                    {
-                        return value;
-                    }
-                }
-            }
-        }
-
-        return string.Empty;
-    }
-
-    private static bool TryGetProperty(JsonElement element, string name, out JsonElement value)
-    {
-        if (element.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var property in element.EnumerateObject())
-            {
-                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
-                {
-                    value = property.Value;
-                    return true;
-                }
-            }
-        }
-
-        value = default;
-        return false;
-    }
-
-    private static string TakePreviewLines(string value)
-    {
-        var lines = value.Replace("\r", string.Empty)
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Take(2)
-            .ToArray();
-
-        var preview = lines.Length == 0 ? value.Trim() : string.Join(Environment.NewLine, lines);
-        const int maximumLength = 220;
-        return preview.Length <= maximumLength ? preview : $"{preview[..maximumLength]}...";
-    }
-
-    private static string GetHistoryStatusClass(ChatHistoryEntry entry)
-    {
-        var statusCode = GetHistoryStatusCode(entry);
-        if (statusCode == 429)
-        {
-            return "history-rate-limited";
-        }
-
-        if (statusCode is >= 200 and < 400)
-        {
-            return "history-success";
-        }
-
-        if (statusCode is >= 400 || string.Equals(entry.Metrics.Status, "Failed", StringComparison.OrdinalIgnoreCase))
-        {
-            return "history-failed";
-        }
-
-        return string.Empty;
-    }
-
-    private static int? GetHistoryStatusCode(ChatHistoryEntry entry)
-    {
-        var status = entry.Metrics.Status;
-        if (string.IsNullOrWhiteSpace(status))
-        {
-            return null;
-        }
-
-        var token = status.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
-        return int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var statusCode)
-            ? statusCode
-            : null;
-    }
-
-    private static string FormatHistoryAge(DateTimeOffset value)
-    {
-        var age = DateTimeOffset.Now - value;
-        if (age.TotalMinutes < 1)
-        {
-            return "Just now";
-        }
-
-        if (age.TotalHours < 1)
-        {
-            var minutes = Math.Max(1, (int)age.TotalMinutes);
-            return minutes == 1 ? "1 minute ago" : $"{minutes} minutes ago";
-        }
-
-        if (age.TotalHours < 24)
-        {
-            var hours = Math.Max(1, (int)age.TotalHours);
-            return hours == 1 ? "1 hour ago" : $"{hours} hours ago";
-        }
-
-        return value.LocalDateTime.ToString("MMM d, yyyy", CultureInfo.InvariantCulture);
     }
 }

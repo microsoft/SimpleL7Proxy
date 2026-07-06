@@ -5,5 +5,5 @@ namespace chat_tester.Components.Shared;
 /// </summary>
 public sealed class AutoCollapseSettings
 {
-    public bool Enabled { get; set; } = true;
+    public bool Enabled { get; set; } = false;
 }

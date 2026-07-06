@@ -1,11 +1,12 @@
 @namespace chat_tester.Components.Shared
 @using chat_tester.Components.Shared
 @using Microsoft.AspNetCore.Components.Forms
+@inject UserPreferencesService Preferences
 
 <div class="proxy-panel rounded border p-3 mb-3">
     <div class="mb-3">
         <label class="form-label">Server base URL</label>
-        <InputText class="form-control" @bind-Value="Settings.ServerBaseUrl" />
+        <InputText class="form-control" @bind-Value="Settings.ServerBaseUrl" @bind-Value:after="Preferences.SaveAsync" />
     </div>
 
     <AuthPanel @ref="AuthPanel" Settings="Settings" />

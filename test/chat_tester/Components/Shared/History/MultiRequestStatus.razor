@@ -3,6 +3,41 @@
 @using System.Globalization
 @using Microsoft.AspNetCore.Components.Web
 
+@if (Items.Count > 0)
+{
+    <div class="multi-request-stats border rounded bg-white shadow-sm">
+        <div class="multi-request-stats-title">Statistics:</div>
+        <div class="multi-request-stats-thermometer">
+            @foreach (var segment in OutcomeSegments)
+            {
+                <div class="multi-request-stats-segment @segment.Css" style="flex-grow: @segment.Count;" title="@segment.Label">
+                    <span class="multi-request-stats-segment-label">@segment.Label</span>
+                </div>
+            }
+        </div>
+        <div class="multi-request-stats-status-grid">
+            @foreach (var group in StatusGroups)
+            {
+                <button type="button"
+                        class="multi-request-stats-status @GetGroupClass(group.StatusCode) @(SelectedStatusFilter == group.StatusCode ? "active" : string.Empty)"
+                        @onclick="() => FilterByStatus(group.StatusCode)">
+                    <div class="multi-request-stats-status-code">Status: @group.StatusCode</div>
+                    <div>Total: @group.Count</div>
+                    <div>TTFB: @group.TtfbText</div>
+                    <div>Avg: @group.AvgText</div>
+                </button>
+            }
+            <button type="button"
+                    class="multi-request-stats-status all @(SelectedStatusFilter is null ? "active" : string.Empty)"
+                    @onclick="ClearStatusFilter">
+                <div class="multi-request-stats-status-code">Status: ALL</div>
+                <div>Average TTFB: @OverallTtfbText</div>
+                <div>Average Time: @OverallAvgText</div>
+            </button>
+        </div>
+    </div>
+}
+
 <div class="multi-request-status border rounded bg-white shadow-sm">
     <div class="multi-request-status-header">
         <span class="fw-semibold">Request status</span>
@@ -10,7 +45,7 @@
     </div>
 
     <div class="multi-request-status-list" role="list">
-        @foreach (var item in Items)
+        @foreach (var item in FilteredItems)
         {
             <button class="multi-request-row" type="button" role="listitem"
                     @onclick="() => SelectItem(item)"
@@ -27,47 +62,6 @@
         }
     </div>
 </div>
-
-@if (Items.Count > 0)
-{
-    <div class="multi-request-stats border rounded bg-white shadow-sm">
-        <div class="multi-request-stats-title">Statistics:</div>
-        <div class="multi-request-stats-overview">
-            <div class="multi-request-stats-primary">
-                <div class="multi-request-stats-thermometer">
-                    @if (CompleteCount > 0)
-                    {
-                        <div class="multi-request-stats-segment complete" style="flex-grow: @CompleteCount;" title="Complete- @CompleteCount">
-                            <span class="multi-request-stats-segment-label">Complete- @CompleteCount</span>
-                        </div>
-                    }
-                    @if (IncompleteCount > 0)
-                    {
-                        <div class="multi-request-stats-segment incomplete" style="flex-grow: @IncompleteCount;" title="Incomplete: @IncompleteCount">
-                            <span class="multi-request-stats-segment-label">Incomplete: @IncompleteCount</span>
-                        </div>
-                    }
-                </div>
-                <div class="multi-request-stats-status-grid">
-                    @foreach (var group in StatusGroups)
-                    {
-                        <div class="multi-request-stats-status">
-                            <div class="multi-request-stats-status-code">Status: @group.StatusCode</div>
-                            <div>Total: @group.Count</div>
-                            <div>TTFB: @group.TtfbText</div>
-                            <div>Avg: @group.AvgText</div>
-                        </div>
-                    }
-                </div>
-            </div>
-            <div class="multi-request-stats-totals">
-                <div>Total: @CompleteCount/@Items.Count</div>
-                <div>Average TTFB: @OverallTtfbText</div>
-                <div>Average Time: @OverallAvgText</div>
-            </div>
-        </div>
-    </div>
-}
 
 @if (HoveredItem is not null)
 {
@@ -293,12 +287,20 @@
         flex-basis: 0;
     }
 
-    .multi-request-stats-segment.complete {
+    .multi-request-stats-segment.success {
         background: #2f9e44;
     }
 
-    .multi-request-stats-segment.incomplete {
-        background: #e8590c;
+    .multi-request-stats-segment.transient {
+        background: #f59f00;
+    }
+
+    .multi-request-stats-segment.permanent {
+        background: #e03131;
+    }
+
+    .multi-request-stats-segment.pending {
+        background: #adb5bd;
     }
 
     .multi-request-stats-segment-label {
@@ -320,10 +322,41 @@
     }
 
     .multi-request-stats-status {
-        min-width: 6.5rem;
+        min-width: 7rem;
         color: #212529;
         font-size: 0.9rem;
         line-height: 1.4;
+        text-align: left;
+        background: #fff;
+        border: 1px solid #dee2e6;
+        border-left-width: 4px;
+        border-radius: 0.375rem;
+        padding: 0.4rem 0.7rem;
+        cursor: pointer;
+    }
+
+    .multi-request-stats-status:hover {
+        background: #f8f9fa;
+    }
+
+    .multi-request-stats-status.active {
+        box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.45);
+    }
+
+    .multi-request-stats-status.success {
+        border-left-color: #2f9e44;
+    }
+
+    .multi-request-stats-status.transient {
+        border-left-color: #f59f00;
+    }
+
+    .multi-request-stats-status.permanent {
+        border-left-color: #e03131;
+    }
+
+    .multi-request-stats-status.all {
+        border-left-color: #495057;
     }
 
     .multi-request-stats-status-code {
@@ -467,6 +500,85 @@
                 FormatMilliseconds(AverageMilliseconds(group.Select(item => item.TimeToFirstByte))),
                 FormatMilliseconds(AverageMilliseconds(group.Select(item => item.Duration)))))
             .ToList();
+    }
+
+    private int? SelectedStatusFilter { get; set; }
+
+    private IReadOnlyList<MultiRequestStatusItem> FilteredItems =>
+        SelectedStatusFilter is { } code
+            ? Items.Where(item => item.StatusCode == code).ToList()
+            : Items;
+
+    private enum Outcome
+    {
+        Success,
+        Transient,
+        Permanent,
+        Pending
+    }
+
+    private sealed record OutcomeSegment(string Css, int Count, string Label);
+
+    private IReadOnlyList<OutcomeSegment> OutcomeSegments
+    {
+        get
+        {
+            var counts = Items.GroupBy(GetOutcome).ToDictionary(group => group.Key, group => group.Count());
+            var segments = new List<OutcomeSegment>();
+            AddSegment(segments, counts, Outcome.Success, "success", "Success");
+            AddSegment(segments, counts, Outcome.Transient, "transient", "Transient");
+            AddSegment(segments, counts, Outcome.Permanent, "permanent", "Permanent");
+            AddSegment(segments, counts, Outcome.Pending, "pending", "Pending");
+            return segments;
+        }
+    }
+
+    private static void AddSegment(List<OutcomeSegment> segments, IReadOnlyDictionary<Outcome, int> counts, Outcome outcome, string css, string label)
+    {
+        if (counts.TryGetValue(outcome, out var count) && count > 0)
+        {
+            segments.Add(new OutcomeSegment(css, count, $"{label}: {count}"));
+        }
+    }
+
+    private static Outcome GetOutcome(MultiRequestStatusItem item)
+    {
+        if (item.StatusCode is { } code)
+        {
+            return GetOutcomeForCode(code);
+        }
+
+        return item.IsFailed ? Outcome.Permanent : Outcome.Pending;
+    }
+
+    private static Outcome GetOutcomeForCode(int code)
+    {
+        if (code is >= 200 and < 300)
+        {
+            return Outcome.Success;
+        }
+
+        return IsTransientStatusCode(code) ? Outcome.Transient : Outcome.Permanent;
+    }
+
+    private static bool IsTransientStatusCode(int code) =>
+        code is 408 or 409 or 412 or 425 or 429 or 500 or 502 or 503 or 504;
+
+    private static string GetGroupClass(int statusCode) => GetOutcomeForCode(statusCode) switch
+    {
+        Outcome.Success => "success",
+        Outcome.Transient => "transient",
+        _ => "permanent"
+    };
+
+    private void FilterByStatus(int statusCode)
+    {
+        SelectedStatusFilter = SelectedStatusFilter == statusCode ? null : statusCode;
+    }
+
+    private void ClearStatusFilter()
+    {
+        SelectedStatusFilter = null;
     }
 
     private static double? AverageMilliseconds(IEnumerable<TimeSpan?> values)

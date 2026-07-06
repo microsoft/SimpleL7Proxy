@@ -9,6 +9,7 @@
 @inject AutoCollapseSettings AutoCollapseSettings
 @inject ChatHistoryStore ChatHistoryStore
 @inject ModelDefaults ChatCatalog
+@inject UserPreferencesService Preferences
 @using chat_tester.Components.Shared
 @using Microsoft.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Forms
@@ -43,18 +44,20 @@
                        InitialServerBaseUrl="@InitialServerBaseUrl"
                        DisplayState="@RequestPanelState"
                        DisplayStateChanged="SetRequestPanelStateAsync"
-                       HeaderSubtitle="Send a vision request."
-                       PromptTabLabel="Vision"
+                       HeaderSubtitle="@RequestSubtitle"
+                       PromptTabLabel="Model"
                        SubmitLabel="Investigate"
                        BusyLabel="Investigating..."
                        IsBusy="@IsRunning"
+                       RightAlignSubmit="true"
+                       OnAbort="AbortRequestAsync"
                        OnSubmit="SendVisionRequestAsync">
             <PromptContent>
                 <div class="vision-body-panel rounded border p-3 mb-3">
                     <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
                         <label class="form-label mb-0" for="visionModelFilter">Filter models</label>
-                        <input class="form-control flex-grow-1" id="visionModelFilter" type="search" style="min-width: 14rem;"
-                               placeholder="Type to filter (blank or * shows all)"
+                        <input class="form-control form-control-sm vision-model-filter" id="visionModelFilter" type="search"
+                               placeholder="filter (blank or * = all)"
                                value="@ModelFilter" @oninput="OnModelFilterChanged" />
                         <div class="form-check mb-0 ms-auto">
                             <input class="form-check-input" type="checkbox" id="visionDebugCheck"
@@ -212,7 +215,20 @@
         {
         <div class="response-stack">
         <div class="@(IsVisionResultMinimized ? "d-none" : string.Empty)">
-            <VisionResultPanel Result="@VisionResult"
+            @if (HasError)
+            {
+                <ErrorResultPanel Title="Error result"
+                                  StatusMessage="@StatusMessage"
+                                  CurrentStatus="@ErrorStatus"
+                                  CurrentMessage="@ErrorMessage"
+                                  CurrentTime="@ErrorTimestamp"
+                                  Errors="@ErrorHistory"
+                                  DisplayState="@VisionResultState"
+                                  DisplayStateChanged="SetVisionResultStateAsync" />
+            }
+            else
+            {
+                <VisionResultPanel Result="@VisionResult"
                                StatusMessage="@StatusMessage"
                                HasResult="@HasVisionResult"
                                IsChat="@ResultIsChat"
@@ -228,6 +244,7 @@
                                TotalBytes="@ResponseMetrics.TotalBytes"
                                ResultRowCss="@VisionResultRowCss"
                                ResultPanelLayoutCss="@VisionResultPanelLayoutCss" />
+            }
         </div>
 
         <div class="@(IsRawResponseMinimized ? "d-none" : string.Empty)">
@@ -280,6 +297,12 @@
     .vision-body-panel {
         background-color: #eef4ff;
         border-color: #cdddf7 !important;
+    }
+
+    .vision-model-filter {
+        flex: 0 0 auto;
+        width: 16rem;
+        max-width: 100%;
     }
 
     .vision-features-row {
@@ -719,6 +742,7 @@
     private string InitialServerBaseUrl { get; set; } = string.Empty;
     private string PageTagline { get; set; } = DefaultPageTagline;
     private string SelectedModel { get; set; } = string.Empty;
+    private string DefaultModel { get; set; } = string.Empty;
     private string SelectedApi { get; set; } = string.Empty;
     private string ModelFilter { get; set; } = string.Empty;
     private string Prompt { get; set; } = string.Empty;
@@ -747,16 +771,21 @@
     private PanelDisplayState RequestPanelState { get; set; } = PanelDisplayState.Expanded;
     private PanelDisplayState VisionResultState { get; set; } = PanelDisplayState.Minimized;
     private PanelDisplayState RawResponseState { get; set; } = PanelDisplayState.Minimized;
-    private bool AutoCollapse { get; set; } = true;
+    private bool AutoCollapse { get; set; } = false;
     private int NumberOfRequests { get; set; } = 1;
     private string? SelectedHistoryEntryId { get; set; }
     private string? LoadedHistoryEntryId { get; set; }
     [Parameter]
     [SupplyParameterFromQuery(Name = "historyEntryId")]
     public string? HistoryEntryId { get; set; }
-    private VisionResultView VisionResult { get; set; } = BuildPlainVisionResult("Waiting for the request ...");
+    private VisionResultView VisionResult { get; set; } = VisionResponseParser.BuildPlainVisionResult("Waiting for the request ...");
     private bool HasVisionResult { get; set; }
     private bool ResultIsChat { get; set; }
+    private bool HasError { get; set; }
+    private string ErrorStatus { get; set; } = string.Empty;
+    private string ErrorMessage { get; set; } = string.Empty;
+    private DateTimeOffset? ErrorTimestamp { get; set; }
+    private CancellationTokenSource? RequestCts { get; set; }
     private VisionResponseMetrics ResponseMetrics { get; set; } = new();
     private List<MultiRequestStatusItem> MultiRequestStatuses { get; } = new();
     private Dictionary<string, string> FieldValues { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -769,6 +798,23 @@
     private TestFormPanel? FormPanel { get; set; }
 
     private IReadOnlyList<ChatHistoryEntry> HistoryEntries => ChatHistoryStore.GetSnapshot();
+
+    private string RequestSubtitle => IsChatApi ? "Send a chat request." : "Send a vision request.";
+
+    private IReadOnlyList<ChatHistoryEntry> ErrorHistory => HistoryEntries
+        .Where(IsErrorEntry)
+        .ToList();
+
+    private static bool IsErrorEntry(ChatHistoryEntry entry)
+    {
+        if (string.Equals(entry.Metrics.Status, "Failed", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var statusCode = HistoryEntryFormatter.GetHistoryStatusCode(entry);
+        return statusCode is >= 400;
+    }
 
     private IReadOnlyList<VisionApiInfo> AvailableApis => VisionCatalog.ApisForModel(SelectedModel);
 
@@ -942,7 +988,7 @@
         return Task.CompletedTask;
     }
 
-    private Task SetAutoCollapseAsync(bool autoCollapse)
+    private async Task SetAutoCollapseAsync(bool autoCollapse)
     {
         AutoCollapse = autoCollapse;
         AutoCollapseSettings.Enabled = autoCollapse;
@@ -956,7 +1002,7 @@
             EnsureAllPanesVisible();
         }
 
-        return Task.CompletedTask;
+        await Preferences.SaveAsync();
     }
 
     private Task SetRequestPanelVisibleAsync(ChangeEventArgs args)
@@ -1102,12 +1148,14 @@
         EnsureCompatibleImageSource();
         ResetFields();
         RefreshEndpointPath();
+        DefaultModel = SelectedModel;
     }
 
-    private void OnNumberOfRequestsChanged(ChangeEventArgs args)
+    private async Task OnNumberOfRequestsChanged(ChangeEventArgs args)
     {
         NumberOfRequests = ClampRequestCount(args.Value?.ToString());
         ResetMultiRequestStatuses();
+        await PersistSelectionsAsync();
     }
 
     private static int ClampRequestCount(string? value)
@@ -1120,8 +1168,92 @@
         return Math.Clamp(requestCount, 1, MaxVisionRequestCount);
     }
 
+    private string GeneratedEndpointPath() => IsChatApi
+        ? ChatCatalog.ResolveEndpointPath(SelectedModel, SelectedApi)
+        : StripManagedQueryParameters(VisionCatalog.ResolveEndpointPath(SelectedModel, SelectedApi), FieldValues.Keys);
+
+    private string AutoApiForCurrentModel()
+    {
+        var apis = AvailableApiOptions;
+        return apis.FirstOrDefault(api => string.Equals(api.Id, VisionCatalog.DefaultApi, StringComparison.OrdinalIgnoreCase))?.Id
+            ?? apis.FirstOrDefault()?.Id
+            ?? string.Empty;
+    }
+
+    private async Task PersistSelectionsAsync()
+    {
+        var selections = Preferences.RequestSelections;
+        selections.ModelFilter = string.IsNullOrEmpty(ModelFilter) ? null : ModelFilter;
+        selections.SelectedModel = string.Equals(SelectedModel, DefaultModel, StringComparison.Ordinal) || string.IsNullOrEmpty(SelectedModel)
+            ? null
+            : SelectedModel;
+        selections.SelectedApi = string.Equals(SelectedApi, AutoApiForCurrentModel(), StringComparison.Ordinal) || string.IsNullOrEmpty(SelectedApi)
+            ? null
+            : SelectedApi;
+        selections.EndpointPath = string.Equals(EndpointPath, GeneratedEndpointPath(), StringComparison.Ordinal) || string.IsNullOrEmpty(EndpointPath)
+            ? null
+            : EndpointPath;
+        selections.ContentType = string.Equals(ContentType, ChatTesterHttp.JsonContentType, StringComparison.Ordinal)
+            ? null
+            : ContentType;
+        selections.RequestCount = NumberOfRequests == 1 ? null : NumberOfRequests;
+
+        await Preferences.SaveAsync();
+    }
+
+    private void ApplyStoredSelections()
+    {
+        var selections = Preferences.RequestSelections;
+
+        if (!string.IsNullOrEmpty(selections.ModelFilter))
+        {
+            ModelFilter = selections.ModelFilter;
+        }
+
+        if (!string.IsNullOrEmpty(selections.SelectedModel))
+        {
+            SelectedModel = selections.SelectedModel;
+            SelectedApi = string.Empty;
+            EnsureSelectedApi(string.IsNullOrEmpty(selections.SelectedApi) ? VisionCatalog.DefaultApi : selections.SelectedApi);
+            EnsureCompatibleImageSource();
+            ResetFields();
+            RefreshEndpointPath();
+        }
+        else if (!string.IsNullOrEmpty(selections.SelectedApi))
+        {
+            SelectedApi = selections.SelectedApi;
+            EnsureCompatibleImageSource();
+            ResetFields();
+            RefreshEndpointPath();
+        }
+
+        if (!string.IsNullOrEmpty(selections.ContentType))
+        {
+            ContentType = selections.ContentType;
+        }
+
+        if (selections.RequestCount is { } requestCount)
+        {
+            NumberOfRequests = Math.Clamp(requestCount, 1, MaxVisionRequestCount);
+        }
+
+        if (!string.IsNullOrEmpty(selections.EndpointPath))
+        {
+            EndpointPath = selections.EndpointPath;
+        }
+
+        RefreshCustomRequestBodyIfNeeded();
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender)
+        {
+            await Preferences.LoadAsync();
+            ApplyStoredSelections();
+            StateHasChanged();
+        }
+
         await LoadRequestedHistoryEntryAsync();
     }
 
@@ -1166,6 +1298,7 @@
         ResetMultiRequestStatuses();
         IsRunning = true;
         HasVisionResult = true;
+        HasError = false;
         ResultIsChat = IsChatApi;
         SelectedHistoryEntryId = null;
         PageTagline = DefaultPageTagline;
@@ -1177,6 +1310,8 @@
         ResponseHeadersText = "No response has been received yet.";
         ResponseMetrics = new VisionResponseMetrics { Status = "Sending" };
         RequestBodyDisplay = requestBodyDisplay;
+        RequestCts?.Dispose();
+        RequestCts = new CancellationTokenSource();
         StateHasChanged();
 
         try
@@ -1200,8 +1335,29 @@
         {
             await SaveHistoryEntryAsync(serverBaseUrl, endpointPath, requestBodyDisplay);
             IsRunning = false;
+            RequestCts?.Dispose();
+            RequestCts = null;
             StateHasChanged();
         }
+    }
+
+    private Task AbortRequestAsync()
+    {
+        if (RequestCts is not null && !RequestCts.IsCancellationRequested)
+        {
+            StatusMessage = "Aborting the request...";
+            RequestCts.Cancel();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void SetError(string status, string message)
+    {
+        HasError = true;
+        ErrorStatus = status;
+        ErrorMessage = message;
+        ErrorTimestamp = DateTimeOffset.Now;
     }
 
     private async Task SendVisionRequestOnceAsync(HttpClient client, string serverBaseUrl, string endpointPath, string requestBody, int requestIndex)
@@ -1236,7 +1392,8 @@
 
             RequestHeadersText = ChatTesterHttp.SummarizeRequestHeaders(request);
 
-            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+            var cancellationToken = RequestCts?.Token ?? CancellationToken.None;
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             var statusCode = (int)response.StatusCode;
             ResponseMetrics.TimeToFirstByte = stopwatch.Elapsed;
             ResponseMetrics.Status = $"{statusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
@@ -1251,18 +1408,36 @@
 
             if (ResponseMetrics.ContentType.Contains("event-stream", StringComparison.OrdinalIgnoreCase))
             {
-                await StreamResponseAsync(response, stopwatch);
+                await StreamResponseAsync(response, stopwatch, cancellationToken);
             }
             else
             {
-                await ReadBufferedResponseAsync(response, stopwatch);
+                await ReadBufferedResponseAsync(response, stopwatch, cancellationToken);
             }
 
             ResponseMetrics.Duration = stopwatch.Elapsed;
+            if (statusCode >= 400)
+            {
+                SetError($"{statusCode} {response.ReasonPhrase ?? string.Empty}".Trim(), ObservedResponse);
+            }
+
             StatusMessage = NumberOfRequests == 1
                 ? $"Completed with {statusCode} {response.ReasonPhrase ?? string.Empty}".Trim()
                 : $"Request {requestNumber} of {NumberOfRequests} completed with {statusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
             UpdateMultiRequestStatus(statusItem, ResponseMetrics, statusCode, isComplete: true, isFailed: false, StatusMessage);
+        }
+        catch (OperationCanceledException) when (RequestCts?.IsCancellationRequested == true)
+        {
+            ObservedResponse = "The request was aborted.";
+            ResponseHeadersText = "No response headers available.";
+            StatusMessage = NumberOfRequests == 1
+                ? "The request was aborted."
+                : $"Request {requestNumber} of {NumberOfRequests} was aborted.";
+            ResponseMetrics.Status = "Aborted";
+            ResponseMetrics.Duration = stopwatch.Elapsed;
+            UpdateMultiRequestStatus(statusItem, ResponseMetrics, null, isComplete: true, isFailed: true, StatusMessage);
+            SetError("Aborted", "The request was aborted before a response was received.");
+            ShowResultPanelAfterResponse();
         }
         catch (Exception ex)
         {
@@ -1275,6 +1450,7 @@
             ResponseMetrics.Status = "Failed";
             ResponseMetrics.Duration = stopwatch.Elapsed;
             UpdateMultiRequestStatus(statusItem, ResponseMetrics, null, isComplete: true, isFailed: true, StatusMessage);
+            SetError("Failed", ex.Message);
             ShowResultPanelAfterResponse();
         }
         finally
@@ -1349,7 +1525,8 @@
 
         try
         {
-            using var response = await client.SendAsync(preparedRequest.Request, HttpCompletionOption.ResponseHeadersRead);
+            var cancellationToken = RequestCts?.Token ?? CancellationToken.None;
+            using var response = await client.SendAsync(preparedRequest.Request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             var statusCode = (int)response.StatusCode;
             metrics.TimeToFirstByte = stopwatch.Elapsed;
             metrics.Status = $"{statusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
@@ -1358,14 +1535,14 @@
             UpdateMultiRequestStatus(statusItem, metrics, statusCode, isComplete: false, isFailed: false, $"Reading response {preparedRequest.RequestIndex + 1} of {NumberOfRequests}: {metrics.Status}");
             await InvokeAsync(StateHasChanged);
 
-            var body = await response.Content.ReadAsStringAsync();
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
             metrics.Chunks = string.IsNullOrEmpty(body) ? 0 : 1;
             metrics.TotalBytes = Encoding.UTF8.GetByteCount(body);
             metrics.Duration = stopwatch.Elapsed;
 
             var observed = string.IsNullOrWhiteSpace(body) ? "The server returned an empty response body." : body;
-            var display = BuildDisplayResponse(observed);
-            var visionResult = BuildVisionResultView(observed, display);
+            var display = VisionResponseParser.BuildDisplayResponse(observed);
+            var visionResult = VisionResponseParser.BuildVisionResultView(observed, display);
             UpdateMultiRequestStatus(statusItem, metrics, statusCode, isComplete: true, isFailed: false, $"Request {preparedRequest.RequestIndex + 1} of {NumberOfRequests} completed with {metrics.Status}");
             var result = new VisionBatchResult(
                 preparedRequest.RequestIndex,
@@ -1396,7 +1573,7 @@
                 display,
                 $"Request {preparedRequest.RequestIndex + 1} of {NumberOfRequests} failed before a full response was received.",
                 metrics,
-                BuildPlainVisionResult(display));
+                VisionResponseParser.BuildPlainVisionResult(display));
             ApplyMultiRequestPayload(statusItem, result);
             await InvokeAsync(StateHasChanged);
 
@@ -1571,9 +1748,20 @@
             Chunks = entry.Metrics.Chunks,
             TotalBytes = entry.Metrics.TotalBytes
         };
-        VisionResult = BuildVisionResultView(ObservedResponse, DisplayResponse);
+        VisionResult = VisionResponseParser.BuildVisionResultView(ObservedResponse, DisplayResponse);
         HasVisionResult = true;
         ResultIsChat = !VisionResult.HasAnyVisionResult;
+        if (IsErrorEntry(entry))
+        {
+            SetError(string.IsNullOrWhiteSpace(entry.Metrics.Status) ? "Failed" : entry.Metrics.Status,
+                string.IsNullOrWhiteSpace(entry.DisplayResponse) ? entry.ResponseBody : entry.DisplayResponse);
+            ErrorTimestamp = entry.CreatedAt;
+        }
+        else
+        {
+            HasError = false;
+        }
+
         ActiveResultTab = SummaryResultTab;
         EnsureActiveResultTab();
         ShowResultPanelAfterResponse();
@@ -1619,16 +1807,16 @@
         return true;
     }
 
-    private async Task StreamResponseAsync(HttpResponseMessage response, Stopwatch stopwatch)
+    private async Task StreamResponseAsync(HttpResponseMessage response, Stopwatch stopwatch, CancellationToken cancellationToken)
     {
         var rawBuilder = new StringBuilder();
         var displayBuilder = new StringBuilder();
         SetVisionResultMessage(string.Empty);
         ObservedResponse = string.Empty;
 
-        using var stream = await response.Content.ReadAsStreamAsync();
+        using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var reader = new StreamReader(stream);
-        while (await reader.ReadLineAsync() is { } line)
+        while (await reader.ReadLineAsync(cancellationToken) is { } line)
         {
             ResponseMetrics.Chunks++;
             ResponseMetrics.TotalBytes += Encoding.UTF8.GetByteCount(line) + 1;
@@ -1643,7 +1831,7 @@
                 {
                     displayBuilder.Append(piece);
                     DisplayResponse = displayBuilder.ToString();
-                    VisionResult = BuildPlainVisionResult(DisplayResponse);
+                    VisionResult = VisionResponseParser.BuildPlainVisionResult(DisplayResponse);
                     EnsureActiveResultTab();
                 }
             }
@@ -1663,9 +1851,9 @@
         }
     }
 
-    private async Task ReadBufferedResponseAsync(HttpResponseMessage response, Stopwatch stopwatch)
+    private async Task ReadBufferedResponseAsync(HttpResponseMessage response, Stopwatch stopwatch, CancellationToken cancellationToken)
     {
-        var body = await response.Content.ReadAsStringAsync();
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
         ResponseMetrics.Chunks = string.IsNullOrEmpty(body) ? 0 : 1;
         ResponseMetrics.TotalBytes = Encoding.UTF8.GetByteCount(body);
         ResponseMetrics.Duration = stopwatch.Elapsed;
@@ -1768,12 +1956,13 @@
             : StripManagedQueryParameters(VisionCatalog.ResolveEndpointPath(SelectedModel, SelectedApi), FieldValues.Keys);
     }
 
-    private void OnModelFilterChanged(ChangeEventArgs args)
+    private async Task OnModelFilterChanged(ChangeEventArgs args)
     {
         ModelFilter = args.Value?.ToString() ?? string.Empty;
+        await PersistSelectionsAsync();
     }
 
-    private void OnModelSelected(ChangeEventArgs args)
+    private async Task OnModelSelected(ChangeEventArgs args)
     {
         SelectedModel = args.Value?.ToString() ?? string.Empty;
         SelectedApi = string.Empty;
@@ -1783,9 +1972,10 @@
         RefreshEndpointPath();
         CustomRequestBodyDirty = false;
         RefreshCustomRequestBodyIfNeeded();
+        await PersistSelectionsAsync();
     }
 
-    private void OnApiSelected(ChangeEventArgs args)
+    private async Task OnApiSelected(ChangeEventArgs args)
     {
         SelectedApi = args.Value?.ToString() ?? string.Empty;
         EnsureCompatibleImageSource();
@@ -1793,6 +1983,7 @@
         RefreshEndpointPath();
         CustomRequestBodyDirty = false;
         RefreshCustomRequestBodyIfNeeded();
+        await PersistSelectionsAsync();
     }
 
     private void OnPromptChanged(ChangeEventArgs args)
@@ -1852,22 +2043,26 @@
         }
     }
 
-    private void OnEndpointPathChanged(ChangeEventArgs args)
+    private async Task OnEndpointPathChanged(ChangeEventArgs args)
     {
         var endpointPath = args.Value?.ToString() ?? string.Empty;
         if (SimpleMode)
         {
             ApplyManagedQueryValues(endpointPath);
             EndpointPath = StripManagedQueryParameters(endpointPath, FieldValues.Keys);
-            return;
+        }
+        else
+        {
+            EndpointPath = endpointPath;
         }
 
-        EndpointPath = endpointPath;
+        await PersistSelectionsAsync();
     }
 
-    private void OnContentTypeChanged(ChangeEventArgs args)
+    private async Task OnContentTypeChanged(ChangeEventArgs args)
     {
         ContentType = args.Value?.ToString() ?? ChatTesterHttp.JsonContentType;
+        await PersistSelectionsAsync();
     }
 
     private void ApplyManagedQueryValues(string endpointPath)
@@ -1983,9 +2178,10 @@
         SetFeatures(selectedKnownFeatures.Concat(additionalFeatures));
     }
 
-    private void OnDebugChanged(ChangeEventArgs args)
+    private async Task OnDebugChanged(ChangeEventArgs args)
     {
         DebugSettings.DebugEnabled = args.Value is bool value && value;
+        await Preferences.SaveAsync();
     }
 
     private void OnSimpleModeChanged(ChangeEventArgs args)
@@ -2068,14 +2264,14 @@
     private void SetVisionResultMessage(string message)
     {
         DisplayResponse = message;
-        VisionResult = BuildPlainVisionResult(message);
+        VisionResult = VisionResponseParser.BuildPlainVisionResult(message);
         EnsureActiveResultTab();
     }
 
     private void SetVisionResultFromObserved(string observed)
     {
-        DisplayResponse = BuildDisplayResponse(observed);
-        VisionResult = BuildVisionResultView(observed, DisplayResponse);
+        DisplayResponse = VisionResponseParser.BuildDisplayResponse(observed);
+        VisionResult = VisionResponseParser.BuildVisionResultView(observed, DisplayResponse);
         EnsureActiveResultTab();
     }
 
@@ -2133,261 +2329,6 @@
         return tabs;
     }
 
-    private static VisionResultView BuildPlainVisionResult(string message)
-    {
-        return new VisionResultView
-        {
-            SummaryText = message,
-            RawText = message
-        };
-    }
-
-    private static VisionResultView BuildVisionResultView(string observed, string fallbackText)
-    {
-        var view = BuildPlainVisionResult(string.IsNullOrWhiteSpace(fallbackText) ? observed : fallbackText);
-        view.RawText = TryFormatJson(observed, out var formatted) ? formatted : observed;
-
-        if (!TryParseJson(observed, out var document))
-        {
-            return view;
-        }
-
-        using (document)
-        {
-            var root = document.RootElement;
-            view.ModelVersion = TryGetProperty(root, "modelVersion", out var modelVersion) ? modelVersion.GetString() ?? string.Empty : string.Empty;
-
-            if (TryGetProperty(root, "captionResult", out var captionResult))
-            {
-                view.HasCaptionResult = true;
-                view.Caption = ReadCaptionItem(captionResult);
-            }
-
-            if (TryGetProperty(root, "denseCaptionsResult", out var denseCaptionsResult))
-            {
-                view.HasDenseCaptionsResult = true;
-                view.DenseCaptions.AddRange(ReadCaptionValues(denseCaptionsResult));
-            }
-
-            if (TryGetProperty(root, "tagsResult", out var tagsResult))
-            {
-                view.HasTagsResult = true;
-                view.Tags.AddRange(ReadTagValues(tagsResult));
-            }
-
-            if (TryGetProperty(root, "objectsResult", out var objectsResult))
-            {
-                view.HasObjectsResult = true;
-                view.Objects.AddRange(ReadObjectValues(objectsResult));
-            }
-
-            if (TryGetProperty(root, "peopleResult", out var peopleResult))
-            {
-                view.HasPeopleResult = true;
-                view.People.AddRange(ReadPeopleValues(peopleResult));
-            }
-
-            if (TryGetProperty(root, "readResult", out var readResult))
-            {
-                view.HasReadResult = true;
-                view.ReadLines.AddRange(ReadTextLines(readResult));
-            }
-
-            if (TryGetProperty(root, "metadata", out var metadata))
-            {
-                view.HasMetadataResult = true;
-                view.Metadata = ReadMetadata(metadata);
-            }
-        }
-
-        return view;
-    }
-
-    private static VisionCaptionItem? ReadCaptionItem(JsonElement element)
-    {
-        var text = TryGetProperty(element, "text", out var textElement) ? textElement.GetString() ?? string.Empty : string.Empty;
-        if (string.IsNullOrWhiteSpace(text) && element.ValueKind != JsonValueKind.Object)
-        {
-            return null;
-        }
-
-        return new VisionCaptionItem
-        {
-            Text = text,
-            Confidence = TryGetProperty(element, "confidence", out var confidenceElement) ? ReadDouble(confidenceElement) : null,
-            Box = TryGetProperty(element, "boundingBox", out var boxElement) ? ReadBoundingBox(boxElement) : new VisionBoundingBox()
-        };
-    }
-
-    private static IEnumerable<VisionCaptionItem> ReadCaptionValues(JsonElement section)
-    {
-        if (!TryGetProperty(section, "values", out var values) || values.ValueKind != JsonValueKind.Array)
-        {
-            yield break;
-        }
-
-        foreach (var item in values.EnumerateArray())
-        {
-            var caption = ReadCaptionItem(item);
-            if (caption is not null && !string.IsNullOrWhiteSpace(caption.Text))
-            {
-                yield return caption;
-            }
-        }
-    }
-
-    private static IEnumerable<VisionTagItem> ReadTagValues(JsonElement section)
-    {
-        if (!TryGetProperty(section, "values", out var values) || values.ValueKind != JsonValueKind.Array)
-        {
-            yield break;
-        }
-
-        foreach (var item in values.EnumerateArray())
-        {
-            var tag = ReadTag(item);
-            if (!string.IsNullOrWhiteSpace(tag.Name))
-            {
-                yield return tag;
-            }
-        }
-    }
-
-    private static VisionTagItem ReadTag(JsonElement element)
-    {
-        return new VisionTagItem
-        {
-            Name = TryGetProperty(element, "name", out var nameElement) ? nameElement.GetString() ?? string.Empty : string.Empty,
-            Confidence = TryGetProperty(element, "confidence", out var confidenceElement) ? ReadDouble(confidenceElement) : null
-        };
-    }
-
-    private static IEnumerable<VisionDetectionItem> ReadObjectValues(JsonElement section)
-    {
-        if (!TryGetProperty(section, "values", out var values) || values.ValueKind != JsonValueKind.Array)
-        {
-            yield break;
-        }
-
-        foreach (var item in values.EnumerateArray())
-        {
-            var tags = TryGetProperty(item, "tags", out var tagsElement) && tagsElement.ValueKind == JsonValueKind.Array
-                ? tagsElement.EnumerateArray().Select(ReadTag).Where(tag => !string.IsNullOrWhiteSpace(tag.Name)).ToList()
-                : new List<VisionTagItem>();
-            var label = string.Join(", ", tags.Select(tag => tag.Name));
-            yield return new VisionDetectionItem
-            {
-                Label = string.IsNullOrWhiteSpace(label) ? "Object" : label,
-                Confidence = tags.FirstOrDefault()?.Confidence,
-                Box = TryGetProperty(item, "boundingBox", out var boxElement) ? ReadBoundingBox(boxElement) : new VisionBoundingBox()
-            };
-        }
-    }
-
-    private static IEnumerable<VisionDetectionItem> ReadPeopleValues(JsonElement section)
-    {
-        if (!TryGetProperty(section, "values", out var values) || values.ValueKind != JsonValueKind.Array)
-        {
-            yield break;
-        }
-
-        foreach (var item in values.EnumerateArray())
-        {
-            yield return new VisionDetectionItem
-            {
-                Label = "Person",
-                Confidence = TryGetProperty(item, "confidence", out var confidenceElement) ? ReadDouble(confidenceElement) : null,
-                Box = TryGetProperty(item, "boundingBox", out var boxElement) ? ReadBoundingBox(boxElement) : new VisionBoundingBox()
-            };
-        }
-    }
-
-    private static IEnumerable<string> ReadTextLines(JsonElement readResult)
-    {
-        var lines = new List<string>();
-        CollectTextLines(readResult, lines);
-        return lines.Distinct(StringComparer.Ordinal).Where(line => !string.IsNullOrWhiteSpace(line));
-    }
-
-    private static void CollectTextLines(JsonElement element, List<string> lines)
-    {
-        if (element.ValueKind == JsonValueKind.Object)
-        {
-            if (TryGetProperty(element, "text", out var textElement) && textElement.ValueKind == JsonValueKind.String)
-            {
-                var text = textElement.GetString();
-                if (!string.IsNullOrWhiteSpace(text))
-                {
-                    lines.Add(text);
-                }
-            }
-
-            if (TryGetProperty(element, "content", out var contentElement) && contentElement.ValueKind == JsonValueKind.String)
-            {
-                var text = contentElement.GetString();
-                if (!string.IsNullOrWhiteSpace(text))
-                {
-                    lines.Add(text);
-                }
-            }
-
-            foreach (var property in element.EnumerateObject())
-            {
-                if (property.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
-                {
-                    CollectTextLines(property.Value, lines);
-                }
-            }
-        }
-        else if (element.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var item in element.EnumerateArray())
-            {
-                CollectTextLines(item, lines);
-            }
-        }
-    }
-
-    private static VisionImageMetadata ReadMetadata(JsonElement metadata)
-    {
-        return new VisionImageMetadata
-        {
-            Width = TryGetProperty(metadata, "width", out var widthElement) ? ReadInt(widthElement) : null,
-            Height = TryGetProperty(metadata, "height", out var heightElement) ? ReadInt(heightElement) : null
-        };
-    }
-
-    private static VisionBoundingBox ReadBoundingBox(JsonElement box)
-    {
-        return new VisionBoundingBox
-        {
-            X = TryGetProperty(box, "x", out var xElement) ? ReadInt(xElement) : null,
-            Y = TryGetProperty(box, "y", out var yElement) ? ReadInt(yElement) : null,
-            Width = TryGetProperty(box, "w", out var widthElement) ? ReadInt(widthElement) : null,
-            Height = TryGetProperty(box, "h", out var heightElement) ? ReadInt(heightElement) : null
-        };
-    }
-
-    private static int? ReadInt(JsonElement element)
-    {
-        return element.ValueKind switch
-        {
-            JsonValueKind.Number when element.TryGetInt32(out var value) => value,
-            JsonValueKind.String when int.TryParse(element.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) => value,
-            _ => null
-        };
-    }
-
-    private static double? ReadDouble(JsonElement element)
-    {
-        return element.ValueKind switch
-        {
-            JsonValueKind.Number when element.TryGetDouble(out var value) => value,
-            JsonValueKind.String when double.TryParse(element.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) => value,
-            _ => null
-        };
-    }
-
     private static bool TryParseDataUrl(string value, out string mimeType, out string data)
     {
         mimeType = string.Empty;
@@ -2408,155 +2349,6 @@
         mimeType = metadataParts.FirstOrDefault(part => part.Contains('/', StringComparison.Ordinal)) ?? "image/jpeg";
         data = value[(commaIndex + 1)..];
         return metadataParts.Any(part => part.Equals("base64", StringComparison.OrdinalIgnoreCase)) && !string.IsNullOrWhiteSpace(data);
-    }
-
-    private static string BuildDisplayResponse(string observed)
-    {
-        var interpreted = ChatStreamParser.ExtractAllContent(observed);
-        if (!string.IsNullOrWhiteSpace(interpreted))
-        {
-            return interpreted;
-        }
-
-        interpreted = ChatStreamParser.ExtractDisplayContent(observed);
-        if (!string.IsNullOrWhiteSpace(interpreted))
-        {
-            return interpreted;
-        }
-
-        interpreted = ExtractVisionDisplayContent(observed);
-        if (!string.IsNullOrWhiteSpace(interpreted))
-        {
-            return interpreted;
-        }
-
-        return TryFormatJson(observed, out var formatted) ? formatted : observed;
-    }
-
-    private static string ExtractVisionDisplayContent(string observed)
-    {
-        if (!TryParseJson(observed, out var document))
-        {
-            return string.Empty;
-        }
-
-        using (document)
-        {
-            var root = document.RootElement;
-            var parts = new List<string>();
-
-            if (TryGetProperty(root, "content", out var content) && content.ValueKind == JsonValueKind.Array)
-            {
-                parts.AddRange(content.EnumerateArray()
-                    .Select(item => TryGetProperty(item, "text", out var text) ? text.GetString() : string.Empty)
-                    .Where(text => !string.IsNullOrWhiteSpace(text))!);
-            }
-
-            if (TryGetProperty(root, "candidates", out var candidates) && candidates.ValueKind == JsonValueKind.Array)
-            {
-                parts.AddRange(candidates.EnumerateArray().SelectMany(ExtractGeminiText));
-            }
-
-            if (TryGetProperty(root, "captionResult", out var captionResult) && TryGetProperty(captionResult, "text", out var captionText))
-            {
-                parts.Add("Caption: " + captionText.GetString());
-            }
-
-            if (TryGetProperty(root, "tagsResult", out var tagsResult) && TryGetProperty(tagsResult, "values", out var tags) && tags.ValueKind == JsonValueKind.Array)
-            {
-                var tagNames = tags.EnumerateArray()
-                    .Select(tag => TryGetProperty(tag, "name", out var name) ? name.GetString() : string.Empty)
-                    .Where(name => !string.IsNullOrWhiteSpace(name));
-                var joinedTags = string.Join(", ", tagNames);
-                if (!string.IsNullOrWhiteSpace(joinedTags))
-                {
-                    parts.Add("Tags: " + joinedTags);
-                }
-            }
-
-            if (TryGetProperty(root, "readResult", out var readResult) && TryGetProperty(readResult, "content", out var readContent))
-            {
-                var text = readContent.GetString();
-                if (!string.IsNullOrWhiteSpace(text))
-                {
-                    parts.Add("Read: " + text);
-                }
-            }
-
-            return string.Join(Environment.NewLine + Environment.NewLine, parts.Where(part => !string.IsNullOrWhiteSpace(part)));
-        }
-    }
-
-    private static IEnumerable<string> ExtractGeminiText(JsonElement candidate)
-    {
-        if (!TryGetProperty(candidate, "content", out var content) || !TryGetProperty(content, "parts", out var parts) || parts.ValueKind != JsonValueKind.Array)
-        {
-            yield break;
-        }
-
-        foreach (var part in parts.EnumerateArray())
-        {
-            if (TryGetProperty(part, "text", out var text))
-            {
-                var value = text.GetString();
-                if (!string.IsNullOrWhiteSpace(value))
-                {
-                    yield return value;
-                }
-            }
-        }
-    }
-
-    private static bool TryParseJson(string value, out JsonDocument document)
-    {
-        document = null!;
-        if (string.IsNullOrWhiteSpace(value) || !value.TrimStart().StartsWith("{", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        try
-        {
-            document = JsonDocument.Parse(value);
-            return true;
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-    }
-
-    private static bool TryFormatJson(string value, out string formatted)
-    {
-        formatted = string.Empty;
-        if (!TryParseJson(value, out var document))
-        {
-            return false;
-        }
-
-        using (document)
-        {
-            formatted = JsonSerializer.Serialize(document.RootElement, new JsonSerializerOptions { WriteIndented = true });
-            return true;
-        }
-    }
-
-    private static bool TryGetProperty(JsonElement element, string name, out JsonElement value)
-    {
-        if (element.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var property in element.EnumerateObject())
-            {
-                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
-                {
-                    value = property.Value;
-                    return true;
-                }
-            }
-        }
-
-        value = default;
-        return false;
     }
 
     private static string RedactLargeImageData(string value)
