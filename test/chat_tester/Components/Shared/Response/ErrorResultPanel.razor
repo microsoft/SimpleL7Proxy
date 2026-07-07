@@ -79,7 +79,7 @@
                                 {
                                     <div class="error-trend-visible-window" style="left: @VisibleWindowLeft; width: @VisibleWindowWidth;"></div>
                                 }
-                                @foreach (var bucket in ((IEnumerable<ErrorBucket>)Buckets).Reverse())
+                                @foreach (var bucket in ((IEnumerable<ErrorTrendBucket>)Buckets).Reverse())
                                 {
                                     <div class="error-trend-slot">
                                         <div class="error-trend-slot-count">@(bucket.Count > 0 ? bucket.Count.ToString(CultureInfo.InvariantCulture) : string.Empty)</div>
@@ -87,7 +87,7 @@
                                             @{
                                                 var maxMini = MaxVisibleMiniCount;
                                             }
-                                            @foreach (var mini in ((IEnumerable<ErrorMini>)bucket.Minis).Reverse())
+                                            @foreach (var mini in ((IEnumerable<ErrorTrendMini>)bucket.Minis).Reverse())
                                             {
                                                 var miniH = maxMini == 0 ? 0 : (int)Math.Round(mini.Count * 100.0 / maxMini);
                                                 <div class="error-trend-mini-col" title="@bucket.Label">
@@ -141,10 +141,10 @@
                                     <span class="badge @BadgeCssForCode(CodeOf(entry)) error-history-badge">@FormatEntryStatus(entry)</span>
                                     <div class="flex-grow-1 min-w-0">
                                         <div class="error-row-line1">
-                                            <span class="error-row-summary fw-semibold">@FormatEntrySummary(entry)</span>
+                                            <span class="error-row-summary fw-semibold">@FormatEntrySummaryText(entry)</span>
                                             <span class="error-row-sep">|</span>
                                             <span class="error-row-url text-muted">@entry.Method @entry.EndpointPath</span>
-                                            <span class="error-row-date text-muted">@FormatAlignedTime(entry.CreatedAt) · @FormatAlignedAge(entry.CreatedAt)</span>
+                                            <span class="error-row-date text-muted">@FormatAlignedTimeText(entry.CreatedAt) · @FormatAlignedAgeText(entry.CreatedAt)</span>
                                         </div>
                                         <div class="error-history-meta-row compact">
                                             <div class="error-duration-thermometer @SeverityCss(entry)">
@@ -197,7 +197,7 @@
         </div>
         <div class="multi-request-detail-body">
             <RawResponsePanel Title="Raw exchange"
-                              StatusMessage="@FormatEntrySummary(SelectedError)"
+                              StatusMessage="@FormatEntrySummaryText(SelectedError)"
                               ActiveTab="@SelectedErrorRawTab"
                               ActiveTabChanged="SetSelectedErrorRawTabAsync"
                               DisplayState="@SelectedErrorRawDisplayState"
@@ -778,83 +778,9 @@
 </style>
 
 @code {
-    private const int BucketCount = 12;
-    private const int SubBucketCount = 10;
-
     private System.Threading.Timer? _autoScrollTimer;
 
     public void Dispose() => _autoScrollTimer?.Dispose();
-
-    private sealed record ErrorSegment(string Css, int Count, int Percent);
-
-    private sealed record ErrorMini(int Danger, int Warning, int Info, int Success, int Secondary)
-    {
-        public int Count => Danger + Warning + Info + Success + Secondary;
-
-        public IReadOnlyList<ErrorSegment> Segments
-        {
-            get
-            {
-                var total = Count;
-                if (total == 0) return Array.Empty<ErrorSegment>();
-                return new[] { ("sev-danger", Danger), ("sev-warning", Warning), ("sev-info", Info), ("sev-success", Success), ("sev-secondary", Secondary) }
-                    .Where(c => c.Item2 > 0)
-                    .Select(c => new ErrorSegment(c.Item1, c.Item2, (int)Math.Round(c.Item2 * 100.0 / total)))
-                    .ToList();
-            }
-        }
-    }
-
-    private sealed record ErrorBucket(string Label, int Danger, int Warning, int Info, int Success, int Secondary, IReadOnlyList<ErrorMini> Minis)
-    {
-        public int Count => Danger + Warning + Info + Success + Secondary;
-        public int MaxMiniCount => Minis.Count == 0 ? 0 : Minis.Max(m => m.Count);
-
-        public IReadOnlyList<ErrorSegment> Segments
-        {
-            get
-            {
-                var total = Count;
-                if (total == 0)
-                {
-                    return Array.Empty<ErrorSegment>();
-                }
-
-                var categories = new[]
-                {
-                    ("sev-danger", Danger),
-                    ("sev-warning", Warning),
-                    ("sev-info", Info),
-                    ("sev-success", Success),
-                    ("sev-secondary", Secondary)
-                };
-
-                return categories
-                    .Where(category => category.Item2 > 0)
-                    .Select(category => new ErrorSegment(category.Item1, category.Item2, (int)Math.Round(category.Item2 * 100.0 / total)))
-                    .ToList();
-            }
-        }
-
-        public string Tooltip
-        {
-            get
-            {
-                if (Count == 0)
-                {
-                    return $"{Label}: no activity";
-                }
-
-                var parts = new List<string>();
-                if (Danger > 0) parts.Add($"{Danger} 5xx");
-                if (Warning > 0) parts.Add($"{Warning} 429");
-                if (Info > 0) parts.Add($"{Info} 4xx");
-                if (Success > 0) parts.Add($"{Success} 2xx");
-                if (Secondary > 0) parts.Add($"{Secondary} other");
-                return $"{Label}: {string.Join(", ", parts)}";
-            }
-        }
-    }
 
     [Parameter]
     public string Title { get; set; } = "Error";
@@ -1026,7 +952,9 @@
         .OrderByDescending(entry => entry.CreatedAt)
         .ToList();
 
-    private IReadOnlyList<ErrorBucket> Buckets => BuildBuckets();
+    private ErrorTrendBuildResult Trend => ErrorTrendBuilder.Build(DisplayEntries, ErrorsOnly, WindowMinutesOverride, DateTimeOffset.Now);
+
+    private IReadOnlyList<ErrorTrendBucket> Buckets => Trend.Buckets;
 
     private int MaxBucketCount => Buckets.Count == 0 ? 0 : Buckets.Max(bucket => bucket.Count);
 
@@ -1043,9 +971,9 @@
 
     private string VisibleWindowWidth => VisibleWindowWidthPercent.ToString("0.##", CultureInfo.InvariantCulture) + "%";
 
-    private string BucketMinutesLabel { get; set; } = "recent activity";
+    private string BucketMinutesLabel => Trend.WindowLabel;
 
-    private double CurrentAlignmentSeconds { get; set; } = 60;
+    private double CurrentAlignmentSeconds => Trend.AlignmentSeconds;
 
     private int? WindowMinutesOverride { get; set; }
 
@@ -1060,239 +988,10 @@
         NeedsVisibleWindowSync = true;
     }
 
-    private IReadOnlyList<ErrorBucket> BuildBuckets()
-    {
-        if (DisplayEntries.Count == 0)
-        {
-            BucketMinutesLabel = "recent activity";
-            return Array.Empty<ErrorBucket>();
-        }
-
-        var now = DateTimeOffset.Now;
-
-        var bucketCount = WindowMinutesOverride.HasValue
-            ? ChooseBucketCount(WindowMinutesOverride.Value)
-            : BucketCount;
-        double intervalMinutes;
-        int windowMinutes;
-        DateTimeOffset windowStart;
-        if (WindowMinutesOverride is { } selectedWindow)
-        {
-            windowMinutes = selectedWindow;
-            intervalMinutes = (double)selectedWindow / bucketCount;
-            windowStart = now.AddMinutes(-selectedWindow);
-        }
-        else
-        {
-            var earliest = ErrorsOnly
-                ? ResolveClusterStart(now)
-                : DisplayEntries.Min(entry => entry.CreatedAt);
-            var spanMinutes = Math.Max(1.0, (now - earliest).TotalMinutes);
-            var intervalInt = ChooseBucketIntervalMinutes(spanMinutes / bucketCount);
-            intervalMinutes = intervalInt;
-            windowMinutes = intervalInt * bucketCount;
-            windowStart = now.AddMinutes(-windowMinutes);
-        }
-
-        TrendWindowStart = windowStart;
-        TrendWindowEnd = now;
-        BucketMinutesLabel = FormatWindowLabel(windowMinutes);
-
-        // Each slot is subdivided into SubBucketCount mini-buckets for finer resolution
-        double subMinutes = intervalMinutes / SubBucketCount;
-        CurrentAlignmentSeconds = NormalizeAlignmentSeconds(subMinutes * 60.0);
-        int totalMinis = bucketCount * SubBucketCount;
-
-        var danger   = new int[totalMinis];
-        var warning  = new int[totalMinis];
-        var info     = new int[totalMinis];
-        var success  = new int[totalMinis];
-        var secondary = new int[totalMinis];
-        foreach (var entry in DisplayEntries)
-        {
-            var offsetMinutes = (entry.CreatedAt - windowStart).TotalMinutes;
-            if (offsetMinutes < 0) continue;
-            var idx = Math.Min((int)(offsetMinutes / subMinutes), totalMinis - 1);
-            switch (CodeOf(entry))
-            {
-                case 429:             warning[idx]++;   break;
-                case >= 500:          danger[idx]++;    break;
-                case >= 400:          info[idx]++;      break;
-                case >= 200 and < 300: success[idx]++;  break;
-                default:              secondary[idx]++; break;
-            }
-        }
-
-        var buckets = new List<ErrorBucket>(bucketCount);
-        for (var s = 0; s < bucketCount; s++)
-        {
-            // Label: distance back from "now" (rendered newest-left so label reads as negative offset)
-            var backMinutes = (bucketCount - 1 - s) * intervalMinutes;
-            string label;
-            if (s == bucketCount - 1)
-                label = "now";
-            else if (intervalMinutes < 1)
-                label = $"-{(int)Math.Round(backMinutes * 60)}s";
-            else if (intervalMinutes < 60)
-                label = $"-{(int)Math.Round(backMinutes)}m";
-            else if (intervalMinutes < 1440)
-                label = $"-{(int)Math.Round(backMinutes / 60)}h";
-            else
-                label = $"-{(int)Math.Round(backMinutes / 1440)}d";
-
-            var slotBase = s * SubBucketCount;
-            var sd = 0; var sw = 0; var si = 0; var ss = 0; var sc = 0;
-            var minis = new List<ErrorMini>(SubBucketCount);
-            for (var m = 0; m < SubBucketCount; m++)
-            {
-                var mi = slotBase + m;
-                sd += danger[mi]; sw += warning[mi]; si += info[mi]; ss += success[mi]; sc += secondary[mi];
-                minis.Add(new ErrorMini(danger[mi], warning[mi], info[mi], success[mi], secondary[mi]));
-            }
-            buckets.Add(new ErrorBucket(label, sd, sw, si, ss, sc, minis));
-        }
-
-        return buckets;
-    }
-
-    // Finds the start of the most recent contiguous cluster of errors, ignoring sparse old outliers
-    // so a single days-old error cannot zoom the whole trend out and hide recent activity.
-    private DateTimeOffset ResolveClusterStart(DateTimeOffset now)
-    {
-        var ordered = DisplayEntries.Select(entry => entry.CreatedAt).OrderByDescending(time => time).ToList();
-        var newest = ordered[0];
-        var clusterOldest = ordered[0];
-        for (var i = 1; i < ordered.Count; i++)
-        {
-            var gapMinutes = (clusterOldest - ordered[i]).TotalMinutes;
-            var clusterSpanMinutes = (newest - clusterOldest).TotalMinutes;
-            var maxGapMinutes = Math.Max(30.0, clusterSpanMinutes * 4.0);
-            if (gapMinutes > maxGapMinutes)
-            {
-                break;
-            }
-
-            clusterOldest = ordered[i];
-        }
-
-        return clusterOldest;
-    }
-
-    private static int ChooseBucketCount(int windowMinutes) => windowMinutes switch
-    {
-        <= 5 => 12,
-        <= 10 => 12,
-        <= 30 => 12,
-        <= 60 => 12,
-        <= 360 => 12,
-        <= 1440 => 24,   // 24h → 24 × 1h slots
-        <= 10080 => 7,   // 7d → 7 × 1d slots
-        _ => 30          // 30d → 30 × 1d slots
-    };
-
-    private static int ChooseBucketIntervalMinutes(double targetMinutes)
-    {
-        var niceIntervals = new[] { 1, 2, 5, 10, 15, 30, 60, 120, 180, 360, 720, 1440, 2880, 10080 };
-        foreach (var interval in niceIntervals)
-        {
-            if (interval >= targetMinutes)
-            {
-                return interval;
-            }
-        }
-
-        return niceIntervals[^1];
-    }
-
-    private static string FormatWindowLabel(int windowMinutes)
-    {
-        if (windowMinutes >= 43200) return $"the last {windowMinutes / 43200.0:0.#} mo";
-        if (windowMinutes >= 1440)  return $"the last {windowMinutes / 1440.0:0.#} d";
-        if (windowMinutes >= 60)    return $"the last {windowMinutes / 60.0:0.#} h";
-        return $"the last {windowMinutes} min";
-    }
-
     private static string FormatEntryStatus(ChatHistoryEntry entry)
     {
         var code = HistoryEntryFormatter.GetHistoryStatusCode(entry);
         return code?.ToString(CultureInfo.InvariantCulture) ?? (string.IsNullOrWhiteSpace(entry.Metrics.Status) ? "ERR" : entry.Metrics.Status);
-    }
-
-    private static string FormatEntrySummary(ChatHistoryEntry entry)
-    {
-        var normalized = CompactStatusText(entry.StatusMessage, entry.Metrics.Status);
-        var tokens = normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (tokens.Length >= 1 && int.TryParse(tokens[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
-        {
-            return string.Join(' ', tokens.Skip(1));
-        }
-
-        return normalized;
-    }
-
-    private string FormatAlignedTime(DateTimeOffset value)
-    {
-        var snapped = SnapToAlignment(value, CurrentAlignmentSeconds).ToLocalTime();
-        return CurrentAlignmentSeconds >= 86400
-            ? snapped.ToString("MM/dd", CultureInfo.InvariantCulture)
-            : snapped.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
-    }
-
-    private string FormatAlignedAge(DateTimeOffset value)
-    {
-        var snappedValue = SnapToAlignment(value, CurrentAlignmentSeconds);
-        var snappedNow = SnapToAlignment(DateTimeOffset.Now, CurrentAlignmentSeconds);
-        var age = snappedNow - snappedValue;
-        if (CurrentAlignmentSeconds < 60)
-        {
-            var seconds = Math.Max(0, (int)Math.Round(age.TotalSeconds));
-            return seconds == 0 ? "now" : $"{seconds}s ago";
-        }
-
-        if (CurrentAlignmentSeconds < 3600)
-        {
-            return $"{Math.Max(0, (int)Math.Round(age.TotalMinutes))}m ago";
-        }
-
-        if (CurrentAlignmentSeconds < 86400)
-        {
-            return $"{Math.Max(0, (int)Math.Round(age.TotalHours))}h ago";
-        }
-
-        return $"{Math.Max(0, (int)Math.Round(age.TotalDays))}d ago";
-    }
-
-    private static double NormalizeAlignmentSeconds(double rawSeconds)
-    {
-        var niceSteps = new[]
-        {
-            2d, 5d, 10d, 15d, 30d,
-            60d, 120d, 300d, 600d, 900d, 1800d,
-            3600d, 7200d, 14400d, 21600d, 43200d,
-            86400d
-        };
-
-        foreach (var step in niceSteps)
-        {
-            if (step >= rawSeconds)
-            {
-                return step;
-            }
-        }
-
-        return 86400d;
-    }
-
-    private static DateTimeOffset SnapToAlignment(DateTimeOffset value, double alignmentSeconds)
-    {
-        var ticks = TimeSpan.FromSeconds(alignmentSeconds).Ticks;
-        if (ticks <= 0)
-        {
-            return value;
-        }
-
-        var snappedTicks = value.UtcTicks - (value.UtcTicks % ticks);
-        return new DateTimeOffset(snappedTicks, TimeSpan.Zero).ToOffset(value.Offset);
     }
 
     private static string FormatDuration(TimeSpan? value) =>
@@ -1383,42 +1082,29 @@
         }
     }
 
+    private string FormatEntrySummaryText(ChatHistoryEntry entry) =>
+        ErrorTimelineFormatter.FormatEntrySummary(entry);
+
+    private string FormatAlignedTimeText(DateTimeOffset value) =>
+        ErrorTimelineFormatter.FormatAlignedTime(value, CurrentAlignmentSeconds);
+
+    private string FormatAlignedAgeText(DateTimeOffset value) =>
+        ErrorTimelineFormatter.FormatAlignedAge(value, CurrentAlignmentSeconds, DateTimeOffset.Now);
+
+    private static string CompactStatusText(string? statusMessage, string? fallbackStatus) =>
+        ErrorTimelineFormatter.CompactStatusText(statusMessage, fallbackStatus);
+
     private void UpdateVisibleWindowFromMetrics(ScrollMetrics metrics)
     {
-        var count = RecentErrors.Count;
-        if (count <= 1)
-        {
-            VisibleWindowLeftPercent = 0;
-            VisibleWindowWidthPercent = 100;
-            return;
-        }
-
-        var maxScroll = Math.Max(1.0, metrics.ScrollHeight - metrics.ClientHeight);
-        var topRatio = Math.Clamp(metrics.ScrollTop / maxScroll, 0, 1);
-        var bottomRatio = Math.Clamp((metrics.ScrollTop + metrics.ClientHeight) / Math.Max(1.0, metrics.ScrollHeight), 0, 1);
-
-        var newestIndex = Math.Clamp((int)Math.Floor(topRatio * (count - 1)), 0, count - 1);
-        var oldestIndex = Math.Clamp((int)Math.Ceiling(bottomRatio * (count - 1)), newestIndex, count - 1);
-
-        var newestVisible = RecentErrors[newestIndex].CreatedAt;
-        var oldestVisible = RecentErrors[oldestIndex].CreatedAt;
-        var span = (TrendWindowEnd - TrendWindowStart).TotalMilliseconds;
-        if (span <= 0)
-        {
-            VisibleWindowLeftPercent = 0;
-            VisibleWindowWidthPercent = 100;
-            return;
-        }
-
-        var left  = Math.Clamp((oldestVisible  - TrendWindowStart).TotalMilliseconds / span, 0, 1);
-        var right = Math.Clamp((newestVisible  - TrendWindowStart).TotalMilliseconds / span, 0, 1);
-
-        var baseLeft  = Math.Min(left, right) * 100;
-        var baseWidth = Math.Max(0.8, Math.Abs(right - left) * 100);
-
-        // Chart renders newest-first (left), so invert the horizontal position:
-        VisibleWindowLeftPercent  = 100.0 - (baseLeft + baseWidth);
-        VisibleWindowWidthPercent = baseWidth;
+        (VisibleWindowLeftPercent, VisibleWindowWidthPercent) = VisibleWindowCalculator.Calculate(
+            RecentErrors.Count,
+            metrics.ScrollTop,
+            metrics.ClientHeight,
+            metrics.ScrollHeight,
+            RecentErrors,
+            Trend.WindowStart,
+            Trend.WindowEnd,
+            newestFirst: true);
     }
 
     private string DurationWidth(TimeSpan? value)
@@ -1438,29 +1124,6 @@
 
     private static string NormalizedEntryStatus(ChatHistoryEntry entry) =>
         CompactStatusText(entry.StatusMessage, entry.Metrics.Status);
-
-    private static string CompactStatusText(string? statusMessage, string? fallbackStatus)
-    {
-        var candidate = string.IsNullOrWhiteSpace(statusMessage) ? fallbackStatus : statusMessage;
-        if (string.IsNullOrWhiteSpace(candidate))
-        {
-            return "Failed";
-        }
-
-        var trimmed = candidate.Trim();
-        if (trimmed.StartsWith("Completed with ", StringComparison.OrdinalIgnoreCase))
-        {
-            return trimmed[15..].Trim();
-        }
-
-        var completedWithIndex = trimmed.IndexOf(" completed with ", StringComparison.OrdinalIgnoreCase);
-        if (completedWithIndex >= 0)
-        {
-            return trimmed[(completedWithIndex + 16)..].Trim();
-        }
-
-        return trimmed;
-    }
 
     private void ShowErrorDetails(ChatHistoryEntry entry, MouseEventArgs args)
     {
