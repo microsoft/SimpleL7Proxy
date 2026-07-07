@@ -222,6 +222,8 @@
                                   CurrentStatus="@ErrorStatus"
                                   CurrentMessage="@ErrorMessage"
                                   CurrentTime="@ErrorTimestamp"
+                                  CurrentDuration="@ResponseMetrics.Duration"
+                                  CurrentRequestUrl="@CurrentErrorRequestUrl"
                                   Errors="@ErrorHistory"
                                   DisplayState="@VisionResultState"
                                   DisplayStateChanged="SetVisionResultStateAsync" />
@@ -247,7 +249,7 @@
             }
         </div>
 
-        <div class="@(IsRawResponseMinimized ? "d-none" : string.Empty)">
+        <div class="@((IsRawResponseMinimized || HasError) ? "d-none" : string.Empty)">
             <RawResponsePanel Title="Raw exchange"
                               StatusMessage="@StatusMessage"
                               ActiveTab="@ActiveResponseTab"
@@ -928,6 +930,11 @@
     private bool IsRawResponseMinimized => RawResponseState == PanelDisplayState.Minimized;
 
     private bool ShowRawResponsePanel => !ShowMultiRequestStatus && !IsRawResponseMinimized;
+
+    private string CurrentErrorRequestUrl =>
+        string.IsNullOrWhiteSpace(FormPanel?.ServerBaseUrl)
+            ? EndpointPath
+            : ChatTesterHttp.BuildUri(FormPanel.ServerBaseUrl, EndpointPath).ToString();
 
     private bool IsResponseColumnHidden => ShowMultiRequestStatus ? false : IsVisionResultMinimized && IsRawResponseMinimized;
 
