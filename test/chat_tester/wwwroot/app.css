@@ -36,9 +36,11 @@ main:has(.inspector-page-shell) > .top-row {
 }
 
 body main:has(.inspector-page-shell) > article.content.px-4 {
-    min-height: 100vh;
+    height: calc(100dvh - 4.75rem);
+    min-height: 0;
     padding: 0 !important;
     background: #fff;
+    overflow: hidden;
 }
 
 @media (max-width: 767.98px) {

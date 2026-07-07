@@ -11,7 +11,10 @@
             <span class="text-white-50 small">@StatusMessage</span>
             <div class="d-flex flex-wrap align-items-center justify-content-end gap-2 ms-auto">
                 @HeaderActions
-                <PanelDisplayToggle State="@DisplayState" StateChanged="SetDisplayStateAsync" AriaLabel="@($"Toggle {Title} full screen")" />
+                @if (ShowDisplayToggle)
+                {
+                    <chat_tester.Components.Shared.PanelDisplayToggle State="@DisplayState" StateChanged="SetDisplayStateAsync" AriaLabel="@($"Toggle {Title} full screen")" />
+                }
             </div>
         </div>
         @if (!IsMinimized)
@@ -232,6 +235,9 @@
 
     [Parameter]
     public RenderFragment? HeaderActions { get; set; }
+
+    [Parameter]
+    public bool ShowDisplayToggle { get; set; } = true;
 
     [Parameter]
     public string RequestHeadersText { get; set; } = "No request has been sent yet.";

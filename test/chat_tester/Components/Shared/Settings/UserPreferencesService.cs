@@ -25,6 +25,7 @@ public sealed class UserPreferencesService
     private const string CookieName = "chat_tester_prefs";
     private const string JsGet = "userPreferences.get";
     private const string JsSet = "userPreferences.set";
+    private const string JsClear = "userPreferences.clear";
     private const string DefaultSelectionMode = "None";
     private const bool DefaultDebugEnabled = false;
     private const bool DefaultAutoCollapse = false;
@@ -134,6 +135,97 @@ public sealed class UserPreferencesService
         catch (JSException)
         {
             // Cookie storage is best-effort; ignore when JS is unavailable (e.g. prerendering).
+        }
+    }
+
+    /// <summary>
+    /// Returns the current preferences snapshot as JSON (indented for editing in the UI).
+    /// </summary>
+    public string ExportJson()
+    {
+        var snapshot = BuildDiff();
+        Preferences = snapshot;
+
+        var options = new JsonSerializerOptions(JsonOptions)
+        {
+            WriteIndented = true
+        };
+
+        return JsonSerializer.Serialize(snapshot, options);
+    }
+
+    /// <summary>
+    /// Applies preferences from a JSON document, updates the live settings singletons,
+    /// and persists the resulting preferences back to the session cookie.
+    /// </summary>
+    public async Task<(bool Success, string Error)> ImportJsonAsync(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return (false, "Preferences JSON is empty.");
+        }
+
+        UserPreferences? preferences;
+        try
+        {
+            preferences = JsonSerializer.Deserialize<UserPreferences>(json, JsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            return (false, $"Invalid JSON: {ex.Message}");
+        }
+
+        if (preferences is null)
+        {
+            return (false, "Preferences JSON could not be parsed.");
+        }
+
+        Preferences = preferences;
+        RequestSelections = ClonePageRequest(preferences.Request);
+        ApplyToSettings(preferences);
+        await SaveAsync();
+        return (true, string.Empty);
+    }
+
+    /// <summary>
+    /// Clears stored preferences and reverts live settings to configuration defaults.
+    /// </summary>
+    public async Task ResetAsync()
+    {
+        _auth.ServerBaseUrl = _defaults.ServerBaseUrl;
+
+        _user.HeaderName = _defaults.UserHeaderName;
+        _user.PriorityHeaderName = _defaults.PriorityKeyHeader;
+        _user.SelectionMode = DefaultSelectionMode;
+        _user.SelectedUser = string.Empty;
+        _user.UserListText = DefaultUserListText();
+
+        _headers.Headers.Clear();
+        foreach (var header in ParseDefaultHeaders(_defaults.DefaultHeaders))
+        {
+            _headers.Headers.Add(header);
+        }
+
+        _debug.DebugEnabled = DefaultDebugEnabled;
+        _autoCollapse.Enabled = DefaultAutoCollapse;
+
+        _history.Apply(_defaults.History);
+        _conversations.Apply(_defaults.Conversations);
+
+        Preferences = new UserPreferences
+        {
+            SchemaVersion = UserPreferences.CurrentSchemaVersion,
+            UpdatedAt = DateTimeOffset.Now
+        };
+        RequestSelections = new RequestPreferences();
+
+        try
+        {
+            await _js.InvokeVoidAsync(JsClear, CookieName);
+        }
+        catch (JSException)
+        {
+            // Clearing is best-effort when JS is unavailable.
         }
     }
 
@@ -288,6 +380,35 @@ public sealed class UserPreferencesService
 
     private static bool Differs(string? current, string? @default) =>
         !string.Equals(current ?? string.Empty, @default ?? string.Empty, StringComparison.Ordinal);
+
+    private static IEnumerable<HeaderSettings.HeaderItem> ParseDefaultHeaders(string[]? defaultHeaders)
+    {
+        if (defaultHeaders is not { Length: > 0 })
+        {
+            yield break;
+        }
+
+        foreach (var line in defaultHeaders)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            var separator = line.IndexOf(':');
+            if (separator < 0)
+            {
+                yield return new HeaderSettings.HeaderItem { Name = line.Trim(), Value = string.Empty };
+                continue;
+            }
+
+            yield return new HeaderSettings.HeaderItem
+            {
+                Name = line[..separator].Trim(),
+                Value = line[(separator + 1)..].Trim()
+            };
+        }
+    }
 
     private static bool StorageDiffers(HistoryStorageSettings current, HistoryStorageSettings @default) =>
         !string.Equals(current.Mode, @default.Mode, StringComparison.Ordinal)

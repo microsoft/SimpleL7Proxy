@@ -17,9 +17,11 @@
 
 .inspector-page-shell {
     position: relative;
-    min-height: 100vh;
-    padding: 5.25rem 1.25rem 1.25rem 1.75rem;
+    height: 100%;
+    min-height: 0;
+    padding: 5.1rem 1rem 0.75rem 1.25rem;
     background: #fff;
+    overflow-y: auto;
 }
 
 .inspector-page-controls {

@@ -34,13 +34,13 @@
     </div>
     @if (!IsMinimized && !HasResult)
     {
-        <div class="card-body @(IsFullscreen ? "overflow-auto" : string.Empty)">
+        <div class="card-body vision-result-body @(IsFullscreen ? "overflow-auto" : string.Empty)">
             <div class="vision-result-panel border rounded bg-white p-3 text-muted">No results</div>
         </div>
     }
     else if (!IsMinimized)
     {
-        <div class="card-body @(IsFullscreen ? "overflow-auto" : string.Empty)">
+        <div class="card-body vision-result-body @(IsFullscreen ? "overflow-auto" : string.Empty)">
             <div class="row g-3 @ResultRowCss">
                 <div class="col-12 @(ShowMetrics ? "col-xl-9" : string.Empty) vision-result-content-col">
                     <div class="vision-result-panel border rounded bg-white p-3 @ResultPanelLayoutCss">
@@ -97,6 +97,31 @@
         </div>
     }
 </div>
+
+<style>
+    .vision-result-body {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+    }
+
+    .vision-result-content-col {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        min-width: 0;
+    }
+
+    .vision-result-panel {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+    }
+
+    .vision-result-metrics-col {
+        min-width: 0;
+    }
+</style>
 
 @code {
     private const string SummaryResultTab = "summary";
