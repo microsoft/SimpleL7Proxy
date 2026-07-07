@@ -1,6 +1,9 @@
 @namespace chat_tester.Components.Shared
 @using System.Globalization
 @using Microsoft.AspNetCore.Components.Web
+@using System.Text.Json.Serialization
+@inject IJSRuntime JS
+@implements IDisposable
 
 <div class="card shadow-sm error-result-card @CardStateCss">
     <div class="card-header bg-danger text-white @(IsMinimized ? string.Empty : "pb-2")">
@@ -15,31 +18,37 @@
     @if (!IsMinimized)
     {
         <div class="card-body error-result-body @(IsFullscreen ? "d-flex flex-column overflow-hidden" : string.Empty)">
-            <div class="alert @CurrentAlertCss d-flex flex-column gap-1 mb-3" role="alert">
-                <div class="d-flex align-items-center gap-2">
-                    <span class="badge @CurrentBadgeCss fs-6">@CurrentStatusText</span>
-                    <span class="fw-semibold text-truncate">@CurrentPrimaryText</span>
-                    @if (CurrentHasBackendLogHeader)
-                    {
-                        <span class="badge text-bg-light border text-danger-emphasis">Backend log header</span>
-                    }
+            <div class="alert @CurrentAlertCss d-flex flex-column gap-1 mb-2" role="alert">
+                <div class="error-summary-head">
+                    <span class="badge @CurrentBadgeCss fs-6 error-summary-badge">@CurrentBadgeText</span>
+                    <div class="error-summary-route min-w-0">
+                        <div class="error-summary-label">Request URL</div>
+                        <div class="fw-semibold error-summary-url text-truncate" title="@CurrentPrimaryText">@CurrentPrimaryText</div>
+                    </div>
+                </div>
+                <div class="error-summary-facts">
+                    <span class="error-fact-pill"><span class="error-fact-name">Status</span><strong>@HeaderStatusMessage</strong></span>
+                    <span class="error-fact-pill"><span class="error-fact-name">Failed after</span><strong>@FormatDuration(CurrentDuration)</strong></span>
                     @if (CurrentTime is not null)
                     {
-                        <span class="ms-auto small">@CurrentTime.Value.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture)</span>
+                        <span class="error-fact-pill"><span class="error-fact-name">At</span><strong>@CurrentTime.Value.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture)</strong></span>
+                    }
+                    @if (CurrentHasBackendLogHeader)
+                    {
+                        <span class="error-fact-pill backend-log">Backend log header</span>
                     }
                 </div>
-                <div class="error-duration-row">
-                    <span class="small text-muted">Failure duration</span>
+                <div class="error-duration-row compact">
                     <div class="error-duration-thermometer current @CurrentSeverityCss">
                         <div class="error-duration-fill" style="width: @CurrentDurationWidth;"></div>
                         <span class="error-duration-label">@FormatDuration(CurrentDuration)</span>
                     </div>
                 </div>
-                <div class="error-current-message font-monospace small">@CurrentMessageText</div>
+                <div class="error-message-lead">@CurrentMessageText</div>
             </div>
 
-            <div class="row g-4 @(IsFullscreen ? "flex-grow-1 min-h-0" : string.Empty)">
-                <div class="col-12 col-xl-5 d-flex flex-column">
+            <div class="error-sections @(IsFullscreen ? "flex-grow-1 min-h-0" : string.Empty)">
+                <div class="error-trend-section d-flex flex-column">
                     <div class="d-flex align-items-center justify-content-between mb-2 gap-2 flex-wrap">
                         <h6 class="mb-0">Error trend</h6>
                         <div class="d-flex align-items-center gap-2">
@@ -51,31 +60,50 @@
                                 <option value="60">1h</option>
                                 <option value="360">6h</option>
                                 <option value="1440">24h</option>
+                                <option value="10080">7d</option>
+                                <option value="43200">30d</option>
                             </select>
-                            <span class="small text-muted">@TotalErrorCount errors · @BucketMinutesLabel</span>
+                            <span class="small text-muted">@TotalErrorCount @(ErrorsOnly ? "errors" : "calls") · @BucketMinutesLabel</span>
                         </div>
                     </div>
 
-                    @if (Buckets.Count == 0 || TotalErrorCount == 0)
+                    @if (Buckets.Count == 0 || DisplayCount == 0)
                     {
-                        <div class="text-muted small">No prior errors recorded.</div>
+                        <div class="text-muted small">No recent entries recorded.</div>
                     }
                     else
                     {
-                        <div class="error-trend-scroll">
-                            <div class="error-trend-chart" style="--error-grid-columns: @Buckets.Count;" role="img" aria-label="Column graph of error counts over time">
-                                @foreach (var bucket in Buckets)
+                        <div class="error-trend-scroll" @ref="TrendScrollRef">
+                            <div class="error-trend-chart" style="--error-slot-count: @Buckets.Count;" role="img" aria-label="Column graph of error counts over time">
+                                @if (ShowVisibleWindowOutline)
                                 {
-                                    var height = MaxBucketCount == 0 ? 0 : (int)Math.Round(bucket.Count * 100.0 / MaxBucketCount);
-                                    <div class="error-trend-column" title="@bucket.Tooltip">
-                                        <div class="error-trend-count">@(bucket.Count > 0 ? bucket.Count.ToString(CultureInfo.InvariantCulture) : string.Empty)</div>
-                                        <div class="error-trend-bar-stack" style="height: @(height)% ;">
-                                            @foreach (var segment in bucket.Segments)
+                                    <div class="error-trend-visible-window" style="left: @VisibleWindowLeft; width: @VisibleWindowWidth;"></div>
+                                }
+                                @foreach (var bucket in ((IEnumerable<ErrorBucket>)Buckets).Reverse())
+                                {
+                                    <div class="error-trend-slot">
+                                        <div class="error-trend-slot-count">@(bucket.Count > 0 ? bucket.Count.ToString(CultureInfo.InvariantCulture) : string.Empty)</div>
+                                        <div class="error-trend-slot-bars">
+                                            @{
+                                                var maxMini = bucket.MaxMiniCount;
+                                            }
+                                            @foreach (var mini in ((IEnumerable<ErrorMini>)bucket.Minis).Reverse())
                                             {
-                                                <div class="error-trend-seg @segment.Css" style="height: @(segment.Percent)%;"></div>
+                                                var miniH = maxMini == 0 ? 0 : (int)Math.Round(mini.Count * 100.0 / maxMini);
+                                                <div class="error-trend-mini-col" title="@bucket.Label">
+                                                    @if (mini.Count > 0)
+                                                    {
+                                                        <div class="error-trend-bar-stack" style="height: @(miniH)%;">
+                                                            @foreach (var seg in mini.Segments)
+                                                            {
+                                                                <div class="error-trend-seg @seg.Css" style="height: @(seg.Percent)%;"></div>
+                                                            }
+                                                        </div>
+                                                    }
+                                                </div>
                                             }
                                         </div>
-                                        <div class="error-trend-label">@bucket.Label</div>
+                                        <div class="error-trend-slot-label">@bucket.Label</div>
                                     </div>
                                 }
                             </div>
@@ -83,19 +111,25 @@
                     }
                 </div>
 
-                <div class="col-12 col-xl-7 d-flex flex-column min-h-0">
+                <div class="error-recent-section d-flex flex-column min-h-0">
                     <div class="d-flex align-items-baseline justify-content-between mb-2">
-                        <h6 class="mb-0">Recent errors</h6>
-                        <span class="small text-muted">@Errors.Count total</span>
+                        <h6 class="mb-0">Recent Calls</h6>
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="form-check mb-0">
+                                <input class="form-check-input" type="checkbox" id="errorsOnlyToggle" checked="@ErrorsOnly" @onchange="OnErrorsOnlyChanged" />
+                                <label class="form-check-label small" for="errorsOnlyToggle">Errors Only</label>
+                            </div>
+                            <span class="small text-muted">@DisplayCount total · click a row for raw exchange</span>
+                        </div>
                     </div>
 
-                    @if (Errors.Count == 0)
+                    @if (DisplayCount == 0)
                     {
-                        <div class="text-muted small">No errors in history.</div>
+                        <div class="text-muted small">No entries in history.</div>
                     }
                     else
                     {
-                        <div class="error-history-list @(IsFullscreen ? "fill" : string.Empty)">
+                        <div class="error-history-list fill" @ref="HistoryListRef" @onscroll="OnHistoryListScrolled">
                             @foreach (var entry in RecentErrors)
                             {
                                 <button type="button"
@@ -106,19 +140,20 @@
                                         @onmouseleave="HideErrorDetails">
                                     <span class="badge @BadgeCssForCode(CodeOf(entry)) error-history-badge">@FormatEntryStatus(entry)</span>
                                     <div class="flex-grow-1 min-w-0">
-                                        <div class="d-flex align-items-baseline gap-2">
-                                            <span class="small fw-semibold text-truncate">@FormatEntrySummary(entry)</span>
-                                            <span class="ms-auto x-small text-muted text-nowrap">@entry.CreatedAt.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture) · @FormatAge(entry.CreatedAt)</span>
+                                        <div class="error-row-line1">
+                                            <span class="error-row-summary fw-semibold">@FormatEntrySummary(entry)</span>
+                                            <span class="error-row-sep">|</span>
+                                            <span class="error-row-url text-muted">@entry.Method @entry.EndpointPath</span>
+                                            <span class="error-row-date text-muted">@entry.CreatedAt.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture) · @FormatAge(entry.CreatedAt)</span>
                                         </div>
-                                        <div class="text-muted x-small error-endpoint">@entry.Method @entry.EndpointPath</div>
-                                        <div class="error-history-meta-row">
+                                        <div class="error-history-meta-row compact">
                                             <div class="error-duration-thermometer @SeverityCss(entry)">
                                                 <div class="error-duration-fill" style="width: @DurationWidth(entry.Metrics.Duration);"></div>
-                                                <span class="error-duration-label">@FormatDuration(entry.Metrics.Duration)</span>
+                                                <span class="error-duration-label">@DurationLabel(entry.Metrics.Duration)</span>
                                             </div>
                                             @if (HasBackendLogHeader(entry))
                                             {
-                                                <span class="badge text-bg-light border text-danger-emphasis">Backend log header</span>
+                                                <span class="badge text-bg-light border text-danger-emphasis">Backend log</span>
                                             }
                                         </div>
                                     </div>
@@ -177,6 +212,13 @@
 }
 
 <style>
+    .error-result-card {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        min-height: 0;
+    }
+
     .error-result-card.panel-minimized {
         height: auto !important;
         flex: 0 0 auto !important;
@@ -202,21 +244,110 @@
         min-height: 0;
     }
 
-    .error-current-message {
-        white-space: pre-wrap;
-        word-break: break-word;
-        max-height: 8rem;
-        overflow-y: auto;
+    .error-result-body {
+        display: flex;
+        flex-direction: column;
+        flex: 1 1 auto;
+        min-height: 0;
+    }
+
+    .error-sections {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        flex: 1 1 auto;
+        min-height: 0;
+    }
+
+    .error-trend-section {
+        flex: 0 0 auto;
+    }
+
+    .error-recent-section {
+        flex: 1 1 auto;
+    }
+
+    .error-summary-head {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.85rem;
+    }
+
+    .error-summary-badge {
+        min-width: 3.2rem;
+        text-align: center;
+    }
+
+    .error-summary-route {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .error-summary-label {
+        color: #5f6b76;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        line-height: 1.1;
+    }
+
+    .error-summary-url {
+        line-height: 1.3;
+    }
+
+    .error-summary-facts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        margin-top: 0.3rem;
+    }
+
+    .error-fact-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.2rem 0.48rem;
+        border: 1px solid rgba(108, 117, 125, 0.24);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.55);
+        color: #22303a;
+        font-size: 0.76rem;
+        line-height: 1.2;
+    }
+
+    .error-fact-pill.backend-log {
+        border-color: rgba(176, 42, 55, 0.24);
+        color: #842029;
+    }
+
+    .error-fact-name {
+        color: #6c757d;
+        font-weight: 600;
     }
 
     .error-duration-row {
         display: flex;
         align-items: center;
         gap: 0.75rem;
+        margin-top: 0.5rem;
     }
 
-    .error-duration-row > .small {
-        flex: 0 0 auto;
+    .error-duration-row.compact {
+        gap: 0.5rem;
+    }
+
+    .error-duration-row.compact .error-duration-thermometer {
+        flex: 1 1 auto;
+    }
+
+    .error-message-lead {
+        margin-top: 0.3rem;
+        padding-top: 0.25rem;
+        border-top: 1px solid rgba(13, 110, 253, 0.14);
+        color: #234;
+        font-size: 0.85rem;
+        font-weight: 600;
     }
 
     .error-trend-window {
@@ -231,44 +362,70 @@
 
     .error-trend-chart {
         display: flex;
-        align-items: flex-end;
-        gap: 0.35rem;
-        height: 8rem;
-        min-width: max(100%, calc(var(--error-grid-columns) * 4.5rem));
-        padding: 0.5rem 0.25rem 0;
-        border: 1px solid #f1d1d4;
+        align-items: stretch;
+        position: relative;
+        gap: 2px;
+        height: 6rem;
+        min-width: max(100%, calc(var(--error-slot-count) * 6rem));
+        padding: 0.25rem 0.25rem 0;
+        border: 1px solid #d9d9d9;
         border-radius: 0.375rem;
-        background: #fff5f5;
-        background-image: repeating-linear-gradient(
-            to right,
-            rgba(176, 42, 55, 0.14) 0,
-            rgba(176, 42, 55, 0.14) 1px,
-            transparent 1px,
-            transparent calc(100% / var(--error-grid-columns))
-        );
+        background: #fafafa;
     }
 
-    .error-result-card.fs-overlay .error-trend-chart {
-        height: 14rem;
+    .error-trend-slot {
+        flex: 1 1 0;
+        display: flex;
+        flex-direction: column;
+        min-width: 5rem;
+        border-left: 1px solid rgba(0, 0, 0, 0.07);
+        padding: 0 0.1rem;
     }
 
-    .error-trend-column {
+    .error-trend-slot-count {
+        font-size: 0.65rem;
+        line-height: 1;
+        color: #6c757d;
+        text-align: center;
+        font-weight: 700;
+        min-height: 0.8rem;
+    }
+
+    .error-trend-slot-bars {
+        flex: 1 1 auto;
+        display: flex;
+        align-items: flex-end;
+        gap: 1px;
+        min-height: 0;
+    }
+
+    .error-trend-mini-col {
         flex: 1 1 0;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: flex-end;
         height: 100%;
-        min-width: 4rem;
-        padding: 0 0.1rem;
-        border-left: 1px solid rgba(176, 42, 55, 0.08);
+        min-width: 0.15rem;
     }
 
-    .error-trend-count {
-        font-size: 0.7rem;
-        line-height: 1;
-        color: #b02a37;
-        min-height: 0.8rem;
+    .error-trend-slot-label {
+        font-size: 0.6rem;
+        color: #6c757d;
+        text-align: center;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        margin-top: 0.15rem;
+        padding-bottom: 0.1rem;
+    }
+
+    .error-result-card.fs-overlay .error-trend-chart {
+        height: 10rem;
+    }
+
+    .error-trend-visible-window {
+        z-index: 2;
     }
 
     .error-trend-bar-stack {
@@ -297,40 +454,81 @@
         background: #0dcaf0;
     }
 
+    .error-trend-seg.sev-success {
+        background: #198754;
+    }
+
     .error-trend-seg.sev-secondary {
         background: #6c757d;
     }
 
-    .error-trend-label {
-        margin-top: 0.25rem;
-        font-size: 0.6rem;
-        color: #6c757d;
+    .error-row-line1 {
+        display: flex;
+        align-items: baseline;
+        gap: 0.4rem;
+        min-width: 0;
+        overflow: hidden;
+    }
+
+    .error-row-summary {
+        font-size: 0.82rem;
         white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    .error-row-sep {
+        color: #adb5bd;
+        font-size: 0.75rem;
+        flex-shrink: 0;
+    }
+
+    .error-row-url {
+        font-size: 0.75rem;
+        min-width: 0;
+        flex: 1 1 auto;
         overflow: hidden;
         text-overflow: ellipsis;
-        max-width: 100%;
+        white-space: nowrap;
+    }
+
+    .error-row-date {
+        font-size: 0.7rem;
+        flex-shrink: 0;
+        margin-left: auto;
+        padding-left: 0.5rem;
+        white-space: nowrap;
+    }
+
+    .error-trend-visible-window {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        border: 2px solid rgba(13, 110, 253, 0.95);
+        border-radius: 0.3rem;
+        background: rgba(13, 110, 253, 0.12);
+        pointer-events: none;
+        z-index: 3;
+        min-width: 0.3rem;
     }
 
     .error-history-list {
         display: flex;
         flex-direction: column;
         gap: 0.4rem;
-        max-height: 20rem;
         overflow-y: auto;
     }
 
     .error-history-list.fill {
-        max-height: none;
         flex: 1 1 auto;
         min-height: 0;
     }
 
     .error-history-item {
         display: flex;
-        align-items: flex-start;
+        align-items: center;
         gap: 0.6rem;
         width: 100%;
-        padding: 0.45rem 0.6rem;
+        padding: 0.45rem 0.6rem 0.5rem;
         background: #fff;
         color: inherit;
         border: 1px solid #eee;
@@ -366,6 +564,10 @@
         border-left-color: #0dcaf0;
     }
 
+    .error-history-item.sev-success {
+        border-left-color: #198754;
+    }
+
     .error-history-item.sev-secondary {
         border-left-color: #6c757d;
     }
@@ -380,15 +582,32 @@
         display: flex;
         align-items: center;
         gap: 0.5rem;
-        margin-top: 0.35rem;
+        margin-top: 0.2rem;
         flex-wrap: wrap;
+    }
+
+    .error-history-meta-row.compact {
+        gap: 0.4rem;
+    }
+
+    .error-history-topline,
+    .error-history-subline {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.5rem;
+        min-width: 0;
+    }
+
+    .error-history-subline {
+        margin-top: 0.1rem;
     }
 
     .error-duration-thermometer {
         position: relative;
         flex: 1 1 11rem;
         min-width: 11rem;
-        height: 1.2rem;
+        height: 0.95rem;
         overflow: hidden;
         border: 1px solid #ced4da;
         border-radius: 999px;
@@ -417,6 +636,12 @@
         background: #e6f9fd;
     }
 
+    .error-duration-thermometer.sev-success,
+    .error-duration-thermometer.current.sev-success {
+        border-color: #198754;
+        background: #e8f7ef;
+    }
+
     .error-duration-thermometer.sev-secondary,
     .error-duration-thermometer.current.sev-secondary {
         border-color: #6c757d;
@@ -436,8 +661,8 @@
         display: block;
         padding: 0 0.55rem;
         color: #212529;
-        font-size: 0.72rem;
-        line-height: 1.2rem;
+        font-size: 0.68rem;
+        line-height: 0.95rem;
         font-variant-numeric: tabular-nums;
         font-weight: 700;
         text-align: right;
@@ -456,6 +681,14 @@
         background: #fff;
         border: 1px solid rgba(0, 0, 0, 0.12);
         box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, 0.18);
+        max-width: 22rem;
+        overflow: hidden;
+    }
+
+    .error-hover-card .small.fw-semibold {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .multi-request-detail-backdrop {
@@ -530,13 +763,36 @@
 
 @code {
     private const int BucketCount = 12;
-    private const int MaxRecentErrors = 25;
+    private const int SubBucketCount = 10;
+
+    private System.Threading.Timer? _autoScrollTimer;
+
+    public void Dispose() => _autoScrollTimer?.Dispose();
 
     private sealed record ErrorSegment(string Css, int Count, int Percent);
 
-    private sealed record ErrorBucket(string Label, int Danger, int Warning, int Info, int Secondary)
+    private sealed record ErrorMini(int Danger, int Warning, int Info, int Success, int Secondary)
     {
-        public int Count => Danger + Warning + Info + Secondary;
+        public int Count => Danger + Warning + Info + Success + Secondary;
+
+        public IReadOnlyList<ErrorSegment> Segments
+        {
+            get
+            {
+                var total = Count;
+                if (total == 0) return Array.Empty<ErrorSegment>();
+                return new[] { ("sev-danger", Danger), ("sev-warning", Warning), ("sev-info", Info), ("sev-success", Success), ("sev-secondary", Secondary) }
+                    .Where(c => c.Item2 > 0)
+                    .Select(c => new ErrorSegment(c.Item1, c.Item2, (int)Math.Round(c.Item2 * 100.0 / total)))
+                    .ToList();
+            }
+        }
+    }
+
+    private sealed record ErrorBucket(string Label, int Danger, int Warning, int Info, int Success, int Secondary, IReadOnlyList<ErrorMini> Minis)
+    {
+        public int Count => Danger + Warning + Info + Success + Secondary;
+        public int MaxMiniCount => Minis.Count == 0 ? 0 : Minis.Max(m => m.Count);
 
         public IReadOnlyList<ErrorSegment> Segments
         {
@@ -553,6 +809,7 @@
                     ("sev-danger", Danger),
                     ("sev-warning", Warning),
                     ("sev-info", Info),
+                    ("sev-success", Success),
                     ("sev-secondary", Secondary)
                 };
 
@@ -569,30 +826,15 @@
             {
                 if (Count == 0)
                 {
-                    return $"{Label}: 0 errors";
+                    return $"{Label}: no activity";
                 }
 
                 var parts = new List<string>();
-                if (Danger > 0)
-                {
-                    parts.Add($"{Danger} 5xx");
-                }
-
-                if (Warning > 0)
-                {
-                    parts.Add($"{Warning} 429");
-                }
-
-                if (Info > 0)
-                {
-                    parts.Add($"{Info} 4xx");
-                }
-
-                if (Secondary > 0)
-                {
-                    parts.Add($"{Secondary} other");
-                }
-
+                if (Danger > 0) parts.Add($"{Danger} 5xx");
+                if (Warning > 0) parts.Add($"{Warning} 429");
+                if (Info > 0) parts.Add($"{Info} 4xx");
+                if (Success > 0) parts.Add($"{Success} 2xx");
+                if (Secondary > 0) parts.Add($"{Secondary} other");
                 return $"{Label}: {string.Join(", ", parts)}";
             }
         }
@@ -623,10 +865,15 @@
     public IReadOnlyList<ChatHistoryEntry> Errors { get; set; } = Array.Empty<ChatHistoryEntry>();
 
     [Parameter]
+    public IReadOnlyList<ChatHistoryEntry> AllEntries { get; set; } = Array.Empty<ChatHistoryEntry>();
+
+    [Parameter]
     public PanelDisplayState DisplayState { get; set; } = PanelDisplayState.Expanded;
 
     [Parameter]
     public EventCallback<PanelDisplayState> DisplayStateChanged { get; set; }
+
+    private bool ErrorsOnly { get; set; } = true;
 
     private ChatHistoryEntry? HoveredError { get; set; }
 
@@ -639,6 +886,32 @@
     private string HoverLeft { get; set; } = "0px";
 
     private string HoverTop { get; set; } = "0px";
+
+    private ElementReference HistoryListRef;
+
+    private ElementReference TrendScrollRef;
+
+    private bool NeedsVisibleWindowSync { get; set; } = true;
+
+    private double VisibleWindowLeftPercent { get; set; }
+
+    private double VisibleWindowWidthPercent { get; set; } = 100;
+
+    private DateTimeOffset TrendWindowStart { get; set; }
+
+    private DateTimeOffset TrendWindowEnd { get; set; }
+
+    private sealed class ScrollMetrics
+    {
+        [JsonPropertyName("scrollTop")]
+        public double ScrollTop { get; set; }
+
+        [JsonPropertyName("clientHeight")]
+        public double ClientHeight { get; set; }
+
+        [JsonPropertyName("scrollHeight")]
+        public double ScrollHeight { get; set; }
+    }
 
     private static int? CodeOf(ChatHistoryEntry entry) => HistoryEntryFormatter.GetHistoryStatusCode(entry);
 
@@ -658,6 +931,7 @@
         429 => "text-bg-warning",
         >= 500 => "text-bg-danger",
         >= 400 => "text-bg-info",
+        >= 200 and < 300 => "text-bg-success",
         _ => "text-bg-secondary"
     };
 
@@ -666,6 +940,7 @@
         429 => "sev-warning",
         >= 500 => "sev-danger",
         >= 400 => "sev-info",
+        >= 200 and < 300 => "sev-success",
         _ => "sev-secondary"
     };
 
@@ -683,6 +958,8 @@
     private string CurrentStatusText => string.IsNullOrWhiteSpace(CurrentStatus) ? "Failed" : CurrentStatus.Trim();
 
     private int? CurrentCode => ParseCode(CurrentStatus);
+
+    private string CurrentBadgeText => CurrentCode?.ToString(CultureInfo.InvariantCulture) ?? CurrentStatusText;
 
     private string CurrentBadgeCss => CurrentCode is null ? "text-bg-danger" : BadgeCssForCode(CurrentCode);
 
@@ -704,14 +981,16 @@
 
     private int TotalErrorCount => Buckets.Sum(bucket => bucket.Count);
 
+    private int DisplayCount => DisplayEntries.Count;
+
     private string CurrentMessageText => string.IsNullOrWhiteSpace(CurrentMessage)
         ? "The request did not complete successfully."
         : CurrentMessage.Trim();
 
-    private string HeaderStatusMessage => NormalizeStatusMessage(StatusMessage, CurrentStatus);
+    private string HeaderStatusMessage => CompactStatusText(StatusMessage, CurrentStatus);
 
     private string CurrentPrimaryText => string.IsNullOrWhiteSpace(CurrentRequestUrl)
-        ? NormalizeStatusMessage(StatusMessage, CurrentStatus)
+        ? CompactStatusText(StatusMessage, CurrentStatus)
         : CurrentRequestUrl.Trim();
 
     private bool CurrentHasBackendLogHeader => Errors.OrderByDescending(entry => entry.CreatedAt).FirstOrDefault() is { } entry && HasBackendLogHeader(entry);
@@ -722,14 +1001,27 @@
         ? "Backend log header detected"
         : "No backend log header detected";
 
-    private IReadOnlyList<ChatHistoryEntry> RecentErrors => Errors
+    private IReadOnlyList<ChatHistoryEntry> DisplayEntries =>
+        ErrorsOnly
+            ? Errors
+            : (AllEntries.Count > 0 ? AllEntries : Errors);
+
+    private IReadOnlyList<ChatHistoryEntry> RecentErrors => DisplayEntries
         .OrderByDescending(entry => entry.CreatedAt)
-        .Take(MaxRecentErrors)
         .ToList();
 
     private IReadOnlyList<ErrorBucket> Buckets => BuildBuckets();
 
     private int MaxBucketCount => Buckets.Count == 0 ? 0 : Buckets.Max(bucket => bucket.Count);
+
+    private bool ChartReversed => true;
+
+    private bool ShowVisibleWindowOutline =>
+        DisplayCount > 1 && TrendWindowEnd > TrendWindowStart;
+
+    private string VisibleWindowLeft => VisibleWindowLeftPercent.ToString("0.##", CultureInfo.InvariantCulture) + "%";
+
+    private string VisibleWindowWidth => VisibleWindowWidthPercent.ToString("0.##", CultureInfo.InvariantCulture) + "%";
 
     private string BucketMinutesLabel { get; set; } = "recent activity";
 
@@ -743,11 +1035,12 @@
         WindowMinutesOverride = int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var minutes)
             ? minutes
             : null;
+        NeedsVisibleWindowSync = true;
     }
 
     private IReadOnlyList<ErrorBucket> BuildBuckets()
     {
-        if (Errors.Count == 0)
+        if (DisplayEntries.Count == 0)
         {
             BucketMinutesLabel = "recent activity";
             return Array.Empty<ErrorBucket>();
@@ -755,7 +1048,9 @@
 
         var now = DateTimeOffset.Now;
 
-        var bucketCount = WindowMinutesOverride.HasValue ? 24 : BucketCount;
+        var bucketCount = WindowMinutesOverride.HasValue
+            ? ChooseBucketCount(WindowMinutesOverride.Value)
+            : BucketCount;
         double intervalMinutes;
         int windowMinutes;
         DateTimeOffset windowStart;
@@ -767,7 +1062,9 @@
         }
         else
         {
-            var earliest = ResolveClusterStart(now);
+            var earliest = ErrorsOnly
+                ? ResolveClusterStart(now)
+                : DisplayEntries.Min(entry => entry.CreatedAt);
             var spanMinutes = Math.Max(1.0, (now - earliest).TotalMinutes);
             var intervalInt = ChooseBucketIntervalMinutes(spanMinutes / bucketCount);
             intervalMinutes = intervalInt;
@@ -775,50 +1072,61 @@
             windowStart = now.AddMinutes(-windowMinutes);
         }
 
-        var danger = new int[bucketCount];
-        var warning = new int[bucketCount];
-        var info = new int[bucketCount];
-        var secondary = new int[bucketCount];
-        foreach (var entry in Errors)
+        TrendWindowStart = windowStart;
+        TrendWindowEnd = now;
+        BucketMinutesLabel = FormatWindowLabel(windowMinutes);
+
+        // Each slot is subdivided into SubBucketCount mini-buckets for finer resolution
+        double subMinutes = intervalMinutes / SubBucketCount;
+        int totalMinis = bucketCount * SubBucketCount;
+
+        var danger   = new int[totalMinis];
+        var warning  = new int[totalMinis];
+        var info     = new int[totalMinis];
+        var success  = new int[totalMinis];
+        var secondary = new int[totalMinis];
+        foreach (var entry in DisplayEntries)
         {
             var offsetMinutes = (entry.CreatedAt - windowStart).TotalMinutes;
-            if (offsetMinutes < 0)
-            {
-                continue; // older than the focused window (outlier) — excluded from the trend
-            }
-
-            var index = Math.Min((int)(offsetMinutes / intervalMinutes), bucketCount - 1);
+            if (offsetMinutes < 0) continue;
+            var idx = Math.Min((int)(offsetMinutes / subMinutes), totalMinis - 1);
             switch (CodeOf(entry))
             {
-                case 429:
-                    warning[index]++;
-                    break;
-                case >= 500:
-                    danger[index]++;
-                    break;
-                case >= 400:
-                    info[index]++;
-                    break;
-                default:
-                    secondary[index]++;
-                    break;
+                case 429:             warning[idx]++;   break;
+                case >= 500:          danger[idx]++;    break;
+                case >= 400:          info[idx]++;      break;
+                case >= 200 and < 300: success[idx]++;  break;
+                default:              secondary[idx]++; break;
             }
         }
 
-        BucketMinutesLabel = FormatWindowLabel(windowMinutes);
-        var showDate = windowMinutes >= 1440;
-        var showSeconds = intervalMinutes < 1;
-
         var buckets = new List<ErrorBucket>(bucketCount);
-        for (var i = 0; i < bucketCount; i++)
+        for (var s = 0; s < bucketCount; s++)
         {
-            var bucketStart = windowStart.AddMinutes(intervalMinutes * i).ToLocalTime();
-            var label = showDate
-                ? bucketStart.ToString("MM/dd HH:mm", CultureInfo.InvariantCulture)
-                : showSeconds
-                    ? bucketStart.ToString("HH:mm:ss", CultureInfo.InvariantCulture)
-                    : bucketStart.ToString("HH:mm", CultureInfo.InvariantCulture);
-            buckets.Add(new ErrorBucket(label, danger[i], warning[i], info[i], secondary[i]));
+            // Label: distance back from "now" (rendered newest-left so label reads as negative offset)
+            var backMinutes = (bucketCount - 1 - s) * intervalMinutes;
+            string label;
+            if (s == bucketCount - 1)
+                label = "now";
+            else if (intervalMinutes < 1)
+                label = $"-{(int)Math.Round(backMinutes * 60)}s";
+            else if (intervalMinutes < 60)
+                label = $"-{(int)Math.Round(backMinutes)}m";
+            else if (intervalMinutes < 1440)
+                label = $"-{(int)Math.Round(backMinutes / 60)}h";
+            else
+                label = $"-{(int)Math.Round(backMinutes / 1440)}d";
+
+            var slotBase = s * SubBucketCount;
+            var sd = 0; var sw = 0; var si = 0; var ss = 0; var sc = 0;
+            var minis = new List<ErrorMini>(SubBucketCount);
+            for (var m = 0; m < SubBucketCount; m++)
+            {
+                var mi = slotBase + m;
+                sd += danger[mi]; sw += warning[mi]; si += info[mi]; ss += success[mi]; sc += secondary[mi];
+                minis.Add(new ErrorMini(danger[mi], warning[mi], info[mi], success[mi], secondary[mi]));
+            }
+            buckets.Add(new ErrorBucket(label, sd, sw, si, ss, sc, minis));
         }
 
         return buckets;
@@ -828,7 +1136,7 @@
     // so a single days-old error cannot zoom the whole trend out and hide recent activity.
     private DateTimeOffset ResolveClusterStart(DateTimeOffset now)
     {
-        var ordered = Errors.Select(entry => entry.CreatedAt).OrderByDescending(time => time).ToList();
+        var ordered = DisplayEntries.Select(entry => entry.CreatedAt).OrderByDescending(time => time).ToList();
         var newest = ordered[0];
         var clusterOldest = ordered[0];
         for (var i = 1; i < ordered.Count; i++)
@@ -847,6 +1155,18 @@
         return clusterOldest;
     }
 
+    private static int ChooseBucketCount(int windowMinutes) => windowMinutes switch
+    {
+        <= 5 => 12,
+        <= 10 => 12,
+        <= 30 => 12,
+        <= 60 => 12,
+        <= 360 => 12,
+        <= 1440 => 24,   // 24h → 24 × 1h slots
+        <= 10080 => 7,   // 7d → 7 × 1d slots
+        _ => 30          // 30d → 30 × 1d slots
+    };
+
     private static int ChooseBucketIntervalMinutes(double targetMinutes)
     {
         var niceIntervals = new[] { 1, 2, 5, 10, 15, 30, 60, 120, 180, 360, 720, 1440, 2880, 10080 };
@@ -863,16 +1183,9 @@
 
     private static string FormatWindowLabel(int windowMinutes)
     {
-        if (windowMinutes >= 1440)
-        {
-            return $"the last {windowMinutes / 1440.0:0.#} d";
-        }
-
-        if (windowMinutes >= 60)
-        {
-            return $"the last {windowMinutes / 60.0:0.#} h";
-        }
-
+        if (windowMinutes >= 43200) return $"the last {windowMinutes / 43200.0:0.#} mo";
+        if (windowMinutes >= 1440)  return $"the last {windowMinutes / 1440.0:0.#} d";
+        if (windowMinutes >= 60)    return $"the last {windowMinutes / 60.0:0.#} h";
         return $"the last {windowMinutes} min";
     }
 
@@ -884,13 +1197,8 @@
 
     private static string FormatEntrySummary(ChatHistoryEntry entry)
     {
-        var normalized = NormalizeStatusMessage(entry.StatusMessage, entry.Metrics.Status);
+        var normalized = CompactStatusText(entry.StatusMessage, entry.Metrics.Status);
         var tokens = normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (tokens.Length >= 2 && int.TryParse(tokens[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
-        {
-            return string.Join(' ', tokens.Skip(2));
-        }
-
         if (tokens.Length >= 1 && int.TryParse(tokens[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
         {
             return string.Join(' ', tokens.Skip(1));
@@ -899,18 +1207,157 @@
         return normalized;
     }
 
-    private static string FormatAge(DateTimeOffset value) => HistoryEntryFormatter.FormatHistoryAge(value);
+    private static string FormatAge(DateTimeOffset value)
+    {
+        var age = DateTimeOffset.Now - value;
+        if (age.TotalMinutes < 1)
+        {
+            return "now";
+        }
+
+        if (age.TotalHours < 1)
+        {
+            return $"{Math.Max(1, (int)Math.Floor(age.TotalMinutes))}m ago";
+        }
+
+        if (age.TotalDays < 1)
+        {
+            return $"{Math.Max(1, (int)Math.Floor(age.TotalHours))}h ago";
+        }
+
+        if (age.TotalDays < 30)
+        {
+            return $"{Math.Max(1, (int)Math.Floor(age.TotalDays))}d ago";
+        }
+
+        return $"{Math.Max(1, (int)Math.Floor(age.TotalDays / 30))}mo ago";
+    }
 
     private static string FormatDuration(TimeSpan? value) =>
         value is null
             ? "No duration"
             : value.Value.TotalMilliseconds.ToString("0", CultureInfo.InvariantCulture) + " ms";
 
-    private double MaxDurationMilliseconds => Errors
+    private static string DurationLabel(TimeSpan? value) =>
+        value is null
+            ? string.Empty
+            : value.Value.TotalMilliseconds.ToString("0", CultureInfo.InvariantCulture) + " ms";
+
+    private double MaxDurationMilliseconds => DisplayEntries
         .Select(entry => entry.Metrics.Duration?.TotalMilliseconds ?? 0)
         .Append(CurrentDuration?.TotalMilliseconds ?? 0)
         .DefaultIfEmpty(0)
         .Max();
+
+    private void OnErrorsOnlyChanged(ChangeEventArgs args)
+    {
+        ErrorsOnly = args.Value is bool flag && flag;
+        NeedsVisibleWindowSync = true;
+    }
+
+    protected override void OnParametersSet()
+    {
+        NeedsVisibleWindowSync = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _autoScrollTimer = new System.Threading.Timer(
+                _ => InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        // Rebuild the chart with the current time so bars shift forward
+                        NeedsVisibleWindowSync = true;
+                        StateHasChanged();
+                        await JS.InvokeVoidAsync("errorPanel.autoScrollToNewest", TrendScrollRef);
+                    }
+                    catch (JSException) { }
+                }),
+                null,
+                TimeSpan.FromSeconds(10),
+                TimeSpan.FromSeconds(10));
+        }
+
+        if (NeedsVisibleWindowSync)
+        {
+            await SyncVisibleWindowAsync();
+        }
+    }
+
+    private async Task OnHistoryListScrolled()
+    {
+        await SyncVisibleWindowAsync();
+    }
+
+    private async Task SyncVisibleWindowAsync()
+    {
+        NeedsVisibleWindowSync = false;
+        if (RecentErrors.Count <= 1)
+        {
+            VisibleWindowLeftPercent = 0;
+            VisibleWindowWidthPercent = 100;
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        try
+        {
+            var metrics = await JS.InvokeAsync<ScrollMetrics?>("errorPanel.getScrollMetrics", HistoryListRef);
+            if (metrics is null || metrics.ScrollHeight <= 0)
+            {
+                return;
+            }
+
+            UpdateVisibleWindowFromMetrics(metrics);
+            await JS.InvokeVoidAsync("errorPanel.scrollOutlineIntoView", TrendScrollRef, VisibleWindowLeftPercent / 100.0, VisibleWindowWidthPercent / 100.0);
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (JSException)
+        {
+            // Ignore during prerender/disconnect.
+        }
+    }
+
+    private void UpdateVisibleWindowFromMetrics(ScrollMetrics metrics)
+    {
+        var count = RecentErrors.Count;
+        if (count <= 1)
+        {
+            VisibleWindowLeftPercent = 0;
+            VisibleWindowWidthPercent = 100;
+            return;
+        }
+
+        var maxScroll = Math.Max(1.0, metrics.ScrollHeight - metrics.ClientHeight);
+        var topRatio = Math.Clamp(metrics.ScrollTop / maxScroll, 0, 1);
+        var bottomRatio = Math.Clamp((metrics.ScrollTop + metrics.ClientHeight) / Math.Max(1.0, metrics.ScrollHeight), 0, 1);
+
+        var newestIndex = Math.Clamp((int)Math.Floor(topRatio * (count - 1)), 0, count - 1);
+        var oldestIndex = Math.Clamp((int)Math.Ceiling(bottomRatio * (count - 1)), newestIndex, count - 1);
+
+        var newestVisible = RecentErrors[newestIndex].CreatedAt;
+        var oldestVisible = RecentErrors[oldestIndex].CreatedAt;
+        var span = (TrendWindowEnd - TrendWindowStart).TotalMilliseconds;
+        if (span <= 0)
+        {
+            VisibleWindowLeftPercent = 0;
+            VisibleWindowWidthPercent = 100;
+            return;
+        }
+
+        var left  = Math.Clamp((oldestVisible  - TrendWindowStart).TotalMilliseconds / span, 0, 1);
+        var right = Math.Clamp((newestVisible  - TrendWindowStart).TotalMilliseconds / span, 0, 1);
+
+        var baseLeft  = Math.Min(left, right) * 100;
+        var baseWidth = Math.Max(0.8, Math.Abs(right - left) * 100);
+
+        // Chart renders newest-first (left), so invert the horizontal position:
+        VisibleWindowLeftPercent  = 100.0 - (baseLeft + baseWidth);
+        VisibleWindowWidthPercent = baseWidth;
+    }
 
     private string DurationWidth(TimeSpan? value)
     {
@@ -928,31 +1375,26 @@
         BackendLogDetector.ExtractFromHeaders(entry.ResponseHeadersText).Count > 0;
 
     private static string NormalizedEntryStatus(ChatHistoryEntry entry) =>
-        NormalizeStatusMessage(entry.StatusMessage, entry.Metrics.Status);
+        CompactStatusText(entry.StatusMessage, entry.Metrics.Status);
 
-    private static string NormalizeStatusMessage(string? statusMessage, string? fallbackStatus)
+    private static string CompactStatusText(string? statusMessage, string? fallbackStatus)
     {
         var candidate = string.IsNullOrWhiteSpace(statusMessage) ? fallbackStatus : statusMessage;
         if (string.IsNullOrWhiteSpace(candidate))
         {
-            return "Request failed";
+            return "Failed";
         }
 
         var trimmed = candidate.Trim();
         if (trimmed.StartsWith("Completed with ", StringComparison.OrdinalIgnoreCase))
         {
-            return "Status - " + trimmed[15..].Trim();
+            return trimmed[15..].Trim();
         }
 
         var completedWithIndex = trimmed.IndexOf(" completed with ", StringComparison.OrdinalIgnoreCase);
         if (completedWithIndex >= 0)
         {
-            return "Status - " + trimmed[(completedWithIndex + 16)..].Trim();
-        }
-
-        if (trimmed.StartsWith("Status - ", StringComparison.OrdinalIgnoreCase))
-        {
-            return trimmed;
+            return trimmed[(completedWithIndex + 16)..].Trim();
         }
 
         return trimmed;

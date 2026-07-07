@@ -214,7 +214,7 @@
         @if (!ShowMultiRequestStatus)
         {
         <div class="response-stack">
-        <div class="@(IsVisionResultMinimized ? "d-none" : string.Empty)">
+        <div class="@(IsVisionResultMinimized ? "d-none" : "d-flex flex-column flex-fill min-h-0")">
             @if (HasError)
             {
                 <ErrorResultPanel Title="Error result"
@@ -225,6 +225,7 @@
                                   CurrentDuration="@ResponseMetrics.Duration"
                                   CurrentRequestUrl="@CurrentErrorRequestUrl"
                                   Errors="@ErrorHistory"
+                                  AllEntries="@HistoryEntries"
                                   DisplayState="@VisionResultState"
                                   DisplayStateChanged="SetVisionResultStateAsync" />
             }

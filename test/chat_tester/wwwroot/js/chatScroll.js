@@ -38,6 +38,51 @@ window.chatComposer = {
     }
 };
 
+window.errorPanel = {
+    getScrollMetrics: function (el) {
+        if (!el) { return null; }
+        return { scrollTop: el.scrollTop || 0, clientHeight: el.clientHeight || 0, scrollHeight: el.scrollHeight || 0 };
+    },
+
+    autoScrollToNewest: function (el) {
+        // Only scroll to "now" (left=0) if the user is already near the left edge.
+        // If they've manually scrolled right to inspect older data, leave them alone.
+        if (!el) { return; }
+        const nearLeft = el.scrollLeft < 80;
+        if (nearLeft) { el.scrollLeft = 0; }
+    },
+
+    scrollOutlineIntoView: function (scrollEl, leftRatio, widthRatio) {
+        if (!scrollEl) {
+            return;
+        }
+
+        const maxLeft = Math.max(0, scrollEl.scrollWidth - scrollEl.clientWidth);
+        if (maxLeft <= 0) {
+            return;
+        }
+
+        const outlineLeft = Math.max(0, Math.min(1, leftRatio || 0)) * scrollEl.scrollWidth;
+        const outlineWidth = Math.max(0.01, Math.min(1, widthRatio || 0)) * scrollEl.scrollWidth;
+        const outlineRight = outlineLeft + outlineWidth;
+        const viewLeft = scrollEl.scrollLeft;
+        const viewRight = viewLeft + scrollEl.clientWidth;
+        const gutter = 16;
+
+        let target = viewLeft;
+        if (outlineLeft < viewLeft + gutter) {
+            target = outlineLeft - gutter;
+        } else if (outlineRight > viewRight - gutter) {
+            target = outlineRight - scrollEl.clientWidth + gutter;
+        }
+
+        target = Math.max(0, Math.min(maxLeft, target));
+        if (Math.abs(target - viewLeft) > 2) {
+            scrollEl.scrollLeft = target;
+        }
+    }
+};
+
 window.probeTable = {
     _current: null,
     register: function (tableEl) {
