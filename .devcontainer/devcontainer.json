@@ -17,12 +17,14 @@
 	// "features": {},
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
-	// "forwardPorts": [5000, 5001],
-	// "portsAttributes": {
-	//		"5001": {
-	//			"protocol": "https"
-	//		}
-	// }
+	"forwardPorts": [5259],
+	"portsAttributes": {
+		"5259": {
+			"label": "chat_tester",
+			"protocol": "http",
+			"onAutoForward": "notify"
+		}
+	},
 
 	// Use 'postCreateCommand' to run commands after the container is created.
 	// "postCreateCommand": "dotnet restore",
