@@ -70,6 +70,7 @@
     { "id": "gpt-4o-mini", "provider": "OpenAI", "displayName": "GPT-4o mini", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "gpt-4.1", "provider": "OpenAI", "displayName": "GPT-4.1", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "gpt-4.1-mini", "provider": "OpenAI", "displayName": "GPT-4.1 mini", "apis": [ "openai-chat", "openai-responses" ] },
+    { "id": "gpt-5", "provider": "OpenAI", "displayName": "GPT-5", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "o3", "provider": "OpenAI", "displayName": "o3 (reasoning)", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "o4-mini", "provider": "OpenAI", "displayName": "o4-mini (reasoning)", "apis": [ "openai-chat", "openai-responses" ] },
     { "id": "gpt-3.5-turbo", "provider": "OpenAI", "displayName": "GPT-3.5 Turbo", "apis": [ "openai-chat" ] },
