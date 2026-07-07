@@ -85,7 +85,7 @@
                                         <div class="error-trend-slot-count">@(bucket.Count > 0 ? bucket.Count.ToString(CultureInfo.InvariantCulture) : string.Empty)</div>
                                         <div class="error-trend-slot-bars">
                                             @{
-                                                var maxMini = bucket.MaxMiniCount;
+                                                var maxMini = MaxVisibleMiniCount;
                                             }
                                             @foreach (var mini in ((IEnumerable<ErrorMini>)bucket.Minis).Reverse())
                                             {
@@ -144,7 +144,7 @@
                                             <span class="error-row-summary fw-semibold">@FormatEntrySummary(entry)</span>
                                             <span class="error-row-sep">|</span>
                                             <span class="error-row-url text-muted">@entry.Method @entry.EndpointPath</span>
-                                            <span class="error-row-date text-muted">@entry.CreatedAt.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture) · @FormatAge(entry.CreatedAt)</span>
+                                            <span class="error-row-date text-muted">@FormatAlignedTime(entry.CreatedAt) · @FormatAlignedAge(entry.CreatedAt)</span>
                                         </div>
                                         <div class="error-history-meta-row compact">
                                             <div class="error-duration-thermometer @SeverityCss(entry)">
@@ -380,6 +380,22 @@
         min-width: 5rem;
         border-left: 1px solid rgba(0, 0, 0, 0.07);
         padding: 0 0.1rem;
+        position: relative;
+    }
+
+    /* Add subtle vertical dividers every 3 slots for time reference */
+    .error-trend-slot:nth-child(3n) {
+        border-right: 1px solid rgba(0, 0, 0, 0.15);
+    }
+
+    .error-trend-slot:nth-child(3n)::before {
+        content: '';
+        position: absolute;
+        top: -0.4rem;
+        right: 0;
+        width: 0px;
+        height: 0.25rem;
+        border-right: 1px solid rgba(13, 110, 253, 0.4);
     }
 
     .error-trend-slot-count {
@@ -1014,6 +1030,10 @@
 
     private int MaxBucketCount => Buckets.Count == 0 ? 0 : Buckets.Max(bucket => bucket.Count);
 
+    private int MaxVisibleMiniCount => Buckets.Count == 0
+        ? 0
+        : Buckets.SelectMany(bucket => bucket.Minis).DefaultIfEmpty().Max(mini => mini?.Count ?? 0);
+
     private bool ChartReversed => true;
 
     private bool ShowVisibleWindowOutline =>
@@ -1024,6 +1044,8 @@
     private string VisibleWindowWidth => VisibleWindowWidthPercent.ToString("0.##", CultureInfo.InvariantCulture) + "%";
 
     private string BucketMinutesLabel { get; set; } = "recent activity";
+
+    private double CurrentAlignmentSeconds { get; set; } = 60;
 
     private int? WindowMinutesOverride { get; set; }
 
@@ -1078,6 +1100,7 @@
 
         // Each slot is subdivided into SubBucketCount mini-buckets for finer resolution
         double subMinutes = intervalMinutes / SubBucketCount;
+        CurrentAlignmentSeconds = NormalizeAlignmentSeconds(subMinutes * 60.0);
         int totalMinis = bucketCount * SubBucketCount;
 
         var danger   = new int[totalMinis];
@@ -1207,30 +1230,69 @@
         return normalized;
     }
 
-    private static string FormatAge(DateTimeOffset value)
+    private string FormatAlignedTime(DateTimeOffset value)
     {
-        var age = DateTimeOffset.Now - value;
-        if (age.TotalMinutes < 1)
+        var snapped = SnapToAlignment(value, CurrentAlignmentSeconds).ToLocalTime();
+        return CurrentAlignmentSeconds >= 86400
+            ? snapped.ToString("MM/dd", CultureInfo.InvariantCulture)
+            : snapped.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+    }
+
+    private string FormatAlignedAge(DateTimeOffset value)
+    {
+        var snappedValue = SnapToAlignment(value, CurrentAlignmentSeconds);
+        var snappedNow = SnapToAlignment(DateTimeOffset.Now, CurrentAlignmentSeconds);
+        var age = snappedNow - snappedValue;
+        if (CurrentAlignmentSeconds < 60)
         {
-            return "now";
+            var seconds = Math.Max(0, (int)Math.Round(age.TotalSeconds));
+            return seconds == 0 ? "now" : $"{seconds}s ago";
         }
 
-        if (age.TotalHours < 1)
+        if (CurrentAlignmentSeconds < 3600)
         {
-            return $"{Math.Max(1, (int)Math.Floor(age.TotalMinutes))}m ago";
+            return $"{Math.Max(0, (int)Math.Round(age.TotalMinutes))}m ago";
         }
 
-        if (age.TotalDays < 1)
+        if (CurrentAlignmentSeconds < 86400)
         {
-            return $"{Math.Max(1, (int)Math.Floor(age.TotalHours))}h ago";
+            return $"{Math.Max(0, (int)Math.Round(age.TotalHours))}h ago";
         }
 
-        if (age.TotalDays < 30)
+        return $"{Math.Max(0, (int)Math.Round(age.TotalDays))}d ago";
+    }
+
+    private static double NormalizeAlignmentSeconds(double rawSeconds)
+    {
+        var niceSteps = new[]
         {
-            return $"{Math.Max(1, (int)Math.Floor(age.TotalDays))}d ago";
+            2d, 5d, 10d, 15d, 30d,
+            60d, 120d, 300d, 600d, 900d, 1800d,
+            3600d, 7200d, 14400d, 21600d, 43200d,
+            86400d
+        };
+
+        foreach (var step in niceSteps)
+        {
+            if (step >= rawSeconds)
+            {
+                return step;
+            }
         }
 
-        return $"{Math.Max(1, (int)Math.Floor(age.TotalDays / 30))}mo ago";
+        return 86400d;
+    }
+
+    private static DateTimeOffset SnapToAlignment(DateTimeOffset value, double alignmentSeconds)
+    {
+        var ticks = TimeSpan.FromSeconds(alignmentSeconds).Ticks;
+        if (ticks <= 0)
+        {
+            return value;
+        }
+
+        var snappedTicks = value.UtcTicks - (value.UtcTicks % ticks);
+        return new DateTimeOffset(snappedTicks, TimeSpan.Zero).ToOffset(value.Offset);
     }
 
     private static string FormatDuration(TimeSpan? value) =>
