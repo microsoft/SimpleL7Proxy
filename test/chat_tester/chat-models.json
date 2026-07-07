@@ -111,6 +111,21 @@
       ]
     },
     {
+      "appliesTo": [ "gpt-5" ],
+      "appliesToAPI": [ "openai-chat" ],
+      "fields": [
+        { "temperature": "" },
+        { "top_p": "" },
+        { "max_completion_tokens": "16384" },
+        { "frequency_penalty": "" },
+        { "presence_penalty": "" },
+        { "seed": "" },
+        { "stream": "" },
+        { "stop": "" },
+        { "reasoning_effort": "low" }
+      ]
+    },
+    {
       "appliesTo": [ "o3", "o4-mini", "deepseek-reasoner" ],
       "appliesToAPI": [ "openai-chat" ],
       "fields": [
