@@ -26,16 +26,23 @@
     flex: 1 1 auto;
     flex-direction: column;
     min-height: 0;
+    overflow: hidden;
 }
 
 .request-form-content {
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
+    padding-bottom: 3.25rem;
 }
 
 .request-form-actions {
     flex: 0 0 auto;
-    padding-top: 1rem;
+    margin-top: auto;
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    padding-top: 0.5rem;
+    padding-bottom: 0.25rem;
     background: #fff;
 }

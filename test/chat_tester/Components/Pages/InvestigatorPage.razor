@@ -246,22 +246,15 @@
                                Chunks="@ResponseMetrics.Chunks"
                                TotalBytes="@ResponseMetrics.TotalBytes"
                                ResultRowCss="@VisionResultRowCss"
-                               ResultPanelLayoutCss="@VisionResultPanelLayoutCss" />
+                               ResultPanelLayoutCss="@VisionResultPanelLayoutCss">
+                    <HeaderActions>
+                        @if (ShowRawResponsePanel)
+                        {
+                            <button class="btn btn-sm btn-outline-light" type="button" @onclick="OpenRawExchangeModal">Raw exchange</button>
+                        }
+                    </HeaderActions>
+                </VisionResultPanel>
             }
-        </div>
-
-        <div class="@((IsRawResponseMinimized || HasError) ? "d-none" : string.Empty)">
-            <RawResponsePanel Title="Raw exchange"
-                              StatusMessage="@StatusMessage"
-                              ActiveTab="@ActiveResponseTab"
-                              ActiveTabChanged="SetActiveResponseTabAsync"
-                              DisplayState="@RawResponseState"
-                              DisplayStateChanged="SetRawResponseStateAsync"
-                              RequestHeadersText="@RequestHeadersText"
-                              ResponseHeadersText="@ResponseHeadersText"
-                              RequestBodyDisplay="@RequestBodyDisplay"
-                              ObservedResponse="@ObservedResponse">
-            </RawResponsePanel>
         </div>
         </div>
         }
@@ -280,6 +273,33 @@
             </div>
             <div class="card-body">
                 <img src="@ImagePreviewUrl" alt="Selected vision input" />
+            </div>
+        </div>
+    </div>
+}
+
+@if (IsRawExchangeModalOpen)
+{
+    <div class="vision-preview-backdrop" @onclick="CloseRawExchangeModal"></div>
+    <div class="raw-exchange-dialog" role="dialog" aria-modal="true" aria-labelledby="rawExchangeTitle" @onclick:stopPropagation="true">
+        <div class="card shadow-lg raw-exchange-shell">
+            <div class="card-header d-flex align-items-center gap-3">
+                <h2 class="h6 mb-0" id="rawExchangeTitle">Raw exchange</h2>
+                <button class="btn-close ms-auto" type="button" aria-label="Close raw exchange" @onclick="CloseRawExchangeModal"></button>
+            </div>
+            <div class="card-body">
+                <RawResponsePanel Title="Raw exchange"
+                                  StatusMessage="@StatusMessage"
+                                  ActiveTab="@ActiveResponseTab"
+                                  ActiveTabChanged="SetActiveResponseTabAsync"
+                                  DisplayState="@RawResponseState"
+                                  DisplayStateChanged="SetRawResponseStateAsync"
+                                  RequestHeadersText="@RequestHeadersText"
+                                  ResponseHeadersText="@ResponseHeadersText"
+                                  RequestBodyDisplay="@RequestBodyDisplay"
+                                  ObservedResponse="@ObservedResponse"
+                                  ShowDisplayToggle="false">
+                </RawResponsePanel>
             </div>
         </div>
     </div>
@@ -360,10 +380,29 @@
         object-fit: contain;
     }
 
-    .vision-result-panel {
-        min-height: 14rem;
-        max-height: 24rem;
-        overflow-y: auto;
+    .raw-exchange-dialog {
+        position: fixed;
+        inset: 2rem;
+        z-index: 1091;
+        display: flex;
+        align-items: stretch;
+        justify-content: center;
+        pointer-events: none;
+    }
+
+    .raw-exchange-shell {
+        width: min(72rem, 100%);
+        height: 100%;
+        pointer-events: auto;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .raw-exchange-shell > .card-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+        padding: 0.75rem;
     }
 
     @@media (min-width: 1200px) {
@@ -543,7 +582,7 @@
         .request-col {
             flex: 0 0 40%;
             max-width: 40%;
-            height: 85vh;
+            height: calc(100dvh - 8.75rem);
         }
 
         .vision-workspace.response-hidden .request-col {
@@ -566,10 +605,10 @@
         .response-col {
             flex: 0 0 60%;
             max-width: 60%;
-            height: 85vh;
             display: flex;
             flex-direction: column;
             min-height: 0;
+            height: calc(100dvh - 8.75rem);
         }
 
         .vision-workspace.request-minimized .response-col {
@@ -612,11 +651,11 @@
             flex-direction: column;
             flex: 1 1 auto;
             min-height: 0;
-            overflow: hidden;
+            overflow: visible;
         }
 
         .vision-response-card {
-            flex: 1 1 50%;
+            flex: 1 1 auto;
             min-height: 0;
             display: flex;
             flex-direction: column;
@@ -625,11 +664,12 @@
         .vision-response-card .card-body {
             flex: 1 1 auto;
             min-height: 0;
-            overflow-y: auto;
+            overflow: hidden;
         }
 
         .vision-response-card .card-body > .row {
             height: 100%;
+            min-height: 0;
         }
 
         .vision-workspace.request-minimized .vision-result-wide .vision-result-content-col {
@@ -640,11 +680,6 @@
         .vision-workspace.request-minimized .vision-result-wide .vision-result-metrics-col {
             flex: 0 0 28%;
             max-width: 28%;
-        }
-
-        .vision-result-panel {
-            max-height: none;
-            height: 100%;
         }
 
         .raw-card {
@@ -660,6 +695,12 @@
             overflow-y: auto;
         }
 
+    }
+
+    @@media (max-width: 767.98px) {
+        .raw-exchange-dialog {
+            inset: 0.75rem;
+        }
     }
 
     .vision-advanced-collapsible {
@@ -760,6 +801,7 @@
     private string ContentType { get; set; } = ChatTesterHttp.JsonContentType;
     private bool UseCustomJson { get; set; }
     private bool IsImagePreviewOpen { get; set; }
+    private bool IsRawExchangeModalOpen { get; set; }
     private string CustomRequestBody { get; set; } = string.Empty;
     private bool CustomRequestBodyDirty { get; set; }
     private bool UpperRowsCollapsed { get; set; }
@@ -2213,6 +2255,24 @@
             IsImagePreviewOpen = true;
         }
     }
+
+    private void OpenRawExchangeModal()
+    {
+        if (!ShowRawResponsePanel)
+        {
+            return;
+        }
+
+        if (RawResponseState == PanelDisplayState.Minimized)
+        {
+            RawResponseState = PanelDisplayState.Expanded;
+            NormalizePanelStates();
+        }
+
+        IsRawExchangeModalOpen = true;
+    }
+
+    private void CloseRawExchangeModal() => IsRawExchangeModalOpen = false;
 
     private void CloseImagePreview()
     {
