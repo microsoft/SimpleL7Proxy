@@ -1,0 +1,304 @@
+.error-result-card {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.error-result-card.panel-minimized {
+    height: auto !important;
+    flex: 0 0 auto !important;
+}
+
+.error-result-card.fs-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1080;
+    margin: 0 !important;
+    border-radius: 0;
+    height: 100vh !important;
+    display: flex;
+    flex-direction: column;
+}
+
+.min-h-0 {
+    min-height: 0;
+}
+
+.error-result-card.fs-overlay .error-result-body {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.error-result-body {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.error-sections {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.error-recent-section {
+    flex: 1 1 auto;
+}
+
+.error-row-line1 {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.error-row-summary {
+    font-size: 0.82rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.error-row-sep {
+    color: #adb5bd;
+    font-size: 0.75rem;
+    flex-shrink: 0;
+}
+
+.error-row-url {
+    font-size: 0.75rem;
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.error-row-date {
+    font-size: 0.7rem;
+    flex-shrink: 0;
+    margin-left: auto;
+    padding-left: 0.5rem;
+    white-space: nowrap;
+}
+
+.error-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    overflow-y: auto;
+}
+
+.error-history-list.fill {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.error-history-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    padding: 0.45rem 0.6rem 0.5rem;
+    background: #fff;
+    color: inherit;
+    border: 1px solid #eee;
+    border-left-width: 4px;
+    border-radius: 0.375rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.error-history-item:hover {
+    background: #fbfbfb;
+}
+
+.error-history-item:focus-visible {
+    outline: 2px solid rgba(13, 110, 253, 0.45);
+    outline-offset: 1px;
+}
+
+.error-history-badge {
+    min-width: 3rem;
+    text-align: center;
+}
+
+.error-history-item.sev-danger {
+    border-left-color: #dc3545;
+}
+
+.error-history-item.sev-warning {
+    border-left-color: #fd7e14;
+}
+
+.error-history-item.sev-info {
+    border-left-color: #0dcaf0;
+}
+
+.error-history-item.sev-success {
+    border-left-color: #198754;
+}
+
+.error-history-item.sev-secondary {
+    border-left-color: #6c757d;
+}
+
+.error-history-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.2rem;
+    flex-wrap: wrap;
+}
+
+.error-history-meta-row.compact {
+    gap: 0.4rem;
+}
+
+.error-duration-thermometer {
+    position: relative;
+    flex: 1 1 11rem;
+    min-width: 11rem;
+    height: 0.95rem;
+    overflow: hidden;
+    border: 1px solid #ced4da;
+    border-radius: 999px;
+    background: #f8f9fa;
+}
+
+.error-duration-thermometer.sev-danger {
+    border-color: #dc3545;
+    background: #fdeaea;
+}
+
+.error-duration-thermometer.sev-warning {
+    border-color: #fd7e14;
+    background: #fff0e1;
+}
+
+.error-duration-thermometer.sev-info {
+    border-color: #0dcaf0;
+    background: #e6f9fd;
+}
+
+.error-duration-thermometer.sev-success {
+    border-color: #198754;
+    background: #e8f7ef;
+}
+
+.error-duration-thermometer.sev-secondary {
+    border-color: #6c757d;
+    background: #eef1f3;
+}
+
+.error-duration-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: rgba(13, 110, 253, 0.18);
+    min-width: 0;
+}
+
+.error-duration-label {
+    position: relative;
+    z-index: 1;
+    display: block;
+    padding: 0 0.55rem;
+    color: #212529;
+    font-size: 0.68rem;
+    line-height: 0.95rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    text-align: right;
+}
+
+.error-hover-metrics {
+    position: fixed;
+    z-index: 1100;
+    width: 18rem;
+    pointer-events: none;
+}
+
+.error-hover-card {
+    padding: 0.75rem;
+    border-radius: 0.5rem;
+    background: #fff;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, 0.18);
+    max-width: 22rem;
+    overflow: hidden;
+}
+
+.error-hover-card .small.fw-semibold {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.multi-request-detail-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1110;
+    background: rgba(15, 23, 42, 0.35);
+}
+
+.multi-request-detail {
+    position: fixed;
+    top: 4vh;
+    left: 50%;
+    z-index: 1111;
+    width: min(96rem, calc(100vw - 3rem));
+    height: 92vh;
+    max-height: 92vh;
+    display: flex;
+    flex-direction: column;
+    transform: translateX(-50%);
+    border: 1px solid rgba(0, 0, 0, 0.16);
+    border-radius: 0.5rem;
+    background: #fff;
+    box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.28);
+}
+
+.multi-request-detail-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.8rem 1rem;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.multi-request-detail-header .btn-close {
+    margin-left: auto;
+}
+
+.multi-request-detail-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 1rem;
+}
+
+.multi-request-detail-body .raw-card {
+    min-height: 100%;
+    margin-top: 0 !important;
+}
+
+.multi-request-detail-body .raw-card .card-body {
+    min-height: 0;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.multi-request-detail-body .raw-card .card-body > div {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none !important;
+}
+
+.min-w-0 {
+    min-width: 0;
+}
