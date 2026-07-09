@@ -53,29 +53,31 @@
                            OnAbort="AbortRequestAsync"
                            OnSubmit="SendVisionRequestAsync">
                 <PromptContent>
-                    <div class="vision-body-panel rounded border p-3 mb-3">
-                        <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
-                            <label class="form-label mb-0" for="visionModelFilter">Filter models</label>
-                            <input class="form-control form-control-sm vision-model-filter" id="visionModelFilter" type="search"
-                                   placeholder="filter (blank or * = all)"
-                                   value="@ModelFilter" @oninput="OnModelFilterChanged" />
-                            <div class="form-check mb-0 ms-auto">
-                                <input class="form-check-input" type="checkbox" id="visionDebugCheck"
-                                       checked="@DebugSettings.DebugEnabled" @onchange="OnDebugChanged" />
-                                <label class="form-check-label" for="visionDebugCheck">Debug</label>
+                    <div class="vision-body-panel rounded border p-2 small vision-body-fill">
+                        @* ── Section 1 (top): mode toggles + filter / model / api ── *@
+                        <div class="vision-section-top">
+                            <div class="d-flex align-items-center gap-3 mb-1">
+                                <div class="form-check mb-0 ms-auto">
+                                    <input class="form-check-input" type="checkbox" id="visionDebugCheck"
+                                           checked="@DebugSettings.DebugEnabled" @onchange="OnDebugChanged" />
+                                    <label class="form-check-label" for="visionDebugCheck">Debug</label>
+                                </div>
+                                <div class="form-check mb-0">
+                                    <input class="form-check-input" type="checkbox" id="visionSimpleModeCheck"
+                                        checked="@SimpleMode" @onchange="OnSimpleModeChanged" />
+                                    <label class="form-check-label" for="visionSimpleModeCheck">Simple</label>
+                                </div>
                             </div>
-                            <div class="form-check mb-0">
-                                <input class="form-check-input" type="checkbox" id="visionSimpleModeCheck"
-                                    checked="@SimpleMode" @onchange="OnSimpleModeChanged" />
-                                <label class="form-check-label" for="visionSimpleModeCheck">Simple</label>
-                            </div>
-                        </div>
-
-                        <div class="vision-advanced-collapsible @(UpperRowsCollapsed ? "collapsed" : string.Empty)">
-                            <div class="row g-3 mb-3">
-                                <div class="col-12 col-lg-6">
-                                    <label class="form-label" for="visionModelSelect">@ModelSelectLabel</label>
-                                    <select class="form-select" id="visionModelSelect" value="@SelectedModel" @onchange="OnModelSelected">
+                            <div class="d-flex flex-wrap align-items-end gap-2">
+                                <div class="vision-filter-group">
+                                    <label class="form-label form-label-sm mb-1" for="visionModelFilter">Filter models</label>
+                                    <input class="form-control form-control-sm vision-model-filter" id="visionModelFilter" type="search"
+                                           placeholder="filter (blank or * = all)"
+                                           value="@ModelFilter" @oninput="OnModelFilterChanged" />
+                                </div>
+                                <div class="vision-model-group">
+                                    <label class="form-label form-label-sm mb-1" for="visionModelSelect">@ModelSelectLabel</label>
+                                    <select class="form-select form-select-sm" id="visionModelSelect" value="@SelectedModel" @onchange="OnModelSelected">
                                         <option value="">@ModelSelectPlaceholder</option>
                                         @foreach (var group in FilteredModels.GroupBy(model => model.Provider))
                                         {
@@ -88,10 +90,9 @@
                                         }
                                     </select>
                                 </div>
-
-                                <div class="col-12 col-lg-6">
-                                    <label class="form-label" for="visionApiSelect">API</label>
-                                    <select class="form-select" id="visionApiSelect" value="@SelectedApi" @onchange="OnApiSelected" disabled="@(!AvailableApiOptions.Any())">
+                                <div class="vision-api-group">
+                                    <label class="form-label form-label-sm mb-1" for="visionApiSelect">API</label>
+                                    <select class="form-select form-select-sm" id="visionApiSelect" value="@SelectedApi" @onchange="OnApiSelected" disabled="@(!AvailableApiOptions.Any())">
                                         <option value="">API...</option>
                                         @foreach (var group in AvailableApiOptions.GroupBy(api => api.Kind))
                                         {
@@ -105,100 +106,111 @@
                                     </select>
                                 </div>
                             </div>
+                        </div>
 
-                            <div class="row g-3 mb-3">
+                        @* ── Section 2 (config): path / content-type + number (collapses in advanced) ── *@
+                        <div class="vision-section-config vision-advanced-collapsible">
+                            <div class="row g-2 mt-1">
                                 <div class="col-12 col-lg-6">
-                                    <label class="form-label" for="visionEndpointPath">Path</label>
-                                    <input class="form-control" id="visionEndpointPath" value="@EndpointPath" @oninput="OnEndpointPathChanged" />
+                                    <label class="form-label form-label-sm mb-1" for="visionEndpointPath">Path</label>
+                                    <input class="form-control form-control-sm" id="visionEndpointPath" value="@EndpointPath" @oninput="OnEndpointPathChanged" />
                                 </div>
                                 <div class="col-12 col-lg-6">
-                                    <label class="form-label" for="visionContentType">Content-Type</label>
-                                    <select class="form-select" id="visionContentType" value="@ContentType" @onchange="OnContentTypeChanged">
+                                    <label class="form-label form-label-sm mb-1" for="visionContentType">Content-Type</label>
+                                    <select class="form-select form-select-sm" id="visionContentType" value="@ContentType" @onchange="OnContentTypeChanged">
                                         <option value="application/json">application/json</option>
                                         <option value="application/json; charset=utf-8">application/json; charset=utf-8</option>
                                     </select>
                                 </div>
                             </div>
 
-                            <div class="row g-3 mb-3">
-                                <div class="col-12">
-                                    <label class="form-label" for="visionRequestCount">Number of requests</label>
-                                    <input class="form-control" id="visionRequestCount" type="number" min="1" max="@MaxVisionRequestCount" value="@NumberOfRequests" @onchange="OnNumberOfRequestsChanged" />
+                            <div class="row g-2 mt-1">
+                                <div class="col-12 col-lg-4">
+                                    <label class="form-label form-label-sm mb-1" for="visionRequestCount">Number of requests</label>
+                                    <input class="form-control form-control-sm" id="visionRequestCount" type="number" min="1" max="@MaxVisionRequestCount" value="@NumberOfRequests" @onchange="OnNumberOfRequestsChanged" />
                                 </div>
                             </div>
                         </div>
 
-                        @if (UsesPrompt && SimpleMode)
+                        @* ── Section between config and body: query parameters + prompt (simple only) ── *@
+                        @if (SimpleMode)
                         {
-                            <div class="row g-3 mb-3">
-                                <div class="col-12">
-                                    <label class="form-label" for="visionPrompt">Prompt</label>
-                                    <textarea class="form-control" id="visionPrompt" rows="3" value="@Prompt" @oninput="OnPromptChanged"></textarea>
-                                </div>
+                            <div class="vision-section-params">
+                                @if (UsesPrompt)
+                                {
+                                    <div class="row g-2 mt-1">
+                                        <div class="col-12">
+                                            <label class="form-label form-label-sm mb-1" for="visionPrompt">Prompt</label>
+                                            <textarea class="form-control form-control-sm" id="visionPrompt" rows="3" value="@Prompt" @oninput="OnPromptChanged"></textarea>
+                                        </div>
+                                    </div>
+                                }
+
+                                @if (FieldValues.Count > 0)
+                                {
+                                    <ModelParameters Label="@ApiParametersLabel"
+                                                     ModelId="@SelectedModel"
+                                                     Fields="FieldValues"
+                                                     FieldChanged="args => OnFieldChanged(args.Name, args.Value)"
+                                                     FeatureChanged="args => OnFeatureChanged(args.Feature, args.Selected)"
+                                                     AdditionalFeaturesChanged="OnAdditionalFeaturesChanged" />
+                                }
                             </div>
                         }
 
-                        @if (SimpleMode && FieldValues.Count > 0)
-                        {
-                            <ModelParameters Label="@ApiParametersLabel"
-                                             ModelId="@SelectedModel"
-                                             Fields="FieldValues"
-                                             FieldChanged="args => OnFieldChanged(args.Name, args.Value)"
-                                             FeatureChanged="args => OnFeatureChanged(args.Feature, args.Selected)"
-                                             AdditionalFeaturesChanged="OnAdditionalFeaturesChanged" />
-                        }
+                        @* ── Section 3 (body): grows to fill remaining space, scrolls on overflow ── *@
+                        <div class="vision-section-body @(UseCustomJson ? "vision-section-body-json" : string.Empty)">
+                            @if (SimpleMode && SelectedApiInfo is not null)
+                            {
+                                <div class="row g-2 mt-1 align-items-end">
+                                    <div class="col-12 col-lg-3">
+                                        <label class="form-label form-label-sm mb-1" for="visionImageSource">Image source</label>
+                                        <select class="form-select form-select-sm" id="visionImageSource" value="@ImageSource" @onchange="OnImageSourceChanged">
+                                            <option value="url">URL</option>
+                                            @if (!RequiresExternalImageUrl)
+                                            {
+                                                <option value="data-url">Data URL</option>
+                                                <option value="file">File</option>
+                                            }
+                                        </select>
+                                    </div>
 
-                        @if (SimpleMode && SelectedApiInfo is not null)
-                        {
-                            <div class="row g-3 mb-3 align-items-end">
-                                <div class="col-12 col-lg-3">
-                                    <label class="form-label" for="visionImageSource">Image source</label>
-                                    <select class="form-select" id="visionImageSource" value="@ImageSource" @onchange="OnImageSourceChanged">
-                                        <option value="url">URL</option>
-                                        @if (!RequiresExternalImageUrl)
+                                    <div class="col-12 col-lg">
+                                        @if (ImageSource == FileImageSource)
                                         {
-                                            <option value="data-url">Data URL</option>
-                                            <option value="file">File</option>
+                                            <label class="form-label form-label-sm mb-1" for="visionImageFile">Image file</label>
+                                            <InputFile id="visionImageFile" class="form-control form-control-sm" OnChange="OnImageFileSelected" accept="image/*" />
+                                            @if (!string.IsNullOrWhiteSpace(ImageFileName))
+                                            {
+                                                <div class="form-text">@ImageFileName</div>
+                                            }
                                         }
-                                    </select>
-                                </div>
-
-                                <div class="col-12 col-lg">
-                                    @if (ImageSource == FileImageSource)
-                                    {
-                                        <label class="form-label" for="visionImageFile">Image file</label>
-                                        <InputFile id="visionImageFile" class="form-control" OnChange="OnImageFileSelected" accept="image/*" />
-                                        @if (!string.IsNullOrWhiteSpace(ImageFileName))
+                                        else if (ImageSource == DataUrlImageSource)
                                         {
-                                            <div class="form-text">@ImageFileName</div>
+                                            <label class="form-label form-label-sm mb-1" for="visionDataUrl">Image data URL</label>
+                                            <textarea class="form-control form-control-sm font-monospace" id="visionDataUrl" rows="3" value="@ImageUrl" @oninput="OnImageUrlChanged"></textarea>
                                         }
-                                    }
-                                    else if (ImageSource == DataUrlImageSource)
-                                    {
-                                        <label class="form-label" for="visionDataUrl">Image data URL</label>
-                                        <textarea class="form-control font-monospace" id="visionDataUrl" rows="3" value="@ImageUrl" @oninput="OnImageUrlChanged"></textarea>
-                                    }
-                                    else
-                                    {
-                                        <label class="form-label" for="visionImageUrl">Image URL</label>
-                                        <input class="form-control" id="visionImageUrl" value="@ImageUrl" @oninput="OnImageUrlChanged" />
-                                    }
-                                </div>
+                                        else
+                                        {
+                                            <label class="form-label form-label-sm mb-1" for="visionImageUrl">Image URL</label>
+                                            <input class="form-control form-control-sm" id="visionImageUrl" value="@ImageUrl" @oninput="OnImageUrlChanged" />
+                                        }
+                                    </div>
 
-                                <div class="col-12 col-lg-auto">
-                                    <button class="btn btn-outline-primary w-100" type="button" disabled="@(!HasImagePreview)" @onclick="ShowImagePreview">Preview</button>
+                                    <div class="col-12 col-lg-auto">
+                                        <button class="btn btn-outline-primary w-100" type="button" disabled="@(!HasImagePreview)" @onclick="ShowImagePreview">Preview</button>
+                                    </div>
                                 </div>
-                            </div>
-                        }
+                            }
 
-                        @if (UseCustomJson)
-                        {
-                            <div class="mb-0 vision-json-area @(UpperRowsCollapsed ? "expanded" : string.Empty)"
-                                 @onmouseenter="() => UpperRowsCollapsed = true" @onmouseleave="() => UpperRowsCollapsed = false">
-                                <label class="form-label" for="visionRequestJson">@RequestBodyLabel</label>
-                                <textarea class="form-control font-monospace" id="visionRequestJson" rows="10" value="@CustomRequestBody" @oninput="OnCustomRequestBodyChanged"></textarea>
-                            </div>
-                        }
+                            @if (UseCustomJson)
+                            {
+                                <div class="vision-json-area">
+                                    <label class="form-label form-label-sm mb-1" for="visionRequestJson">@RequestBodyLabel</label>
+                                    <textarea class="form-control form-control-sm font-monospace vision-json-textarea" id="visionRequestJson" value="@CustomRequestBody" @oninput="OnCustomRequestBodyChanged"></textarea>
+                                </div>
+                            }
+                        </div>
                     </div>
                 </PromptContent>
             </TestFormPanel>
@@ -208,6 +220,10 @@
             @if (ShowMultiRequestStatus)
             {
                 <div class="vision-batch-status-shell">
+                    <div class="vision-batch-header">
+                        <span class="fw-semibold">Results</span>
+                        <span class="vision-batch-header-status">@StatusMessage</span>
+                    </div>
                     <MultiRequestStatus Items="@MultiRequestStatuses" />
                 </div>
             }
@@ -312,10 +328,67 @@
         margin-right: 0;
     }
 
+    /* Force the full flex chain at ALL widths so the request card fills its column,
+       the content region is the ONLY thing that grows, and the Investigate footer
+       stays pinned flush at the card's bottom edge (0px gap). */
+    .request-col {
+        height: calc(100dvh - 8.75rem);
+        min-height: 24rem;
+    }
+
+    .request-col > .card {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .request-col > .card > .card-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .request-col .request-form {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .request-col .request-form-content {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+    }
+
+    .request-col .request-form-actions {
+        flex: 0 0 auto;
+    }
+
     .vision-batch-status-shell {
         margin-bottom: 1rem;
         flex: 1 1 auto;
         min-height: 0;
+    }
+
+    .vision-batch-header {
+        flex: 0 0 auto;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0.5rem;
+        padding: 0.55rem 0.85rem;
+        background-color: #0d6efd;
+        color: #fff;
+        border-radius: 0.375rem;
+        font-size: 0.95rem;
+    }
+
+    .vision-batch-header-status {
+        color: rgba(255, 255, 255, 0.75);
+        font-size: 0.8rem;
     }
 
     .vision-body-panel {
@@ -323,10 +396,23 @@
         border-color: #cdddf7 !important;
     }
 
+    .vision-filter-group {
+        flex: 0.7 1 0;
+        min-width: 6rem;
+    }
+
+    .vision-model-group {
+        flex: 0.8 1 0;
+        min-width: 7rem;
+    }
+
+    .vision-api-group {
+        flex: 1.6 1 0;
+        min-width: 8rem;
+    }
+
     .vision-model-filter {
-        flex: 0 0 auto;
-        width: 16rem;
-        max-width: 100%;
+        width: 100%;
     }
 
     .vision-features-row {
@@ -627,7 +713,9 @@
         .request-col > .card > .card-body {
             flex: 1 1 auto;
             min-height: 0;
-            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
 
         .response-col {
@@ -750,19 +838,78 @@
         transition: max-height 0.25s ease, opacity 0.2s ease, margin 0.25s ease;
     }
 
-    .vision-advanced-collapsible.collapsed {
+    /* Advanced (JSON) mode only: focusing the editor collapses the config rows so the
+       editor can grow upward. Uses :focus-within (not :hover) because focus does not
+       change when the layout shifts, which avoids the hover feedback-loop flicker. */
+    .vision-body-fill:has(.vision-section-body-json:focus-within) .vision-section-config {
         max-height: 0;
         opacity: 0;
-        margin-bottom: 0 !important;
+        margin: 0 !important;
         pointer-events: none;
     }
 
-    .vision-json-area textarea {
-        transition: height 0.25s ease;
+    /* Flex chain: make the request form fill the card so the body section can grow
+       and the submit button stays pinned to the bottom. */
+    .request-form:has(.vision-body-fill) .request-form-content {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        padding-bottom: 0;
     }
 
-    .vision-json-area.expanded textarea {
-        height: 34rem;
+    .request-form:has(.vision-body-fill) .request-form-content > div {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    /* The 3-section body panel is a flex column that fills the available height. */
+    .vision-body-fill {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    /* Section 1 (top) and Section 2 (config) keep their natural height. */
+    .vision-section-top,
+    .vision-section-config,
+    .vision-section-params {
+        flex: 0 0 auto;
+    }
+
+    /* Section 3 (body) grows to fill the remaining space and scrolls vertically only. */
+    .vision-section-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow-x: hidden;
+        overflow-y: auto;
+    }
+
+    /* In advanced (JSON) mode the editor itself owns the scrollbar, so hide the
+       section-level scroll and let the textarea fill the space. */
+    .vision-section-body.vision-section-body-json {
+        overflow: hidden;
+    }
+
+    .vision-json-area {
+        display: flex;
+        flex-direction: column;
+        flex: 1 1 auto;
+        min-height: 0;
+    }
+
+    .vision-json-textarea {
+        flex: 1 1 auto;
+        min-height: 8rem;
+        overflow-x: hidden;
+        overflow-y: auto;
+        resize: none;
     }
 </style>
 
@@ -844,7 +991,6 @@
     private bool IsRawExchangeModalOpen { get; set; }
     private string CustomRequestBody { get; set; } = string.Empty;
     private bool CustomRequestBodyDirty { get; set; }
-    private bool UpperRowsCollapsed { get; set; }
     private bool IsRunning { get; set; }
     private string StatusMessage { get; set; } = "Ready to send a vision request.";
     private string DisplayResponse { get; set; } = "Waiting for the request ...";
@@ -886,7 +1032,7 @@
 
     private IReadOnlyList<ChatHistoryEntry> HistoryEntries => ChatHistoryStore.GetSnapshot();
 
-    private string RequestSubtitle => IsChatApi ? "Send a chat request." : "Send a vision request.";
+    private string RequestSubtitle => "Send a request.";
 
     private IReadOnlyList<ChatHistoryEntry> ErrorHistory => HistoryEntries
         .Where(IsErrorEntry)
@@ -1395,10 +1541,10 @@
         SelectedHistoryEntryId = null;
         PageTagline = DefaultPageTagline;
         StatusMessage = NumberOfRequests == 1
-            ? "Sending the vision request and waiting for the response..."
-            : $"Sending {NumberOfRequests} vision requests...";
+            ? "Sending the request and waiting for the response..."
+            : $"Sending {NumberOfRequests} requests...";
         ObservedResponse = "Awaiting response...";
-        SetVisionResultMessage("Investigating image...");
+        SetVisionResultMessage("Waiting for the response...");
         ResponseHeadersText = "No response has been received yet.";
         ResponseMetrics = new VisionResponseMetrics { Status = "Sending" };
         RequestBodyDisplay = requestBodyDisplay;
@@ -1420,7 +1566,7 @@
 
             if (NumberOfRequests > 1)
             {
-                StatusMessage = $"Completed {NumberOfRequests} vision requests. Latest status: {ResponseMetrics.Status}";
+                StatusMessage = $"Completed {NumberOfRequests} requests. Latest status: {ResponseMetrics.Status}";
             }
         }
         finally
@@ -1457,10 +1603,10 @@
         var requestNumber = requestIndex + 1;
         var statusItem = StartMultiRequestStatus(requestIndex);
         StatusMessage = NumberOfRequests == 1
-            ? "Sending the vision request and waiting for the response..."
+            ? "Sending the request and waiting for the response..."
             : $"Sending request {requestNumber} of {NumberOfRequests}...";
         ObservedResponse = "Awaiting response...";
-        SetVisionResultMessage("Investigating image...");
+        SetVisionResultMessage("Waiting for the response...");
         ResponseHeadersText = "No response has been received yet.";
         ResponseMetrics = new VisionResponseMetrics { Status = "Sending" };
         StateHasChanged();
@@ -2435,7 +2581,6 @@
             tabs.Add(new VisionResultTab(MetadataResultTab, "Metadata"));
         }
 
-        tabs.Add(new VisionResultTab(RawResultTab, "Raw"));
         return tabs;
     }
 
