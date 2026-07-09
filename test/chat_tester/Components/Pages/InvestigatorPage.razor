@@ -35,231 +35,235 @@
                     ResultPanelVisibleChanged="SetVisionResultPanelVisibleAsync"
                     ShowRawPanel="@ShowRawResponsePanel"
                     RawPanelVisibleChanged="SetRawResponsePanelVisibleAsync">
-    <div class="row g-4 vision-workspace @WorkspaceStateCss">
-    <div class="col-12 request-col @(IsRequestPanelMinimized ? "d-none" : string.Empty)">
-        <TestFormPanel @ref="FormPanel"
-                       Settings="AuthSettings"
-                       UserSettings="UserSettings"
-                       HeaderSettings="HeaderSettings"
-                       InitialServerBaseUrl="@InitialServerBaseUrl"
-                       DisplayState="@RequestPanelState"
-                       DisplayStateChanged="SetRequestPanelStateAsync"
-                       HeaderSubtitle="@RequestSubtitle"
-                       PromptTabLabel="Model"
-                       SubmitLabel="Investigate"
-                       BusyLabel="Investigating..."
-                       IsBusy="@IsRunning"
-                       RightAlignSubmit="true"
-                       OnAbort="AbortRequestAsync"
-                       OnSubmit="SendVisionRequestAsync">
-            <PromptContent>
-                <div class="vision-body-panel rounded border p-3 mb-3">
-                    <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
-                        <label class="form-label mb-0" for="visionModelFilter">Filter models</label>
-                        <input class="form-control form-control-sm vision-model-filter" id="visionModelFilter" type="search"
-                               placeholder="filter (blank or * = all)"
-                               value="@ModelFilter" @oninput="OnModelFilterChanged" />
-                        <div class="form-check mb-0 ms-auto">
-                            <input class="form-check-input" type="checkbox" id="visionDebugCheck"
-                                   checked="@DebugSettings.DebugEnabled" @onchange="OnDebugChanged" />
-                            <label class="form-check-label" for="visionDebugCheck">Debug</label>
-                        </div>
-                        <div class="form-check mb-0">
-                            <input class="form-check-input" type="checkbox" id="visionSimpleModeCheck"
-                                checked="@SimpleMode" @onchange="OnSimpleModeChanged" />
-                            <label class="form-check-label" for="visionSimpleModeCheck">Simple</label>
-                        </div>
-                    </div>
+    <div class="vision-workspace-shell card shadow-sm border">
+        <div class="card-body p-3 p-lg-4">
+            <div class="row g-4 vision-workspace @WorkspaceStateCss">
+                <div class="col-12 request-col @(IsRequestPanelMinimized ? "d-none" : string.Empty)">
+                    <TestFormPanel @ref="FormPanel"
+                                   Settings="AuthSettings"
+                                   UserSettings="UserSettings"
+                                   HeaderSettings="HeaderSettings"
+                                   InitialServerBaseUrl="@InitialServerBaseUrl"
+                                   DisplayState="@RequestPanelState"
+                                   DisplayStateChanged="SetRequestPanelStateAsync"
+                                   HeaderSubtitle="@RequestSubtitle"
+                                   PromptTabLabel="Model"
+                                   SubmitLabel="Investigate"
+                                   BusyLabel="Investigating..."
+                                   IsBusy="@IsRunning"
+                                   RightAlignSubmit="true"
+                                   OnAbort="AbortRequestAsync"
+                                   OnSubmit="SendVisionRequestAsync">
+                        <PromptContent>
+                            <div class="vision-body-panel rounded border p-3 mb-3">
+                                <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
+                                    <label class="form-label mb-0" for="visionModelFilter">Filter models</label>
+                                    <input class="form-control form-control-sm vision-model-filter" id="visionModelFilter" type="search"
+                                           placeholder="filter (blank or * = all)"
+                                           value="@ModelFilter" @oninput="OnModelFilterChanged" />
+                                    <div class="form-check mb-0 ms-auto">
+                                        <input class="form-check-input" type="checkbox" id="visionDebugCheck"
+                                               checked="@DebugSettings.DebugEnabled" @onchange="OnDebugChanged" />
+                                        <label class="form-check-label" for="visionDebugCheck">Debug</label>
+                                    </div>
+                                    <div class="form-check mb-0">
+                                        <input class="form-check-input" type="checkbox" id="visionSimpleModeCheck"
+                                            checked="@SimpleMode" @onchange="OnSimpleModeChanged" />
+                                        <label class="form-check-label" for="visionSimpleModeCheck">Simple</label>
+                                    </div>
+                                </div>
 
-                    <div class="vision-advanced-collapsible @(UpperRowsCollapsed ? "collapsed" : string.Empty)">
-                    <div class="row g-3 mb-3">
-                        <div class="col-12 col-lg-6">
-                            <label class="form-label" for="visionModelSelect">@ModelSelectLabel</label>
-                            <select class="form-select" id="visionModelSelect" value="@SelectedModel" @onchange="OnModelSelected">
-                                <option value="">@ModelSelectPlaceholder</option>
-                                @foreach (var group in FilteredModels.GroupBy(model => model.Provider))
+                                <div class="vision-advanced-collapsible @(UpperRowsCollapsed ? "collapsed" : string.Empty)">
+                                    <div class="row g-3 mb-3">
+                                        <div class="col-12 col-lg-6">
+                                            <label class="form-label" for="visionModelSelect">@ModelSelectLabel</label>
+                                            <select class="form-select" id="visionModelSelect" value="@SelectedModel" @onchange="OnModelSelected">
+                                                <option value="">@ModelSelectPlaceholder</option>
+                                                @foreach (var group in FilteredModels.GroupBy(model => model.Provider))
+                                                {
+                                                    <optgroup label="@group.Key">
+                                                        @foreach (var model in group)
+                                                        {
+                                                            <option value="@model.Id">@model.DisplayName</option>
+                                                        }
+                                                    </optgroup>
+                                                }
+                                            </select>
+                                        </div>
+
+                                        <div class="col-12 col-lg-6">
+                                            <label class="form-label" for="visionApiSelect">API</label>
+                                            <select class="form-select" id="visionApiSelect" value="@SelectedApi" @onchange="OnApiSelected" disabled="@(!AvailableApiOptions.Any())">
+                                                <option value="">API...</option>
+                                                @foreach (var group in AvailableApiOptions.GroupBy(api => api.Kind))
+                                                {
+                                                    <optgroup label="@group.Key">
+                                                        @foreach (var api in group)
+                                                        {
+                                                            <option value="@api.Id">@api.DisplayName</option>
+                                                        }
+                                                    </optgroup>
+                                                }
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div class="row g-3 mb-3">
+                                        <div class="col-12 col-lg-6">
+                                            <label class="form-label" for="visionEndpointPath">Path</label>
+                                            <input class="form-control" id="visionEndpointPath" value="@EndpointPath" @oninput="OnEndpointPathChanged" />
+                                        </div>
+                                        <div class="col-12 col-lg-6">
+                                            <label class="form-label" for="visionContentType">Content-Type</label>
+                                            <select class="form-select" id="visionContentType" value="@ContentType" @onchange="OnContentTypeChanged">
+                                                <option value="application/json">application/json</option>
+                                                <option value="application/json; charset=utf-8">application/json; charset=utf-8</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div class="row g-3 mb-3">
+                                        <div class="col-12">
+                                            <label class="form-label" for="visionRequestCount">Number of requests</label>
+                                            <input class="form-control" id="visionRequestCount" type="number" min="1" max="@MaxVisionRequestCount" value="@NumberOfRequests" @onchange="OnNumberOfRequestsChanged" />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                @if (UsesPrompt && SimpleMode)
                                 {
-                                    <optgroup label="@group.Key">
-                                        @foreach (var model in group)
-                                        {
-                                            <option value="@model.Id">@model.DisplayName</option>
-                                        }
-                                    </optgroup>
+                                    <div class="row g-3 mb-3">
+                                        <div class="col-12">
+                                            <label class="form-label" for="visionPrompt">Prompt</label>
+                                            <textarea class="form-control" id="visionPrompt" rows="3" value="@Prompt" @oninput="OnPromptChanged"></textarea>
+                                        </div>
+                                    </div>
                                 }
-                            </select>
-                        </div>
 
-                        <div class="col-12 col-lg-6">
-                            <label class="form-label" for="visionApiSelect">API</label>
-                            <select class="form-select" id="visionApiSelect" value="@SelectedApi" @onchange="OnApiSelected" disabled="@(!AvailableApiOptions.Any())">
-                                <option value="">API...</option>
-                                @foreach (var group in AvailableApiOptions.GroupBy(api => api.Kind))
+                                @if (SimpleMode && FieldValues.Count > 0)
                                 {
-                                    <optgroup label="@group.Key">
-                                        @foreach (var api in group)
-                                        {
-                                            <option value="@api.Id">@api.DisplayName</option>
-                                        }
-                                    </optgroup>
+                                    <ModelParameters Label="@ApiParametersLabel"
+                                                     ModelId="@SelectedModel"
+                                                     Fields="FieldValues"
+                                                     FieldChanged="args => OnFieldChanged(args.Name, args.Value)"
+                                                     FeatureChanged="args => OnFeatureChanged(args.Feature, args.Selected)"
+                                                     AdditionalFeaturesChanged="OnAdditionalFeaturesChanged" />
                                 }
-                            </select>
-                        </div>
-                    </div>
 
-                    <div class="row g-3 mb-3">
-                        <div class="col-12 col-lg-6">
-                            <label class="form-label" for="visionEndpointPath">Path</label>
-                            <input class="form-control" id="visionEndpointPath" value="@EndpointPath" @oninput="OnEndpointPathChanged" />
-                        </div>
-                        <div class="col-12 col-lg-6">
-                            <label class="form-label" for="visionContentType">Content-Type</label>
-                            <select class="form-select" id="visionContentType" value="@ContentType" @onchange="OnContentTypeChanged">
-                                <option value="application/json">application/json</option>
-                                <option value="application/json; charset=utf-8">application/json; charset=utf-8</option>
-                            </select>
-                        </div>
-                    </div>
+                                @if (SimpleMode && SelectedApiInfo is not null)
+                                {
+                                    <div class="row g-3 mb-3 align-items-end">
+                                        <div class="col-12 col-lg-3">
+                                            <label class="form-label" for="visionImageSource">Image source</label>
+                                            <select class="form-select" id="visionImageSource" value="@ImageSource" @onchange="OnImageSourceChanged">
+                                                <option value="url">URL</option>
+                                                @if (!RequiresExternalImageUrl)
+                                                {
+                                                    <option value="data-url">Data URL</option>
+                                                    <option value="file">File</option>
+                                                }
+                                            </select>
+                                        </div>
 
-                    <div class="row g-3 mb-3">
-                        <div class="col-12">
-                            <label class="form-label" for="visionRequestCount">Number of requests</label>
-                            <input class="form-control" id="visionRequestCount" type="number" min="1" max="@MaxVisionRequestCount" value="@NumberOfRequests" @onchange="OnNumberOfRequestsChanged" />
-                        </div>
-                    </div>
-                    </div>
+                                        <div class="col-12 col-lg">
+                                            @if (ImageSource == FileImageSource)
+                                            {
+                                                <label class="form-label" for="visionImageFile">Image file</label>
+                                                <InputFile id="visionImageFile" class="form-control" OnChange="OnImageFileSelected" accept="image/*" />
+                                                @if (!string.IsNullOrWhiteSpace(ImageFileName))
+                                                {
+                                                    <div class="form-text">@ImageFileName</div>
+                                                }
+                                            }
+                                            else if (ImageSource == DataUrlImageSource)
+                                            {
+                                                <label class="form-label" for="visionDataUrl">Image data URL</label>
+                                                <textarea class="form-control font-monospace" id="visionDataUrl" rows="3" value="@ImageUrl" @oninput="OnImageUrlChanged"></textarea>
+                                            }
+                                            else
+                                            {
+                                                <label class="form-label" for="visionImageUrl">Image URL</label>
+                                                <input class="form-control" id="visionImageUrl" value="@ImageUrl" @oninput="OnImageUrlChanged" />
+                                            }
+                                        </div>
 
-                    @if (UsesPrompt && SimpleMode)
-                    {
-                        <div class="row g-3 mb-3">
-                            <div class="col-12">
-                                <label class="form-label" for="visionPrompt">Prompt</label>
-                                <textarea class="form-control" id="visionPrompt" rows="3" value="@Prompt" @oninput="OnPromptChanged"></textarea>
+                                        <div class="col-12 col-lg-auto">
+                                            <button class="btn btn-outline-primary w-100" type="button" disabled="@(!HasImagePreview)" @onclick="ShowImagePreview">Preview</button>
+                                        </div>
+                                    </div>
+                                }
+
+                                @if (UseCustomJson)
+                                {
+                                    <div class="mb-0 vision-json-area @(UpperRowsCollapsed ? "expanded" : string.Empty)"
+                                         @onmouseenter="() => UpperRowsCollapsed = true" @onmouseleave="() => UpperRowsCollapsed = false">
+                                        <label class="form-label" for="visionRequestJson">@RequestBodyLabel</label>
+                                        <textarea class="form-control font-monospace" id="visionRequestJson" rows="10" value="@CustomRequestBody" @oninput="OnCustomRequestBodyChanged"></textarea>
+                                    </div>
+                                }
                             </div>
+                        </PromptContent>
+                    </TestFormPanel>
+                </div>
+
+                <div class="col-12 response-col @(IsResponseColumnHidden ? "d-none" : string.Empty)">
+                    @if (ShowMultiRequestStatus)
+                    {
+                        <div class="vision-batch-status-shell">
+                            <MultiRequestStatus Items="@MultiRequestStatuses" />
                         </div>
                     }
-
-                    @if (SimpleMode && FieldValues.Count > 0)
+                    @if (!ShowMultiRequestStatus)
                     {
-                        <ModelParameters Label="@ApiParametersLabel"
-                                         ModelId="@SelectedModel"
-                                         Fields="FieldValues"
-                                         FieldChanged="args => OnFieldChanged(args.Name, args.Value)"
-                                         FeatureChanged="args => OnFeatureChanged(args.Feature, args.Selected)"
-                                         AdditionalFeaturesChanged="OnAdditionalFeaturesChanged" />
-                    }
-
-                    @if (SimpleMode && SelectedApiInfo is not null)
-                    {
-                        <div class="row g-3 mb-3 align-items-end">
-                            <div class="col-12 col-lg-3">
-                                <label class="form-label" for="visionImageSource">Image source</label>
-                                <select class="form-select" id="visionImageSource" value="@ImageSource" @onchange="OnImageSourceChanged">
-                                    <option value="url">URL</option>
-                                    @if (!RequiresExternalImageUrl)
-                                    {
-                                        <option value="data-url">Data URL</option>
-                                        <option value="file">File</option>
-                                    }
-                                </select>
-                            </div>
-
-                            <div class="col-12 col-lg">
-                                @if (ImageSource == FileImageSource)
+                        <div class="response-stack">
+                            <div class="@(IsVisionResultMinimized ? "d-none" : "d-flex flex-column flex-fill min-h-0")">
+                                @if (HasError)
                                 {
-                                    <label class="form-label" for="visionImageFile">Image file</label>
-                                    <InputFile id="visionImageFile" class="form-control" OnChange="OnImageFileSelected" accept="image/*" />
-                                    @if (!string.IsNullOrWhiteSpace(ImageFileName))
-                                    {
-                                        <div class="form-text">@ImageFileName</div>
-                                    }
-                                }
-                                else if (ImageSource == DataUrlImageSource)
-                                {
-                                    <label class="form-label" for="visionDataUrl">Image data URL</label>
-                                    <textarea class="form-control font-monospace" id="visionDataUrl" rows="3" value="@ImageUrl" @oninput="OnImageUrlChanged"></textarea>
+                                    <ErrorResultPanel Title="Error result"
+                                                      StatusMessage="@StatusMessage"
+                                                      CurrentStatus="@ErrorStatus"
+                                                      CurrentMessage="@ErrorMessage"
+                                                      CurrentTime="@ErrorTimestamp"
+                                                      CurrentDuration="@ResponseMetrics.Duration"
+                                                      CurrentRequestUrl="@CurrentErrorRequestUrl"
+                                                      Errors="@ErrorHistory"
+                                                      AllEntries="@HistoryEntries"
+                                                      DisplayState="@VisionResultState"
+                                                      DisplayStateChanged="SetVisionResultStateAsync" />
                                 }
                                 else
                                 {
-                                    <label class="form-label" for="visionImageUrl">Image URL</label>
-                                    <input class="form-control" id="visionImageUrl" value="@ImageUrl" @oninput="OnImageUrlChanged" />
+                                    <VisionResultPanel Result="@VisionResult"
+                                                       StatusMessage="@StatusMessage"
+                                                       HasResult="@HasVisionResult"
+                                                       IsChat="@ResultIsChat"
+                                                       ActiveTab="@ActiveResultTab"
+                                                       ActiveTabChanged="SetActiveResultTabAsync"
+                                                       DisplayState="@VisionResultState"
+                                                       DisplayStateChanged="SetVisionResultStateAsync"
+                                                       Status="@ResponseMetrics.Status"
+                                                       ContentType="@ResponseMetrics.ContentType"
+                                                       TimeToFirstByte="@ResponseMetrics.TimeToFirstByte"
+                                                       Duration="@ResponseMetrics.Duration"
+                                                       Chunks="@ResponseMetrics.Chunks"
+                                                       TotalBytes="@ResponseMetrics.TotalBytes"
+                                                       ResultRowCss="@VisionResultRowCss"
+                                                       ResultPanelLayoutCss="@VisionResultPanelLayoutCss">
+                                        <HeaderActions>
+                                            @if (ShowRawResponsePanel)
+                                            {
+                                                <button class="btn btn-sm btn-outline-light" type="button" @onclick="OpenRawExchangeModal">Raw exchange</button>
+                                            }
+                                        </HeaderActions>
+                                    </VisionResultPanel>
                                 }
                             </div>
-
-                            <div class="col-12 col-lg-auto">
-                                <button class="btn btn-outline-primary w-100" type="button" disabled="@(!HasImagePreview)" @onclick="ShowImagePreview">Preview</button>
-                            </div>
-                        </div>
-                    }
-
-                    @if (UseCustomJson)
-                    {
-                        <div class="mb-0 vision-json-area @(UpperRowsCollapsed ? "expanded" : string.Empty)"
-                             @onmouseenter="() => UpperRowsCollapsed = true" @onmouseleave="() => UpperRowsCollapsed = false">
-                            <label class="form-label" for="visionRequestJson">@RequestBodyLabel</label>
-                            <textarea class="form-control font-monospace" id="visionRequestJson" rows="10" value="@CustomRequestBody" @oninput="OnCustomRequestBodyChanged"></textarea>
                         </div>
                     }
                 </div>
-            </PromptContent>
-        </TestFormPanel>
-    </div>
-
-    <div class="col-12 response-col @(IsResponseColumnHidden ? "d-none" : string.Empty)">
-        @if (ShowMultiRequestStatus)
-        {
-            <div class="vision-batch-status-shell">
-                <MultiRequestStatus Items="@MultiRequestStatuses" />
             </div>
-        }
-        @if (!ShowMultiRequestStatus)
-        {
-        <div class="response-stack">
-        <div class="@(IsVisionResultMinimized ? "d-none" : "d-flex flex-column flex-fill min-h-0")">
-            @if (HasError)
-            {
-                <ErrorResultPanel Title="Error result"
-                                  StatusMessage="@StatusMessage"
-                                  CurrentStatus="@ErrorStatus"
-                                  CurrentMessage="@ErrorMessage"
-                                  CurrentTime="@ErrorTimestamp"
-                                  CurrentDuration="@ResponseMetrics.Duration"
-                                  CurrentRequestUrl="@CurrentErrorRequestUrl"
-                                  Errors="@ErrorHistory"
-                                  AllEntries="@HistoryEntries"
-                                  DisplayState="@VisionResultState"
-                                  DisplayStateChanged="SetVisionResultStateAsync" />
-            }
-            else
-            {
-                <VisionResultPanel Result="@VisionResult"
-                               StatusMessage="@StatusMessage"
-                               HasResult="@HasVisionResult"
-                               IsChat="@ResultIsChat"
-                               ActiveTab="@ActiveResultTab"
-                               ActiveTabChanged="SetActiveResultTabAsync"
-                               DisplayState="@VisionResultState"
-                               DisplayStateChanged="SetVisionResultStateAsync"
-                               Status="@ResponseMetrics.Status"
-                               ContentType="@ResponseMetrics.ContentType"
-                               TimeToFirstByte="@ResponseMetrics.TimeToFirstByte"
-                               Duration="@ResponseMetrics.Duration"
-                               Chunks="@ResponseMetrics.Chunks"
-                               TotalBytes="@ResponseMetrics.TotalBytes"
-                               ResultRowCss="@VisionResultRowCss"
-                               ResultPanelLayoutCss="@VisionResultPanelLayoutCss">
-                    <HeaderActions>
-                        @if (ShowRawResponsePanel)
-                        {
-                            <button class="btn btn-sm btn-outline-light" type="button" @onclick="OpenRawExchangeModal">Raw exchange</button>
-                        }
-                    </HeaderActions>
-                </VisionResultPanel>
-            }
         </div>
-        </div>
-        }
     </div>
-</div>
 </InspectorPageShell>
 
 @if (IsImagePreviewOpen && HasImagePreview)
@@ -298,6 +302,7 @@
                                   ResponseHeadersText="@ResponseHeadersText"
                                   RequestBodyDisplay="@RequestBodyDisplay"
                                   ObservedResponse="@ObservedResponse"
+                                  DisplayResponse="@DisplayResponse"
                                   ShowDisplayToggle="false">
                 </RawResponsePanel>
             </div>
@@ -309,6 +314,10 @@
     .vision-workspace {
         margin-left: 0;
         margin-right: 0;
+    }
+
+    .vision-workspace-shell {
+        overflow: hidden;
     }
 
     .vision-batch-status-shell {
@@ -400,9 +409,36 @@
 
     .raw-exchange-shell > .card-body {
         flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
         min-height: 0;
-        overflow: auto;
+        overflow: hidden;
         padding: 0.75rem;
+    }
+
+    .raw-exchange-shell .raw-card {
+        display: flex;
+        flex-direction: column;
+        height: calc(100% - 0.5rem);
+        margin-top: 0 !important;
+        min-height: 0;
+    }
+
+    .raw-exchange-shell .raw-card .card-body {
+        display: flex;
+        flex-direction: column;
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden;
+        padding-bottom: 0;
+    }
+
+    .raw-exchange-shell .raw-card .card-body > div {
+        flex: 1 1 auto;
+        min-height: 0;
+        max-height: none !important;
+        height: 100%;
+        overflow-y: auto;
     }
 
     @@media (min-width: 1200px) {
@@ -651,10 +687,19 @@
             flex-direction: column;
             flex: 1 1 auto;
             min-height: 0;
+            height: 100%;
             overflow: visible;
         }
 
         .vision-response-card {
+            flex: 1 1 auto;
+            min-height: 0;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .response-stack > div {
             flex: 1 1 auto;
             min-height: 0;
             display: flex;
@@ -664,10 +709,13 @@
         .vision-response-card .card-body {
             flex: 1 1 auto;
             min-height: 0;
+            display: flex;
+            flex-direction: column;
             overflow: hidden;
         }
 
         .vision-response-card .card-body > .row {
+            flex: 1 1 auto;
             height: 100%;
             min-height: 0;
         }
