@@ -17,21 +17,10 @@
                         <span class="metric-row"><span>Bytes</span><strong>@Metrics!.TotalBytes</strong></span>
                     </span>
                 </span>
-                <span class="response-detail-host headers-host">
-                    <button class="response-tool headers-tool" type="button">Headers</button>
-                    <span class="turn-detail-panel headers-panel detail-popover" role="tooltip">
-                        <span class="detail-section-title">Request</span>
-                        <pre>@RequestHeadersText</pre>
-                        <span class="detail-section-title">Response</span>
-                        <pre>@ResponseHeadersText</pre>
-                    </span>
-                </span>
-                <span class="response-detail-host raw-host">
-                    <button class="response-tool raw-tool" type="button">Raw</button>
-                    <span class="turn-detail-panel raw-panel detail-popover" role="tooltip">
-                        <pre>@RawResponseText</pre>
-                    </span>
-                </span>
+                @if (ShowRawExchangeAction)
+                {
+                    <button class="response-tool raw-tool" type="button" @onclick="RaiseRawExchangeRequestedAsync">Raw exchange</button>
+                }
             </span>
         }
     </div>
@@ -60,6 +49,12 @@
     [Parameter]
     public string RawResponseText { get; set; } = string.Empty;
 
+    [Parameter]
+    public bool ShowRawExchangeAction { get; set; } = true;
+
+    [Parameter]
+    public EventCallback RawExchangeRequested { get; set; }
+
     private bool IsAssistant => string.Equals(Role, "Assistant", StringComparison.OrdinalIgnoreCase);
 
     private bool ShowDetails => IsAssistant && Metrics is not null;
@@ -67,6 +62,8 @@
     private string BubbleClass => IsAssistant ? "assistant-bubble" : "user-bubble";
 
     private int? TabIndex => IsAssistant ? 0 : null;
+
+    private Task RaiseRawExchangeRequestedAsync() => RawExchangeRequested.InvokeAsync();
 
     private static string FormatDuration(TimeSpan? value) =>
         value is null ? "-" : $"{value.Value.TotalMilliseconds:0} ms";
