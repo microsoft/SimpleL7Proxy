@@ -1,0 +1,3 @@
+- In `test/chat_tester`, the error dashboard behavior is owned primarily by `Components/Shared/Response/ErrorResultPanel.razor`; keep status-text normalization, chart behavior, hover previews, and error-detail modal behavior in that component instead of spreading UI logic into `InvestigatorPage.razor`.
+- A focused validation command for chat tester UI changes is `dotnet build test/chat_tester/chat_tester.csproj /property:GenerateFullPaths=true /consoleloggerparameters:NoSummary`.
+- When splitting a Razor page into separate pages, remove old backing members/events in the original page in the same edit to avoid orphaned references that can trigger misleading design-time Razor errors.

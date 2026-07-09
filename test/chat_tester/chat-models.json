@@ -155,7 +155,8 @@
         { "top_p": "1" },
         { "instructions": "You are a helpful assistant." },
         { "max_output_tokens": "1024" },
-        { "stream": "true" }
+        { "stream": "true" },
+        { "background": "false" }
       ]
     },
     {

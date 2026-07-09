@@ -277,26 +277,34 @@
 .multi-request-detail-body {
     flex: 1 1 auto;
     min-height: 0;
-    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     padding: 1rem;
 }
 
-.multi-request-detail-body .raw-card {
-    min-height: 100%;
+.multi-request-detail-body ::deep .raw-card {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
     margin-top: 0 !important;
 }
 
-.multi-request-detail-body .raw-card .card-body {
-    min-height: 0;
-    overflow: auto;
+.multi-request-detail-body ::deep .raw-card .card-body {
     display: flex;
     flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
 }
 
-.multi-request-detail-body .raw-card .card-body > div {
+.multi-request-detail-body ::deep .raw-card .card-body > div {
     flex: 1 1 auto;
     min-height: 0;
     max-height: none !important;
+    height: 100%;
+    overflow-y: auto;
 }
 
 .min-w-0 {

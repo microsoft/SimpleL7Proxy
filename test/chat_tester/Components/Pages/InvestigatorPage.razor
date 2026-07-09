@@ -217,6 +217,13 @@
         </div>
 
         <div class="col-12 response-col @(IsResponseColumnHidden ? "d-none" : string.Empty)">
+            @if (LastRequestWasBackground)
+            {
+                <div class="vision-background-banner" role="status">
+                    <span class="vision-background-badge">Background</span>
+                    <span>Submitted as a background request — the server returns a queued response. Retrieve the final result with <code>GET /openai/v1/responses/&#123;id&#125;</code>.</span>
+                </div>
+            }
             @if (ShowMultiRequestStatus)
             {
                 <div class="vision-batch-status-shell">
@@ -1014,6 +1021,7 @@
     private VisionResultView VisionResult { get; set; } = VisionResponseParser.BuildPlainVisionResult("Waiting for the request ...");
     private bool HasVisionResult { get; set; }
     private bool ResultIsChat { get; set; }
+    private bool LastRequestWasBackground { get; set; }
     private bool HasError { get; set; }
     private string ErrorStatus { get; set; } = string.Empty;
     private string ErrorMessage { get; set; } = string.Empty;
@@ -1538,6 +1546,7 @@
         HasVisionResult = true;
         HasError = false;
         ResultIsChat = IsChatApi;
+        LastRequestWasBackground = IsBackgroundRequestBody(requestBody);
         SelectedHistoryEntryId = null;
         PageTagline = DefaultPageTagline;
         StatusMessage = NumberOfRequests == 1
@@ -2150,6 +2159,26 @@
         }
 
         return TryParseDataUrl(EffectiveImageUrl, out _, out var data) ? data : string.Empty;
+    }
+
+    private static bool IsBackgroundRequestBody(string requestBody)
+    {
+        if (string.IsNullOrWhiteSpace(requestBody))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(requestBody);
+            return document.RootElement.ValueKind == JsonValueKind.Object
+                && document.RootElement.TryGetProperty("background", out var background)
+                && background.ValueKind == JsonValueKind.True;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     private string ResolveImageMimeType()
