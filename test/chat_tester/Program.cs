@@ -8,6 +8,8 @@ builder.Configuration.AddJsonFile($"chat-models.{builder.Environment.Environment
 builder.Configuration.AddJsonFile("vision-models.json", optional: false, reloadOnChange: true);
 builder.Configuration.AddJsonFile($"vision-models.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true);
 
+var eventHubEnabled = builder.Configuration.GetValue<bool>("EventHubMonitor:eventhub_enabled", true);
+
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
@@ -26,9 +28,16 @@ builder.Services.AddSingleton<ModelDefaults>();
 builder.Services.AddSingleton<VisionModelCatalog>();
 builder.Services.AddSingleton<ChatHistoryStore>();
 builder.Services.AddSingleton<ChatConversationStore>();
+builder.Services.AddSingleton<EventHubMonitorStore>();
+if (eventHubEnabled)
+{
+    builder.Services.AddHostedService<EventHubReader>();
+}
 builder.Services.AddScoped<UserPreferencesService>();
 builder.Services.Configure<ChatTesterOptions>(
     builder.Configuration.GetSection(ChatTesterOptions.SectionName));
+builder.Services.Configure<EventHubMonitorOptions>(
+    builder.Configuration.GetSection(EventHubMonitorOptions.SectionName));
 
 var app = builder.Build();
 var chatTesterOptions = app.Services.GetRequiredService<IOptions<ChatTesterOptions>>().Value;

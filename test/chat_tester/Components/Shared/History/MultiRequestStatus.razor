@@ -48,6 +48,7 @@
         @foreach (var item in FilteredItems)
         {
             <button class="multi-request-row" type="button" role="listitem"
+                    @key="item"
                     @onclick="() => SelectItem(item)"
                     @onmouseenter="args => ShowMetrics(item, args)"
                     @onmousemove="MoveMetrics"
@@ -465,22 +466,17 @@
 
     private string HoverTop { get; set; } = "0px";
 
-    private int CompletedCount => Items.Count(item => item.IsComplete);
+    private int CompletedCount => _completedCount;
 
-    private double MaxDurationMilliseconds => Items
-        .Select(item => item.Duration?.TotalMilliseconds ?? 0)
-        .DefaultIfEmpty(0)
-        .Max();
+    private double MaxDurationMilliseconds => _maxDurationMilliseconds;
 
-    private int CompleteCount => Items.Count(item => item.IsComplete);
+    private int CompleteCount => _completedCount;
 
-    private int IncompleteCount => Items.Count - CompleteCount;
+    private int IncompleteCount => Items.Count - _completedCount;
 
-    private string OverallTtfbText =>
-        FormatMilliseconds(AverageMilliseconds(Items.Select(item => item.TimeToFirstByte)));
+    private string OverallTtfbText => _overallTtfbText;
 
-    private string OverallAvgText =>
-        FormatMilliseconds(AverageMilliseconds(Items.Select(item => item.Duration)));
+    private string OverallAvgText => _overallAvgText;
 
     private sealed record StatusGroup(
         int StatusCode,
@@ -488,28 +484,124 @@
         string TtfbText,
         string AvgText);
 
-    private IReadOnlyList<StatusGroup> StatusGroups => BuildStatusGroups();
-
-    private IReadOnlyList<StatusGroup> BuildStatusGroups()
-    {
-        return Items
-            .Where(item => item.StatusCode.HasValue)
-            .GroupBy(item => item.StatusCode!.Value)
-            .OrderBy(group => group.Key)
-            .Select(group => new StatusGroup(
-                group.Key,
-                group.Count(),
-                FormatMilliseconds(AverageMilliseconds(group.Select(item => item.TimeToFirstByte))),
-                FormatMilliseconds(AverageMilliseconds(group.Select(item => item.Duration)))))
-            .ToList();
-    }
+    private IReadOnlyList<StatusGroup> StatusGroups => _statusGroups;
 
     private int? SelectedStatusFilter { get; set; }
 
-    private IReadOnlyList<MultiRequestStatusItem> FilteredItems =>
-        SelectedStatusFilter is { } code
+    private IReadOnlyList<MultiRequestStatusItem> FilteredItems => _filteredItems;
+
+    // Cached aggregates. These are recomputed only when the parent supplies new data
+    // (via OnParametersSet) or the status filter changes, not on every internal render
+    // (hover, tooltip movement, detail open). This keeps high-frequency stat updates
+    // cheap and avoids the O(n^2) MaxDuration lookup that previously ran per rendered row.
+    private double _maxDurationMilliseconds;
+    private int _completedCount;
+    private string _overallTtfbText = "-";
+    private string _overallAvgText = "-";
+    private IReadOnlyList<StatusGroup> _statusGroups = Array.Empty<StatusGroup>();
+    private IReadOnlyList<OutcomeSegment> _outcomeSegments = Array.Empty<OutcomeSegment>();
+    private IReadOnlyList<MultiRequestStatusItem> _filteredItems = Array.Empty<MultiRequestStatusItem>();
+
+    private void RecomputeAggregates()
+    {
+        double maxDuration = 0;
+        var completed = 0;
+        double ttfbSum = 0;
+        var ttfbCount = 0;
+        double durationSum = 0;
+        var durationCount = 0;
+
+        var statusAcc = new Dictionary<int, StatusAccumulator>();
+        var outcomeCounts = new Dictionary<Outcome, int>();
+
+        foreach (var item in Items)
+        {
+            var durationMs = item.Duration?.TotalMilliseconds;
+            if (durationMs is { } d)
+            {
+                if (d > maxDuration)
+                {
+                    maxDuration = d;
+                }
+
+                durationSum += d;
+                durationCount++;
+            }
+
+            var ttfbMs = item.TimeToFirstByte?.TotalMilliseconds;
+            if (ttfbMs is { } t)
+            {
+                ttfbSum += t;
+                ttfbCount++;
+            }
+
+            if (item.IsComplete)
+            {
+                completed++;
+            }
+
+            var outcome = GetOutcome(item);
+            outcomeCounts[outcome] = outcomeCounts.GetValueOrDefault(outcome) + 1;
+
+            if (item.StatusCode is { } code)
+            {
+                var acc = statusAcc.GetValueOrDefault(code);
+                acc.Count++;
+                if (ttfbMs is { } t2)
+                {
+                    acc.TtfbSum += t2;
+                    acc.TtfbCount++;
+                }
+
+                if (durationMs is { } d2)
+                {
+                    acc.DurationSum += d2;
+                    acc.DurationCount++;
+                }
+
+                statusAcc[code] = acc;
+            }
+        }
+
+        _maxDurationMilliseconds = maxDuration;
+        _completedCount = completed;
+        _overallTtfbText = FormatMilliseconds(ttfbCount == 0 ? null : ttfbSum / ttfbCount);
+        _overallAvgText = FormatMilliseconds(durationCount == 0 ? null : durationSum / durationCount);
+
+        _statusGroups = statusAcc
+            .OrderBy(pair => pair.Key)
+            .Select(pair => new StatusGroup(
+                pair.Key,
+                pair.Value.Count,
+                FormatMilliseconds(pair.Value.TtfbCount == 0 ? null : pair.Value.TtfbSum / pair.Value.TtfbCount),
+                FormatMilliseconds(pair.Value.DurationCount == 0 ? null : pair.Value.DurationSum / pair.Value.DurationCount)))
+            .ToList();
+
+        var segments = new List<OutcomeSegment>();
+        AddSegment(segments, outcomeCounts, Outcome.Success, "success", "Success");
+        AddSegment(segments, outcomeCounts, Outcome.Transient, "transient", "Transient");
+        AddSegment(segments, outcomeCounts, Outcome.Permanent, "permanent", "Permanent");
+        AddSegment(segments, outcomeCounts, Outcome.Pending, "pending", "Pending");
+        _outcomeSegments = segments;
+
+        RebuildFilteredItems();
+    }
+
+    private void RebuildFilteredItems()
+    {
+        _filteredItems = SelectedStatusFilter is { } code
             ? Items.Where(item => item.StatusCode == code).ToList()
             : Items;
+    }
+
+    private struct StatusAccumulator
+    {
+        public int Count;
+        public double TtfbSum;
+        public int TtfbCount;
+        public double DurationSum;
+        public int DurationCount;
+    }
 
     private enum Outcome
     {
@@ -521,19 +613,7 @@
 
     private sealed record OutcomeSegment(string Css, int Count, string Label);
 
-    private IReadOnlyList<OutcomeSegment> OutcomeSegments
-    {
-        get
-        {
-            var counts = Items.GroupBy(GetOutcome).ToDictionary(group => group.Key, group => group.Count());
-            var segments = new List<OutcomeSegment>();
-            AddSegment(segments, counts, Outcome.Success, "success", "Success");
-            AddSegment(segments, counts, Outcome.Transient, "transient", "Transient");
-            AddSegment(segments, counts, Outcome.Permanent, "permanent", "Permanent");
-            AddSegment(segments, counts, Outcome.Pending, "pending", "Pending");
-            return segments;
-        }
-    }
+    private IReadOnlyList<OutcomeSegment> OutcomeSegments => _outcomeSegments;
 
     private static void AddSegment(List<OutcomeSegment> segments, IReadOnlyDictionary<Outcome, int> counts, Outcome outcome, string css, string label)
     {
@@ -576,11 +656,13 @@
     private void FilterByStatus(int statusCode)
     {
         SelectedStatusFilter = SelectedStatusFilter == statusCode ? null : statusCode;
+        RebuildFilteredItems();
     }
 
     private void ClearStatusFilter()
     {
         SelectedStatusFilter = null;
+        RebuildFilteredItems();
     }
 
     private static double? AverageMilliseconds(IEnumerable<TimeSpan?> values)
@@ -600,6 +682,8 @@
 
     protected override void OnParametersSet()
     {
+        RecomputeAggregates();
+
         if (HoveredItem is not null && !Items.Contains(HoveredItem))
         {
             HoveredItem = null;

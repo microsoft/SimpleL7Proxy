@@ -1,0 +1,662 @@
+@page "/eventhub"
+@namespace chat_tester.Components.Pages
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+@using chat_tester.Components.Shared
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.Extensions.Options
+@inject EventHubMonitorStore Store
+@inject IOptions<EventHubMonitorOptions> MonitorOptions
+
+<PageTitle>EventHub Monitor</PageTitle>
+
+<InspectorPageShell Title="EventHub Monitor"
+                    Tagline="@Tagline"
+                    HistoryEntries="EmptyHistory"
+                    HistorySource="EventHub monitor">
+    <div class="row g-4 eventhub-workspace">
+        @* ── Left: Backend + endpoint stats ── *@
+        <div class="col-12 col-lg-4 eventhub-config-col">
+            <div class="card shadow-sm eventhub-card">
+                <div class="card-header bg-success text-white">
+                    <div class="d-flex flex-wrap align-items-baseline gap-2">
+                        <span class="fw-semibold">Backends &amp; endpoint</span>
+                        <span class="text-white-50 small">@BackendSubtitle</span>
+                    </div>
+                </div>
+                <div class="card-body eventhub-card-body">
+                    <div class="eventhub-form-content">
+                        @* ── Backend stats ── *@
+                        <div class="eventhub-section-header">
+                            <span class="fw-semibold">Backend stats</span>
+                        </div>
+                        @if (Backends.Count > 0)
+                        {
+                            <div class="eventhub-backend-list mb-3">
+                                @foreach (var backend in Backends)
+                                {
+                                    <div class="eventhub-backend-tile @backend.Css">
+                                        <div class="eventhub-backend-tile-head">
+                                            <span class="eventhub-backend-dot" title="@backend.Status"></span>
+                                            <span class="eventhub-backend-name">@backend.Name</span>
+                                        </div>
+                                        <div class="eventhub-backend-state">@backend.Status</div>
+                                        <div class="eventhub-backend-url" title="@backend.Url">@backend.Url</div>
+                                        <div class="eventhub-backend-metrics">
+                                            <div><span class="eh-metric-label">Lat</span><span class="eh-metric-value">@backend.LatencyText</span></div>
+                                            <div><span class="eh-metric-label">Succ</span><span class="eh-metric-value">@backend.SuccessRate%</span></div>
+                                            <div><span class="eh-metric-label">Calls</span><span class="eh-metric-value">@backend.Calls</span></div>
+                                            <div><span class="eh-metric-label">Err</span><span class="eh-metric-value">@backend.Errors</span></div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="text-muted small mb-3">No backend health received yet.</div>
+                        }
+
+                        @* ── Endpoint stats ── *@
+                        <div class="eventhub-section-header">
+                            <span class="fw-semibold">Endpoint stats</span>
+                        </div>
+                        <dl class="eventhub-endpoint-stats">
+                            @foreach (var stat in EndpointStats)
+                            {
+                                <div class="eventhub-endpoint-row">
+                                    <dt>@stat.Label</dt>
+                                    <dd>@stat.Value</dd>
+                                </div>
+                            }
+                        </dl>
+                    </div>
+
+                    <div class="eventhub-form-actions">
+                        @if (IsConnected)
+                        {
+                            <span class="badge text-bg-success align-self-center me-auto">
+                                <span class="eventhub-live-dot"></span> Live · updated @_snapshot.TimestampUtc.ToLocalTime().ToString("HH:mm:ss")
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="badge text-bg-secondary align-self-center me-auto">Awaiting data</span>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* ── Right: Runtime stats + request stats ── *@
+        <div class="col-12 col-lg-8 eventhub-monitor-col">
+            @* ── Runtime stats + request stats row ── *@
+            <div class="eventhub-bottom-row">
+                <div class="eventhub-stats-shell">
+                    <div class="eventhub-section-header">
+                        <span class="fw-semibold">Runtime stats</span>
+                        <span class="text-muted small">@StatsSubtitle</span>
+                    </div>
+                    <div class="eventhub-stats-grid">
+                        @foreach (var tile in StatTiles)
+                        {
+                            <div class="eventhub-stat-tile @tile.Css">
+                                <div class="eventhub-tile-head">
+                                    <span class="eventhub-tile-title">@tile.Title</span>
+                                    <span class="eventhub-tile-primary">@tile.Primary</span>
+                                    @if (!string.IsNullOrWhiteSpace(tile.PrimaryDetail))
+                                    {
+                                        <span class="eventhub-tile-primary-detail">@tile.PrimaryDetail</span>
+                                    }
+                                </div>
+                                @if (tile.Metrics.Count > 0)
+                                {
+                                    <div class="eventhub-tile-metrics">
+                                        @foreach (var metric in tile.Metrics)
+                                        {
+                                            <div class="eventhub-tile-metric">
+                                                <span class="eventhub-tile-metric-label">@metric.Label</span>
+                                                <span class="eventhub-tile-metric-value">@metric.Value</span>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="eventhub-history-shell eventhub-request-stats-compact">
+                    <MultiRequestStatus Items="@HistoryItems" />
+                </div>
+            </div>
+        </div>
+    </div>
+</InspectorPageShell>
+
+<style>
+    .eventhub-workspace {
+        margin-left: 0;
+        margin-right: 0;
+    }
+
+    @@media (min-width: 992px) {
+        .eventhub-config-col {
+            height: calc(100dvh - 8.75rem);
+        }
+
+        .eventhub-config-col > .card {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .eventhub-config-col > .card > .card-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .eventhub-monitor-col {
+            height: calc(100dvh - 8.75rem);
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            gap: 1rem;
+        }
+    }
+
+    .eventhub-form-content {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+    }
+
+    .eventhub-form-actions {
+        flex: 0 0 auto;
+        display: flex;
+        gap: 0.5rem;
+        margin: 0 -1rem -1rem;
+        padding: 0.65rem 1rem;
+        border-top: 1px solid #dde1e6;
+    }
+
+    .eventhub-live-dot {
+        display: inline-block;
+        width: 0.5rem;
+        height: 0.5rem;
+        border-radius: 50%;
+        background: #fff;
+        margin-right: 0.15rem;
+        animation: eventhub-pulse 1.2s ease-in-out infinite;
+    }
+
+    @@keyframes eventhub-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.35; }
+    }
+
+    .eventhub-stats-shell {
+        flex: 0 0 auto;
+        background: #fff;
+        border: 1px solid #dee2e6;
+        border-radius: 0.5rem;
+        padding: 0.85rem 1rem 1rem;
+    }
+
+    .eventhub-section-header {
+        display: flex;
+        align-items: baseline;
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .eventhub-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+        gap: 0.75rem;
+    }
+
+    .eventhub-stat-tile {
+        border: 1px solid #e2e6eb;
+        border-top-width: 3px;
+        border-radius: 0.5rem;
+        padding: 0.6rem 0.7rem;
+        background: #f8f9fb;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .eventhub-stat-tile.success { border-top-color: #2f9e44; }
+    .eventhub-stat-tile.info { border-top-color: #1971c2; }
+    .eventhub-stat-tile.warning { border-top-color: #f59f00; }
+    .eventhub-stat-tile.neutral { border-top-color: #868e96; }
+
+    .eventhub-tile-head {
+        display: flex;
+        flex-direction: column;
+        line-height: 1.15;
+    }
+
+    .eventhub-tile-title {
+        font-size: 0.65rem;
+        color: #6c757d;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        font-weight: 600;
+    }
+
+    .eventhub-tile-primary {
+        font-size: 1.15rem;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        line-height: 1.2;
+    }
+
+    .eventhub-tile-primary-detail {
+        font-size: 0.65rem;
+        color: #868e96;
+    }
+
+    .eventhub-tile-metrics {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        border-top: 1px solid #e9ecef;
+        padding-top: 0.4rem;
+    }
+
+    .eventhub-tile-metric {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.5rem;
+        font-size: 0.7rem;
+    }
+
+    .eventhub-tile-metric-label {
+        color: #868e96;
+    }
+
+    .eventhub-tile-metric-value {
+        font-weight: 600;
+        color: #343a40;
+        font-variant-numeric: tabular-nums;
+    }
+
+    /* ── Runtime stats (left) + request stats (right) row ── */
+    .eventhub-bottom-row {
+        display: flex;
+        flex-direction: row;
+        gap: 1rem;
+        align-items: stretch;
+        min-height: 0;
+        flex: 1 1 auto;
+    }
+
+    .eventhub-bottom-row .eventhub-stats-shell {
+        flex: 0 0 18rem;
+        max-width: 18rem;
+        align-self: flex-start;
+    }
+
+    .eventhub-bottom-row .eventhub-stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .eventhub-bottom-row .eventhub-history-shell {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    /* Smaller font for the request statistics on the right. */
+    .eventhub-request-stats-compact .multi-request-stats {
+        padding: 0.75rem;
+    }
+
+    .eventhub-request-stats-compact .multi-request-stats-title {
+        font-size: 0.8rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .eventhub-request-stats-compact .multi-request-stats-thermometer {
+        height: 1.75rem;
+    }
+
+    .eventhub-request-stats-compact .multi-request-stats-segment-label {
+        font-size: 0.8rem;
+    }
+
+    .eventhub-request-stats-compact .multi-request-stats-status-grid {
+        gap: 0.5rem 1.25rem;
+        margin-top: 0.6rem;
+    }
+
+    .eventhub-request-stats-compact .multi-request-stats-status {
+        min-width: 5.5rem;
+        font-size: 0.72rem;
+        line-height: 1.3;
+        padding: 0.3rem 0.55rem;
+    }
+
+    .eventhub-backends-shell {
+        flex: 0 0 auto;
+        background: #fff;
+        border: 1px solid #dee2e6;
+        border-radius: 0.5rem;
+        padding: 0.85rem 1rem 1rem;
+    }
+
+    .eventhub-backend-list {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 0.6rem;
+    }
+
+    .eventhub-backend-tile {
+        flex: 1 1 0;
+        min-width: 9rem;
+        border: 1px solid #e2e6eb;
+        border-top-width: 4px;
+        border-radius: 0.375rem;
+        padding: 0.5rem 0.6rem;
+        background: #fff;
+        font-size: 0.72rem;
+    }
+
+    .eventhub-backend-tile.healthy { border-top-color: #2f9e44; }
+    .eventhub-backend-tile.degraded { border-top-color: #f59f00; }
+    .eventhub-backend-tile.down { border-top-color: #e03131; }
+
+    .eventhub-backend-tile-head {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        min-width: 0;
+    }
+
+    .eventhub-backend-dot {
+        flex: 0 0 auto;
+        width: 0.55rem;
+        height: 0.55rem;
+        border-radius: 50%;
+        background: #adb5bd;
+    }
+
+    .eventhub-backend-tile.healthy .eventhub-backend-dot { background: #2f9e44; }
+    .eventhub-backend-tile.degraded .eventhub-backend-dot { background: #f59f00; }
+    .eventhub-backend-tile.down .eventhub-backend-dot { background: #e03131; }
+
+    .eventhub-backend-name {
+        font-weight: 600;
+        font-size: 0.82rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .eventhub-backend-state {
+        font-size: 0.68rem;
+        color: #868e96;
+        margin-top: 0.1rem;
+    }
+
+    .eventhub-backend-url {
+        font-size: 0.66rem;
+        color: #adb5bd;
+        font-family: var(--bs-font-monospace, monospace);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        margin-bottom: 0.4rem;
+    }
+
+    .eventhub-backend-metrics {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.15rem 0.6rem;
+    }
+
+    .eventhub-backend-metrics > div {
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    .eh-metric-label {
+        font-size: 0.62rem;
+        color: #adb5bd;
+        text-transform: uppercase;
+        margin-right: 0.3rem;
+    }
+
+    .eh-metric-value {
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: #343a40;
+    }
+
+    .eventhub-endpoint-stats {
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+    }
+
+    .eventhub-endpoint-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.5rem;
+        padding: 0.2rem 0;
+        border-bottom: 1px solid #f1f3f5;
+    }
+
+    .eventhub-endpoint-row:last-child {
+        border-bottom: 0;
+    }
+
+    .eventhub-endpoint-row dt {
+        font-size: 0.72rem;
+        color: #868e96;
+        font-weight: 500;
+        margin: 0;
+    }
+
+    .eventhub-endpoint-row dd {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #343a40;
+        margin: 0;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .eventhub-history-shell {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+    }
+</style>
+
+@code {
+    private static readonly IReadOnlyList<ChatHistoryEntry> EmptyHistory = Array.Empty<ChatHistoryEntry>();
+
+    // Event Hub connection details are shared/server-wide and come from appsettings.json only.
+    private EventHubMonitorOptions Options => MonitorOptions.Value;
+    private int RefreshSeconds => Options.RefreshSeconds < 1 ? 5 : Options.RefreshSeconds;
+
+    private bool IsConnected { get; set; }
+
+    // The Event Hub is read server-side into a shared singleton store. This circuit holds only
+    // the latest immutable snapshot and re-renders on a fixed cadence, not per event.
+    private MonitorSnapshot _snapshot = new();
+    private PeriodicTimer? _timer;
+    private CancellationTokenSource? _cts;
+    private bool _receivedFirst;
+
+    private string Tagline => IsConnected
+        ? "Streaming runtime stats from the Event Hub."
+        : "Connect to an Event Hub and watch runtime stats stream in.";
+
+    private string StatsSubtitle => IsConnected
+        ? $"Refreshing every {RefreshSeconds}s"
+        : "Not connected";
+
+    private string BackendSubtitle => IsConnected
+        ? $"{Backends.Count} host(s) · {_snapshot.Stats.LoadBalancingMode}"
+        : "Not connected";
+
+    private IReadOnlyList<BackendHealthSnapshot> Backends => _snapshot.Backends;
+
+    private IReadOnlyList<MultiRequestStatusItem> HistoryItems => _snapshot.Requests;
+
+    private IReadOnlyList<(string Label, string Value)> EndpointStats => BuildEndpointStats();
+
+    private IReadOnlyList<(string Label, string Value)> BuildEndpointStats()
+    {
+        var stats = _snapshot.Stats;
+        return new (string Label, string Value)[]
+        {
+            ("Active hosts", $"{stats.ActiveHosts} / {stats.TotalHosts}"),
+            ("Load balancing", stats.LoadBalancingMode),
+            ("Probe latency", $"{stats.BackendProbeLatencyMs:0} ms"),
+            ("Proxy version", string.IsNullOrEmpty(stats.ProxyVersion) ? "—" : stats.ProxyVersion),
+            ("Event Hub", string.IsNullOrEmpty(Options.EventHubName) ? "—" : Options.EventHubName),
+            ("Consumer group", Options.ConsumerGroup),
+        };
+    }
+
+    protected override void OnInitialized()
+    {
+        Connect();
+    }
+
+    private void Connect()
+    {
+        if (IsConnected)
+        {
+            return;
+        }
+
+        IsConnected = true;
+        _receivedFirst = false;
+        _snapshot = Store.GetSnapshot();
+        Store.Changed += OnStoreChanged;
+
+        _cts = new CancellationTokenSource();
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(Math.Max(1, RefreshSeconds)));
+        _ = RefreshLoopAsync(_cts.Token);
+    }
+
+    private void Disconnect()
+    {
+        if (!IsConnected)
+        {
+            return;
+        }
+
+        IsConnected = false;
+        Store.Changed -= OnStoreChanged;
+
+        _cts?.Cancel();
+        _timer?.Dispose();
+        _timer = null;
+        _cts?.Dispose();
+        _cts = null;
+
+        _snapshot = new MonitorSnapshot();
+    }
+
+    // Fired from the store on every ingest. Used only to paint the first batch of data
+    // immediately; subsequent updates are throttled to the refresh cadence below.
+    private void OnStoreChanged()
+    {
+        if (_receivedFirst)
+        {
+            return;
+        }
+
+        _receivedFirst = true;
+        _ = InvokeAsync(() =>
+        {
+            _snapshot = Store.GetSnapshot();
+            StateHasChanged();
+        });
+    }
+
+    private async Task RefreshLoopAsync(CancellationToken token)
+    {
+        try
+        {
+            while (await _timer!.WaitForNextTickAsync(token))
+            {
+                _snapshot = Store.GetSnapshot();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected on disconnect / disposal.
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        Disconnect();
+        return ValueTask.CompletedTask;
+    }
+
+    private sealed record TileMetric(string Label, string Value);
+
+    private sealed record StatTile(string Title, string Primary, string? PrimaryDetail, string Css, IReadOnlyList<TileMetric> Metrics);
+
+    private IReadOnlyList<StatTile> StatTiles => BuildStatTiles();
+
+    private IReadOnlyList<StatTile> BuildStatTiles()
+    {
+        if (!IsConnected || !_snapshot.HasData)
+        {
+            return new[]
+            {
+                new StatTile("Requests", "—", "awaiting connection", "neutral", Array.Empty<TileMetric>()),
+                new StatTile("Latency", "—", null, "neutral", Array.Empty<TileMetric>()),
+                new StatTile("Hosts", "—", null, "neutral", Array.Empty<TileMetric>()),
+            };
+        }
+
+        var stats = _snapshot.Stats;
+
+        return new[]
+        {
+            // Derived from the request stream (retained in the store for one hour).
+            new StatTile("Requests", stats.TotalRequests.ToString("N0"), "last hour",
+                stats.SuccessRate >= 95 ? "success" : "warning",
+                new[]
+                {
+                    new TileMetric("Req / sec", stats.RequestsPerSecond.ToString("0.#")),
+                    new TileMetric("Success", $"{stats.SuccessRate:0.#}%"),
+                    new TileMetric("Failed", stats.Failed.ToString("N0")),
+                }),
+            new StatTile("Latency", $"{stats.AvgLatencyMs:0} ms", "backend avg", "info",
+                new[]
+                {
+                    new TileMetric("Probe", $"{stats.BackendProbeLatencyMs:0} ms"),
+                    new TileMetric("Balancing", stats.LoadBalancingMode),
+                }),
+            // Derived from the S7P-Backend host event.
+            new StatTile("Hosts", $"{stats.ActiveHosts} / {stats.TotalHosts}", "active", "success",
+                new[]
+                {
+                    new TileMetric("Backend", string.IsNullOrEmpty(stats.PrimaryBackend) ? "—" : stats.PrimaryBackend),
+                    new TileMetric("Version", string.IsNullOrEmpty(stats.ProxyVersion) ? "—" : stats.ProxyVersion),
+                }),
+        };
+    }
+}
