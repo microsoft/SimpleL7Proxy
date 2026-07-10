@@ -6,31 +6,30 @@
 @using Microsoft.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Web
 @using Microsoft.Extensions.Options
+@using System.Text.RegularExpressions
 @inject EventHubMonitorStore Store
+@inject ProxyMetricsCatalog MetricsCatalog
 @inject IOptions<EventHubMonitorOptions> MonitorOptions
 
 <PageTitle>EventHub Monitor</PageTitle>
 
 <InspectorPageShell Title="EventHub Monitor"
                     Tagline="@Tagline"
-                    HistoryEntries="EmptyHistory"
+                    HistoryEntries="@ScopeHistoryEntries"
+                    SelectedHistoryEntryId="@SelectedScopeId"
                     HistorySource="EventHub monitor">
     <div class="row g-4 eventhub-workspace">
-        @* ── Left: Backend + endpoint stats ── *@
+        @* ── Left: Backends ── *@
         <div class="col-12 col-lg-4 eventhub-config-col">
             <div class="card shadow-sm eventhub-card">
                 <div class="card-header bg-success text-white">
                     <div class="d-flex flex-wrap align-items-baseline gap-2">
-                        <span class="fw-semibold">Backends &amp; endpoint</span>
+                        <span class="fw-semibold">Backends</span>
                         <span class="text-white-50 small">@BackendSubtitle</span>
                     </div>
                 </div>
                 <div class="card-body eventhub-card-body">
                     <div class="eventhub-form-content">
-                        @* ── Backend stats ── *@
-                        <div class="eventhub-section-header">
-                            <span class="fw-semibold">Backend stats</span>
-                        </div>
                         @if (Backends.Count > 0)
                         {
                             <div class="eventhub-backend-list mb-3">
@@ -39,7 +38,7 @@
                                     <div class="eventhub-backend-tile @backend.Css">
                                         <div class="eventhub-backend-tile-head">
                                             <span class="eventhub-backend-dot" title="@backend.Status"></span>
-                                            <span class="eventhub-backend-name">@backend.Name</span>
+                                            <span class="eventhub-backend-name">Backend: @backend.Name</span>
                                         </div>
                                         <div class="eventhub-backend-state">@backend.Status</div>
                                         <div class="eventhub-backend-url" title="@backend.Url">@backend.Url</div>
@@ -58,19 +57,26 @@
                             <div class="text-muted small mb-3">No backend health received yet.</div>
                         }
 
-                        @* ── Endpoint stats ── *@
-                        <div class="eventhub-section-header">
-                            <span class="fw-semibold">Endpoint stats</span>
+                        <div class="eventhub-section-header mt-3">
+                            <span class="fw-semibold">Metrics by group</span>
                         </div>
-                        <dl class="eventhub-endpoint-stats">
-                            @foreach (var stat in EndpointStats)
+                        <div class="eventhub-catalog-groups">
+                            @foreach (var group in ProxyMetricGroups)
                             {
-                                <div class="eventhub-endpoint-row">
-                                    <dt>@stat.Label</dt>
-                                    <dd>@stat.Value</dd>
-                                </div>
+                                <section class="eventhub-catalog-group">
+                                    <h6 class="eventhub-catalog-group-title">@group.Name</h6>
+                                    <dl class="eventhub-catalog-metrics">
+                                        @foreach (var metric in group.Metrics)
+                                        {
+                                            <div class="eventhub-catalog-row" title="@metric.Description">
+                                                <dt>@metric.Name</dt>
+                                                <dd>@metric.Value</dd>
+                                            </div>
+                                        }
+                                    </dl>
+                                </section>
                             }
-                        </dl>
+                        </div>
                     </div>
 
                     <div class="eventhub-form-actions">
@@ -89,8 +95,38 @@
             </div>
         </div>
 
+        @* ── Middle: Endpoints ── *@
+        <div class="col-12 col-lg-3 eventhub-endpoints-col">
+            <div class="card shadow-sm eventhub-card">
+                <div class="card-header bg-primary text-white">
+                    <div class="d-flex flex-wrap align-items-baseline gap-2">
+                        <span class="fw-semibold">Endpoints</span>
+                        <span class="text-white-50 small">@EndpointSubtitle</span>
+                    </div>
+                </div>
+                <div class="card-body eventhub-card-body">
+                    @if (EndpointItems.Count == 0)
+                    {
+                        <div class="text-muted small">No endpoint activity received yet.</div>
+                    }
+                    else
+                    {
+                        <dl class="eventhub-endpoint-list">
+                            @foreach (var endpoint in EndpointItems)
+                            {
+                                <div class="eventhub-endpoint-item">
+                                    <dt title="@endpoint.Path">@endpoint.Path</dt>
+                                    <dd>@endpoint.Count</dd>
+                                </div>
+                            }
+                        </dl>
+                    }
+                </div>
+            </div>
+        </div>
+
         @* ── Right: Runtime stats + request stats ── *@
-        <div class="col-12 col-lg-8 eventhub-monitor-col">
+        <div class="col-12 col-lg-5 eventhub-monitor-col">
             @* ── Runtime stats + request stats row ── *@
             <div class="eventhub-bottom-row">
                 <div class="eventhub-stats-shell">
@@ -146,7 +182,17 @@
             height: calc(100dvh - 8.75rem);
         }
 
+        .eventhub-endpoints-col {
+            height: calc(100dvh - 8.75rem);
+        }
+
         .eventhub-config-col > .card {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .eventhub-endpoints-col > .card {
             height: 100%;
             display: flex;
             flex-direction: column;
@@ -158,6 +204,12 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
+        }
+
+        .eventhub-endpoints-col > .card > .card-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
         }
 
         .eventhub-monitor-col {
@@ -439,33 +491,36 @@
         color: #343a40;
     }
 
-    .eventhub-endpoint-stats {
+    .eventhub-endpoint-list {
         margin: 0;
         display: flex;
         flex-direction: column;
-        gap: 0.2rem;
+        gap: 0.25rem;
     }
 
-    .eventhub-endpoint-row {
+    .eventhub-endpoint-item {
         display: flex;
         justify-content: space-between;
         gap: 0.5rem;
-        padding: 0.2rem 0;
+        padding: 0.25rem 0;
         border-bottom: 1px solid #f1f3f5;
     }
 
-    .eventhub-endpoint-row:last-child {
+    .eventhub-endpoint-item:last-child {
         border-bottom: 0;
     }
 
-    .eventhub-endpoint-row dt {
+    .eventhub-endpoint-item dt {
         font-size: 0.72rem;
         color: #868e96;
         font-weight: 500;
         margin: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
-    .eventhub-endpoint-row dd {
+    .eventhub-endpoint-item dd {
         font-size: 0.75rem;
         font-weight: 600;
         color: #343a40;
@@ -483,10 +538,66 @@
         display: flex;
         flex-direction: column;
     }
+
+    .eventhub-catalog-groups {
+        display: flex;
+        flex-direction: column;
+        gap: 0.6rem;
+    }
+
+    .eventhub-catalog-group {
+        border: 1px solid #e9ecef;
+        border-radius: 0.4rem;
+        padding: 0.5rem 0.6rem;
+        background: #f8f9fa;
+    }
+
+    .eventhub-catalog-group-title {
+        margin: 0 0 0.35rem;
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: #6c757d;
+    }
+
+    .eventhub-catalog-metrics {
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+    }
+
+    .eventhub-catalog-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.5rem;
+        border-bottom: 1px dashed #e9ecef;
+        padding: 0.15rem 0;
+    }
+
+    .eventhub-catalog-row:last-child {
+        border-bottom: 0;
+    }
+
+    .eventhub-catalog-row dt {
+        margin: 0;
+        font-size: 0.7rem;
+        color: #495057;
+    }
+
+    .eventhub-catalog-row dd {
+        margin: 0;
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: #212529;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
 </style>
 
 @code {
-    private static readonly IReadOnlyList<ChatHistoryEntry> EmptyHistory = Array.Empty<ChatHistoryEntry>();
+    [SupplyParameterFromQuery(Name = "historyEntryId")]
+    public string? SelectedScopeId { get; set; }
 
     // Event Hub connection details are shared/server-wide and come from appsettings.json only.
     private EventHubMonitorOptions Options => MonitorOptions.Value;
@@ -497,6 +608,9 @@
     // The Event Hub is read server-side into a shared singleton store. This circuit holds only
     // the latest immutable snapshot and re-renders on a fixed cadence, not per event.
     private MonitorSnapshot _snapshot = new();
+    private IReadOnlyList<ProxyMetricsCatalog.MetricGroupSnapshot> _proxyMetricGroups = Array.Empty<ProxyMetricsCatalog.MetricGroupSnapshot>();
+    private IReadOnlyList<ProxyMetricsCatalog.ScopeOption> _scopeOptions = Array.Empty<ProxyMetricsCatalog.ScopeOption>();
+    private IReadOnlyList<ChatHistoryEntry> _scopeHistoryEntries = Array.Empty<ChatHistoryEntry>();
     private PeriodicTimer? _timer;
     private CancellationTokenSource? _cts;
     private bool _receivedFirst;
@@ -513,24 +627,97 @@
         ? $"{Backends.Count} host(s) · {_snapshot.Stats.LoadBalancingMode}"
         : "Not connected";
 
+    private string EndpointSubtitle => IsConnected
+        ? $"{EndpointItems.Count} unique endpoint(s)"
+        : "Not connected";
+
     private IReadOnlyList<BackendHealthSnapshot> Backends => _snapshot.Backends;
 
-    private IReadOnlyList<MultiRequestStatusItem> HistoryItems => _snapshot.Requests;
+    private IReadOnlyList<ChatHistoryEntry> ScopeHistoryEntries => _scopeHistoryEntries;
 
-    private IReadOnlyList<(string Label, string Value)> EndpointStats => BuildEndpointStats();
+    private IReadOnlyList<MultiRequestStatusItem> HistoryItems => FilterHistoryItemsByScope();
 
-    private IReadOnlyList<(string Label, string Value)> BuildEndpointStats()
+    private IReadOnlyList<EndpointItem> EndpointItems => BuildEndpointItems();
+
+    private IReadOnlyList<ProxyMetricsCatalog.MetricGroupSnapshot> ProxyMetricGroups => _proxyMetricGroups;
+
+    private string EffectiveScopeId => ResolveEffectiveScopeId();
+
+    private IReadOnlyList<EndpointItem> BuildEndpointItems()
     {
-        var stats = _snapshot.Stats;
-        return new (string Label, string Value)[]
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var request in HistoryItems)
         {
-            ("Active hosts", $"{stats.ActiveHosts} / {stats.TotalHosts}"),
-            ("Load balancing", stats.LoadBalancingMode),
-            ("Probe latency", $"{stats.BackendProbeLatencyMs:0} ms"),
-            ("Proxy version", string.IsNullOrEmpty(stats.ProxyVersion) ? "—" : stats.ProxyVersion),
-            ("Event Hub", string.IsNullOrEmpty(Options.EventHubName) ? "—" : Options.EventHubName),
-            ("Consumer group", Options.ConsumerGroup),
-        };
+            var backendLog = TryExtractBackendLog(request.ResponseHeadersText);
+            if (string.IsNullOrWhiteSpace(backendLog))
+            {
+                continue;
+            }
+
+            foreach (var endpointTarget in ExtractEndpointsFromBackendLog(backendLog))
+            {
+                counts[endpointTarget] = counts.TryGetValue(endpointTarget, out var existingCount)
+                    ? existingCount + 1
+                    : 1;
+            }
+        }
+
+        return counts
+            .OrderByDescending(pair => pair.Value)
+            .ThenBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(pair => new EndpointItem(pair.Key, pair.Value))
+            .ToArray();
+    }
+
+    private static string TryExtractBackendLog(string responseHeadersText)
+    {
+        if (string.IsNullOrWhiteSpace(responseHeadersText))
+        {
+            return string.Empty;
+        }
+
+        var backendLogLine = responseHeadersText
+            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+            .FirstOrDefault(line => line.StartsWith("backendLog:", StringComparison.OrdinalIgnoreCase));
+
+        if (string.IsNullOrWhiteSpace(backendLogLine))
+        {
+            return string.Empty;
+        }
+
+        return backendLogLine["backendLog:".Length..].Trim();
+    }
+
+    private static IReadOnlyList<string> ExtractEndpointsFromBackendLog(string backendLog)
+    {
+        var matches = Regex.Matches(
+            backendLog,
+            @"using\s+[^|]*?url:\s*(?<url>\S+)",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        var endpoints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (Match match in matches)
+        {
+            var urlValue = match.Groups["url"].Value.Trim();
+            if (string.IsNullOrWhiteSpace(urlValue))
+            {
+                continue;
+            }
+
+            if (Uri.TryCreate(urlValue, UriKind.Absolute, out var absoluteUri))
+            {
+                endpoints.Add($"{absoluteUri.Scheme}://{absoluteUri.Host}{absoluteUri.AbsolutePath}");
+                continue;
+            }
+
+            endpoints.Add(urlValue);
+        }
+
+        return endpoints.Count == 0
+            ? Array.Empty<string>()
+            : endpoints.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
     protected override void OnInitialized()
@@ -548,6 +735,8 @@
         IsConnected = true;
         _receivedFirst = false;
         _snapshot = Store.GetSnapshot();
+        RefreshScopeState();
+        _proxyMetricGroups = MetricsCatalog.GetActiveGroups(EffectiveScopeId);
         Store.Changed += OnStoreChanged;
 
         _cts = new CancellationTokenSource();
@@ -572,6 +761,9 @@
         _cts = null;
 
         _snapshot = new MonitorSnapshot();
+        _proxyMetricGroups = Array.Empty<ProxyMetricsCatalog.MetricGroupSnapshot>();
+        _scopeOptions = Array.Empty<ProxyMetricsCatalog.ScopeOption>();
+        _scopeHistoryEntries = Array.Empty<ChatHistoryEntry>();
     }
 
     // Fired from the store on every ingest. Used only to paint the first batch of data
@@ -587,6 +779,8 @@
         _ = InvokeAsync(() =>
         {
             _snapshot = Store.GetSnapshot();
+            RefreshScopeState();
+            _proxyMetricGroups = MetricsCatalog.GetActiveGroups(EffectiveScopeId);
             StateHasChanged();
         });
     }
@@ -598,6 +792,8 @@
             while (await _timer!.WaitForNextTickAsync(token))
             {
                 _snapshot = Store.GetSnapshot();
+                RefreshScopeState();
+                _proxyMetricGroups = MetricsCatalog.GetActiveGroups(EffectiveScopeId);
                 await InvokeAsync(StateHasChanged);
             }
         }
@@ -614,6 +810,8 @@
     }
 
     private sealed record TileMetric(string Label, string Value);
+
+    private sealed record EndpointItem(string Path, int Count);
 
     private sealed record StatTile(string Title, string Primary, string? PrimaryDetail, string Css, IReadOnlyList<TileMetric> Metrics);
 
@@ -636,7 +834,7 @@
         return new[]
         {
             // Derived from the request stream (retained in the store for one hour).
-            new StatTile("Requests", stats.TotalRequests.ToString("N0"), "last hour",
+            new StatTile("Request", stats.TotalRequests.ToString("N0"), "last hour",
                 stats.SuccessRate >= 95 ? "success" : "warning",
                 new[]
                 {
@@ -644,19 +842,84 @@
                     new TileMetric("Success", $"{stats.SuccessRate:0.#}%"),
                     new TileMetric("Failed", stats.Failed.ToString("N0")),
                 }),
-            new StatTile("Latency", $"{stats.AvgLatencyMs:0} ms", "backend avg", "info",
+            new StatTile("Server", $"{stats.AvgLatencyMs:0} ms", "backend avg", "info",
                 new[]
                 {
                     new TileMetric("Probe", $"{stats.BackendProbeLatencyMs:0} ms"),
                     new TileMetric("Balancing", stats.LoadBalancingMode),
                 }),
             // Derived from the S7P-Backend host event.
-            new StatTile("Hosts", $"{stats.ActiveHosts} / {stats.TotalHosts}", "active", "success",
+            new StatTile("Backends", $"{stats.ActiveHosts} / {stats.TotalHosts}", "active", "success",
                 new[]
                 {
                     new TileMetric("Backend", string.IsNullOrEmpty(stats.PrimaryBackend) ? "—" : stats.PrimaryBackend),
                     new TileMetric("Version", string.IsNullOrEmpty(stats.ProxyVersion) ? "—" : stats.ProxyVersion),
                 }),
         };
+    }
+
+    private void RefreshScopeState()
+    {
+        _scopeOptions = MetricsCatalog.GetScopeOptions();
+        _scopeHistoryEntries = BuildScopeHistoryEntries(_scopeOptions);
+    }
+
+    private string ResolveEffectiveScopeId()
+    {
+        if (!string.IsNullOrWhiteSpace(SelectedScopeId) && MetricsCatalog.IsKnownScope(SelectedScopeId))
+        {
+            return SelectedScopeId;
+        }
+
+        return "all";
+    }
+
+    private IReadOnlyList<MultiRequestStatusItem> FilterHistoryItemsByScope()
+    {
+        if (string.Equals(EffectiveScopeId, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            return _snapshot.Requests;
+        }
+
+        if (EffectiveScopeId.StartsWith("app:", StringComparison.OrdinalIgnoreCase))
+        {
+            var app = EffectiveScopeId["app:".Length..];
+            return _snapshot.Requests
+                .Where(item => string.Equals(item.ContainerApp, app, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+        }
+
+        if (EffectiveScopeId.StartsWith("replica:", StringComparison.OrdinalIgnoreCase))
+        {
+            var scopePayload = EffectiveScopeId["replica:".Length..];
+            var separatorIndex = scopePayload.IndexOf(':');
+            if (separatorIndex <= 0)
+            {
+                return _snapshot.Requests;
+            }
+
+            var app = scopePayload[..separatorIndex];
+            var replica = scopePayload[(separatorIndex + 1)..];
+            return _snapshot.Requests
+                .Where(item => string.Equals(item.ContainerApp, app, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(item.Replica, replica, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+        }
+
+        return _snapshot.Requests;
+    }
+
+    private static IReadOnlyList<ChatHistoryEntry> BuildScopeHistoryEntries(IReadOnlyList<ProxyMetricsCatalog.ScopeOption> scopeOptions)
+    {
+        return scopeOptions.Select(option => new ChatHistoryEntry
+        {
+            Id = option.Id,
+            Source = "EventHub monitor",
+            CreatedAt = DateTimeOffset.UtcNow,
+            Metrics = new ChatHistoryMetrics
+            {
+                Status = option.Label,
+            },
+        }).ToArray();
     }
 }

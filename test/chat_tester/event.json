@@ -348,8 +348,71 @@
 {"ActiveHosts":"1","Priority":"2","QueueLength":"0","Message":"Not Authorized : No auth provided","RequestUserAgent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36","Date":"2026-06-24T00:25:08.9056895Z","Retry-After":"500","RequestHost":"127.0.0.1:8000","Path":"/:undefined","ErrorDetail":"EnqueueFailed","ExpiresAt":"","Priority2":"0","Ver":"2.2.13","Replica":"","ContainerApp":"ContainerAppName","Type":"S7P-ServerError","MID":"S7P-LAPTOP-KOKKFB9M-233","Status":"403","Method":"GET"}
 {"Timestamp":"2026-06-24T00:26:10.4706607Z","1-Status":"\u2713 Active","1-Errors":"0","ActiveHostsCount":"1","SuccessRate":"0.8","LoadBalanceMode":"latency","1-Average":"0","1-Host":"APIM backend | Auth=key | https://localhost:443 | Path: / | Probe: /status-0123456789abcdef","1-Latency":"133.632","1-Calls":"0","1-SuccessRate":"100","Ver":"2.2.13","Replica":"","ContainerApp":"ContainerAppName","Type":"S7P-Backend","MID":"","Status":"0","Method":"GET"}
 {"Timestamp":"2026-06-24T00:27:25.4739066Z","1-Status":"\u2713 Active","1-Errors":"0","ActiveHostsCount":"1","SuccessRate":"0.8","LoadBalanceMode":"latency","1-Average":"0","1-Host":"APIM backend | Auth=key | https://localhost:443 | Path: / | Probe: /status-0123456789abcdef","1-Latency":"133.772","1-Calls":"0","1-SuccessRate":"100","Ver":"2.2.13","Replica":"","ContainerApp":"ContainerAppName","Type":"S7P-Backend","MID":"","Status":"0","Method":"GET"}
-{"RequestUserAgent":"N/A","QueueLength":"1","Priority":"1","S7P-Priority":"1","ExpiresAt":"2026-06-24T00:33:27.5331958Z","DefaultTimeout":"1200000","Message":"Enqueued request","Path":"/openai/v1/chat/completions","Date":"2026-06-24T00:28:27.3989083Z","ActiveHosts":"1","GUID":"dfc19275-1943-4f04-9017-89a0ca9e0bec","RequestHost":"localhost:8000","Priority2":"0","S7P-Priority2":"0","UserID":"nina","S7P-ID":"S7P-LAPTOP-KOKKFB9M-234","Ver":"2.2.13","Replica":"","ContainerApp":"ContainerAppName","Type":"S7P-ProxyRequestEnqueued","MID":"S7P-LAPTOP-KOKKFB9M-234","Status":"0","Method":"POST"}
-{"x-PolicyCycleCounter":"2","Host-URL":"https://localhost:443","RequestUserAgent":"N/A","QueueLength":"1","Priority":"1","Request-Process-Duration":"4.1614","x-ms-request-id":"293af88c-d5b3-4cd4-93a4-1e18c43e5623","S7P-Priority":"1","Request-Date":"2026-06-24T00:28:27.5635911Z","Request-Context":"appId=cid-v1:d5a7cc01-2aaa-4e64-8e84-92457137e12c","ExpiresAt":"2026-06-24T00:33:27.5331958Z","DefaultTimeout":"1200000","Attempt":"1","RequestType":"Sync","x-ms-correlation-id":"293af88c-d5b3-4cd4-93a4-1e18c43e5623","Request-Queue-Duration":"9.7093","x-Backend-Attempts":"1","Lifetime-Attempt":"1","Path":"/openai/v1/chat/completions","Date":"2026-06-24T00:28:27.3989083Z","RequestContentLength":"277","ActiveHosts":"1","backendLog":"Proxy-Queue-Duration: 9.7093 | Proxy-Process-Duration: 4.1614 | S7PID: S7P-LAPTOP-KOKKFB9M-234 | x-S7PPriority: 1 | Priority: 1 | 0.385s Begin | 0.443s THROTTLED: (none) | 0.455s RETRIES LEFT: 1 CYCLE: 1 INDEX: 0 Unthrottled Backends: 1 | 0.464s Using PAYGO URL: https://nvm2.openai.azure.com/openai LIMIT: off | 6.779s Error status 500 after 6.3s | 6.817s RETRIES LEFT: exhausted CYCLE: 2 INDEX: 0 Unthrottled Backends: 1 | 6.898s THROTTLED: PAYGO Retry-After: 00:10 | 6.899s CALL INCOMPLETE, Unthrottled Backends: 0","GUID":"dfc19275-1943-4f04-9017-89a0ca9e0bec","Backend-Host":"https://localhost:443","EnqueueTime":"2026-06-24T00:28:27.5331958Z","RequestHost":"localhost:8000","Priority2":"0","S7P-Priority2":"0","UserID":"nina","S7P-ID":"S7P-LAPTOP-KOKKFB9M-234","Ver":"2.2.13","Replica":"","ContainerApp":"ContainerAppName","Type":"S7P-BackendRequest","MID":"S7P-LAPTOP-KOKKFB9M-234-1","Status":"500","Method":"POST"}
+{
+    "RequestUserAgent": "N/A",
+    "QueueLength": "1",
+    "Priority": "1",
+    "S7P-Priority": "1",
+    "ExpiresAt": "2026-06-24T00:33:27.5331958Z",
+    "DefaultTimeout": "1200000",
+    "Message": "Enqueued request",
+    "Path": "/openai/v1/chat/completions",
+    "Date": "2026-06-24T00:28:27.3989083Z",
+    "ActiveHosts": "1",
+    "GUID": "dfc19275-1943-4f04-9017-89a0ca9e0bec",
+    "RequestHost": "localhost:8000",
+    "Priority2": "0",
+    "S7P-Priority2": "0",
+    "UserID": "nina",
+    "S7P-ID": "S7P-LAPTOP-KOKKFB9M-234",
+    "Ver": "2.2.13",
+    "Replica": "",
+    "ContainerApp": "ContainerAppName",
+    "Type": "S7P-ProxyRequestEnqueued",
+    "MID": "S7P-LAPTOP-KOKKFB9M-234",
+    "Status": "0",
+    "Method": "POST"
+}
+{
+    "x-PolicyCycleCounter": "2",
+    "Host-URL": "https://localhost:443",
+    "RequestUserAgent": "N/A",
+    "QueueLength": "1",
+    "Priority": "1",
+    "Request-Process-Duration": "4.1614",
+    "x-ms-request-id": "293af88c-d5b3-4cd4-93a4-1e18c43e5623",
+    "S7P-Priority": "1",
+    "Request-Date": "2026-06-24T00:28:27.5635911Z",
+    "Request-Context": "appId=cid-v1:d5a7cc01-2aaa-4e64-8e84-92457137e12c",
+    "ExpiresAt": "2026-06-24T00:33:27.5331958Z",
+    "DefaultTimeout": "1200000",
+    "Attempt": "1",
+    "RequestType": "Sync",
+    "x-ms-correlation-id": "293af88c-d5b3-4cd4-93a4-1e18c43e5623",
+    "Request-Queue-Duration": "9.7093",
+    "x-Backend-Attempts": "1",
+    "Lifetime-Attempt": "1",
+    "Path": "/openai/v1/chat/completions",
+    "Date": "2026-06-24T00:28:27.3989083Z",
+    "RequestContentLength": "277",
+    "ActiveHosts": "1",
+    "backendLog": "Proxy-Queue-Duration: 9.7093 | Proxy-Process-Duration: 4.1614 | S7PID: S7P-LAPTOP-KOKKFB9M-234 | x-S7PPriority: 1 | Priority: 1 | 0.385s Begin | 0.443s THROTTLED: (none) | 0.455s RETRIES LEFT: 1 CYCLE: 1 INDEX: 0 Unthrottled Backends: 1 | 0.464s Using PAYGO URL: https://nvm2.openai.azure.com/openai LIMIT: off | 6.779s Error status 500 after 6.3s | 6.817s RETRIES LEFT: exhausted CYCLE: 2 INDEX: 0 Unthrottled Backends: 1 | 6.898s THROTTLED: PAYGO Retry-After: 00:10 | 6.899s CALL INCOMPLETE, Unthrottled Backends: 0",
+    "GUID": "dfc19275-1943-4f04-9017-89a0ca9e0bec",
+    "Backend-Host": "https://localhost:443",
+    "EnqueueTime": "2026-06-24T00:28:27.5331958Z",
+    "RequestHost": "localhost:8000",
+    "Priority2": "0",
+    "S7P-Priority2": "0",
+    "UserID": "nina",
+    "S7P-ID": "S7P-LAPTOP-KOKKFB9M-234",
+    "Ver": "2.2.13",
+    "Replica": "",
+    "ContainerApp": "ContainerAppName",
+    "Type": "S7P-BackendRequest",
+    "MID": "S7P-LAPTOP-KOKKFB9M-234-1",
+    "Status": "500",
+    "Method": "POST"
+}
 {"Success":"False","Count":"1","Code":"500","Time":"06/24/2026 00:28:34","Ver":"2.2.13","Replica":"","ContainerApp":"ContainerAppName","Type":"S7P-CircuitBreakerError","MID":"","Status":"0","Method":"GET"}
 {"Priority":"1","DefaultTimeout":"1200000","Attempt-1-Host-URL":"https://localhost:443","ExpiresAt":"2026-06-24T00:33:27.5331958Z","Attempt-1-Backend-Host":"https://localhost:443","Url":"https://localhost/openai/v1/chat/completions","RequestType":"Sync","Priority2":"0","QueueLength":"1","Path":"/openai/v1/chat/completions","Request-Process-Duration":"4.1614","Status":"InternalServerError","Date":"2026-06-24T00:28:27.3989083Z","RequestContentLength":"277","Response-Latency":"7561.792","Attempt-1-Duration":"7350.7801","S7P-ID":"S7P-LAPTOP-KOKKFB9M-234","Attempt-1-Reason":"InternalServerError","Average-Backend-Probe-Latency":"7571.501 ms","Message":"No active hosts were able to handle the request","Attempts":"1","Request-Queue-Duration":"9.7093","Content-Type":"application/json; charset=utf-8","RequestHost":"localhost:8000","Attempt-1-Status":"500","EnqueueTime":"2026-06-24T00:28:27.5331958Z","ActiveHosts":"1","UserID":"nina","Backend-Host":"No Active Hosts Available","Attempt-1-State":"Backend proxy status code: 500","Attempt-1-backendLog":"Proxy-Queue-Duration: 9.7093 | Proxy-Process-Duration: 4.1614 | S7PID: S7P-LAPTOP-KOKKFB9M-234 | x-S7PPriority: 1 | Priority: 1 | 0.385s Begin | 0.443s THROTTLED: (none) | 0.455s RETRIES LEFT: 1 CYCLE: 1 INDEX: 0 Unthrottled Backends: 1 | 0.464s Using PAYGO URL: https://nvm2.openai.azure.com/openai LIMIT: off | 6.779s Error status 500 after 6.3s | 6.817s RETRIES LEFT: exhausted CYCLE: 2 INDEX: 0 Unthrottled Backends: 1 | 6.898s THROTTLED: PAYGO Retry-After: 00:10 | 6.899s CALL INCOMPLETE, Unthrottled Backends: 0","Content-Length":"929","Attempt-1-Request-Date":"2026-06-24T00:28:27.5635911Z","GUID":"dfc19275-1943-4f04-9017-89a0ca9e0bec","S7P-Priority":"1","S7P-Priority2":"0","RequestUserAgent":"N/A","Total-Latency":"7571.836","Ver":"2.2.13","Replica":"","ContainerApp":"ContainerAppName","Type":"S7P-ProxyRequest","MID":"S7P-LAPTOP-KOKKFB9M-234","Status":"500","Method":"POST"}
 {"Timestamp":"2026-06-24T00:28:40.4707671Z","1-Status":"\u2713 Active","1-Errors":"0","ActiveHostsCount":"1","SuccessRate":"0.8","LoadBalanceMode":"latency","1-Average":"0","1-Host":"APIM backend | Auth=key | https://localhost:443 | Path: / | Probe: /status-0123456789abcdef","1-Latency":"133.871","1-Calls":"0","1-SuccessRate":"100","Ver":"2.2.13","Replica":"","ContainerApp":"ContainerAppName","Type":"S7P-Backend","MID":"","Status":"0","Method":"GET"}

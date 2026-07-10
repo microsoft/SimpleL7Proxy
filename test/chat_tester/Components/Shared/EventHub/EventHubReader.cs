@@ -4,6 +4,7 @@ using Azure.Identity;
 using Azure.Messaging.EventHubs;
 using Azure.Messaging.EventHubs.Consumer;
 using Azure.Core;
+using chat_tester.Components.Shared.EventHub.Pipeline;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -18,18 +19,35 @@ public sealed class EventHubReader : BackgroundService
     private const string EventHubNamespaceVariable = "EVENTHUB_NAMESPACE";
 
     private readonly EventHubMonitorStore _store;
+    private readonly ProxyMetricsCatalog _proxyMetricsCatalog;
     private readonly EventHubMonitorOptions _options;
     private readonly ILogger<EventHubReader> _logger;
     private readonly Dictionary<string, List<string>> _requestLifecycle = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<BasePipelineProcessor> _pipelineProcessors = new();
+    private readonly CleanupProcessor _cleanupProcessor;
 
     public EventHubReader(
         EventHubMonitorStore store,
+        ProxyMetricsCatalog proxyMetricsCatalog,
         IOptions<EventHubMonitorOptions> options,
         ILogger<EventHubReader> logger)
     {
         _store = store;
+        _proxyMetricsCatalog = proxyMetricsCatalog;
         _options = options.Value;
         _logger = logger;
+
+        RegisterProcessor(new ServerPipelineProcessor(ParseEventData));
+        RegisterProcessor(new BackendPipelineProcessor(ParseEventData));
+        RegisterProcessor(new EndpointPipelineProcessor(ParseEventData));
+        RegisterProcessor(new RequestPipelineProcessor(ParseEventData));
+
+        _cleanupProcessor = new CleanupProcessor(TryProcessIncomingRecord, LogInvalidRecord, PublishProxyMetrics);
+    }
+
+    private void RegisterProcessor(BasePipelineProcessor processor)
+    {
+        processor.Register(_pipelineProcessors);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -130,26 +148,16 @@ public sealed class EventHubReader : BackgroundService
             }
 
             var jsonObjects = ExtractJsonObjects(line, objectBuffer, ref readState);
-            foreach (var jsonObject in jsonObjects)
+            if (jsonObjects.Count == 0)
             {
-                try
-                {
-                    var eventData = ParseEventData(jsonObject);
-                    if (ProcessEventData(eventData))
-                    {
-                        importedCount++;
-                    }
-                    else
-                    {
-                        skippedCount++;
-                    }
-                }
-                catch (JsonException ex)
-                {
-                    skippedCount++;
-                    _logger.LogWarning(ex, "Ignoring invalid JSON record in Event Hub import file {LocalFilePath}.", localFilePath);
-                }
+                continue;
             }
+
+            var runResult = RunPipeline(
+                jsonObjects.ToArray(),
+                $"Event Hub import file {localFilePath}");
+            importedCount += runResult.ProcessedCount;
+            skippedCount += runResult.SkippedCount;
         }
 
         if (readState.IsCapturing && objectBuffer.Length > 0)
@@ -346,19 +354,56 @@ public sealed class EventHubReader : BackgroundService
     private void ProcessEvent(PartitionEvent partitionEvent, string partitionId)
     {
         var eventBody = Encoding.UTF8.GetString(partitionEvent.Data.Body.ToArray());
-        Dictionary<string, string> eventData;
+        RunPipeline(
+            new[] { eventBody },
+            $"Event Hub partition {partitionId}");
+    }
 
-        try
+    private PipelineRunResult RunPipeline(string[] incomingRecords, string source)
+    {
+        if (incomingRecords.Length == 0)
         {
-            eventData = ParseEventData(eventBody);
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogWarning(ex, "Ignoring non-JSON Event Hub message from partition {PartitionId}.", partitionId);
-            return;
+            return PipelineRunResult.Empty;
         }
 
-        ProcessEventData(eventData);
+        var server = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var backend = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var endpoint = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var requests = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var processor in _pipelineProcessors)
+        {
+            processor.Process(server, backend, endpoint, requests, incomingRecords);
+        }
+
+        return _cleanupProcessor.Finalize(
+            server,
+            backend,
+            endpoint,
+            requests,
+            incomingRecords,
+            source);
+    }
+
+    private bool TryProcessIncomingRecord(string incomingRecord)
+    {
+        var eventData = ParseEventData(incomingRecord);
+        return ProcessEventData(eventData);
+    }
+
+    private void LogInvalidRecord(Exception exception, string source)
+    {
+        _logger.LogWarning(exception, "Ignoring invalid Event Hub record from {Source}.", source);
+    }
+
+    private void PublishProxyMetrics(
+        IReadOnlyDictionary<string, string> server,
+        IReadOnlyDictionary<string, string> backend,
+        IReadOnlyDictionary<string, string> endpoint,
+        IReadOnlyDictionary<string, string> requests,
+        string[] incomingRecords)
+    {
+        _proxyMetricsCatalog.Publish(server, backend, endpoint, requests, incomingRecords);
     }
 
     private bool ProcessEventData(IReadOnlyDictionary<string, string> eventData)
@@ -466,6 +511,8 @@ public sealed class EventHubReader : BackgroundService
 
         _store.AddRequest(new MultiRequestStatusItem
         {
+            ContainerApp = GetValue(eventData, "ContainerApp"),
+            Replica = GetValue(eventData, "Replica"),
             Status = statusLabel,
             StatusMessage = statusMessage,
             StatusCode = statusCode,

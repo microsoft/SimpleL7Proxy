@@ -85,6 +85,11 @@
 
     private static string FormatEntry(ChatHistoryEntry entry)
     {
+        if (string.Equals(entry.Source, "EventHub monitor", StringComparison.OrdinalIgnoreCase))
+        {
+            return FormatStatus(entry);
+        }
+
         var status = FormatStatus(entry);
         return $"{entry.CreatedAt.LocalDateTime.ToString("MMM d, h:mm tt", CultureInfo.InvariantCulture)} - {status}";
     }

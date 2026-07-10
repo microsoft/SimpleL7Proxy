@@ -3,6 +3,8 @@ namespace chat_tester.Components.Shared;
 public sealed class MultiRequestStatusItem
 {
     public int RequestNumber { get; set; }
+    public string ContainerApp { get; set; } = string.Empty;
+    public string Replica { get; set; } = string.Empty;
     public string Status { get; set; } = "Pending";
     public string StatusMessage { get; set; } = string.Empty;
     public int? StatusCode { get; set; }
