@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Configuration;
+
 namespace chat_tester.Components.Shared;
 
 /// <summary>
@@ -9,6 +11,13 @@ public sealed class EventHubMonitorOptions
 {
     /// <summary>Configuration section these options bind from.</summary>
     public const string SectionName = "EventHubMonitor";
+
+    /// <summary>Controls whether the hosted reader should connect to the live Event Hub.</summary>
+    [ConfigurationKeyName("eventhub_enabled")]
+    public bool EventHubEnabled { get; set; } = true;
+
+    /// <summary>Optional path to a newline-delimited JSON event file loaded at startup.</summary>
+    public string LocalFilePath { get; set; } = string.Empty;
 
     /// <summary>Event Hub namespace connection string used by the server-side reader.</summary>
     public string ConnectionString { get; set; } = string.Empty;

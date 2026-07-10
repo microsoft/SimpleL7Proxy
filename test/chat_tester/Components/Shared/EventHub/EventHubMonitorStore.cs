@@ -29,6 +29,8 @@ public sealed class EventHubMonitorStore
     private int _requestCounter;
     private bool _hasData;
 
+    public bool DisableRequestAging { get; set; }
+
     public EventHubMonitorStore(TimeProvider? timeProvider = null)
     {
         _time = timeProvider ?? TimeProvider.System;
@@ -77,7 +79,10 @@ public sealed class EventHubMonitorStore
             var now = _time.GetUtcNow();
             request.RequestNumber = ++_requestCounter;
             _requests.AddLast(new TimedRequest(now, request));
-            PurgeExpired(now);
+            if (!DisableRequestAging)
+            {
+                PurgeExpired(now);
+            }
             _hasData = true;
         }
         Changed?.Invoke();
@@ -95,7 +100,10 @@ public sealed class EventHubMonitorStore
                 request.RequestNumber = ++_requestCounter;
                 _requests.AddLast(new TimedRequest(now, request));
             }
-            PurgeExpired(now);
+            if (!DisableRequestAging)
+            {
+                PurgeExpired(now);
+            }
             _hasData = true;
         }
         Changed?.Invoke();
@@ -123,7 +131,10 @@ public sealed class EventHubMonitorStore
         lock (_gate)
         {
             var now = _time.GetUtcNow();
-            PurgeExpired(now);
+            if (!DisableRequestAging)
+            {
+                PurgeExpired(now);
+            }
 
             var requests = new MultiRequestStatusItem[_requests.Count];
             var windowStart = now - RateWindow;

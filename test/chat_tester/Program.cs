@@ -8,7 +8,9 @@ builder.Configuration.AddJsonFile($"chat-models.{builder.Environment.Environment
 builder.Configuration.AddJsonFile("vision-models.json", optional: false, reloadOnChange: true);
 builder.Configuration.AddJsonFile($"vision-models.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true);
 
-var eventHubEnabled = builder.Configuration.GetValue<bool>("EventHubMonitor:eventhub_enabled", true);
+var eventHubSection = builder.Configuration.GetSection(EventHubMonitorOptions.SectionName);
+var eventHubEnabled = eventHubSection.GetValue<bool>("eventhub_enabled", true);
+var localEventFilePath = eventHubSection.GetValue<string>("LocalFilePath");
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
@@ -29,7 +31,7 @@ builder.Services.AddSingleton<VisionModelCatalog>();
 builder.Services.AddSingleton<ChatHistoryStore>();
 builder.Services.AddSingleton<ChatConversationStore>();
 builder.Services.AddSingleton<EventHubMonitorStore>();
-if (eventHubEnabled)
+if (eventHubEnabled || !string.IsNullOrWhiteSpace(localEventFilePath))
 {
     builder.Services.AddHostedService<EventHubReader>();
 }

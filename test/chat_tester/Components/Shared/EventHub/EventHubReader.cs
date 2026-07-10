@@ -20,6 +20,7 @@ public sealed class EventHubReader : BackgroundService
     private readonly EventHubMonitorStore _store;
     private readonly EventHubMonitorOptions _options;
     private readonly ILogger<EventHubReader> _logger;
+    private readonly Dictionary<string, List<string>> _requestLifecycle = new(StringComparer.OrdinalIgnoreCase);
 
     public EventHubReader(
         EventHubMonitorStore store,
@@ -34,6 +35,13 @@ public sealed class EventHubReader : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var settings = ResolveSettings();
+        await ImportLocalFileAsync(settings.LocalFilePath, stoppingToken).ConfigureAwait(false);
+
+        if (!settings.EventHubEnabled)
+        {
+            return;
+        }
+
         if (!settings.IsConfigured)
         {
             _logger.LogInformation(
@@ -74,6 +82,166 @@ public sealed class EventHubReader : BackgroundService
         {
             _logger.LogError(ex, "Event Hub reader stopped unexpectedly.");
         }
+    }
+
+    private async Task ImportLocalFileAsync(string? localFilePath, CancellationToken stoppingToken)
+    {
+        if (string.IsNullOrWhiteSpace(localFilePath))
+        {
+            _store.DisableRequestAging = false;
+            return;
+        }
+
+        if (!Path.IsPathRooted(localFilePath))
+        {
+            localFilePath = Path.GetFullPath(localFilePath, AppContext.BaseDirectory);
+        }
+
+        if (!File.Exists(localFilePath))
+        {
+            _store.DisableRequestAging = false;
+            _logger.LogWarning("Configured Event Hub import file was not found: {LocalFilePath}", localFilePath);
+            return;
+        }
+
+        _store.DisableRequestAging = true;
+        _store.Clear();
+        _requestLifecycle.Clear();
+
+        var importedCount = 0;
+        var skippedCount = 0;
+
+        await using var stream = File.OpenRead(localFilePath);
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        var objectBuffer = new StringBuilder();
+        var readState = new JsonObjectReadState();
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            var line = await reader.ReadLineAsync(stoppingToken).ConfigureAwait(false);
+            if (line is null)
+            {
+                break;
+            }
+
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            var jsonObjects = ExtractJsonObjects(line, objectBuffer, ref readState);
+            foreach (var jsonObject in jsonObjects)
+            {
+                try
+                {
+                    var eventData = ParseEventData(jsonObject);
+                    if (ProcessEventData(eventData))
+                    {
+                        importedCount++;
+                    }
+                    else
+                    {
+                        skippedCount++;
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    skippedCount++;
+                    _logger.LogWarning(ex, "Ignoring invalid JSON record in Event Hub import file {LocalFilePath}.", localFilePath);
+                }
+            }
+        }
+
+        if (readState.IsCapturing && objectBuffer.Length > 0)
+        {
+            skippedCount++;
+            _logger.LogWarning(
+                "Ignoring incomplete JSON record at the end of Event Hub import file {LocalFilePath}.",
+                localFilePath);
+        }
+
+        _logger.LogInformation(
+            "Imported {ImportedCount} events from local Event Hub file {LocalFilePath}. Skipped {SkippedCount} unsupported or invalid records.",
+            importedCount,
+            localFilePath,
+            skippedCount);
+    }
+
+    private static List<string> ExtractJsonObjects(
+        string line,
+        StringBuilder objectBuffer,
+        ref JsonObjectReadState state)
+    {
+        var jsonObjects = new List<string>();
+
+        if (state.IsCapturing && objectBuffer.Length > 0)
+        {
+            objectBuffer.Append('\n');
+        }
+
+        for (var index = 0; index < line.Length; index++)
+        {
+            var character = line[index];
+
+            if (!state.IsCapturing)
+            {
+                if (character != '{')
+                {
+                    continue;
+                }
+
+                state = state.StartObject();
+                objectBuffer.Clear();
+            }
+
+            objectBuffer.Append(character);
+
+            if (state.EscapeNext)
+            {
+                state = state with { EscapeNext = false };
+                continue;
+            }
+
+            if (character == '\\' && state.InString)
+            {
+                state = state with { EscapeNext = true };
+                continue;
+            }
+
+            if (character == '"')
+            {
+                state = state with { InString = !state.InString };
+                continue;
+            }
+
+            if (state.InString)
+            {
+                continue;
+            }
+
+            if (character == '{')
+            {
+                state = state with { Depth = state.Depth + 1 };
+                continue;
+            }
+
+            if (character != '}')
+            {
+                continue;
+            }
+
+            state = state with { Depth = state.Depth - 1 };
+            if (state.Depth != 0)
+            {
+                continue;
+            }
+
+            jsonObjects.Add(objectBuffer.ToString());
+            objectBuffer.Clear();
+            state = default;
+        }
+
+        return jsonObjects;
     }
 
     private async Task RunConsumerAsync(
@@ -190,22 +358,37 @@ public sealed class EventHubReader : BackgroundService
             return;
         }
 
+        ProcessEventData(eventData);
+    }
+
+    private bool ProcessEventData(IReadOnlyDictionary<string, string> eventData)
+    {
         if (!eventData.TryGetValue("Type", out var eventType) || string.IsNullOrWhiteSpace(eventType))
         {
-            return;
+            return false;
         }
 
         switch (eventType)
         {
             case "S7P-Backend":
                 ApplyBackendEvent(eventData);
-                break;
+                return true;
+
+            case "S7P-ProxyRequestEnqueued":
+            case "S7P-BackendRequest":
+            case "S7P-ServerError":
+            case "S7P-CircuitBreakerError":
+                TrackLifecycleEvent(eventData, eventType);
+                return false;
 
             case "S7P-ProxyRequest":
             case "S7P-ProxyRequestExpired":
             case "S7P-ProxyRequestRequeued":
                 ApplyRequestEvent(eventData, eventType);
-                break;
+                return true;
+
+            default:
+                return false;
         }
     }
 
@@ -258,10 +441,28 @@ public sealed class EventHubReader : BackgroundService
 
     private void ApplyRequestEvent(IReadOnlyDictionary<string, string> eventData, string eventType)
     {
+        var correlationKey = GetCorrelationKey(eventData);
+        if (!string.IsNullOrWhiteSpace(correlationKey))
+        {
+            TrackLifecycleEvent(eventData, eventType);
+        }
+
         var statusCode = ParseNullableInt(eventData, "Status");
         var failed = eventType != "S7P-ProxyRequest" || (statusCode is >= 400);
         var statusLabel = failed ? "Failed" : "Completed";
         var statusMessage = BuildStatusMessage(eventData, eventType, statusCode, statusLabel);
+        var requestHeaders = BuildRequestHeadersText(eventData);
+        var responseHeaders = BuildResponseHeadersText(eventData, statusCode);
+        var lifecycleText = BuildLifecycleText(correlationKey);
+        if (!string.IsNullOrWhiteSpace(lifecycleText))
+        {
+            responseHeaders = string.IsNullOrWhiteSpace(responseHeaders)
+                ? $"Lifecycle:{Environment.NewLine}{lifecycleText}"
+                : $"{responseHeaders}{Environment.NewLine}Lifecycle:{Environment.NewLine}{lifecycleText}";
+        }
+
+        var summaryBody = BuildRequestSummaryBody(eventData);
+        var responseBody = BuildResponseSummaryBody(eventData, statusMessage);
 
         _store.AddRequest(new MultiRequestStatusItem
         {
@@ -274,13 +475,120 @@ public sealed class EventHubReader : BackgroundService
                 ?? ParseNullableMilliseconds(eventData, "Duration"),
             Chunks = 0,
             TotalBytes = ParseLong(eventData, "Content-Length"),
-            RequestHeadersText = BuildRequestHeadersText(eventData),
-            ResponseHeadersText = BuildResponseHeadersText(eventData, statusCode),
-            RequestBodyDisplay = string.Empty,
-            ResponseBody = string.Empty,
+            RequestHeadersText = requestHeaders,
+            ResponseHeadersText = responseHeaders,
+            RequestBodyDisplay = summaryBody,
+            ResponseBody = responseBody,
             IsComplete = true,
             IsFailed = failed,
         });
+
+        if (!string.IsNullOrWhiteSpace(correlationKey))
+        {
+            _requestLifecycle.Remove(correlationKey);
+        }
+    }
+
+    private void TrackLifecycleEvent(IReadOnlyDictionary<string, string> eventData, string eventType)
+    {
+        var correlationKey = GetCorrelationKey(eventData);
+        if (string.IsNullOrWhiteSpace(correlationKey))
+        {
+            return;
+        }
+
+        if (!_requestLifecycle.TryGetValue(correlationKey, out var steps))
+        {
+            steps = new List<string>();
+            _requestLifecycle[correlationKey] = steps;
+        }
+
+        var timestamp = FirstNonEmpty(
+            GetValue(eventData, "Date"),
+            GetValue(eventData, "Timestamp"),
+            GetValue(eventData, "Request-Date"),
+            GetValue(eventData, "EnqueueTime")) ?? "(time-unknown)";
+
+        var status = GetValue(eventData, "Status");
+        var backendHost = GetValue(eventData, "Backend-Host");
+        var message = FirstNonEmpty(
+            GetValue(eventData, "Message"),
+            GetValue(eventData, "ErrorDetail"),
+            GetValue(eventData, "Error"),
+            GetValue(eventData, "ErrorMessage"));
+
+        var detailParts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            detailParts.Add($"status={status}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(backendHost))
+        {
+            detailParts.Add($"backend={backendHost}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(message))
+        {
+            detailParts.Add($"message={message}");
+        }
+
+        var suffix = detailParts.Count > 0 ? $" | {string.Join(" | ", detailParts)}" : string.Empty;
+        steps.Add($"{timestamp} | {eventType}{suffix}");
+    }
+
+    private string BuildLifecycleText(string? correlationKey)
+    {
+        if (string.IsNullOrWhiteSpace(correlationKey))
+        {
+            return string.Empty;
+        }
+
+        if (!_requestLifecycle.TryGetValue(correlationKey, out var steps) || steps.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return string.Join(Environment.NewLine, steps);
+    }
+
+    private static string BuildRequestSummaryBody(IReadOnlyDictionary<string, string> eventData)
+    {
+        var summary = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["MID"] = GetValue(eventData, "MID"),
+            ["GUID"] = GetValue(eventData, "GUID"),
+            ["UserID"] = GetValue(eventData, "UserID"),
+            ["Path"] = GetValue(eventData, "Path"),
+            ["RequestType"] = GetValue(eventData, "RequestType"),
+            ["Priority"] = GetValue(eventData, "Priority"),
+            ["Priority2"] = GetValue(eventData, "Priority2"),
+            ["Request-Queue-Duration"] = GetValue(eventData, "Request-Queue-Duration"),
+            ["Total-Latency"] = GetValue(eventData, "Total-Latency"),
+        };
+
+        return JsonSerializer.Serialize(summary, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static string BuildResponseSummaryBody(IReadOnlyDictionary<string, string> eventData, string statusMessage)
+    {
+        var summary = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["StatusMessage"] = statusMessage,
+            ["Message"] = GetValue(eventData, "Message"),
+            ["ErrorDetail"] = GetValue(eventData, "ErrorDetail"),
+            ["Backend-Host"] = GetValue(eventData, "Backend-Host"),
+            ["backendLog"] = GetValue(eventData, "backendLog"),
+        };
+
+        return JsonSerializer.Serialize(summary, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static string? GetCorrelationKey(IReadOnlyDictionary<string, string> eventData)
+    {
+        return FirstNonEmpty(
+            GetValue(eventData, "MID"),
+            GetValue(eventData, "GUID"));
     }
 
     private ReaderSettings ResolveSettings()
@@ -305,6 +613,8 @@ public sealed class EventHubReader : BackgroundService
         }
 
         return new ReaderSettings(
+            _options.EventHubEnabled,
+            _options.LocalFilePath,
             connectionString,
             eventHubName,
             consumerGroup,
@@ -392,7 +702,7 @@ public sealed class EventHubReader : BackgroundService
 
     private static Dictionary<string, string> ParseEventData(string eventBody)
     {
-        using var document = JsonDocument.Parse(eventBody);
+        using var document = JsonDocument.Parse(NormalizeJsonRecord(eventBody));
         if (document.RootElement.ValueKind != JsonValueKind.Object)
         {
             throw new JsonException("Event Hub payload was not a JSON object.");
@@ -413,6 +723,56 @@ public sealed class EventHubReader : BackgroundService
         }
 
         return eventData;
+    }
+
+    private static string NormalizeJsonRecord(string eventBody)
+    {
+        if (string.IsNullOrEmpty(eventBody))
+        {
+            return eventBody;
+        }
+
+        var builder = new StringBuilder(eventBody.Length);
+        var inString = false;
+        var escapeNext = false;
+
+        foreach (var character in eventBody)
+        {
+            if (escapeNext)
+            {
+                builder.Append(character);
+                escapeNext = false;
+                continue;
+            }
+
+            if (character == '\\')
+            {
+                builder.Append(character);
+                if (inString)
+                {
+                    escapeNext = true;
+                }
+
+                continue;
+            }
+
+            if (character == '"')
+            {
+                builder.Append(character);
+                inString = !inString;
+                continue;
+            }
+
+            if (inString && character is '\r' or '\n')
+            {
+                builder.Append(character == '\r' ? "\\r" : "\\n");
+                continue;
+            }
+
+            builder.Append(character);
+        }
+
+        return builder.ToString();
     }
 
     private static string BuildBackendName(string host)
@@ -572,6 +932,8 @@ public sealed class EventHubReader : BackgroundService
     }
 
     private sealed record ReaderSettings(
+        bool EventHubEnabled,
+        string? LocalFilePath,
         string? ConnectionString,
         string? EventHubName,
         string ConsumerGroup,
@@ -582,5 +944,21 @@ public sealed class EventHubReader : BackgroundService
             !string.IsNullOrWhiteSpace(EventHubName)
             && (!string.IsNullOrWhiteSpace(ConnectionString)
                 || !string.IsNullOrWhiteSpace(EventHubNamespace));
+    }
+
+    private readonly record struct JsonObjectReadState(
+        bool IsCapturing,
+        bool InString,
+        bool EscapeNext,
+        int Depth)
+    {
+        public JsonObjectReadState StartObject()
+        {
+            return new JsonObjectReadState(
+                IsCapturing: true,
+                InString: false,
+                EscapeNext: false,
+                Depth: 0);
+        }
     }
 }
