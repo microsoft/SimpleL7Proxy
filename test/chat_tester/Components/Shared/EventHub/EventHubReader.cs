@@ -422,8 +422,12 @@ public sealed class EventHubReader : BackgroundService
             case "S7P-ProxyRequestEnqueued":
             case "S7P-BackendRequest":
             case "S7P-ServerError":
+                TrackLifecycleEvent(eventData, eventType);
+                return false;
+
             case "S7P-CircuitBreakerError":
                 TrackLifecycleEvent(eventData, eventType);
+                _store.MarkServerCircuitBreakerSignal();
                 return false;
 
             case "S7P-ProxyRequest":
@@ -449,15 +453,20 @@ public sealed class EventHubReader : BackgroundService
 
             var latencyMs = ParseDouble(eventData, $"{index}-Latency");
             var status = GetValue(eventData, $"{index}-Status");
+            var calls = ParseInt(eventData, $"{index}-Calls");
+            var errors = ParseInt(eventData, $"{index}-Errors");
             backends.Add(new BackendHealthSnapshot
             {
+                HostKey = BuildBackendHostKey(host),
                 Name = BuildBackendName(host),
                 Url = host,
                 Status = status,
                 LatencyMs = latencyMs,
                 SuccessRate = (int)Math.Round(ParseDouble(eventData, $"{index}-SuccessRate")),
-                Calls = ParseInt(eventData, $"{index}-Calls"),
-                Errors = ParseInt(eventData, $"{index}-Errors"),
+                Calls = calls,
+                Errors = errors,
+                ProbeSuccesses = Math.Max(0, calls - errors),
+                ProbeFailures = Math.Max(0, errors),
                 Css = ResolveBackendCss(status),
             });
         }
@@ -493,6 +502,15 @@ public sealed class EventHubReader : BackgroundService
         }
 
         var statusCode = ParseNullableInt(eventData, "Status");
+        var endpointKey = BuildEndpointKey(eventData);
+        var endpointCircuitBreakerOpen = IsEndpointCircuitBreakerSignal(eventData, eventType, statusCode);
+        var serverCircuitBreakerSignal = IsServerCircuitBreakerSignal(eventData, eventType, statusCode);
+
+        if (serverCircuitBreakerSignal)
+        {
+            _store.MarkServerCircuitBreakerSignal();
+        }
+
         var failed = eventType != "S7P-ProxyRequest" || (statusCode is >= 400);
         var statusLabel = failed ? "Failed" : "Completed";
         var statusMessage = BuildStatusMessage(eventData, eventType, statusCode, statusLabel);
@@ -515,6 +533,11 @@ public sealed class EventHubReader : BackgroundService
             Replica = GetValue(eventData, "Replica"),
             Status = statusLabel,
             StatusMessage = statusMessage,
+            EventType = eventType,
+            BackendHost = BuildRequestBackendHost(eventData),
+            EndpointKey = endpointKey,
+            IsEndpointCircuitBreakerOpen = endpointCircuitBreakerOpen,
+            IsServerCircuitBreakerSignal = serverCircuitBreakerSignal,
             StatusCode = statusCode,
             ContentType = GetValue(eventData, "Content-Type", "-"),
             TimeToFirstByte = ParseNullableMilliseconds(eventData, "Request-Queue-Duration"),
@@ -824,9 +847,69 @@ public sealed class EventHubReader : BackgroundService
 
     private static string BuildBackendName(string host)
     {
-        return Uri.TryCreate(host, UriKind.Absolute, out var uri)
-            ? uri.Host
-            : host;
+        if (Uri.TryCreate(host, UriKind.Absolute, out var uri))
+        {
+            return uri.Host;
+        }
+
+        var embeddedUri = ExtractFirstAbsoluteUri(host);
+        if (embeddedUri is not null)
+        {
+            return embeddedUri.Host;
+        }
+
+        return host;
+    }
+
+    private static string BuildBackendHostKey(string host)
+    {
+        if (Uri.TryCreate(host, UriKind.Absolute, out var uri))
+        {
+            return uri.Host;
+        }
+
+        var embeddedUri = ExtractFirstAbsoluteUri(host);
+        if (embeddedUri is not null)
+        {
+            return embeddedUri.Host;
+        }
+
+        return host.Trim();
+    }
+
+    private static string BuildRequestBackendHost(IReadOnlyDictionary<string, string> eventData)
+    {
+        var raw = FirstNonEmpty(
+            GetValue(eventData, "Backend-Host"),
+            GetValue(eventData, "Attempt-1-Backend-Host"),
+            GetValue(eventData, "Host-URL"),
+            GetValue(eventData, "Attempt-1-Host-URL"));
+
+        if (string.IsNullOrWhiteSpace(raw)
+            || raw.Contains("No Active Hosts Available", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Empty;
+        }
+
+        if (Uri.TryCreate(raw, UriKind.Absolute, out var uri))
+        {
+            return uri.Host;
+        }
+
+        return raw.Trim();
+    }
+
+    private static Uri? ExtractFirstAbsoluteUri(string value)
+    {
+        foreach (var part in value.Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (Uri.TryCreate(part, UriKind.Absolute, out var uri))
+            {
+                return uri;
+            }
+        }
+
+        return null;
     }
 
     private static string ResolveBackendCss(string status)
@@ -869,6 +952,90 @@ public sealed class EventHubReader : BackgroundService
         }
 
         return eventType;
+    }
+
+    private static string BuildEndpointKey(IReadOnlyDictionary<string, string> eventData)
+    {
+        var path = NormalizeUrlPath(GetPath(eventData));
+        var model = FirstNonEmpty(
+            GetValue(eventData, "Model"),
+            GetValue(eventData, "ModelName"),
+            GetValue(eventData, "ModelId"),
+            GetValue(eventData, "Deployment"),
+            GetValue(eventData, "DeploymentName"),
+            GetValue(eventData, "ModelDeployment"),
+            GetValue(eventData, "AOAIModel"));
+
+        return string.IsNullOrWhiteSpace(model)
+            ? path
+            : $"{path} | model={model}";
+    }
+
+    private static string NormalizeUrlPath(string pathOrUrl)
+    {
+        if (string.IsNullOrWhiteSpace(pathOrUrl))
+        {
+            return "/";
+        }
+
+        if (Uri.TryCreate(pathOrUrl, UriKind.Absolute, out var absoluteUri))
+        {
+            return string.IsNullOrWhiteSpace(absoluteUri.AbsolutePath) ? "/" : absoluteUri.AbsolutePath;
+        }
+
+        var pathOnly = pathOrUrl;
+        var queryIndex = pathOnly.IndexOf('?');
+        if (queryIndex >= 0)
+        {
+            pathOnly = pathOnly[..queryIndex];
+        }
+
+        var fragmentIndex = pathOnly.IndexOf('#');
+        if (fragmentIndex >= 0)
+        {
+            pathOnly = pathOnly[..fragmentIndex];
+        }
+
+        return string.IsNullOrWhiteSpace(pathOnly) ? "/" : pathOnly;
+    }
+
+    private static bool IsEndpointCircuitBreakerSignal(
+        IReadOnlyDictionary<string, string> eventData,
+        string eventType,
+        int? statusCode)
+    {
+        var message = FirstNonEmpty(
+            GetValue(eventData, "Message"),
+            GetValue(eventData, "ErrorDetail"),
+            GetValue(eventData, "Error"),
+            GetValue(eventData, "ErrorMessage"),
+            GetValue(eventData, "backendLog"),
+            GetValue(eventData, "Attempt-1-backendLog"));
+
+        if (!string.IsNullOrWhiteSpace(message)
+            && (message.Contains("No active hosts", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("CALL INCOMPLETE", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("CircuitBreaker", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("THROTTLED", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        return string.Equals(eventType, "S7P-ProxyRequest", StringComparison.OrdinalIgnoreCase)
+            && statusCode is >= 500;
+    }
+
+    private static bool IsServerCircuitBreakerSignal(
+        IReadOnlyDictionary<string, string> eventData,
+        string eventType,
+        int? statusCode)
+    {
+        if (string.Equals(eventType, "S7P-CircuitBreakerError", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return IsEndpointCircuitBreakerSignal(eventData, eventType, statusCode);
     }
 
     private static string BuildRequestHeadersText(IReadOnlyDictionary<string, string> eventData)

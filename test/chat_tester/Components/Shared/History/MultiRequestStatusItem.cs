@@ -7,6 +7,11 @@ public sealed class MultiRequestStatusItem
     public string Replica { get; set; } = string.Empty;
     public string Status { get; set; } = "Pending";
     public string StatusMessage { get; set; } = string.Empty;
+    public string EventType { get; set; } = string.Empty;
+    public string BackendHost { get; set; } = string.Empty;
+    public string EndpointKey { get; set; } = string.Empty;
+    public bool IsEndpointCircuitBreakerOpen { get; set; }
+    public bool IsServerCircuitBreakerSignal { get; set; }
     public int? StatusCode { get; set; }
     public string ContentType { get; set; } = "-";
     public TimeSpan? TimeToFirstByte { get; set; }

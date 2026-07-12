@@ -44,9 +44,11 @@
                                         <div class="eventhub-backend-url" title="@backend.Url">@backend.Url</div>
                                         <div class="eventhub-backend-metrics">
                                             <div><span class="eh-metric-label">Lat</span><span class="eh-metric-value">@backend.LatencyText</span></div>
-                                            <div><span class="eh-metric-label">Succ</span><span class="eh-metric-value">@backend.SuccessRate%</span></div>
-                                            <div><span class="eh-metric-label">Calls</span><span class="eh-metric-value">@backend.Calls</span></div>
-                                            <div><span class="eh-metric-label">Err</span><span class="eh-metric-value">@backend.Errors</span></div>
+                                            <div><span class="eh-metric-label">ProbeOK</span><span class="eh-metric-value">@backend.ProbeSuccesses</span></div>
+                                            <div><span class="eh-metric-label">ProbeFail</span><span class="eh-metric-value">@backend.ProbeFailures</span></div>
+                                            <div><span class="eh-metric-label">ReqCalls</span><span class="eh-metric-value">@backend.RequestCalls</span></div>
+                                            <div><span class="eh-metric-label">ReqFail</span><span class="eh-metric-value">@backend.RequestFailures</span></div>
+                                            <div><span class="eh-metric-label">ReqAvg</span><span class="eh-metric-value">@backend.AvgRequestLatencyMs.ToString("0.#") ms</span></div>
                                         </div>
                                     </div>
                                 }
@@ -95,7 +97,7 @@
             </div>
         </div>
 
-        @* ── Middle: Endpoints ── *@
+        @* ── Middle: Endpoints (model-backed, pending) ── *@
         <div class="col-12 col-lg-3 eventhub-endpoints-col">
             <div class="card shadow-sm eventhub-card">
                 <div class="card-header bg-primary text-white">
@@ -105,22 +107,9 @@
                     </div>
                 </div>
                 <div class="card-body eventhub-card-body">
-                    @if (EndpointItems.Count == 0)
-                    {
-                        <div class="text-muted small">No endpoint activity received yet.</div>
-                    }
-                    else
-                    {
-                        <dl class="eventhub-endpoint-list">
-                            @foreach (var endpoint in EndpointItems)
-                            {
-                                <div class="eventhub-endpoint-item">
-                                    <dt title="@endpoint.Path">@endpoint.Path</dt>
-                                    <dd>@endpoint.Count</dd>
-                                </div>
-                            }
-                        </dl>
-                    }
+                    <div class="text-muted small">
+                        Endpoint listing is disabled until a model mapping file is provided.
+                    </div>
                 </div>
             </div>
         </div>
@@ -628,7 +617,7 @@
         : "Not connected";
 
     private string EndpointSubtitle => IsConnected
-        ? $"{EndpointItems.Count} unique endpoint(s)"
+        ? "Awaiting model mapping file"
         : "Not connected";
 
     private IReadOnlyList<BackendHealthSnapshot> Backends => _snapshot.Backends;
@@ -637,88 +626,9 @@
 
     private IReadOnlyList<MultiRequestStatusItem> HistoryItems => FilterHistoryItemsByScope();
 
-    private IReadOnlyList<EndpointItem> EndpointItems => BuildEndpointItems();
-
     private IReadOnlyList<ProxyMetricsCatalog.MetricGroupSnapshot> ProxyMetricGroups => _proxyMetricGroups;
 
     private string EffectiveScopeId => ResolveEffectiveScopeId();
-
-    private IReadOnlyList<EndpointItem> BuildEndpointItems()
-    {
-        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var request in HistoryItems)
-        {
-            var backendLog = TryExtractBackendLog(request.ResponseHeadersText);
-            if (string.IsNullOrWhiteSpace(backendLog))
-            {
-                continue;
-            }
-
-            foreach (var endpointTarget in ExtractEndpointsFromBackendLog(backendLog))
-            {
-                counts[endpointTarget] = counts.TryGetValue(endpointTarget, out var existingCount)
-                    ? existingCount + 1
-                    : 1;
-            }
-        }
-
-        return counts
-            .OrderByDescending(pair => pair.Value)
-            .ThenBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
-            .Select(pair => new EndpointItem(pair.Key, pair.Value))
-            .ToArray();
-    }
-
-    private static string TryExtractBackendLog(string responseHeadersText)
-    {
-        if (string.IsNullOrWhiteSpace(responseHeadersText))
-        {
-            return string.Empty;
-        }
-
-        var backendLogLine = responseHeadersText
-            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
-            .FirstOrDefault(line => line.StartsWith("backendLog:", StringComparison.OrdinalIgnoreCase));
-
-        if (string.IsNullOrWhiteSpace(backendLogLine))
-        {
-            return string.Empty;
-        }
-
-        return backendLogLine["backendLog:".Length..].Trim();
-    }
-
-    private static IReadOnlyList<string> ExtractEndpointsFromBackendLog(string backendLog)
-    {
-        var matches = Regex.Matches(
-            backendLog,
-            @"using\s+[^|]*?url:\s*(?<url>\S+)",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
-        var endpoints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (Match match in matches)
-        {
-            var urlValue = match.Groups["url"].Value.Trim();
-            if (string.IsNullOrWhiteSpace(urlValue))
-            {
-                continue;
-            }
-
-            if (Uri.TryCreate(urlValue, UriKind.Absolute, out var absoluteUri))
-            {
-                endpoints.Add($"{absoluteUri.Scheme}://{absoluteUri.Host}{absoluteUri.AbsolutePath}");
-                continue;
-            }
-
-            endpoints.Add(urlValue);
-        }
-
-        return endpoints.Count == 0
-            ? Array.Empty<string>()
-            : endpoints.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray();
-    }
 
     protected override void OnInitialized()
     {
@@ -811,8 +721,6 @@
 
     private sealed record TileMetric(string Label, string Value);
 
-    private sealed record EndpointItem(string Path, int Count);
-
     private sealed record StatTile(string Title, string Primary, string? PrimaryDetail, string Css, IReadOnlyList<TileMetric> Metrics);
 
     private IReadOnlyList<StatTile> StatTiles => BuildStatTiles();
@@ -847,6 +755,16 @@
                 {
                     new TileMetric("Probe", $"{stats.BackendProbeLatencyMs:0} ms"),
                     new TileMetric("Balancing", stats.LoadBalancingMode),
+                }),
+            new StatTile(
+                "Circuit breaker",
+                stats.ServerCircuitBreakerOpen ? "OPEN" : "CLOSED",
+                "server level",
+                stats.ServerCircuitBreakerOpen ? "warning" : "success",
+                new[]
+                {
+                    new TileMetric("Endpoint open", $"{stats.EndpointCircuitBreakerOpenCount}/{stats.EndpointCount}"),
+                    new TileMetric("Scope", "server + endpoint"),
                 }),
             // Derived from the S7P-Backend host event.
             new StatTile("Backends", $"{stats.ActiveHosts} / {stats.TotalHosts}", "active", "success",

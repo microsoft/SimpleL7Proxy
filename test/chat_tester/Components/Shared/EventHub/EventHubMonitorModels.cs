@@ -6,6 +6,7 @@ namespace chat_tester.Components.Shared;
 /// </summary>
 public sealed record BackendHealthSnapshot
 {
+    public string HostKey { get; init; } = string.Empty;
     public required string Name { get; init; }
     public string Url { get; init; } = string.Empty;
     public string Status { get; init; } = string.Empty;
@@ -13,6 +14,12 @@ public sealed record BackendHealthSnapshot
     public int SuccessRate { get; init; }
     public int Calls { get; init; }
     public int Errors { get; init; }
+    public int ProbeSuccesses { get; init; }
+    public int ProbeFailures { get; init; }
+    public int RequestCalls { get; init; }
+    public int RequestSuccesses { get; init; }
+    public int RequestFailures { get; init; }
+    public double AvgRequestLatencyMs { get; init; }
 
     /// <summary>UI status class, e.g. "healthy" or "degraded".</summary>
     public string Css { get; init; } = "healthy";
@@ -48,6 +55,9 @@ public sealed record RuntimeStatsSnapshot
     public string LoadBalancingMode { get; init; } = "latency";
     public string PrimaryBackend { get; init; } = string.Empty;
     public string ProxyVersion { get; init; } = string.Empty;
+    public bool ServerCircuitBreakerOpen { get; init; }
+    public int EndpointCircuitBreakerOpenCount { get; init; }
+    public int EndpointCount { get; init; }
 }
 
 /// <summary>
