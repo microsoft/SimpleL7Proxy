@@ -4,7 +4,7 @@ using Azure.Identity;
 using Azure.Messaging.EventHubs;
 using Azure.Messaging.EventHubs.Consumer;
 using Azure.Core;
-using chat_tester.Components.Shared.EventHub.Pipeline;
+using chat_tester.Components.Shared.EventHub;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -26,8 +26,6 @@ public sealed class EventHubReader : BackgroundService
     // Per-request field capture keyed by S7P-ID: the enqueue, each backend attempt, and the final
     // proxy-request fields are retained so the request detail can show the full lifecycle.
     private readonly Dictionary<string, RequestPhaseRecord> _requestPhases = new(StringComparer.OrdinalIgnoreCase);
-    private readonly List<BasePipelineProcessor> _pipelineProcessors = new();
-    private readonly CleanupProcessor _cleanupProcessor;
     private bool _logSkippedRecords;
 
     private enum RequestPhase
@@ -54,18 +52,6 @@ public sealed class EventHubReader : BackgroundService
         _proxyMetricsCatalog = proxyMetricsCatalog;
         _options = options.Value;
         _logger = logger;
-
-        RegisterProcessor(new ServerPipelineProcessor(ParseEventData));
-        RegisterProcessor(new BackendPipelineProcessor(ParseEventData));
-        RegisterProcessor(new EndpointPipelineProcessor(ParseEventData));
-        RegisterProcessor(new RequestPipelineProcessor(ParseEventData));
-
-        _cleanupProcessor = new CleanupProcessor(TryProcessIncomingRecord, LogInvalidRecord, PublishProxyMetrics);
-    }
-
-    private void RegisterProcessor(BasePipelineProcessor processor)
-    {
-        processor.Register(_pipelineProcessors);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -176,8 +162,8 @@ public sealed class EventHubReader : BackgroundService
             var runResult = RunPipeline(
                 jsonObjects.ToArray(),
                 $"Event Hub import file {localFilePath}");
-            importedCount += runResult.ProcessedCount;
-            skippedCount += runResult.SkippedCount;
+            importedCount += runResult.Processed;
+            skippedCount += runResult.Skipped;
         }
 
         if (readState.IsCapturing && objectBuffer.Length > 0)
@@ -381,57 +367,57 @@ public sealed class EventHubReader : BackgroundService
             $"Event Hub partition {partitionId}");
     }
 
-    private PipelineRunResult RunPipeline(string[] incomingRecords, string source)
+    // Parses each incoming record exactly once, feeds it to the store via ProcessEventData, and
+    // publishes the batch (already parsed) to the metrics catalog. No stage re-parses the JSON.
+    private (int Processed, int Skipped) RunPipeline(string[] incomingRecords, string source)
     {
         if (incomingRecords.Length == 0)
         {
-            return PipelineRunResult.Empty;
+            return (0, 0);
         }
 
-        var server = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var backend = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var endpoint = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var requests = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var parsed = new List<ParsedEventRecord>(incomingRecords.Length);
+        var processed = 0;
+        var skipped = 0;
 
-        foreach (var processor in _pipelineProcessors)
+        foreach (var raw in incomingRecords)
         {
-            processor.Process(server, backend, endpoint, requests, incomingRecords);
+            Dictionary<string, string> eventData;
+            try
+            {
+                eventData = ParseEventData(raw);
+            }
+            catch (JsonException ex)
+            {
+                skipped++;
+                LogInvalidRecord(ex, source);
+                continue;
+            }
+
+            parsed.Add(new ParsedEventRecord(raw, eventData));
+
+            if (ProcessEventData(eventData))
+            {
+                processed++;
+            }
+            else
+            {
+                skipped++;
+                if (_logSkippedRecords)
+                {
+                    _logger.LogInformation("Skipped record: {Record}", raw);
+                }
+            }
         }
 
-        return _cleanupProcessor.Finalize(
-            server,
-            backend,
-            endpoint,
-            requests,
-            incomingRecords,
-            source);
-    }
+        _proxyMetricsCatalog.Publish(parsed);
 
-    private bool TryProcessIncomingRecord(string incomingRecord)
-    {
-        var eventData = ParseEventData(incomingRecord);
-        var processed = ProcessEventData(eventData);
-        if (!processed && _logSkippedRecords)
-        {
-            _logger.LogInformation("Skipped record: {Record}", incomingRecord);
-        }
-
-        return processed;
+        return (processed, skipped);
     }
 
     private void LogInvalidRecord(Exception exception, string source)
     {
         _logger.LogWarning(exception, "Ignoring invalid Event Hub record from {Source}.", source);
-    }
-
-    private void PublishProxyMetrics(
-        IReadOnlyDictionary<string, string> server,
-        IReadOnlyDictionary<string, string> backend,
-        IReadOnlyDictionary<string, string> endpoint,
-        IReadOnlyDictionary<string, string> requests,
-        string[] incomingRecords)
-    {
-        _proxyMetricsCatalog.Publish(server, backend, endpoint, requests, incomingRecords);
     }
 
     private bool ProcessEventData(IReadOnlyDictionary<string, string> eventData)
@@ -950,11 +936,8 @@ public sealed class EventHubReader : BackgroundService
     private static string? GetCorrelationKey(IReadOnlyDictionary<string, string> eventData)
     {
         // GUID is stable across a request's lifetime (enqueue, backend attempts, final proxy
-        // response) while MID differs per backend attempt (e.g. "...-234" vs "...-234-1"). Prefer
-        // GUID so lifecycle steps correlate; fall back to MID for events that omit GUID.
-        return FirstNonEmpty(
-            GetValue(eventData, "GUID"),
-            GetValue(eventData, "MID"));
+        // response) while MID differs per backend attempt; prefer GUID, fall back to MID.
+        return EventFields.CorrelationKey(eventData);
     }
 
     private ReaderSettings ResolveSettings()
@@ -1413,15 +1396,7 @@ public sealed class EventHubReader : BackgroundService
 
     private static string? FirstNonEmpty(params string?[] values)
     {
-        foreach (var value in values)
-        {
-            if (!string.IsNullOrWhiteSpace(value))
-            {
-                return value.Trim();
-            }
-        }
-
-        return null;
+        return EventFields.FirstNonEmpty(values);
     }
 
     private static string GetValue(
@@ -1429,9 +1404,7 @@ public sealed class EventHubReader : BackgroundService
         string key,
         string fallback = "")
     {
-        return eventData.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
-            ? value
-            : fallback;
+        return EventFields.Get(eventData, key, fallback);
     }
 
     private static int ParseInt(IReadOnlyDictionary<string, string> eventData, string key)

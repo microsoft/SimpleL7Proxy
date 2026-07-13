@@ -133,4 +133,60 @@ public sealed record MonitorSnapshot
     public ServerErrorSnapshot ServerErrors { get; init; } = new();
     public IReadOnlyList<BackendHealthSnapshot> Backends { get; init; } = Array.Empty<BackendHealthSnapshot>();
     public IReadOnlyList<MultiRequestStatusItem> Requests { get; init; } = Array.Empty<MultiRequestStatusItem>();
+
+    /// <summary>Per-target endpoint aggregates derived from backend-call logs. Top 10 by call count.</summary>
+    public IReadOnlyList<EndpointStat> Endpoints { get; init; } = Array.Empty<EndpointStat>();
+
+    /// <summary>Top successful/failed request paths (success = HTTP [200,400)). Top 10 each.</summary>
+    public IReadOnlyList<PathCount> SuccessfulPaths { get; init; } = Array.Empty<PathCount>();
+    public IReadOnlyList<PathCount> FailedPaths { get; init; } = Array.Empty<PathCount>();
+
+    /// <summary>Top successful/failed users (success = HTTP [200,400)). Top 10 each.</summary>
+    public IReadOnlyList<UserCount> SuccessfulUsers { get; init; } = Array.Empty<UserCount>();
+    public IReadOnlyList<UserCount> FailedUsers { get; init; } = Array.Empty<UserCount>();
 }
+
+/// <summary>
+/// A single backend attempt extracted from a backend log. Attached to the originating request
+/// item so the store can aggregate the Endpoints card from structured data (no header-text parsing).
+/// </summary>
+public sealed record BackendCallRecord
+{
+    public required string TargetName { get; init; }
+    public string TargetUrl { get; init; } = string.Empty;
+    /// <summary>The exact backend-log string; used to dedupe an attempt echoed by the proxy summary.</summary>
+    public required string BackendLog { get; init; }
+    public double? PolicyCycleCounter { get; init; }
+    public double? RequestProcessDuration { get; init; }
+    public double? QueueDurationMs { get; init; }
+    public double? ProcessDurationMs { get; init; }
+    public bool Throttled { get; init; }
+    public bool TargetThrottled { get; init; }
+    public bool CallIncomplete { get; init; }
+    public bool ExhaustedRetry { get; init; }
+    public int? StatusCode { get; init; }
+    public string BackendHost { get; init; } = string.Empty;
+}
+
+/// <summary>Per-target endpoint aggregate rendered by the Endpoints card.</summary>
+public sealed record EndpointStat(
+    string Path,
+    int Calls,
+    int Failures,
+    double AverageEndpointAttempts,
+    double AverageRequestProcessDuration,
+    double AverageQueueDurationMs,
+    double AverageProcessDurationMs,
+    int ThrottledEvents,
+    int TargetThrottledEvents,
+    int CallIncompleteEvents,
+    int ExhaustedRetryEvents,
+    string TargetUrl,
+    string Status,
+    string Css);
+
+/// <summary>A request path and its occurrence count.</summary>
+public sealed record PathCount(string Path, int Count);
+
+/// <summary>A user and their request count.</summary>
+public sealed record UserCount(string User, int Count);

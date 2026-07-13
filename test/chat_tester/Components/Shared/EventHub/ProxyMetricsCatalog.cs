@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using chat_tester.Components.Shared.EventHub;
 
 namespace chat_tester.Components.Shared;
 
@@ -153,27 +154,17 @@ public sealed class ProxyMetricsCatalog
         }
     }
 
-    public void Publish(
-        IReadOnlyDictionary<string, string> server,
-        IReadOnlyDictionary<string, string> backend,
-        IReadOnlyDictionary<string, string> endpoint,
-        IReadOnlyDictionary<string, string> requests,
-        string[] incomingRecords)
+    public void Publish(IReadOnlyList<ParsedEventRecord> records)
     {
-        ArgumentNullException.ThrowIfNull(server);
-        ArgumentNullException.ThrowIfNull(backend);
-        ArgumentNullException.ThrowIfNull(endpoint);
-        ArgumentNullException.ThrowIfNull(requests);
-        ArgumentNullException.ThrowIfNull(incomingRecords);
+        ArgumentNullException.ThrowIfNull(records);
 
-        var parsedRecords = ParseIncomingRecords(incomingRecords);
         var now = DateTimeOffset.UtcNow;
-        var computed = BuildActiveValues(server, backend, endpoint, requests, incomingRecords);
+        var computed = BuildScopeValues(records);
         lock (_gate)
         {
             _activeValues = computed;
             _lastPublishedUtc = now;
-            UpdateScopeStates(parsedRecords, now);
+            UpdateScopeStates(records, now);
         }
 
         Changed?.Invoke();
@@ -214,7 +205,7 @@ public sealed class ProxyMetricsCatalog
             : _activeValues;
     }
 
-    private void UpdateScopeStates(IReadOnlyList<ParsedRecord> parsedRecords, DateTimeOffset now)
+    private void UpdateScopeStates(IReadOnlyList<ParsedEventRecord> parsedRecords, DateTimeOffset now)
     {
         if (parsedRecords.Count == 0)
         {
@@ -252,7 +243,7 @@ public sealed class ProxyMetricsCatalog
         }
     }
 
-    private static IReadOnlyDictionary<string, string> BuildScopeValues(IReadOnlyList<ParsedRecord> records)
+    private static IReadOnlyDictionary<string, string> BuildScopeValues(IReadOnlyList<ParsedEventRecord> records)
     {
         var server = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var backend = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -261,9 +252,10 @@ public sealed class ProxyMetricsCatalog
 
         foreach (var record in records)
         {
-            var eventType = GetValue(record.Data, "Type");
+            var data = record.Data;
+            var eventType = EventFields.Get(data, "Type");
 
-            foreach (var pair in record.Data)
+            foreach (var pair in data)
             {
                 server[pair.Key] = pair.Value;
                 endpoint[pair.Key] = pair.Value;
@@ -271,70 +263,26 @@ public sealed class ProxyMetricsCatalog
 
             if (string.Equals(eventType, "S7P-Backend", StringComparison.OrdinalIgnoreCase))
             {
-                foreach (var pair in record.Data)
+                foreach (var pair in data)
                 {
                     backend[pair.Key] = pair.Value;
                 }
             }
 
-            var correlationKey = GetCorrelationKey(record.Data);
+            var correlationKey = EventFields.CorrelationKey(data);
             if (string.IsNullOrWhiteSpace(correlationKey))
             {
                 continue;
             }
 
-            var status = GetValue(record.Data, "Status");
-            var path = GetValue(record.Data, "Path");
+            var status = EventFields.Get(data, "Status");
+            var path = EventFields.Get(data, "Path");
             requests[correlationKey] = string.Join(
                 "|",
                 new[] { eventType, status, path }.Where(value => !string.IsNullOrWhiteSpace(value)));
         }
 
-        var incomingRecords = records.Select(record => record.RawRecord).ToArray();
-        return BuildActiveValues(server, backend, endpoint, requests, incomingRecords);
-    }
-
-    private static IReadOnlyList<ParsedRecord> ParseIncomingRecords(string[] incomingRecords)
-    {
-        var parsedRecords = new List<ParsedRecord>(incomingRecords.Length);
-
-        foreach (var incomingRecord in incomingRecords)
-        {
-            try
-            {
-                using var document = JsonDocument.Parse(incomingRecord);
-                if (document.RootElement.ValueKind != JsonValueKind.Object)
-                {
-                    continue;
-                }
-
-                var data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var property in document.RootElement.EnumerateObject())
-                {
-                    data[property.Name] = property.Value.ValueKind switch
-                    {
-                        JsonValueKind.String => property.Value.GetString() ?? string.Empty,
-                        JsonValueKind.Number => property.Value.GetRawText(),
-                        JsonValueKind.True => bool.TrueString,
-                        JsonValueKind.False => bool.FalseString,
-                        JsonValueKind.Null => string.Empty,
-                        _ => property.Value.GetRawText(),
-                    };
-                }
-
-                parsedRecords.Add(new ParsedRecord(
-                    incomingRecord,
-                    data,
-                    GetValue(data, "ContainerApp"),
-                    GetValue(data, "Replica")));
-            }
-            catch (JsonException)
-            {
-                continue;
-            }
-        }
-
-        return parsedRecords;
+        return BuildActiveValues(server, backend, endpoint, requests, records);
     }
 
     private static string BuildContainerAppScopeId(string containerApp)
@@ -359,9 +307,9 @@ public sealed class ProxyMetricsCatalog
         IReadOnlyDictionary<string, string> backend,
         IReadOnlyDictionary<string, string> endpoint,
         IReadOnlyDictionary<string, string> requests,
-        string[] incomingRecords)
+        IReadOnlyList<ParsedEventRecord> records)
     {
-        var recordInsights = BuildRecordInsights(incomingRecords, backend, endpoint);
+        var recordInsights = BuildRecordInsights(records, backend, endpoint);
 
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -382,9 +330,9 @@ public sealed class ProxyMetricsCatalog
             ["Memory usage"] = ReadFirstNonEmpty(server, "Memory", "Memory-Usage") ?? UnknownValue,
             ["Open connections"] = ReadFirstNonEmpty(server, "OpenConnections", "Open-Connections") ?? UnknownValue,
             ["Thread/worker pool saturation"] = ReadFirstNonEmpty(server, "WorkerPoolSaturation", "ThreadPoolSaturation") ?? UnknownValue,
-            ["Request rate"] = BuildRequestRateValue(incomingRecords, requests),
+            ["Request rate"] = BuildRequestRateValue(records, requests),
             ["Success vs failure counts"] = BuildSuccessFailureValue(recordInsights),
-            ["Request size"] = BuildRequestSizeValue(incomingRecords),
+            ["Request size"] = BuildRequestSizeValue(records),
             ["Response size"] = ReadFirstNonEmpty(endpoint, "Content-Length", "Response-Content-Length")
                 ?? ReadFirstNonEmpty(server, "Response-Content-Length", "Content-Length")
                 ?? UnknownValue,
@@ -395,11 +343,11 @@ public sealed class ProxyMetricsCatalog
         return values;
     }
 
-    private static string BuildRequestRateValue(string[] incomingRecords, IReadOnlyDictionary<string, string> requests)
+    private static string BuildRequestRateValue(IReadOnlyList<ParsedEventRecord> records, IReadOnlyDictionary<string, string> requests)
     {
         return requests.Count == 0
             ? UnknownValue
-            : $"{requests.Count} req/run from {incomingRecords.Length} event(s)";
+            : $"{requests.Count} req/run from {records.Count} event(s)";
     }
 
     private static string BuildSuccessFailureValue(RecordInsights recordInsights)
@@ -407,15 +355,15 @@ public sealed class ProxyMetricsCatalog
         return $"2xx={recordInsights.Status2xx} 3xx={recordInsights.Status3xx} 4xx={recordInsights.Status4xx} 5xx={recordInsights.Status5xx}";
     }
 
-    private static string BuildRequestSizeValue(string[] incomingRecords)
+    private static string BuildRequestSizeValue(IReadOnlyList<ParsedEventRecord> records)
     {
-        if (incomingRecords.Length == 0)
+        if (records.Count == 0)
         {
             return UnknownValue;
         }
 
-        var totalSize = incomingRecords.Sum(record => record.Length);
-        var averageSize = totalSize / (double)incomingRecords.Length;
+        var totalSize = records.Sum(record => record.Raw.Length);
+        var averageSize = totalSize / (double)records.Count;
         return $"avg {averageSize:0} B";
     }
 
@@ -496,7 +444,7 @@ public sealed class ProxyMetricsCatalog
     }
 
     private static RecordInsights BuildRecordInsights(
-        string[] incomingRecords,
+        IReadOnlyList<ParsedEventRecord> records,
         IReadOnlyDictionary<string, string> backend,
         IReadOnlyDictionary<string, string> endpoint)
     {
@@ -523,75 +471,64 @@ public sealed class ProxyMetricsCatalog
             endpoints.Add(endpointPath);
         }
 
-        foreach (var incomingRecord in incomingRecords)
+        foreach (var record in records)
         {
-            try
+            var data = record.Data;
+
+            var path = EventFields.Get(data, "Path");
+            if (!string.IsNullOrWhiteSpace(path))
             {
-                using var document = JsonDocument.Parse(incomingRecord);
-                if (document.RootElement.ValueKind != JsonValueKind.Object)
-                {
-                    continue;
-                }
+                endpoints.Add(path.Trim());
+            }
 
-                var root = document.RootElement;
-
-                if (TryGetStringProperty(root, "Path", out var path) && !string.IsNullOrWhiteSpace(path))
+            var backendLog = EventFields.Get(data, "backendLog");
+            if (!string.IsNullOrWhiteSpace(backendLog))
+            {
+                foreach (var endpointTarget in ExtractEndpointsFromBackendLog(backendLog))
                 {
-                    endpoints.Add(path.Trim());
-                }
-
-                if (TryGetStringProperty(root, "backendLog", out var backendLog)
-                    && !string.IsNullOrWhiteSpace(backendLog))
-                {
-                    foreach (var endpointTarget in ExtractEndpointsFromBackendLog(backendLog))
-                    {
-                        endpoints.Add(endpointTarget);
-                    }
-                }
-
-                if (TryGetStringProperty(root, "Uri", out var uri)
-                    && Uri.TryCreate(uri, UriKind.Absolute, out var endpointUri))
-                {
-                    endpoints.Add(endpointUri.AbsolutePath);
-                }
-
-                if (TryGetStringProperty(root, "Backend-Host", out var backendHost)
-                    && !string.IsNullOrWhiteSpace(backendHost))
-                {
-                    backendHosts.Add(backendHost.Trim());
-                }
-
-                foreach (var modelKey in ModelKeys)
-                {
-                    if (TryGetStringProperty(root, modelKey, out var modelValue) && !string.IsNullOrWhiteSpace(modelValue))
-                    {
-                        models.Add(modelValue.Trim());
-                    }
-                }
-
-                if (TryGetIntProperty(root, "Status", out var statusCode))
-                {
-                    if (statusCode is >= 200 and < 300)
-                    {
-                        status2xx++;
-                    }
-                    else if (statusCode is >= 300 and < 400)
-                    {
-                        status3xx++;
-                    }
-                    else if (statusCode is >= 400 and < 500)
-                    {
-                        status4xx++;
-                    }
-                    else if (statusCode is >= 500 and < 600)
-                    {
-                        status5xx++;
-                    }
+                    endpoints.Add(endpointTarget);
                 }
             }
-            catch (JsonException)
+
+            var uri = EventFields.Get(data, "Uri");
+            if (Uri.TryCreate(uri, UriKind.Absolute, out var endpointUri))
             {
-                continue;
+                endpoints.Add(endpointUri.AbsolutePath);
+            }
+
+            var backendHost = EventFields.Get(data, "Backend-Host");
+            if (!string.IsNullOrWhiteSpace(backendHost))
+            {
+                backendHosts.Add(backendHost.Trim());
+            }
+
+            foreach (var modelKey in ModelKeys)
+            {
+                var modelValue = EventFields.Get(data, modelKey);
+                if (!string.IsNullOrWhiteSpace(modelValue))
+                {
+                    models.Add(modelValue.Trim());
+                }
+            }
+
+            if (int.TryParse(EventFields.Get(data, "Status"), out var statusCode))
+            {
+                if (statusCode is >= 200 and < 300)
+                {
+                    status2xx++;
+                }
+                else if (statusCode is >= 300 and < 400)
+                {
+                    status3xx++;
+                }
+                else if (statusCode is >= 400 and < 500)
+                {
+                    status4xx++;
+                }
+                else if (statusCode is >= 500 and < 600)
+                {
+                    status5xx++;
+                }
             }
         }
 
@@ -615,25 +552,6 @@ public sealed class ProxyMetricsCatalog
             .ToArray();
 
         return top.Length == 0 ? UnknownValue : string.Join(", ", top);
-    }
-
-    private static bool TryGetStringProperty(JsonElement root, string propertyName, out string value)
-    {
-        foreach (var property in root.EnumerateObject())
-        {
-            if (!property.NameEquals(propertyName))
-            {
-                continue;
-            }
-
-            value = property.Value.ValueKind == JsonValueKind.String
-                ? property.Value.GetString() ?? string.Empty
-                : property.Value.GetRawText();
-            return true;
-        }
-
-        value = string.Empty;
-        return false;
     }
 
     private static IReadOnlyList<string> ExtractEndpointsFromBackendLog(string backendLog)
@@ -665,45 +583,6 @@ public sealed class ProxyMetricsCatalog
         return endpoints.Count == 0
             ? Array.Empty<string>()
             : endpoints.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray();
-    }
-
-    private static bool TryGetIntProperty(JsonElement root, string propertyName, out int value)
-    {
-        if (TryGetStringProperty(root, propertyName, out var raw)
-            && int.TryParse(raw, out value))
-        {
-            return true;
-        }
-
-        value = 0;
-        return false;
-    }
-
-    private static string GetValue(IReadOnlyDictionary<string, string> source, string key)
-    {
-        return source.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
-            ? value
-            : string.Empty;
-    }
-
-    private static string? GetCorrelationKey(IReadOnlyDictionary<string, string> source)
-    {
-        return FirstNonEmpty(
-            GetValue(source, "MID"),
-            GetValue(source, "GUID"));
-    }
-
-    private static string? FirstNonEmpty(params string?[] values)
-    {
-        foreach (var value in values)
-        {
-            if (!string.IsNullOrWhiteSpace(value))
-            {
-                return value.Trim();
-            }
-        }
-
-        return null;
     }
 
     private static string? ReadFirstNonEmpty(IReadOnlyDictionary<string, string> source, params string[] keys)
@@ -745,12 +624,6 @@ public sealed class ProxyMetricsCatalog
         int Status3xx,
         int Status4xx,
         int Status5xx);
-
-    private readonly record struct ParsedRecord(
-        string RawRecord,
-        Dictionary<string, string> Data,
-        string ContainerApp,
-        string Replica);
 
     private sealed record ScopeState(
         string ScopeId,

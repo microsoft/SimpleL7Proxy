@@ -1,5 +1,6 @@
 using chat_tester.Components;
 using chat_tester.Components.Shared;
+using chat_tester.Components.Shared.EventHub;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -52,9 +53,24 @@ await app.Services.GetRequiredService<ChatHistoryStore>().ReloadAsync();
 await app.Services.GetRequiredService<ChatConversationStore>().ReloadAsync();
 
 var proxyMetricsCatalog = app.Services.GetRequiredService<ProxyMetricsCatalog>();
-proxyMetricsCatalog.Publish(
-    new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+
+static ParsedEventRecord SeedRequest(string mid, string type, int status, string path, string modelKey, string model, string backendHost)
+    => new(string.Empty, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
+        ["Type"] = type,
+        ["MID"] = mid,
+        ["Status"] = status.ToString(),
+        ["Path"] = path,
+        [modelKey] = model,
+        ["Backend-Host"] = backendHost,
+    });
+
+proxyMetricsCatalog.Publish(new List<ParsedEventRecord>
+{
+    // Server + fleet health (drives the Server and Backends metric groups).
+    new(string.Empty, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Type"] = "S7P-Backend",
         ["Date"] = DateTimeOffset.UtcNow.ToString("O"),
         ["Timestamp"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(),
         ["Ver"] = "9.0.0-preview-ui",
@@ -64,16 +80,7 @@ proxyMetricsCatalog.Publish(
         ["Memory-Usage"] = "1.2 GB",
         ["Open-Connections"] = "642",
         ["ThreadPoolSaturation"] = "41%",
-        ["Cache-Hit-Ratio"] = "86%",
-        ["Cache-Eviction-Rate"] = "12/min",
-        ["Cache-Stale-Responses"] = "4",
-        ["Blocked-Requests"] = "17",
-        ["RateLimit-Triggers"] = "9",
-        ["TLS-Handshake-Failures"] = "2",
         ["Response-Content-Length"] = "1984",
-    },
-    new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-    {
         ["1-Host"] = "https://backend-a.contoso.net",
         ["1-Status"] = "active",
         ["1-Latency"] = "112",
@@ -83,8 +90,9 @@ proxyMetricsCatalog.Publish(
         ["3-Host"] = "https://backend-c.contoso.net",
         ["3-Status"] = "throttled",
         ["3-Latency"] = "249",
-    },
-    new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    }),
+    // Endpoint sample (drives the Endpoints metric group).
+    new(string.Empty, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["Method"] = "POST",
         ["Path"] = "/chat/completions",
@@ -94,23 +102,14 @@ proxyMetricsCatalog.Publish(
         ["Total-Latency"] = "285",
         ["Request-Queue-Duration"] = "18",
         ["Connection-Establishment-Time"] = "14",
-    },
-    new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-    {
-        ["mid-001"] = "S7P-ProxyRequest|200|/chat/completions",
-        ["mid-002"] = "S7P-ProxyRequest|200|/chat/completions",
-        ["mid-003"] = "S7P-ProxyRequest|429|/chat/completions",
-        ["mid-004"] = "S7P-ProxyRequestRequeued|503|/chat/completions",
-        ["mid-005"] = "S7P-CircuitBreakerError|503|/chat/completions",
-    },
-    new[]
-    {
-        "{\"Type\":\"S7P-ProxyRequest\",\"Status\":200,\"Path\":\"/chat/completions\",\"Model\":\"gpt-4o-mini\",\"Backend-Host\":\"https://backend-a.contoso.net\"}",
-        "{\"Type\":\"S7P-ProxyRequest\",\"Status\":200,\"Path\":\"/chat/completions\",\"DeploymentName\":\"gpt-4o\",\"Backend-Host\":\"https://backend-b.contoso.net\"}",
-        "{\"Type\":\"S7P-ProxyRequest\",\"Status\":429,\"Path\":\"/embeddings\",\"Model\":\"text-embedding-3-large\",\"Backend-Host\":\"https://backend-c.contoso.net\"}",
-        "{\"Type\":\"S7P-ProxyRequestRequeued\",\"Status\":503,\"Path\":\"/responses\",\"ModelDeployment\":\"gpt-4.1-mini\",\"Backend-Host\":\"https://backend-c.contoso.net\"}",
-        "{\"Type\":\"S7P-CircuitBreakerError\",\"Status\":503,\"Path\":\"/chat/completions\",\"Model\":\"gpt-4o-mini\",\"Backend-Host\":\"https://backend-b.contoso.net\"}",
-    });
+    }),
+    // Sample request events (drive the Request and Models metric groups).
+    SeedRequest("mid-001", "S7P-ProxyRequest", 200, "/chat/completions", "Model", "gpt-4o-mini", "https://backend-a.contoso.net"),
+    SeedRequest("mid-002", "S7P-ProxyRequest", 200, "/chat/completions", "DeploymentName", "gpt-4o", "https://backend-b.contoso.net"),
+    SeedRequest("mid-003", "S7P-ProxyRequest", 429, "/embeddings", "Model", "text-embedding-3-large", "https://backend-c.contoso.net"),
+    SeedRequest("mid-004", "S7P-ProxyRequestRequeued", 503, "/responses", "ModelDeployment", "gpt-4.1-mini", "https://backend-c.contoso.net"),
+    SeedRequest("mid-005", "S7P-CircuitBreakerError", 503, "/chat/completions", "Model", "gpt-4o-mini", "https://backend-b.contoso.net"),
+});
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
