@@ -32,4 +32,13 @@ public sealed class MultiRequestStatusItem
     /// S7P-ID. Null for requests that don't originate from the EventHub monitor.
     /// </summary>
     public EventHub.RequestPhaseView? Phases { get; set; }
+
+    /// <summary>EventHub-only: request path used for the Paths card aggregation.</summary>
+    public string? Path { get; set; }
+
+    /// <summary>EventHub-only: user id used for the Users card aggregation.</summary>
+    public string? UserId { get; set; }
+
+    /// <summary>EventHub-only: backend attempts used for the Endpoints card aggregation.</summary>
+    public IReadOnlyList<BackendCallRecord> BackendCalls { get; set; } = Array.Empty<BackendCallRecord>();
 }
