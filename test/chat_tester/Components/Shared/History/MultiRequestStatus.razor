@@ -5,8 +5,11 @@
 
 @if (Items.Count > 0)
 {
-    <div class="multi-request-stats border rounded bg-white shadow-sm">
-        <div class="multi-request-stats-title">Statistics:</div>
+    <div class="multi-request-stats card shadow-sm">
+        <div class="card-header bg-dark text-white">
+            <span class="fw-semibold">Statistics</span>
+        </div>
+        <div class="card-body">
         <div class="multi-request-stats-thermometer">
             @foreach (var segment in OutcomeSegments)
             {
@@ -15,35 +18,54 @@
                 </div>
             }
         </div>
-        <div class="multi-request-stats-status-grid">
-            @foreach (var group in StatusGroups)
-            {
-                <button type="button"
-                        class="multi-request-stats-status @GetGroupClass(group.StatusCode) @(SelectedStatusFilter == group.StatusCode ? "active" : string.Empty)"
+        <table class="multi-request-stats-table">
+            <thead>
+                <tr>
+                    <th scope="col">Status</th>
+                    <th scope="col">Total</th>
+                    <th scope="col">TTFB</th>
+                    <th scope="col">Avg</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var group in StatusGroups)
+                {
+                    <tr class="multi-request-stats-row @GetGroupClass(group.StatusCode) @(SelectedStatusFilter == group.StatusCode ? "active" : string.Empty)"
                         @onclick="() => FilterByStatus(group.StatusCode)">
-                    <div class="multi-request-stats-status-code">Status: @group.StatusCode</div>
-                    <div>Total: @group.Count</div>
-                    <div>TTFB: @group.TtfbText</div>
-                    <div>Avg: @group.AvgText</div>
-                </button>
-            }
-            <button type="button"
-                    class="multi-request-stats-status all @(SelectedStatusFilter is null ? "active" : string.Empty)"
+                        <th scope="row" class="multi-request-stats-code">@group.StatusCode</th>
+                        <td>@group.Count</td>
+                        <td>@group.TtfbText</td>
+                        <td>@group.AvgText</td>
+                    </tr>
+                }
+                <tr class="multi-request-stats-row all @(SelectedStatusFilter is null ? "active" : string.Empty)"
                     @onclick="ClearStatusFilter">
-                <div class="multi-request-stats-status-code">Status: ALL</div>
-                <div>Average TTFB: @OverallTtfbText</div>
-                <div>Average Time: @OverallAvgText</div>
-            </button>
+                    <th scope="row" class="multi-request-stats-code">ALL</th>
+                    <td>@Items.Count</td>
+                    <td>@OverallTtfbText</td>
+                    <td>@OverallAvgText</td>
+                </tr>
+            </tbody>
+        </table>
+        @if (StatisticsFooter is not null)
+        {
+            <div class="multi-request-stats-footer">
+                @StatisticsFooter
+            </div>
+        }
         </div>
     </div>
 }
 
-<div class="multi-request-status border rounded bg-white shadow-sm">
-    <div class="multi-request-status-header">
-        <span class="fw-bold">Request status</span>
-        <span class="text-muted small">@CompletedCount/@Items.Count complete</span>
+<div class="multi-request-status card shadow-sm">
+    <div class="card-header bg-dark text-white">
+        <div class="d-flex flex-wrap align-items-baseline gap-2">
+            <span class="fw-semibold">Request status</span>
+            <span class="text-white-50 small ms-auto">@CompletedCount/@Items.Count complete</span>
+        </div>
     </div>
 
+    <div class="card-body">
     <div class="multi-request-status-list" role="list">
         @foreach (var item in FilteredItems)
         {
@@ -61,6 +83,7 @@
                 <div class="multi-request-status-code @GetStatusClass(item)">@FormatStatus(item)</div>
             </button>
         }
+    </div>
     </div>
 </div>
 
@@ -133,7 +156,7 @@
 }
 
 <style>
-    .multi-request-status {
+    .multi-request-status > .card-body {
         padding: 0.75rem;
     }
 
@@ -251,7 +274,6 @@
 
     .multi-request-stats {
         margin-top: 0;
-        padding: 1rem;
         flex: 0 0 auto;
     }
 
@@ -317,53 +339,75 @@
         text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
     }
 
-    .multi-request-stats-status-grid {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.75rem 2.75rem;
+    .multi-request-stats-table {
+        width: 100%;
         margin-top: 0.85rem;
+        border-collapse: collapse;
+        font-size: 0.85rem;
+        color: #212529;
     }
 
-    .multi-request-stats-status {
-        min-width: 7rem;
-        color: #212529;
-        font-size: 0.9rem;
-        line-height: 1.4;
+    .multi-request-stats-table thead th {
+        text-align: right;
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: #6c757d;
+        font-weight: 600;
+        padding: 0.25rem 0.6rem;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    .multi-request-stats-table thead th:first-child {
         text-align: left;
-        background: #fff;
-        border: 1px solid #dee2e6;
-        border-left-width: 4px;
-        border-radius: 0.375rem;
-        padding: 0.4rem 0.7rem;
+    }
+
+    .multi-request-stats-footer {
+        margin-top: 0.85rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid #dee2e6;
+    }
+
+    .multi-request-stats-row {
         cursor: pointer;
     }
 
-    .multi-request-stats-status:hover {
+    .multi-request-stats-row td,
+    .multi-request-stats-row > .multi-request-stats-code {
+        padding: 0.3rem 0.6rem;
+        border-bottom: 1px solid #f1f3f5;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .multi-request-stats-row > .multi-request-stats-code {
+        text-align: left;
+        font-weight: 700;
+        border-left: 4px solid transparent;
+    }
+
+    .multi-request-stats-row:hover {
         background: #f8f9fa;
     }
 
-    .multi-request-stats-status.active {
-        box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.45);
+    .multi-request-stats-row.active {
+        background: rgba(13, 110, 253, 0.1);
     }
 
-    .multi-request-stats-status.success {
+    .multi-request-stats-row.success > .multi-request-stats-code {
         border-left-color: #2f9e44;
     }
 
-    .multi-request-stats-status.transient {
+    .multi-request-stats-row.transient > .multi-request-stats-code {
         border-left-color: #f59f00;
     }
 
-    .multi-request-stats-status.permanent {
+    .multi-request-stats-row.permanent > .multi-request-stats-code {
         border-left-color: #e03131;
     }
 
-    .multi-request-stats-status.all {
+    .multi-request-stats-row.all > .multi-request-stats-code {
         border-left-color: #495057;
-    }
-
-    .multi-request-stats-status-code {
-        font-weight: 700;
     }
 
     .multi-request-stats-totals {
@@ -447,6 +491,9 @@
 
     [Parameter]
     public IReadOnlyList<MultiRequestStatusItem> Items { get; set; } = [];
+
+    [Parameter]
+    public RenderFragment? StatisticsFooter { get; set; }
 
     private MultiRequestStatusItem? HoveredItem { get; set; }
 
