@@ -1,6 +1,7 @@
 using chat_tester.Components;
 using chat_tester.Components.Shared;
 using chat_tester.Components.Shared.EventHub;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -16,6 +17,9 @@ var localEventFilePath = eventHubSection.GetValue<string>("LocalFilePath");
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+builder.Services.AddDataProtection()
+    .SetApplicationName("chat_tester")
+    .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(builder.Environment.ContentRootPath, ".keys")));
 builder.Services.AddSingleton(new HttpClient
 {
     Timeout = TimeSpan.FromMinutes(5)

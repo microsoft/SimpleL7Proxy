@@ -38,8 +38,13 @@
                                 {
                                     <div class="eventhub-backend-tile @backend.Css">
                                         <div class="eventhub-backend-tile-head">
-                                            <span class="eventhub-backend-dot" title="@backend.Status"></span>
-                                            <span class="eventhub-backend-name">Backend: @backend.Name</span>
+                                            <div class="eventhub-backend-tile-head-main">
+                                                <span class="eventhub-backend-dot" title="@backend.Status"></span>
+                                                <span class="eventhub-backend-name">Backend: @backend.Name</span>
+                                            </div>
+                                            <div class="eventhub-tile-corner" title="@GetBackendCircuitBreakerTitle(backend)" aria-label="@GetBackendCircuitBreakerAriaLabel(backend)">
+                                                <span class="eventhub-cb-indicator @GetBackendCircuitBreakerCss(backend)" aria-hidden="true">@GetBackendCircuitBreakerGlyph(backend)</span>
+                                            </div>
                                         </div>
                                         <div class="eventhub-backend-state">@backend.Status</div>
                                         <div class="eventhub-backend-url" title="@backend.Url">@backend.Url</div>
@@ -161,11 +166,19 @@
                         {
                             <div class="eventhub-stat-tile @tile.Css">
                                 <div class="eventhub-tile-head">
-                                    <span class="eventhub-tile-title">@tile.Title</span>
-                                    <span class="eventhub-tile-primary">@tile.Primary</span>
-                                    @if (!string.IsNullOrWhiteSpace(tile.PrimaryDetail))
+                                    <div class="eventhub-tile-head-main">
+                                        <span class="eventhub-tile-title">@tile.Title</span>
+                                        <span class="eventhub-tile-primary">@tile.Primary</span>
+                                        @if (!string.IsNullOrWhiteSpace(tile.PrimaryDetail))
+                                        {
+                                            <span class="eventhub-tile-primary-detail">@tile.PrimaryDetail</span>
+                                        }
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(tile.CornerStatus))
                                     {
-                                        <span class="eventhub-tile-primary-detail">@tile.PrimaryDetail</span>
+                                        <div class="eventhub-tile-corner" title="@tile.CornerHoverDetails" aria-label="Circuit breaker @tile.CornerStatus">
+                                            <span class="eventhub-cb-indicator @tile.CornerCss" aria-hidden="true">@(tile.CornerCss == "closed" ? "👍" : "✕")</span>
+                                        </div>
                                     }
                                 </div>
                                 @if (tile.Metrics.Count > 0)
@@ -438,8 +451,70 @@
 
     .eventhub-tile-head {
         display: flex;
-        flex-direction: column;
+        justify-content: space-between;
+        align-items: flex-start;
         line-height: 1.15;
+        min-height: 2.55rem;
+    }
+
+    .eventhub-tile-head-main {
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+    }
+
+    .eventhub-tile-corner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-width: 1.5rem;
+        min-height: 1.5rem;
+        cursor: help;
+    }
+
+    .eventhub-cb-indicator {
+        width: 1.5rem;
+        height: 1.5rem;
+        border-radius: 50%;
+        border: 1px solid #cbd5e1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        font-size: 0.82rem;
+        font-weight: 700;
+        line-height: 1;
+        background: #f8fafc;
+        color: #94a3b8;
+        flex: 0 0 auto;
+    }
+
+    /* OPEN means breaker tripped: show red. */
+    .eventhub-cb-indicator.open {
+        color: #e03131;
+        border-color: #ffa8a8;
+        background: #fff5f5;
+        animation: eventhub-cb-pulse 2.6s ease-in-out infinite;
+    }
+
+    /* CLOSED means healthy: show green thumbs-up. */
+    .eventhub-cb-indicator.closed {
+        color: #2b8a3e;
+        border-color: #b2f2bb;
+        background: #e9fce9;
+    }
+
+    @@keyframes eventhub-cb-pulse {
+        0%, 100% {
+            box-shadow: 0 0 0 0 rgba(224, 49, 49, 0.12);
+            transform: scale(1);
+        }
+
+        50% {
+            box-shadow: 0 0 0 3px rgba(224, 49, 49, 0.18);
+            transform: scale(1.01);
+        }
     }
 
     .eventhub-tile-title {
@@ -575,9 +650,18 @@
 
     .eventhub-backend-tile-head {
         display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.5rem;
+        min-width: 0;
+    }
+
+    .eventhub-backend-tile-head-main {
+        display: flex;
         align-items: center;
         gap: 0.4rem;
         min-width: 0;
+        flex: 1 1 auto;
     }
 
     .eventhub-backend-dot {
@@ -934,7 +1018,15 @@
 
     private sealed record TileMetric(string Label, string Value);
 
-    private sealed record StatTile(string Title, string Primary, string? PrimaryDetail, string Css, IReadOnlyList<TileMetric> Metrics);
+    private sealed record StatTile(
+        string Title,
+        string Primary,
+        string? PrimaryDetail,
+        string Css,
+        IReadOnlyList<TileMetric> Metrics,
+        string? CornerStatus = null,
+        string CornerCss = "",
+        string? CornerHoverDetails = null);
 
     private IReadOnlyList<StatTile> StatTiles => BuildStatTiles();
 
@@ -944,9 +1036,16 @@
         {
             return new[]
             {
-                new StatTile("Requests", "—", "awaiting connection", "neutral", Array.Empty<TileMetric>()),
-                new StatTile("Latency", "—", null, "neutral", Array.Empty<TileMetric>()),
-                new StatTile("Hosts", "—", null, "neutral", Array.Empty<TileMetric>()),
+                new StatTile("Request", "—", "awaiting connection", "neutral", Array.Empty<TileMetric>()),
+                new StatTile(
+                    "Server",
+                    "—",
+                    "backend avg",
+                    "neutral",
+                    Array.Empty<TileMetric>(),
+                    CornerStatus: "CLOSED",
+                    CornerCss: "closed",
+                    CornerHoverDetails: "Circuit breaker: CLOSED"),
             };
         }
 
@@ -954,6 +1053,17 @@
         var cb = _snapshot.CircuitBreaker;
         var serverErrors = _snapshot.ServerErrors;
         var lastCode = cb.LastErrorCode is { } code ? code.ToString() : "-";
+        var circuitState = stats.ServerCircuitBreakerOpen ? "OPEN" : "CLOSED";
+        var circuitCss = stats.ServerCircuitBreakerOpen ? "open" : "closed";
+        var circuitHoverDetails = string.Join(
+            Environment.NewLine,
+            new[]
+            {
+                $"Circuit breaker: {circuitState}",
+                $"Endpoint open: {stats.EndpointCircuitBreakerOpenCount}/{stats.EndpointCount}",
+                $"Server CB events: {cb.ServerEventCount}",
+                $"Last code: {lastCode}",
+            });
 
         return new[]
         {
@@ -981,19 +1091,10 @@
                     new TileMetric("Rejected", serverErrors.RejectedRequests.ToString("N0")),
                     new TileMetric("403 NotAuth", serverErrors.NotAuthorized403Count.ToString("N0")),
                     new TileMetric("Queue len", $"{serverErrors.LatestQueueLength} (max {serverErrors.MaxQueueLength})"),
-                }),
-            new StatTile(
-                "Circuit breaker",
-                stats.ServerCircuitBreakerOpen ? "OPEN" : "CLOSED",
-                "live state",
-                stats.ServerCircuitBreakerOpen ? "warning" : "success",
-                new[]
-                {
-                    new TileMetric("Endpoint open", $"{stats.EndpointCircuitBreakerOpenCount}/{stats.EndpointCount}"),
-                    new TileMetric("Scope", "server + endpoint"),
-                    new TileMetric("Server CB events", cb.ServerEventCount.ToString()),
-                    new TileMetric("Last code", lastCode),
-                }),
+                },
+                CornerStatus: circuitState,
+                CornerCss: circuitCss,
+                CornerHoverDetails: circuitHoverDetails),
         };
     }
 
@@ -1209,6 +1310,35 @@
             })
             .Take(10)
             .ToArray();
+    }
+
+    private static bool IsBackendCircuitBreakerClosed(BackendHealthSnapshot backend)
+    {
+        return string.Equals(backend.Css, "healthy", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string GetBackendCircuitBreakerCss(BackendHealthSnapshot backend)
+    {
+        return IsBackendCircuitBreakerClosed(backend) ? "closed" : "open";
+    }
+
+    private static string GetBackendCircuitBreakerGlyph(BackendHealthSnapshot backend)
+    {
+        return IsBackendCircuitBreakerClosed(backend) ? "👍" : "✕";
+    }
+
+    private static string GetBackendCircuitBreakerTitle(BackendHealthSnapshot backend)
+    {
+        return IsBackendCircuitBreakerClosed(backend)
+            ? "Circuit breaker: closed"
+            : "Circuit breaker: open";
+    }
+
+    private static string GetBackendCircuitBreakerAriaLabel(BackendHealthSnapshot backend)
+    {
+        return IsBackendCircuitBreakerClosed(backend)
+            ? "Backend circuit breaker closed"
+            : "Backend circuit breaker open";
     }
 
     private IReadOnlyList<PathCount> BuildPathCounts(bool success)

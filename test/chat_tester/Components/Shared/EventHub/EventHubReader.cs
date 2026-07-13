@@ -687,7 +687,7 @@ public sealed class EventHubReader : BackgroundService
 
         if (!string.IsNullOrWhiteSpace(phaseKey))
         {
-            _requestPhases.Remove(phaseKey);
+            _requestPhases.Remove(phaseKey!);
         }
     }
 
