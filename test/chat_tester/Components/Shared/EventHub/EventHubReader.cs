@@ -23,8 +23,26 @@ public sealed class EventHubReader : BackgroundService
     private readonly EventHubMonitorOptions _options;
     private readonly ILogger<EventHubReader> _logger;
     private readonly Dictionary<string, List<string>> _requestLifecycle = new(StringComparer.OrdinalIgnoreCase);
+    // Per-request field capture keyed by S7P-ID: the enqueue, each backend attempt, and the final
+    // proxy-request fields are retained so the request detail can show the full lifecycle.
+    private readonly Dictionary<string, RequestPhaseRecord> _requestPhases = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<BasePipelineProcessor> _pipelineProcessors = new();
     private readonly CleanupProcessor _cleanupProcessor;
+    private bool _logSkippedRecords;
+
+    private enum RequestPhase
+    {
+        Enqueue,
+        Attempt,
+        Final
+    }
+
+    private sealed class RequestPhaseRecord
+    {
+        public IReadOnlyDictionary<string, string>? Enqueue { get; set; }
+        public List<IReadOnlyDictionary<string, string>> Attempts { get; } = new();
+        public IReadOnlyDictionary<string, string>? Final { get; set; }
+    }
 
     public EventHubReader(
         EventHubMonitorStore store,
@@ -125,6 +143,8 @@ public sealed class EventHubReader : BackgroundService
         _store.DisableRequestAging = true;
         _store.Clear();
         _requestLifecycle.Clear();
+        _requestPhases.Clear();
+        _logSkippedRecords = true;
 
         var importedCount = 0;
         var skippedCount = 0;
@@ -167,6 +187,8 @@ public sealed class EventHubReader : BackgroundService
                 "Ignoring incomplete JSON record at the end of Event Hub import file {LocalFilePath}.",
                 localFilePath);
         }
+
+        _logSkippedRecords = false;
 
         _logger.LogInformation(
             "Imported {ImportedCount} events from local Event Hub file {LocalFilePath}. Skipped {SkippedCount} unsupported or invalid records.",
@@ -388,7 +410,13 @@ public sealed class EventHubReader : BackgroundService
     private bool TryProcessIncomingRecord(string incomingRecord)
     {
         var eventData = ParseEventData(incomingRecord);
-        return ProcessEventData(eventData);
+        var processed = ProcessEventData(eventData);
+        if (!processed && _logSkippedRecords)
+        {
+            _logger.LogInformation("Skipped record: {Record}", incomingRecord);
+        }
+
+        return processed;
     }
 
     private void LogInvalidRecord(Exception exception, string source)
@@ -420,15 +448,24 @@ public sealed class EventHubReader : BackgroundService
                 return true;
 
             case "S7P-ProxyRequestEnqueued":
+                TrackLifecycleEvent(eventData, eventType);
+                TrackRequestPhase(eventData, RequestPhase.Enqueue);
+                RecordEnqueueHistory(eventData);
+                return true;
+
             case "S7P-BackendRequest":
+                ApplyBackendRequestEvent(eventData);
+                return true;
+
             case "S7P-ServerError":
                 TrackLifecycleEvent(eventData, eventType);
-                return false;
+                RecordServerErrorHistory(eventData);
+                return true;
 
             case "S7P-CircuitBreakerError":
                 TrackLifecycleEvent(eventData, eventType);
-                _store.MarkServerCircuitBreakerSignal();
-                return false;
+                RecordCircuitBreakerHistory(eventData);
+                return true;
 
             case "S7P-ProxyRequest":
             case "S7P-ProxyRequestExpired":
@@ -444,6 +481,7 @@ public sealed class EventHubReader : BackgroundService
     private void ApplyBackendEvent(IReadOnlyDictionary<string, string> eventData)
     {
         var backends = new List<BackendHealthSnapshot>();
+        var successThresholdPercent = NormalizeSuccessRateThreshold(ParseDouble(eventData, "SuccessRate"));
         for (var index = 1; ; index++)
         {
             if (!eventData.TryGetValue($"{index}-Host", out var host) || string.IsNullOrWhiteSpace(host))
@@ -455,6 +493,7 @@ public sealed class EventHubReader : BackgroundService
             var status = GetValue(eventData, $"{index}-Status");
             var calls = ParseInt(eventData, $"{index}-Calls");
             var errors = ParseInt(eventData, $"{index}-Errors");
+            var successRate = (int)Math.Round(ParseDouble(eventData, $"{index}-SuccessRate"));
             backends.Add(new BackendHealthSnapshot
             {
                 HostKey = BuildBackendHostKey(host),
@@ -462,12 +501,12 @@ public sealed class EventHubReader : BackgroundService
                 Url = host,
                 Status = status,
                 LatencyMs = latencyMs,
-                SuccessRate = (int)Math.Round(ParseDouble(eventData, $"{index}-SuccessRate")),
+                SuccessRate = successRate,
                 Calls = calls,
                 Errors = errors,
                 ProbeSuccesses = Math.Max(0, calls - errors),
                 ProbeFailures = Math.Max(0, errors),
-                Css = ResolveBackendCss(status),
+                Css = ResolveBackendCss(status, successRate, successThresholdPercent),
             });
         }
 
@@ -514,14 +553,23 @@ public sealed class EventHubReader : BackgroundService
         var failed = eventType != "S7P-ProxyRequest" || (statusCode is >= 400);
         var statusLabel = failed ? "Failed" : "Completed";
         var statusMessage = BuildStatusMessage(eventData, eventType, statusCode, statusLabel);
-        var requestHeaders = BuildRequestHeadersText(eventData);
-        var responseHeaders = BuildResponseHeadersText(eventData, statusCode);
+
+        TrackRequestPhase(eventData, RequestPhase.Final);
+        var phaseKey = GetPhaseKey(eventData);
+        RequestPhaseRecord? phaseRecord = null;
+        if (!string.IsNullOrWhiteSpace(phaseKey))
+        {
+            _requestPhases.TryGetValue(phaseKey, out phaseRecord);
+        }
+
+        var requestHeaders = BuildEnqueuePhaseText(phaseRecord, eventData);
+        var responseHeaders = BuildAttemptAndFinalPhaseText(phaseRecord, eventData, statusCode);
         var lifecycleText = BuildLifecycleText(correlationKey);
         if (!string.IsNullOrWhiteSpace(lifecycleText))
         {
             responseHeaders = string.IsNullOrWhiteSpace(responseHeaders)
                 ? $"Lifecycle:{Environment.NewLine}{lifecycleText}"
-                : $"{responseHeaders}{Environment.NewLine}Lifecycle:{Environment.NewLine}{lifecycleText}";
+                : $"{responseHeaders}{Environment.NewLine}{Environment.NewLine}Lifecycle:{Environment.NewLine}{lifecycleText}";
         }
 
         var summaryBody = BuildRequestSummaryBody(eventData);
@@ -545,10 +593,12 @@ public sealed class EventHubReader : BackgroundService
                 ?? ParseNullableMilliseconds(eventData, "Duration"),
             Chunks = 0,
             TotalBytes = ParseLong(eventData, "Content-Length"),
+            RequestContentLength = ParseLong(eventData, "RequestContentLength"),
             RequestHeadersText = requestHeaders,
             ResponseHeadersText = responseHeaders,
             RequestBodyDisplay = summaryBody,
             ResponseBody = responseBody,
+            Phases = BuildPhaseView(phaseRecord, eventData, phaseKey),
             IsComplete = true,
             IsFailed = failed,
         });
@@ -557,6 +607,59 @@ public sealed class EventHubReader : BackgroundService
         {
             _requestLifecycle.Remove(correlationKey);
         }
+
+        if (!string.IsNullOrWhiteSpace(phaseKey))
+        {
+            _requestPhases.Remove(phaseKey);
+        }
+    }
+
+    // A backend request is a single backend attempt within a request's lifetime. It carries the
+    // endpoint-level metrics (x-PolicyCycleCounter, Request-Process-Duration, backendLog PAYGO /
+    // throttle details) consumed by the Endpoints card. It is stored as its own item so the card
+    // can aggregate per attempt, but it is excluded from the request panel and runtime stats, which
+    // are owned by the final S7P-ProxyRequest. The lifecycle step is added but NOT removed here; the
+    // final S7P-ProxyRequest owns lifecycle removal.
+    private void ApplyBackendRequestEvent(IReadOnlyDictionary<string, string> eventData)
+    {
+        const string eventType = "S7P-BackendRequest";
+
+        var correlationKey = GetCorrelationKey(eventData);
+        if (!string.IsNullOrWhiteSpace(correlationKey))
+        {
+            TrackLifecycleEvent(eventData, eventType);
+        }
+
+        TrackRequestPhase(eventData, RequestPhase.Attempt);
+
+        var statusCode = ParseNullableInt(eventData, "Status");
+        var failed = statusCode is >= 400;
+        var statusLabel = failed ? "Failed" : "Completed";
+
+        _store.AddRequest(new MultiRequestStatusItem
+        {
+            ContainerApp = GetValue(eventData, "ContainerApp"),
+            Replica = GetValue(eventData, "Replica"),
+            Status = statusLabel,
+            StatusMessage = BuildStatusMessage(eventData, eventType, statusCode, statusLabel),
+            EventType = eventType,
+            BackendHost = BuildRequestBackendHost(eventData),
+            EndpointKey = string.Empty,
+            IsEndpointCircuitBreakerOpen = false,
+            IsServerCircuitBreakerSignal = false,
+            StatusCode = statusCode,
+            ContentType = GetValue(eventData, "Content-Type", "-"),
+            TimeToFirstByte = ParseNullableMilliseconds(eventData, "Request-Queue-Duration"),
+            Duration = null,
+            Chunks = 0,
+            TotalBytes = ParseLong(eventData, "Content-Length"),
+            RequestHeadersText = BuildRequestHeadersText(eventData),
+            ResponseHeadersText = BuildResponseHeadersText(eventData, statusCode),
+            RequestBodyDisplay = BuildRequestSummaryBody(eventData),
+            ResponseBody = BuildResponseSummaryBody(eventData, BuildStatusMessage(eventData, eventType, statusCode, statusLabel)),
+            IsComplete = true,
+            IsFailed = failed,
+        });
     }
 
     private void TrackLifecycleEvent(IReadOnlyDictionary<string, string> eventData, string eventType)
@@ -607,6 +710,62 @@ public sealed class EventHubReader : BackgroundService
         steps.Add($"{timestamp} | {eventType}{suffix}");
     }
 
+    private void RecordCircuitBreakerHistory(IReadOnlyDictionary<string, string> eventData)
+    {
+        var code = GetValue(eventData, "Code");
+        if (!int.TryParse(code, out var errorCode))
+        {
+            errorCode = 500; // Default to server error
+        }
+
+        var hasReportedCount = int.TryParse(GetValue(eventData, "Count"), out var reportedCount);
+
+        var backendHost = FirstNonEmpty(
+            GetValue(eventData, "Backend-Host"),
+            GetValue(eventData, "Attempt-1-Backend-Host"),
+            GetValue(eventData, "Host-URL"),
+            GetValue(eventData, "Attempt-1-Host-URL"));
+
+        if (string.IsNullOrWhiteSpace(backendHost))
+        {
+            // Hostless event is server-level history only.
+            _store.RecordServerCircuitBreakerEvent(errorCode, hasReportedCount ? reportedCount : null);
+            return;
+        }
+
+        _store.RecordCircuitBreakerIssue(backendHost, errorCode);
+    }
+
+    private void RecordServerErrorHistory(IReadOnlyDictionary<string, string> eventData)
+    {
+        var statusCode = ParseNullableInt(eventData, "Status");
+        var message = GetValue(eventData, "Message");
+        var queueLength = ParseNullableInt(eventData, "QueueLength");
+        var path = GetValue(eventData, "Path");
+
+        _store.RecordServerErrorEvent(statusCode, message, queueLength, path);
+    }
+
+    private void RecordEnqueueHistory(IReadOnlyDictionary<string, string> eventData)
+    {
+        var queueLength = ParseNullableInt(eventData, "QueueLength");
+        var activeHosts = ParseNullableInt(eventData, "ActiveHosts");
+        var path = GetValue(eventData, "Path");
+
+        _store.RecordEnqueueSuccess(queueLength, activeHosts, path);
+    }
+
+    private static int NormalizeSuccessRateThreshold(double rawThreshold)
+    {
+        if (rawThreshold <= 0)
+        {
+            return 80;
+        }
+
+        // Backend event can emit either 0.8 or 80. Normalize to percent.
+        return rawThreshold <= 1 ? (int)Math.Round(rawThreshold * 100) : (int)Math.Round(rawThreshold);
+    }
+
     private string BuildLifecycleText(string? correlationKey)
     {
         if (string.IsNullOrWhiteSpace(correlationKey))
@@ -620,6 +779,140 @@ public sealed class EventHubReader : BackgroundService
         }
 
         return string.Join(Environment.NewLine, steps);
+    }
+
+    // Captures the raw field set for a request phase (enqueue / backend attempt / final proxy
+    // response) keyed by the request's S7P-ID so the detail view can show the full lifecycle.
+    private void TrackRequestPhase(IReadOnlyDictionary<string, string> eventData, RequestPhase phase)
+    {
+        var key = GetPhaseKey(eventData);
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return;
+        }
+
+        if (!_requestPhases.TryGetValue(key, out var record))
+        {
+            record = new RequestPhaseRecord();
+            _requestPhases[key] = record;
+        }
+
+        var snapshot = new Dictionary<string, string>(eventData, StringComparer.OrdinalIgnoreCase);
+        switch (phase)
+        {
+            case RequestPhase.Enqueue:
+                record.Enqueue = snapshot;
+                break;
+            case RequestPhase.Attempt:
+                record.Attempts.Add(snapshot);
+                break;
+            case RequestPhase.Final:
+                record.Final = snapshot;
+                break;
+        }
+    }
+
+    private static string? GetPhaseKey(IReadOnlyDictionary<string, string> eventData)
+    {
+        // S7P-ID is the stable request identity shared by the enqueue, every backend attempt (whose
+        // MID carries an attempt suffix like "-234-1"), and the final proxy response. Fall back to
+        // MID for events that omit it.
+        return FirstNonEmpty(
+            GetValue(eventData, "S7P-ID"),
+            GetValue(eventData, "MID"));
+    }
+
+    private string BuildEnqueuePhaseText(RequestPhaseRecord? record, IReadOnlyDictionary<string, string> finalData)
+    {
+        var enqueue = record?.Enqueue;
+        if (enqueue is null || enqueue.Count == 0)
+        {
+            return BuildRequestHeadersText(finalData);
+        }
+
+        return $"Enqueue:{Environment.NewLine}{FormatPhaseFields(enqueue)}";
+    }
+
+    private string BuildAttemptAndFinalPhaseText(
+        RequestPhaseRecord? record,
+        IReadOnlyDictionary<string, string> finalData,
+        int? statusCode)
+    {
+        var sections = new List<string>();
+
+        if (record is not null)
+        {
+            for (var index = 0; index < record.Attempts.Count; index++)
+            {
+                sections.Add($"Attempt {index + 1}:{Environment.NewLine}{FormatPhaseFields(record.Attempts[index])}");
+            }
+        }
+
+        var final = record?.Final ?? finalData;
+        var finalHeader = statusCode is int code ? $"Final (HTTP {code}):" : "Final:";
+        sections.Add($"{finalHeader}{Environment.NewLine}{FormatPhaseFields(final)}");
+
+        return string.Join($"{Environment.NewLine}{Environment.NewLine}", sections);
+    }
+
+    private static string FormatPhaseFields(IReadOnlyDictionary<string, string> fields)
+    {
+        return string.Join(
+            Environment.NewLine,
+            fields
+                .Where(pair => !string.IsNullOrWhiteSpace(pair.Value))
+                .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(pair => $"{pair.Key}: {pair.Value}"));
+    }
+
+    // Builds the structured per-phase view consumed by the EventHub request popup (enqueue tab,
+    // one tab per backend attempt, and the final proxy-request tab).
+    private EventHub.RequestPhaseView BuildPhaseView(
+        RequestPhaseRecord? record,
+        IReadOnlyDictionary<string, string> finalData,
+        string? key)
+    {
+        var attempts = new List<IReadOnlyList<KeyValuePair<string, string>>>();
+        string? backendLog = null;
+
+        if (record is not null)
+        {
+            foreach (var attempt in record.Attempts)
+            {
+                attempts.Add(ToOrderedFields(attempt));
+                var attemptLog = GetValue(attempt, "backendLog");
+                if (!string.IsNullOrWhiteSpace(attemptLog))
+                {
+                    backendLog = attemptLog;
+                }
+            }
+        }
+
+        var final = record?.Final ?? finalData;
+        var finalLog = FirstNonEmpty(
+            GetValue(final, "backendLog"),
+            GetValue(final, "Attempt-1-backendLog"));
+        if (!string.IsNullOrWhiteSpace(finalLog))
+        {
+            backendLog = finalLog;
+        }
+
+        return new EventHub.RequestPhaseView
+        {
+            SevenPId = key ?? string.Empty,
+            Enqueue = record?.Enqueue is { } enqueue ? ToOrderedFields(enqueue) : null,
+            Attempts = attempts,
+            Final = ToOrderedFields(final),
+            BackendLog = backendLog,
+        };
+    }
+
+    private static IReadOnlyList<KeyValuePair<string, string>> ToOrderedFields(IReadOnlyDictionary<string, string> fields)
+    {
+        return fields
+            .Where(pair => !string.IsNullOrWhiteSpace(pair.Value))
+            .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private static string BuildRequestSummaryBody(IReadOnlyDictionary<string, string> eventData)
@@ -656,9 +949,12 @@ public sealed class EventHubReader : BackgroundService
 
     private static string? GetCorrelationKey(IReadOnlyDictionary<string, string> eventData)
     {
+        // GUID is stable across a request's lifetime (enqueue, backend attempts, final proxy
+        // response) while MID differs per backend attempt (e.g. "...-234" vs "...-234-1"). Prefer
+        // GUID so lifecycle steps correlate; fall back to MID for events that omit GUID.
         return FirstNonEmpty(
-            GetValue(eventData, "MID"),
-            GetValue(eventData, "GUID"));
+            GetValue(eventData, "GUID"),
+            GetValue(eventData, "MID"));
     }
 
     private ReaderSettings ResolveSettings()
@@ -912,8 +1208,14 @@ public sealed class EventHubReader : BackgroundService
         return null;
     }
 
-    private static string ResolveBackendCss(string status)
+    private static string ResolveBackendCss(string status, int successRate, int successThresholdPercent)
     {
+        // Backend CB semantic: success-rate below threshold means tripped/degraded backend.
+        if (successRate < successThresholdPercent)
+        {
+            return "down";
+        }
+
         if (status.Contains("active", StringComparison.OrdinalIgnoreCase))
         {
             return "healthy";
@@ -1050,6 +1352,10 @@ public sealed class EventHubReader : BackgroundService
         AddHeaderLine(lines, "Priority", GetValue(eventData, "Priority"));
         AddHeaderLine(lines, "Priority2", GetValue(eventData, "Priority2"));
         AddHeaderLine(lines, "MID", GetValue(eventData, "MID"));
+        AddHeaderLine(lines, "x-PolicyCycleCounter", GetValue(eventData, "x-PolicyCycleCounter"));
+        AddHeaderLine(lines, "Request-Process-Duration", GetValue(eventData, "Request-Process-Duration"));
+        AddHeaderLine(lines, "Request-Queue-Duration", GetValue(eventData, "Request-Queue-Duration"));
+        AddHeaderLine(lines, "x-Backend-Attempts", GetValue(eventData, "x-Backend-Attempts"));
 
         return string.Join(Environment.NewLine, lines);
     }
@@ -1066,6 +1372,16 @@ public sealed class EventHubReader : BackgroundService
         AddHeaderLine(lines, "Backend-Host", GetValue(eventData, "Backend-Host"));
         AddHeaderLine(lines, "backendLog", GetValue(eventData, "backendLog"));
         AddHeaderLine(lines, "retry-after", GetValue(eventData, "retry-after"));
+
+        // Keep all raw event fields available in hover details for discrepancy analysis.
+        lines.Add("EventData:");
+        foreach (var pair in eventData.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            if (!string.IsNullOrWhiteSpace(pair.Value))
+            {
+                lines.Add($"{pair.Key}: {pair.Value}");
+            }
+        }
 
         return string.Join(Environment.NewLine, lines);
     }

@@ -49,6 +49,10 @@ public sealed record RuntimeStatsSnapshot
     public int Failed { get; init; }
     public double SuccessRate { get; init; }
     public double AvgLatencyMs { get; init; }
+    public int EnqueuedCount { get; init; }
+    public int ProcessingCount { get; init; }
+    public int CompletedCount { get; init; }
+    public double AverageRequestSizeBytes { get; init; }
     public int ActiveHosts { get; init; }
     public int TotalHosts { get; init; }
     public double BackendProbeLatencyMs { get; init; }
@@ -60,6 +64,61 @@ public sealed record RuntimeStatsSnapshot
     public int EndpointCount { get; init; }
 }
 
+/// <summary>Circuit breaker issue tracking which backends are affected.</summary>
+public sealed record CircuitBreakerIssue
+{
+    public string BackendHost { get; init; } = string.Empty;
+    public int ErrorCode { get; init; }
+    public int OccurrenceCount { get; init; }
+    public DateTimeOffset LastOccurrenceUtc { get; init; } = DateTimeOffset.UtcNow;
+    public string ErrorDescription => ErrorCode switch
+    {
+        408 => "Timeout",
+        500 => "Server Error",
+        502 => "Bad Gateway",
+        503 => "Service Unavailable",
+        504 => "Gateway Timeout",
+        _ => $"HTTP {ErrorCode}"
+    };
+}
+
+/// <summary>Circuit breaker state snapshot.</summary>
+public sealed record CircuitBreakerSnapshot
+{
+    public bool IsOpen { get; init; }
+    public string Scope { get; init; } = "server + endpoint";
+    public DateTimeOffset LastTriggeredUtc { get; init; } = DateTimeOffset.UtcNow;
+    public int ServerEventCount { get; init; }
+    public int? LastErrorCode { get; init; }
+    public IReadOnlyList<CircuitBreakerIssue> BackendIssues { get; init; } = Array.Empty<CircuitBreakerIssue>();
+    public int EndpointCircuitBreakerOpenCount { get; init; }
+    public int EndpointCircuitBreakerTotalCount { get; init; }
+}
+
+/// <summary>Top rejected path with occurrence count.</summary>
+public sealed record ServerPathCount
+{
+    public string Path { get; init; } = string.Empty;
+    public int Count { get; init; }
+}
+
+/// <summary>Server-side rejected request aggregate from S7P-ServerError events.</summary>
+public sealed record ServerErrorSnapshot
+{
+    public int RejectedRequests { get; init; }
+    public int NotAuthorized403Count { get; init; }
+    public int LatestQueueLength { get; init; }
+    public int MaxQueueLength { get; init; }
+    public IReadOnlyList<ServerPathCount> TopPaths { get; init; } = Array.Empty<ServerPathCount>();
+    public int EnqueueAttempts { get; init; }
+    public int EnqueueSuccess { get; init; }
+    public int EnqueueFailed { get; init; }
+    public double EnqueueSuccessRate { get; init; }
+    public int LastEnqueueQueueLength { get; init; }
+    public int LastEnqueueActiveHosts { get; init; }
+    public IReadOnlyList<ServerPathCount> TopEnqueuePaths { get; init; } = Array.Empty<ServerPathCount>();
+}
+
 /// <summary>
 /// Immutable point-in-time view the UI renders from. Produced by
 /// <see cref="EventHubMonitorStore.GetSnapshot"/>.
@@ -67,8 +126,11 @@ public sealed record RuntimeStatsSnapshot
 public sealed record MonitorSnapshot
 {
     public DateTimeOffset TimestampUtc { get; init; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset LastDataUtc { get; init; }
     public bool HasData { get; init; }
     public RuntimeStatsSnapshot Stats { get; init; } = new();
+    public CircuitBreakerSnapshot CircuitBreaker { get; init; } = new();
+    public ServerErrorSnapshot ServerErrors { get; init; } = new();
     public IReadOnlyList<BackendHealthSnapshot> Backends { get; init; } = Array.Empty<BackendHealthSnapshot>();
     public IReadOnlyList<MultiRequestStatusItem> Requests { get; init; } = Array.Empty<MultiRequestStatusItem>();
 }

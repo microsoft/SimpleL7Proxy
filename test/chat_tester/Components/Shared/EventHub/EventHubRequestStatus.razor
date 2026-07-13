@@ -1,0 +1,1084 @@
+@namespace chat_tester.Components.Shared
+@using chat_tester.Components.Shared
+@using chat_tester.Components.Shared.EventHub
+@using System.Globalization
+@using Microsoft.AspNetCore.Components.Web
+
+@* EventHub-specific request status panel. Not shared with other pages: the popup is a tabbed
+   per-phase (enqueue / attempt / final) view keyed by S7P-ID, with a backendLog drill-down modal. *@
+
+@if (Items.Count > 0)
+{
+    <div class="multi-request-stats card shadow-sm">
+        <div class="card-header bg-dark text-white">
+            <span class="fw-semibold">Statistics</span>
+        </div>
+        <div class="card-body">
+            <div class="multi-request-stats-thermometer">
+                @foreach (var segment in OutcomeSegments)
+                {
+                    <div class="multi-request-stats-segment @segment.Css" style="flex-grow: @segment.Count;" title="@segment.Label">
+                        <span class="multi-request-stats-segment-label">@segment.Label</span>
+                    </div>
+                }
+            </div>
+            <table class="multi-request-stats-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Status</th>
+                        <th scope="col">Total</th>
+                        <th scope="col">TTFB</th>
+                        <th scope="col">Avg</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var group in StatusGroups)
+                    {
+                        <tr class="multi-request-stats-row @GetGroupClass(group.StatusCode) @(SelectedStatusFilter == group.StatusCode ? "active" : string.Empty)"
+                            @onclick="() => FilterByStatus(group.StatusCode)">
+                            <th scope="row" class="multi-request-stats-code">@group.StatusCode</th>
+                            <td>@group.Count</td>
+                            <td>@group.TtfbText</td>
+                            <td>@group.AvgText</td>
+                        </tr>
+                    }
+                    <tr class="multi-request-stats-row all @(SelectedStatusFilter is null ? "active" : string.Empty)"
+                        @onclick="ClearStatusFilter">
+                        <th scope="row" class="multi-request-stats-code">ALL</th>
+                        <td>@Items.Count</td>
+                        <td>@OverallTtfbText</td>
+                        <td>@OverallAvgText</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+<div class="multi-request-status card shadow-sm">
+    <div class="card-header bg-dark text-white">
+        <div class="d-flex flex-wrap align-items-baseline gap-2">
+            <span class="fw-semibold">Request status</span>
+            <span class="text-white-50 small ms-auto">@CompletedCount/@Items.Count complete</span>
+        </div>
+    </div>
+
+    <div class="card-body">
+    <div class="multi-request-status-list" role="list">
+        @foreach (var item in FilteredItems)
+        {
+            <button class="multi-request-row" type="button" role="listitem"
+                    @key="item"
+                    @onclick="() => SelectItem(item)"
+                    @onmouseenter="args => ShowMetrics(item, args)"
+                    @onmousemove="MoveMetrics"
+                    @onmouseleave="HideMetrics">
+                <div class="multi-request-label">@item.RequestNumber</div>
+                <div class="multi-request-thermometer @GetThermometerClass(item)">
+                    <div class="multi-request-fill" style="width: @GetFillWidth(item);"></div>
+                    <span class="multi-request-duration">@FormatDuration(item.Duration)</span>
+                </div>
+                <div class="multi-request-status-code @GetStatusClass(item)">@FormatStatus(item)</div>
+            </button>
+        }
+    </div>
+    </div>
+</div>
+
+@* ── Hover: S7P-ID + high-level stats ── *@
+@if (HoveredItem is not null)
+{
+    <div class="eh-req-hover" style="left: @HoverLeft; top: @HoverTop;">
+        <div class="eh-req-hover-head">
+            <span class="eh-req-hover-id">@HoverSevenPId</span>
+            <span class="eh-req-hover-status @GetStatusClass(HoveredItem)">@FormatStatus(HoveredItem)</span>
+        </div>
+        <dl class="eh-req-hover-metrics">
+            @foreach (var metric in HoverStats(HoveredItem))
+            {
+                <div class="eh-req-hover-metric">
+                    <dt>@metric.Key</dt>
+                    <dd>@metric.Value</dd>
+                </div>
+            }
+        </dl>
+    </div>
+}
+
+@* ── Click: tabbed per-phase detail modal ── *@
+@if (SelectedItem is not null)
+{
+    <div class="eh-req-backdrop" @onclick="CloseDetail"></div>
+    <div class="eh-req-modal" role="dialog" aria-modal="true" aria-label="Request @SelectedSevenPId detail" @onclick:stopPropagation="true">
+        <div class="eh-req-modal-header">
+            <div>
+                <div class="text-muted small text-uppercase fw-semibold">Request</div>
+                <div class="fw-semibold">@SelectedSevenPId</div>
+            </div>
+            <div class="eh-req-modal-status @GetStatusClass(SelectedItem)">@FormatStatus(SelectedItem) · @FormatDuration(SelectedItem.Duration)</div>
+            <button class="btn-close" type="button" aria-label="Close request detail" @onclick="CloseDetail"></button>
+        </div>
+        <div class="eh-req-tabs">
+            @foreach (var tab in PhaseTabs)
+            {
+                <button type="button"
+                        class="eh-req-tab @(SelectedPhaseTab == tab.Id ? "active" : string.Empty)"
+                        @onclick="() => SelectedPhaseTab = tab.Id">@tab.Label</button>
+            }
+        </div>
+        <div class="eh-req-modal-body">
+            @{
+                var activeFields = ActivePhaseFields;
+            }
+            @if (activeFields is null || activeFields.Count == 0)
+            {
+                <div class="text-muted small">No fields captured for this phase.</div>
+            }
+            else
+            {
+                <dl class="eh-req-fields">
+                    @foreach (var field in activeFields)
+                    {
+                        <div class="eh-req-field">
+                            <dt title="@field.Key">@field.Key</dt>
+                            <dd>
+                                @if (IsBackendLogField(field.Key))
+                                {
+                                    <button type="button" class="eh-req-backendlog-link"
+                                            title="@BackendLogSummary(field.Value)"
+                                            @onclick="() => OpenBackendLog(field.Value)">
+                                        @BackendLogSummary(field.Value)
+                                        <span class="eh-req-backendlog-more">details ▸</span>
+                                    </button>
+                                }
+                                else
+                                {
+                                    @field.Value
+                                }
+                            </dd>
+                        </div>
+                    }
+                </dl>
+            }
+        </div>
+    </div>
+}
+
+@* ── backendLog drill-down modal ── *@
+@if (BackendLogModalValue is not null)
+{
+    <div class="eh-req-backdrop eh-req-backdrop-top" @onclick="CloseBackendLog"></div>
+    <div class="eh-req-log-modal" role="dialog" aria-modal="true" aria-label="Backend log detail" @onclick:stopPropagation="true">
+        <div class="eh-req-modal-header">
+            <div>
+                <div class="text-muted small text-uppercase fw-semibold">Backend log</div>
+                <div class="fw-semibold">@SelectedSevenPId</div>
+            </div>
+            <button class="btn-close" type="button" aria-label="Close backend log" @onclick="CloseBackendLog"></button>
+        </div>
+        <div class="eh-req-modal-body">
+            <div class="eh-req-log-view">
+                <div class="eh-req-log-title">Backend log header</div>
+                @foreach (var step in ParseBackendLog(BackendLogModalValue))
+                {
+                    <div class="eh-req-log-item @ClassifyBackendLogPart(step)">@step</div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .multi-request-status > .card-body {
+        padding: 0.75rem;
+    }
+
+    .multi-request-status-list {
+        display: grid;
+        gap: 0.45rem;
+        align-content: start;
+        max-height: min(58vh, 34rem);
+        overflow-y: auto;
+        padding-right: 0.25rem;
+    }
+
+    .multi-request-row {
+        display: grid;
+        grid-template-columns: 2.5rem minmax(8rem, 1fr) 5.5rem;
+        align-items: center;
+        gap: 0.65rem;
+        width: 100%;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        text-align: left;
+    }
+
+    .multi-request-row:hover .multi-request-thermometer,
+    .multi-request-row:focus-visible .multi-request-thermometer {
+        outline: 2px solid rgba(13, 110, 253, 0.45);
+        outline-offset: 1px;
+    }
+
+    .multi-request-label {
+        color: #6c757d;
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-align: right;
+    }
+
+    .multi-request-thermometer {
+        position: relative;
+        height: 1.35rem;
+        overflow: hidden;
+        border: 1px solid #adb5bd;
+        background: #f8f9fa;
+    }
+
+    .multi-request-thermometer.success { border-color: #79ad69; background: #d8ecd3; }
+    .multi-request-thermometer.failed { border-color: #d66a6a; background: #f4c7c7; }
+    .multi-request-thermometer.running { border-color: #6ea8fe; background: #e7f1ff; }
+
+    .multi-request-fill {
+        position: absolute;
+        inset: 0 auto 0 0;
+        background: rgba(13, 110, 253, 0.18);
+    }
+
+    .multi-request-duration {
+        position: relative;
+        z-index: 1;
+        display: block;
+        padding: 0.05rem 0.5rem;
+        color: #111;
+        font-size: 0.8rem;
+        font-variant-numeric: tabular-nums;
+        font-weight: 700;
+        text-align: right;
+    }
+
+    .multi-request-status-code {
+        color: #495057;
+        font-size: 0.8rem;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    .multi-request-status-code.success { color: #146c43; }
+    .multi-request-status-code.failed { color: #b02a37; }
+    .multi-request-status-code.running { color: #0d6efd; }
+
+    .multi-request-stats {
+        margin-top: 0;
+        flex: 0 0 auto;
+    }
+
+    .multi-request-stats-thermometer {
+        display: flex;
+        width: 100%;
+        height: 2.5rem;
+        overflow: hidden;
+        border-radius: 0.35rem;
+        border: 1px solid #adb5bd;
+    }
+
+    .multi-request-stats-segment {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-width: max-content;
+        flex-basis: 0;
+    }
+
+    .multi-request-stats-segment.success { background: #2f9e44; }
+    .multi-request-stats-segment.transient { background: #f59f00; }
+    .multi-request-stats-segment.permanent { background: #e03131; }
+    .multi-request-stats-segment.pending { background: #adb5bd; }
+
+    .multi-request-stats-segment-label {
+        color: #fff;
+        font-size: 0.85rem;
+        font-weight: 700;
+        padding: 0 0.5rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .multi-request-stats-table {
+        width: 100%;
+        margin-top: 0.85rem;
+        border-collapse: collapse;
+        font-size: 0.85rem;
+        color: #212529;
+    }
+
+    .multi-request-stats-table thead th {
+        text-align: right;
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: #6c757d;
+        font-weight: 600;
+        padding: 0.25rem 0.6rem;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    .multi-request-stats-table thead th:first-child { text-align: left; }
+
+    .multi-request-stats-footer {
+        margin-top: 0.85rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid #dee2e6;
+    }
+
+    .multi-request-stats-row { cursor: pointer; }
+
+    .multi-request-stats-row td,
+    .multi-request-stats-row > .multi-request-stats-code {
+        padding: 0.3rem 0.6rem;
+        border-bottom: 1px solid #f1f3f5;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .multi-request-stats-row > .multi-request-stats-code {
+        text-align: left;
+        font-weight: 700;
+        border-left: 4px solid transparent;
+    }
+
+    .multi-request-stats-row:hover { background: #f8f9fa; }
+    .multi-request-stats-row.active { background: rgba(13, 110, 253, 0.1); }
+    .multi-request-stats-row.success > .multi-request-stats-code { border-left-color: #2f9e44; }
+    .multi-request-stats-row.transient > .multi-request-stats-code { border-left-color: #f59f00; }
+    .multi-request-stats-row.permanent > .multi-request-stats-code { border-left-color: #e03131; }
+    .multi-request-stats-row.all > .multi-request-stats-code { border-left-color: #495057; }
+
+    /* ── EventHub hover popup ── */
+    .eh-req-hover {
+        position: fixed;
+        z-index: 1100;
+        width: 17rem;
+        max-width: 90vw;
+        pointer-events: none;
+        background: #fff;
+        border: 1px solid #dee2e6;
+        border-radius: 0.4rem;
+        box-shadow: 0 0.75rem 1.5rem rgba(0, 0, 0, 0.22);
+        overflow: hidden;
+    }
+
+    .eh-req-hover-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        padding: 0.4rem 0.6rem;
+        background: #212529;
+        color: #fff;
+    }
+
+    .eh-req-hover-id {
+        font-size: 0.72rem;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        word-break: break-all;
+    }
+
+    .eh-req-hover-status { font-size: 0.72rem; font-weight: 700; }
+    .eh-req-hover-status.success { color: #63e6be; }
+    .eh-req-hover-status.failed { color: #ffa8a8; }
+
+    .eh-req-hover-metrics { margin: 0; padding: 0.5rem 0.6rem; }
+
+    .eh-req-hover-metric {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.75rem;
+        font-size: 0.75rem;
+        padding: 0.1rem 0;
+    }
+
+    .eh-req-hover-metric dt { color: #868e96; font-weight: 500; margin: 0; }
+    .eh-req-hover-metric dd { margin: 0; font-weight: 600; color: #343a40; text-align: right; word-break: break-word; }
+
+    /* ── EventHub detail modal ── */
+    .eh-req-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1110;
+        background: rgba(15, 23, 42, 0.35);
+    }
+
+    .eh-req-backdrop-top { z-index: 1120; background: rgba(15, 23, 42, 0.2); }
+
+    .eh-req-modal {
+        position: fixed;
+        top: 6vh;
+        left: 50%;
+        z-index: 1111;
+        width: min(56rem, calc(100vw - 3rem));
+        height: 84vh;
+        display: flex;
+        flex-direction: column;
+        transform: translateX(-50%);
+        border: 1px solid rgba(0, 0, 0, 0.16);
+        border-radius: 0.5rem;
+        background: #fff;
+        box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.28);
+    }
+
+    .eh-req-log-modal {
+        position: fixed;
+        top: 10vh;
+        left: 50%;
+        z-index: 1121;
+        width: min(52rem, calc(100vw - 3rem));
+        max-height: 76vh;
+        display: flex;
+        flex-direction: column;
+        transform: translateX(-50%);
+        border: 1px solid rgba(0, 0, 0, 0.16);
+        border-radius: 0.5rem;
+        background: #fff;
+        box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.32);
+    }
+
+    .eh-req-modal-header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 0.7rem 1rem;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    .eh-req-modal-header > :first-child {
+        margin-right: auto;
+    }
+
+    .eh-req-modal-status {
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .eh-req-modal-status.success { color: #146c43; }
+    .eh-req-modal-status.failed { color: #b02a37; }
+
+    .eh-req-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        padding: 0.5rem 1rem 0;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    .eh-req-tab {
+        border: 1px solid #dee2e6;
+        border-bottom: 0;
+        background: #f8f9fa;
+        color: #495057;
+        font-size: 0.8rem;
+        font-weight: 600;
+        padding: 0.35rem 0.7rem;
+        border-radius: 0.35rem 0.35rem 0 0;
+        cursor: pointer;
+    }
+
+    .eh-req-tab.active { background: #fff; color: #0d6efd; border-color: #adb5bd; }
+
+    .eh-req-modal-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+        padding: 0.85rem 1rem 1rem;
+    }
+
+    .eh-req-fields { margin: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+
+    .eh-req-field {
+        display: grid;
+        grid-template-columns: minmax(9rem, 16rem) 1fr;
+        gap: 0.75rem;
+        padding: 0.25rem 0;
+        border-bottom: 1px solid #f1f3f5;
+    }
+
+    .eh-req-field dt {
+        margin: 0;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #495057;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .eh-req-field dd {
+        margin: 0;
+        font-size: 0.78rem;
+        color: #212529;
+        font-variant-numeric: tabular-nums;
+        word-break: break-word;
+    }
+
+    .eh-req-backendlog-link {
+        border: 1px solid #ced4da;
+        background: #f1f3f5;
+        border-radius: 0.35rem;
+        padding: 0.15rem 0.5rem;
+        font-size: 0.75rem;
+        color: #0d6efd;
+        cursor: pointer;
+        text-align: left;
+        max-width: 100%;
+    }
+
+    .eh-req-backendlog-link:hover { background: #e7f1ff; }
+    .eh-req-backendlog-more { color: #868e96; font-size: 0.7rem; margin-left: 0.35rem; }
+
+    .eh-req-log-view {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .eh-req-log-title {
+        font-weight: 600;
+        font-size: 0.85rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .eh-req-log-item {
+        border-left: 4px solid #6c757d;
+        background: #fff;
+        padding: 0.45rem 0.65rem;
+        margin-bottom: 0.4rem;
+        font-size: 0.78rem;
+        font-variant-numeric: tabular-nums;
+        color: #343a40;
+        word-break: break-word;
+    }
+
+    .eh-req-log-item.warning {
+        border-left-color: #ffc107;
+        background: #fff8e1;
+    }
+
+    .eh-req-log-item.error {
+        border-left-color: #dc3545;
+        background: #f8d7da;
+    }
+
+    .eh-req-log-item.success {
+        border-left-color: #198754;
+        background: #d1e7dd;
+    }
+</style>
+
+@code {
+    [Parameter]
+    public IReadOnlyList<MultiRequestStatusItem> Items { get; set; } = [];
+
+    private MultiRequestStatusItem? HoveredItem { get; set; }
+    private MultiRequestStatusItem? SelectedItem { get; set; }
+    private string SelectedPhaseTab { get; set; } = string.Empty;
+    private string? BackendLogModalValue { get; set; }
+
+    private string HoverLeft { get; set; } = "0px";
+    private string HoverTop { get; set; } = "0px";
+
+    private int CompletedCount => _completedCount;
+    private double MaxDurationMilliseconds => _maxDurationMilliseconds;
+    private string OverallTtfbText => _overallTtfbText;
+    private string OverallAvgText => _overallAvgText;
+
+    private string HoverSevenPId => HoveredItem?.Phases?.SevenPId is { Length: > 0 } id ? id : "(request)";
+    private string SelectedSevenPId => SelectedItem?.Phases?.SevenPId is { Length: > 0 } id ? id : "(request)";
+
+    private sealed record StatusGroup(int StatusCode, int Count, string TtfbText, string AvgText);
+    private sealed record OutcomeSegment(string Css, int Count, string Label);
+    private sealed record PhaseTab(string Id, string Label);
+
+    private IReadOnlyList<StatusGroup> StatusGroups => _statusGroups;
+    private IReadOnlyList<OutcomeSegment> OutcomeSegments => _outcomeSegments;
+    private IReadOnlyList<MultiRequestStatusItem> FilteredItems => _filteredItems;
+    private int? SelectedStatusFilter { get; set; }
+
+    private double _maxDurationMilliseconds;
+    private int _completedCount;
+    private string _overallTtfbText = "-";
+    private string _overallAvgText = "-";
+    private IReadOnlyList<StatusGroup> _statusGroups = Array.Empty<StatusGroup>();
+    private IReadOnlyList<OutcomeSegment> _outcomeSegments = Array.Empty<OutcomeSegment>();
+    private IReadOnlyList<MultiRequestStatusItem> _filteredItems = Array.Empty<MultiRequestStatusItem>();
+
+    protected override void OnParametersSet()
+    {
+        RecomputeAggregates();
+
+        if (HoveredItem is not null && !Items.Contains(HoveredItem))
+        {
+            HoveredItem = null;
+        }
+
+        if (SelectedItem is not null && !Items.Contains(SelectedItem))
+        {
+            SelectedItem = null;
+            BackendLogModalValue = null;
+        }
+    }
+
+    private void RecomputeAggregates()
+    {
+        double maxDuration = 0;
+        var completed = 0;
+        double ttfbSum = 0;
+        var ttfbCount = 0;
+        double durationSum = 0;
+        var durationCount = 0;
+
+        var statusAcc = new Dictionary<int, StatusAccumulator>();
+        var outcomeCounts = new Dictionary<Outcome, int>();
+
+        foreach (var item in Items)
+        {
+            var durationMs = item.Duration?.TotalMilliseconds;
+            if (durationMs is { } d)
+            {
+                if (d > maxDuration)
+                {
+                    maxDuration = d;
+                }
+
+                durationSum += d;
+                durationCount++;
+            }
+
+            var ttfbMs = item.TimeToFirstByte?.TotalMilliseconds;
+            if (ttfbMs is { } t)
+            {
+                ttfbSum += t;
+                ttfbCount++;
+            }
+
+            if (item.IsComplete)
+            {
+                completed++;
+            }
+
+            var outcome = GetOutcome(item);
+            outcomeCounts[outcome] = outcomeCounts.GetValueOrDefault(outcome) + 1;
+
+            if (item.StatusCode is { } code)
+            {
+                var acc = statusAcc.GetValueOrDefault(code);
+                acc.Count++;
+                if (ttfbMs is { } t2)
+                {
+                    acc.TtfbSum += t2;
+                    acc.TtfbCount++;
+                }
+
+                if (durationMs is { } d2)
+                {
+                    acc.DurationSum += d2;
+                    acc.DurationCount++;
+                }
+
+                statusAcc[code] = acc;
+            }
+        }
+
+        _maxDurationMilliseconds = maxDuration;
+        _completedCount = completed;
+        _overallTtfbText = FormatMilliseconds(ttfbCount == 0 ? null : ttfbSum / ttfbCount);
+        _overallAvgText = FormatMilliseconds(durationCount == 0 ? null : durationSum / durationCount);
+
+        _statusGroups = statusAcc
+            .OrderBy(pair => pair.Key)
+            .Select(pair => new StatusGroup(
+                pair.Key,
+                pair.Value.Count,
+                FormatMilliseconds(pair.Value.TtfbCount == 0 ? null : pair.Value.TtfbSum / pair.Value.TtfbCount),
+                FormatMilliseconds(pair.Value.DurationCount == 0 ? null : pair.Value.DurationSum / pair.Value.DurationCount)))
+            .ToList();
+
+        var segments = new List<OutcomeSegment>();
+        AddSegment(segments, outcomeCounts, Outcome.Success, "success", "Success");
+        AddSegment(segments, outcomeCounts, Outcome.Transient, "transient", "Transient");
+        AddSegment(segments, outcomeCounts, Outcome.Permanent, "permanent", "Permanent");
+        AddSegment(segments, outcomeCounts, Outcome.Pending, "pending", "Pending");
+        _outcomeSegments = segments;
+
+        RebuildFilteredItems();
+    }
+
+    private void RebuildFilteredItems()
+    {
+        _filteredItems = SelectedStatusFilter is { } code
+            ? Items.Where(item => item.StatusCode == code).ToList()
+            : Items;
+    }
+
+    private struct StatusAccumulator
+    {
+        public int Count;
+        public double TtfbSum;
+        public int TtfbCount;
+        public double DurationSum;
+        public int DurationCount;
+    }
+
+    private enum Outcome { Success, Transient, Permanent, Pending }
+
+    private static void AddSegment(List<OutcomeSegment> segments, IReadOnlyDictionary<Outcome, int> counts, Outcome outcome, string css, string label)
+    {
+        if (counts.TryGetValue(outcome, out var count) && count > 0)
+        {
+            segments.Add(new OutcomeSegment(css, count, $"{label}: {count}"));
+        }
+    }
+
+    private static Outcome GetOutcome(MultiRequestStatusItem item)
+    {
+        if (item.StatusCode is { } code)
+        {
+            return GetOutcomeForCode(code);
+        }
+
+        return item.IsFailed ? Outcome.Permanent : Outcome.Pending;
+    }
+
+    private static Outcome GetOutcomeForCode(int code)
+    {
+        if (code is >= 200 and < 300)
+        {
+            return Outcome.Success;
+        }
+
+        return IsTransientStatusCode(code) ? Outcome.Transient : Outcome.Permanent;
+    }
+
+    private static bool IsTransientStatusCode(int code) =>
+        code is 408 or 409 or 412 or 425 or 429 or 500 or 502 or 503 or 504;
+
+    private static string GetGroupClass(int statusCode) => GetOutcomeForCode(statusCode) switch
+    {
+        Outcome.Success => "success",
+        Outcome.Transient => "transient",
+        _ => "permanent"
+    };
+
+    private void FilterByStatus(int statusCode)
+    {
+        SelectedStatusFilter = SelectedStatusFilter == statusCode ? null : statusCode;
+        RebuildFilteredItems();
+    }
+
+    private void ClearStatusFilter()
+    {
+        SelectedStatusFilter = null;
+        RebuildFilteredItems();
+    }
+
+    private static string FormatMilliseconds(double? value) =>
+        value is null ? "-" : value.Value.ToString("0", CultureInfo.InvariantCulture) + "ms";
+
+    private void SelectItem(MultiRequestStatusItem item)
+    {
+        SelectedItem = item;
+        BackendLogModalValue = null;
+        SelectedPhaseTab = PhaseTabs.FirstOrDefault()?.Id ?? string.Empty;
+    }
+
+    private void CloseDetail()
+    {
+        SelectedItem = null;
+        BackendLogModalValue = null;
+    }
+
+    private void OpenBackendLog(string value)
+    {
+        BackendLogModalValue = value;
+    }
+
+    private void CloseBackendLog()
+    {
+        BackendLogModalValue = null;
+    }
+
+    private void ShowMetrics(MultiRequestStatusItem item, MouseEventArgs args)
+    {
+        HoveredItem = item;
+        MoveMetrics(args);
+    }
+
+    private void MoveMetrics(MouseEventArgs args)
+    {
+        HoverLeft = (args.ClientX + 16).ToString("0", CultureInfo.InvariantCulture) + "px";
+        HoverTop = (args.ClientY + 16).ToString("0", CultureInfo.InvariantCulture) + "px";
+    }
+
+    private void HideMetrics()
+    {
+        HoveredItem = null;
+    }
+
+    private IReadOnlyList<PhaseTab> PhaseTabs
+    {
+        get
+        {
+            var tabs = new List<PhaseTab>();
+            var phases = SelectedItem?.Phases;
+            if (phases is null)
+            {
+                return tabs;
+            }
+
+            if (phases.Enqueue is { Count: > 0 })
+            {
+                tabs.Add(new PhaseTab("enqueue", "Enqueue"));
+            }
+
+            for (var index = 0; index < phases.Attempts.Count; index++)
+            {
+                tabs.Add(new PhaseTab($"attempt-{index}", $"Attempt {index + 1}"));
+            }
+
+            if (phases.Final is { Count: > 0 })
+            {
+                tabs.Add(new PhaseTab("final", "Final"));
+            }
+
+            return tabs;
+        }
+    }
+
+    private IReadOnlyList<KeyValuePair<string, string>>? ActivePhaseFields
+    {
+        get
+        {
+            var phases = SelectedItem?.Phases;
+            if (phases is null || string.IsNullOrEmpty(SelectedPhaseTab))
+            {
+                return null;
+            }
+
+            if (SelectedPhaseTab == "enqueue")
+            {
+                return phases.Enqueue;
+            }
+
+            if (SelectedPhaseTab == "final")
+            {
+                return phases.Final;
+            }
+
+            if (SelectedPhaseTab.StartsWith("attempt-", StringComparison.Ordinal)
+                && int.TryParse(SelectedPhaseTab.AsSpan("attempt-".Length), out var index)
+                && index >= 0 && index < phases.Attempts.Count)
+            {
+                return phases.Attempts[index];
+            }
+
+            return null;
+        }
+    }
+
+    private static bool IsBackendLogField(string key) =>
+        key.EndsWith("backendLog", StringComparison.OrdinalIgnoreCase);
+
+    private static string BackendLogSummary(string backendLog)
+    {
+        var steps = ParseBackendLog(backendLog);
+        return steps.Count == 0 ? "(empty)" : steps[^1];
+    }
+
+    private static IReadOnlyList<string> ParseBackendLog(string backendLog)
+    {
+        if (string.IsNullOrWhiteSpace(backendLog))
+        {
+            return Array.Empty<string>();
+        }
+
+        return backendLog
+            .Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+    }
+
+    // Mirrors the backend-log severity colouring used by RawResponsePanel so the drill-down
+    // renders in the same green/amber/red convention as the rest of the system.
+    private static string ClassifyBackendLogPart(string part)
+    {
+        var beginSeverity = ClassifyBeginLog(part);
+        if (!string.IsNullOrEmpty(beginSeverity))
+        {
+            return beginSeverity;
+        }
+
+        if (part.Contains("THROTTLED: (none)", StringComparison.OrdinalIgnoreCase))
+        {
+            return "success";
+        }
+
+        if (part.Contains("TIMEOUT", StringComparison.OrdinalIgnoreCase) ||
+            part.Contains("INCOMPLETE", StringComparison.OrdinalIgnoreCase) ||
+            part.Contains("exhausted", StringComparison.OrdinalIgnoreCase))
+        {
+            return "error";
+        }
+
+        if (part.Contains("THROTTLED", StringComparison.OrdinalIgnoreCase) ||
+            part.Contains("RETRIES", StringComparison.OrdinalIgnoreCase))
+        {
+            return "warning";
+        }
+
+        return string.Empty;
+    }
+
+    private static string ClassifyBeginLog(string part)
+    {
+        if (!part.Contains("Begin", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Empty;
+        }
+
+        var secondsSuffix = part.IndexOf('s');
+        if (secondsSuffix <= 0 || !double.TryParse(part[..secondsSuffix].Trim(), out var seconds))
+        {
+            return string.Empty;
+        }
+
+        if (seconds < 0.1)
+        {
+            return "success";
+        }
+
+        if (seconds < 1)
+        {
+            return "warning";
+        }
+
+        return "error";
+    }
+
+    private IReadOnlyList<KeyValuePair<string, string>> HoverStats(MultiRequestStatusItem item)
+    {
+        var stats = new List<KeyValuePair<string, string>>();
+        var phases = item.Phases;
+
+        var path = FirstPhaseValue(phases, "Path");
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            stats.Add(new("Path", path));
+        }
+
+        var user = FirstPhaseValue(phases, "UserID");
+        if (!string.IsNullOrWhiteSpace(user))
+        {
+            stats.Add(new("User", user));
+        }
+
+        if (item.StatusCode is { } code)
+        {
+            stats.Add(new("Status", code.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        stats.Add(new("Duration", FormatDuration(item.Duration)));
+
+        if (item.TimeToFirstByte is { } queue)
+        {
+            stats.Add(new("Queue", $"{queue.TotalMilliseconds:0} ms"));
+        }
+
+        stats.Add(new("Attempts", (phases?.Attempts.Count ?? 0).ToString(CultureInfo.InvariantCulture)));
+
+        var priority = FirstPhaseValue(phases, "Priority");
+        if (!string.IsNullOrWhiteSpace(priority))
+        {
+            stats.Add(new("Priority", priority));
+        }
+
+        return stats;
+    }
+
+    private static string? FirstPhaseValue(RequestPhaseView? phases, string key)
+    {
+        if (phases is null)
+        {
+            return null;
+        }
+
+        return Lookup(phases.Final, key)
+            ?? Lookup(phases.Enqueue, key)
+            ?? phases.Attempts.Select(attempt => Lookup(attempt, key)).FirstOrDefault(value => value is not null);
+    }
+
+    private static string? Lookup(IReadOnlyList<KeyValuePair<string, string>>? fields, string key)
+    {
+        if (fields is null)
+        {
+            return null;
+        }
+
+        foreach (var pair in fields)
+        {
+            if (string.Equals(pair.Key, key, StringComparison.OrdinalIgnoreCase))
+            {
+                return pair.Value;
+            }
+        }
+
+        return null;
+    }
+
+    private string GetFillWidth(MultiRequestStatusItem item)
+    {
+        var durationMilliseconds = item.Duration?.TotalMilliseconds ?? 0;
+        if (durationMilliseconds <= 0 || MaxDurationMilliseconds <= 0)
+        {
+            return item.IsRunning ? "8%" : "0%";
+        }
+
+        var width = Math.Clamp(durationMilliseconds / MaxDurationMilliseconds * 100, 3, 100);
+        return width.ToString("0.##", CultureInfo.InvariantCulture) + "%";
+    }
+
+    private static string GetThermometerClass(MultiRequestStatusItem item) => GetStatusClass(item);
+
+    private static string GetStatusClass(MultiRequestStatusItem item)
+    {
+        if (item.IsFailed)
+        {
+            return "failed";
+        }
+
+        if (item.IsComplete)
+        {
+            return "success";
+        }
+
+        return item.IsRunning ? "running" : string.Empty;
+    }
+
+    private static string FormatDuration(TimeSpan? duration) =>
+        duration is null ? string.Empty : $"{duration.Value.TotalMilliseconds.ToString("0", CultureInfo.InvariantCulture)} ms";
+
+    private static string FormatStatus(MultiRequestStatusItem item)
+    {
+        if (item.StatusCode.HasValue)
+        {
+            return item.StatusCode.Value.ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (item.IsFailed)
+        {
+            return "Failed";
+        }
+
+        return item.IsRunning ? "..." : "-";
+    }
+}

@@ -6,6 +6,7 @@
 @using Microsoft.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Web
 @using Microsoft.Extensions.Options
+@using System.Globalization
 @using System.Text.RegularExpressions
 @inject EventHubMonitorStore Store
 @inject ProxyMetricsCatalog MetricsCatalog
@@ -19,8 +20,8 @@
                     SelectedHistoryEntryId="@SelectedScopeId"
                     HistorySource="EventHub monitor">
     <div class="row g-4 eventhub-workspace">
-        @* ── Left: Backends ── *@
-        <div class="col-12 col-lg-4 eventhub-config-col">
+        @* ── Backends column ── *@
+        <div class="col-12 col-lg-3 eventhub-config-col order-3">
             <div class="card shadow-sm eventhub-card">
                 <div class="card-header bg-success text-white">
                     <div class="d-flex flex-wrap align-items-baseline gap-2">
@@ -44,6 +45,7 @@
                                         <div class="eventhub-backend-url" title="@backend.Url">@backend.Url</div>
                                         <div class="eventhub-backend-metrics">
                                             <div><span class="eh-metric-label">Lat</span><span class="eh-metric-value">@backend.LatencyText</span></div>
+                                            <div><span class="eh-metric-label">Succ</span><span class="eh-metric-value">@backend.SuccessRate%</span></div>
                                             <div><span class="eh-metric-label">ProbeOK</span><span class="eh-metric-value">@backend.ProbeSuccesses</span></div>
                                             <div><span class="eh-metric-label">ProbeFail</span><span class="eh-metric-value">@backend.ProbeFailures</span></div>
                                             <div><span class="eh-metric-label">ReqCalls</span><span class="eh-metric-value">@backend.RequestCalls</span></div>
@@ -80,26 +82,10 @@
                             }
                         </div>
                     </div>
-
-                    <div class="eventhub-form-actions">
-                        @if (IsConnected)
-                        {
-                            <span class="badge text-bg-success align-self-center me-auto">
-                                <span class="eventhub-live-dot"></span> Live · updated @_snapshot.TimestampUtc.ToLocalTime().ToString("HH:mm:ss")
-                            </span>
-                        }
-                        else
-                        {
-                            <span class="badge text-bg-secondary align-self-center me-auto">Awaiting data</span>
-                        }
-                    </div>
                 </div>
             </div>
-        </div>
 
-        @* ── Middle: Endpoints (model-backed, pending) ── *@
-        <div class="col-12 col-lg-3 eventhub-endpoints-col">
-            <div class="card shadow-sm eventhub-card">
+            <div class="card shadow-sm eventhub-card eventhub-endpoints-card">
                 <div class="card-header bg-primary text-white">
                     <div class="d-flex flex-wrap align-items-baseline gap-2">
                         <span class="fw-semibold">Endpoints</span>
@@ -107,22 +93,69 @@
                     </div>
                 </div>
                 <div class="card-body eventhub-card-body">
-                    <div class="text-muted small">
-                        Endpoint listing is disabled until a model mapping file is provided.
-                    </div>
+                    @if (EndpointTiles.Count == 0)
+                    {
+                        <div class="text-muted small">No endpoint backend-call records received yet.</div>
+                    }
+                    else
+                    {
+                        <div class="eventhub-backend-list">
+                            @foreach (var endpoint in EndpointTiles)
+                            {
+                                <div class="eventhub-backend-tile @endpoint.Css">
+                                    <div class="eventhub-backend-tile-head">
+                                        <span class="eventhub-backend-dot" title="@endpoint.Status"></span>
+                                        <span class="eventhub-backend-name">@endpoint.Path</span>
+                                    </div>
+                                    <div class="eventhub-backend-state">@endpoint.Status</div>
+                                    <div class="eventhub-backend-url" title="@endpoint.TargetUrl">@endpoint.TargetUrl</div>
+                                    <div class="eventhub-backend-metrics">
+                                        <div><span class="eh-metric-label">Calls</span><span class="eh-metric-value">@endpoint.Calls</span></div>
+                                        <div><span class="eh-metric-label">Fail</span><span class="eh-metric-value">@endpoint.Failures</span></div>
+                                        <div><span class="eh-metric-label">Attempts</span><span class="eh-metric-value">@endpoint.AverageEndpointAttempts.ToString("0.##")</span></div>
+                                        <div><span class="eh-metric-label">Proc(s)</span><span class="eh-metric-value">@endpoint.AverageRequestProcessDuration.ToString("0.###")</span></div>
+                                        <div><span class="eh-metric-label">Queue</span><span class="eh-metric-value">@endpoint.AverageQueueDurationMs.ToString("0.###") ms</span></div>
+                                        <div><span class="eh-metric-label">ProxyProc</span><span class="eh-metric-value">@endpoint.AverageProcessDurationMs.ToString("0.###") ms</span></div>
+                                        <div><span class="eh-metric-label">Thrtl</span><span class="eh-metric-value">@endpoint.ThrottledEvents</span></div>
+                                        <div><span class="eh-metric-label">TargetThr</span><span class="eh-metric-value">@endpoint.TargetThrottledEvents</span></div>
+                                        <div><span class="eh-metric-label">Incomplete</span><span class="eh-metric-value">@endpoint.CallIncompleteEvents</span></div>
+                                        <div><span class="eh-metric-label">Exhausted</span><span class="eh-metric-value">@endpoint.ExhaustedRetryEvents</span></div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
                 </div>
             </div>
         </div>
 
-        @* ── Right: Runtime stats + request stats ── *@
-        <div class="col-12 col-lg-5 eventhub-monitor-col">
-            @* ── Runtime stats + request stats row ── *@
-            <div class="eventhub-bottom-row">
-                <div class="eventhub-stats-shell">
-                    <div class="eventhub-section-header">
+        @* ── Server column (runtime stats + endpoints + paths + users) ── *@
+        <div class="col-12 col-lg-5 eventhub-endpoints-col order-2">
+            <div class="card shadow-sm eventhub-card">
+                <div class="card-header bg-dark text-white">
+                    <div class="d-flex flex-wrap align-items-center gap-2">
                         <span class="fw-semibold">Runtime stats</span>
-                        <span class="text-muted small">@StatsSubtitle</span>
+                        <span class="text-white-50 small">@StatsSubtitle</span>
+                        @if (IsConnected)
+                        {
+                            var hasData = _snapshot.LastDataUtc != default;
+                            var isLive = hasData && (DateTimeOffset.UtcNow - _snapshot.LastDataUtc) < TimeSpan.FromSeconds(5);
+                            <span class="badge @(isLive ? "text-bg-success" : "text-bg-secondary") ms-auto"
+                                  title="@(hasData ? FormatRelativeTime(_snapshot.LastDataUtc) : "no data yet")">
+                                @if (isLive)
+                                {
+                                    <span class="eventhub-live-dot"></span>
+                                }
+                                <text>Last update: @(hasData ? _snapshot.LastDataUtc.ToLocalTime().ToString("HH:mm:ss") : "—")</text>
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="badge text-bg-secondary ms-auto">Awaiting data</span>
+                        }
                     </div>
+                </div>
+                <div class="card-body eventhub-card-body">
                     <div class="eventhub-stats-grid">
                         @foreach (var tile in StatTiles)
                         {
@@ -151,12 +184,118 @@
                         }
                     </div>
                 </div>
+            </div>
 
-                <div class="eventhub-history-shell eventhub-request-stats-compact">
-                    <MultiRequestStatus Items="@HistoryItems" />
+            <div class="card shadow-sm eventhub-card eventhub-paths-card">
+                <div class="card-header bg-secondary text-white">
+                    <div class="d-flex flex-wrap align-items-baseline gap-2">
+                        <span class="fw-semibold">Paths</span>
+                        <span class="text-white-50 small">success vs failed</span>
+                    </div>
+                </div>
+                <div class="card-body eventhub-card-body">
+                    <div class="eventhub-path-groups">
+                        <div class="eventhub-path-group">
+                            <div class="eventhub-path-group-title success">Success</div>
+                            @if (SuccessfulPaths.Count == 0)
+                            {
+                                <div class="text-muted small">No successful paths yet.</div>
+                            }
+                            else
+                            {
+                                <dl class="eventhub-endpoint-list">
+                                    @foreach (var path in SuccessfulPaths)
+                                    {
+                                        <div class="eventhub-endpoint-item">
+                                            <dt title="@path.Path">@path.Path</dt>
+                                            <dd>@path.Count</dd>
+                                        </div>
+                                    }
+                                </dl>
+                            }
+                        </div>
+                        <div class="eventhub-path-group">
+                            <div class="eventhub-path-group-title failed">Failed</div>
+                            @if (FailedPaths.Count == 0)
+                            {
+                                <div class="text-muted small">No failed paths yet.</div>
+                            }
+                            else
+                            {
+                                <dl class="eventhub-endpoint-list">
+                                    @foreach (var path in FailedPaths)
+                                    {
+                                        <div class="eventhub-endpoint-item">
+                                            <dt title="@path.Path">@path.Path</dt>
+                                            <dd>@path.Count</dd>
+                                        </div>
+                                    }
+                                </dl>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card shadow-sm eventhub-card eventhub-paths-card">
+                <div class="card-header bg-secondary text-white">
+                    <div class="d-flex flex-wrap align-items-baseline gap-2">
+                        <span class="fw-semibold">Users</span>
+                        <span class="text-white-50 small">success vs failed</span>
+                    </div>
+                </div>
+                <div class="card-body eventhub-card-body">
+                    <div class="eventhub-path-groups">
+                        <div class="eventhub-path-group">
+                            <div class="eventhub-path-group-title success">Success</div>
+                            @if (SuccessfulUsers.Count == 0)
+                            {
+                                <div class="text-muted small">No successful users yet.</div>
+                            }
+                            else
+                            {
+                                <dl class="eventhub-endpoint-list">
+                                    @foreach (var user in SuccessfulUsers)
+                                    {
+                                        <div class="eventhub-endpoint-item">
+                                            <dt title="@user.User">@user.User</dt>
+                                            <dd>@user.Count</dd>
+                                        </div>
+                                    }
+                                </dl>
+                            }
+                        </div>
+                        <div class="eventhub-path-group">
+                            <div class="eventhub-path-group-title failed">Failed</div>
+                            @if (FailedUsers.Count == 0)
+                            {
+                                <div class="text-muted small">No failed users yet.</div>
+                            }
+                            else
+                            {
+                                <dl class="eventhub-endpoint-list">
+                                    @foreach (var user in FailedUsers)
+                                    {
+                                        <div class="eventhub-endpoint-item">
+                                            <dt title="@user.User">@user.User</dt>
+                                            <dd>@user.Count</dd>
+                                        </div>
+                                    }
+                                </dl>
+                            }
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
+
+        @* ── Request column (request status) ── *@
+        <div class="col-12 col-lg-4 eventhub-monitor-col order-1">
+            <div class="eventhub-history-shell eventhub-request-stats-compact">
+                <EventHubRequestStatus Items="@HistoryItems" />
+            </div>
+        </div>
+
     </div>
 </InspectorPageShell>
 
@@ -169,25 +308,40 @@
     @@media (min-width: 992px) {
         .eventhub-config-col {
             height: calc(100dvh - 8.75rem);
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
         }
 
         .eventhub-endpoints-col {
             height: calc(100dvh - 8.75rem);
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
         }
 
         .eventhub-config-col > .card {
-            height: 100%;
+            min-height: 0;
             display: flex;
             flex-direction: column;
         }
 
-        .eventhub-endpoints-col > .card {
-            height: 100%;
+        .eventhub-config-col > .card:first-child {
+            flex: 1 1 auto;
+        }
+
+        .eventhub-config-col > .eventhub-endpoints-card {
+            flex: 1 1 auto;
+            min-height: 0;
+        }
+
+        .eventhub-endpoints-col > .eventhub-paths-card {
+            flex: 0 0 auto;
             display: flex;
             flex-direction: column;
         }
 
-        .eventhub-config-col > .card > .card-body {
+        .eventhub-config-col > .card:first-child > .card-body {
             flex: 1 1 auto;
             min-height: 0;
             display: flex;
@@ -195,7 +349,7 @@
             overflow: hidden;
         }
 
-        .eventhub-endpoints-col > .card > .card-body {
+        .eventhub-config-col > .eventhub-endpoints-card > .card-body {
             flex: 1 1 auto;
             min-height: 0;
             overflow-y: auto;
@@ -207,6 +361,11 @@
             flex-direction: column;
             min-height: 0;
             gap: 1rem;
+        }
+
+        .eventhub-monitor-col > .eventhub-history-shell {
+            flex: 1 1 auto;
+            min-height: 0;
         }
     }
 
@@ -354,7 +513,8 @@
     }
 
     /* Smaller font for the request statistics on the right. */
-    .eventhub-request-stats-compact .multi-request-stats {
+    .eventhub-request-stats-compact .multi-request-stats > .card-body,
+    .eventhub-request-stats-compact .multi-request-status > .card-body {
         padding: 0.75rem;
     }
 
@@ -485,6 +645,9 @@
         display: flex;
         flex-direction: column;
         gap: 0.25rem;
+        max-height: 8.75rem;
+        overflow-y: auto;
+        padding-right: 0.25rem;
     }
 
     .eventhub-endpoint-item {
@@ -526,6 +689,43 @@
         min-height: 0;
         display: flex;
         flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .eventhub-path-groups {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem;
+    }
+
+    .eventhub-path-group {
+        border: 1px solid #e9ecef;
+        border-radius: 0.4rem;
+        padding: 0.45rem 0.5rem;
+        background: #f8f9fa;
+        min-width: 0;
+    }
+
+    .eventhub-path-group-title {
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        font-weight: 700;
+        margin-bottom: 0.35rem;
+    }
+
+    .eventhub-path-group-title.success {
+        color: #2f9e44;
+    }
+
+    .eventhub-path-group-title.failed {
+        color: #e03131;
+    }
+
+    @@media (max-width: 1199px) {
+        .eventhub-path-groups {
+            grid-template-columns: 1fr;
+        }
     }
 
     .eventhub-catalog-groups {
@@ -617,16 +817,29 @@
         : "Not connected";
 
     private string EndpointSubtitle => IsConnected
-        ? "Awaiting model mapping file"
+        ? $"{EndpointTiles.Count} endpoint(s) from backend calls"
         : "Not connected";
 
     private IReadOnlyList<BackendHealthSnapshot> Backends => _snapshot.Backends;
 
     private IReadOnlyList<ChatHistoryEntry> ScopeHistoryEntries => _scopeHistoryEntries;
 
-    private IReadOnlyList<MultiRequestStatusItem> HistoryItems => FilterHistoryItemsByScope();
+    private IReadOnlyList<MultiRequestStatusItem> HistoryItems => FilterHistoryItemsByScope()
+        .Where(item => !string.Equals(item.EventType, "S7P-BackendRequest", StringComparison.OrdinalIgnoreCase))
+        .ToArray();
 
-    private IReadOnlyList<ProxyMetricsCatalog.MetricGroupSnapshot> ProxyMetricGroups => _proxyMetricGroups;
+    private IReadOnlyList<ProxyMetricsCatalog.MetricGroupSnapshot> ProxyMetricGroups => _proxyMetricGroups
+        .Where(group => !string.Equals(group.Name, "Endpoints", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(group.Name, "Backends", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(group.Name, "Request", StringComparison.OrdinalIgnoreCase))
+        .ToArray();
+    private ProxyMetricsCatalog.MetricGroupSnapshot? RequestMetricGroup => _proxyMetricGroups
+        .FirstOrDefault(group => string.Equals(group.Name, "Request", StringComparison.OrdinalIgnoreCase));
+    private IReadOnlyList<EndpointTile> EndpointTiles => BuildEndpointTiles();
+    private IReadOnlyList<PathCount> SuccessfulPaths => BuildPathCounts(success: true);
+    private IReadOnlyList<PathCount> FailedPaths => BuildPathCounts(success: false);
+    private IReadOnlyList<UserCount> SuccessfulUsers => BuildUserCounts(success: true);
+    private IReadOnlyList<UserCount> FailedUsers => BuildUserCounts(success: false);
 
     private string EffectiveScopeId => ResolveEffectiveScopeId();
 
@@ -738,6 +951,9 @@
         }
 
         var stats = _snapshot.Stats;
+        var cb = _snapshot.CircuitBreaker;
+        var serverErrors = _snapshot.ServerErrors;
+        var lastCode = cb.LastErrorCode is { } code ? code.ToString() : "-";
 
         return new[]
         {
@@ -749,32 +965,478 @@
                     new TileMetric("Req / sec", stats.RequestsPerSecond.ToString("0.#")),
                     new TileMetric("Success", $"{stats.SuccessRate:0.#}%"),
                     new TileMetric("Failed", stats.Failed.ToString("N0")),
+                    new TileMetric("Enqueued", stats.EnqueuedCount.ToString("N0")),
+                    new TileMetric("Processing", stats.ProcessingCount.ToString("N0")),
+                    new TileMetric("Completed", stats.CompletedCount.ToString("N0")),
+                    new TileMetric("Avg size", FormatBytes(stats.AverageRequestSizeBytes)),
                 }),
             new StatTile("Server", $"{stats.AvgLatencyMs:0} ms", "backend avg", "info",
                 new[]
                 {
                     new TileMetric("Probe", $"{stats.BackendProbeLatencyMs:0} ms"),
                     new TileMetric("Balancing", stats.LoadBalancingMode),
+                    new TileMetric("Enqueue", $"{serverErrors.EnqueueSuccess}/{serverErrors.EnqueueAttempts} ({serverErrors.EnqueueSuccessRate:0.#}%)"),
+                    new TileMetric("Enqueue failed", serverErrors.EnqueueFailed.ToString("N0")),
+                    new TileMetric("Enqueue Q/AH", $"{serverErrors.LastEnqueueQueueLength}/{serverErrors.LastEnqueueActiveHosts}"),
+                    new TileMetric("Rejected", serverErrors.RejectedRequests.ToString("N0")),
+                    new TileMetric("403 NotAuth", serverErrors.NotAuthorized403Count.ToString("N0")),
+                    new TileMetric("Queue len", $"{serverErrors.LatestQueueLength} (max {serverErrors.MaxQueueLength})"),
                 }),
             new StatTile(
                 "Circuit breaker",
                 stats.ServerCircuitBreakerOpen ? "OPEN" : "CLOSED",
-                "server level",
+                "live state",
                 stats.ServerCircuitBreakerOpen ? "warning" : "success",
                 new[]
                 {
                     new TileMetric("Endpoint open", $"{stats.EndpointCircuitBreakerOpenCount}/{stats.EndpointCount}"),
                     new TileMetric("Scope", "server + endpoint"),
-                }),
-            // Derived from the S7P-Backend host event.
-            new StatTile("Backends", $"{stats.ActiveHosts} / {stats.TotalHosts}", "active", "success",
-                new[]
-                {
-                    new TileMetric("Backend", string.IsNullOrEmpty(stats.PrimaryBackend) ? "—" : stats.PrimaryBackend),
-                    new TileMetric("Version", string.IsNullOrEmpty(stats.ProxyVersion) ? "—" : stats.ProxyVersion),
+                    new TileMetric("Server CB events", cb.ServerEventCount.ToString()),
+                    new TileMetric("Last code", lastCode),
                 }),
         };
     }
+
+    private static string FormatRelativeTime(DateTimeOffset timestampUtc)
+    {
+        var delta = DateTimeOffset.UtcNow - timestampUtc;
+        if (delta < TimeSpan.Zero)
+        {
+            delta = TimeSpan.Zero;
+        }
+
+        if (delta.TotalSeconds < 60)
+        {
+            var seconds = Math.Max(1, (int)delta.TotalSeconds);
+            return seconds == 1 ? "1 second ago" : $"{seconds} seconds ago";
+        }
+
+        if (delta.TotalMinutes < 60)
+        {
+            var minutes = (int)delta.TotalMinutes;
+            return minutes == 1 ? "1 minute ago" : $"{minutes} minutes ago";
+        }
+
+        if (delta.TotalHours < 24)
+        {
+            var hours = (int)delta.TotalHours;
+            return hours == 1 ? "1 hour ago" : $"{hours} hours ago";
+        }
+
+        var days = (int)delta.TotalDays;
+        return days == 1 ? "1 day ago" : $"{days} days ago";
+    }
+
+    private static string FormatBytes(double bytes)
+    {
+        if (bytes <= 0)
+        {
+            return "—";
+        }
+
+        if (bytes >= 1024 * 1024)
+        {
+            return $"{bytes / (1024 * 1024):0.#} MB";
+        }
+
+        if (bytes >= 1024)
+        {
+            return $"{bytes / 1024:0.#} KB";
+        }
+
+        return $"{bytes:0} B";
+    }
+
+    private IReadOnlyList<EndpointTile> BuildEndpointTiles()
+    {
+        if (!IsConnected || !_snapshot.HasData || _snapshot.Requests.Count == 0)
+        {
+            return Array.Empty<EndpointTile>();
+        }
+
+        var byTarget = new Dictionary<string, EndpointAggregate>(StringComparer.OrdinalIgnoreCase);
+
+        // Endpoints are derived solely from the backend target inside backendLog
+        // (e.g. "Using PAYGO URL: https://..."). Request paths are NOT endpoints.
+        // Both S7P-BackendRequest (single attempt) and the final S7P-ProxyRequest
+        // (which carries every Attempt-N-backendLog) contribute. The same attempt's
+        // log is emitted identically by both, so dedupe on the exact log string to
+        // avoid double counting while still picking up retry attempts that only
+        // appear inside the ProxyRequest summary.
+        var seenLogs = new HashSet<string>(StringComparer.Ordinal);
+
+        void AggregateBackendLog(MultiRequestStatusItem item, string backendLog)
+        {
+            if (!TryExtractBackendTarget(backendLog, out var targetName, out var targetUrl))
+            {
+                return;
+            }
+
+            if (!byTarget.TryGetValue(targetName, out var aggregate))
+            {
+                aggregate = new EndpointAggregate();
+                byTarget[targetName] = aggregate;
+            }
+
+            aggregate.TargetName = targetName;
+            aggregate.TargetUrl = targetUrl;
+
+            aggregate.Calls++;
+            if (item.StatusCode is >= 400)
+            {
+                aggregate.Failures++;
+            }
+
+            if (!string.IsNullOrWhiteSpace(item.BackendHost))
+            {
+                aggregate.LastBackendHost = item.BackendHost;
+            }
+
+            var policyCycleCounter = ParseDoubleHeaderValue(item.RequestHeadersText, "x-PolicyCycleCounter");
+            if (policyCycleCounter.HasValue)
+            {
+                aggregate.EndpointAttemptsTotal += policyCycleCounter.Value;
+                aggregate.EndpointAttemptsSamples++;
+            }
+
+            var requestProcessDuration = ParseDoubleHeaderValue(item.RequestHeadersText, "Request-Process-Duration");
+            if (requestProcessDuration.HasValue)
+            {
+                aggregate.RequestProcessDurationTotal += requestProcessDuration.Value;
+                aggregate.RequestProcessDurationSamples++;
+            }
+
+            var queueDuration = TryReadBackendLogDuration(backendLog, "Proxy-Queue-Duration");
+            if (queueDuration.HasValue)
+            {
+                aggregate.QueueDurationTotalMs += queueDuration.Value;
+                aggregate.QueueDurationSamples++;
+            }
+
+            var processDuration = TryReadBackendLogDuration(backendLog, "Proxy-Process-Duration");
+            if (processDuration.HasValue)
+            {
+                aggregate.ProcessDurationTotalMs += processDuration.Value;
+                aggregate.ProcessDurationSamples++;
+            }
+
+            if (backendLog.Contains("THROTTLED", StringComparison.OrdinalIgnoreCase))
+            {
+                aggregate.ThrottledEvents++;
+            }
+
+            if (!string.IsNullOrWhiteSpace(aggregate.TargetName)
+                && backendLog.Contains($"THROTTLED: {aggregate.TargetName}", StringComparison.OrdinalIgnoreCase))
+            {
+                aggregate.TargetThrottledEvents++;
+            }
+
+            if (backendLog.Contains("CALL INCOMPLETE", StringComparison.OrdinalIgnoreCase))
+            {
+                aggregate.CallIncompleteEvents++;
+            }
+
+            if (backendLog.Contains("RETRIES LEFT: exhausted", StringComparison.OrdinalIgnoreCase))
+            {
+                aggregate.ExhaustedRetryEvents++;
+            }
+        }
+
+        // Process backend-request items first so their richer per-attempt headers
+        // (x-PolicyCycleCounter, Request-Process-Duration) win over the proxy summary.
+        var orderedItems = _snapshot.Requests
+            .Where(item => string.Equals(item.EventType, "S7P-BackendRequest", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(item.EventType, "S7P-ProxyRequest", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(item => string.Equals(item.EventType, "S7P-BackendRequest", StringComparison.OrdinalIgnoreCase));
+
+        foreach (var item in orderedItems)
+        {
+            if (string.Equals(item.EventType, "S7P-BackendRequest", StringComparison.OrdinalIgnoreCase))
+            {
+                var backendLog = ExtractHeaderValue(item.ResponseHeadersText, "backendLog");
+                if (!string.IsNullOrWhiteSpace(backendLog) && seenLogs.Add(backendLog))
+                {
+                    AggregateBackendLog(item, backendLog);
+                }
+
+                continue;
+            }
+
+            // S7P-ProxyRequest: pull every Attempt-N-backendLog from the raw event dump.
+            for (var attempt = 1; ; attempt++)
+            {
+                var backendLog = ExtractHeaderValue(item.ResponseHeadersText, $"Attempt-{attempt}-backendLog");
+                if (string.IsNullOrWhiteSpace(backendLog))
+                {
+                    break;
+                }
+
+                if (seenLogs.Add(backendLog))
+                {
+                    AggregateBackendLog(item, backendLog);
+                }
+            }
+        }
+
+        return byTarget
+            .OrderByDescending(pair => pair.Value.Calls)
+            .ThenBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(pair =>
+            {
+                var aggregate = pair.Value;
+                var failureRate = aggregate.Calls == 0
+                    ? 0
+                    : (aggregate.Failures * 100.0) / aggregate.Calls;
+                var css = failureRate >= 50 ? "down" : failureRate > 0 ? "degraded" : "healthy";
+
+                return new EndpointTile(
+                    pair.Key,
+                    aggregate.Calls,
+                    aggregate.Failures,
+                        aggregate.EndpointAttemptsSamples == 0 ? 0 : aggregate.EndpointAttemptsTotal / aggregate.EndpointAttemptsSamples,
+                        aggregate.RequestProcessDurationSamples == 0 ? 0 : aggregate.RequestProcessDurationTotal / aggregate.RequestProcessDurationSamples,
+                    aggregate.QueueDurationSamples == 0 ? 0 : aggregate.QueueDurationTotalMs / aggregate.QueueDurationSamples,
+                    aggregate.ProcessDurationSamples == 0 ? 0 : aggregate.ProcessDurationTotalMs / aggregate.ProcessDurationSamples,
+                    aggregate.ThrottledEvents,
+                        aggregate.TargetThrottledEvents,
+                    aggregate.CallIncompleteEvents,
+                    aggregate.ExhaustedRetryEvents,
+                    string.IsNullOrWhiteSpace(aggregate.LastBackendHost) ? "-" : aggregate.LastBackendHost,
+                        string.IsNullOrWhiteSpace(aggregate.TargetName) ? "Target: -" : $"Target: {aggregate.TargetName}",
+                        string.IsNullOrWhiteSpace(aggregate.TargetUrl) ? "-" : aggregate.TargetUrl,
+                    aggregate.Failures == 0 ? "Healthy" : $"{failureRate:0.#}% failures",
+                    css);
+            })
+            .Take(10)
+            .ToArray();
+    }
+
+    private IReadOnlyList<PathCount> BuildPathCounts(bool success)
+    {
+        if (!IsConnected || !_snapshot.HasData || _snapshot.Requests.Count == 0)
+        {
+            return Array.Empty<PathCount>();
+        }
+
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in _snapshot.Requests)
+        {
+            if (!string.Equals(item.EventType, "S7P-ProxyRequest", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(item.EventType, "S7P-ProxyRequestExpired", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var isSuccess = item.StatusCode is >= 200 and < 400;
+            if (isSuccess != success)
+            {
+                continue;
+            }
+
+            var path = ExtractPathFromHeaders(item.RequestHeadersText);
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                path = "/";
+            }
+
+            counts[path] = counts.TryGetValue(path, out var count)
+                ? count + 1
+                : 1;
+        }
+
+        return counts
+            .OrderByDescending(pair => pair.Value)
+            .ThenBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+            .Take(10)
+            .Select(pair => new PathCount(pair.Key, pair.Value))
+            .ToArray();
+    }
+
+    private IReadOnlyList<UserCount> BuildUserCounts(bool success)
+    {
+        if (!IsConnected || !_snapshot.HasData || _snapshot.Requests.Count == 0)
+        {
+            return Array.Empty<UserCount>();
+        }
+
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in _snapshot.Requests)
+        {
+            if (!string.Equals(item.EventType, "S7P-ProxyRequest", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(item.EventType, "S7P-ProxyRequestExpired", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var isSuccess = item.StatusCode is >= 200 and < 400;
+            if (isSuccess != success)
+            {
+                continue;
+            }
+
+            var user = ExtractHeaderValue(item.RequestHeadersText, "UserID");
+            if (string.IsNullOrWhiteSpace(user))
+            {
+                user = "(unknown)";
+            }
+
+            counts[user] = counts.TryGetValue(user, out var count)
+                ? count + 1
+                : 1;
+        }
+
+        return counts
+            .OrderByDescending(pair => pair.Value)
+            .ThenBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+            .Take(10)
+            .Select(pair => new UserCount(pair.Key, pair.Value))
+            .ToArray();
+    }
+
+    private static string ExtractPathFromHeaders(string? requestHeaders)
+    {
+        if (string.IsNullOrWhiteSpace(requestHeaders))
+        {
+            return "/";
+        }
+
+        // Phase-formatted text (enqueue / final sections) exposes the path as a "Path: ..." field.
+        var pathField = ExtractHeaderValue(requestHeaders, "Path");
+        if (!string.IsNullOrWhiteSpace(pathField))
+        {
+            return pathField;
+        }
+
+        // Legacy request-line format: "METHOD /path".
+        var firstLine = requestHeaders
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault();
+
+        if (string.IsNullOrWhiteSpace(firstLine))
+        {
+            return "/";
+        }
+
+        var firstSpace = firstLine.IndexOf(' ');
+        if (firstSpace < 0 || firstSpace == firstLine.Length - 1)
+        {
+            return "/";
+        }
+
+        return firstLine[(firstSpace + 1)..].Trim();
+    }
+
+    private static string? ExtractHeaderValue(string? headers, string headerName)
+    {
+        if (string.IsNullOrWhiteSpace(headers) || string.IsNullOrWhiteSpace(headerName))
+        {
+            return null;
+        }
+
+        var lines = headers
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var prefix = $"{headerName}:";
+        foreach (var line in lines)
+        {
+            if (!line.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return line[prefix.Length..].Trim();
+        }
+
+        return null;
+    }
+
+    private static double? TryReadBackendLogDuration(string backendLog, string metricName)
+    {
+        var match = Regex.Match(
+            backendLog,
+            $"{Regex.Escape(metricName)}\\s*:\\s*([0-9]+(?:\\.[0-9]+)?)",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        return double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var duration)
+            ? duration
+            : null;
+    }
+
+    private static double? ParseDoubleHeaderValue(string? headers, string headerName)
+    {
+        var value = ExtractHeaderValue(headers, headerName);
+        return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
+    }
+
+    private static bool TryExtractBackendTarget(string backendLog, out string targetName, out string targetUrl)
+    {
+        var match = Regex.Match(
+            backendLog,
+            @"Using\s+([A-Za-z0-9_-]+)\s+URL:\s*(https?://[^\s|]+)",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        if (!match.Success)
+        {
+            targetName = string.Empty;
+            targetUrl = string.Empty;
+            return false;
+        }
+
+        targetName = match.Groups[1].Value;
+        targetUrl = match.Groups[2].Value;
+        return true;
+    }
+
+    private sealed class EndpointAggregate
+    {
+        public int Calls { get; set; }
+        public int Failures { get; set; }
+        public double EndpointAttemptsTotal { get; set; }
+        public int EndpointAttemptsSamples { get; set; }
+        public double RequestProcessDurationTotal { get; set; }
+        public int RequestProcessDurationSamples { get; set; }
+        public double QueueDurationTotalMs { get; set; }
+        public int QueueDurationSamples { get; set; }
+        public double ProcessDurationTotalMs { get; set; }
+        public int ProcessDurationSamples { get; set; }
+        public int ThrottledEvents { get; set; }
+        public int TargetThrottledEvents { get; set; }
+        public int CallIncompleteEvents { get; set; }
+        public int ExhaustedRetryEvents { get; set; }
+        public string LastBackendHost { get; set; } = string.Empty;
+        public string TargetName { get; set; } = string.Empty;
+        public string TargetUrl { get; set; } = string.Empty;
+    }
+
+    private sealed record EndpointTile(
+        string Path,
+        int Calls,
+        int Failures,
+        double AverageEndpointAttempts,
+        double AverageRequestProcessDuration,
+        double AverageQueueDurationMs,
+        double AverageProcessDurationMs,
+        int ThrottledEvents,
+        int TargetThrottledEvents,
+        int CallIncompleteEvents,
+        int ExhaustedRetryEvents,
+        string LastBackendHost,
+        string TargetLabel,
+        string TargetUrl,
+        string Status,
+        string Css);
+
+    private sealed record PathCount(string Path, int Count);
+
+    private sealed record UserCount(string User, int Count);
 
     private void RefreshScopeState()
     {

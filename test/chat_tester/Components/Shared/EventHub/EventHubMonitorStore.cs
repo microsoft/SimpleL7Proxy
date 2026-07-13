@@ -28,7 +28,23 @@ public sealed class EventHubMonitorStore
     private FleetInfoSnapshot _fleet = new();
     private int _requestCounter;
     private bool _hasData;
+    private DateTimeOffset _lastDataUtc;
     private bool _serverCircuitBreakerOpen;
+    private DateTimeOffset _circuitBreakerLastTriggered = DateTimeOffset.UtcNow;
+    private int _serverCircuitBreakerEventCount;
+    private int? _lastCircuitBreakerErrorCode;
+    private readonly Dictionary<string, CircuitBreakerIssue> _backendCircuitBreakerIssues = new(StringComparer.OrdinalIgnoreCase);
+    private int _serverRejectedRequests;
+    private int _serverNotAuthorized403Count;
+    private int _latestServerQueueLength;
+    private int _maxServerQueueLength;
+    private readonly Dictionary<string, int> _serverPathCounts = new(StringComparer.OrdinalIgnoreCase);
+    private int _enqueueAttempts;
+    private int _enqueueSuccess;
+    private int _enqueueFailed;
+    private int _lastEnqueueQueueLength;
+    private int _lastEnqueueActiveHosts;
+    private readonly Dictionary<string, int> _enqueuePathCounts = new(StringComparer.OrdinalIgnoreCase);
 
     public bool DisableRequestAging { get; set; }
 
@@ -45,6 +61,13 @@ public sealed class EventHubMonitorStore
 
     private readonly record struct TimedRequest(DateTimeOffset ReceivedUtc, MultiRequestStatusItem Item);
 
+    // Stamps the moment fresh data last arrived so the UI can tell a live feed from a stale one.
+    private void MarkDataReceived()
+    {
+        _hasData = true;
+        _lastDataUtc = _time.GetUtcNow();
+    }
+
     // ── Ingest API (called by the server-side Event Hub reader) ──
 
     /// <summary>Replaces the current backend health list with the latest reported values.</summary>
@@ -54,7 +77,7 @@ public sealed class EventHubMonitorStore
         lock (_gate)
         {
             _backends = backends.ToArray();
-            _hasData = true;
+            MarkDataReceived();
         }
         Changed?.Invoke();
     }
@@ -66,7 +89,7 @@ public sealed class EventHubMonitorStore
         lock (_gate)
         {
             _fleet = fleet;
-            _hasData = true;
+            MarkDataReceived();
         }
         Changed?.Invoke();
     }
@@ -85,7 +108,7 @@ public sealed class EventHubMonitorStore
             {
                 PurgeExpired(now);
             }
-            _hasData = true;
+            MarkDataReceived();
         }
         Changed?.Invoke();
     }
@@ -107,7 +130,7 @@ public sealed class EventHubMonitorStore
             {
                 PurgeExpired(now);
             }
-            _hasData = true;
+            MarkDataReceived();
         }
         Changed?.Invoke();
     }
@@ -123,7 +146,97 @@ public sealed class EventHubMonitorStore
             _requestCounter = 0;
             _hasData = false;
             _serverCircuitBreakerOpen = false;
+            _serverCircuitBreakerEventCount = 0;
+            _lastCircuitBreakerErrorCode = null;
+            _backendCircuitBreakerIssues.Clear();
+            _serverRejectedRequests = 0;
+            _serverNotAuthorized403Count = 0;
+            _latestServerQueueLength = 0;
+            _maxServerQueueLength = 0;
+            _serverPathCounts.Clear();
+            _enqueueAttempts = 0;
+            _enqueueSuccess = 0;
+            _enqueueFailed = 0;
+            _lastEnqueueQueueLength = 0;
+            _lastEnqueueActiveHosts = 0;
+            _enqueuePathCounts.Clear();
         }
+        Changed?.Invoke();
+    }
+
+    /// <summary>Records a message enqueue success (S7P-ProxyRequestEnqueued).</summary>
+    public void RecordEnqueueSuccess(int? queueLength, int? activeHosts, string? path)
+    {
+        lock (_gate)
+        {
+            _enqueueAttempts++;
+            _enqueueSuccess++;
+
+            if (queueLength is { } queue)
+            {
+                _lastEnqueueQueueLength = queue;
+            }
+
+            if (activeHosts is { } active)
+            {
+                _lastEnqueueActiveHosts = active;
+            }
+
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                var key = path.Trim();
+                _enqueuePathCounts[key] = _enqueuePathCounts.TryGetValue(key, out var count)
+                    ? count + 1
+                    : 1;
+            }
+
+            MarkDataReceived();
+        }
+
+        Changed?.Invoke();
+    }
+
+    /// <summary>Records a server-side rejection summary from S7P-ServerError.</summary>
+    public void RecordServerErrorEvent(
+        int? statusCode,
+        string? message,
+        int? queueLength,
+        string? path)
+    {
+        lock (_gate)
+        {
+            _serverRejectedRequests++;
+            _enqueueAttempts++;
+            _enqueueFailed++;
+
+            if (statusCode == 403
+                && !string.IsNullOrWhiteSpace(message)
+                && message.Contains("Not Authorized", StringComparison.OrdinalIgnoreCase))
+            {
+                _serverNotAuthorized403Count++;
+            }
+
+            if (queueLength is { } queue)
+            {
+                _latestServerQueueLength = queue;
+                _maxServerQueueLength = Math.Max(_maxServerQueueLength, queue);
+                _lastEnqueueQueueLength = queue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                var key = path.Trim();
+                _serverPathCounts[key] = _serverPathCounts.TryGetValue(key, out var count)
+                    ? count + 1
+                    : 1;
+                _enqueuePathCounts[key] = _enqueuePathCounts.TryGetValue(key, out var enqueueCount)
+                    ? enqueueCount + 1
+                    : 1;
+            }
+
+            MarkDataReceived();
+        }
+
         Changed?.Invoke();
     }
 
@@ -132,9 +245,59 @@ public sealed class EventHubMonitorStore
         lock (_gate)
         {
             _serverCircuitBreakerOpen = true;
-            _hasData = true;
+            MarkDataReceived();
         }
 
+        Changed?.Invoke();
+    }
+
+    /// <summary>Records a server-level circuit breaker event in history.</summary>
+    public void RecordServerCircuitBreakerEvent(int errorCode, int? reportedCount = null)
+    {
+        lock (_gate)
+        {
+            _serverCircuitBreakerEventCount = reportedCount is > 0
+                ? Math.Max(_serverCircuitBreakerEventCount, reportedCount.Value)
+                : _serverCircuitBreakerEventCount + 1;
+            _lastCircuitBreakerErrorCode = errorCode;
+            _circuitBreakerLastTriggered = _time.GetUtcNow();
+            MarkDataReceived();
+        }
+
+        Changed?.Invoke();
+    }
+
+    /// <summary>Records a circuit breaker issue for a specific backend.</summary>
+    public void RecordCircuitBreakerIssue(string backendHost, int errorCode)
+    {
+        lock (_gate)
+        {
+            if (!string.IsNullOrWhiteSpace(backendHost))
+            {
+                var key = backendHost.ToLowerInvariant();
+                if (_backendCircuitBreakerIssues.TryGetValue(key, out var existing))
+                {
+                    _backendCircuitBreakerIssues[key] = existing with
+                    {
+                        OccurrenceCount = existing.OccurrenceCount + 1,
+                        LastOccurrenceUtc = _time.GetUtcNow(),
+                        ErrorCode = errorCode
+                    };
+                }
+                else
+                {
+                    _backendCircuitBreakerIssues[key] = new CircuitBreakerIssue
+                    {
+                        BackendHost = backendHost,
+                        ErrorCode = errorCode,
+                        OccurrenceCount = 1,
+                        LastOccurrenceUtc = _time.GetUtcNow()
+                    };
+                }
+                _circuitBreakerLastTriggered = _time.GetUtcNow();
+            }
+            MarkDataReceived();
+        }
         Changed?.Invoke();
     }
 
@@ -159,6 +322,9 @@ public sealed class EventHubMonitorStore
             var latencyCount = 0;
             var latencyTotalMs = 0.0;
             var inWindow = 0;
+            var nonBackendRequestCount = 0;
+            var requestSizeTotal = 0L;
+            var requestSizeCount = 0;
             var latestEndpointStates = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
             var backendRequestStats = new Dictionary<string, BackendRequestAggregate>(StringComparer.OrdinalIgnoreCase);
 
@@ -166,6 +332,22 @@ public sealed class EventHubMonitorStore
             foreach (var timed in _requests)
             {
                 requests[index++] = timed.Item;
+
+                // Backend-request items feed the Endpoints card only. They are excluded from the
+                // request panel and from every runtime aggregate below, which are owned by the
+                // final S7P-ProxyRequest.
+                if (string.Equals(timed.Item.EventType, "S7P-BackendRequest", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                nonBackendRequestCount++;
+
+                if (timed.Item.RequestContentLength > 0)
+                {
+                    requestSizeTotal += timed.Item.RequestContentLength;
+                    requestSizeCount++;
+                }
 
                 if (timed.Item.StatusCode is { } status)
                 {
@@ -230,11 +412,15 @@ public sealed class EventHubMonitorStore
 
             var stats = new RuntimeStatsSnapshot
             {
-                TotalRequests = _requests.Count,
+                TotalRequests = nonBackendRequestCount,
                 RequestsPerSecond = inWindow / RateWindow.TotalSeconds,
                 Failed = failed,
                 SuccessRate = decided == 0 ? 0 : succeeded * 100.0 / decided,
                 AvgLatencyMs = latencyCount == 0 ? 0 : latencyTotalMs / latencyCount,
+                EnqueuedCount = _enqueueSuccess,
+                CompletedCount = nonBackendRequestCount,
+                ProcessingCount = Math.Max(0, _enqueueSuccess - nonBackendRequestCount),
+                AverageRequestSizeBytes = requestSizeCount == 0 ? 0 : (double)requestSizeTotal / requestSizeCount,
                 ActiveHosts = _fleet.ActiveHosts,
                 TotalHosts = _fleet.TotalHosts,
                 BackendProbeLatencyMs = _fleet.ProbeLatencyMs,
@@ -278,11 +464,61 @@ public sealed class EventHubMonitorStore
                 })
                 .ToArray();
 
+            var circuitBreaker = new CircuitBreakerSnapshot
+            {
+                IsOpen = _serverCircuitBreakerOpen || aggregateServerOpen,
+                LastTriggeredUtc = _circuitBreakerLastTriggered,
+                ServerEventCount = _serverCircuitBreakerEventCount,
+                LastErrorCode = _lastCircuitBreakerErrorCode,
+                BackendIssues = _backendCircuitBreakerIssues.Values.OrderByDescending(x => x.LastOccurrenceUtc).ToArray(),
+                EndpointCircuitBreakerOpenCount = endpointCircuitBreakerOpenCount,
+                EndpointCircuitBreakerTotalCount = endpointCount,
+            };
+
+            var serverErrors = new ServerErrorSnapshot
+            {
+                RejectedRequests = _serverRejectedRequests,
+                NotAuthorized403Count = _serverNotAuthorized403Count,
+                LatestQueueLength = _latestServerQueueLength,
+                MaxQueueLength = _maxServerQueueLength,
+                TopPaths = _serverPathCounts
+                    .OrderByDescending(pair => pair.Value)
+                    .ThenBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                    .Take(10)
+                    .Select(pair => new ServerPathCount
+                    {
+                        Path = pair.Key,
+                        Count = pair.Value,
+                    })
+                    .ToArray(),
+                EnqueueAttempts = _enqueueAttempts,
+                EnqueueSuccess = _enqueueSuccess,
+                EnqueueFailed = _enqueueFailed,
+                EnqueueSuccessRate = _enqueueAttempts == 0
+                    ? 0
+                    : (_enqueueSuccess * 100.0) / _enqueueAttempts,
+                LastEnqueueQueueLength = _lastEnqueueQueueLength,
+                LastEnqueueActiveHosts = _lastEnqueueActiveHosts,
+                TopEnqueuePaths = _enqueuePathCounts
+                    .OrderByDescending(pair => pair.Value)
+                    .ThenBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                    .Take(10)
+                    .Select(pair => new ServerPathCount
+                    {
+                        Path = pair.Key,
+                        Count = pair.Value,
+                    })
+                    .ToArray(),
+            };
+
             return new MonitorSnapshot
             {
                 TimestampUtc = now,
+                LastDataUtc = _lastDataUtc,
                 HasData = _hasData,
                 Stats = stats,
+                CircuitBreaker = circuitBreaker,
+                ServerErrors = serverErrors,
                 Backends = backends,
                 Requests = requests,
             };
