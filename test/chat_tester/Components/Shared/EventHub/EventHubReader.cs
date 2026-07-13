@@ -28,6 +28,24 @@ public sealed class EventHubReader : BackgroundService
     private readonly Dictionary<string, RequestPhaseRecord> _requestPhases = new(StringComparer.OrdinalIgnoreCase);
     private bool _logSkippedRecords;
 
+    private static readonly PipelineStage[] OrderedStages =
+    {
+        PipelineStage.Statistics,
+        PipelineStage.RequestStatus,
+        PipelineStage.RuntimeStats,
+        PipelineStage.Backends,
+        PipelineStage.Endpoints,
+    };
+
+    private enum PipelineStage
+    {
+        Statistics,
+        RequestStatus,
+        RuntimeStats,
+        Backends,
+        Endpoints,
+    }
+
     private enum RequestPhase
     {
         Enqueue,
@@ -410,9 +428,14 @@ public sealed class EventHubReader : BackgroundService
             }
         }
 
-        _proxyMetricsCatalog.Publish(parsed);
+        RunStatisticsStage(parsed);
 
         return (processed, skipped);
+    }
+
+    private void RunStatisticsStage(IReadOnlyList<ParsedEventRecord> parsed)
+    {
+        _proxyMetricsCatalog.Publish(parsed);
     }
 
     private void LogInvalidRecord(Exception exception, string source)
@@ -427,16 +450,51 @@ public sealed class EventHubReader : BackgroundService
             return false;
         }
 
+        var handled = false;
+        foreach (var stage in OrderedStages)
+        {
+            handled |= RunEventStage(stage, eventData, eventType);
+        }
+
+        return handled;
+    }
+
+    private bool RunEventStage(
+        PipelineStage stage,
+        IReadOnlyDictionary<string, string> eventData,
+        string eventType)
+    {
+        return stage switch
+        {
+            PipelineStage.Statistics => IsSupportedEventType(eventType),
+            PipelineStage.RequestStatus => RunRequestStatusStage(eventData, eventType),
+            PipelineStage.RuntimeStats => RunRuntimeStatsStage(eventData, eventType),
+            PipelineStage.Backends => RunBackendsStage(eventData, eventType),
+            PipelineStage.Endpoints => RunEndpointsStage(eventData, eventType),
+            _ => false,
+        };
+    }
+
+    private static bool IsSupportedEventType(string eventType)
+    {
+        return eventType is
+            "S7P-Backend"
+            or "S7P-ProxyRequestEnqueued"
+            or "S7P-BackendRequest"
+            or "S7P-ServerError"
+            or "S7P-CircuitBreakerError"
+            or "S7P-ProxyRequest"
+            or "S7P-ProxyRequestExpired"
+            or "S7P-ProxyRequestRequeued";
+    }
+
+    private bool RunRequestStatusStage(IReadOnlyDictionary<string, string> eventData, string eventType)
+    {
         switch (eventType)
         {
-            case "S7P-Backend":
-                ApplyBackendEvent(eventData);
-                return true;
-
             case "S7P-ProxyRequestEnqueued":
                 TrackLifecycleEvent(eventData, eventType);
                 TrackRequestPhase(eventData, RequestPhase.Enqueue);
-                RecordEnqueueHistory(eventData);
                 return true;
 
             case "S7P-BackendRequest":
@@ -444,13 +502,8 @@ public sealed class EventHubReader : BackgroundService
                 return true;
 
             case "S7P-ServerError":
-                TrackLifecycleEvent(eventData, eventType);
-                RecordServerErrorHistory(eventData);
-                return true;
-
             case "S7P-CircuitBreakerError":
                 TrackLifecycleEvent(eventData, eventType);
-                RecordCircuitBreakerHistory(eventData);
                 return true;
 
             case "S7P-ProxyRequest":
@@ -462,6 +515,44 @@ public sealed class EventHubReader : BackgroundService
             default:
                 return false;
         }
+    }
+
+    private bool RunRuntimeStatsStage(IReadOnlyDictionary<string, string> eventData, string eventType)
+    {
+        switch (eventType)
+        {
+            case "S7P-ProxyRequestEnqueued":
+                RecordEnqueueHistory(eventData);
+                return true;
+
+            case "S7P-ServerError":
+                RecordServerErrorHistory(eventData);
+                return true;
+
+            case "S7P-CircuitBreakerError":
+                RecordCircuitBreakerHistory(eventData);
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    private bool RunBackendsStage(IReadOnlyDictionary<string, string> eventData, string eventType)
+    {
+        if (!string.Equals(eventType, "S7P-Backend", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        ApplyBackendEvent(eventData);
+        return true;
+    }
+
+    private static bool RunEndpointsStage(IReadOnlyDictionary<string, string> eventData, string eventType)
+    {
+        // Endpoint metrics are derived from request items and backend logs in later stages.
+        return eventType is "S7P-BackendRequest" or "S7P-ProxyRequest" or "S7P-ProxyRequestExpired";
     }
 
     private void ApplyBackendEvent(IReadOnlyDictionary<string, string> eventData)
