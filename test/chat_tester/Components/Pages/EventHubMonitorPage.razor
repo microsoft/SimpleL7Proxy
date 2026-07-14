@@ -24,7 +24,7 @@
     <div class="row g-4 eventhub-workspace">
         @* ── Backends column ── *@
         <div class="col-12 col-lg-3 eventhub-config-col order-3">
-            <div class="card shadow-sm eventhub-card">
+            <div class="card shadow-sm eventhub-card eventhub-backends-card">
                 <div class="@GetHeaderCssClass(BackendsHeaderTone)">
                     <div class="d-flex flex-wrap align-items-center gap-2 pe-3">
                         <span class="fw-semibold">Backends</span>
@@ -94,6 +94,10 @@
                         </div>
                     </div>
                 </div>
+            </div>
+
+            <div class="eventhub-row-resizer" role="separator" aria-orientation="horizontal" aria-label="Resize Backends and Endpoints heights">
+                <span class="eventhub-row-resizer-grip" aria-hidden="true">===</span>
             </div>
 
             <div class="card shadow-sm eventhub-card eventhub-endpoints-card">
@@ -467,6 +471,60 @@
         box-shadow: 0 1px 4px rgba(56, 115, 197, 0.25);
     }
 
+    .eventhub-row-resizer {
+        display: none;
+        height: 1rem;
+        position: relative;
+        cursor: row-resize;
+        user-select: none;
+        border-radius: 0.25rem;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .eventhub-row-resizer::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 50%;
+        height: 2px;
+        transform: translateY(-50%);
+        background: #ccd5e2;
+        border-radius: 999px;
+        transition: background 120ms ease;
+    }
+
+    .eventhub-row-resizer-grip {
+        position: relative;
+        z-index: 1;
+        pointer-events: none;
+        font-size: 0.66rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        color: #64748b;
+        line-height: 1;
+        background: #e8eef5;
+        border: 1px solid #b9c5d4;
+        border-radius: 3px;
+        padding: 0.12rem 0.5rem;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.15);
+        white-space: nowrap;
+    }
+
+    .eventhub-row-resizer:hover::before,
+    .eventhub-row-resizer.dragging::before {
+        background: #7f93ad;
+    }
+
+    .eventhub-row-resizer:hover .eventhub-row-resizer-grip,
+    .eventhub-row-resizer.dragging .eventhub-row-resizer-grip {
+        background: #d0def0;
+        border-color: #7f93ad;
+        color: #2d4a6e;
+        box-shadow: 0 1px 4px rgba(56, 115, 197, 0.25);
+    }
+
     @@media (min-width: 992px) {
         .eventhub-workspace {
             display: grid;
@@ -522,6 +580,7 @@
             display: flex;
             flex-direction: column;
             gap: 1rem;
+            --eventhub-backends-height: 50%;
         }
 
         .eventhub-endpoints-col {
@@ -537,8 +596,15 @@
             flex-direction: column;
         }
 
-        .eventhub-config-col > .card:first-child {
-            flex: 1 1 auto;
+        .eventhub-config-col > .eventhub-backends-card {
+            flex: 0 0 auto;
+            height: var(--eventhub-backends-height);
+            min-height: 12rem;
+        }
+
+        .eventhub-config-col > .eventhub-row-resizer {
+            display: flex;
+            flex: 0 0 auto;
         }
 
         .eventhub-config-col > .eventhub-endpoints-card {
@@ -1222,11 +1288,16 @@
                 return;
             }
 
+            const rowCookieName = "eventhub_monitor_row_split";
+
             const requestCol = workspace.querySelector(".eventhub-monitor-col");
             const runtimeCol = workspace.querySelector(".eventhub-endpoints-col");
             const backendCol = workspace.querySelector(".eventhub-config-col");
             const splitterLm = workspace.querySelector(".eventhub-col-resizer-lm");
             const splitterMr = workspace.querySelector(".eventhub-col-resizer-mr");
+            const rowSplitter = backendCol?.querySelector(".eventhub-row-resizer");
+            const backendsCard = backendCol?.querySelector(".eventhub-backends-card");
+            const endpointsCard = backendCol?.querySelector(".eventhub-endpoints-card");
             if (!requestCol || !runtimeCol || !backendCol || !splitterLm || !splitterMr) {
                 return;
             }
@@ -1234,6 +1305,8 @@
             const minRequest = 300;
             const minRuntime = 360;
             const minBackends = 260;
+            const minBackendsCardHeight = 180;
+            const minEndpointsCardHeight = 180;
 
             function setPercents(requestPct, runtimePct, backendsPct) {
                 workspace.style.setProperty("--eventhub-col-request", `${requestPct}%`);
@@ -1297,6 +1370,17 @@
             }
 
             window.addEventListener("resize", positionSplitters);
+
+            function setBackendsHeightPercent(percent) {
+                const normalized = clamp(Number(percent) || 50, 25, 75);
+                backendCol.style.setProperty("--eventhub-backends-height", `${normalized}%`);
+                writeCookie(rowCookieName, normalized.toFixed(2));
+            }
+
+            const savedRow = Number(readCookie(rowCookieName));
+            if (Number.isFinite(savedRow) && savedRow > 0) {
+                setBackendsHeightPercent(savedRow);
+            }
 
             window.eventHubMonitorSetColumnPercents = function (requestPct, runtimePct) {
                 const normalized = normalizePercents(requestPct, runtimePct);
@@ -1391,6 +1475,48 @@
 
                 return { request: state.requestStart, runtime, backends };
             });
+
+            if (rowSplitter && backendsCard && endpointsCard) {
+                rowSplitter.style.touchAction = "none";
+                rowSplitter.addEventListener("pointerdown", (downEvent) => {
+                    if (downEvent.pointerType === "mouse" && downEvent.button !== 0) {
+                        return;
+                    }
+
+                    if (window.matchMedia("(max-width: 991.98px)").matches) {
+                        return;
+                    }
+
+                    downEvent.preventDefault();
+                    const startY = downEvent.clientY;
+                    const startTop = backendsCard.getBoundingClientRect().height;
+                    const startBottom = endpointsCard.getBoundingClientRect().height;
+                    const splitterHeight = rowSplitter.getBoundingClientRect().height;
+                    const gapValue = getComputedStyle(backendCol).rowGap || getComputedStyle(backendCol).gap || "0px";
+                    const gap = Number.parseFloat(gapValue) || 0;
+                    const availableHeight = backendCol.getBoundingClientRect().height - splitterHeight - (gap * 2);
+
+                    rowSplitter.classList.add("dragging");
+                    document.body.style.cursor = "row-resize";
+
+                    const handleMove = (moveEvent) => {
+                        const delta = moveEvent.clientY - startY;
+                        const newTop = clamp(startTop + delta, minBackendsCardHeight, availableHeight - minEndpointsCardHeight);
+                        const newPercent = (newTop / availableHeight) * 100;
+                        setBackendsHeightPercent(newPercent);
+                    };
+
+                    const stopDrag = () => {
+                        rowSplitter.classList.remove("dragging");
+                        document.body.style.cursor = "";
+                        window.removeEventListener("pointermove", handleMove);
+                        window.removeEventListener("pointerup", stopDrag);
+                    };
+
+                    window.addEventListener("pointermove", handleMove);
+                    window.addEventListener("pointerup", stopDrag);
+                });
+            }
 
             workspace.dataset.resizerInit = "1";
         };
