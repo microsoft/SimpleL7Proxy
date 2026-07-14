@@ -1,9 +1,9 @@
 using System.Text;
 using System.Text.Json;
+using Azure.Core;
 using Azure.Identity;
 using Azure.Messaging.EventHubs;
 using Azure.Messaging.EventHubs.Consumer;
-using Azure.Core;
 using chat_tester.Components.Shared.EventHub;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -22,6 +22,7 @@ public sealed class EventHubReader : BackgroundService
     private readonly ProxyMetricsCatalog _proxyMetricsCatalog;
     private readonly EventHubMonitorOptions _options;
     private readonly ILogger<EventHubReader> _logger;
+    private readonly DefaultAzureCredential? _credential;
     private readonly Dictionary<string, List<string>> _requestLifecycle = new(StringComparer.OrdinalIgnoreCase);
     // Per-request field capture keyed by S7P-ID: the enqueue, each backend attempt, and the final
     // proxy-request fields are retained so the request detail can show the full lifecycle.
@@ -70,6 +71,16 @@ public sealed class EventHubReader : BackgroundService
         _proxyMetricsCatalog = proxyMetricsCatalog;
         _options = options.Value;
         _logger = logger;
+        
+        try
+        {
+            _credential = new DefaultAzureCredential();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to initialize DefaultAzureCredential. Managed identity authentication will not be available.");
+            _credential = null;
+        }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -94,6 +105,24 @@ public sealed class EventHubReader : BackgroundService
         }
 
         settings = EnsureNamespace(settings);
+
+        // Validate settings before attempting to create client
+        if (string.IsNullOrWhiteSpace(settings.EventHubName))
+        {
+            _logger.LogError(
+                "Event Hub reader cannot start. {EventHubNameVariable} is not configured.",
+                EventHubNameVariable);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.ConnectionString) && string.IsNullOrWhiteSpace(settings.EventHubNamespace))
+        {
+            _logger.LogError(
+                "Event Hub reader cannot start. Neither {ConnectionStringVariable} nor {EventHubNamespaceVariable} is configured.",
+                ConnectionStringVariable,
+                EventHubNamespaceVariable);
+            return;
+        }
 
         var clientOptions = new EventHubConsumerClientOptions
         {
@@ -332,9 +361,12 @@ public sealed class EventHubReader : BackgroundService
         var startPosition = ResolveStartPosition(settings.StartPosition);
         var partitionIds = await consumerClient.GetPartitionIdsAsync(stoppingToken).ConfigureAwait(false);
 
+        var connString = string.IsNullOrEmpty(settings.ConnectionString) ? "Not Set" : "Set";
         _logger.LogInformation(
-            "Event Hub reader started for {EventHubName} using consumer group {ConsumerGroup} across {PartitionCount} partitions.",
+            "[EVENTHUB] ✓ Event Hub reader started: ConnectionString: {ConnString}, Name: {EventHubName}, Namespace: {EventHubNamespace}, ConsumerGroup: {ConsumerGroup}, PartitionCount: {PartitionCount}",
+            connString,
             settings.EventHubName,
+            settings.EventHubNamespace,
             settings.ConsumerGroup,
             partitionIds.Length);
 
@@ -1075,12 +1107,16 @@ public sealed class EventHubReader : BackgroundService
             : settings with { EventHubNamespace = namespaceFromConnectionString };
     }
 
-    private static EventHubConsumerClient CreateConsumerClient(
+    private EventHubConsumerClient CreateConsumerClient(
         ReaderSettings settings,
         EventHubConsumerClientOptions clientOptions)
     {
         if (!string.IsNullOrWhiteSpace(settings.ConnectionString))
         {
+            _logger.LogInformation(
+                "[EVENTHUB] Creating consumer client for {EventHubName} using connection string.",
+                settings.EventHubName);
+            
             return new EventHubConsumerClient(
                 settings.ConsumerGroup,
                 settings.ConnectionString,
@@ -1088,11 +1124,22 @@ public sealed class EventHubReader : BackgroundService
                 clientOptions);
         }
 
+        if (_credential is null)
+        {
+            throw new InvalidOperationException(
+                "Cannot create Event Hub consumer client: DefaultAzureCredential is not available and no connection string was provided.");
+        }
+
+        _logger.LogInformation(
+            "[EVENTHUB] Creating consumer client for {EventHubName} in namespace {EventHubNamespace} using DefaultAzureCredential.",
+            settings.EventHubName,
+            settings.EventHubNamespace);
+
         return new EventHubConsumerClient(
             settings.ConsumerGroup,
             settings.EventHubNamespace!,
             settings.EventHubName!,
-            new DefaultAzureCredential(),
+            _credential,
             clientOptions);
     }
 

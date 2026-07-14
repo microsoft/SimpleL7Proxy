@@ -7,6 +7,7 @@ launch.json
 deploy.parameters.sh
 
 .keys/
+test/chat_tester/artifacts
 *.log
 *log.json
 
