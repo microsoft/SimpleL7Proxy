@@ -889,8 +889,34 @@
     private bool _receivedFirst;
 
     private string Tagline => IsConnected
-        ? "Streaming runtime stats from the Event Hub."
+        ? BuildConnectedTagline()
         : "Connect to an Event Hub and watch runtime stats stream in.";
+
+    private string BuildConnectedTagline()
+    {
+        var versions = GetDetectedVersions();
+        var versionSuffix = versions.Count > 0
+            ? $" ( {string.Join(", ", versions.Select(v => $"v{v}"))} )"
+            : string.Empty;
+        return $"Streaming runtime stats from the Event Hub.{versionSuffix}";
+    }
+
+    private IReadOnlyList<string> GetDetectedVersions()
+    {
+        var versions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        
+        if (!string.IsNullOrWhiteSpace(_snapshot.Stats.ProxyVersion))
+        {
+            versions.Add(_snapshot.Stats.ProxyVersion);
+        }
+
+        foreach (var backend in _snapshot.Backends)
+        {
+            // Versions could also come from backend-specific data if available
+        }
+
+        return versions.OrderBy(v => v, StringComparer.OrdinalIgnoreCase).ToList();
+    }
 
     private string StatsSubtitle => IsConnected
         ? $"Refreshing every {RefreshSeconds}s"
@@ -915,7 +941,8 @@
     private IReadOnlyList<ProxyMetricsCatalog.MetricGroupSnapshot> ProxyMetricGroups => _proxyMetricGroups
         .Where(group => !string.Equals(group.Name, "Endpoints", StringComparison.OrdinalIgnoreCase)
             && !string.Equals(group.Name, "Backends", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(group.Name, "Request", StringComparison.OrdinalIgnoreCase))
+            && !string.Equals(group.Name, "Request", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(group.Name, "Server", StringComparison.OrdinalIgnoreCase))
         .ToArray();
     private ProxyMetricsCatalog.MetricGroupSnapshot? RequestMetricGroup => _proxyMetricGroups
         .FirstOrDefault(group => string.Equals(group.Name, "Request", StringComparison.OrdinalIgnoreCase));
@@ -1168,78 +1195,112 @@
 
         void AggregateBackendLog(MultiRequestStatusItem item, string backendLog)
         {
-            if (!TryExtractBackendTarget(backendLog, out var targetName, out var targetUrl))
+            var targets = ExtractAllBackendTargets(backendLog);
+            if (targets.Count == 0)
             {
                 return;
             }
 
-            if (!byTarget.TryGetValue(targetName, out var aggregate))
+            // For metrics shared across all targets in this attempt (timings, overall call count)
+            var policyCycleCounter = ParseDoubleHeaderValue(item.RequestHeadersText, "x-PolicyCycleCounter");
+            var requestProcessDuration = ParseDoubleHeaderValue(item.RequestHeadersText, "Request-Process-Duration");
+            var queueDuration = TryReadBackendLogDuration(backendLog, "Proxy-Queue-Duration");
+            var processDuration = TryReadBackendLogDuration(backendLog, "Proxy-Process-Duration");
+            var hasThrottled = backendLog.Contains("THROTTLED", StringComparison.OrdinalIgnoreCase);
+            var hasCallIncomplete = backendLog.Contains("CALL INCOMPLETE", StringComparison.OrdinalIgnoreCase);
+            var hasExhaustedRetries = backendLog.Contains("RETRIES LEFT: exhausted", StringComparison.OrdinalIgnoreCase);
+
+            // Process the final target (last "Using X URL") as the one that determined the final status
+            var finalTarget = targets[targets.Count - 1];
+            if (!byTarget.TryGetValue(finalTarget.Name, out var finalAggregate))
             {
-                aggregate = new EndpointAggregate();
-                byTarget[targetName] = aggregate;
+                finalAggregate = new EndpointAggregate();
+                byTarget[finalTarget.Name] = finalAggregate;
             }
 
-            aggregate.TargetName = targetName;
-            aggregate.TargetUrl = targetUrl;
-
-            aggregate.Calls++;
+            finalAggregate.TargetName = finalTarget.Name;
+            finalAggregate.TargetUrl = finalTarget.Url;
+            finalAggregate.Calls++;
             if (item.StatusCode is >= 400)
             {
-                aggregate.Failures++;
+                finalAggregate.Failures++;
             }
 
             if (!string.IsNullOrWhiteSpace(item.BackendHost))
             {
-                aggregate.LastBackendHost = item.BackendHost;
+                finalAggregate.LastBackendHost = item.BackendHost;
             }
 
-            var policyCycleCounter = ParseDoubleHeaderValue(item.RequestHeadersText, "x-PolicyCycleCounter");
             if (policyCycleCounter.HasValue)
             {
-                aggregate.EndpointAttemptsTotal += policyCycleCounter.Value;
-                aggregate.EndpointAttemptsSamples++;
+                finalAggregate.EndpointAttemptsTotal += policyCycleCounter.Value;
+                finalAggregate.EndpointAttemptsSamples++;
             }
 
-            var requestProcessDuration = ParseDoubleHeaderValue(item.RequestHeadersText, "Request-Process-Duration");
             if (requestProcessDuration.HasValue)
             {
-                aggregate.RequestProcessDurationTotal += requestProcessDuration.Value;
-                aggregate.RequestProcessDurationSamples++;
+                finalAggregate.RequestProcessDurationTotal += requestProcessDuration.Value;
+                finalAggregate.RequestProcessDurationSamples++;
             }
 
-            var queueDuration = TryReadBackendLogDuration(backendLog, "Proxy-Queue-Duration");
             if (queueDuration.HasValue)
             {
-                aggregate.QueueDurationTotalMs += queueDuration.Value;
-                aggregate.QueueDurationSamples++;
+                finalAggregate.QueueDurationTotalMs += queueDuration.Value;
+                finalAggregate.QueueDurationSamples++;
             }
 
-            var processDuration = TryReadBackendLogDuration(backendLog, "Proxy-Process-Duration");
             if (processDuration.HasValue)
             {
-                aggregate.ProcessDurationTotalMs += processDuration.Value;
-                aggregate.ProcessDurationSamples++;
+                finalAggregate.ProcessDurationTotalMs += processDuration.Value;
+                finalAggregate.ProcessDurationSamples++;
             }
 
-            if (backendLog.Contains("THROTTLED", StringComparison.OrdinalIgnoreCase))
+            if (hasThrottled)
             {
-                aggregate.ThrottledEvents++;
+                finalAggregate.ThrottledEvents++;
             }
 
-            if (!string.IsNullOrWhiteSpace(aggregate.TargetName)
-                && backendLog.Contains($"THROTTLED: {aggregate.TargetName}", StringComparison.OrdinalIgnoreCase))
+            if (backendLog.Contains($"THROTTLED: {finalTarget.Name}", StringComparison.OrdinalIgnoreCase))
             {
-                aggregate.TargetThrottledEvents++;
+                finalAggregate.TargetThrottledEvents++;
             }
 
-            if (backendLog.Contains("CALL INCOMPLETE", StringComparison.OrdinalIgnoreCase))
+            if (hasCallIncomplete)
             {
-                aggregate.CallIncompleteEvents++;
+                finalAggregate.CallIncompleteEvents++;
             }
 
-            if (backendLog.Contains("RETRIES LEFT: exhausted", StringComparison.OrdinalIgnoreCase))
+            if (hasExhaustedRetries)
             {
-                aggregate.ExhaustedRetryEvents++;
+                finalAggregate.ExhaustedRetryEvents++;
+            }
+
+            // Track all intermediate targets (including the final one) that were attempted
+            // but mark earlier ones as "attempted" without the final status code
+            foreach (var target in targets)
+            {
+                if (string.Equals(target.Name, finalTarget.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue; // Already processed above as the final target
+                }
+
+                if (!byTarget.TryGetValue(target.Name, out var retryAggregate))
+                {
+                    retryAggregate = new EndpointAggregate();
+                    byTarget[target.Name] = retryAggregate;
+                }
+
+                retryAggregate.TargetName = target.Name;
+                retryAggregate.TargetUrl = target.Url;
+                retryAggregate.Calls++; // Count as an attempt
+                
+                // Don't apply final status code to retry attempts, but track if this target was throttled
+                if (backendLog.Contains($"THROTTLED: {target.Name}", StringComparison.OrdinalIgnoreCase))
+                {
+                    retryAggregate.Failures++;
+                    retryAggregate.TargetThrottledEvents++;
+                    retryAggregate.ThrottledEvents++;
+                }
             }
         }
 
@@ -1506,22 +1567,41 @@
             : null;
     }
 
-    private static bool TryExtractBackendTarget(string backendLog, out string targetName, out string targetUrl)
+    private static IReadOnlyList<(string Name, string Url)> ExtractAllBackendTargets(string backendLog)
     {
-        var match = Regex.Match(
+        var targets = new List<(string, string)>();
+        var matches = Regex.Matches(
             backendLog,
             @"Using\s+([A-Za-z0-9_-]+)\s+URL:\s*(https?://[^\s|]+)",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-        if (!match.Success)
+        foreach (Match match in matches)
+        {
+            if (match.Success)
+            {
+                var name = match.Groups[1].Value;
+                var url = match.Groups[2].Value;
+                targets.Add((name, url));
+            }
+        }
+
+        return targets;
+    }
+
+    private static bool TryExtractBackendTarget(string backendLog, out string targetName, out string targetUrl)
+    {
+        var targets = ExtractAllBackendTargets(backendLog);
+        if (targets.Count == 0)
         {
             targetName = string.Empty;
             targetUrl = string.Empty;
             return false;
         }
 
-        targetName = match.Groups[1].Value;
-        targetUrl = match.Groups[2].Value;
+        // Return the final (last) target for backward compatibility
+        var finalTarget = targets[targets.Count - 1];
+        targetName = finalTarget.Name;
+        targetUrl = finalTarget.Url;
         return true;
     }
 
