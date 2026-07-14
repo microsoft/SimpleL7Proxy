@@ -1183,6 +1183,7 @@
         }
 
         var byTarget = new Dictionary<string, EndpointAggregate>(StringComparer.OrdinalIgnoreCase);
+        var backendFallbackRequestIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         // Endpoints are derived solely from the backend target inside backendLog
         // (e.g. "Using PAYGO URL: https://..."). Request paths are NOT endpoints.
@@ -1304,6 +1305,61 @@
             }
         }
 
+        void AggregateFallbackTarget(MultiRequestStatusItem item)
+        {
+            var requestId = ExtractHeaderValue(item.RequestHeadersText, "S7P-ID")
+                ?? ExtractHeaderValue(item.ResponseHeadersText, "S7P-ID");
+
+            if (string.Equals(item.EventType, "S7P-ProxyRequest", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(requestId)
+                && backendFallbackRequestIds.Contains(requestId))
+            {
+                return;
+            }
+
+            var targetLabel = ExtractHeaderValue(item.ResponseHeadersText, "x-backend-label")
+                ?? ExtractHeaderValue(item.RequestHeadersText, "x-backend-label")
+                ?? ExtractHeaderValue(item.ResponseHeadersText, "Backend-Host")
+                ?? ExtractHeaderValue(item.RequestHeadersText, "Backend-Host")
+                ?? ExtractHeaderValue(item.RequestHeadersText, "Host-URL")
+                ?? ExtractPathFromHeaders(item.RequestHeadersText);
+
+            if (string.IsNullOrWhiteSpace(targetLabel))
+            {
+                return;
+            }
+
+            var targetUrl = ExtractHeaderValue(item.ResponseHeadersText, "Backend-Host")
+                ?? ExtractHeaderValue(item.RequestHeadersText, "Backend-Host")
+                ?? ExtractHeaderValue(item.RequestHeadersText, "Host-URL")
+                ?? "-";
+
+            if (!byTarget.TryGetValue(targetLabel, out var aggregate))
+            {
+                aggregate = new EndpointAggregate();
+                byTarget[targetLabel] = aggregate;
+            }
+
+            aggregate.TargetName = targetLabel;
+            aggregate.TargetUrl = targetUrl;
+            aggregate.Calls++;
+            if (item.StatusCode is >= 400)
+            {
+                aggregate.Failures++;
+            }
+
+            if (!string.IsNullOrWhiteSpace(item.BackendHost))
+            {
+                aggregate.LastBackendHost = item.BackendHost;
+            }
+
+            if (string.Equals(item.EventType, "S7P-BackendRequest", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(requestId))
+            {
+                backendFallbackRequestIds.Add(requestId);
+            }
+        }
+
         // Process backend-request items first so their richer per-attempt headers
         // (x-PolicyCycleCounter, Request-Process-Duration) win over the proxy summary.
         var orderedItems = _snapshot.Requests
@@ -1315,16 +1371,24 @@
         {
             if (string.Equals(item.EventType, "S7P-BackendRequest", StringComparison.OrdinalIgnoreCase))
             {
+                var usedBackendLog = false;
                 var backendLog = ExtractHeaderValue(item.ResponseHeadersText, "backendLog");
                 if (!string.IsNullOrWhiteSpace(backendLog) && seenLogs.Add(backendLog))
                 {
+                    usedBackendLog = true;
                     AggregateBackendLog(item, backendLog);
+                }
+
+                if (!usedBackendLog)
+                {
+                    AggregateFallbackTarget(item);
                 }
 
                 continue;
             }
 
             // S7P-ProxyRequest: pull every Attempt-N-backendLog from the raw event dump.
+            var usedAttemptLogs = false;
             for (var attempt = 1; ; attempt++)
             {
                 var backendLog = ExtractHeaderValue(item.ResponseHeadersText, $"Attempt-{attempt}-backendLog");
@@ -1335,8 +1399,14 @@
 
                 if (seenLogs.Add(backendLog))
                 {
+                    usedAttemptLogs = true;
                     AggregateBackendLog(item, backendLog);
                 }
+            }
+
+            if (!usedAttemptLogs)
+            {
+                AggregateFallbackTarget(item);
             }
         }
 

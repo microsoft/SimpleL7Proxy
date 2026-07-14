@@ -9,6 +9,8 @@ namespace chat_tester.Components.Shared;
 /// </summary>
 public sealed class ProxyMetricsCatalog
 {
+    private static readonly TimeSpan RetainedWindow = TimeSpan.FromHours(1);
+    private const int MaxRetainedRecordsSafetyCap = 100_000;
     private const string AllScopeId = "all";
     private const string UnknownValue = "-";
     private static readonly string[] ModelKeys =
@@ -31,6 +33,7 @@ public sealed class ProxyMetricsCatalog
     private readonly object _gate = new();
     private IReadOnlyDictionary<string, string> _activeValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ScopeState> _scopeStates = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<RetainedRecord> _retainedRecords = new();
     private DateTimeOffset _lastPublishedUtc;
 
     public MetricGroup Endpoints { get; } = new(
@@ -165,12 +168,30 @@ public sealed class ProxyMetricsCatalog
         ArgumentNullException.ThrowIfNull(records);
 
         var now = DateTimeOffset.UtcNow;
-        var computed = BuildScopeValues(records);
         lock (_gate)
         {
+            var cutoff = now - RetainedWindow;
+            _retainedRecords.RemoveAll(record => record.ReceivedUtc < cutoff);
+
+            if (records.Count > 0)
+            {
+                foreach (var record in records)
+                {
+                    _retainedRecords.Add(new RetainedRecord(record, now));
+                }
+
+                if (_retainedRecords.Count > MaxRetainedRecordsSafetyCap)
+                {
+                    var removeCount = _retainedRecords.Count - MaxRetainedRecordsSafetyCap;
+                    _retainedRecords.RemoveRange(0, removeCount);
+                }
+            }
+
+            var retainedParsedRecords = _retainedRecords.Select(record => record.Record).ToArray();
+            var computed = BuildScopeValues(retainedParsedRecords);
             _activeValues = computed;
             _lastPublishedUtc = now;
-            UpdateScopeStates(records, now);
+            UpdateScopeStates(retainedParsedRecords, now);
         }
 
         Changed?.Invoke();
@@ -213,6 +234,8 @@ public sealed class ProxyMetricsCatalog
 
     private void UpdateScopeStates(IReadOnlyList<ParsedEventRecord> parsedRecords, DateTimeOffset now)
     {
+        _scopeStates.Clear();
+
         if (parsedRecords.Count == 0)
         {
             return;
@@ -637,4 +660,6 @@ public sealed class ProxyMetricsCatalog
         string Replica,
         IReadOnlyDictionary<string, string> Values,
         DateTimeOffset LastUpdatedUtc);
+
+    private readonly record struct RetainedRecord(ParsedEventRecord Record, DateTimeOffset ReceivedUtc);
 }
