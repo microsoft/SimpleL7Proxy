@@ -503,6 +503,11 @@ public sealed class ProxyMetricsCatalog
         foreach (var record in records)
         {
             var data = record.Data;
+            var eventType = EventFields.Get(data, "Type");
+            var isRequestEvent = string.Equals(eventType, "S7P-ProxyRequest", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(eventType, "S7P-BackendRequest", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(eventType, "S7P-ProxyRequestExpired", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(eventType, "S7P-ProxyRequestEnqueued", StringComparison.OrdinalIgnoreCase);
 
             var path = EventFields.Get(data, "Path");
             if (!string.IsNullOrWhiteSpace(path))
@@ -529,14 +534,29 @@ public sealed class ProxyMetricsCatalog
             if (!string.IsNullOrWhiteSpace(backendHost))
             {
                 backendHosts.Add(backendHost.Trim());
+
+                if (!string.IsNullOrWhiteSpace(path))
+                {
+                    if (Uri.TryCreate(backendHost, UriKind.Absolute, out var backendHostUri))
+                    {
+                        endpoints.Add($"{backendHostUri.Scheme}://{backendHostUri.Host}{path.Trim()}");
+                    }
+                    else
+                    {
+                        endpoints.Add($"{backendHost.Trim().TrimEnd('/')}/{path.Trim().TrimStart('/')}");
+                    }
+                }
             }
 
-            foreach (var modelKey in ModelKeys)
+            if (isRequestEvent)
             {
-                var modelValue = EventFields.Get(data, modelKey);
-                if (!string.IsNullOrWhiteSpace(modelValue))
+                foreach (var modelKey in ModelKeys)
                 {
-                    models.Add(modelValue.Trim());
+                    var modelValue = EventFields.Get(data, modelKey);
+                    if (!string.IsNullOrWhiteSpace(modelValue))
+                    {
+                        models.Add(modelValue.Trim());
+                    }
                 }
             }
 

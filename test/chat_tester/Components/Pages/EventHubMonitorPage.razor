@@ -1334,6 +1334,31 @@
                 ?? ExtractHeaderValue(item.RequestHeadersText, "Host-URL")
                 ?? "-";
 
+            var urlFromEvent = ExtractHeaderValue(item.ResponseHeadersText, "Url")
+                ?? ExtractHeaderValue(item.RequestHeadersText, "Url");
+            if (!string.IsNullOrWhiteSpace(urlFromEvent))
+            {
+                targetUrl = urlFromEvent;
+            }
+            else
+            {
+                var requestPath = ExtractPathFromHeaders(item.RequestHeadersText);
+                if (!string.IsNullOrWhiteSpace(requestPath)
+                    && !string.Equals(requestPath, "/", StringComparison.Ordinal)
+                    && !string.IsNullOrWhiteSpace(targetUrl)
+                    && !string.Equals(targetUrl, "-", StringComparison.Ordinal))
+                {
+                    if (Uri.TryCreate(targetUrl, UriKind.Absolute, out var baseUri))
+                    {
+                        targetUrl = $"{baseUri.Scheme}://{baseUri.Host}{requestPath}";
+                    }
+                    else
+                    {
+                        targetUrl = $"{targetUrl.TrimEnd('/')}/{requestPath.TrimStart('/')}";
+                    }
+                }
+            }
+
             if (!byTarget.TryGetValue(targetLabel, out var aggregate))
             {
                 aggregate = new EndpointAggregate();
