@@ -1206,7 +1206,7 @@
             var requestProcessDuration = ParseDoubleHeaderValue(item.RequestHeadersText, "Request-Process-Duration");
             var queueDuration = TryReadBackendLogDuration(backendLog, "Proxy-Queue-Duration");
             var processDuration = TryReadBackendLogDuration(backendLog, "Proxy-Process-Duration");
-            var hasThrottled = backendLog.Contains("THROTTLED", StringComparison.OrdinalIgnoreCase);
+            var hasThrottled = backendLog.Contains("THROTTLED", StringComparison.OrdinalIgnoreCase) || Regex.IsMatch(backendLog, @"Throttling\s+\w+\s+by", RegexOptions.IgnoreCase);
             var hasCallIncomplete = backendLog.Contains("CALL INCOMPLETE", StringComparison.OrdinalIgnoreCase);
             var hasExhaustedRetries = backendLog.Contains("RETRIES LEFT: exhausted", StringComparison.OrdinalIgnoreCase);
 
@@ -1260,7 +1260,7 @@
                 finalAggregate.ThrottledEvents++;
             }
 
-            if (backendLog.Contains($"THROTTLED: {finalTarget.Name}", StringComparison.OrdinalIgnoreCase))
+            if (IsTargetThrottled(backendLog, finalTarget.Name))
             {
                 finalAggregate.TargetThrottledEvents++;
             }
@@ -1295,7 +1295,7 @@
                 retryAggregate.Calls++; // Count as an attempt
                 
                 // Don't apply final status code to retry attempts, but track if this target was throttled
-                if (backendLog.Contains($"THROTTLED: {target.Name}", StringComparison.OrdinalIgnoreCase))
+                if (IsTargetThrottled(backendLog, target.Name))
                 {
                     retryAggregate.Failures++;
                     retryAggregate.TargetThrottledEvents++;
@@ -1565,6 +1565,23 @@
         return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
             ? parsed
             : null;
+    }
+
+    private static bool IsTargetThrottled(string backendLog, string targetName)
+    {
+        // Check for old format: "THROTTLED: {targetName}"
+        if (backendLog.Contains($"THROTTLED: {targetName}", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Check for new format: "Throttling {targetName} by XXs"
+        if (Regex.IsMatch(backendLog, $@"Throttling\s+{Regex.Escape(targetName)}\s+by", RegexOptions.IgnoreCase))
+        {
+            return true;
+        }
+
+        return false;
     }
 
     private static IReadOnlyList<(string Name, string Url)> ExtractAllBackendTargets(string backendLog)
