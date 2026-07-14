@@ -13,9 +13,15 @@ public sealed class ProxyMetricsCatalog
     private const string UnknownValue = "-";
     private static readonly string[] ModelKeys =
     {
+        "model",
         "Model",
         "ModelName",
+        "ModelDisplayName",
         "ModelId",
+        "ModelKey",
+        "x-model",
+        "x-model-name",
+        "x-model-id",
         "Deployment",
         "DeploymentName",
         "ModelDeployment",

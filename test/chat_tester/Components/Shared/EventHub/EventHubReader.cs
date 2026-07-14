@@ -1381,9 +1381,15 @@ public sealed class EventHubReader : BackgroundService
     {
         var path = NormalizeUrlPath(GetPath(eventData));
         var model = FirstNonEmpty(
+            GetValue(eventData, "model"),
             GetValue(eventData, "Model"),
             GetValue(eventData, "ModelName"),
+            GetValue(eventData, "ModelDisplayName"),
             GetValue(eventData, "ModelId"),
+            GetValue(eventData, "ModelKey"),
+            GetValue(eventData, "x-model"),
+            GetValue(eventData, "x-model-name"),
+            GetValue(eventData, "x-model-id"),
             GetValue(eventData, "Deployment"),
             GetValue(eventData, "DeploymentName"),
             GetValue(eventData, "ModelDeployment"),
@@ -1476,6 +1482,21 @@ public sealed class EventHubReader : BackgroundService
         AddHeaderLine(lines, "x-PolicyCycleCounter", GetValue(eventData, "x-PolicyCycleCounter"));
         AddHeaderLine(lines, "Request-Process-Duration", GetValue(eventData, "Request-Process-Duration"));
         AddHeaderLine(lines, "Request-Queue-Duration", GetValue(eventData, "Request-Queue-Duration"));
+        AddHeaderLine(lines, "Model", FirstNonEmpty(
+            GetValue(eventData, "model"),
+            GetValue(eventData, "Model"),
+            GetValue(eventData, "ModelName"),
+            GetValue(eventData, "ModelDisplayName"),
+            GetValue(eventData, "ModelId"),
+            GetValue(eventData, "ModelKey"),
+            GetValue(eventData, "x-model"),
+            GetValue(eventData, "x-model-name"),
+            GetValue(eventData, "x-model-id"),
+            GetValue(eventData, "Deployment"),
+            GetValue(eventData, "DeploymentName"),
+            GetValue(eventData, "ModelDeployment"),
+            GetValue(eventData, "AOAIModel")));
+        AddHeaderLine(lines, "x-backend-label", GetValue(eventData, "x-backend-label"));
         AddHeaderLine(lines, "x-Backend-Attempts", GetValue(eventData, "x-Backend-Attempts"));
 
         return string.Join(Environment.NewLine, lines);
@@ -1491,6 +1512,7 @@ public sealed class EventHubReader : BackgroundService
 
         AddHeaderLine(lines, "Content-Type", GetValue(eventData, "Content-Type"));
         AddHeaderLine(lines, "Backend-Host", GetValue(eventData, "Backend-Host"));
+        AddHeaderLine(lines, "x-backend-label", GetValue(eventData, "x-backend-label"));
         AddHeaderLine(lines, "backendLog", GetValue(eventData, "backendLog"));
         AddHeaderLine(lines, "retry-after", GetValue(eventData, "retry-after"));
 

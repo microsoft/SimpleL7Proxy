@@ -982,6 +982,30 @@
             stats.Add(new("User", user));
         }
 
+        var model = FirstPhaseValue(phases, "model")
+            ?? FirstPhaseValue(phases, "Model")
+            ?? FirstPhaseValue(phases, "ModelName")
+            ?? FirstPhaseValue(phases, "ModelDisplayName")
+            ?? FirstPhaseValue(phases, "ModelId")
+            ?? FirstPhaseValue(phases, "ModelKey")
+            ?? FirstPhaseValue(phases, "x-model")
+            ?? FirstPhaseValue(phases, "x-model-name")
+            ?? FirstPhaseValue(phases, "x-model-id")
+            ?? FirstPhaseValue(phases, "Deployment")
+            ?? FirstPhaseValue(phases, "DeploymentName")
+            ?? FirstPhaseValue(phases, "ModelDeployment")
+            ?? FirstPhaseValue(phases, "AOAIModel");
+        if (!string.IsNullOrWhiteSpace(model))
+        {
+            stats.Add(new("Model", model));
+        }
+
+        var backendLabel = FirstPhaseValue(phases, "x-backend-label");
+        if (!string.IsNullOrWhiteSpace(backendLabel))
+        {
+            stats.Add(new("Backend label", backendLabel));
+        }
+
         if (item.StatusCode is { } code)
         {
             stats.Add(new("Status", code.ToString(CultureInfo.InvariantCulture)));
