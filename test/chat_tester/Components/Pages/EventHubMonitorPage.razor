@@ -33,32 +33,35 @@
                     <div class="eventhub-form-content">
                         @if (Backends.Count > 0)
                         {
-                            <div class="eventhub-backend-list mb-3">
-                                @foreach (var backend in Backends)
-                                {
-                                    <div class="eventhub-backend-tile @backend.Css">
-                                        <div class="eventhub-backend-tile-head">
-                                            <div class="eventhub-backend-tile-head-main">
-                                                <span class="eventhub-backend-dot" title="@backend.Status"></span>
-                                                <span class="eventhub-backend-name">Backend: @backend.Name</span>
-                                            </div>
-                                            <div class="eventhub-tile-corner" title="@GetBackendCircuitBreakerTitle(backend)" aria-label="@GetBackendCircuitBreakerAriaLabel(backend)">
-                                                <span class="eventhub-cb-indicator @GetBackendCircuitBreakerCss(backend)" aria-hidden="true">@GetBackendCircuitBreakerGlyph(backend)</span>
-                                            </div>
-                                        </div>
-                                        <div class="eventhub-backend-state">@backend.Status</div>
-                                        <div class="eventhub-backend-url" title="@backend.Url">@backend.Url</div>
-                                        <div class="eventhub-backend-metrics">
-                                            <div><span class="eh-metric-label">Lat</span><span class="eh-metric-value">@backend.LatencyText</span></div>
-                                            <div><span class="eh-metric-label">Succ</span><span class="eh-metric-value">@backend.SuccessRate%</span></div>
-                                            <div><span class="eh-metric-label">ProbeOK</span><span class="eh-metric-value">@backend.ProbeSuccesses</span></div>
-                                            <div><span class="eh-metric-label">ProbeFail</span><span class="eh-metric-value">@backend.ProbeFailures</span></div>
-                                            <div><span class="eh-metric-label">ReqCalls</span><span class="eh-metric-value">@backend.RequestCalls</span></div>
-                                            <div><span class="eh-metric-label">ReqFail</span><span class="eh-metric-value">@backend.RequestFailures</span></div>
-                                            <div><span class="eh-metric-label">ReqAvg</span><span class="eh-metric-value">@backend.AvgRequestLatencyMs.ToString("0.#") ms</span></div>
-                                        </div>
-                                    </div>
-                                }
+                            <div class="table-responsive mb-3">
+                                <table class="table table-sm eventhub-backend-table mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">Backend</th>
+                                            <th scope="col">Status</th>
+                                            <th scope="col" class="text-end">Lat</th>
+                                            <th scope="col" class="text-end">Succ</th>
+                                            <th scope="col" class="text-end">Calls</th>
+                                            <th scope="col" class="text-end">Fail</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var backend in Backends)
+                                        {
+                                            <tr>
+                                                <td title="@backend.Url">@backend.Name</td>
+                                                <td title="@GetBackendCircuitBreakerTitle(backend)">
+                                                    @backend.Status
+                                                    <span class="eventhub-cb-indicator @GetBackendCircuitBreakerCss(backend) ms-1" aria-hidden="true">@GetBackendCircuitBreakerGlyph(backend)</span>
+                                                </td>
+                                                <td class="text-end">@backend.LatencyText</td>
+                                                <td class="text-end" title="Probe OK/Fail: @backend.ProbeSuccesses/@backend.ProbeFailures">@backend.SuccessRate%</td>
+                                                <td class="text-end">@backend.RequestCalls</td>
+                                                <td class="text-end">@backend.RequestFailures</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
                             </div>
                         }
                         else
@@ -760,9 +763,10 @@
     }
 
     .eventhub-endpoint-item {
-        display: flex;
-        justify-content: space-between;
-        gap: 0.5rem;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        column-gap: 0.5rem;
         padding: 0.25rem 0;
         border-bottom: 1px solid #f1f3f5;
     }
@@ -772,6 +776,7 @@
     }
 
     .eventhub-endpoint-item dt {
+        min-width: 0;
         font-size: 0.72rem;
         color: #868e96;
         font-weight: 500;
@@ -782,14 +787,14 @@
     }
 
     .eventhub-endpoint-item dd {
+        min-width: 1.75rem;
+        overflow: visible;
         font-size: 0.75rem;
         font-weight: 600;
         color: #343a40;
         margin: 0;
         text-align: right;
         font-variant-numeric: tabular-nums;
-        overflow: hidden;
-        text-overflow: ellipsis;
         white-space: nowrap;
     }
 
@@ -866,6 +871,36 @@
     .eventhub-model-table tbody td:first-child {
         font-weight: 600;
         color: #1f2937;
+    }
+
+    .eventhub-backend-table {
+        font-size: 0.74rem;
+    }
+
+    .eventhub-backend-table thead th {
+        font-size: 0.68rem;
+        font-weight: 700;
+        color: #4b5563;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+        border-bottom: 1px solid #dbe1e8;
+    }
+
+    .eventhub-backend-table tbody td {
+        vertical-align: middle;
+        font-variant-numeric: tabular-nums;
+        padding-top: 0.24rem;
+        padding-bottom: 0.24rem;
+    }
+
+    .eventhub-backend-table tbody td:first-child {
+        font-weight: 600;
+        color: #1f2937;
+        max-width: 13rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .eventhub-model-endpoint-list {
@@ -1312,6 +1347,7 @@
         var byModelAndTarget = new Dictionary<string, Dictionary<string, EndpointAggregate>>(StringComparer.OrdinalIgnoreCase);
         var backendFallbackRequestIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var requestModelById = BuildRequestModelMap(_snapshot.Requests);
+        var requestLabelById = BuildRequestLabelMap(_snapshot.Requests);
 
         // Endpoints are derived solely from the backend target inside backendLog
         // (e.g. "Using PAYGO URL: https://..."). Request paths are NOT endpoints.
@@ -1430,6 +1466,32 @@
             return NormalizeModel(null);
         }
 
+        string ResolveBackendLabel(MultiRequestStatusItem item, string? fallbackLabel)
+        {
+            var directLabel = ExtractHeaderValue(item.ResponseHeadersText, "x-backend-label")
+                ?? ExtractHeaderValue(item.RequestHeadersText, "x-backend-label");
+            if (!string.IsNullOrWhiteSpace(directLabel))
+            {
+                return directLabel.Trim();
+            }
+
+            var requestId = ExtractHeaderValue(item.RequestHeadersText, "S7P-ID")
+                ?? ExtractHeaderValue(item.ResponseHeadersText, "S7P-ID");
+            if (!string.IsNullOrWhiteSpace(requestId)
+                && requestLabelById.TryGetValue(requestId.Trim(), out var mappedLabel)
+                && !string.IsNullOrWhiteSpace(mappedLabel))
+            {
+                return mappedLabel.Trim();
+            }
+
+            if (!string.IsNullOrWhiteSpace(fallbackLabel))
+            {
+                return fallbackLabel.Trim();
+            }
+
+            return "(unknown label)";
+        }
+
         void AggregateBackendLog(MultiRequestStatusItem item, string backendLog)
         {
             var targets = ExtractAllBackendTargets(backendLog);
@@ -1460,9 +1522,10 @@
 
             // Process the final target (last "Using X URL") as the one that determined the final status
             var finalTarget = targets[targets.Count - 1];
-            var finalAggregate = GetOrCreateAggregate(model, finalTarget.Name);
+            var finalTargetLabel = ResolveBackendLabel(item, finalTarget.Name);
+            var finalAggregate = GetOrCreateAggregate(model, finalTargetLabel);
 
-            finalAggregate.TargetName = finalTarget.Name;
+            finalAggregate.TargetName = finalTargetLabel;
             finalAggregate.TargetUrl = finalTarget.Url;
             finalAggregate.Calls++;
             finalAggregate.EndpointCount = 1;
@@ -1961,6 +2024,31 @@
             }
 
             map[requestId.Trim()] = model.Trim();
+        }
+
+        return map;
+    }
+
+    private static Dictionary<string, string> BuildRequestLabelMap(IReadOnlyList<MultiRequestStatusItem> items)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in items)
+        {
+            var requestId = ExtractHeaderValue(item.RequestHeadersText, "S7P-ID")
+                ?? ExtractHeaderValue(item.ResponseHeadersText, "S7P-ID");
+            if (string.IsNullOrWhiteSpace(requestId))
+            {
+                continue;
+            }
+
+            var label = ExtractHeaderValue(item.ResponseHeadersText, "x-backend-label")
+                ?? ExtractHeaderValue(item.RequestHeadersText, "x-backend-label");
+            if (string.IsNullOrWhiteSpace(label))
+            {
+                continue;
+            }
+
+            map[requestId.Trim()] = label.Trim();
         }
 
         return map;

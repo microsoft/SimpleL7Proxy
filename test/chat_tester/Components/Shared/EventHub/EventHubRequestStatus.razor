@@ -67,6 +67,7 @@
     <div class="multi-request-status-list" role="list">
         @foreach (var item in FilteredItems)
         {
+            var model = ResolveModel(item);
             <button class="multi-request-row" type="button" role="listitem"
                     @key="item"
                     @onclick="() => SelectItem(item)"
@@ -78,7 +79,13 @@
                     <div class="multi-request-fill" style="width: @GetFillWidth(item);"></div>
                     <span class="multi-request-duration">@FormatDuration(item.Duration)</span>
                 </div>
-                <div class="multi-request-status-code @GetStatusClass(item)">@FormatStatus(item)</div>
+                <div class="multi-request-status-code @GetStatusClass(item)">
+                    <span class="multi-request-status-value">@FormatStatus(item)</span>
+                    @if (!string.IsNullOrWhiteSpace(model))
+                    {
+                        <span class="multi-request-status-model" title="@model">@model</span>
+                    }
+                </div>
             </button>
         }
     </div>
@@ -263,7 +270,25 @@
         font-size: 0.8rem;
         font-weight: 700;
         font-variant-numeric: tabular-nums;
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        min-width: 0;
         white-space: nowrap;
+    }
+
+    .multi-request-status-value {
+        flex: 0 0 auto;
+    }
+
+    .multi-request-status-model {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: #6c757d;
     }
 
     .multi-request-status-code.success { color: #146c43; }
@@ -982,19 +1007,7 @@
             stats.Add(new("User", user));
         }
 
-        var model = FirstPhaseValue(phases, "model")
-            ?? FirstPhaseValue(phases, "Model")
-            ?? FirstPhaseValue(phases, "ModelName")
-            ?? FirstPhaseValue(phases, "ModelDisplayName")
-            ?? FirstPhaseValue(phases, "ModelId")
-            ?? FirstPhaseValue(phases, "ModelKey")
-            ?? FirstPhaseValue(phases, "x-model")
-            ?? FirstPhaseValue(phases, "x-model-name")
-            ?? FirstPhaseValue(phases, "x-model-id")
-            ?? FirstPhaseValue(phases, "Deployment")
-            ?? FirstPhaseValue(phases, "DeploymentName")
-            ?? FirstPhaseValue(phases, "ModelDeployment")
-            ?? FirstPhaseValue(phases, "AOAIModel");
+        var model = ResolveModel(item);
         if (!string.IsNullOrWhiteSpace(model))
         {
             stats.Add(new("Model", model));
@@ -1054,6 +1067,52 @@
             {
                 return pair.Value;
             }
+        }
+
+        return null;
+    }
+
+    private static string? ResolveModel(MultiRequestStatusItem item)
+    {
+        var phases = item.Phases;
+        var model = FirstPhaseValue(phases, "model")
+            ?? FirstPhaseValue(phases, "Model")
+            ?? FirstPhaseValue(phases, "ModelName")
+            ?? FirstPhaseValue(phases, "ModelDisplayName")
+            ?? FirstPhaseValue(phases, "ModelId")
+            ?? FirstPhaseValue(phases, "ModelKey")
+            ?? FirstPhaseValue(phases, "x-model")
+            ?? FirstPhaseValue(phases, "x-model-name")
+            ?? FirstPhaseValue(phases, "x-model-id")
+            ?? FirstPhaseValue(phases, "Deployment")
+            ?? FirstPhaseValue(phases, "DeploymentName")
+            ?? FirstPhaseValue(phases, "ModelDeployment")
+            ?? FirstPhaseValue(phases, "AOAIModel")
+            ?? ExtractHeaderValue(item.RequestHeadersText, "Model")
+            ?? ExtractHeaderValue(item.ResponseHeadersText, "Model");
+
+        return string.IsNullOrWhiteSpace(model) ? null : model.Trim();
+    }
+
+    private static string? ExtractHeaderValue(string? headers, string headerName)
+    {
+        if (string.IsNullOrWhiteSpace(headers) || string.IsNullOrWhiteSpace(headerName))
+        {
+            return null;
+        }
+
+        var lines = headers
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var prefix = $"{headerName}:";
+        foreach (var line in lines)
+        {
+            if (!line.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return line[prefix.Length..].Trim();
         }
 
         return null;
