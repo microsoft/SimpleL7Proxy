@@ -10,8 +10,8 @@
 @if (Items.Count > 0)
 {
     <div class="multi-request-stats card shadow-sm">
-        <div class="card-header bg-dark text-white">
-            <span class="fw-semibold">Statistics</span>
+        <div class="@GetHeaderCssClass(HeaderTone)">
+            <span class="fw-semibold">Request Summary</span>
         </div>
         <div class="card-body">
             <div class="multi-request-stats-thermometer">
@@ -56,9 +56,9 @@
 }
 
 <div class="multi-request-status card shadow-sm">
-    <div class="card-header bg-dark text-white">
+    <div class="@GetHeaderCssClass(HeaderTone)">
         <div class="d-flex flex-wrap align-items-baseline gap-2">
-            <span class="fw-semibold">Request status</span>
+            <span class="fw-semibold">Request Status</span>
             <span class="text-white-50 small ms-auto">@CompletedCount/@Items.Count complete</span>
         </div>
     </div>
@@ -196,6 +196,30 @@
 }
 
 <style>
+    .eventhub-header {
+        border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+    }
+
+    .eventhub-header .text-white-50 {
+        color: inherit !important;
+        opacity: 0.75;
+    }
+
+    .eventhub-header-good {
+        background: #d9f5df;
+        color: #1f5131;
+    }
+
+    .eventhub-header-warn {
+        background: #fff5bf;
+        color: #6b4e00;
+    }
+
+    .eventhub-header-error {
+        background: #7f1d1d;
+        color: #fff;
+    }
+
     .multi-request-status > .card-body {
         padding: 0.75rem;
     }
@@ -606,6 +630,9 @@
     [Parameter]
     public IReadOnlyList<MultiRequestStatusItem> Items { get; set; } = [];
 
+    [Parameter]
+    public string HeaderTone { get; set; } = "warn";
+
     private MultiRequestStatusItem? HoveredItem { get; set; }
     private MultiRequestStatusItem? SelectedItem { get; set; }
     private string SelectedPhaseTab { get; set; } = string.Empty;
@@ -738,6 +765,16 @@
         _outcomeSegments = segments;
 
         RebuildFilteredItems();
+    }
+
+    private static string GetHeaderCssClass(string tone)
+    {
+        return tone switch
+        {
+            "error" => "card-header eventhub-header eventhub-header-error",
+            "warn" => "card-header eventhub-header eventhub-header-warn",
+            _ => "card-header eventhub-header eventhub-header-good",
+        };
     }
 
     private void RebuildFilteredItems()

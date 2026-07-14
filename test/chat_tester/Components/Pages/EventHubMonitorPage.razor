@@ -6,11 +6,13 @@
 @using Microsoft.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Web
 @using Microsoft.Extensions.Options
+@using Microsoft.JSInterop
 @using System.Globalization
 @using System.Text.RegularExpressions
 @inject EventHubMonitorStore Store
 @inject ProxyMetricsCatalog MetricsCatalog
 @inject IOptions<EventHubMonitorOptions> MonitorOptions
+@inject IJSRuntime JS
 
 <PageTitle>EventHub Monitor</PageTitle>
 
@@ -23,10 +25,14 @@
         @* ── Backends column ── *@
         <div class="col-12 col-lg-3 eventhub-config-col order-3">
             <div class="card shadow-sm eventhub-card">
-                <div class="card-header bg-success text-white">
-                    <div class="d-flex flex-wrap align-items-baseline gap-2">
+                <div class="@GetHeaderCssClass(BackendsHeaderTone)">
+                    <div class="d-flex flex-wrap align-items-center gap-2 pe-3">
                         <span class="fw-semibold">Backends</span>
                         <span class="text-white-50 small">@BackendSubtitle</span>
+                        @if (!string.IsNullOrWhiteSpace(BackendsHeaderReason))
+                        {
+                            <span class="text-white-50 small eventhub-header-reason ms-auto">@BackendsHeaderReason</span>
+                        }
                     </div>
                 </div>
                 <div class="card-body eventhub-card-body">
@@ -91,10 +97,13 @@
             </div>
 
             <div class="card shadow-sm eventhub-card eventhub-endpoints-card">
-                <div class="card-header bg-primary text-white">
-                    <div class="d-flex flex-wrap align-items-baseline gap-2">
+                <div class="@GetHeaderCssClass(EndpointsHeaderTone)">
+                    <div class="d-flex flex-wrap align-items-center gap-2 pe-3">
                         <span class="fw-semibold">Endpoints</span>
-                        <span class="text-white-50 small">@EndpointSubtitle</span>
+                        @if (!string.IsNullOrWhiteSpace(EndpointsHeaderReason))
+                        {
+                            <span class="text-white-50 small eventhub-header-reason ms-auto">@EndpointsHeaderReason</span>
+                        }
                     </div>
                 </div>
                 <div class="card-body eventhub-card-body">
@@ -165,26 +174,12 @@
         @* ── Server column (runtime stats + endpoints + paths + users) ── *@
         <div class="col-12 col-lg-5 eventhub-endpoints-col order-2">
             <div class="card shadow-sm eventhub-card">
-                <div class="card-header bg-dark text-white">
-                    <div class="d-flex flex-wrap align-items-center gap-2">
-                        <span class="fw-semibold">Runtime stats</span>
-                        <span class="text-white-50 small">@StatsSubtitle</span>
-                        @if (IsConnected)
+                <div class="@GetHeaderCssClass(RuntimeHeaderTone)">
+                    <div class="d-flex flex-wrap align-items-center gap-2 pe-3">
+                        <span class="fw-semibold">Runtime Stats</span>
+                        @if (!string.IsNullOrWhiteSpace(RuntimeHeaderReason))
                         {
-                            var hasData = _snapshot.LastDataUtc != default;
-                            var isLive = hasData && (DateTimeOffset.UtcNow - _snapshot.LastDataUtc) < TimeSpan.FromSeconds(5);
-                            <span class="badge @(isLive ? "text-bg-success" : "text-bg-secondary") ms-auto"
-                                  title="@(hasData ? FormatRelativeTime(_snapshot.LastDataUtc) : "no data yet")">
-                                @if (isLive)
-                                {
-                                    <span class="eventhub-live-dot"></span>
-                                }
-                                <text>Last update: @(hasData ? _snapshot.LastDataUtc.ToLocalTime().ToString("HH:mm:ss") : "—")</text>
-                            </span>
-                        }
-                        else
-                        {
-                            <span class="badge text-bg-secondary ms-auto">Awaiting data</span>
+                            <span class="text-white-50 small eventhub-header-reason ms-auto">@RuntimeHeaderReason</span>
                         }
                     </div>
                 </div>
@@ -228,10 +223,14 @@
             </div>
 
             <div class="card shadow-sm eventhub-card eventhub-paths-card">
-                <div class="card-header bg-secondary text-white">
-                    <div class="d-flex flex-wrap align-items-baseline gap-2">
+                <div class="@GetHeaderCssClass(PathsHeaderTone)">
+                    <div class="d-flex flex-wrap align-items-center gap-2 pe-3">
                         <span class="fw-semibold">Paths</span>
                         <span class="text-white-50 small">success vs failed</span>
+                        @if (!string.IsNullOrWhiteSpace(PathsHeaderReason))
+                        {
+                            <span class="text-white-50 small eventhub-header-reason ms-auto">@PathsHeaderReason</span>
+                        }
                     </div>
                 </div>
                 <div class="card-body eventhub-card-body">
@@ -279,10 +278,14 @@
             </div>
 
             <div class="card shadow-sm eventhub-card eventhub-paths-card">
-                <div class="card-header bg-secondary text-white">
-                    <div class="d-flex flex-wrap align-items-baseline gap-2">
+                <div class="@GetHeaderCssClass(UsersHeaderTone)">
+                    <div class="d-flex flex-wrap align-items-center gap-2 pe-3">
                         <span class="fw-semibold">Users</span>
                         <span class="text-white-50 small">success vs failed</span>
+                        @if (!string.IsNullOrWhiteSpace(UsersHeaderReason))
+                        {
+                            <span class="text-white-50 small eventhub-header-reason ms-auto">@UsersHeaderReason</span>
+                        }
                     </div>
                 </div>
                 <div class="card-body eventhub-card-body">
@@ -333,20 +336,187 @@
         @* ── Request column (request status) ── *@
         <div class="col-12 col-lg-4 eventhub-monitor-col order-1">
             <div class="eventhub-history-shell eventhub-request-stats-compact">
-                <EventHubRequestStatus Items="@HistoryItems" />
+                <EventHubRequestStatus Items="@HistoryItems" HeaderTone="@RequestHeaderTone" />
             </div>
+        </div>
+
+        <div class="eventhub-col-resizer eventhub-col-resizer-lm"
+             role="separator"
+             aria-orientation="vertical"
+               aria-label="Resize Request Status and Runtime Stats columns">
+            <span class="eventhub-col-resizer-grip" aria-hidden="true">|||</span>
+        </div>
+        <div class="eventhub-col-resizer eventhub-col-resizer-mr"
+             role="separator"
+             aria-orientation="vertical"
+               aria-label="Resize Runtime Stats and Backends columns">
+            <span class="eventhub-col-resizer-grip" aria-hidden="true">|||</span>
         </div>
 
     </div>
 </InspectorPageShell>
 
 <style>
+    .eventhub-header-reason {
+        opacity: 0.95;
+        font-style: italic;
+    }
+
     .eventhub-workspace {
         margin-left: 0;
         margin-right: 0;
+        position: relative;
+        --eventhub-col-request: 33%;
+        --eventhub-col-runtime: 42%;
+        --eventhub-col-backends: 25%;
+    }
+
+    .eventhub-header {
+        border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+    }
+
+    .eventhub-header .text-white-50 {
+        color: inherit !important;
+        opacity: 0.75;
+    }
+
+    .eventhub-header-good {
+        background: #d9f5df;
+        color: #1f5131;
+    }
+
+    .eventhub-header-warn {
+        background: #fff5bf;
+        color: #6b4e00;
+    }
+
+    .eventhub-header-error {
+        background: #7f1d1d;
+        color: #fff;
+    }
+
+    .eventhub-col-resizer {
+        display: none;
+        width: 1rem;
+        min-height: 0;
+        background: transparent;
+        cursor: col-resize;
+        user-select: none;
+        position: relative;
+        align-items: flex-start;
+        justify-content: center;
+        padding-top: 0;
+        transition: box-shadow 120ms ease;
+    }
+
+    /* Full-height guide line */
+    .eventhub-col-resizer::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 50%;
+        width: 2px;
+        transform: translateX(-50%);
+        background: #ccd5e2;
+        border-radius: 999px;
+        transition: background 120ms ease;
+    }
+
+    .eventhub-col-resizer:hover::before,
+    .eventhub-col-resizer.dragging::before {
+        background: #7f93ad;
+    }
+
+    /* Invisible full-height hit-area overlay */
+    .eventhub-col-resizer::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+    }
+
+    /* Rectangular grip badge pinned to top */
+    .eventhub-col-resizer-grip {
+        position: relative;
+        z-index: 1;
+        pointer-events: none;
+        font-size: 0.7rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        color: #64748b;
+        line-height: 1;
+        background: #e8eef5;
+        border: 1px solid #b9c5d4;
+        border-radius: 3px;
+        padding: 0 0.55rem;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.15);
+        margin-top: 0;
+        white-space: nowrap;
+        transform: translateX(-18px);
+        /* match card header height and align to top */
+        height: 2.5rem;
+        display: flex;
+        align-items: center;
+    }
+
+    .eventhub-col-resizer:hover .eventhub-col-resizer-grip,
+    .eventhub-col-resizer.dragging .eventhub-col-resizer-grip {
+        background: #d0def0;
+        border-color: #7f93ad;
+        color: #2d4a6e;
+        box-shadow: 0 1px 4px rgba(56, 115, 197, 0.25);
     }
 
     @@media (min-width: 992px) {
+        .eventhub-workspace {
+            display: grid;
+            grid-template-columns:
+                minmax(18rem, var(--eventhub-col-request))
+                minmax(22rem, var(--eventhub-col-runtime))
+                minmax(16rem, var(--eventhub-col-backends));
+            column-gap: 0.65rem;
+            row-gap: 1rem;
+            align-items: stretch;
+        }
+
+
+        .eventhub-workspace > [class*="col-"] {
+            width: auto;
+            max-width: none;
+            padding-left: 0;
+            padding-right: 0;
+        }
+
+        .eventhub-monitor-col {
+            grid-column: 1;
+        }
+
+        .eventhub-endpoints-col {
+            grid-column: 2;
+        }
+
+        .eventhub-config-col {
+            grid-column: 3;
+        }
+
+        .eventhub-col-resizer {
+            display: flex;
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            transform: translateX(-50%);
+            z-index: 30;
+            width: 1.8rem;
+        }
+
+        .eventhub-col-resizer-lm {
+            left: 33%;
+        }
+
+        .eventhub-col-resizer-mr {
+            left: 75%;
+        }
+
         .eventhub-config-col {
             height: calc(100dvh - 8.75rem);
             display: flex;
@@ -1029,6 +1199,204 @@
     }
 </style>
 
+<script>
+    (function () {
+        const cookieName = "eventhub_monitor_col_widths";
+
+        function readCookie(name) {
+            const match = document.cookie.match(new RegExp("(?:^|; )" + name.replace(/[-./\\^$*+?()[\]{}|]/g, "\\$&") + "=([^;]*)"));
+            return match ? decodeURIComponent(match[1]) : null;
+        }
+
+        function writeCookie(name, value) {
+            document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=31536000; samesite=lax`;
+        }
+
+        function clamp(value, min, max) {
+            return Math.max(min, Math.min(max, value));
+        }
+
+        window.eventHubMonitorInitColumnResizers = function () {
+            const workspace = document.querySelector(".eventhub-workspace");
+            if (!workspace || workspace.dataset.resizerInit === "1") {
+                return;
+            }
+
+            const requestCol = workspace.querySelector(".eventhub-monitor-col");
+            const runtimeCol = workspace.querySelector(".eventhub-endpoints-col");
+            const backendCol = workspace.querySelector(".eventhub-config-col");
+            const splitterLm = workspace.querySelector(".eventhub-col-resizer-lm");
+            const splitterMr = workspace.querySelector(".eventhub-col-resizer-mr");
+            if (!requestCol || !runtimeCol || !backendCol || !splitterLm || !splitterMr) {
+                return;
+            }
+
+            const minRequest = 300;
+            const minRuntime = 360;
+            const minBackends = 260;
+
+            function setPercents(requestPct, runtimePct, backendsPct) {
+                workspace.style.setProperty("--eventhub-col-request", `${requestPct}%`);
+                workspace.style.setProperty("--eventhub-col-runtime", `${runtimePct}%`);
+                workspace.style.setProperty("--eventhub-col-backends", `${backendsPct}%`);
+                positionSplitters();
+            }
+
+            function positionSplitters() {
+                if (window.matchMedia("(max-width: 991.98px)").matches) {
+                    return;
+                }
+
+                const workspaceRect = workspace.getBoundingClientRect();
+                const requestRect = requestCol.getBoundingClientRect();
+                const runtimeRect = runtimeCol.getBoundingClientRect();
+                splitterLm.style.left = `${requestRect.right - workspaceRect.left}px`;
+                splitterMr.style.left = `${runtimeRect.right - workspaceRect.left}px`;
+            }
+
+            function normalizePercents(requestPct, runtimePct) {
+                let request = clamp(Number(requestPct) || 33, 20, 60);
+                let runtime = clamp(Number(runtimePct) || 42, 20, 65);
+                let backends = 100 - request - runtime;
+
+                if (backends < 15) {
+                    runtime = 100 - request - 15;
+                    backends = 15;
+                }
+
+                if (runtime < 20) {
+                    runtime = 20;
+                    backends = 100 - request - runtime;
+                }
+
+                return { request, runtime, backends };
+            }
+
+            function saveCurrentPercents() {
+                const total = requestCol.getBoundingClientRect().width + runtimeCol.getBoundingClientRect().width + backendCol.getBoundingClientRect().width;
+                if (total <= 0) {
+                    return;
+                }
+
+                const requestPct = (requestCol.getBoundingClientRect().width / total) * 100;
+                const runtimePct = (runtimeCol.getBoundingClientRect().width / total) * 100;
+                const backendsPct = 100 - requestPct - runtimePct;
+                writeCookie(cookieName, `${requestPct.toFixed(2)},${runtimePct.toFixed(2)},${backendsPct.toFixed(2)}`);
+            }
+
+            const saved = readCookie(cookieName);
+            if (saved) {
+                const parts = saved.split(",").map(Number);
+                if (parts.length === 3 && parts.every(Number.isFinite) && parts[0] > 0 && parts[1] > 0 && parts[2] > 0) {
+                    setPercents(parts[0], parts[1], parts[2]);
+                }
+            }
+            else
+            {
+                positionSplitters();
+            }
+
+            window.addEventListener("resize", positionSplitters);
+
+            window.eventHubMonitorSetColumnPercents = function (requestPct, runtimePct) {
+                const normalized = normalizePercents(requestPct, runtimePct);
+                setPercents(normalized.request, normalized.runtime, normalized.backends);
+                writeCookie(cookieName, `${normalized.request.toFixed(2)},${normalized.runtime.toFixed(2)},${normalized.backends.toFixed(2)}`);
+            };
+
+            window.eventHubMonitorGetColumnPercents = function () {
+                const saved = readCookie(cookieName);
+                if (saved) {
+                    const parts = saved.split(",").map(Number);
+                    if (parts.length === 3 && parts.every(Number.isFinite)) {
+                        return parts;
+                    }
+                }
+
+                const total = requestCol.getBoundingClientRect().width + runtimeCol.getBoundingClientRect().width + backendCol.getBoundingClientRect().width;
+                if (total <= 0) {
+                    return [33, 42, 25];
+                }
+
+                return [
+                    (requestCol.getBoundingClientRect().width / total) * 100,
+                    (runtimeCol.getBoundingClientRect().width / total) * 100,
+                    (backendCol.getBoundingClientRect().width / total) * 100
+                ];
+            };
+
+            function startDrag(splitter, onMove) {
+                splitter.style.touchAction = "none";
+                splitter.addEventListener("pointerdown", (downEvent) => {
+                    if (downEvent.pointerType === "mouse" && downEvent.button !== 0) {
+                        return;
+                    }
+
+                    if (window.matchMedia("(max-width: 991.98px)").matches) {
+                        return;
+                    }
+
+                    downEvent.preventDefault();
+                    const startX = downEvent.clientX;
+                    const requestStart = requestCol.getBoundingClientRect().width;
+                    const runtimeStart = runtimeCol.getBoundingClientRect().width;
+                    const backendsStart = backendCol.getBoundingClientRect().width;
+                    const total = requestStart + runtimeStart + backendsStart;
+
+                    splitter.classList.add("dragging");
+                    document.body.style.cursor = "col-resize";
+
+                    const handleMove = (moveEvent) => {
+                        const delta = moveEvent.clientX - startX;
+                        const updated = onMove(delta, { requestStart, runtimeStart, backendsStart, total });
+                        if (!updated) {
+                            return;
+                        }
+
+                        const requestPct = (updated.request / total) * 100;
+                        const runtimePct = (updated.runtime / total) * 100;
+                        const backendsPct = 100 - requestPct - runtimePct;
+                        setPercents(requestPct, runtimePct, backendsPct);
+                    };
+
+                    const stopDrag = () => {
+                        splitter.classList.remove("dragging");
+                        document.body.style.cursor = "";
+                        window.removeEventListener("pointermove", handleMove);
+                        window.removeEventListener("pointerup", stopDrag);
+                        saveCurrentPercents();
+                    };
+
+                    window.addEventListener("pointermove", handleMove);
+                    window.addEventListener("pointerup", stopDrag);
+                });
+            }
+
+            startDrag(splitterLm, (delta, state) => {
+                const request = clamp(state.requestStart + delta, minRequest, state.total - minRuntime - minBackends);
+                const runtime = state.total - state.backendsStart - request;
+                if (runtime < minRuntime) {
+                    return null;
+                }
+
+                return { request, runtime, backends: state.backendsStart };
+            });
+
+            startDrag(splitterMr, (delta, state) => {
+                const runtime = clamp(state.runtimeStart + delta, minRuntime, state.total - state.requestStart - minBackends);
+                const backends = state.total - state.requestStart - runtime;
+                if (backends < minBackends) {
+                    return null;
+                }
+
+                return { request: state.requestStart, runtime, backends };
+            });
+
+            workspace.dataset.resizerInit = "1";
+        };
+    })();
+</script>
+
 @code {
     [SupplyParameterFromQuery(Name = "historyEntryId")]
     public string? SelectedScopeId { get; set; }
@@ -1048,6 +1416,7 @@
     private PeriodicTimer? _timer;
     private CancellationTokenSource? _cts;
     private bool _receivedFirst;
+    private bool _columnResizerInitialized;
 
     private string Tagline => IsConnected
         ? BuildConnectedTagline()
@@ -1059,7 +1428,9 @@
         var versionSuffix = versions.Count > 0
             ? $" ( {string.Join(", ", versions.Select(v => $"v{v}"))} )"
             : string.Empty;
-        return $"Streaming runtime stats from the Event Hub.{versionSuffix}";
+        var hasData = _snapshot.LastDataUtc != default;
+        var lastUpdate = hasData ? $"  ·  Last update: {_snapshot.LastDataUtc.ToLocalTime():HH:mm:ss}" : string.Empty;
+        return $"Streaming runtime stats from the Event Hub.{versionSuffix}{lastUpdate}";
     }
 
     private IReadOnlyList<string> GetDetectedVersions()
@@ -1087,9 +1458,17 @@
         ? $"{Backends.Count} host(s) · {_snapshot.Stats.LoadBalancingMode}"
         : "Not connected";
 
-    private string EndpointSubtitle => IsConnected
-        ? $"{EndpointTiles.Count} model(s) from backend calls"
-        : "Not connected";
+    private string RequestHeaderTone => GetRequestHeaderTone();
+    private string RuntimeHeaderTone => GetRuntimeHeaderTone();
+    private string BackendsHeaderTone => GetBackendsHeaderTone();
+    private string EndpointsHeaderTone => GetEndpointsHeaderTone();
+    private string PathsHeaderTone => GetPathsHeaderTone();
+    private string UsersHeaderTone => GetUsersHeaderTone();
+    private string RuntimeHeaderReason => GetRuntimeHeaderReason();
+    private string BackendsHeaderReason => GetBackendsHeaderReason();
+    private string EndpointsHeaderReason => GetEndpointsHeaderReason();
+    private string PathsHeaderReason => GetPathsHeaderReason();
+    private string UsersHeaderReason => GetUsersHeaderReason();
 
     private IReadOnlyList<BackendHealthSnapshot> Backends => _snapshot.Backends;
 
@@ -1119,6 +1498,17 @@
     protected override void OnInitialized()
     {
         Connect();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _columnResizerInitialized)
+        {
+            return;
+        }
+
+        _columnResizerInitialized = true;
+        await JS.InvokeVoidAsync("eventHubMonitorInitColumnResizers");
     }
 
     private void Connect()
@@ -1335,6 +1725,278 @@
         }
 
         return $"{bytes:0} B";
+    }
+
+    private static string GetHeaderCssClass(string tone)
+    {
+        return tone switch
+        {
+            "error" => "card-header eventhub-header eventhub-header-error",
+            "warn" => "card-header eventhub-header eventhub-header-warn",
+            _ => "card-header eventhub-header eventhub-header-good",
+        };
+    }
+
+    private string GetRuntimeHeaderTone()
+    {
+        if (!IsConnected || !_snapshot.HasData)
+        {
+            return "warn";
+        }
+
+        var stats = _snapshot.Stats;
+        if (stats.ServerCircuitBreakerOpen || stats.SuccessRate < 80)
+        {
+            return "error";
+        }
+
+        if (stats.Failed > 0 || stats.SuccessRate < 95)
+        {
+            return "warn";
+        }
+
+        return "good";
+    }
+
+    private string GetRuntimeHeaderReason()
+    {
+        if (!string.Equals(RuntimeHeaderTone, "good", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!IsConnected || !_snapshot.HasData)
+            {
+                return "No live runtime data yet.";
+            }
+
+            var stats = _snapshot.Stats;
+            if (stats.ServerCircuitBreakerOpen)
+            {
+                return "Server circuit breaker is open.";
+            }
+
+            if (stats.Failed > 0)
+            {
+                return $"Failed requests observed: {stats.Failed}.";
+            }
+
+            return $"Success rate is {stats.SuccessRate:0.#}% (below target).";
+        }
+
+        return string.Empty;
+    }
+
+    private string GetBackendsHeaderTone()
+    {
+        if (!IsConnected || Backends.Count == 0)
+        {
+            return "warn";
+        }
+
+        if (Backends.Any(backend => string.Equals(backend.Css, "down", StringComparison.OrdinalIgnoreCase)))
+        {
+            return "error";
+        }
+
+        if (Backends.Any(backend => string.Equals(backend.Css, "degraded", StringComparison.OrdinalIgnoreCase)))
+        {
+            return "warn";
+        }
+
+        return "good";
+    }
+
+    private string GetBackendsHeaderReason()
+    {
+        if (!string.Equals(BackendsHeaderTone, "good", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!IsConnected || Backends.Count == 0)
+            {
+                return "No backend health records received.";
+            }
+
+            var down = Backends
+                .Where(backend => string.Equals(backend.Css, "down", StringComparison.OrdinalIgnoreCase))
+                .Select(backend => backend.Name)
+                .ToArray();
+            if (down.Length > 0)
+            {
+                return $"Down backends: {string.Join(", ", down)}.";
+            }
+
+            var degraded = Backends
+                .Where(backend => string.Equals(backend.Css, "degraded", StringComparison.OrdinalIgnoreCase))
+                .Select(backend => backend.Name)
+                .ToArray();
+            if (degraded.Length > 0)
+            {
+                return $"Degraded backends: {string.Join(", ", degraded)}.";
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private string GetEndpointsHeaderTone()
+    {
+        if (!IsConnected || EndpointTiles.Count == 0)
+        {
+            return "warn";
+        }
+
+        if (EndpointTiles.Any(tile => string.Equals(tile.Css, "down", StringComparison.OrdinalIgnoreCase)))
+        {
+            return "error";
+        }
+
+        if (EndpointTiles.Any(tile => string.Equals(tile.Css, "degraded", StringComparison.OrdinalIgnoreCase)))
+        {
+            return "warn";
+        }
+
+        return "good";
+    }
+
+    private string GetEndpointsHeaderReason()
+    {
+        if (!string.Equals(EndpointsHeaderTone, "good", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!IsConnected || EndpointTiles.Count == 0)
+            {
+                return "No endpoint usage records received.";
+            }
+
+            var down = EndpointTiles
+                .Where(tile => string.Equals(tile.Css, "down", StringComparison.OrdinalIgnoreCase))
+                .Select(tile => tile.Path)
+                .ToArray();
+            if (down.Length > 0)
+            {
+                return $"High failure models: {string.Join(", ", down)}.";
+            }
+
+            var degraded = EndpointTiles
+                .Where(tile => string.Equals(tile.Css, "degraded", StringComparison.OrdinalIgnoreCase))
+                .Select(tile => tile.Path)
+                .ToArray();
+            if (degraded.Length > 0)
+            {
+                return $"Some model endpoints are degraded.";
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private string GetRequestHeaderTone()
+    {
+        var items = HistoryItems;
+        if (!IsConnected || items.Count == 0)
+        {
+            return "warn";
+        }
+
+        var failedItems = items.Count(item => item.StatusCode is >= 400);
+        if (items.Any(item => item.StatusCode is >= 500))
+        {
+            return "error";
+        }
+
+        return failedItems > 0 ? "warn" : "good";
+    }
+
+    private string GetPathsHeaderTone()
+    {
+        if (!IsConnected)
+        {
+            return "warn";
+        }
+
+        var failed = FailedPaths.Sum(item => item.Count);
+        var succeeded = SuccessfulPaths.Sum(item => item.Count);
+        var total = failed + succeeded;
+
+        if (total == 0)
+        {
+            return "warn";
+        }
+
+        var failedRate = (double)failed / total;
+        if (failedRate >= 0.25)
+        {
+            return "error";
+        }
+
+        return failed > 0 ? "warn" : "good";
+    }
+
+    private string GetPathsHeaderReason()
+    {
+        if (!string.Equals(PathsHeaderTone, "good", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!IsConnected)
+            {
+                return "Not connected to Event Hub.";
+            }
+
+            var failed = FailedPaths.Sum(item => item.Count);
+            var succeeded = SuccessfulPaths.Sum(item => item.Count);
+            var total = failed + succeeded;
+            if (total == 0)
+            {
+                return "No path outcomes recorded.";
+            }
+
+            return $"Failed path requests: {failed}/{total}.";
+        }
+
+        return string.Empty;
+    }
+
+    private string GetUsersHeaderTone()
+    {
+        if (!IsConnected)
+        {
+            return "warn";
+        }
+
+        var failed = FailedUsers.Sum(item => item.Count);
+        var succeeded = SuccessfulUsers.Sum(item => item.Count);
+        var total = failed + succeeded;
+
+        if (total == 0)
+        {
+            return "warn";
+        }
+
+        var failedRate = (double)failed / total;
+        if (failedRate >= 0.25)
+        {
+            return "error";
+        }
+
+        return failed > 0 ? "warn" : "good";
+    }
+
+    private string GetUsersHeaderReason()
+    {
+        if (!string.Equals(UsersHeaderTone, "good", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!IsConnected)
+            {
+                return "Not connected to Event Hub.";
+            }
+
+            var failed = FailedUsers.Sum(item => item.Count);
+            var succeeded = SuccessfulUsers.Sum(item => item.Count);
+            var total = failed + succeeded;
+            if (total == 0)
+            {
+                return "No user outcomes recorded.";
+            }
+
+            return $"Failed user requests: {failed}/{total}.";
+        }
+
+        return string.Empty;
     }
 
     private IReadOnlyList<EndpointTile> BuildEndpointTiles()
