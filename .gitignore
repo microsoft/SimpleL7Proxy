@@ -6,6 +6,7 @@ tasks.json
 launch.json
 deploy.parameters.sh
 
+.keys/
 *.log
 *log.json
 
