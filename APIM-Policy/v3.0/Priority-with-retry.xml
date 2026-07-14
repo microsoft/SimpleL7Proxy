@@ -846,6 +846,9 @@ REFACTOR:
 		<set-header name="x-Backend-Attempts" exists-action="override">
 			<value>@(context.Variables.GetValueOrDefault<int>("backendCallCounter", 0).ToString())</value>
 		</set-header>
+		<set-header name="x-Backend-Label" exists-action="override">
+			<value>@(context.Variables.GetValueOrDefault<JObject>("selectedBackend", null)?.Value<string>("label") ?? "")</value>
+		</set-header>
 		<set-header name="@((string)context.Variables["PolicyCycleCounterHeaderName"])" exists-action="override">
 			<value>@(context.Variables.GetValueOrDefault<int>("PolicyCycleCounter", 0).ToString())</value>
 		</set-header>
