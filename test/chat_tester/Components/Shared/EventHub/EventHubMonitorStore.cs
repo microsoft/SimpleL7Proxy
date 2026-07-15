@@ -113,6 +113,23 @@ public sealed class EventHubMonitorStore
         Changed?.Invoke();
     }
 
+    /// <summary>
+    /// Marks a previously-added, still-running request (see <see cref="AddRequest"/>) as finalized.
+    /// The caller MUST have already mutated the request's fields (status, duration, etc.) in place;
+    /// this only refreshes circuit-breaker/data-received bookkeeping and notifies subscribers. The
+    /// request keeps its original position and <see cref="MultiRequestStatusItem.RequestNumber"/>.
+    /// </summary>
+    public void MarkRequestFinalized(MultiRequestStatusItem request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        lock (_gate)
+        {
+            UpdateServerCircuitBreakerState(request);
+            MarkDataReceived();
+        }
+        Changed?.Invoke();
+    }
+
     /// <summary>Appends multiple requests in order, raising a single change notification.</summary>
     public void AddRequests(IEnumerable<MultiRequestStatusItem> requests)
     {
@@ -352,6 +369,14 @@ public sealed class EventHubMonitorStore
                 // request panel and from every runtime aggregate below, which are owned by the
                 // final S7P-ProxyRequest.
                 if (string.Equals(timed.Item.EventType, "S7P-BackendRequest", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                // Still-running (enqueued but not yet finalized) placeholder rows are shown in the
+                // Request Status list, but they aren't "completed" yet, so they're excluded from
+                // Completed/TotalRequests and every other runtime aggregate below until finalized.
+                if (timed.Item.IsRunning)
                 {
                     continue;
                 }

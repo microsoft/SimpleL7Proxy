@@ -59,6 +59,14 @@ public sealed class EventHubReader : BackgroundService
         public IReadOnlyDictionary<string, string>? Enqueue { get; set; }
         public List<IReadOnlyDictionary<string, string>> Attempts { get; } = new();
         public IReadOnlyDictionary<string, string>? Final { get; set; }
+
+        /// <summary>
+        /// The still-running placeholder row added to the store when the enqueue event was seen.
+        /// The final S7P-ProxyRequest/Expired/Requeued handler mutates this same instance in place
+        /// (via <see cref="EventHubMonitorStore.MarkRequestFinalized"/>) instead of adding a new row,
+        /// so the request keeps its position/RequestNumber in the Request Status list.
+        /// </summary>
+        public MultiRequestStatusItem? PendingItem { get; set; }
     }
 
     public EventHubReader(
@@ -527,6 +535,7 @@ public sealed class EventHubReader : BackgroundService
             case "S7P-ProxyRequestEnqueued":
                 TrackLifecycleEvent(eventData, eventType);
                 TrackRequestPhase(eventData, RequestPhase.Enqueue);
+                TrackPendingRequest(eventData);
                 return true;
 
             case "S7P-BackendRequest":
@@ -684,34 +693,47 @@ public sealed class EventHubReader : BackgroundService
         var summaryBody = BuildRequestSummaryBody(eventData);
         var responseBody = BuildResponseSummaryBody(eventData, statusMessage);
 
-        _store.AddRequest(new MultiRequestStatusItem
+        // If an enqueue event already added a still-running placeholder row for this request,
+        // finalize that same instance in place so it keeps its position/RequestNumber in the
+        // Request Status list. Otherwise (no enqueue was observed), add a new row as before.
+        var finalizedItem = phaseRecord?.PendingItem ?? new MultiRequestStatusItem();
+        var isNewItem = phaseRecord?.PendingItem is null;
+
+        finalizedItem.ContainerApp = GetValue(eventData, "ContainerApp");
+        finalizedItem.Replica = GetValue(eventData, "Replica");
+        finalizedItem.UserId = GetValue(eventData, "UserID");
+        finalizedItem.Status = statusLabel;
+        finalizedItem.StatusMessage = statusMessage;
+        finalizedItem.EventType = eventType;
+        finalizedItem.BackendHost = BuildRequestBackendHost(eventData);
+        finalizedItem.EndpointKey = endpointKey;
+        finalizedItem.IsEndpointCircuitBreakerOpen = endpointCircuitBreakerOpen;
+        finalizedItem.IsServerCircuitBreakerSignal = serverCircuitBreakerSignal;
+        finalizedItem.StatusCode = statusCode;
+        finalizedItem.ContentType = GetValue(eventData, "Content-Type", "-");
+        finalizedItem.TimeToFirstByte = ParseNullableMilliseconds(eventData, "Request-Queue-Duration");
+        finalizedItem.Duration = ParseNullableMilliseconds(eventData, "Total-Latency")
+            ?? ParseNullableMilliseconds(eventData, "Duration");
+        finalizedItem.Chunks = 0;
+        finalizedItem.TotalBytes = ParseLong(eventData, "Content-Length");
+        finalizedItem.RequestContentLength = ParseLong(eventData, "RequestContentLength");
+        finalizedItem.RequestHeadersText = requestHeaders;
+        finalizedItem.ResponseHeadersText = responseHeaders;
+        finalizedItem.RequestBodyDisplay = summaryBody;
+        finalizedItem.ResponseBody = responseBody;
+        finalizedItem.Phases = BuildPhaseView(phaseRecord, eventData, phaseKey);
+        finalizedItem.IsComplete = true;
+        finalizedItem.IsFailed = failed;
+        finalizedItem.IsRunning = false;
+
+        if (isNewItem)
         {
-            ContainerApp = GetValue(eventData, "ContainerApp"),
-            Replica = GetValue(eventData, "Replica"),
-            UserId = GetValue(eventData, "UserID"),
-            Status = statusLabel,
-            StatusMessage = statusMessage,
-            EventType = eventType,
-            BackendHost = BuildRequestBackendHost(eventData),
-            EndpointKey = endpointKey,
-            IsEndpointCircuitBreakerOpen = endpointCircuitBreakerOpen,
-            IsServerCircuitBreakerSignal = serverCircuitBreakerSignal,
-            StatusCode = statusCode,
-            ContentType = GetValue(eventData, "Content-Type", "-"),
-            TimeToFirstByte = ParseNullableMilliseconds(eventData, "Request-Queue-Duration"),
-            Duration = ParseNullableMilliseconds(eventData, "Total-Latency")
-                ?? ParseNullableMilliseconds(eventData, "Duration"),
-            Chunks = 0,
-            TotalBytes = ParseLong(eventData, "Content-Length"),
-            RequestContentLength = ParseLong(eventData, "RequestContentLength"),
-            RequestHeadersText = requestHeaders,
-            ResponseHeadersText = responseHeaders,
-            RequestBodyDisplay = summaryBody,
-            ResponseBody = responseBody,
-            Phases = BuildPhaseView(phaseRecord, eventData, phaseKey),
-            IsComplete = true,
-            IsFailed = failed,
-        });
+            _store.AddRequest(finalizedItem);
+        }
+        else
+        {
+            _store.MarkRequestFinalized(finalizedItem);
+        }
 
         if (!string.IsNullOrWhiteSpace(correlationKey))
         {
@@ -921,6 +943,50 @@ public sealed class EventHubReader : BackgroundService
                 record.Final = snapshot;
                 break;
         }
+    }
+
+    // Adds a still-running placeholder row to the request panel as soon as a request is enqueued,
+    // so it's visible before the final S7P-ProxyRequest arrives. The final handler
+    // (ApplyRequestEvent) mutates this same instance in place via
+    // EventHubMonitorStore.MarkRequestFinalized rather than adding a second row.
+    private void TrackPendingRequest(IReadOnlyDictionary<string, string> eventData)
+    {
+        var key = GetPhaseKey(eventData);
+        if (string.IsNullOrWhiteSpace(key) || !_requestPhases.TryGetValue(key, out var record))
+        {
+            return;
+        }
+
+        var enqueuedAt = ParseNullableDateTimeOffset(eventData, "Date") ?? DateTimeOffset.UtcNow;
+        var pendingItem = new MultiRequestStatusItem
+        {
+            ContainerApp = GetValue(eventData, "ContainerApp"),
+            Replica = GetValue(eventData, "Replica"),
+            UserId = GetValue(eventData, "UserID"),
+            Path = GetValue(eventData, "Path"),
+            Status = "Running",
+            StatusMessage = "Enqueued, awaiting completion...",
+            EventType = "S7P-ProxyRequestEnqueued",
+            EnqueuedAtUtc = enqueuedAt,
+            IsRunning = true,
+            IsComplete = false,
+            IsFailed = false,
+            Phases = BuildPendingPhaseView(record, key),
+        };
+
+        record.PendingItem = pendingItem;
+        _store.AddRequest(pendingItem);
+    }
+
+    // A minimal phase view for a request that has only been enqueued so far: no Final tab is
+    // included (the request hasn't completed yet), so the popup doesn't show stale/duplicate data.
+    private static EventHub.RequestPhaseView BuildPendingPhaseView(RequestPhaseRecord record, string key)
+    {
+        return new EventHub.RequestPhaseView
+        {
+            SevenPId = key,
+            Enqueue = record.Enqueue is { } enqueue ? ToOrderedFields(enqueue) : null,
+        };
     }
 
     private static string? GetPhaseKey(IReadOnlyDictionary<string, string> eventData)
@@ -1593,6 +1659,17 @@ public sealed class EventHubReader : BackgroundService
     {
         return double.TryParse(GetValue(eventData, key), out var value)
             ? TimeSpan.FromMilliseconds(value)
+            : null;
+    }
+
+    private static DateTimeOffset? ParseNullableDateTimeOffset(IReadOnlyDictionary<string, string> eventData, string key)
+    {
+        return DateTimeOffset.TryParse(
+            GetValue(eventData, key),
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeUniversal,
+            out var value)
+            ? value
             : null;
     }
 

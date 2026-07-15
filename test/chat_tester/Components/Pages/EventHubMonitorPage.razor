@@ -294,6 +294,53 @@
                 </div>
             </div>
 
+            @{
+                // Shared success/failed two-column markup for both the Paths and Users cards
+                // (used by the always-present wide cards and, at <=860px viewport height, by the
+                // merged tabbed card below) so the list rendering isn't duplicated per card.
+                RenderFragment<(IReadOnlyList<LabeledCount> Success, IReadOnlyList<LabeledCount> Failed, string SuccessEmptyText, string FailedEmptyText)> groupsTemplate = ctx =>
+                    @<div class="eventhub-path-groups">
+                        <div class="eventhub-path-group">
+                            <div class="eventhub-path-group-title success">Success</div>
+                            @if (ctx.Success.Count == 0)
+                            {
+                                <div class="text-muted small">@ctx.SuccessEmptyText</div>
+                            }
+                            else
+                            {
+                                <dl class="eventhub-endpoint-list">
+                                    @foreach (var item in ctx.Success)
+                                    {
+                                        <div class="eventhub-endpoint-item">
+                                            <dt title="@item.Label">@item.Label</dt>
+                                            <dd>@item.Count</dd>
+                                        </div>
+                                    }
+                                </dl>
+                            }
+                        </div>
+                        <div class="eventhub-path-group">
+                            <div class="eventhub-path-group-title failed">Failed</div>
+                            @if (ctx.Failed.Count == 0)
+                            {
+                                <div class="text-muted small">@ctx.FailedEmptyText</div>
+                            }
+                            else
+                            {
+                                <dl class="eventhub-endpoint-list">
+                                    @foreach (var item in ctx.Failed)
+                                    {
+                                        <div class="eventhub-endpoint-item">
+                                            <dt title="@item.Label">@item.Label</dt>
+                                            <dd>@item.Count</dd>
+                                        </div>
+                                    }
+                                </dl>
+                            }
+                        </div>
+                    </div>;
+            }
+
             <div class="card shadow-sm eventhub-card eventhub-paths-card">
                 <div class="@GetHeaderCssClass(PathsHeaderTone)">
                     <div class="d-flex flex-wrap align-items-center gap-2 pe-3">
@@ -306,46 +353,7 @@
                     </div>
                 </div>
                 <div class="card-body eventhub-card-body">
-                    <div class="eventhub-path-groups">
-                        <div class="eventhub-path-group">
-                            <div class="eventhub-path-group-title success">Success</div>
-                            @if (SuccessfulPaths.Count == 0)
-                            {
-                                <div class="text-muted small">No successful paths yet.</div>
-                            }
-                            else
-                            {
-                                <dl class="eventhub-endpoint-list">
-                                    @foreach (var path in SuccessfulPaths)
-                                    {
-                                        <div class="eventhub-endpoint-item">
-                                            <dt title="@path.Path">@path.Path</dt>
-                                            <dd>@path.Count</dd>
-                                        </div>
-                                    }
-                                </dl>
-                            }
-                        </div>
-                        <div class="eventhub-path-group">
-                            <div class="eventhub-path-group-title failed">Failed</div>
-                            @if (FailedPaths.Count == 0)
-                            {
-                                <div class="text-muted small">No failed paths yet.</div>
-                            }
-                            else
-                            {
-                                <dl class="eventhub-endpoint-list">
-                                    @foreach (var path in FailedPaths)
-                                    {
-                                        <div class="eventhub-endpoint-item">
-                                            <dt title="@path.Path">@path.Path</dt>
-                                            <dd>@path.Count</dd>
-                                        </div>
-                                    }
-                                </dl>
-                            }
-                        </div>
-                    </div>
+                    @groupsTemplate((SuccessfulPathsLabeled, FailedPathsLabeled, "No successful paths yet.", "No failed paths yet."))
                 </div>
             </div>
 
@@ -361,46 +369,51 @@
                     </div>
                 </div>
                 <div class="card-body eventhub-card-body">
-                    <div class="eventhub-path-groups">
-                        <div class="eventhub-path-group">
-                            <div class="eventhub-path-group-title success">Success</div>
-                            @if (SuccessfulUsers.Count == 0)
-                            {
-                                <div class="text-muted small">No successful users yet.</div>
-                            }
-                            else
-                            {
-                                <dl class="eventhub-endpoint-list">
-                                    @foreach (var user in SuccessfulUsers)
-                                    {
-                                        <div class="eventhub-endpoint-item">
-                                            <dt title="@user.User">@user.User</dt>
-                                            <dd>@user.Count</dd>
-                                        </div>
-                                    }
-                                </dl>
-                            }
-                        </div>
-                        <div class="eventhub-path-group">
-                            <div class="eventhub-path-group-title failed">Failed</div>
-                            @if (FailedUsers.Count == 0)
-                            {
-                                <div class="text-muted small">No failed users yet.</div>
-                            }
-                            else
-                            {
-                                <dl class="eventhub-endpoint-list">
-                                    @foreach (var user in FailedUsers)
-                                    {
-                                        <div class="eventhub-endpoint-item">
-                                            <dt title="@user.User">@user.User</dt>
-                                            <dd>@user.Count</dd>
-                                        </div>
-                                    }
-                                </dl>
-                            }
-                        </div>
+                    @groupsTemplate((SuccessfulUsersLabeled, FailedUsersLabeled, "No successful users yet.", "No failed users yet."))
+                </div>
+            </div>
+
+            @* ── Merged Paths/Users card: shown instead of the two cards above when the
+               viewport height is 860px or less, so both stay reachable via tabs. ── *@
+            <div class="card shadow-sm eventhub-card eventhub-paths-users-tabbed">
+                <div class="@GetHeaderCssClass(_pathsUsersTab == "users" ? UsersHeaderTone : PathsHeaderTone)">
+                    <div class="d-flex flex-wrap align-items-center gap-2 pe-3">
+                        <span class="fw-semibold">Paths &amp; Users</span>
+                        <span class="text-white-50 small">success vs failed</span>
+                        @{
+                            var tabbedHeaderReason = _pathsUsersTab == "users" ? UsersHeaderReason : PathsHeaderReason;
+                        }
+                        @if (!string.IsNullOrWhiteSpace(tabbedHeaderReason))
+                        {
+                            <span class="text-white-50 small eventhub-header-reason ms-auto">@tabbedHeaderReason</span>
+                        }
                     </div>
+                    <div class="eventhub-paths-users-tabs" role="tablist" aria-label="Paths and users">
+                        <button type="button"
+                                class="eventhub-tab-button @(_pathsUsersTab == "paths" ? "active" : string.Empty)"
+                                role="tab"
+                                aria-selected="@(_pathsUsersTab == "paths" ? "true" : "false")"
+                                @onclick='() => SelectPathsUsersTab("paths")'>
+                            Paths
+                        </button>
+                        <button type="button"
+                                class="eventhub-tab-button @(_pathsUsersTab == "users" ? "active" : string.Empty)"
+                                role="tab"
+                                aria-selected="@(_pathsUsersTab == "users" ? "true" : "false")"
+                                @onclick='() => SelectPathsUsersTab("users")'>
+                            Users
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body eventhub-card-body">
+                    @if (_pathsUsersTab == "users")
+                    {
+                        @groupsTemplate((SuccessfulUsersLabeled, FailedUsersLabeled, "No successful users yet.", "No failed users yet."))
+                    }
+                    else
+                    {
+                        @groupsTemplate((SuccessfulPathsLabeled, FailedPathsLabeled, "No successful paths yet.", "No failed paths yet."))
+                    }
                 </div>
             </div>
         </div>
@@ -762,6 +775,17 @@
             overflow-y: auto;
         }
 
+        .eventhub-endpoints-col > .eventhub-paths-users-tabbed {
+            flex: 1 1 auto;
+            min-height: 0;
+        }
+
+        .eventhub-endpoints-col > .eventhub-paths-users-tabbed > .card-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+        }
+
         .eventhub-config-col > .card:first-child > .card-body {
             flex: 1 1 auto;
             min-height: 0;
@@ -853,7 +877,8 @@
 
         .eventhub-config-col > .eventhub-backends-card,
         .eventhub-config-col > .eventhub-endpoints-card,
-        .eventhub-endpoints-col > .eventhub-paths-card {
+        .eventhub-endpoints-col > .eventhub-paths-card,
+        .eventhub-endpoints-col > .eventhub-paths-users-tabbed {
             height: auto;
             min-height: 0;
             margin-right: 0;
@@ -1460,6 +1485,63 @@
         }
     }
 
+    /* Merged Paths/Users tabbed card: hidden by default, shown instead of the two separate
+       cards only when the viewport height is 860px or less. */
+    .eventhub-paths-users-tabbed {
+        display: none;
+    }
+
+    /* Folder-style tabs (same look as .eh-req-tab in EventHubRequestStatus.razor): the active
+       tab is white and its bottom border is pulled up to visually merge into the card body
+       directly below it; inactive tabs stay tinted with the header color behind them. */
+    .eventhub-paths-users-tabs {
+        display: flex;
+        gap: 0.3rem;
+        padding: 0.3rem 0.75rem 0;
+        margin-bottom: -1px;
+    }
+
+    .eventhub-tab-button {
+        border: 1px solid rgba(0, 0, 0, 0.18);
+        border-bottom: none;
+        background: rgba(255, 255, 255, 0.3);
+        color: inherit;
+        font-size: 0.76rem;
+        font-weight: 700;
+        line-height: 1.2;
+        padding: 0.32rem 0.9rem;
+        border-radius: 0.35rem 0.35rem 0 0;
+        cursor: pointer;
+        opacity: 0.8;
+    }
+
+    .eventhub-tab-button:hover,
+    .eventhub-tab-button:focus-visible {
+        background: rgba(255, 255, 255, 0.55);
+        opacity: 1;
+    }
+
+    .eventhub-tab-button.active {
+        background: #fff;
+        color: #1f2937;
+        border-color: rgba(0, 0, 0, 0.18);
+        opacity: 1;
+    }
+
+    @@media (max-height: 860px) {
+        /* Matches the ".eventhub-endpoints-col > .eventhub-paths-card" specificity used by the
+           width breakpoints above (which set display:flex there) so this rule actually wins. */
+        .eventhub-endpoints-col > .eventhub-paths-card,
+        .eventhub-endpoints-col > .eventhub-users-card {
+            display: none;
+        }
+
+        .eventhub-endpoints-col > .eventhub-paths-users-tabbed {
+            display: flex;
+            flex-direction: column;
+        }
+    }
+
     .eventhub-catalog-groups {
         display: flex;
         flex-direction: column;
@@ -1810,9 +1892,19 @@
     private bool _receivedFirst;
     private bool _columnResizerInitialized;
     private bool _isFilterDialogOpen;
+    private string _pathsUsersTab = "paths";
     private string SelectedEnvironmentFilter { get; set; } = "All environments";
     private string SelectedUserFilter { get; set; } = "All users";
     private string SelectedModelFilter { get; set; } = "All models";
+
+    // Below ~860px of viewport height, the Paths and Users cards merge into a single tabbed card
+    // (see .eventhub-paths-users-tabbed CSS) so both stay reachable without excessive scrolling.
+    private void SelectPathsUsersTab(string tab)
+    {
+        _pathsUsersTab = tab;
+    }
+
+    private sealed record LabeledCount(string Label, int Count);
 
     private string Tagline => IsConnected
         ? "Streaming runtime stats from the Event Hub."
@@ -1901,6 +1993,17 @@
     private IReadOnlyList<PathCount> FailedPaths => BuildPathCounts(success: false);
     private IReadOnlyList<UserCount> SuccessfulUsers => BuildUserCounts(success: true);
     private IReadOnlyList<UserCount> FailedUsers => BuildUserCounts(success: false);
+
+    // Projections feeding the shared groupsTemplate (see markup) so Paths/UserS share one
+    // rendering path whether shown as separate cards or merged into the tabbed card.
+    private IReadOnlyList<LabeledCount> SuccessfulPathsLabeled =>
+        SuccessfulPaths.Select(p => new LabeledCount(p.Path, p.Count)).ToArray();
+    private IReadOnlyList<LabeledCount> FailedPathsLabeled =>
+        FailedPaths.Select(p => new LabeledCount(p.Path, p.Count)).ToArray();
+    private IReadOnlyList<LabeledCount> SuccessfulUsersLabeled =>
+        SuccessfulUsers.Select(u => new LabeledCount(u.User, u.Count)).ToArray();
+    private IReadOnlyList<LabeledCount> FailedUsersLabeled =>
+        FailedUsers.Select(u => new LabeledCount(u.User, u.Count)).ToArray();
 
     private string EffectiveScopeId => ResolveEffectiveScopeId();
 

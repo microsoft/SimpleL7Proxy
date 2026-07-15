@@ -1,4 +1,5 @@
 @namespace chat_tester.Components.Shared
+@implements IDisposable
 @using chat_tester.Components.Shared
 @using chat_tester.Components.Shared.EventHub
 @using System.Globalization
@@ -80,7 +81,7 @@
                 <div class="multi-request-label">@GetRequestLabel(item)</div>
                 <div class="multi-request-thermometer @GetThermometerClass(item)">
                     <div class="multi-request-fill" style="width: @GetFillWidth(item);"></div>
-                    <span class="multi-request-duration">@FormatDuration(item.Duration)</span>
+                    <span class="multi-request-duration">@GetDurationDisplay(item)</span>
                 </div>
                 <div class="multi-request-status-code @GetStatusClass(item)">
                     <span class="multi-request-status-value">@FormatStatus(item)</span>
@@ -125,7 +126,7 @@
                 <div class="text-muted small text-uppercase fw-semibold">Request</div>
                 <div class="fw-semibold">@SelectedSevenPId</div>
             </div>
-            <div class="eh-req-modal-status @GetStatusClass(SelectedItem)">@FormatStatus(SelectedItem) · @FormatDuration(SelectedItem.Duration)</div>
+            <div class="eh-req-modal-status @GetStatusClass(SelectedItem)">@FormatStatus(SelectedItem) · @GetDurationDisplay(SelectedItem)</div>
             <button class="btn-close" type="button" aria-label="Close request detail" @onclick="CloseDetail"></button>
         </div>
         <div class="eh-req-tabs">
@@ -688,9 +689,53 @@
     private IReadOnlyList<OutcomeSegment> _outcomeSegments = Array.Empty<OutcomeSegment>();
     private IReadOnlyList<MultiRequestStatusItem> _filteredItems = Array.Empty<MultiRequestStatusItem>();
 
+    // Live "still running" tracking: every OnParametersSet rebuilds this from the current Items,
+    // adding the S7P-ID of each in-progress request and dropping anything that isn't in-progress
+    // anymore (completed, or no longer in the scoped/filtered Items list). A 1s timer just checks
+    // whether this set is non-empty and, if so, re-renders so each row's elapsed time ticks up -
+    // no per-item timers, no manual duration math outside of GetDurationDisplay.
+    private readonly HashSet<string> _runningRequestIds = new(StringComparer.Ordinal);
+    private System.Threading.Timer? _liveTimer;
+
+    protected override void OnInitialized()
+    {
+        _liveTimer = new System.Threading.Timer(
+            _ => InvokeAsync(() =>
+            {
+                if (_runningRequestIds.Count > 0)
+                {
+                    StateHasChanged();
+                }
+            }),
+            null,
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(1));
+    }
+
+    public void Dispose()
+    {
+        _liveTimer?.Dispose();
+    }
+
+    private static string GetRunningRequestKey(MultiRequestStatusItem item) =>
+        item.Phases?.SevenPId is { Length: > 0 } id ? id : item.RequestNumber.ToString(CultureInfo.InvariantCulture);
+
+    private void UpdateRunningRequestIds()
+    {
+        _runningRequestIds.Clear();
+        foreach (var item in Items)
+        {
+            if (item.IsRunning)
+            {
+                _runningRequestIds.Add(GetRunningRequestKey(item));
+            }
+        }
+    }
+
     protected override void OnParametersSet()
     {
         RecomputeAggregates();
+        UpdateRunningRequestIds();
 
         if (HoveredItem is not null && !Items.Contains(HoveredItem))
         {
@@ -1104,7 +1149,7 @@
             stats.Add(new("Status", code.ToString(CultureInfo.InvariantCulture)));
         }
 
-        stats.Add(new("Duration", FormatDuration(item.Duration)));
+        stats.Add(new("Duration", GetDurationDisplay(item)));
 
         if (item.TimeToFirstByte is { } queue)
         {
@@ -1229,6 +1274,35 @@
 
     private static string FormatDuration(TimeSpan? duration) =>
         duration is null ? string.Empty : $"{duration.Value.TotalMilliseconds.ToString("0", CultureInfo.InvariantCulture)} ms";
+
+    /// <summary>
+    /// Duration text for a row: the final duration once complete, or - for a request that's still
+    /// running (enqueued but not yet finalized) - a live elapsed time computed from
+    /// <see cref="MultiRequestStatusItem.EnqueuedAtUtc"/> that increases on every refresh.
+    /// </summary>
+    private static string GetDurationDisplay(MultiRequestStatusItem item)
+    {
+        if (item.Duration is { } duration)
+        {
+            return FormatDuration(duration);
+        }
+
+        if (item.IsRunning && item.EnqueuedAtUtc is { } enqueuedAt)
+        {
+            var elapsed = DateTimeOffset.UtcNow - enqueuedAt;
+            return $"{FormatElapsed(elapsed)} (running)";
+        }
+
+        return string.Empty;
+    }
+
+    private static string FormatElapsed(TimeSpan elapsed)
+    {
+        var totalSeconds = Math.Max(0, elapsed.TotalSeconds);
+        return totalSeconds < 60
+            ? $"{totalSeconds:0}s"
+            : $"{(int)(totalSeconds / 60)}m {(int)(totalSeconds % 60)}s";
+    }
 
     private static string FormatStatus(MultiRequestStatusItem item)
     {

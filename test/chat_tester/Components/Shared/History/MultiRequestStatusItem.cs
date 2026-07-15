@@ -28,6 +28,13 @@ public sealed class MultiRequestStatusItem
     public bool IsFailed { get; set; }
 
     /// <summary>
+    /// EventHub-only: when the request was enqueued (the enqueue event's "Date" field). Used to
+    /// display a live, increasing elapsed time for requests that are still running (enqueued but
+    /// not yet finalized).
+    /// </summary>
+    public DateTimeOffset? EnqueuedAtUtc { get; set; }
+
+    /// <summary>
     /// EventHub-only: structured per-phase (enqueue / attempts / final) field capture keyed by
     /// S7P-ID. Null for requests that don't originate from the EventHub monitor.
     /// </summary>
