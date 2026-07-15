@@ -1,0 +1,259 @@
+SimpleL7Proxy Documentation Recommendations
+===========================================
+Generated: 2026-07-15
+Purpose: Recommended changes to keep the documentation hierarchy no more than 4 layers
+         deep, improve discoverability, eliminate duplication, and make the docs
+         compelling for all reader audiences (CIO/CTO/CSO, Engineering Managers,
+         Senior Developers, Operators).
+
+Current hierarchy depth:
+  Layer 1  →  Repository root (README.md, APIM-Policy/readme.md, deployment/README.md)
+  Layer 2  →  docs/  (main documentation folder)
+  Layer 3  →  docs/troubleshooting/  and  docs/code/  (sub-folders)
+  Layer 4  →  docs/troubleshooting/*.md  and  docs/code/*.md
+
+Current max depth = 3 layers (Layer 4 is not yet populated with sub-folders).
+The hierarchy is within the 4-layer limit. All recommendations below preserve or
+improve this constraint.
+
+===========================================================================
+SECTION A — REMOVE / ARCHIVE (stale or internal content)
+===========================================================================
+
+1.  DELETE  docs/OVERVIEW copy.md
+    Reason: Exact textual duplicate of docs/OVERVIEW.md. Having two files with
+    near-identical content creates confusion about which is authoritative.
+    The " copy" suffix signals this was never intended to be public.
+    Action: Delete the file; all links should point to OVERVIEW.md.
+
+2.  DELETE  docs/BRANCH_CHANGES_vs_feature_async.md
+    Reason: This is an internal branch-diff walkthrough created during development.
+    It describes commit-level changes on a named feature branch, not product
+    behavior. It is not useful to external readers and pollutes the docs/ root.
+    Action: Delete the file. If preservation is needed, move to .github/ or an
+    internal wiki.
+
+3.  MOVE    docs/troubleshooting/TROUBLESHOOTING_TODO.md  →  .github/
+    Reason: This is an internal backlog of troubleshooting guides not yet authored.
+    Exposing it publicly signals incomplete work to readers and is not a user-facing
+    document. It is still useful for contributors.
+    Action: Move to .github/TROUBLESHOOTING_BACKLOG.md so it remains accessible to
+    contributors but does not appear in public doc indexes.
+
+===========================================================================
+SECTION B — RENAME FOR CONSISTENCY
+===========================================================================
+
+All core docs in docs/ use UPPERCASE_WITH_UNDERSCORES.md convention.
+Four files violate this convention; renaming them improves grepping,
+linking, and visual consistency.
+
+4.  RENAME  docs/AsyncOperation.md          →  docs/ASYNC_OPERATION.md
+    Reason: Inconsistent casing vs all other core docs (CIRCUIT_BREAKER.md,
+    LOAD_BALANCING.md, etc.). All existing links must be updated.
+
+5.  RENAME  docs/design.md                  →  docs/DESIGN.md
+    Reason: Inconsistent casing. This is a core architectural document and
+    should be as discoverable as OVERVIEW.md.
+
+6.  RENAME  docs/Glossary.md                →  docs/GLOSSARY.md
+    Reason: Inconsistent casing.
+
+7.  RENAME  docs/StorageBlobConfig.md       →  docs/ASYNC_BLOB_STORAGE.md
+    Reason: Inconsistent casing AND the current name is not self-explanatory.
+    The document covers async result blob retention and lifecycle management,
+    which ASYNC_BLOB_STORAGE better communicates. It is a companion to
+    ASYNC_OPERATION.md.
+
+IMPORTANT: After any rename, perform a global search-and-replace across all
+*.md files and taxonomy/concepts.json to update every link.
+
+===========================================================================
+SECTION C — REORGANIZE FOR CLEANER HIERARCHY
+===========================================================================
+
+8.  CREATE  docs/poc/  subfolder and MOVE all POC-*.md files into it
+    Affected files:
+      docs/POC-OpenAI-Failover.md       →  docs/poc/POC-OpenAI-Failover.md
+      docs/POC-Failover-configuration.md →  docs/poc/POC-Failover-configuration.md
+      docs/POC-Priority-configuration.md →  docs/poc/POC-Priority-configuration.md
+      docs/POC-Secure-the-proxy.md       →  docs/poc/POC-Secure-the-proxy.md
+      docs/POC-security-the-apim.md      →  docs/poc/POC-security-the-apim.md
+      docs/POC-Chargeback.md             →  docs/poc/POC-Chargeback.md
+    Reason: Six POC files at the docs/ root create visual clutter and make
+    it harder to scan for authoritative reference docs vs experimental guides.
+    A docs/poc/ folder groups them clearly and keeps depth at 3 layers (within limit).
+    Action: Create docs/poc/README.md as a POC index; move files; update all links.
+
+9.  MOVE    docs/BACKEND_LOG_REFERENCE.md   →  APIM-Policy/BACKEND_LOG_REFERENCE.md
+    Reason: This document is the activity log reference for
+    APIM-Policy/v2.3.0/Priority-with-retry.xml. It has no dependency on proxy
+    internals; it belongs alongside the APIM policy it documents. Keeping it in
+    docs/ misleads readers about its scope.
+    Action: Move and update cross-links in docs/TABLE_OF_CONTENTS.md,
+    docs/Readme-domain.md, and docs/OBSERVABILITY.md.
+
+10. EXPAND  docs/code/  to a proper developer internals section
+    Currently docs/code/ contains only one file: DISPOSAL_ARCHITECTURE.md.
+    A single-file subfolder adds a layer of depth with no organizational benefit.
+    Two options:
+      a) MERGE docs/code/DISPOSAL_ARCHITECTURE.md content into docs/DESIGN.md
+         (simplest; removes the sub-folder; keeps depth at 2 layers for internals).
+      b) COMMIT to the docs/code/ sub-folder and add remaining architecture docs
+         there (request pipeline, worker lifecycle, circuit breaker internals, etc.)
+         to justify the extra layer depth.
+    Recommendation: Option (a) unless the team plans to author 3+ additional
+    code-internals documents in the near term.
+
+===========================================================================
+SECTION D — CONTENT GAPS (compelling the reader)
+===========================================================================
+
+11. CREATE  CONTRIBUTING.md  (repository root)
+    Reason: This is a Microsoft open-source public repo and has no CONTRIBUTING.md.
+    Most senior developers check for this before engaging. It should cover:
+      - How to build and test locally
+      - How to run the integration test suite
+      - Branch and PR conventions
+      - How to add a new backend processor
+      - Where to file issues vs security vulnerabilities
+    Current state: BEGINNER_DEVELOPMENT.md and ADVANCED_DEVELOPMENT.md cover
+    developer setup but are not linked from GitHub's standard CONTRIBUTING.md path.
+
+12. CREATE  CHANGELOG.md  (repository root)  or link to GitHub Releases
+    Reason: Public repos should surface what changed between versions.
+    Currently there is no changelog visible from the repo root.
+    Minimum: A link in README.md to the GitHub Releases page.
+
+13. IMPROVE  docs/QUICKSTART.md  TL;DR section
+    Current state: "Clone the repo. Deploy to Azure Container Apps or run it locally."
+    This is too vague to qualify as a TL;DR. A compelling quickstart should give:
+      Step 1: Clone
+      Step 2: Set three required environment variables (Port, Workers, Host1)
+      Step 3: docker run ... / dotnet run
+      Step 4: curl http://localhost:8000/health/readiness
+      Expected result: {"status":"ready","activeHosts":1}
+    Readers who can run the proxy in <5 minutes become advocates. Readers who
+    can't get it running in 5 minutes close the tab.
+
+14. COMPLETE  troubleshooting backlog (from TROUBLESHOOTING_TODO.md)
+    Priority P1 items missing:
+      - requests-403-auth-profile.md  (403 DisallowedAppID / UnknownProfile)
+      - requests-417-header-validation.md  (417 missing required header)
+    Priority P2 items missing:
+      - requests-408-backend-timeout.md
+      - requests-500-internal-error.md
+      - startup-no-active-hosts.md
+      - appconfig-label-mismatch.md
+    Reason: The TroubleshootTOC.md references these response codes but links
+    lead nowhere. A 403 or 417 with no troubleshooting guide is a dead end
+    for operators.
+
+15. ADD  security configuration links to docs/SECURITY.md
+    Current state: SECURITY.md covers only Microsoft's responsible disclosure
+    policy. It does not mention how to configure security for the proxy itself.
+    Add a "Security Configuration" section that links to:
+      - REQUEST_VALIDATION.md (App ID allowlist, header stripping)
+      - USER_PROFILES.md (per-user suspension)
+      - BACKEND_HOSTS.md (Managed Identity, usemi=true)
+      - POC-Secure-the-proxy.md
+      - POC-security-the-apim.md
+    Reason: A CSO scanning SECURITY.md expects to find both the disclosure
+    policy and a pointer to the security posture of the running system.
+
+16. ADD  "Why not just use APIM?" FAQ section to docs/OVERVIEW.md
+    Reason: The most common question from a CTO reviewing this repo is: "We
+    already have APIM — why do we need this?" The OVERVIEW.md Non-Goals section
+    mentions APIM but does not answer this question directly. A concise table
+    comparing APIM capabilities vs proxy capabilities (priority queuing,
+    per-user throttle, in-flight token telemetry, async upgrade) would
+    immediately justify the proxy's existence to decision-makers.
+
+17. ADD  architecture diagram caption and alt-text to docs/OVERVIEW.md
+    Current state: The arch.png image has no caption and no alt-text.
+    Add a short caption ("Figure 1 — SimpleL7Proxy in a typical Azure AI
+    deployment") and an accessible alt-text string. This matters for
+    screen readers and for readers who view the markdown source.
+
+===========================================================================
+SECTION E — CROSS-LINK AND NAVIGATION IMPROVEMENTS
+===========================================================================
+
+18. RECONCILE  docs/TABLE_OF_CONTENTS.md  and  docs/Readme-domain.md
+    Now that both exist, clarify their distinct purposes:
+      - Readme-domain.md = audience-oriented entry point with narrative context.
+        Readers use it to understand the structure and find their starting point.
+      - TABLE_OF_CONTENTS.md = concept-level exhaustive index used for reference.
+        Readers use it when they know what concept they need.
+    Update the preamble of TABLE_OF_CONTENTS.md to say: "For an audience-oriented
+    overview of this documentation, see Readme-domain.md."
+    Update Readme-domain.md Section 15 (Reference) to link TABLE_OF_CONTENTS.md
+    as the "full concept index."
+
+19. ADD  "Related" footer links to high-traffic documents
+    Add a short "Related documents" section at the bottom of these files:
+      - CIRCUIT_BREAKER.md → TIMEOUTS.md, LOAD_BALANCING.md, HEALTH_CHECKING.md
+      - TIMEOUTS.md → CIRCUIT_BREAKER.md, ASYNC_OPERATION.md, RESPONSE_CODES.md
+      - REQUEST_VALIDATION.md → USER_PROFILES.md, RESPONSE_CODES.md, SECURITY.md
+      - ASYNC_OPERATION.md → TIMEOUTS.md, ASYNC_BLOB_STORAGE.md, OBSERVABILITY.md
+    Reason: Readers arrive at a specific doc via search; cross-links at the
+    bottom of pages reduce dead-end navigation.
+
+20. LINK  docs/ from deployment/README.md
+    Current state: deployment/README.md is a standalone operational guide that
+    does not link back to the main docs/. An operator who starts from the
+    deployment folder has no path to the broader documentation set.
+    Add a "Full documentation" link at the top of deployment/README.md pointing
+    to docs/Readme-domain.md.
+
+===========================================================================
+SECTION F — HIERARCHY DEPTH COMPLIANCE SUMMARY
+===========================================================================
+
+Current state (before recommendations):
+  Max depth = 3 layers
+  ✅ Within 4-layer limit
+
+After applying Section C recommendations:
+  docs/poc/*.md = Layer 3 (moved from Layer 2)
+  docs/troubleshooting/*.md = Layer 3 (unchanged)
+  docs/code/*.md = Layer 3 (unchanged or merged)
+  Max depth = 3 layers
+  ✅ Still within 4-layer limit
+
+DO NOT introduce any further sub-folders within docs/troubleshooting/,
+docs/poc/, or docs/code/ without specific justification. Adding a
+docs/poc/azure/ or docs/troubleshooting/async/ subfolder would push the
+hierarchy to Layer 4, which is the absolute maximum.
+
+===========================================================================
+SECTION G — PRIORITY ORDER FOR IMPLEMENTATION
+===========================================================================
+
+Implement in this order for maximum reader impact:
+
+  P1 (high impact, low effort):
+    A1  Delete OVERVIEW copy.md
+    A2  Delete BRANCH_CHANGES_vs_feature_async.md
+    A3  Move TROUBLESHOOTING_TODO.md to .github/
+    D15 Add security config links to SECURITY.md
+    E18 Reconcile TABLE_OF_CONTENTS.md and Readme-domain.md preamble
+
+  P2 (high impact, moderate effort):
+    D13 Improve QUICKSTART.md TL;DR
+    D14 Author missing P1 troubleshooting guides (403, 417)
+    D16 Add "Why not just use APIM?" to OVERVIEW.md
+    D11 Create CONTRIBUTING.md
+
+  P3 (quality improvement):
+    B4–B7  Rename AsyncOperation.md, design.md, Glossary.md, StorageBlobConfig.md
+    C8     Create docs/poc/ subfolder and move POC files
+    C9     Move BACKEND_LOG_REFERENCE.md to APIM-Policy/
+    E19    Add "Related" footer links to high-traffic docs
+    E20    Link docs/ from deployment/README.md
+
+  P4 (long-term completeness):
+    D12  CHANGELOG.md / GitHub Releases link
+    D14  Author remaining P2/P3 troubleshooting guides
+    C10  Expand or merge docs/code/ content
+    D17  Add arch.png caption and alt-text
