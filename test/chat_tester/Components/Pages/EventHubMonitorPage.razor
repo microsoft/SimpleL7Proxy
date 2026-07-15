@@ -245,7 +245,7 @@
         @* ── Server column (runtime stats + endpoints + paths + users) ── *@
         <div class="col-12 col-lg-5 eventhub-endpoints-col order-2">
             <div class="card shadow-sm eventhub-card">
-                <div class="@GetHeaderCssClass(RuntimeHeaderTone)">
+                <div class="@($"{GetHeaderCssClass(RuntimeHeaderTone)} eventhub-header-with-resize")">
                     <div class="d-flex flex-wrap align-items-center gap-2 pe-3">
                         <span class="fw-semibold">Runtime Stats</span>
                         @if (!string.IsNullOrWhiteSpace(RuntimeHeaderReason))
@@ -253,6 +253,9 @@
                             <span class="text-white-50 small eventhub-header-reason ms-auto">@RuntimeHeaderReason</span>
                         }
                     </div>
+                    <button type="button"
+                            class="eventhub-col-resizer-grip eventhub-col-handle-mr"
+                            aria-label="Resize Runtime Stats and Backends columns"></button>
                 </div>
                 <div class="card-body eventhub-card-body">
                     <div class="eventhub-stats-grid">
@@ -348,7 +351,7 @@
                 </div>
             </div>
 
-            <div class="card shadow-sm eventhub-card eventhub-paths-card">
+            <div class="card shadow-sm eventhub-card eventhub-paths-card eventhub-users-card">
                 <div class="@GetHeaderCssClass(UsersHeaderTone)">
                     <div class="d-flex flex-wrap align-items-center gap-2 pe-3">
                         <span class="fw-semibold">Users</span>
@@ -409,19 +412,6 @@
             <div class="eventhub-history-shell eventhub-request-stats-compact">
                 <EventHubRequestStatus Items="@HistoryItems" HeaderTone="@RequestHeaderTone" />
             </div>
-        </div>
-
-        <div class="eventhub-col-resizer eventhub-col-resizer-lm"
-             role="separator"
-             aria-orientation="vertical"
-               aria-label="Resize Request Status and Runtime Stats columns">
-            <span class="eventhub-col-resizer-grip" aria-hidden="true">|||</span>
-        </div>
-        <div class="eventhub-col-resizer eventhub-col-resizer-mr"
-             role="separator"
-             aria-orientation="vertical"
-               aria-label="Resize Runtime Stats and Backends columns">
-            <span class="eventhub-col-resizer-grip" aria-hidden="true">|||</span>
         </div>
 
     </div>
@@ -492,6 +482,12 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
+    }
+
+    @@media (max-width: 1199.98px) {
+        .eventhub-col-resizer-grip {
+            display: none;
+        }
     }
 
     .eventhub-filters-header-trigger {
@@ -569,51 +565,10 @@
         color: #fff;
     }
 
-    .eventhub-col-resizer {
-        display: none;
-        width: 1rem;
-        min-height: 0;
-        background: transparent;
-        cursor: col-resize;
-        user-select: none;
-        position: relative;
-        align-items: flex-start;
-        justify-content: center;
-        padding-top: 0;
-        transition: box-shadow 120ms ease;
-    }
-
-    /* Full-height guide line */
-    .eventhub-col-resizer::before {
-        content: "";
-        position: absolute;
-        top: 0;
-        bottom: 0;
-        left: 50%;
-        width: 2px;
-        transform: translateX(-50%);
-        background: #ccd5e2;
-        border-radius: 999px;
-        transition: background 120ms ease;
-    }
-
-    .eventhub-col-resizer:hover::before,
-    .eventhub-col-resizer.dragging::before {
-        background: #7f93ad;
-    }
-
-    /* Invisible full-height hit-area overlay */
-    .eventhub-col-resizer::after {
-        content: "";
-        position: absolute;
-        inset: 0;
-    }
-
-    /* Rectangular grip badge pinned to top */
     .eventhub-col-resizer-grip {
         position: relative;
         z-index: 1;
-        pointer-events: none;
+        pointer-events: auto;
         font-size: 0.7rem;
         font-weight: 800;
         letter-spacing: 0.12em;
@@ -625,50 +580,71 @@
         padding: 0 0.55rem;
         box-shadow: 0 1px 3px rgba(15, 23, 42, 0.15);
         margin-top: 0;
+        margin-left: 0.2rem;
         white-space: nowrap;
-        transform: translateX(-18px);
-        /* match card header height and align to top */
-        height: 2.5rem;
+        transform: none;
+        height: 2rem;
         display: flex;
         align-items: center;
+        justify-content: center;
+        cursor: ew-resize !important;
+        border: 1px solid #8ea0b8;
     }
 
-    .eventhub-col-resizer:hover .eventhub-col-resizer-grip,
-    .eventhub-col-resizer.dragging .eventhub-col-resizer-grip {
+    .eventhub-col-resizer-grip::before {
+        content: "|||";
+    }
+
+    .eventhub-header-with-resize {
+        position: relative;
+        padding-right: 3.15rem !important;
+        overflow: visible;
+    }
+
+    .eventhub-header-with-resize > .eventhub-col-resizer-grip {
+        position: absolute;
+        top: -1px;
+        right: -1px;
+        bottom: -1px;
+        height: auto;
+        margin: 0;
+        transform: none;
+        border-radius: 0 0.25rem 0.25rem 0;
+        border-left-width: 1px;
+        border-left-color: #8ea0b8;
+    }
+
+    .eventhub-col-resizer-grip:hover,
+    .eventhub-col-resizer-grip:focus-visible,
+    .eventhub-col-resizer-grip.dragging {
         background: #d0def0;
         border-color: #7f93ad;
         color: #2d4a6e;
         box-shadow: 0 1px 4px rgba(56, 115, 197, 0.25);
+        cursor: ew-resize !important;
     }
 
     .eventhub-row-resizer {
         display: none;
-        height: 1rem;
+        height: 0;
         position: relative;
         cursor: row-resize;
         user-select: none;
-        border-radius: 0.25rem;
+        border-radius: 0;
         align-items: center;
         justify-content: center;
+        overflow: visible;
+        z-index: 2;
     }
 
     .eventhub-row-resizer::before {
-        content: "";
-        position: absolute;
-        left: 0;
-        right: 0;
-        top: 50%;
-        height: 2px;
-        transform: translateY(-50%);
-        background: #ccd5e2;
-        border-radius: 999px;
-        transition: background 120ms ease;
+        content: none;
     }
 
     .eventhub-row-resizer-grip {
         position: relative;
         z-index: 1;
-        pointer-events: none;
+        pointer-events: auto;
         font-size: 0.66rem;
         font-weight: 800;
         letter-spacing: 0.12em;
@@ -680,6 +656,8 @@
         padding: 0.12rem 0.5rem;
         box-shadow: 0 1px 2px rgba(15, 23, 42, 0.15);
         white-space: nowrap;
+        transform: translateY(-50%);
+        cursor: row-resize;
     }
 
     .eventhub-row-resizer:hover::before,
@@ -732,26 +710,8 @@
             grid-column: 3;
         }
 
-        .eventhub-col-resizer {
-            display: flex;
-            position: absolute;
-            top: 0;
-            bottom: 0;
-            transform: translateX(-50%);
-            z-index: 30;
-            width: 1.8rem;
-        }
-
-        .eventhub-col-resizer-lm {
-            left: 33%;
-        }
-
-        .eventhub-col-resizer-mr {
-            left: 75%;
-        }
-
         .eventhub-config-col {
-            height: calc(100dvh - 8.75rem - var(--eventhub-filter-row-height) - 1rem);
+            height: var(--eventhub-col-height, calc(100dvh - 6.2rem - var(--eventhub-filter-row-height) - 1rem));
             display: flex;
             flex-direction: column;
             gap: 1rem;
@@ -759,7 +719,7 @@
         }
 
         .eventhub-endpoints-col {
-            height: calc(100dvh - 8.75rem - var(--eventhub-filter-row-height) - 1rem);
+            height: var(--eventhub-col-height, calc(100dvh - 6.2rem - var(--eventhub-filter-row-height) - 1rem));
             display: flex;
             flex-direction: column;
             gap: 1rem;
@@ -783,6 +743,9 @@
         .eventhub-config-col > .eventhub-row-resizer {
             display: flex;
             flex: 0 0 auto;
+            align-self: center;
+            margin-top: -1rem;
+            margin-bottom: 0;
         }
 
         .eventhub-config-col > .eventhub-endpoints-card {
@@ -795,6 +758,17 @@
             display: flex;
             flex-direction: column;
             margin-right: 0.65rem;
+        }
+
+        .eventhub-endpoints-col > .eventhub-users-card {
+            flex: 1 1 auto;
+            min-height: 0;
+        }
+
+        .eventhub-endpoints-col > .eventhub-users-card > .card-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
         }
 
         .eventhub-config-col > .card:first-child > .card-body {
@@ -812,7 +786,7 @@
         }
 
         .eventhub-monitor-col {
-            height: calc(100dvh - 8.75rem - var(--eventhub-filter-row-height) - 1rem);
+            height: var(--eventhub-col-height, calc(100dvh - 6.2rem - var(--eventhub-filter-row-height) - 1rem));
             display: flex;
             flex-direction: column;
             min-height: 0;
@@ -889,7 +863,6 @@
             gap: 1rem;
         }
 
-        .eventhub-col-resizer,
         .eventhub-row-resizer {
             display: none;
         }
@@ -1594,12 +1567,11 @@
             const requestCol = workspace.querySelector(".eventhub-monitor-col");
             const runtimeCol = workspace.querySelector(".eventhub-endpoints-col");
             const backendCol = workspace.querySelector(".eventhub-config-col");
-            const splitterLm = workspace.querySelector(".eventhub-col-resizer-lm");
-            const splitterMr = workspace.querySelector(".eventhub-col-resizer-mr");
             const rowSplitter = backendCol?.querySelector(".eventhub-row-resizer");
+            const rowSplitterGrip = rowSplitter?.querySelector(".eventhub-row-resizer-grip");
             const backendsCard = backendCol?.querySelector(".eventhub-backends-card");
             const endpointsCard = backendCol?.querySelector(".eventhub-endpoints-card");
-            if (!requestCol || !runtimeCol || !backendCol || !splitterLm || !splitterMr) {
+            if (!requestCol || !runtimeCol || !backendCol) {
                 return;
             }
 
@@ -1608,6 +1580,29 @@
             const minBackends = 260;
             const minBackendsCardHeight = 180;
             const minEndpointsCardHeight = 180;
+
+            function updateColumnHeights() {
+                if (window.matchMedia("(max-width: 1199.98px)").matches) {
+                    workspace.style.removeProperty("--eventhub-col-height");
+                    return;
+                }
+
+                const shell = workspace.closest(".inspector-page-shell");
+                const shellStyles = shell ? getComputedStyle(shell) : null;
+                const shellPaddingBottom = shellStyles ? (parseFloat(shellStyles.paddingBottom) || 0) : 0;
+                const top = workspace.getBoundingClientRect().top;
+                const available = window.innerHeight - top - shellPaddingBottom;
+                if (available > 0) {
+                    workspace.style.setProperty("--eventhub-col-height", `${available}px`);
+                }
+            }
+
+            updateColumnHeights();
+            window.addEventListener("resize", updateColumnHeights);
+
+            if (typeof ResizeObserver !== "undefined" && topRow) {
+                new ResizeObserver(updateColumnHeights).observe(topRow);
+            }
 
             function setPercents(requestPct, runtimePct, backendsPct) {
                 workspace.style.setProperty("--eventhub-col-request", `${requestPct}%`);
@@ -1618,19 +1613,6 @@
                     topRow.style.setProperty("--eventhub-col-runtime", `${runtimePct}%`);
                     topRow.style.setProperty("--eventhub-col-backends", `${backendsPct}%`);
                 }
-                positionSplitters();
-            }
-
-            function positionSplitters() {
-                if (window.matchMedia("(max-width: 991.98px)").matches) {
-                    return;
-                }
-
-                const workspaceRect = workspace.getBoundingClientRect();
-                const requestRect = requestCol.getBoundingClientRect();
-                const runtimeRect = runtimeCol.getBoundingClientRect();
-                splitterLm.style.left = `${requestRect.right - workspaceRect.left}px`;
-                splitterMr.style.left = `${runtimeRect.right - workspaceRect.left}px`;
             }
 
             function normalizePercents(requestPct, runtimePct) {
@@ -1670,12 +1652,6 @@
                     setPercents(parts[0], parts[1], parts[2]);
                 }
             }
-            else
-            {
-                positionSplitters();
-            }
-
-            window.addEventListener("resize", positionSplitters);
 
             function setBackendsHeightPercent(percent) {
                 const normalized = clamp(Number(percent) || 50, 25, 75);
@@ -1715,9 +1691,15 @@
                 ];
             };
 
-            function startDrag(splitter, onMove) {
-                splitter.style.touchAction = "none";
-                splitter.addEventListener("pointerdown", (downEvent) => {
+            function startDragBySelector(selector, onMove) {
+                workspace.addEventListener("pointerdown", (downEvent) => {
+                    const handle = downEvent.target instanceof Element
+                        ? downEvent.target.closest(selector)
+                        : null;
+                    if (!handle) {
+                        return;
+                    }
+
                     if (downEvent.pointerType === "mouse" && downEvent.button !== 0) {
                         return;
                     }
@@ -1733,7 +1715,7 @@
                     const backendsStart = backendCol.getBoundingClientRect().width;
                     const total = requestStart + runtimeStart + backendsStart;
 
-                    splitter.classList.add("dragging");
+                    handle.classList.add("dragging");
                     document.body.style.cursor = "col-resize";
 
                     const handleMove = (moveEvent) => {
@@ -1750,7 +1732,7 @@
                     };
 
                     const stopDrag = () => {
-                        splitter.classList.remove("dragging");
+                        handle.classList.remove("dragging");
                         document.body.style.cursor = "";
                         window.removeEventListener("pointermove", handleMove);
                         window.removeEventListener("pointerup", stopDrag);
@@ -1762,7 +1744,7 @@
                 });
             }
 
-            startDrag(splitterLm, (delta, state) => {
+            startDragBySelector(".eventhub-col-handle-lm", (delta, state) => {
                 const request = clamp(state.requestStart + delta, minRequest, state.total - minRuntime - minBackends);
                 const runtime = state.total - state.backendsStart - request;
                 if (runtime < minRuntime) {
@@ -1772,7 +1754,7 @@
                 return { request, runtime, backends: state.backendsStart };
             });
 
-            startDrag(splitterMr, (delta, state) => {
+            startDragBySelector(".eventhub-col-handle-mr", (delta, state) => {
                 const runtime = clamp(state.runtimeStart + delta, minRuntime, state.total - state.requestStart - minBackends);
                 const backends = state.total - state.requestStart - runtime;
                 if (backends < minBackends) {
@@ -1782,9 +1764,9 @@
                 return { request: state.requestStart, runtime, backends };
             });
 
-            if (rowSplitter && backendsCard && endpointsCard) {
-                rowSplitter.style.touchAction = "none";
-                rowSplitter.addEventListener("pointerdown", (downEvent) => {
+            if (rowSplitter && rowSplitterGrip && backendsCard && endpointsCard) {
+                rowSplitterGrip.style.touchAction = "none";
+                rowSplitterGrip.addEventListener("pointerdown", (downEvent) => {
                     if (downEvent.pointerType === "mouse" && downEvent.button !== 0) {
                         return;
                     }

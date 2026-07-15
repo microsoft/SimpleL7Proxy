@@ -10,8 +10,11 @@
 @if (Items.Count > 0)
 {
     <div class="multi-request-stats card shadow-sm">
-        <div class="@GetHeaderCssClass(HeaderTone)">
+        <div class="@($"{GetHeaderCssClass(HeaderTone)} multi-request-summary-header eventhub-header-with-resize")">
             <span class="fw-semibold">Request Summary</span>
+            <button type="button"
+                    class="eventhub-col-resizer-grip eventhub-col-handle-lm"
+                    aria-label="Resize Request Status and Runtime Stats columns"></button>
         </div>
         <div class="card-body">
             <div class="multi-request-stats-thermometer">
@@ -196,6 +199,13 @@
 }
 
 <style>
+    .multi-request-summary-header {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 0;
+    }
+
     .eventhub-header {
         border-bottom: 1px solid rgba(0, 0, 0, 0.08);
     }
