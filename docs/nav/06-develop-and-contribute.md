@@ -77,43 +77,73 @@ Use the LLM Simulator (`test/LLMSimulator`) as a local backend. It returns OpenA
 
 ### Getting set up
 - [ ] What tools do I need installed to build and run the proxy from source? (.NET version, IDE, etc.)
+  **Answer:** You need .NET 10 and Git at minimum, with Docker and an editor such as VS Code being optional but useful.
 - [ ] What is the exact command to build the project?
+  **Answer:** Run `dotnet build /home/runner/work/SimpleL7Proxy/SimpleL7Proxy/SimpleL7Proxy.sln` from the repo root.
 - [ ] What is the exact command to run the proxy locally?
+  **Answer:** Set `Port` and `Host1`, then run `cd /home/runner/work/SimpleL7Proxy/SimpleL7Proxy/src/SimpleL7Proxy && dotnet run`.
 - [ ] What is the exact command to run all tests?
+  **Answer:** Run `dotnet test /home/runner/work/SimpleL7Proxy/SimpleL7Proxy/SimpleL7Proxy.sln`.
 - [ ] How do I point the local proxy at the LLM simulator for development without real Azure resources?
+  **Answer:** Start the included mock or simulator backend and point `Host1` at it, for example `Host1=http://localhost:3000` for the Python null server.
 
 ### Understanding the code
 - [ ] What are the main projects/assemblies and what does each one do?
+  **Answer:** `src/SimpleL7Proxy` is the runtime, `src/Shared` holds shared utilities, `src/Shared-parser` holds stream and token parsing logic, `TestClient` is a manual client, and the test folders contain MSTest suites and helpers.
 - [ ] What is the entry point and how does startup work?
+  **Answer:** `Program.cs` is the entry point, and it loads config, builds DI, registers backends and hosted services, starts the probe server, and then runs the host.
 - [ ] What is the request flow through the code? (which class handles what)
+  **Answer:** The code path is `Server.cs` → priority queue → `ProxyWorker.cs` → `IteratorFactory.cs` and host iterators → `CircuitBreaker.cs` → backend response handling and telemetry.
   - Where does a request arrive?
+    **Answer:** Requests first arrive at the listener in `Server.cs`.
   - Where does it get queued?
+    **Answer:** `Server.cs` inserts accepted work into the in-memory `PriorityQueue`.
   - Where does a worker pick it up?
+    **Answer:** `ProxyWorker.cs` dequeues the request inside its worker loop and owns the forwarding flow.
   - Where does backend selection happen?
+    **Answer:** `IteratorFactory.cs` and the iterator classes build and order the eligible backend list.
   - Where does the circuit breaker gate the request?
+    **Answer:** `CircuitBreaker.cs` is checked before each host attempt so open hosts are skipped.
   - Where is the response written back?
+    **Answer:** `ProxyWorker.cs` writes the final headers and body back to the HTTP response stream.
 - [ ] What are the key interfaces and why do they exist? (`IEventClient`, `IBackendSelector`, etc.)
+  **Answer:** The important abstractions are the event sink, backend health, async storage, and stream processor interfaces, which keep telemetry, host state, and async or parsing behavior swappable.
 - [ ] What is the object lifecycle? When are workers created, destroyed, and how are resources disposed?
+  **Answer:** Workers and hosted services are created during startup and live until coordinated shutdown, while per-request objects such as `RequestData` and `ProxyData` are created for one request and disposed when that request finishes.
 
 ### Making changes
 - [ ] What is the coding style guide for this project? (naming, bracing, spacing, comments)
+  **Answer:** Follow the repo guidance: PascalCase for public members, camelCase locals, `_`-prefixed private fields, K&R braces, 4-space indentation, and XML comments on public APIs.
 - [ ] Where do I add a new configuration variable?
+  **Answer:** Add it in the config model under `src/SimpleL7Proxy/Config/`, wire it through `ConfigFactory.cs`, and document it in the environment variable and App Configuration docs.
 - [ ] Where do I add a new telemetry event?
+  **Answer:** Add it where request event payloads are built, usually around `EventDataBuilder`, `ProxyEvent`, and the sink-specific event client flow.
 - [ ] Where do I add a new validation rule?
+  **Answer:** Add it in the request validation path before queueing, then cover it with a focused test and document the expected response behavior.
 - [ ] How do I add a new backend selection strategy?
+  **Answer:** Add a new iterator implementation and register it through `IteratorFactory` so the strategy can be selected by configuration.
 - [ ] Where do I add tests and what testing pattern does the project use?
+  **Answer:** Add tests to the existing MSTest projects under `SimpleL7Proxy.Test` or `test/ProxyWorkerTests`, keeping them focused on one behavior or component at a time.
 
 ### Contributing
 - [ ] What is the contribution process? (issue first, then PR?)
+  **Answer:** The README asks contributors to open an issue first for significant changes and then submit a focused pull request.
 - [ ] What does a good PR look like for this project?
+  **Answer:** A good PR is small, clearly scoped, explains the change, updates docs when needed, and includes the exact validation you ran.
 - [ ] Are there any automated checks that run on PRs and what do they check?
+  **Answer:** There are no repo-hosted GitHub workflow checks checked into `.github/workflows`, so the documented expectation is that contributors run the local validation steps themselves.
 - [ ] How do I run the linter / style checker locally before pushing?
+  **Answer:** The repo does not document a separate linter command today, so the practical local validation path is to run `dotnet build` and `dotnet test` and keep changes aligned with the documented style guide.
 
 ### Advanced development
 - [ ] How do I run performance profiling or load testing locally?
+  **Answer:** Use the local mock backend, raise `Workers` and `MaxQueueLength` as needed, drive traffic with the documented `curl` loops, and watch `eventslog.json` or telemetry while the proxy runs.
 - [ ] How do I test async mode locally without Azure Service Bus and Blob Storage?
+  **Answer:** You can test the sync-to-async decision logic locally, but a full end-to-end async completion still requires Blob Storage and Service Bus configuration.
 - [ ] How do I add support for a new stream processor type?
+  **Answer:** Add the implementation under the stream processor code, then reference it from the backend host configuration through the `processor` value.
 - [ ] How does hot-reload work in the code — where are settings re-read?
+  **Answer:** `AppConfigService` polls App Configuration for `Warm:Sentinel`, and when it changes the runtime reloads Warm settings without restarting the process.
 
 ---
 

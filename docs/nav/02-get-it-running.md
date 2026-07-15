@@ -77,29 +77,45 @@ Check that `Host1` is reachable and the probe path returns 2xx. Review the conso
 
 ### Before I start
 - [ ] What do I need installed before I can run the proxy? (.NET version, Docker, Azure CLI, subscriptions)
+  **Answer:** For source-based local work you need .NET 10 and Git, for local containers you need Docker, and for Azure deployment you need Azure CLI, `azd`, and a subscription that can create Container Apps resources.
 - [ ] What is the absolute minimum configuration required to start? (Port + Host1)
+  **Answer:** The minimum is a listen port and one backend entry, usually `Port` plus `Host1`, with `Host1` pointing at either a reachable backend or a direct-mode endpoint.
 - [ ] Do I need any Azure resources before my first run, or can I run it fully locally?
+  **Answer:** You can run it fully locally first, especially if you use the included mock backend or simulator.
 
 ### How do I run it?
 - [ ] How do I run the proxy from source locally? (exact commands)
+  **Answer:** Export `Port` and `Host1`, change to `/home/runner/work/SimpleL7Proxy/SimpleL7Proxy/src/SimpleL7Proxy`, and run `dotnet run`.
 - [ ] How do I run the proxy as a Docker container locally?
+  **Answer:** Build from `src` with `docker build -t simplel7proxy:latest -f SimpleL7Proxy/Dockerfile .`, then run `docker run -p 8000:443 -e "Host1=host=https://api.example.com;probe=/health" simplel7proxy:latest`.
 - [ ] How do I deploy the proxy to Azure Container Apps? (minimal steps)
+  **Answer:** The shortest documented path is `.azure/setup.sh`, `azd provision`, optional App Configuration seeding, and then `.azure/deploy.sh`.
 - [ ] What port does the proxy listen on by default?
+  **Answer:** The runtime default is port `80`, although most local examples explicitly set `Port=8000`, and the container image exposes proxy traffic on port `443` inside the container.
 
 ### How do I point it at a backend?
 - [ ] What is the `Host1` connection string format? (minimal valid example)
+  **Answer:** The minimal recommended form is `Host1="host=https://api.example.com;probe=/health"`.
 - [ ] What is the `probe` path and why is it required?
+  **Answer:** The probe path is the backend health-check URL, and standard hosts need it so the poller can keep only healthy backends in the active pool.
 - [ ] Can I use the included LLM simulator as a backend so I don't need a real Azure OpenAI endpoint?
+  **Answer:** Yes, the repo includes mock and simulator backends specifically so you can validate the proxy without a real Azure OpenAI deployment.
 
 ### How do I know it's working?
 - [ ] What health endpoints can I call to verify the proxy is up? (`/liveness`, `/readiness`, `/startup`)
+  **Answer:** Call `/liveness`, `/readiness`, and `/startup`, or use `/health` as the simple liveness alias.
 - [ ] What does a healthy response look like?
+  **Answer:** A healthy probe returns `200 OK`, usually with an `OK` body, while readiness also implies at least one backend is healthy.
 - [ ] How do I send a test request and see it proxied?
+  **Answer:** Send a normal `curl` request to the proxy host and confirm you receive the backend payload through the proxy instead of calling the backend directly.
 - [ ] What headers does the proxy add to the response so I can confirm it passed through?
+  **Answer:** The common confirmation headers are `x-Request-Queue-Duration`, `x-Request-Process-Duration`, `x-Request-Worker`, `BackendHost`, and `Total-Latency`.
 
 ### What do I do when it doesn't start?
 - [ ] What are the three most common startup failures and how do I fix each?
+  **Answer:** The most common startup problems are a missing or malformed `Host1`, a backend or probe path that is unreachable, and App Configuration or auth settings that do not match the environment.
 - [ ] Where do I look for startup logs?
+  **Answer:** Start with the console output, then inspect `eventslog.json`, and use `docker logs` as well if you launched the container locally.
 
 ---
 

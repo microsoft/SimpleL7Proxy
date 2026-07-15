@@ -79,29 +79,45 @@ No managed hosting, no gRPC/WebSocket, no model inference, no full API gateway f
 
 ### What is it?
 - [ ] What problem does SimpleL7Proxy solve that a standard Layer-4 load balancer cannot?
+  **Answer:** A Layer-4 balancer can spread connections, but it cannot inspect HTTP paths, headers, retry signals, or streamed token data, so SimpleL7Proxy adds AI-specific routing, fairness, failover, and telemetry.
 - [ ] What is a Layer 7 proxy and why does that distinction matter for AI workloads?
+  **Answer:** A Layer 7 proxy understands HTTP requests and responses, which matters here because AI traffic needs path-aware routing, header-based policy, retry handling, and token extraction from streamed responses.
 - [ ] What are the core capabilities in plain language (routing, queuing, circuit breaking, governance, telemetry)?
+  **Answer:** In plain terms, it picks a healthy backend, queues work by priority, stops sending traffic to failing hosts, enforces caller rules, and records per-request timing and token data.
 
 ### What does it look like from the outside?
 - [ ] Where does the proxy sit in the architecture — between what and what?
+  **Answer:** It sits between clients or APIM on the front side and backend AI endpoints on the back side.
 - [ ] What does a request look like going in, and what comes back?
+  **Answer:** A caller sends a normal HTTP request, and the proxy returns the backend response plus proxy-added headers such as worker, queue, and backend timing details.
 - [ ] What Azure services does it depend on (App Insights, Event Hubs, Service Bus, Blob, App Configuration)?
+  **Answer:** The core proxy only needs a backend to call, while Application Insights, Event Hubs, Service Bus, Blob Storage, and App Configuration are optional integrations for telemetry, async mode, and hot reload.
 
 ### How does it work inside?
 - [ ] What is the request flow from ingress to backend response? (priority queue → worker → backend selector → circuit breaker)
+  **Answer:** The request is validated, placed in the priority queue, picked up by a worker, matched to candidate backends, filtered by circuit state, forwarded, and then returned with telemetry.
 - [ ] What are "workers" and why do they matter?
+  **Answer:** Workers are the concurrent request-processing threads that drain the queue, so their count directly affects throughput and queue wait time.
 - [ ] What is a "backend host" and how is it different from a URL?
+  **Answer:** A backend host is a configured routing target that includes a base URL plus behavior such as probe path, path prefix, auth mode, and stream processor.
 - [ ] What is a priority queue and how does it affect which requests go first?
+  **Answer:** The priority queue is an in-memory queue where lower-numbered priority requests are dispatched before lower-priority work.
 - [ ] What is a circuit breaker and when does it open?
+  **Answer:** The circuit breaker is a per-host failure guard that opens when recent failures exceed `CBErrorThreshold` within `CBTimeslice`, causing that host to be skipped until it recovers.
 
 ### Where does it run?
 - [ ] What is the supported deployment target (Azure Container Apps)?
+  **Answer:** Azure Container Apps is the documented primary deployment target for production use.
 - [ ] Can it run locally? Can it run in other environments?
+  **Answer:** Yes, it can run locally from source or as a container, and other environments are possible if they can run the container and provide the required network and config wiring.
 - [ ] What network topologies does it support (public, VNet, sovereign)?
+  **Answer:** The docs describe public ingress, private or VNet-connected deployments, and sovereign cloud support.
 
 ### How does it compare?
 - [ ] When should I use this vs APIM? vs Azure API Gateway?
+  **Answer:** Use SimpleL7Proxy when you need backend-aware queuing, circuit breaking, retry, and token telemetry, and use APIM or another gateway for API products, policies, caller auth, and developer-facing gateway features.
 - [ ] What does it NOT do (non-goals)?
+  **Answer:** It is not a managed service, full API gateway, protocol translator, model runtime, durable queue, or shared cross-instance circuit breaker.
 
 ---
 
