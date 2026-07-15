@@ -26,8 +26,6 @@
                     SelectedHistoryEntryId="@SelectedScopeId"
                     HistorySource="EventHub monitor">
     <div class="eventhub-toprow">
-        <div class="eventhub-toprow-dummy" aria-hidden="true"></div>
-
         <div class="eventhub-toprow-filters">
             <div class="card shadow-sm eventhub-card eventhub-filters-card">
                 <div class="card-header eventhub-filters-header">
@@ -430,7 +428,6 @@
         --eventhub-col-backends: 25%;
         --eventhub-col-gap: 0.65rem;
         --eventhub-right-col-width: max(16rem, calc(25% - 0.45rem));
-        --eventhub-filter-row-height: 4.15rem;
     }
 
     .eventhub-workspace {
@@ -440,32 +437,26 @@
         position: relative;
     }
 
+    /* Float the filters box top-right within the shell, layered above the
+       fixed header (same mechanism as .inspector-page-controls), so it
+       stays merged with the header row at every width instead of pushing
+       the workspace grid down. */
     .eventhub-toprow {
-        --eventhub-toprow-top-offset: 0.7rem;
-        display: flex;
-        gap: var(--eventhub-col-gap);
-        height: var(--eventhub-filter-row-height);
-        align-items: stretch;
-        margin: var(--eventhub-toprow-top-offset) 0 0;
-    }
-
-    .eventhub-toprow-dummy {
-        flex: 1 1 auto;
-        min-width: 0;
-        min-height: 0;
-        height: 100%;
+        position: absolute;
+        top: 0.5rem;
+        right: 1.5rem;
+        z-index: 30;
+        width: var(--eventhub-right-col-width);
+        max-width: calc(100% - 3rem);
     }
 
     .eventhub-toprow-filters {
-        flex: 0 0 var(--eventhub-right-col-width);
-        width: var(--eventhub-right-col-width);
+        width: 100%;
         max-width: 100%;
-        min-height: 0;
-        height: 100%;
     }
 
     .eventhub-toprow-filters > .eventhub-filters-card {
-        height: 100%;
+        height: auto;
     }
 
     .eventhub-toprow-filters > .eventhub-filters-card > .card-body {
@@ -711,7 +702,7 @@
         }
 
         .eventhub-config-col {
-            height: var(--eventhub-col-height, calc(100dvh - 6.2rem - var(--eventhub-filter-row-height) - 1rem));
+            height: var(--eventhub-col-height, calc(100dvh - 6.2rem - 1rem));
             display: flex;
             flex-direction: column;
             gap: 1rem;
@@ -719,7 +710,7 @@
         }
 
         .eventhub-endpoints-col {
-            height: var(--eventhub-col-height, calc(100dvh - 6.2rem - var(--eventhub-filter-row-height) - 1rem));
+            height: var(--eventhub-col-height, calc(100dvh - 6.2rem - 1rem));
             display: flex;
             flex-direction: column;
             gap: 1rem;
@@ -786,7 +777,7 @@
         }
 
         .eventhub-monitor-col {
-            height: var(--eventhub-col-height, calc(100dvh - 6.2rem - var(--eventhub-filter-row-height) - 1rem));
+            height: var(--eventhub-col-height, calc(100dvh - 6.2rem - 1rem));
             display: flex;
             flex-direction: column;
             min-height: 0;
@@ -801,18 +792,11 @@
 
     @@media (min-width: 992px) and (max-width: 1199.98px) {
         .eventhub-toprow {
-            display: block;
-            height: auto;
-            margin-top: 0.35rem;
-            margin-bottom: 0.65rem;
-        }
-
-        .eventhub-toprow-dummy {
-            display: none;
+            width: auto;
         }
 
         .eventhub-toprow-filters {
-            width: 100%;
+            width: auto;
             max-width: none;
             height: auto;
         }
@@ -883,18 +867,12 @@
 
     @@media (max-width: 991.98px) {
         .eventhub-toprow {
-            display: block;
-            height: auto;
-            margin-top: 0;
-            margin-bottom: 0.65rem;
-        }
-
-        .eventhub-toprow-dummy {
-            display: none;
+            width: auto;
+            right: 0.75rem;
         }
 
         .eventhub-toprow-filters {
-            width: 100%;
+            width: auto;
             max-width: none;
             min-height: auto;
         }

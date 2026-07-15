@@ -35,7 +35,11 @@
 }
 
 .inspector-page-shell.inspector-page-shell-no-controls {
-    padding-top: 0;
+    /* The MainLayout top-row header is fixed at 4.75rem tall and is
+       position: absolute, so it doesn't push page content down on its
+       own. Pages without the floating controls box still need this
+       padding to keep content from being covered by the header. */
+    padding-top: 4.75rem;
 }
 
 .inspector-page-controls {
@@ -137,7 +141,7 @@
     }
 
     .inspector-page-shell.inspector-page-shell-no-controls {
-        padding-top: 0.75rem;
+        padding-top: 4.75rem;
     }
 
     .inspector-page-controls {
