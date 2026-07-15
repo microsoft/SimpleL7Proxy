@@ -128,6 +128,8 @@ public sealed record MonitorSnapshot
     public DateTimeOffset TimestampUtc { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset LastDataUtc { get; init; }
     public bool HasData { get; init; }
+    public bool HasUserInfo { get; init; }
+    public bool HasModelInfo { get; init; }
     public RuntimeStatsSnapshot Stats { get; init; } = new();
     public CircuitBreakerSnapshot CircuitBreaker { get; init; } = new();
     public ServerErrorSnapshot ServerErrors { get; init; } = new();

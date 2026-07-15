@@ -327,11 +327,26 @@ public sealed class EventHubMonitorStore
             var requestSizeCount = 0;
             var latestEndpointStates = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
             var backendRequestStats = new Dictionary<string, BackendRequestAggregate>(StringComparer.OrdinalIgnoreCase);
+            var hasUserInfo = false;
+            var hasModelInfo = false;
 
             var index = 0;
             foreach (var timed in _requests)
             {
                 requests[index++] = timed.Item;
+
+                if (!hasUserInfo)
+                {
+                    hasUserInfo = !string.IsNullOrWhiteSpace(timed.Item.UserId)
+                        || timed.Item.RequestHeadersText.Contains("UserID:", StringComparison.OrdinalIgnoreCase);
+                }
+
+                if (!hasModelInfo)
+                {
+                    hasModelInfo = timed.Item.RequestHeadersText.Contains("Model:", StringComparison.OrdinalIgnoreCase)
+                        || timed.Item.ResponseHeadersText.Contains("Model:", StringComparison.OrdinalIgnoreCase)
+                        || timed.Item.EndpointKey.Contains("| model=", StringComparison.OrdinalIgnoreCase);
+                }
 
                 // Backend-request items feed the Endpoints card only. They are excluded from the
                 // request panel and from every runtime aggregate below, which are owned by the
@@ -516,6 +531,8 @@ public sealed class EventHubMonitorStore
                 TimestampUtc = now,
                 LastDataUtc = _lastDataUtc,
                 HasData = _hasData,
+                HasUserInfo = hasUserInfo,
+                HasModelInfo = hasModelInfo,
                 Stats = stats,
                 CircuitBreaker = circuitBreaker,
                 ServerErrors = serverErrors,

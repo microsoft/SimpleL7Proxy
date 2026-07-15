@@ -3,6 +3,7 @@
 @rendermode InteractiveServer
 @implements IAsyncDisposable
 @using chat_tester.Components.Shared
+@using chat_tester.Components.Shared.EventHub
 @using Microsoft.AspNetCore.Components
 @using Microsoft.AspNetCore.Components.Web
 @using Microsoft.Extensions.Options
@@ -18,10 +19,76 @@
 
 <InspectorPageShell Title="EventHub Monitor"
                     Tagline="@Tagline"
+                    MetadataLine1="@HeaderMetadataLine1"
+                    MetadataLine2="@HeaderMetadataLine2"
+                    HideControls="true"
                     HistoryEntries="@ScopeHistoryEntries"
                     SelectedHistoryEntryId="@SelectedScopeId"
                     HistorySource="EventHub monitor">
+    <div class="eventhub-toprow">
+        <div class="eventhub-toprow-dummy" aria-hidden="true"></div>
+
+        <div class="eventhub-toprow-filters">
+            <div class="card shadow-sm eventhub-card eventhub-filters-card">
+                <div class="card-header eventhub-filters-header">
+                    <span class="fw-semibold eventhub-filters-header-label">Filters</span>
+                    <button type="button"
+                            class="btn btn-link p-0 eventhub-filters-header-trigger"
+                            @onclick="OpenFilterDialog"
+                            aria-haspopup="dialog"
+                            aria-expanded="@_isFilterDialogOpen"
+                            aria-controls="eventhub-filters-dialog">
+                        Filters
+                    </button>
+                </div>
+                <div class="card-body eventhub-card-body">
+                    <EventHubTopFilters EnvironmentOptions="@EnvironmentFilterOptions"
+                                        SelectedEnvironment="@SelectedEnvironmentFilter"
+                                        SelectedEnvironmentChanged="OnEnvironmentUiChanged"
+                                        ShowUserFilter="@_snapshot.HasUserInfo"
+                                        UserOptions="@UserFilterOptions"
+                                        SelectedUser="@SelectedUserFilter"
+                                        SelectedUserChanged="OnUserUiChanged"
+                                        ShowModelFilter="@_snapshot.HasModelInfo"
+                                        ModelOptions="@ModelFilterOptions"
+                                        SelectedModel="@SelectedModelFilter"
+                                        SelectedModelChanged="OnModelUiChanged" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (_isFilterDialogOpen)
+    {
+        <div class="eventhub-filter-dialog-backdrop" @onclick="CloseFilterDialog"></div>
+        <div id="eventhub-filters-dialog"
+             class="eventhub-filter-dialog"
+             role="dialog"
+             aria-modal="true"
+             aria-label="Filters"
+             @onclick:stopPropagation="true">
+            <div class="eventhub-filter-dialog-header">
+                <span class="fw-semibold">Filters</span>
+                <button type="button" class="btn-close" aria-label="Close filters" @onclick="CloseFilterDialog"></button>
+            </div>
+            <div class="eventhub-filter-dialog-body">
+                <EventHubTopFilters EnvironmentOptions="@EnvironmentFilterOptions"
+                                    SelectedEnvironment="@SelectedEnvironmentFilter"
+                                    SelectedEnvironmentChanged="OnEnvironmentUiChanged"
+                                    ShowUserFilter="@_snapshot.HasUserInfo"
+                                    UserOptions="@UserFilterOptions"
+                                    SelectedUser="@SelectedUserFilter"
+                                    SelectedUserChanged="OnUserUiChanged"
+                                    ShowModelFilter="@_snapshot.HasModelInfo"
+                                    ModelOptions="@ModelFilterOptions"
+                                    SelectedModel="@SelectedModelFilter"
+                                    SelectedModelChanged="OnModelUiChanged" />
+            </div>
+        </div>
+    }
+
     <div class="row g-4 eventhub-workspace">
+
         @* ── Backends column ── *@
         <div class="col-12 col-lg-3 eventhub-config-col order-3">
             <div class="card shadow-sm eventhub-card eventhub-backends-card">
@@ -366,13 +433,116 @@
         font-style: italic;
     }
 
+    .eventhub-toprow,
     .eventhub-workspace {
-        margin-left: 0;
-        margin-right: 0;
-        position: relative;
         --eventhub-col-request: 33%;
         --eventhub-col-runtime: 42%;
         --eventhub-col-backends: 25%;
+        --eventhub-col-gap: 0.65rem;
+        --eventhub-right-col-width: max(16rem, calc(25% - 0.45rem));
+        --eventhub-filter-row-height: 4.15rem;
+    }
+
+    .eventhub-workspace {
+        margin-left: 0;
+        margin-right: 0;
+        margin-top: var(--bs-gutter-y, 1rem);
+        position: relative;
+    }
+
+    .eventhub-toprow {
+        --eventhub-toprow-top-offset: 0.7rem;
+        display: flex;
+        gap: var(--eventhub-col-gap);
+        height: var(--eventhub-filter-row-height);
+        align-items: stretch;
+        margin: var(--eventhub-toprow-top-offset) 0 0;
+    }
+
+    .eventhub-toprow-dummy {
+        flex: 1 1 auto;
+        min-width: 0;
+        min-height: 0;
+        height: 100%;
+    }
+
+    .eventhub-toprow-filters {
+        flex: 0 0 var(--eventhub-right-col-width);
+        width: var(--eventhub-right-col-width);
+        max-width: 100%;
+        min-height: 0;
+        height: 100%;
+    }
+
+    .eventhub-toprow-filters > .eventhub-filters-card {
+        height: 100%;
+    }
+
+    .eventhub-toprow-filters > .eventhub-filters-card > .card-body {
+        padding: 0.2rem 0.5rem 0.24rem;
+    }
+
+    .eventhub-filters-header {
+        padding: 0.16rem 0.5rem;
+        border-bottom: 1px solid #dde1e6;
+        font-size: 0.72rem;
+        line-height: 1.2;
+        background: #f7f7f7;
+        color: #495057;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .eventhub-filters-header-trigger {
+        display: none;
+        font-size: 0.74rem;
+        font-weight: 700;
+        color: #1f2937;
+        text-decoration: none;
+        line-height: 1.1;
+    }
+
+    .eventhub-filters-header-trigger:hover,
+    .eventhub-filters-header-trigger:focus-visible {
+        text-decoration: underline;
+        color: #111827;
+    }
+
+    .eventhub-filter-dialog-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.35);
+        z-index: 1040;
+    }
+
+    .eventhub-filter-dialog {
+        position: fixed;
+        top: 4.5rem;
+        left: 0.75rem;
+        right: 0.75rem;
+        z-index: 1050;
+        background: #fff;
+        border: 1px solid #d7dde5;
+        border-radius: 0.5rem;
+        box-shadow: 0 14px 38px rgba(15, 23, 42, 0.28);
+        max-height: calc(100dvh - 6rem);
+        overflow: auto;
+    }
+
+    .eventhub-filter-dialog-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.55rem 0.75rem;
+        border-bottom: 1px solid #dde1e6;
+        background: #f7f7f7;
+        color: #374151;
+    }
+
+    .eventhub-filter-dialog-body {
+        padding: 0.65rem 0.75rem 0.75rem;
     }
 
     .eventhub-header {
@@ -525,14 +695,18 @@
         box-shadow: 0 1px 4px rgba(56, 115, 197, 0.25);
     }
 
-    @@media (min-width: 992px) {
+    @@media (min-width: 1200px) {
+        ::deep .inspector-page-controls {
+            width: max(16rem, calc(25% - 0.45rem));
+        }
+
         .eventhub-workspace {
             display: grid;
             grid-template-columns:
                 minmax(18rem, var(--eventhub-col-request))
                 minmax(22rem, var(--eventhub-col-runtime))
                 minmax(16rem, var(--eventhub-col-backends));
-            column-gap: 0.65rem;
+            column-gap: var(--eventhub-col-gap);
             row-gap: 1rem;
             align-items: stretch;
         }
@@ -543,6 +717,7 @@
             max-width: none;
             padding-left: 0;
             padding-right: 0;
+            margin-top: 0;
         }
 
         .eventhub-monitor-col {
@@ -576,7 +751,7 @@
         }
 
         .eventhub-config-col {
-            height: calc(100dvh - 8.75rem);
+            height: calc(100dvh - 8.75rem - var(--eventhub-filter-row-height) - 1rem);
             display: flex;
             flex-direction: column;
             gap: 1rem;
@@ -584,7 +759,7 @@
         }
 
         .eventhub-endpoints-col {
-            height: calc(100dvh - 8.75rem);
+            height: calc(100dvh - 8.75rem - var(--eventhub-filter-row-height) - 1rem);
             display: flex;
             flex-direction: column;
             gap: 1rem;
@@ -594,6 +769,9 @@
             min-height: 0;
             display: flex;
             flex-direction: column;
+            width: 100%;
+            align-self: stretch;
+            box-sizing: border-box;
         }
 
         .eventhub-config-col > .eventhub-backends-card {
@@ -616,6 +794,7 @@
             flex: 0 0 auto;
             display: flex;
             flex-direction: column;
+            margin-right: 0.65rem;
         }
 
         .eventhub-config-col > .card:first-child > .card-body {
@@ -633,7 +812,7 @@
         }
 
         .eventhub-monitor-col {
-            height: calc(100dvh - 8.75rem);
+            height: calc(100dvh - 8.75rem - var(--eventhub-filter-row-height) - 1rem);
             display: flex;
             flex-direction: column;
             min-height: 0;
@@ -643,6 +822,127 @@
         .eventhub-monitor-col > .eventhub-history-shell {
             flex: 1 1 auto;
             min-height: 0;
+        }
+    }
+
+    @@media (min-width: 992px) and (max-width: 1199.98px) {
+        .eventhub-toprow {
+            display: block;
+            height: auto;
+            margin-top: 0.35rem;
+            margin-bottom: 0.65rem;
+        }
+
+        .eventhub-toprow-dummy {
+            display: none;
+        }
+
+        .eventhub-toprow-filters {
+            width: 100%;
+            max-width: none;
+            height: auto;
+        }
+
+        .eventhub-filters-header-label {
+            display: none;
+        }
+
+        .eventhub-filters-header-trigger {
+            display: inline;
+        }
+
+        .eventhub-toprow-filters > .eventhub-filters-card > .card-body {
+            display: none;
+        }
+
+        .eventhub-workspace {
+            display: grid;
+            grid-template-columns: minmax(20rem, 1fr) minmax(20rem, 1fr);
+            column-gap: var(--eventhub-col-gap);
+            row-gap: 1rem;
+            align-items: start;
+        }
+
+        .eventhub-workspace > [class*="col-"] {
+            width: auto;
+            max-width: none;
+            padding-left: 0;
+            padding-right: 0;
+            margin-top: 0;
+        }
+
+        .eventhub-monitor-col {
+            grid-column: 1;
+            height: auto;
+        }
+
+        .eventhub-endpoints-col {
+            grid-column: 2;
+            height: auto;
+        }
+
+        .eventhub-config-col {
+            grid-column: 1 / span 2;
+            height: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .eventhub-col-resizer,
+        .eventhub-row-resizer {
+            display: none;
+        }
+
+        .eventhub-config-col > .eventhub-backends-card,
+        .eventhub-config-col > .eventhub-endpoints-card,
+        .eventhub-endpoints-col > .eventhub-paths-card {
+            height: auto;
+            min-height: 0;
+            margin-right: 0;
+        }
+
+        .eventhub-config-col > .card:first-child > .card-body,
+        .eventhub-config-col > .eventhub-endpoints-card > .card-body {
+            overflow: visible;
+        }
+    }
+
+    @@media (max-width: 991.98px) {
+        .eventhub-toprow {
+            display: block;
+            height: auto;
+            margin-top: 0;
+            margin-bottom: 0.65rem;
+        }
+
+        .eventhub-toprow-dummy {
+            display: none;
+        }
+
+        .eventhub-toprow-filters {
+            width: 100%;
+            max-width: none;
+            min-height: auto;
+        }
+
+        .eventhub-filters-header-label {
+            display: none;
+        }
+
+        .eventhub-filters-header-trigger {
+            display: inline;
+        }
+
+        .eventhub-toprow-filters > .eventhub-filters-card > .card-body {
+            display: none;
+        }
+
+        .eventhub-filter-dialog {
+            top: 3.9rem;
+            left: 0.5rem;
+            right: 0.5rem;
+            max-height: calc(100dvh - 4.9rem);
         }
     }
 
@@ -1284,6 +1584,7 @@
 
         window.eventHubMonitorInitColumnResizers = function () {
             const workspace = document.querySelector(".eventhub-workspace");
+            const topRow = document.querySelector(".eventhub-toprow");
             if (!workspace || workspace.dataset.resizerInit === "1") {
                 return;
             }
@@ -1312,6 +1613,11 @@
                 workspace.style.setProperty("--eventhub-col-request", `${requestPct}%`);
                 workspace.style.setProperty("--eventhub-col-runtime", `${runtimePct}%`);
                 workspace.style.setProperty("--eventhub-col-backends", `${backendsPct}%`);
+                if (topRow) {
+                    topRow.style.setProperty("--eventhub-col-request", `${requestPct}%`);
+                    topRow.style.setProperty("--eventhub-col-runtime", `${runtimePct}%`);
+                    topRow.style.setProperty("--eventhub-col-backends", `${backendsPct}%`);
+                }
                 positionSplitters();
             }
 
@@ -1543,10 +1849,24 @@
     private CancellationTokenSource? _cts;
     private bool _receivedFirst;
     private bool _columnResizerInitialized;
+    private bool _isFilterDialogOpen;
+    private string SelectedEnvironmentFilter { get; set; } = "All environments";
+    private string SelectedUserFilter { get; set; } = "All users";
+    private string SelectedModelFilter { get; set; } = "All models";
 
     private string Tagline => IsConnected
-        ? BuildConnectedTagline()
+        ? "Streaming runtime stats from the Event Hub."
         : "Connect to an Event Hub and watch runtime stats stream in.";
+
+    private string HeaderMetadataLine1 => IsConnected
+        ? GetDetectedVersions() is { Count: > 0 } versions
+            ? string.Join(", ", versions.Select(v => $"v{v}"))
+            : string.Empty
+        : string.Empty;
+
+    private string HeaderMetadataLine2 => IsConnected && _snapshot.LastDataUtc != default
+        ? $"Last update: {_snapshot.LastDataUtc.ToLocalTime():HH:mm:ss}"
+        : string.Empty;
 
     private string BuildConnectedTagline()
     {
@@ -1597,10 +1917,13 @@
     private string UsersHeaderReason => GetUsersHeaderReason();
 
     private IReadOnlyList<BackendHealthSnapshot> Backends => _snapshot.Backends;
+    private IReadOnlyList<string> EnvironmentFilterOptions => BuildEnvironmentFilterOptions();
+    private IReadOnlyList<string> UserFilterOptions => BuildUserFilterOptions();
+    private IReadOnlyList<string> ModelFilterOptions => BuildModelFilterOptions();
 
     private IReadOnlyList<ChatHistoryEntry> ScopeHistoryEntries => _scopeHistoryEntries;
 
-    private IReadOnlyList<MultiRequestStatusItem> HistoryItems => FilterHistoryItemsByScope()
+    private IReadOnlyList<MultiRequestStatusItem> HistoryItems => GetFilteredRequestItems()
         .Where(item => !string.Equals(item.EventType, "S7P-BackendRequest", StringComparison.OrdinalIgnoreCase))
         .ToArray();
 
@@ -1620,6 +1943,109 @@
     private IReadOnlyList<UserCount> FailedUsers => BuildUserCounts(success: false);
 
     private string EffectiveScopeId => ResolveEffectiveScopeId();
+
+    private IReadOnlyList<MultiRequestStatusItem> GetFilteredRequestItems()
+    {
+        return FilterHistoryItemsByScope()
+            .Where(MatchesSelectedFilters)
+            .ToArray();
+    }
+
+    private bool MatchesSelectedFilters(MultiRequestStatusItem item)
+    {
+        return MatchesSelectedEnvironment(item)
+            && MatchesSelectedUser(item)
+            && MatchesSelectedModel(item);
+    }
+
+    private bool MatchesSelectedEnvironment(MultiRequestStatusItem item)
+    {
+        if (string.IsNullOrWhiteSpace(SelectedEnvironmentFilter)
+            || string.Equals(SelectedEnvironmentFilter, "All environments", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var scope = _scopeOptions.FirstOrDefault(option =>
+            string.Equals(option.Label, SelectedEnvironmentFilter, StringComparison.OrdinalIgnoreCase));
+        if (scope is not null)
+        {
+            if (scope.IsAll)
+            {
+                return true;
+            }
+
+            if (scope.IsReplica)
+            {
+                return string.Equals(item.ContainerApp, scope.ContainerApp, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(item.Replica, scope.Replica, StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (!string.IsNullOrWhiteSpace(scope.ContainerApp))
+            {
+                return string.Equals(item.ContainerApp, scope.ContainerApp, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        return string.Equals(item.ContainerApp, SelectedEnvironmentFilter, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool MatchesSelectedUser(MultiRequestStatusItem item)
+    {
+        if (string.IsNullOrWhiteSpace(SelectedUserFilter)
+            || string.Equals(SelectedUserFilter, "All users", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var user = string.IsNullOrWhiteSpace(item.UserId)
+            ? ExtractHeaderValue(item.RequestHeadersText, "UserID")
+            : item.UserId;
+
+        return !string.IsNullOrWhiteSpace(user)
+            && string.Equals(user.Trim(), SelectedUserFilter.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool MatchesSelectedModel(MultiRequestStatusItem item)
+    {
+        if (string.IsNullOrWhiteSpace(SelectedModelFilter)
+            || string.Equals(SelectedModelFilter, "All models", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var model = ResolveRequestModelForFilter(item);
+        return !string.IsNullOrWhiteSpace(model)
+            && string.Equals(model.Trim(), SelectedModelFilter.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private Task OnEnvironmentUiChanged(string value)
+    {
+        SelectedEnvironmentFilter = string.IsNullOrWhiteSpace(value) ? "All environments" : value;
+        return Task.CompletedTask;
+    }
+
+    private Task OnUserUiChanged(string value)
+    {
+        SelectedUserFilter = string.IsNullOrWhiteSpace(value) ? "All users" : value;
+        return Task.CompletedTask;
+    }
+
+    private Task OnModelUiChanged(string value)
+    {
+        SelectedModelFilter = string.IsNullOrWhiteSpace(value) ? "All models" : value;
+        return Task.CompletedTask;
+    }
+
+    private void OpenFilterDialog()
+    {
+        _isFilterDialogOpen = true;
+    }
+
+    private void CloseFilterDialog()
+    {
+        _isFilterDialogOpen = false;
+    }
 
     protected override void OnInitialized()
     {
@@ -2127,15 +2553,16 @@
 
     private IReadOnlyList<EndpointTile> BuildEndpointTiles()
     {
-        if (!IsConnected || !_snapshot.HasData || _snapshot.Requests.Count == 0)
+        var filteredRequests = GetFilteredRequestItems();
+        if (!IsConnected || !_snapshot.HasData || filteredRequests.Count == 0)
         {
             return Array.Empty<EndpointTile>();
         }
 
         var byModelAndTarget = new Dictionary<string, Dictionary<string, EndpointAggregate>>(StringComparer.OrdinalIgnoreCase);
         var backendFallbackRequestIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var requestModelById = BuildRequestModelMap(_snapshot.Requests);
-        var requestLabelById = BuildRequestLabelMap(_snapshot.Requests);
+        var requestModelById = BuildRequestModelMap(filteredRequests);
+        var requestLabelById = BuildRequestLabelMap(filteredRequests);
 
         // Endpoints are derived solely from the backend target inside backendLog
         // (e.g. "Using PAYGO URL: https://..."). Request paths are NOT endpoints.
@@ -2490,7 +2917,7 @@
 
         // Process backend-request items first so their richer per-attempt headers
         // (x-PolicyCycleCounter, Request-Process-Duration) win over the proxy summary.
-        var orderedItems = _snapshot.Requests
+        var orderedItems = filteredRequests
             .Where(item => string.Equals(item.EventType, "S7P-BackendRequest", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(item.EventType, "S7P-ProxyRequest", StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(item => string.Equals(item.EventType, "S7P-BackendRequest", StringComparison.OrdinalIgnoreCase));
@@ -2654,13 +3081,14 @@
 
     private IReadOnlyList<PathCount> BuildPathCounts(bool success)
     {
-        if (!IsConnected || !_snapshot.HasData || _snapshot.Requests.Count == 0)
+        var filteredRequests = GetFilteredRequestItems();
+        if (!IsConnected || !_snapshot.HasData || filteredRequests.Count == 0)
         {
             return Array.Empty<PathCount>();
         }
 
         var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var item in _snapshot.Requests)
+        foreach (var item in filteredRequests)
         {
             if (!string.Equals(item.EventType, "S7P-ProxyRequest", StringComparison.OrdinalIgnoreCase)
                 && !string.Equals(item.EventType, "S7P-ProxyRequestExpired", StringComparison.OrdinalIgnoreCase))
@@ -2695,13 +3123,14 @@
 
     private IReadOnlyList<UserCount> BuildUserCounts(bool success)
     {
-        if (!IsConnected || !_snapshot.HasData || _snapshot.Requests.Count == 0)
+        var filteredRequests = GetFilteredRequestItems();
+        if (!IsConnected || !_snapshot.HasData || filteredRequests.Count == 0)
         {
             return Array.Empty<UserCount>();
         }
 
         var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var item in _snapshot.Requests)
+        foreach (var item in filteredRequests)
         {
             if (!string.Equals(item.EventType, "S7P-ProxyRequest", StringComparison.OrdinalIgnoreCase)
                 && !string.Equals(item.EventType, "S7P-ProxyRequestExpired", StringComparison.OrdinalIgnoreCase))
@@ -3032,6 +3461,117 @@
         }
 
         return _snapshot.Requests;
+    }
+
+    private IReadOnlyList<string> BuildEnvironmentFilterOptions()
+    {
+        var options = new List<string> { "All environments" };
+
+        foreach (var scope in _scopeOptions)
+        {
+            if (scope.IsAll)
+            {
+                continue;
+            }
+
+            options.Add(scope.Label);
+        }
+
+        return options;
+    }
+
+    private IReadOnlyList<string> BuildUserFilterOptions()
+    {
+        var users = _snapshot.Requests
+            .Select(item => string.IsNullOrWhiteSpace(item.UserId) ? ExtractHeaderValue(item.RequestHeadersText, "UserID") : item.UserId)
+            .Where(user => !string.IsNullOrWhiteSpace(user))
+            .Select(user => user!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(user => user, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        users.Insert(0, "All users");
+        return users;
+    }
+
+    private IReadOnlyList<string> BuildModelFilterOptions()
+    {
+        var models = _snapshot.Requests
+            .Select(ResolveRequestModelForFilter)
+            .Where(model => !string.IsNullOrWhiteSpace(model))
+            .Select(model => model!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(model => model, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        models.Insert(0, "All models");
+        return models;
+    }
+
+    private static string? ResolveRequestModelForFilter(MultiRequestStatusItem item)
+    {
+        return FirstPhaseValue(item.Phases, "model")
+            ?? FirstPhaseValue(item.Phases, "Model")
+            ?? FirstPhaseValue(item.Phases, "ModelName")
+            ?? FirstPhaseValue(item.Phases, "ModelDisplayName")
+            ?? FirstPhaseValue(item.Phases, "ModelId")
+            ?? FirstPhaseValue(item.Phases, "ModelKey")
+            ?? FirstPhaseValue(item.Phases, "x-model")
+            ?? FirstPhaseValue(item.Phases, "x-model-name")
+            ?? FirstPhaseValue(item.Phases, "x-model-id")
+            ?? FirstPhaseValue(item.Phases, "Deployment")
+            ?? FirstPhaseValue(item.Phases, "DeploymentName")
+            ?? FirstPhaseValue(item.Phases, "ModelDeployment")
+            ?? FirstPhaseValue(item.Phases, "AOAIModel")
+            ?? ExtractHeaderValue(item.RequestHeadersText, "Model")
+            ?? ExtractHeaderValue(item.ResponseHeadersText, "Model");
+    }
+
+    private static string? FirstPhaseValue(RequestPhaseView? phases, string key)
+    {
+        if (phases is null)
+        {
+            return null;
+        }
+
+        if (TryGetPhaseValue(phases.Enqueue, key, out var enqueueValue))
+        {
+            return enqueueValue;
+        }
+
+        foreach (var attempt in phases.Attempts)
+        {
+            if (TryGetPhaseValue(attempt, key, out var attemptValue))
+            {
+                return attemptValue;
+            }
+        }
+
+        if (TryGetPhaseValue(phases.Final, key, out var finalValue))
+        {
+            return finalValue;
+        }
+
+        return null;
+    }
+
+    private static bool TryGetPhaseValue(IReadOnlyList<KeyValuePair<string, string>>? fields, string key, out string value)
+    {
+        if (fields is not null)
+        {
+            foreach (var field in fields)
+            {
+                if (string.Equals(field.Key, key, StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(field.Value))
+                {
+                    value = field.Value;
+                    return true;
+                }
+            }
+        }
+
+        value = string.Empty;
+        return false;
     }
 
     private static IReadOnlyList<ChatHistoryEntry> BuildScopeHistoryEntries(IReadOnlyList<ProxyMetricsCatalog.ScopeOption> scopeOptions)

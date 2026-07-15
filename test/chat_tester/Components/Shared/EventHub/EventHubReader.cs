@@ -688,6 +688,7 @@ public sealed class EventHubReader : BackgroundService
         {
             ContainerApp = GetValue(eventData, "ContainerApp"),
             Replica = GetValue(eventData, "Replica"),
+            UserId = GetValue(eventData, "UserID"),
             Status = statusLabel,
             StatusMessage = statusMessage,
             EventType = eventType,
@@ -749,6 +750,7 @@ public sealed class EventHubReader : BackgroundService
         {
             ContainerApp = GetValue(eventData, "ContainerApp"),
             Replica = GetValue(eventData, "Replica"),
+            UserId = GetValue(eventData, "UserID"),
             Status = statusLabel,
             StatusMessage = BuildStatusMessage(eventData, eventType, statusCode, statusLabel),
             EventType = eventType,

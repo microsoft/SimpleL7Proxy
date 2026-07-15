@@ -74,7 +74,7 @@
                     @onmouseenter="args => ShowMetrics(item, args)"
                     @onmousemove="MoveMetrics"
                     @onmouseleave="HideMetrics">
-                <div class="multi-request-label">@item.RequestNumber</div>
+                <div class="multi-request-label">@GetRequestLabel(item)</div>
                 <div class="multi-request-thermometer @GetThermometerClass(item)">
                     <div class="multi-request-fill" style="width: @GetFillWidth(item);"></div>
                     <span class="multi-request-duration">@FormatDuration(item.Duration)</span>
@@ -220,15 +220,27 @@
         color: #fff;
     }
 
+    .multi-request-status {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
     .multi-request-status > .card-body {
         padding: 0.75rem;
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        overflow: hidden;
     }
 
     .multi-request-status-list {
         display: grid;
         gap: 0.45rem;
         align-content: start;
-        max-height: min(58vh, 34rem);
+        flex: 1 1 auto;
+        min-height: 0;
         overflow-y: auto;
         padding-right: 0.25rem;
     }
@@ -680,6 +692,27 @@
             SelectedItem = null;
             BackendLogModalValue = null;
         }
+    }
+
+    private static string GetRequestLabel(MultiRequestStatusItem item)
+    {
+        var sevenPId = item.Phases?.SevenPId;
+        if (!string.IsNullOrWhiteSpace(sevenPId))
+        {
+            var underscoreIndex = sevenPId.LastIndexOf('_');
+            if (underscoreIndex >= 0 && underscoreIndex < sevenPId.Length - 1)
+            {
+                return sevenPId[(underscoreIndex + 1)..];
+            }
+
+            var hyphenIndex = sevenPId.LastIndexOf('-');
+            if (hyphenIndex >= 0 && hyphenIndex < sevenPId.Length - 1)
+            {
+                return sevenPId[(hyphenIndex + 1)..];
+            }
+        }
+
+        return item.RequestNumber.ToString(CultureInfo.InvariantCulture);
     }
 
     private void RecomputeAggregates()
