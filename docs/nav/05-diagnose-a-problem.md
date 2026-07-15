@@ -4,6 +4,65 @@
 
 ---
 
+## Quick Answers
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+### Getting 503 — all backends failed?
+The proxy tried every backend and all failed. Read the JSON error body for per-attempt host + code details. Distinguish real backend failures from circuit-breaker skips by checking `/readiness` first.
+
+[→ 503 diagnosis guide](../troubleshooting/requests-503.md)
+
+</td>
+<td width="33%" valign="top">
+
+### Getting 429 — request rejected?
+A proxy 429 means the request was rejected before any backend was tried. The response body tells you why: queue full, circuit breakers all open, or no active hosts. Each cause has a different fix.
+
+[→ 429 diagnosis guide](../troubleshooting/requests-429.md)
+
+</td>
+<td width="33%" valign="top">
+
+### Getting 412 — TTL expired?
+The request waited in the queue longer than its `DefaultTTLSecs` budget (default 300 s). Increase `DefaultTTLSecs` or have callers set a longer `S7PTTL` header. Check for a backed-up queue first.
+
+[→ 412 diagnosis guide](../troubleshooting/requests-412.md)
+
+</td>
+</tr>
+<tr>
+<td width="33%" valign="top">
+
+### Circuit breaker stuck open?
+The circuit self-heals when failures age out of the `CBTimeslice` window (default 60 s). If it stays open, backends are still actively failing. Check logs for `[CB-DELAY]` and `Circuit breaker BLOCKING` entries.
+
+[→ Circuit breaker guide](../troubleshooting/circuit-breaker.md)
+
+</td>
+<td width="33%" valign="top">
+
+### Async not returning 202?
+Three gates must all be true: `AsyncModeEnabled=true`, the request carries the opt-in header (`S7PAsyncMode`), and the user profile has a valid `async-config` block. If the backend responds before `AsyncTriggerTimeout`, sync is expected.
+
+[→ Async 202 guide](../troubleshooting/async-202-never-issued.md)
+
+</td>
+<td width="33%" valign="top">
+
+### Where to start if unsure?
+Use the symptom lookup table in `TroubleshootTOC.md`. Identify your HTTP status code or symptom, click the matching row, and follow the dedicated guide.
+
+> **⚠️ GAP:** No "first 5 checks" block exists for when the symptom is unknown. → [Content gap details](#content-gaps-to-fill)
+
+</td>
+</tr>
+</table>
+
+---
+
 ## Reader Profile
 
 | | |

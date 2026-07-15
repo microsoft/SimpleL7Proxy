@@ -4,6 +4,67 @@
 
 ---
 
+## Quick Answers
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+### What problem does it solve?
+Standard load balancers can't handle AI throttling, fairness, or token telemetry. SimpleL7Proxy sits between clients and Azure AI backends to add priority queuing, circuit breaking, and per-request governance.
+
+[→ Overview Summary](../OVERVIEW.md#overview-summary)
+
+</td>
+<td width="33%" valign="top">
+
+### What does "Layer 7" mean here?
+The proxy inspects and acts on HTTP content — headers, paths, response bodies — not just TCP connections. This lets it read throttle signals, extract token counts, and route by request context.
+
+[→ Core Concepts](../OVERVIEW.md#core-concepts)
+
+</td>
+<td width="33%" valign="top">
+
+### Where does it sit architecturally?
+It runs between APIM (or clients) and Azure AI backends, inside the operator's VNet. Clients never talk directly to a backend — the proxy is the single data-plane entry point.
+
+[→ High-Level Architecture](../OVERVIEW.md#high-level-architecture)
+
+</td>
+</tr>
+<tr>
+<td width="33%" valign="top">
+
+### What happens to a request end to end?
+Validate → priority queue → worker picks up → backend selection (path → load balance → circuit gate) → forward → inject headers → telemetry event. Total budget controlled by TTL.
+
+[→ Synchronous Request Flow](../OVERVIEW.md#high-level-workflows)
+
+</td>
+<td width="33%" valign="top">
+
+### Where does it run in Azure?
+Azure Container Apps is the primary deployment target, with optional VNet integration. It can also run locally from source for development. Sovereign cloud is supported.
+
+[→ Deployment Architecture](../TABLE_OF_CONTENTS.md#deployment-architecture)
+
+</td>
+<td width="33%" valign="top">
+
+### What does it NOT do?
+No managed hosting, no gRPC/WebSocket, no model inference, no full API gateway features (portals, subscriptions), no distributed circuit breaker state, no durable queue.
+
+[→ Non-Goals](../OVERVIEW.md#non-goals)
+
+</td>
+</tr>
+</table>
+
+> **⚠️ GAP — Comparison table missing:** There is no "use this vs APIM vs Azure Front Door" decision guide in any existing document. A reader evaluating alternatives has no single place to compare. → [Content gap details](#content-gaps-to-fill)
+
+---
+
 ## Reader Profile
 
 | | |

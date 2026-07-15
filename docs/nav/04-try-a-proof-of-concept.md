@@ -4,6 +4,65 @@
 
 ---
 
+## Quick Answers
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+### What will I observe in failover?
+When Backend A returns `429`, APIM marks it throttled and retries on Backend B. The client still sees `200 OK`. Verified via `x-Backend-Attempts: 2` and a changed `x-backend-affinity` header.
+
+[→ POC: Failover](../POC-Failover-configuration.md)
+
+</td>
+<td width="33%" valign="top">
+
+### What does priority routing prove?
+A `llm_proxy_priority: 1` request routes only to backends whose `acceptablePriorities` includes priority 1. A request with no eligible backend returns `503`. Verified via `x-Backend-Attempts` and `backendLog`.
+
+[→ POC: Priority Levels](../POC-Priority-configuration.md)
+
+</td>
+<td width="33%" valign="top">
+
+### How does chargeback telemetry work?
+Send a request with an `X-UserID` header. The proxy extracts token counts from the streaming response and logs them to Application Insights. Query by `X-UserID` to get per-user consumption.
+
+[→ POC: Chargeback](../POC-Chargeback.md)
+
+</td>
+</tr>
+<tr>
+<td width="33%" valign="top">
+
+### Do I need real Azure OpenAI?
+No. The included LLM Simulator (an Azure Function) returns realistic OpenAI-format responses, simulates `429` throttling, and supports configurable latency — all without a real model endpoint.
+
+[→ LLM Simulator](../DUMMY_BACKEND.md)
+
+</td>
+<td width="33%" valign="top">
+
+### How do I verify a POC worked?
+Each POC has a "What you will observe" section listing specific response headers (`x-Backend-Attempts`, `BackendHost`, `x-backend-affinity`) and, where relevant, App Insights queries.
+
+> **⚠️ GAP:** No POC has a verification *checklist* (pass/fail signals independent of App Insights). → [Content gap details](#content-gaps-to-fill)
+
+</td>
+<td width="33%" valign="top">
+
+### How do I secure the proxy?
+The security POCs cover two layers: EasyAuth on the ACA proxy container (unauthenticated requests rejected before reaching the proxy), and `validate-jwt` in APIM for upstream caller validation.
+
+[→ POC: Secure the Proxy](../POC-Secure-the-proxy.md)
+
+</td>
+</tr>
+</table>
+
+---
+
 ## Reader Profile
 
 | | |

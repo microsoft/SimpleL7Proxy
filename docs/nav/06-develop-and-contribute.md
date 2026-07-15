@@ -4,6 +4,65 @@
 
 ---
 
+## Quick Answers
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+### How do I build and run from source?
+Install .NET 10 SDK. Set `Port` and `Host1`, then `cd src/SimpleL7Proxy && dotnet run`. For VS Code, add a `.vscode/launch.json` with the env vars and press F5.
+
+[→ Local setup](../BEGINNER_DEVELOPMENT.md#setting-up-locally)
+
+</td>
+<td width="33%" valign="top">
+
+### Where does a request enter the code?
+`Server.cs` listens and inserts requests into the priority queue. `ProxyWorker.cs` dequeues and proxies. `IteratorFactory.cs` creates the load-balanced host iterator. `CircuitBreaker.cs` gates each attempt.
+
+[→ Main code flow](../design.md#main-code-flow)
+
+</td>
+<td width="33%" valign="top">
+
+### What is the request flow in code?
+`Server.cs` → Priority Queue → `ProxyWorker.cs` → `IteratorFactory.cs` (path filter → LB order) → `CircuitBreaker.cs` (gate) → backend HTTP call → telemetry event.
+
+[→ Request flow diagram](../design.md#request-flow)
+
+</td>
+</tr>
+<tr>
+<td width="33%" valign="top">
+
+### Where do I add a new config variable?
+Add the property to the relevant config class in `src/SimpleL7Proxy/Config/`. Follow the Warm/Cold/Hidden pattern. Register it in `ConfigFactory.cs` and document it in `ENVIRONMENT_VARIABLES.md`.
+
+> **⚠️ GAP:** No step-by-step "where to add X" guide exists — the above is inferred from patterns, not documented. → [Content gap details](#content-gaps-to-fill)
+
+</td>
+<td width="33%" valign="top">
+
+### What coding conventions apply?
+PascalCase for classes/methods/properties, camelCase for locals, `_` prefix for private fields, K&R braces, 4-space indent. XML comments on public methods. See `.github/copilot-instructions.md` for the full standard.
+
+[→ Coding standard](../../.github/copilot-instructions.md)
+
+</td>
+<td width="33%" valign="top">
+
+### How do I test without real Azure resources?
+Use the LLM Simulator (`test/LLMSimulator`) as a local backend. It returns OpenAI-format responses, simulates `429` throttling, and configurable latency — no Azure subscription needed for most dev scenarios.
+
+[→ LLM Simulator](../DUMMY_BACKEND.md)
+
+</td>
+</tr>
+</table>
+
+---
+
 ## Reader Profile
 
 | | |

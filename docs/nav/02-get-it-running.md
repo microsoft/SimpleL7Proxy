@@ -4,6 +4,65 @@
 
 ---
 
+## Quick Answers
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+### Minimum required before starting?
+.NET 10 SDK (for local dev) or Docker + Azure CLI (for container deployment). Minimum config: `Port` and one `Host1` connection string. No other Azure resources required for a first run.
+
+[→ Prerequisites](../QUICKSTART.md#prerequisites)
+
+</td>
+<td width="33%" valign="top">
+
+### How do I run it locally?
+`export Port=8000`, `export Host1="host=<url>;probe=/health"`, then `cd src/SimpleL7Proxy && dotnet run`. The proxy is ready when you see the startup banner in the console.
+
+[→ Run as Code](../QUICKSTART.md#run-as-code)
+
+</td>
+<td width="33%" valign="top">
+
+### How do I deploy to Azure?
+Use the interactive deployment script in `deployment/README.md`. Fill in a parameters file, run the script, and ACA handles the rest. Port 8000 is the expected ingress target.
+
+[→ Deploy to ACA](../QUICKSTART.md#deploy-to-azure-container-apps)
+
+</td>
+</tr>
+<tr>
+<td width="33%" valign="top">
+
+### How do I point it at a backend?
+Set `Host1` to a connection string: `host=https://<endpoint>;probe=/health`. Use `mode=direct` for serverless endpoints that don't support probing. See the LLM simulator for a no-Azure-needed backend.
+
+[→ Backend host format](../BACKEND_HOSTS.md#configuring-hosts)
+
+</td>
+<td width="33%" valign="top">
+
+### How do I verify it's working?
+Call `curl -i http://localhost:8000/health` — a `200 OK` means the proxy is up. Send a test request and check the response for the `x-Request-Worker` header, which the proxy injects on every proxied response.
+
+[→ Check the health probe](../QUICKSTART.md#check-the-health-probe)
+
+</td>
+<td width="33%" valign="top">
+
+### What if it doesn't start?
+Check that `Host1` is reachable and the probe path returns 2xx. Review the console log and `eventslog.json`. Most startup failures are a missing `Host1`, an unreachable backend, or a bad connection string key.
+
+> **⚠️ GAP:** No "top 3 startup failure" quick-reference exists. → [Content gap details](#content-gaps-to-fill)
+
+</td>
+</tr>
+</table>
+
+---
+
 ## Reader Profile
 
 | | |

@@ -4,6 +4,65 @@
 
 ---
 
+## Quick Answers
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+### How do I add a backend?
+Set `Host1` (through `Host9`) to a semicolon-delimited connection string: `host=https://api.example.com;probe=/health`. The `host` and `probe` keys are the minimum for a probed backend.
+
+[→ Connection string keys](../BACKEND_HOSTS.md#reference--connection-string-keys)
+
+</td>
+<td width="33%" valign="top">
+
+### Which load balance mode to use?
+`latency` (default) routes to the fastest backend. `roundrobin` distributes evenly. `random` shuffles each time. For AI workloads with uneven throughput, `latency` or `roundrobin` is recommended.
+
+[→ Load Balancing Modes](../LOAD_BALANCING.md)
+
+</td>
+<td width="33%" valign="top">
+
+### Timeout vs TTL — what's the difference?
+`Timeout` (default 20 min) is the per-attempt limit for a single backend call. `DefaultTTLSecs` (default 300 s) is the total budget for a request including all retries. TTL expiry returns 412 to the client.
+
+[→ Timeouts explained](../TIMEOUTS.md)
+
+</td>
+</tr>
+<tr>
+<td width="33%" valign="top">
+
+### When does a circuit breaker open?
+When failures in the last `CBTimeslice` seconds (default 60 s) exceed `CBErrorThreshold` (default 50), the circuit opens and the host is skipped. It self-heals when old failures age out of the window.
+
+[→ Circuit breaker settings](../CIRCUIT_BREAKER.md)
+
+</td>
+<td width="33%" valign="top">
+
+### How many workers should I set?
+Default is 10. Increase for higher concurrent throughput; decrease to reduce resource use. Workers are partitioned by priority tier when `PriorityWorkers` is configured.
+
+> **⚠️ GAP:** No guidance on workers-per-backend sizing formula exists in any doc. → [Content gap details](#content-gaps-to-fill)
+
+</td>
+<td width="33%" valign="top">
+
+### How do I change settings without a restart?
+Connect to Azure App Configuration (`AZURE_APPCONFIG_ENDPOINT`). Warm settings update across all instances within ~30 s when the Sentinel key changes. Cold settings still require a restart.
+
+[→ Hot-reload via App Configuration](../AZURE_APP_CONFIGURATION.md)
+
+</td>
+</tr>
+</table>
+
+---
+
 ## Reader Profile
 
 | | |
