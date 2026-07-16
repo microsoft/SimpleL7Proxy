@@ -69,15 +69,15 @@ Use the symptom lookup table in `TroubleshootTOC.md`. Identify your HTTP status 
 
 #### How do I find the right guide for my symptom without reading every doc? (symptom → guide lookup table)
 
-SimpleL7Proxy's troubleshooting guides are organized by symptom. Start with `TroubleshootTOC.md` — it maps the most common HTTP status codes and behaviors directly to the dedicated guide.
+The troubleshooting guides are organized by symptom. Start with `TroubleshootTOC.md` — it maps the most common HTTP status codes and behaviors directly to the dedicated guide.
 
 #### What is the fastest way to get a first-pass diagnosis? (which headers and logs to check first)
 
-SimpleL7Proxy includes the diagnosis in the response. Check the HTTP status code and response body first — proxy-generated errors include a plain-English reason. Then call `/readiness` to see current backend health. Check response headers: `BackendHost` (which backend was used), `x-Backend-Attempts` (how many backends were tried), and any error headers. For a full trace, check `eventslog.json` in the working directory — one JSON record per request with timing, backend used, and status codes.
+The answer is often in the response itself. Check the HTTP status code and response body first — proxy-generated errors include a plain-English reason. Then call `/readiness` to see current backend health. Check response headers: `BackendHost` (which backend was used), `x-Backend-Attempts` (how many backends were tried), and any error headers. For a full trace, check `eventslog.json` in the working directory — one JSON record per request with timing, backend used, and status codes.
 
 #### What does the proxy tell me in the response body when something goes wrong?
 
-SimpleL7Proxy generates a JSON error body for proxy-side failures. A `503` body includes an `attempts` array where each entry shows the backend URL, the HTTP status code it returned, and any error message. Reading `attempts` is usually faster than searching logs and shows exactly which hosts were tried and why each failed.
+On proxy-side failures, a JSON error body is returned. A `503` body includes an `attempts` array where each entry shows the backend URL, the HTTP status code it returned, and any error message. Reading `attempts` is usually faster than searching logs and shows exactly which hosts were tried and why each failed.
 
 **Example `503` body:**
 ```json
@@ -96,7 +96,7 @@ SimpleL7Proxy generates a JSON error body for proxy-side failures. A `503` body 
 
 #### What does 503 mean in the context of this proxy? (all backends tried and failed)
 
-SimpleL7Proxy returns `503` when it has worked through every eligible backend — those passing the [path filter](../Glossary.md#backend-management) and not blocked by an open [circuit breaker](../Glossary.md#reliability) — and none returned a success. Read the `attempts` array in the response body to see exactly which hosts were tried and what each returned. A backend directly returning `503` appears as one entry in that same array.
+A `503` means every eligible backend was tried — those passing the [path filter](../Glossary.md#backend-management) and not blocked by an open [circuit breaker](../Glossary.md#reliability) — and none returned a success. Read the `attempts` array in the response body to see exactly which hosts were tried and what each returned. A backend directly returning `503` appears as one entry in that same array.
 
 #### How do I read the JSON error body to see which hosts were tried and what each returned?
 

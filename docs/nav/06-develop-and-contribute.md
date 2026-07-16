@@ -1,6 +1,6 @@
 # Building On and Contributing to SimpleL7Proxy
 
-Whether you're adding a feature, fixing a bug, or just tracing a request through the code to understand what's happening — here's the map of the codebase, the conventions that apply, and how to get a contribution merged.
+Whether you're adding a feature, fixing a bug, or tracing a request through the code to understand what's happening — here's the map of the codebase, the conventions that apply, and how to get a contribution merged.
 
 ---
 

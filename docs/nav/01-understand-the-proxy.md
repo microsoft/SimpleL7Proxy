@@ -1,6 +1,6 @@
 # Why Would You Put a Proxy in Front of Your AI Backends?
 
-Your AI backend throttles. A model endpoint goes down. A VIP customer's request waits behind a flood of low-priority traffic. These are the reliability and cost problems SimpleL7Proxy was built for. Here are the questions most people ask before deciding whether it belongs in their architecture.
+Your AI backend throttles. A model endpoint goes down. A VIP customer's request waits behind a flood of low-priority traffic. Here are the questions most teams ask before deciding whether this fits their architecture.
 
 ---
 
@@ -27,7 +27,7 @@ A standard balancer moves packets. This proxy reads the conversation — throttl
 <td width="33%" valign="top">
 
 ### Where does it sit architecturally?
-It runs between APIM (or clients) and Azure AI backends, inside the operator's VNet. Clients never talk directly to a backend — the proxy is the single data-plane entry point.
+It runs between APIM (or clients) and Azure AI backends, inside the operator's VNet. Clients never talk directly to a backend — the proxy is the single point all requests go through.
 
 [→ Where does it sit architecturally?](#where-does-it-sit-architecturally)
 
@@ -37,7 +37,7 @@ It runs between APIM (or clients) and Azure AI backends, inside the operator's V
 <td width="33%" valign="top">
 
 ### What happens to a request end to end?
-Validate → priority queue → worker picks up → backend selection (path → load balance → circuit gate) → forward → inject headers → telemetry event. Total budget controlled by TTL.
+Validate → priority queue → worker picks up → backend selection (path → load balance → circuit gate) → forward → inject headers → telemetry event. Total budget controlled by [TTL](../Glossary.md#request-lifecycle).
 
 [→ What happens to a request end to end?](#what-happens-to-a-request-end-to-end)
 
@@ -71,7 +71,7 @@ No managed hosting, no gRPC/WebSocket, no model inference, no full API gateway f
 
 #### What problem does SimpleL7Proxy solve that a standard Layer-4 load balancer cannot?
 
-SimpleL7Proxy adds the HTTP-level intelligence that Layer-4 load balancers can't provide — it detects `429 Too Many Requests` throttle signals, routes by request URL path, and extracts token counts from streaming AI responses. A standard Layer-4 balancer routes packets by IP address and TCP port alone; it has no visibility into the HTTP messages that AI workloads depend on.
+A standard load balancer moves traffic by IP and port — it has no idea what's inside the HTTP messages. This proxy reads those messages: it can catch a `429` throttle response, route by URL path, and pull token counts from streaming AI responses. None of that is possible without reading HTTP.
 
 **Example:** An Azure OpenAI endpoint returns `429` when rate-limited. A Layer-4 balancer passes the `429` back unchanged; SimpleL7Proxy detects it, retries on a different backend, and — if configured — requeues the request transparently so the caller receives `200 OK` instead.
 
@@ -81,7 +81,7 @@ SimpleL7Proxy adds the HTTP-level intelligence that Layer-4 load balancers can't
 
 #### What are the core capabilities in plain language (routing, queuing, circuit breaking, governance, telemetry)?
 
-SimpleL7Proxy provides five capabilities: **routing** picks a healthy backend and balances load across several; **queuing** holds incoming requests in a [priority queue](../Glossary.md#request-lifecycle) so critical work is processed first; **[circuit breaking](../Glossary.md#reliability)** stops sending requests to a failing backend and resumes automatically when it recovers; **governance** controls which callers can use the proxy and how much capacity each is allowed; and **telemetry** records per-request timing and AI token counts for observability and chargeback.
+Five things it does: **routing** picks a healthy backend and balances load across several; **queuing** holds incoming requests in a [priority queue](../Glossary.md#request-lifecycle) so critical work is processed first; **[circuit breaking](../Glossary.md#reliability)** stops sending requests to a failing backend and resumes automatically when it recovers; **[governance](../Glossary.md#request-governance)** controls which callers can use the proxy and how much capacity each is allowed; and **telemetry** records per-request timing and AI token counts for observability and chargeback.
 
 ---
 
@@ -89,7 +89,7 @@ SimpleL7Proxy provides five capabilities: **routing** picks a healthy backend an
 
 #### What is a Layer 7 proxy and why does that distinction matter for AI workloads?
 
-SimpleL7Proxy operates at the HTTP application layer (Layer 7), which means it reads request paths, inspects headers, and parses response bodies — things a Layer-4 router, which only forwards packets by IP and port, cannot do. For AI workloads, this matters: the proxy must detect throttle codes like `429`, route `/openai/` and `/embeddings/` to different backends, and extract [token telemetry](../Glossary.md#observability) from streaming responses — all of which require HTTP visibility.
+The practical difference: a standard router only sees IP addresses and TCP ports — it can't read what's inside the HTTP messages. This proxy can, which is how it catches `429` throttle responses before your users see them, routes `/openai/` and `/embeddings/` to different backends, and extracts [token counts](../Glossary.md#observability) from streaming responses for cost tracking. ("Layer 7" is the technical name for the HTTP layer in the network stack.)
 
 ---
 
@@ -163,7 +163,7 @@ SimpleL7Proxy supports public ingress, private or VNet-connected deployments, an
 
 #### When should I use this vs APIM? vs Azure API Gateway?
 
-SimpleL7Proxy is the right choice when you need AI-specific reliability: priority queuing, circuit breaking, retry across backends, and per-request token telemetry. Use Azure API Management when you need API lifecycle management — developer portals, subscription management, caller authentication, and complex policy transformations. The two are complementary: APIM can sit in front of SimpleL7Proxy, handling caller concerns while SimpleL7Proxy manages backend reliability.
+Use it when you need reliability and cost visibility specific to AI backends: priority queuing, circuit breaking, retry across backends, and per-request token telemetry. Use Azure API Management when you need API lifecycle management — developer portals, subscription management, caller authentication, and complex policy transformations. The two are complementary: APIM can sit in front of this proxy, handling caller concerns while the proxy manages backend reliability.
 
 | Need | Use |
 |------|-----|
@@ -173,7 +173,7 @@ SimpleL7Proxy is the right choice when you need AI-specific reliability: priorit
 
 #### What does it NOT do (non-goals)?
 
-SimpleL7Proxy is not a managed service (you host and operate it yourself), not a full API gateway (no developer portal, subscription management, or caller authentication), and not a protocol translator (HTTP only — no gRPC or WebSocket). Its [priority queue](../Glossary.md#request-lifecycle) is in-memory and does not survive container restarts. Circuit breaker state is local to each container instance — two proxy replicas do not share failure counters, so a backend that trips one instance's circuit may still receive traffic from another.
+It is not a managed service (you host and operate it yourself), not a full API gateway (no developer portal, subscription management, or caller authentication), and not a protocol translator (HTTP only — no gRPC or WebSocket). The [priority queue](../Glossary.md#request-lifecycle) is in-memory and does not survive container restarts — requests waiting when the container stops are lost. Circuit breaker state is local to each container instance — two proxy replicas do not share failure counters, so a backend that trips one instance's circuit may still receive traffic from another.
 
 ---
 

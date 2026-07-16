@@ -1,6 +1,6 @@
 # Running the Proxy: From Zero to Proxying Traffic in Minutes
 
-Two environment variables, one command, and you're proxying traffic. This page skips the preamble — here's exactly what to set up, what commands to run, and how to confirm it's actually working.
+Two environment variables, one command. Here's what to set up, what commands to run, and how to confirm it's working.
 
 ---
 

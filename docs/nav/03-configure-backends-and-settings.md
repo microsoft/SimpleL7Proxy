@@ -172,7 +172,7 @@ SimpleL7Proxy opens the [circuit breaker](../Glossary.md#reliability) for a back
 
 #### What HTTP status codes count as failures?
 
-SimpleL7Proxy counts any response code not listed in `AcceptableStatusCodes` as a circuit-breaker failure. The default list is `200, 202, 400, 401, 403, 404, 408, 410, 412, 417`. Notably, `429` and `5xx` codes are not in the default list and increment the failure counter. To have the proxy requeue on `429` instead, configure the backend to return [`S7PREQUEUE: true`](../Glossary.md#protocol-and-headers) on its `429` responses.
+A circuit-breaker failure is any response code *not* in `AcceptableStatusCodes`. The default list is `200, 202, 400, 401, 403, 404, 408, 410, 412, 417`. That might look odd — why are `400 Bad Request` or `401 Unauthorized` on the pass-through list? Because those are *client* errors: the backend answered correctly and rejected a bad or unauthorized request. They don't mean the backend itself is broken. `429` (throttled) and `5xx` (server error) are *not* in the default list — those increment the failure counter and can open the circuit. To transparently requeue on `429` instead of failing, configure the backend to include [`S7PREQUEUE: true`](../Glossary.md#protocol-and-headers) in its `429` responses.
 
 #### How quickly does the circuit recover once the backend is healthy again?
 
@@ -184,7 +184,7 @@ SimpleL7Proxy self-heals automatically. As failures older than `CBTimeslice` sec
 
 #### How many workers should I configure?
 
-SimpleL7Proxy defaults to `Workers=10`, meaning at most 10 requests run simultaneously. Any beyond that wait in the queue. Increase `Workers` to handle more concurrent load. Because `Workers` is a [Cold setting](../Glossary.md#configuration-management), changing it requires a container restart. See [→ Priority Workers](../Glossary.md#request-governance) to reserve a portion of the worker pool for high-priority traffic.
+The default of 10 workers means at most 10 requests run simultaneously — anything beyond that waits in the queue. More workers lower queue latency but cost more in memory and CPU. Because `Workers` is a [Cold setting](../Glossary.md#configuration-management) (read once at startup), changing it requires a container restart. See [→ Priority Workers](../Glossary.md#request-governance) to reserve a portion of the worker pool for high-priority traffic.
 
 #### What is `MaxQueueLength` and what happens when the queue is full?
 
@@ -192,7 +192,7 @@ SimpleL7Proxy rejects incoming requests with a proxy-generated `429 Too Many Req
 
 #### How does the priority queue work — who gets served first?
 
-SimpleL7Proxy dispatches lower integer priorities first — priority 1 runs before priority 2. Without worker reservations, a flood of high-priority requests could monopolize all workers and starve lower-priority requests. [Priority Workers](../Glossary.md#request-governance) prevent this by dedicating a fixed number of worker slots to each priority tier.
+Lower priority numbers go first — priority 1 is served before priority 2. (This follows the same convention as OS process scheduling: 1 is the highest priority, not the lowest — think of it as a rank, not a quantity.) Without worker reservations, a flood of high-priority requests could monopolize all workers and starve lower-priority ones. [Priority Workers](../Glossary.md#request-governance) prevent this by dedicating a fixed number of worker slots to each priority tier.
 
 ---
 

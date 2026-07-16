@@ -1,6 +1,6 @@
 # See It Work: Runnable Scenarios That Show the Proxy Catching Failures
 
-Don't take our word for it. Each scenario runs in under five minutes using the included simulator — no real Azure OpenAI account needed — and shows the proxy handling the exact failures that would otherwise reach your users.
+Each scenario runs in under five minutes using the included simulator — no real Azure OpenAI account needed — and shows the proxy handling the failures that would otherwise reach your users.
 
 ---
 
