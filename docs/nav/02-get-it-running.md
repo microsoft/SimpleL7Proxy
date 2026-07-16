@@ -1,6 +1,6 @@
 # Content Brief: 🚀 Get It Running
 
-> **Purpose:** Guide a new operator or developer from zero to a running proxy with traffic flowing to a backend. Every step must be runnable. Every command must produce visible output. No hand-waving.
+If you're ready to get the proxy running and want to avoid the common false starts — here's what to set up, what commands to run, and how to confirm it's working.
 
 ---
 
@@ -13,7 +13,7 @@
 ### Minimum required before starting?
 .NET 10 SDK (for local dev) or Docker + Azure CLI (for container deployment). Minimum config: `Port` and one `Host1` connection string. No other Azure resources required for a first run.
 
-[→ Prerequisites](../QUICKSTART.md#prerequisites)
+[→ Minimum required before starting?](#minimum-required-before-starting)
 
 </td>
 <td width="33%" valign="top">
@@ -21,7 +21,7 @@
 ### How do I run it locally?
 `export Port=8000`, `export Host1="host=<url>;probe=/health"`, then `cd src/SimpleL7Proxy && dotnet run`. The proxy is ready when you see the startup banner in the console.
 
-[→ Run as Code](../QUICKSTART.md#run-as-code)
+[→ How do I run it?](#how-do-i-run-it)
 
 </td>
 <td width="33%" valign="top">
@@ -29,7 +29,7 @@
 ### How do I deploy to Azure?
 Use the interactive deployment script in `deployment/README.md`. Fill in a parameters file, run the script, and ACA handles the rest. Port 8000 is the expected ingress target.
 
-[→ Deploy to ACA](../QUICKSTART.md#deploy-to-azure-container-apps)
+[→ How do I run it?](#how-do-i-run-it)
 
 </td>
 </tr>
@@ -39,7 +39,7 @@ Use the interactive deployment script in `deployment/README.md`. Fill in a param
 ### How do I point it at a backend?
 Set `Host1` to a connection string: `host=https://<endpoint>;probe=/health`. Use `mode=direct` for serverless endpoints that don't support probing. See the LLM simulator for a no-Azure-needed backend.
 
-[→ Backend host format](../BACKEND_HOSTS.md#configuring-hosts)
+[→ How do I point it at a backend?](#how-do-i-point-it-at-a-backend)
 
 </td>
 <td width="33%" valign="top">
@@ -47,7 +47,7 @@ Set `Host1` to a connection string: `host=https://<endpoint>;probe=/health`. Use
 ### How do I verify it's working?
 Call `curl -i http://localhost:8000/health` — a `200 OK` means the proxy is up. Send a test request and check the response for the `x-Request-Worker` header, which the proxy injects on every proxied response.
 
-[→ Check the health probe](../QUICKSTART.md#check-the-health-probe)
+[→ How do I verify it's working?](#how-do-i-verify-its-working)
 
 </td>
 <td width="33%" valign="top">
@@ -57,65 +57,150 @@ Check that `Host1` is reachable and the probe path returns 2xx. Review the conso
 
 > **⚠️ GAP:** No "top 3 startup failure" quick-reference exists. → [Content gap details](#content-gaps-to-fill)
 
+[→ What if it doesn't start?](#what-if-it-doesnt-start)
+
 </td>
 </tr>
 </table>
 
 ---
 
-## Reader Profile
+## Questions this section MUST answer
 
-| | |
-|---|---|
-| **Who** | New operators, developers doing a first deployment, anyone setting up a demo or dev environment |
-| **Why they come here** | They want a working proxy — not theory — as fast as possible |
-| **When they read this** | First deployment; setting up a new environment; onboarding |
+### Minimum required before starting?
+
+#### What do I need installed before I can run the proxy? (.NET version, Docker, Azure CLI, subscriptions)
+
+SimpleL7Proxy requires .NET 10 and Git for source-based local work. For local containers, add Docker. For Azure deployment, add Azure CLI, `azd`, and a subscription that can create Container Apps resources.
+
+#### What is the absolute minimum configuration required to start? (Port + Host1)
+
+SimpleL7Proxy needs two things to start: `Port` (the port to listen on, typically `8000`) and one backend via `Host1` in the format `host=https://api.example.com;probe=/health`. If your backend has no health-check URL, append `mode=direct` instead of a probe path — this tells the proxy to treat the backend as always available without polling it. See [→ Direct Mode](../Glossary.md#backend-management).
+
+```bash
+export Port=8000
+export Host1="host=https://api.example.com;probe=/health"
+```
+
+#### Do I need any Azure resources before my first run, or can I run it fully locally?
+
+SimpleL7Proxy can run fully locally first, especially if you use the included mock backend or simulator — no Azure account or subscription required for an initial run.
 
 ---
 
-## Questions this section MUST answer
-
-### Before I start
-- [ ] What do I need installed before I can run the proxy? (.NET version, Docker, Azure CLI, subscriptions)
-  **Answer:** For source-based local work you need .NET 10 and Git, for local containers you need Docker, and for Azure deployment you need Azure CLI, `azd`, and a subscription that can create Container Apps resources.
-- [ ] What is the absolute minimum configuration required to start? (Port + Host1)
-  **Answer:** The minimum is `Port` (the port to listen on, typically `8000`) and one backend via `Host1` in the format `host=https://api.example.com;probe=/health`. If your backend has no health-check URL, append `mode=direct` instead of a probe path — this tells the proxy to treat the backend as always available without polling it. See [→ Direct Mode](../Glossary.md#backend-management).
-- [ ] Do I need any Azure resources before my first run, or can I run it fully locally?
-  **Answer:** You can run it fully locally first, especially if you use the included mock backend or simulator.
-
 ### How do I run it?
-- [ ] How do I run the proxy from source locally? (exact commands)
-  **Answer:** Set `Port` and `Host1` as environment variables, then run `dotnet run` from the `src/SimpleL7Proxy/` directory. Example: `export Port=8000 && export Host1="host=http://localhost:9000;probe=/health" && cd src/SimpleL7Proxy && dotnet run`.
-- [ ] How do I run the proxy as a Docker container locally?
-  **Answer:** Build from `src` with `docker build -t simplel7proxy:latest -f SimpleL7Proxy/Dockerfile .`, then run `docker run -p 8000:443 -e "Host1=host=https://api.example.com;probe=/health" simplel7proxy:latest`.
-- [ ] How do I deploy the proxy to Azure Container Apps? (minimal steps)
-  **Answer:** The shortest documented path is `.azure/setup.sh`, `azd provision`, optional App Configuration seeding, and then `.azure/deploy.sh`.
-- [ ] What port does the proxy listen on by default?
-  **Answer:** The runtime default listen port is `80`. Examples in this documentation set `Port=8000` explicitly to avoid the elevated-permission requirement for ports below 1024 on Linux. Inside the container image, the proxy also listens on port `443` (TLS). For Azure Container Apps deployments that set `Port=8000`, the ACA ingress rule should target port `8000`.
+
+#### How do I run the proxy from source locally? (exact commands)
+
+SimpleL7Proxy starts with two environment variables and one command:
+
+```bash
+export Port=8000
+export Host1="host=http://localhost:9000;probe=/health"
+cd src/SimpleL7Proxy && dotnet run
+```
+
+The proxy is ready when you see the startup banner in the console.
+
+#### How do I run the proxy as a Docker container locally?
+
+SimpleL7Proxy packages as a container. Build from `src`, then run with environment variables:
+
+```bash
+docker build -t simplel7proxy:latest -f SimpleL7Proxy/Dockerfile .
+docker run -p 8000:443 -e "Host1=host=https://api.example.com;probe=/health" simplel7proxy:latest
+```
+
+#### How do I deploy the proxy to Azure Container Apps? (minimal steps)
+
+SimpleL7Proxy deploys to ACA via the included scripts. The shortest documented path is:
+
+```bash
+.azure/setup.sh       # provision infrastructure
+azd provision
+# optionally seed App Configuration
+.azure/deploy.sh      # deploy the container
+```
+
+#### What port does the proxy listen on by default?
+
+SimpleL7Proxy defaults to port `80` at runtime. Examples in this documentation use `Port=8000` explicitly to avoid the elevated-permission requirement for ports below 1024 on Linux. Inside the container image, the proxy also listens on port `443` (TLS). For ACA deployments using `Port=8000`, the ingress rule should target port `8000`.
+
+---
 
 ### How do I point it at a backend?
-- [ ] What is the `Host1` connection string format? (minimal valid example)
-  **Answer:** The minimal recommended form is `Host1="host=https://api.example.com;probe=/health"`.
-- [ ] What is the `probe` path and why is it required?
-  **Answer:** The probe path is the URL path the [health poller](../Glossary.md#backend-management) calls on a schedule (every 15 seconds by default) to check whether the backend is alive. A probe must return `2xx` for the backend to stay in the [active pool](../Glossary.md#backend-management) and receive traffic. If your backend has no health-check endpoint, use `mode=direct` instead of a probe path — that tells the proxy to skip health polling and always treat the backend as available. See [→ Direct Mode](../Glossary.md#backend-management).
-- [ ] Can I use the included LLM simulator as a backend so I don't need a real Azure OpenAI endpoint?
-  **Answer:** Yes, the repo includes mock and simulator backends specifically so you can validate the proxy without a real Azure OpenAI deployment.
 
-### How do I know it's working?
-- [ ] What health endpoints can I call to verify the proxy is up? (`/liveness`, `/readiness`, `/startup`)
-  **Answer:** Call `/liveness`, `/readiness`, and `/startup`, or use `/health` as the simple liveness alias.
-- [ ] What does a healthy response look like?
-  **Answer:** A healthy probe returns `200 OK`, usually with an `OK` body, while readiness also implies at least one backend is healthy.
-- [ ] How do I send a test request and see it proxied?
-  **Answer:** Send a normal `curl` request to the proxy host and port. Confirm the response includes the `BackendHost` header — that header is injected by the proxy and shows which backend was used. If `BackendHost` is absent, the request did not pass through the proxy.
-- [ ] What headers does the proxy add to the response so I can confirm it passed through?
-  **Answer:** The proxy adds these headers to every proxied response: `BackendHost` (the backend URL used), `x-Request-Worker` (which worker processed it), `x-Request-Queue-Duration` (milliseconds the request waited in the queue), `x-Request-Process-Duration` (milliseconds the backend took to respond), and `Total-Latency` (end-to-end time). Seeing `BackendHost` in the response is the simplest confirmation that the request passed through the proxy.
+#### What is the `Host1` connection string format? (minimal valid example)
 
-### What do I do when it doesn't start?
-- [ ] What are the three most common startup failures and how do I fix each?
-  **Answer:** The three most common startup failures: (1) **Missing or malformed `Host1`** — verify the connection string contains a `host=` key and the format matches `host=<url>;probe=<path>` exactly; (2) **Unreachable backend or probe path** — verify the backend URL is reachable from the proxy's network and that the probe path returns `2xx`; (3) **App Configuration or auth mismatch** — verify `AZURE_APPCONFIG_ENDPOINT`, the configured label, and that the managed identity has the `App Configuration Data Reader` RBAC role (Role-Based Access Control — Azure's permission system). In all cases, the console output and `eventslog.json` (written to the proxy's working directory) include the specific error message.
-- [ ] Where do I look for startup logs?
-  **Answer:** Start with the console output, then inspect `eventslog.json`, and use `docker logs` as well if you launched the container locally.
+SimpleL7Proxy uses a semicolon-delimited connection string for each backend:
+
+```
+Host1="host=https://api.example.com;probe=/health"
+```
+
+The `host` and `probe` keys are the minimum for a probed backend.
+
+#### What is the `probe` path and why is it required?
+
+SimpleL7Proxy uses the probe path to call each backend on a schedule (every 15 seconds by default) to confirm it is alive. A probe must return `2xx` for the backend to stay in the [active pool](../Glossary.md#backend-management) and receive traffic. If your backend has no health-check endpoint, use `mode=direct` to skip health polling and always treat the backend as available. See [→ Direct Mode](../Glossary.md#backend-management).
+
+![Health probe flow](../helthprobe.png)
+
+#### Can I use the included LLM simulator as a backend so I don't need a real Azure OpenAI endpoint?
+
+SimpleL7Proxy includes a mock backend and LLM simulator specifically for this purpose — you can validate the full proxy pipeline, including `429` throttling and streaming responses, without a real Azure OpenAI deployment. See [→ LLM Simulator](../DUMMY_BACKEND.md).
+
+---
+
+### How do I verify it's working?
+
+#### What health endpoints can I call to verify the proxy is up? (`/liveness`, `/readiness`, `/startup`)
+
+SimpleL7Proxy exposes `/liveness`, `/readiness`, and `/startup` probes. Use `/health` as a simple liveness alias.
+
+```bash
+curl -i http://localhost:8000/health
+# expect: HTTP/1.1 200 OK
+```
+
+#### What does a healthy response look like?
+
+SimpleL7Proxy returns `200 OK` with an `OK` body for a healthy liveness check. The readiness probe also confirms at least one backend is in the active pool — if readiness returns non-200, no healthy backends are available.
+
+#### How do I send a test request and see it proxied?
+
+SimpleL7Proxy injects `BackendHost` into every proxied response. Send a request and check for that header:
+
+```bash
+curl -i http://localhost:8000/your/path
+# look for: BackendHost: https://api.example.com
+```
+
+If `BackendHost` is absent, the request did not pass through the proxy.
+
+#### What headers does the proxy add to the response so I can confirm it passed through?
+
+SimpleL7Proxy adds five headers to every proxied response: `BackendHost` (the backend URL used), `x-Request-Worker` (which worker processed it), `x-Request-Queue-Duration` (milliseconds the request waited in the queue), `x-Request-Process-Duration` (milliseconds the backend took to respond), and `Total-Latency` (end-to-end time). Seeing `BackendHost` is the simplest confirmation.
+
+---
+
+### What if it doesn't start?
+
+#### What are the three most common startup failures and how do I fix each?
+
+SimpleL7Proxy startup fails in three predictable ways:
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `Host1` parse error or no backends registered | Missing or malformed `Host1` | Verify the connection string contains `host=` and matches `host=<url>;probe=<path>` exactly |
+| Probe fails immediately, backend never enters pool | Backend unreachable or probe path returns non-2xx | Verify the backend URL and probe path are reachable from the proxy's network |
+| App Configuration connection refused or `403` | Missing endpoint, wrong label, or identity missing role | Verify `AZURE_APPCONFIG_ENDPOINT`, the label, and that the managed identity has `App Configuration Data Reader` |
+
+In all cases, the console output and `eventslog.json` include the specific error message.
+
+#### Where do I look for startup logs?
+
+SimpleL7Proxy writes startup events to the console and to `eventslog.json` in its working directory. For containers, also check `docker logs <container>`.
 
 ---
 

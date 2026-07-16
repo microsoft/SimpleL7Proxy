@@ -1,6 +1,6 @@
 # Content Brief: 🧪 Try a Proof of Concept
 
-> **Purpose:** Let an engineer reproduce a specific, observable proxy behavior in under 5 minutes using the included LLM simulator — no real Azure OpenAI endpoint required. Each POC must be independently runnable and produce a verifiable outcome.
+If you'd rather see the proxy's behavior than just read about it, each of these proof-of-concept scenarios runs in under five minutes using the included simulator — no real Azure OpenAI endpoint required.
 
 ---
 
@@ -13,7 +13,7 @@
 ### What will I observe in failover?
 When Backend A returns `429`, APIM marks it throttled and retries on Backend B. The client still sees `200 OK`. Verified via `x-Backend-Attempts: 2` and a changed `x-backend-affinity` header.
 
-[→ POC: Failover](../POC-Failover-configuration.md)
+[→ What will I observe in failover?](#what-will-i-observe-in-failover)
 
 </td>
 <td width="33%" valign="top">
@@ -21,7 +21,7 @@ When Backend A returns `429`, APIM marks it throttled and retries on Backend B. 
 ### What does priority routing prove?
 A `llm_proxy_priority: 1` request routes only to backends whose `acceptablePriorities` includes priority 1. A request with no eligible backend returns `503`. Verified via `x-Backend-Attempts` and `backendLog`.
 
-[→ POC: Priority Levels](../POC-Priority-configuration.md)
+[→ What does priority routing prove?](#what-does-priority-routing-prove)
 
 </td>
 <td width="33%" valign="top">
@@ -29,7 +29,7 @@ A `llm_proxy_priority: 1` request routes only to backends whose `acceptablePrior
 ### How does chargeback telemetry work?
 Send a request with an `X-UserID` header. The proxy extracts token counts from the streaming response and logs them to Application Insights. Query by `X-UserID` to get per-user consumption.
 
-[→ POC: Chargeback](../POC-Chargeback.md)
+[→ How does chargeback telemetry work?](#how-does-chargeback-telemetry-work)
 
 </td>
 </tr>
@@ -39,7 +39,7 @@ Send a request with an `X-UserID` header. The proxy extracts token counts from t
 ### Do I need real Azure OpenAI?
 No. The included LLM Simulator (an Azure Function) returns realistic OpenAI-format responses, simulates `429` throttling, and supports configurable latency — all without a real model endpoint.
 
-[→ LLM Simulator](../DUMMY_BACKEND.md)
+[→ Do I need real Azure OpenAI?](#do-i-need-real-azure-openai)
 
 </td>
 <td width="33%" valign="top">
@@ -49,13 +49,15 @@ Each POC has a "What you will observe" section listing specific response headers
 
 > **⚠️ GAP:** No POC has a verification *checklist* (pass/fail signals independent of App Insights). → [Content gap details](#content-gaps-to-fill)
 
+[→ How do I verify a POC worked?](#how-do-i-verify-a-poc-worked)
+
 </td>
 <td width="33%" valign="top">
 
 ### How do I secure the proxy?
 The security POCs cover two layers: EasyAuth on the ACA proxy container (unauthenticated requests rejected before reaching the proxy), and `validate-jwt` in APIM for upstream caller validation.
 
-[→ POC: Secure the Proxy](../POC-Secure-the-proxy.md)
+[→ How do I secure the proxy?](#how-do-i-secure-the-proxy)
 
 </td>
 </tr>
@@ -63,55 +65,93 @@ The security POCs cover two layers: EasyAuth on the ACA proxy container (unauthe
 
 ---
 
-## Reader Profile
-
-| | |
-|---|---|
-| **Who** | Engineers validating proxy behavior before going to production; platform engineers preparing a stakeholder demo; developers learning how a specific feature works |
-| **Why they come here** | They want to see the behavior, not just read about it — they want to observe failover happen, see priority routing in action, or confirm chargeback telemetry is captured |
-| **When they read this** | Pre-production validation; preparing a demo; learning by doing; verifying a new configuration |
-
----
-
 ## Questions each POC MUST answer
 
 > Every POC file must answer all five questions. These are the content requirements for each scenario.
 
-### Before I run it
-- [ ] What will I observe? (exact observable outcomes, not "the proxy will route traffic")
-  **Answer:** Each POC should name the exact pass or fail signals up front, such as `200 OK`, `202 Accepted`, `403`, `503`, `x-Backend-Attempts`, `x-backend-affinity`, or a specific telemetry record.
-- [ ] What do I need running before I start? (simulator, config, Azure resources if any)
-  **Answer:** A good POC should list only the concrete prerequisites for that scenario, usually the proxy, the simulator or backend, and any Azure services that the scenario truly depends on.
-- [ ] How long will this take? (must be < 5 minutes for setup + execution)
-  **Answer:** These POCs are intended to stay under five minutes once the base environment already exists.
+### What will I observe in failover?
 
-### While I run it
-- [ ] What are the exact commands to run?
-  **Answer:** The POC should provide copy-paste-ready commands, usually `curl`, `az`, or policy snippets, so the reader does not have to translate prose into commands.
-- [ ] What do I send to trigger the behavior?
-  **Answer:** Send the one request that exercises the feature, such as a priority header, an `X-UserID`, an async opt-in header, or a route that forces failover.
-- [ ] What should I see in the response headers / body / logs during each step?
-  **Answer:** The reader should see explicit headers, statuses, bodies, or log lines that change in a predictable way at each step of the scenario.
+#### What will I observe? (exact observable outcomes, not "the proxy will route traffic")
 
-### How do I verify it worked?
-- [ ] What headers confirm the behavior? (e.g., `x-Backend-Attempts: 2` for failover)
-  **Answer:** The most common confirmation headers are `x-Backend-Attempts`, `x-backend-affinity`, `BackendHost`, queue or process timing headers, and the final HTTP status code.
-- [ ] What log entries or App Insights events confirm it? (exact field names and values)
-  **Answer:** Verification should call out the exact `backendLog`, Application Insights field, or event dimension that proves the proxy took the expected path.
-- [ ] What would I see if it did NOT work? (how to distinguish success from silent failure)
-  **Answer:** A complete POC should also say what failure looks like, such as the wrong status code, a missing header change, or telemetry that never appears.
+SimpleL7Proxy makes the backend retry visible in the response headers. Each POC should name the exact pass or fail signals up front, such as `200 OK`, `202 Accepted`, `403`, `503`, `x-Backend-Attempts`, `x-backend-affinity`, or a specific telemetry record.
 
-### Why did it happen?
-- [ ] What setting(s) controlled the behavior I just observed?
-  **Answer:** The scenario should name the small set of knobs that drove the result, such as backend priority lists, retry count, timeout, auth settings, or telemetry configuration.
-- [ ] What is the state machine? (e.g., CLOSED → OPEN → recovery for circuit breaker)
-  **Answer:** Every POC should explain the simple state transition behind the result, such as select → throttle → retry → recover or validate → reject versus validate → allow.
+**Example — failover:** Client sends one request. Backend A returns `429`. `x-Backend-Attempts: 2` in the response confirms the proxy retried. `BackendHost` shows Backend B was used. The client sees `200 OK`.
 
-### What can I change?
-- [ ] What variants can I try to see different behavior?
-  **Answer:** Useful variants include changing priority, latency, retry count, auth mode, backend health, or the chosen backend set.
-- [ ] What is the first thing I should change to adapt this to my own workload?
-  **Answer:** The first adaptation is usually to replace the demo endpoints, headers, identities, and backend list with the real ones you plan to use in production.
+#### What do I need running before I start? (simulator, config, Azure resources if any)
+
+SimpleL7Proxy POCs are designed to need only the proxy itself and the simulator or backend for that scenario. Each POC lists only the concrete prerequisites: usually the proxy, the simulator or backend, and any Azure services the scenario truly depends on.
+
+#### How long will this take? (must be < 5 minutes for setup + execution)
+
+SimpleL7Proxy POCs are intended to stay under five minutes once the base environment exists.
+
+---
+
+### What does priority routing prove?
+
+#### What are the exact commands to run?
+
+SimpleL7Proxy POCs provide copy-paste-ready commands so the reader doesn't have to translate prose into commands — usually `curl`, `az`, or policy snippets.
+
+#### What do I send to trigger the behavior?
+
+SimpleL7Proxy responds to the specific trigger for each scenario. For priority routing, send a request with the priority header (`llm_proxy_priority: 1`). For failover, send any request when the primary backend is configured to return `429`. For chargeback, include `X-UserID`.
+
+#### What should I see in the response headers / body / logs during each step?
+
+SimpleL7Proxy produces predictable observable changes at each step. The reader should see specific headers, statuses, bodies, or log lines that change in a predictable way — not narrative descriptions.
+
+---
+
+### How does chargeback telemetry work?
+
+#### What headers confirm the behavior? (e.g., `x-Backend-Attempts: 2` for failover)
+
+SimpleL7Proxy injects these headers as POC confirmation signals:
+
+| Header | What it confirms |
+|--------|-----------------|
+| `x-Backend-Attempts` | How many backends the proxy tried |
+| `x-backend-affinity` | Which backend the APIM policy selected |
+| `BackendHost` | Which backend ultimately served the request |
+| `x-Request-Queue-Duration` | How long the request waited in the queue |
+| HTTP status code | Final outcome |
+
+#### What log entries or App Insights events confirm it? (exact field names and values)
+
+SimpleL7Proxy logs a structured event per request. Verification should call out the exact `backendLog`, Application Insights field, or event dimension that proves the proxy took the expected path.
+
+#### What would I see if it did NOT work? (how to distinguish success from silent failure)
+
+SimpleL7Proxy POCs include a failure description for each scenario — the wrong status code, a missing header change, or telemetry that never appears — so you can distinguish success from a silent misconfiguration.
+
+---
+
+### Do I need real Azure OpenAI?
+
+#### What setting(s) controlled the behavior I just observed?
+
+SimpleL7Proxy behavior is driven by a small set of configuration knobs in each scenario. The scenario names them explicitly — such as backend priority lists, retry count, timeout, auth settings, or telemetry configuration.
+
+#### What is the state machine? (e.g., CLOSED → OPEN → recovery for circuit breaker)
+
+SimpleL7Proxy's behavior in each scenario follows a simple state transition. Each POC explains this — for example: `select → throttle → retry → recover` for failover, or `validate → reject` vs `validate → allow` for security.
+
+---
+
+### How do I verify a POC worked?
+
+#### What variants can I try to see different behavior?
+
+SimpleL7Proxy POCs include variants: changing priority, latency, retry count, auth mode, backend health, or the chosen backend set to exercise different paths.
+
+---
+
+### How do I secure the proxy?
+
+#### What is the first thing I should change to adapt this to my own workload?
+
+SimpleL7Proxy POCs are written with demo endpoints and identities. The first adaptation is to replace demo endpoints, headers, identities, and the backend list with the real ones you plan to use in production.
 
 ---
 
