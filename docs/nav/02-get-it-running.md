@@ -212,14 +212,14 @@ SimpleL7Proxy writes startup events to the console and to `eventslog.json` in it
 
 ---
 
-## Existing documents that cover this area
+## Related Documents
 
-| Document | What it covers | Gap? |
-|----------|----------------|------|
-| [QUICKSTART.md](../QUICKSTART.md) | First-run guide for ACA and local | Primary document — verify it is self-contained |
-| [BEGINNER_DEVELOPMENT.md](../BEGINNER_DEVELOPMENT.md) | Local dev from source | Covers dev path; verify it links to QUICKSTART |
-| [CONTAINER_DEPLOYMENT.md](../CONTAINER_DEPLOYMENT.md) | ACA deployment detail | May have more depth than needed here — link from QUICKSTART |
-| [DUMMY_BACKEND.md](../DUMMY_BACKEND.md) | LLM simulator setup | Critical for readers without a real backend |
-| [ENVIRONMENT_VARIABLES.md](../ENVIRONMENT_VARIABLES.md) | Minimum required config section | Needs a clear "minimum config" callout |
+| Document | What it covers |
+|----------|----------------|
+| [Quickstart](../QUICKSTART.md) | First-run instructions for Azure Container Apps and local environments |
+| [Beginner Development](../BEGINNER_DEVELOPMENT.md) | Local development from source |
+| [Container Deployment](../CONTAINER_DEPLOYMENT.md) | Detailed Azure Container Apps deployment |
+| [Dummy Backend](../DUMMY_BACKEND.md) | LLM simulator setup for testing without a real backend |
+| [Environment Variables](../ENVIRONMENT_VARIABLES.md) | Minimum and complete runtime configuration |
 
 ---

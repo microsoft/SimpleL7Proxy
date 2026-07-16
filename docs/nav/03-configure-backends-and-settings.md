@@ -249,18 +249,18 @@ SimpleL7Proxy caps how much of the worker pool a single user can occupy using `U
 
 ---
 
-## Existing documents that cover this area
+## Related Documents
 
-| Document | What it covers | Gap? |
-|----------|----------------|------|
-| [CONFIGURATION_CATEGORIES.md](../CONFIGURATION_CATEGORIES.md) | Settings grouped by goal: essential / common / advanced | Entry point — verify it is the first document operators read |
-| [ENVIRONMENT_VARIABLES.md](../ENVIRONMENT_VARIABLES.md) | Exhaustive reference for all variables | Reference doc — too long to read top-to-bottom |
-| [BACKEND_HOSTS.md](../BACKEND_HOSTS.md) | Host connection string format, routing, health polling | Primary backend config reference |
-| [LOAD_BALANCING.md](../LOAD_BALANCING.md) | Load balance modes, retry, requeue | Covers retry and pipeline well |
-| [TIMEOUTS.md](../TIMEOUTS.md) | Timeout vs TTL, per-request overrides | Covers async too — keep async section linked from Async area |
-| [CIRCUIT_BREAKER.md](../CIRCUIT_BREAKER.md) | CB states, thresholds, recovery | Self-contained — link from reliability context |
-| [ADVANCED_CONFIGURATION.md](../ADVANCED_CONFIGURATION.md) | Priority management, user governance | Contains content for both operator and governance readers |
-| [AZURE_APP_CONFIGURATION.md](../AZURE_APP_CONFIGURATION.md) | App Config setup, RBAC, Sentinel | Required before hot-reload will work |
-| [SCENARIOS.md](../SCENARIOS.md) | Copy-paste config blocks for common patterns | The fastest path to a working config |
+| Document | What it covers |
+|----------|----------------|
+| [Configuration Categories](../CONFIGURATION_CATEGORIES.md) | Settings grouped as essential, common, or advanced |
+| [Environment Variables](../ENVIRONMENT_VARIABLES.md) | Exhaustive configuration variable reference |
+| [Backend Hosts](../BACKEND_HOSTS.md) | Host connection strings, routing, and health polling |
+| [Load Balancing](../LOAD_BALANCING.md) | Load-balance modes, retry, and requeue behavior |
+| [Timeouts](../TIMEOUTS.md) | Timeout, TTL, and per-request overrides |
+| [Circuit Breaker](../CIRCUIT_BREAKER.md) | Circuit states, thresholds, and recovery |
+| [Advanced Configuration](../ADVANCED_CONFIGURATION.md) | Priority management and user governance |
+| [Azure App Configuration](../AZURE_APP_CONFIGURATION.md) | App Configuration setup, RBAC, and hot reload |
+| [Scenarios](../SCENARIOS.md) | Copy-ready configurations for common patterns |
 
 ---

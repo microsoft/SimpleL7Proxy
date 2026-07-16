@@ -202,3 +202,16 @@ Replace demo endpoints, app registration IDs, and backend connection strings wit
 - [ ] Knows which doc to go to for deeper configuration of that feature
 
 ---
+
+## Related Documents
+
+| Document | What it covers |
+|----------|----------------|
+| [Failover POC](../POC-Failover-configuration.md) | Backend throttling and automatic failover |
+| [Priority Routing POC](../POC-Priority-configuration.md) | Routing requests by priority tier |
+| [Chargeback POC](../POC-Chargeback.md) | Per-user token telemetry and attribution |
+| [OpenAI Failover POC](../POC-OpenAI-Failover.md) | PTU-to-PAYGO failover through APIM |
+| [Secure the Proxy POC](../POC-Secure-the-proxy.md) | Protecting the proxy with Container Apps authentication |
+| [Secure APIM POC](../POC-security-the-apim.md) | Entra JWT validation for Azure API Management |
+
+---
