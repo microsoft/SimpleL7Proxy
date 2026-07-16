@@ -13,7 +13,7 @@ Depending on if you are servicing live users, high priority users or low level b
 ### What problem does it solve?
 When an AI backend throttles or goes down, your users get errors. SimpleL7Proxy catches those failures before they reach callers — retrying transparently, queuing by priority, and keeping your application responsive even when backends struggle.
 
-[→ What problem does it solve?](#what-problem-does-it-solve)
+[→ What problem does it solve?](#what-problem-does-it-solve-1)
 
 </td>
 <td width="33%" valign="top">
