@@ -10,52 +10,40 @@ Two environment variables, one command. Here's what to set up, what commands to 
 <tr>
 <td width="33%" valign="top">
 
-### Minimum required before starting?
+### [Minimum required before starting?](#minimum-required-before-starting-1)
 .NET 10 SDK (for local dev) or Docker + Azure CLI (for container deployment). Minimum config: `Port` and one `Host1` connection string. No other Azure resources required for a first run.
 
-[→ Minimum required before starting?](#minimum-required-before-starting-1)
-
 </td>
 <td width="33%" valign="top">
 
-### How do I run it locally?
+### [How do I run it locally?](#how-do-i-run-it)
 `export Port=8000`, `export Host1="host=<url>;probe=/health"`, then `cd src/SimpleL7Proxy && dotnet run`. The proxy is ready when you see the startup banner in the console.
 
-[→ How do I run it?](#how-do-i-run-it)
-
 </td>
 <td width="33%" valign="top">
 
-### How do I deploy to Azure?
+### [How do I deploy to Azure?](#how-do-i-run-it)
 Use the interactive deployment script in `deployment/README.md`. Fill in a parameters file, run the script, and Azure Container Apps (ACA) handles the rest. Port 8000 is the expected ingress target.
-
-[→ How do I deploy to Azure?](#how-do-i-run-it)
 
 </td>
 </tr>
 <tr>
 <td width="33%" valign="top">
 
-### How do I point it at a backend?
+### [How do I point it at a backend?](#how-do-i-point-it-at-a-backend-1)
 Set `Host1` to a connection string: `host=https://<endpoint>;probe=/health`. Use `mode=direct` for serverless endpoints that don't support probing. See the LLM simulator for a no-Azure-needed backend.
 
-[→ How do I point it at a backend?](#how-do-i-point-it-at-a-backend-1)
-
 </td>
 <td width="33%" valign="top">
 
-### How do I verify it's working?
+### [How do I verify it's working?](#how-do-i-verify-its-working-1)
 Call `curl -i http://localhost:8000/health` — a `200 OK` means the proxy is up. Send a test request and check the response for the `x-Request-Worker` header, which the proxy injects on every proxied response.
 
-[→ How do I verify it's working?](#how-do-i-verify-its-working-1)
-
 </td>
 <td width="33%" valign="top">
 
-### What if it doesn't start?
+### [What if it doesn't start?](#what-if-it-doesnt-start-1)
 Check that `Host1` is reachable and that the probe path returns a success response (HTTP 200–299). Review the console log and `eventslog.json`. Most startup failures trace back to a missing `Host1`, an unreachable backend, or a bad connection string key.
-
-[→ What if it doesn't start?](#what-if-it-doesnt-start-1)
 
 </td>
 </tr>

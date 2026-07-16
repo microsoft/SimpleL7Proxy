@@ -10,52 +10,40 @@ Once it's running, these are the settings that separate a reliable AI gateway fr
 <tr>
 <td width="33%" valign="top">
 
-### How do I add a backend?
+### [How do I add a backend?](#how-do-i-add-a-backend-1)
 Set `Host1` (through `Host9`) to a semicolon-delimited connection string: `host=https://api.example.com;probe=/health`. The `host` and `probe` keys are the minimum for a probed backend.
 
-[→ How do I add a backend?](#how-do-i-add-a-backend-1)
-
 </td>
 <td width="33%" valign="top">
 
-### Which load balance mode to use?
+### [Which load balance mode to use?](#which-load-balance-mode-to-use-1)
 `latency` mode keeps your fastest backend getting traffic — if one endpoint slows down, the proxy routes around it automatically. Use `roundrobin` if backends are equivalent and you want even cost distribution. `random` works if you just need spread without tracking state.
 
-[→ Which load balance mode to use?](#which-load-balance-mode-to-use-1)
-
 </td>
 <td width="33%" valign="top">
 
-### Timeout vs TTL — what's the difference?
+### [Timeout vs TTL — what's the difference?](#timeout-vs-ttl--whats-the-difference-1)
 TTL is the promise to your caller — a maximum wait before they get a definitive answer. Timeout is the limit on a single backend attempt. Get TTL wrong and callers wait too long or get `412`; get Timeout wrong and retries never have a chance to succeed.
-
-[→ Timeout vs TTL — what's the difference?](#timeout-vs-ttl--whats-the-difference-1)
 
 </td>
 </tr>
 <tr>
 <td width="33%" valign="top">
 
-### When does a circuit breaker open?
+### [When does a circuit breaker open?](#when-does-a-circuit-breaker-open-1)
 When failures in the last `CBTimeslice` seconds (default 60 seconds) exceed `CBErrorThreshold` (default 50), the circuit opens and the host is skipped. It self-heals when old failures age out of the window.
 
-[→ When does a circuit breaker open?](#when-does-a-circuit-breaker-open-1)
-
 </td>
 <td width="33%" valign="top">
 
-### How many workers should I set?
+### [How many workers should I set?](#how-many-workers-should-i-set-1)
 Workers control how many requests run simultaneously. Too few and callers wait in the queue; too many and you spend more on memory and compute than you need. Start at the default of 10 — it handles most workloads — and tune up only if queue wait times are consistently high.
 
-[→ How many workers should I set?](#how-many-workers-should-i-set-1)
-
 </td>
 <td width="33%" valign="top">
 
-### How do I change settings without a restart?
+### [How do I change settings without a restart?](#how-do-i-change-settings-without-a-restart-1)
 Connect to Azure App Configuration. Warm settings — timeouts, queue length, circuit breaker thresholds — update across all instances within ~30 seconds when the Sentinel key changes. No container restart, no dropped requests, no deployment coordination needed.
-
-[→ How do I change settings without a restart?](#how-do-i-change-settings-without-a-restart-1)
 
 </td>
 </tr>
