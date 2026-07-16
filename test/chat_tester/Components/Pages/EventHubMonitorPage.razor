@@ -1893,7 +1893,7 @@
     private bool _columnResizerInitialized;
     private bool _isFilterDialogOpen;
     private string _pathsUsersTab = "paths";
-    private string SelectedEnvironmentFilter { get; set; } = "All environments";
+    private string SelectedEnvironmentFilter { get; set; } = "All envs";
     private string SelectedUserFilter { get; set; } = "All users";
     private string SelectedModelFilter { get; set; } = "All models";
 
@@ -2024,7 +2024,7 @@
     private bool MatchesSelectedEnvironment(MultiRequestStatusItem item)
     {
         if (string.IsNullOrWhiteSpace(SelectedEnvironmentFilter)
-            || string.Equals(SelectedEnvironmentFilter, "All environments", StringComparison.OrdinalIgnoreCase))
+            || string.Equals(SelectedEnvironmentFilter, "All envs", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
@@ -2084,7 +2084,7 @@
 
     private Task OnEnvironmentUiChanged(string value)
     {
-        SelectedEnvironmentFilter = string.IsNullOrWhiteSpace(value) ? "All environments" : value;
+        SelectedEnvironmentFilter = string.IsNullOrWhiteSpace(value) ? "All envs" : value;
         return Task.CompletedTask;
     }
 
@@ -3528,7 +3528,7 @@
 
     private IReadOnlyList<string> BuildEnvironmentFilterOptions()
     {
-        var options = new List<string> { "All environments" };
+        var options = new List<string> { "All envs" };
 
         foreach (var scope in _scopeOptions)
         {

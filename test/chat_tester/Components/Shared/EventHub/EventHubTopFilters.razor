@@ -34,7 +34,7 @@
     @if (ShowModelFilter)
     {
         <div class="eventhub-top-filter-field">
-            <label class="eventhub-top-filter-label" for="@ModelSelectId">Model</label>
+            <label class="visually-hidden" for="@ModelSelectId">Model</label>
             <select id="@ModelSelectId"
                     class="form-select form-select-sm eventhub-top-filter-select"
                     value="@SelectedModel"
@@ -51,8 +51,8 @@
 <style>
     .eventhub-top-filters {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 0.45rem;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.3rem;
         width: 100%;
     }
 
@@ -75,23 +75,22 @@
         min-width: 0;
         width: 100%;
         font-weight: 600;
-        font-size: 0.66rem;
-        min-height: 1.62rem;
-        padding-top: 0.08rem;
-        padding-bottom: 0.08rem;
+        font-size: 0.62rem;
+        min-height: 1.5rem;
+        padding: 0.04rem 1.25rem 0.04rem 0.35rem;
     }
 
     @@media (max-width: 900px) {
         .eventhub-top-filters {
-            gap: 0.35rem;
+            gap: 0.25rem;
         }
 
         .eventhub-top-filter-select {
-            font-size: 0.64rem;
+            font-size: 0.6rem;
         }
     }
 
-    @@media (max-width: 560px) {
+    @@media (max-width: 320px) {
         .eventhub-top-filters {
             grid-template-columns: 1fr;
         }

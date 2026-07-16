@@ -374,13 +374,7 @@
                                     long yAxisMax = 1;
                                     foreach (var series in SelectedTrendMetrics)
                                     {
-                                        foreach (var value in series.Values)
-                                        {
-                                            if (value > yAxisMax)
-                                            {
-                                                yAxisMax = value;
-                                            }
-                                        }
+                                        yAxisMax = Math.Max(yAxisMax, series.Values.Max());
                                     }
 
                                     const double chartWidth = 1000d;
@@ -391,6 +385,9 @@
                                     const double bottomPadding = 44d;
                                     var drawableWidth = chartWidth - leftPadding - rightPadding;
                                     var drawableHeight = chartHeight - topPadding - bottomPadding;
+                                    var bucketWidth = bucketCount <= 1 ? drawableWidth : drawableWidth / bucketCount;
+                                    var metricBarWidth = Math.Max(3d, Math.Min(18d, (bucketWidth * 0.72d) / SelectedTrendMetrics.Count));
+                                    var metricGroupWidth = metricBarWidth * SelectedTrendMetrics.Count;
 
                                     double ComputeXForIndex(int index)
                                     {
@@ -438,18 +435,35 @@
                                     <line class="eventhub-trend-axis" x1="@leftPadding" y1="@topPadding" x2="@leftPadding" y2="@(chartHeight - bottomPadding)" />
                                     <line class="eventhub-trend-axis" x1="@leftPadding" y1="@(chartHeight - bottomPadding)" x2="@(chartWidth - rightPadding)" y2="@(chartHeight - bottomPadding)" />
 
-                                    @foreach (var series in SelectedTrendMetrics)
+                                    @for (var bucketIndex = 0; bucketIndex < bucketCount; bucketIndex++)
                                     {
-                                        <polyline class="eventhub-trend-line"
-                                                  points="@BuildTrendPolyline(series.Values.Select(value => (double)value), yAxisMax)"
-                                                  style="stroke:@series.Color" />
-
-                                        @for (var bucketIndex = 0; bucketIndex < bucketCount; bucketIndex++)
+                                        for (var metricIndex = 0; metricIndex < SelectedTrendMetrics.Count; metricIndex++)
                                         {
-                                            var value = series.Values[bucketIndex];
-                                            var x = ComputeXForIndex(bucketIndex);
-                                            var y = ComputeYForValue(value);
-                                            <circle class="eventhub-trend-point" cx="@x" cy="@y" r="3.2" style="fill:@series.Color" />
+                                            var series = SelectedTrendMetrics[metricIndex];
+                                            var totalValue = series.Values[bucketIndex];
+                                            if (totalValue <= 0)
+                                            {
+                                                continue;
+                                            }
+
+                                            var x = ComputeXForIndex(bucketIndex) - (metricGroupWidth / 2d) + (metricIndex * metricBarWidth);
+                                            var y = ComputeYForValue(totalValue);
+                                            var height = ComputeYForValue(0) - y;
+                                            long stackedValue = 0;
+                                            foreach (var segment in series.Segments[bucketIndex])
+                                            {
+                                                var segmentY = ComputeYForValue(stackedValue + segment.Value);
+                                                var segmentHeight = ComputeYForValue(stackedValue) - segmentY;
+                                                <rect class="eventhub-trend-stack-segment" x="@x" y="@segmentY" width="@metricBarWidth" height="@segmentHeight" style="fill:@segment.Color" />
+                                                @if (segmentHeight >= 13d)
+                                                {
+                                                    <svg:text class="eventhub-trend-stack-label" x="@(x + (metricBarWidth / 2d))" y="@(segmentY + (segmentHeight / 2d) + 3d)">@segment.Value</svg:text>
+                                                }
+
+                                                stackedValue += segment.Value;
+                                            }
+
+                                            <rect class="eventhub-trend-metric-outline" x="@x" y="@y" width="@metricBarWidth" height="@height" style="stroke:@series.Color" />
                                         }
                                     }
                                 </svg>
@@ -820,23 +834,23 @@
     }
 
     .eventhub-trend-axis {
-        stroke: #1e293b;
-        stroke-width: 1.9;
+        stroke: #0f172a;
+        stroke-width: 2.4;
     }
 
     .eventhub-trend-gridline {
-        stroke: #cbd5e1;
-        stroke-width: 0.85;
-        stroke-dasharray: 3 3;
+        stroke: #94a3b8;
+        stroke-width: 1;
+        stroke-dasharray: 2 2;
     }
 
     .eventhub-trend-gridline.vertical {
-        stroke: #dbe3ee;
+        stroke: #cbd5e1;
     }
 
     .eventhub-trend-axis-label {
-        fill: #0f172a;
-        font-size: 13px;
+        fill: #172033;
+        font-size: 14px;
         font-weight: 700;
     }
 
@@ -846,21 +860,24 @@
 
     .eventhub-trend-axis-label.x {
         text-anchor: middle;
+        font-size: 11px;
     }
 
-    .eventhub-trend-stack-bar {
-        opacity: 0.95;
+    .eventhub-trend-stack-segment {
+        opacity: 0.9;
     }
 
-    .eventhub-trend-line {
+    .eventhub-trend-metric-outline {
         fill: none;
-        stroke-width: 2.4;
-        stroke-linecap: round;
-        stroke-linejoin: round;
+        stroke-width: 2;
     }
 
-    .eventhub-trend-point {
-        opacity: 0.92;
+    .eventhub-trend-stack-label {
+        fill: #ffffff;
+        font-size: 11px;
+        font-weight: 700;
+        text-anchor: middle;
+        pointer-events: none;
     }
 
     .eventhub-trend-footnote {
@@ -2358,7 +2375,7 @@
     };
     private readonly HashSet<string> _knownTrendMetricKeys = new(StringComparer.OrdinalIgnoreCase);
     private string _pathsUsersTab = "paths";
-    private string SelectedEnvironmentFilter { get; set; } = "All environments";
+    private string SelectedEnvironmentFilter { get; set; } = "All envs";
     private string SelectedUserFilter { get; set; } = "All users";
     private string SelectedModelFilter { get; set; } = "All models";
 
@@ -2499,7 +2516,7 @@
     private bool MatchesSelectedEnvironment(MultiRequestStatusItem item)
     {
         if (string.IsNullOrWhiteSpace(SelectedEnvironmentFilter)
-            || string.Equals(SelectedEnvironmentFilter, "All environments", StringComparison.OrdinalIgnoreCase))
+            || string.Equals(SelectedEnvironmentFilter, "All envs", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
@@ -2559,7 +2576,7 @@
 
     private Task OnEnvironmentUiChanged(string value)
     {
-        SelectedEnvironmentFilter = string.IsNullOrWhiteSpace(value) ? "All environments" : value;
+        SelectedEnvironmentFilter = string.IsNullOrWhiteSpace(value) ? "All envs" : value;
         return Task.CompletedTask;
     }
 
@@ -3387,10 +3404,10 @@
 
             var targetLabel = ExtractHeaderValue(item.ResponseHeadersText, "x-backend-label")
                 ?? ExtractHeaderValue(item.RequestHeadersText, "x-backend-label")
-                ?? ExtractHeaderValue(item.ResponseHeadersText, "Backend-Host")
-                ?? ExtractHeaderValue(item.RequestHeadersText, "Backend-Host")
-                ?? ExtractHeaderValue(item.RequestHeadersText, "Host-URL")
-                ?? ExtractPathFromHeaders(item.RequestHeadersText);
+                ?? (!string.IsNullOrWhiteSpace(requestId)
+                    && requestLabelById.TryGetValue(requestId.Trim(), out var mappedLabel)
+                        ? mappedLabel
+                        : null);
 
             if (string.IsNullOrWhiteSpace(targetLabel))
             {
@@ -3832,9 +3849,10 @@
         };
 
         var colors = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        for (var i = 0; i < UserShares.Count; i++)
+        var userShares = UserShares;
+        for (var i = 0; i < userShares.Count; i++)
         {
-            colors[UserShares[i].User] = palette[i % palette.Length];
+            colors[userShares[i].User] = palette[i % palette.Length];
         }
 
         return colors;
@@ -3889,11 +3907,27 @@
                 continue;
             }
 
-            var values = metric.IsSynthetic
-                ? UsageTrendPoints.Select(point => (long)point.Calls).ToArray()
-                : UsageTrendPoints.Select(point => point.UsageMetrics.TryGetValue(metric.Key, out var value) ? value : 0L).ToArray();
+            if (metric.IsSynthetic)
+            {
+                var values = UsageTrendPoints.Select(point => (long)point.Calls).ToArray();
+                var segments = UsageTrendPoints
+                    .Select(point => point.UserCalls
+                        .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                        .Select(pair => (pair.Key, GetUserColor(pair.Key), (long)pair.Value))
+                        .ToArray())
+                    .ToArray();
+                selectedSeries.Add(new TrendMetricSeries(metric.Label, metric.Color, values, segments));
 
-            selectedSeries.Add(new TrendMetricSeries(metric.Label, metric.Color, values));
+                continue;
+            }
+
+            var metricValues = UsageTrendPoints
+                .Select(point => point.UsageMetrics.TryGetValue(metric.Key, out var value) ? value : 0L)
+                .ToArray();
+            var metricSegments = metricValues
+                .Select(value => (IReadOnlyList<(string Label, string Color, long Value)>)new[] { (metric.Label, metric.Color, value) })
+                .ToArray();
+            selectedSeries.Add(new TrendMetricSeries(metric.Label, metric.Color, metricValues, metricSegments));
         }
 
         return selectedSeries;
@@ -4051,6 +4085,13 @@
             var accumulator = buckets[bucketIndex];
 
             accumulator.Calls++;
+            var user = string.IsNullOrWhiteSpace(item.UserId)
+                ? ExtractHeaderValue(item.RequestHeadersText, "UserID")
+                : item.UserId;
+            user = string.IsNullOrWhiteSpace(user) ? "(unknown)" : user;
+            accumulator.UserCalls[user] = accumulator.UserCalls.TryGetValue(user, out var userCalls)
+                ? userCalls + 1
+                : 1;
 
             var usage = ParseUsageFromFinalResponse(item);
             if (usage.HasUsage)
@@ -4072,7 +4113,8 @@
                 return new UsageTrendPoint(
                     timestamp,
                     bucket.Calls,
-                    new Dictionary<string, long>(bucket.UsageMetrics, StringComparer.OrdinalIgnoreCase));
+                    new Dictionary<string, long>(bucket.UsageMetrics, StringComparer.OrdinalIgnoreCase),
+                    new Dictionary<string, int>(bucket.UserCalls, StringComparer.OrdinalIgnoreCase));
             })
             .ToArray();
     }
@@ -4581,9 +4623,17 @@
         double Percent,
         IReadOnlyDictionary<string, long> UsageMetrics,
         bool HasUsage);
-    private sealed record TrendMetricSeries(string Label, string Color, IReadOnlyList<long> Values);
+    private sealed record TrendMetricSeries(
+        string Label,
+        string Color,
+        IReadOnlyList<long> Values,
+        IReadOnlyList<IReadOnlyList<(string Label, string Color, long Value)>> Segments);
     private sealed record UserTrendSeries(string User, string Color, string Points, int LatestCalls, int MaxCalls, IReadOnlyList<int> Values);
-    private sealed record UsageTrendPoint(DateTimeOffset TimestampUtc, int Calls, IReadOnlyDictionary<string, long> UsageMetrics);
+    private sealed record UsageTrendPoint(
+        DateTimeOffset TimestampUtc,
+        int Calls,
+        IReadOnlyDictionary<string, long> UsageMetrics,
+        IReadOnlyDictionary<string, int> UserCalls);
     private sealed record UsageTotals(IReadOnlyDictionary<string, long> Metrics, bool HasUsage);
 
     private sealed class UserUsageAggregate
@@ -4597,6 +4647,7 @@
     {
         public int Calls { get; set; }
         public Dictionary<string, long> UsageMetrics { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, int> UserCalls { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
     private static string BuildUsageMetricLabel(string key)
@@ -4671,7 +4722,7 @@
 
     private IReadOnlyList<string> BuildEnvironmentFilterOptions()
     {
-        var options = new List<string> { "All environments" };
+        var options = new List<string> { "All envs" };
 
         foreach (var scope in _scopeOptions)
         {
