@@ -1,6 +1,6 @@
 # See It Work: Runnable Scenarios That Show the Proxy Catching Failures
 
-Because routing, retry, and telemetry are easiest to learn by observing them, you can use these proof-of-concept paths to trigger each behavior and verify the result from concrete signals.
+Each scenario runs in under five minutes using the included simulator — no real Azure OpenAI account needed — and shows the proxy handling the failures that would otherwise reach your users.
 
 ---
 

@@ -1,6 +1,6 @@
 # Configuring for Resilience, Speed, and Cost Control
 
-As backend capacity, latency, and request priority change, you will need to learn which settings control routing, resilience, concurrency, cost, and live configuration updates.
+Once it's running, these are the settings that separate a reliable AI gateway from one that fails under load. Backends, load balancing, circuit breaking, timeouts — and how to change them without taking a running container offline.
 
 ---
 

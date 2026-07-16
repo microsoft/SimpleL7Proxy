@@ -1,6 +1,6 @@
 # What the Proxy Is Telling You When Something Goes Wrong
 
-When a request fails, you will need to learn how status codes, response headers, health endpoints, and telemetry identify whether the problem began in the proxy, the queue, or a backend.
+Every unexpected status code is a signal. The proxy puts the reason right in the response — the hosts it tried, why each failed, and what to fix. Here's how to read it, organized by what you're seeing rather than what you already know.
 
 ---
 

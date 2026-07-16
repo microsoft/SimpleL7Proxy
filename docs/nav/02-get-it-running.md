@@ -1,6 +1,6 @@
 # Running the Proxy: From Zero to Proxying Traffic in Minutes
 
-Whether you run the proxy locally or deploy it to Azure Container Apps, you will need to learn the minimum configuration, startup sequence, and signals that prove traffic is flowing.
+Two environment variables, one command. Here's what to set up, what commands to run, and how to confirm it's working.
 
 ---
 
