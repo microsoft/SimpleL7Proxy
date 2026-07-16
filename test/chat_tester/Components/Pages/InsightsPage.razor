@@ -9,6 +9,7 @@
 @using Microsoft.Extensions.Options
 @using Microsoft.JSInterop
 @using System.Globalization
+@using System.Text.Json
 @using System.Text.RegularExpressions
 @inject EventHubMonitorStore Store
 @inject ProxyMetricsCatalog MetricsCatalog
@@ -312,24 +313,76 @@
                     }
                     else
                     {
-                        @if (UserTrendLines.Count == 0)
+                        <div class="eventhub-trend-metric-selector">
+                            <button type="button"
+                                    class="btn btn-sm btn-outline-secondary eventhub-trend-metric-button"
+                                    aria-haspopup="true"
+                                    aria-expanded="@_isTrendMetricMenuOpen"
+                                    @onclick="() => _isTrendMetricMenuOpen = !_isTrendMetricMenuOpen">
+                                Metrics
+                            </button>
+                            <div class="eventhub-trend-selected-list" aria-label="Selected metrics">
+                                @foreach (var series in SelectedTrendMetrics)
+                                {
+                                    <span class="eventhub-trend-selected-item" title="@series.Label">
+                                        <span class="eventhub-user-color-dot" style="background-color:@series.Color"></span>
+                                        @series.Label
+                                    </span>
+                                }
+                            </div>
+                        </div>
+
+                        @if (_isTrendMetricMenuOpen)
+                        {
+                            <div class="eventhub-trend-metric-dropdown" role="group" aria-label="Trend metrics">
+                                @foreach (var metric in TrendMetricOptions)
+                                {
+                                    <label class="eventhub-trend-metric-toggle">
+                                        <input type="checkbox"
+                                               class="form-check-input"
+                                               checked="@IsTrendMetricSelected(metric.Key)"
+                                               @onchange="args => OnTrendMetricSelectionChanged(metric.Key, args.Value)" />
+                                        <span class="eventhub-trend-dot" style="background-color:@metric.Color"></span>
+                                        @metric.Label
+                                    </label>
+                                }
+                            </div>
+                        }
+
+                        @if (UsageTrendPoints.Count == 0)
                         {
                             <div class="text-muted small">No historical trend points available yet.</div>
+                        }
+                        else if (SelectedTrendMetrics.Count == 0)
+                        {
+                            <div class="text-muted small">Select at least one metric to display the usage trend.</div>
                         }
                         else
                         {
                             <div class="eventhub-trend-legend">
-                                @foreach (var series in UserTrendLines)
+                                @foreach (var series in SelectedTrendMetrics)
                                 {
-                                    <span class="eventhub-trend-user-legend-item" title="@series.User">
+                                    <span class="eventhub-trend-user-legend-item" title="@series.Label">
                                         <span class="eventhub-user-color-dot" style="background-color:@series.Color"></span>
-                                        @series.User
+                                        @series.Label
                                     </span>
                                 }
                             </div>
-                            <div class="eventhub-trend-chart" role="img" aria-label="Historical per-user call trend leading to current time">
+                            <div class="eventhub-trend-chart" role="img" aria-label="Historical usage trend for the selected metrics">
                                 @{
-                                    var yAxisMax = Math.Max(1, UserTrendLines.Max(series => series.MaxCalls));
+                                    var bucketCount = UsageTrendPoints.Count;
+                                    long yAxisMax = 1;
+                                    foreach (var series in SelectedTrendMetrics)
+                                    {
+                                        foreach (var value in series.Values)
+                                        {
+                                            if (value > yAxisMax)
+                                            {
+                                                yAxisMax = value;
+                                            }
+                                        }
+                                    }
+
                                     const double chartWidth = 1000d;
                                     const double chartHeight = 300d;
                                     const double leftPadding = 56d;
@@ -339,7 +392,14 @@
                                     var drawableWidth = chartWidth - leftPadding - rightPadding;
                                     var drawableHeight = chartHeight - topPadding - bottomPadding;
 
-                                    double ComputeYForValue(int value)
+                                    double ComputeXForIndex(int index)
+                                    {
+                                        return bucketCount <= 1
+                                            ? leftPadding + (drawableWidth / 2d)
+                                            : leftPadding + (index * drawableWidth / (bucketCount - 1d));
+                                    }
+
+                                    double ComputeYForValue(long value)
                                     {
                                         return topPadding + ((1d - (value / (double)yAxisMax)) * drawableHeight);
                                     }
@@ -347,16 +407,14 @@
                                     var yTicks = new[]
                                     {
                                         yAxisMax,
-                                        (int)Math.Ceiling(yAxisMax / 2d),
-                                        0,
+                                        (long)Math.Ceiling(yAxisMax / 2d),
+                                        0L,
                                     }
                                     .Distinct()
                                     .OrderByDescending(value => value)
                                     .ToArray();
 
-                                    var axisEndLocal = DateTimeOffset.Now;
-                                    var axisStartLocal = axisEndLocal.AddHours(-1);
-                                    var xTickCount = 5;
+                                    var xTickCount = bucketCount <= 1 ? 1 : Math.Min(5, bucketCount);
                                 }
                                 <svg viewBox="0 0 1000 300" preserveAspectRatio="none" aria-hidden="true">
                                     @foreach (var tick in yTicks)
@@ -368,8 +426,11 @@
 
                                     @for (var i = 0; i < xTickCount; i++)
                                     {
-                                        var x = leftPadding + ((drawableWidth * i) / (xTickCount - 1));
-                                        var time = axisStartLocal.AddMinutes(15 * i).ToString("HH:mm", CultureInfo.InvariantCulture);
+                                        var bucketIndex = xTickCount == 1
+                                            ? bucketCount - 1
+                                            : (int)Math.Round(((bucketCount - 1d) * i) / (xTickCount - 1d));
+                                        var x = ComputeXForIndex(bucketIndex);
+                                        var time = UsageTrendPoints[bucketIndex].TimestampUtc.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture);
                                         <line class="eventhub-trend-gridline vertical" x1="@x" y1="@topPadding" x2="@x" y2="@(chartHeight - bottomPadding)" />
                                         <svg:text class="eventhub-trend-axis-label x" x="@x" y="@(chartHeight - 14)">@time</svg:text>
                                     }
@@ -377,9 +438,19 @@
                                     <line class="eventhub-trend-axis" x1="@leftPadding" y1="@topPadding" x2="@leftPadding" y2="@(chartHeight - bottomPadding)" />
                                     <line class="eventhub-trend-axis" x1="@leftPadding" y1="@(chartHeight - bottomPadding)" x2="@(chartWidth - rightPadding)" y2="@(chartHeight - bottomPadding)" />
 
-                                    @foreach (var series in UserTrendLines)
+                                    @foreach (var series in SelectedTrendMetrics)
                                     {
-                                        <polyline class="eventhub-trend-line user" points="@series.Points" style="stroke:@series.Color" />
+                                        <polyline class="eventhub-trend-line"
+                                                  points="@BuildTrendPolyline(series.Values.Select(value => (double)value), yAxisMax)"
+                                                  style="stroke:@series.Color" />
+
+                                        @for (var bucketIndex = 0; bucketIndex < bucketCount; bucketIndex++)
+                                        {
+                                            var value = series.Values[bucketIndex];
+                                            var x = ComputeXForIndex(bucketIndex);
+                                            var y = ComputeYForValue(value);
+                                            <circle class="eventhub-trend-point" cx="@x" cy="@y" r="3.2" style="fill:@series.Color" />
+                                        }
                                     }
                                 </svg>
                             </div>
@@ -412,9 +483,10 @@
                                         <th scope="col">User</th>
                                         <th scope="col" class="text-end">Calls</th>
                                         <th scope="col" class="text-end">Share</th>
-                                        <th scope="col" class="text-end">Prompt</th>
-                                        <th scope="col" class="text-end">Completion</th>
-                                        <th scope="col" class="text-end">Total tokens</th>
+                                        @foreach (var metric in UsageTableMetrics)
+                                        {
+                                            <th scope="col" class="text-end">@metric.Label</th>
+                                        }
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -427,9 +499,10 @@
                                             </td>
                                             <td class="text-end">@share.Calls</td>
                                             <td class="text-end">@share.Percent.ToString("0.#", CultureInfo.InvariantCulture)%</td>
-                                            <td class="text-end">@(share.HasUsage ? share.PromptTokens.ToString("N0", CultureInfo.InvariantCulture) : "-")</td>
-                                            <td class="text-end">@(share.HasUsage ? share.CompletionTokens.ToString("N0", CultureInfo.InvariantCulture) : "-")</td>
-                                            <td class="text-end">@(share.HasUsage ? share.TotalTokens.ToString("N0", CultureInfo.InvariantCulture) : "-")</td>
+                                            @foreach (var metric in UsageTableMetrics)
+                                            {
+                                                <td class="text-end">@(share.UsageMetrics.TryGetValue(metric.Key, out var value) ? value.ToString("N0", CultureInfo.InvariantCulture) : "-")</td>
+                                            }
                                         </tr>
                                     }
                                 </tbody>
@@ -638,8 +711,89 @@
         background: #2563eb;
     }
 
+    .eventhub-trend-dot.queries {
+        background: #2563eb;
+    }
+
+    .eventhub-trend-dot.prompt {
+        background: #ca8a04;
+    }
+
+    .eventhub-trend-dot.completion {
+        background: #dc2626;
+    }
+
     .eventhub-trend-dot.tokens {
         background: #0f766e;
+    }
+
+    .eventhub-trend-dot.total {
+        background: #0f766e;
+    }
+
+    .eventhub-trend-metric-selector {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.65rem;
+        margin-bottom: 0.45rem;
+    }
+
+    .eventhub-trend-metric-button {
+        flex: 0 0 auto;
+        font-size: 0.78rem;
+        font-weight: 600;
+    }
+
+    .eventhub-trend-selected-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem 0.6rem;
+        min-width: 0;
+    }
+
+    .eventhub-trend-selected-item {
+        display: inline-flex;
+        align-items: center;
+        max-width: 12rem;
+        padding: 0.12rem 0.45rem;
+        border: 1px solid #d6dee7;
+        border-radius: 999px;
+        background: #f8fafc;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #334155;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .eventhub-trend-metric-dropdown {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.6rem 1rem;
+        margin-bottom: 0.6rem;
+        padding: 0.65rem 0.75rem;
+        border: 1px solid #dbe1e8;
+        border-radius: 0.5rem;
+        background: #ffffff;
+        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+        max-height: 13rem;
+        overflow-y: auto;
+    }
+
+    .eventhub-trend-metric-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: #334155;
+        cursor: pointer;
+    }
+
+    .eventhub-trend-metric-toggle .form-check-input {
+        margin: 0;
     }
 
     .eventhub-user-color-dot {
@@ -666,8 +820,8 @@
     }
 
     .eventhub-trend-axis {
-        stroke: #334155;
-        stroke-width: 1.1;
+        stroke: #1e293b;
+        stroke-width: 1.9;
     }
 
     .eventhub-trend-gridline {
@@ -681,9 +835,9 @@
     }
 
     .eventhub-trend-axis-label {
-        fill: #475569;
+        fill: #0f172a;
         font-size: 13px;
-        font-weight: 600;
+        font-weight: 700;
     }
 
     .eventhub-trend-axis-label.y {
@@ -694,25 +848,19 @@
         text-anchor: middle;
     }
 
+    .eventhub-trend-stack-bar {
+        opacity: 0.95;
+    }
+
     .eventhub-trend-line {
         fill: none;
+        stroke-width: 2.4;
         stroke-linecap: round;
         stroke-linejoin: round;
-        stroke-width: 2.8;
     }
 
-    .eventhub-trend-line.calls {
-        stroke: #2563eb;
-    }
-
-    .eventhub-trend-line.tokens {
-        stroke: #0f766e;
-        stroke-dasharray: 6 4;
-    }
-
-    .eventhub-trend-line.user {
-        stroke-width: 2.4;
-        opacity: 0.95;
+    .eventhub-trend-point {
+        opacity: 0.92;
     }
 
     .eventhub-trend-footnote {
@@ -2202,6 +2350,13 @@
     private bool _receivedFirst;
     private bool _columnResizerInitialized;
     private bool _isFilterDialogOpen;
+    private bool _isTrendMetricMenuOpen;
+    private readonly HashSet<string> _selectedTrendMetricKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "__total_queries",
+        "usage.total_tokens",
+    };
+    private readonly HashSet<string> _knownTrendMetricKeys = new(StringComparer.OrdinalIgnoreCase);
     private string _pathsUsersTab = "paths";
     private string SelectedEnvironmentFilter { get; set; } = "All environments";
     private string SelectedUserFilter { get; set; } = "All users";
@@ -2303,9 +2458,11 @@
     private IReadOnlyDictionary<string, string> UserColors => BuildUserColors();
     private IReadOnlyList<UserTrendSeries> UserTrendLines => BuildUserTrendSeries();
     private IReadOnlyList<UsageTrendPoint> UsageTrendPoints => BuildUsageTrendPoints();
-    private bool UsageHasTokenSeries => UsageTrendPoints.Any(point => point.TotalTokens > 0);
-    private string CallsTrendPoints => BuildTrendPolyline(UsageTrendPoints.Select(point => (double)point.Calls));
-    private string TokenTrendPoints => BuildTrendPolyline(UsageTrendPoints.Select(point => (double)point.TotalTokens));
+    private IReadOnlyList<(string Key, string Label, string Color, bool IsSynthetic)> TrendMetricOptions => BuildUsageMetricDefinitions();
+    private IReadOnlyList<(string Key, string Label, string Color, bool IsSynthetic)> UsageTableMetrics => TrendMetricOptions
+        .Where(metric => !metric.IsSynthetic)
+        .ToArray();
+    private IReadOnlyList<TrendMetricSeries> SelectedTrendMetrics => BuildSelectedTrendMetrics();
     private string TrendWindowLabel => BuildTrendWindowLabel();
     private IReadOnlyList<PathCount> SuccessfulPaths => BuildPathCounts(success: true);
     private IReadOnlyList<PathCount> FailedPaths => BuildPathCounts(success: false);
@@ -3580,9 +3737,13 @@
             var usage = ParseUsageFromFinalResponse(item);
             if (usage.HasUsage)
             {
-                aggregate.PromptTokens += usage.PromptTokens;
-                aggregate.CompletionTokens += usage.CompletionTokens;
-                aggregate.TotalTokens += usage.TotalTokens;
+                foreach (var metric in usage.Metrics)
+                {
+                    aggregate.UsageMetrics[metric.Key] = aggregate.UsageMetrics.TryGetValue(metric.Key, out var currentValue)
+                        ? currentValue + metric.Value
+                        : metric.Value;
+                }
+
                 aggregate.UsageSamples++;
             }
         }
@@ -3601,11 +3762,65 @@
                 pair.Key,
                 pair.Value.Calls,
                 (pair.Value.Calls * 100.0) / totalCalls,
-                pair.Value.PromptTokens,
-                pair.Value.CompletionTokens,
-                pair.Value.TotalTokens,
+                new Dictionary<string, long>(pair.Value.UsageMetrics, StringComparer.OrdinalIgnoreCase),
                 pair.Value.UsageSamples > 0))
             .ToArray();
+    }
+
+    private IReadOnlyList<(string Key, string Label, string Color, bool IsSynthetic)> BuildUsageMetricDefinitions()
+    {
+        var filteredRequests = GetFilteredRequestItems();
+        var discoveredKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in filteredRequests)
+        {
+            if (!string.Equals(item.EventType, "S7P-ProxyRequest", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(item.EventType, "S7P-ProxyRequestExpired", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var usage = ParseUsageFromFinalResponse(item);
+            foreach (var metric in usage.Metrics.Keys)
+            {
+                discoveredKeys.Add(metric);
+            }
+        }
+
+        var palette = new[]
+        {
+            "#2563eb", "#0f766e", "#dc2626", "#ca8a04", "#7c3aed", "#0891b2",
+            "#16a34a", "#ea580c", "#db2777", "#4f46e5", "#1d4ed8", "#9333ea"
+        };
+
+        var metrics = new List<(string Key, string Label, string Color, bool IsSynthetic)>
+        {
+            ("__total_queries", "Total queries", palette[0], true),
+        };
+
+        var orderedDiscoveredKeys = discoveredKeys
+            .OrderBy(key => key.Equals("usage.total_tokens", StringComparison.OrdinalIgnoreCase) ? 0 :
+                            key.Equals("usage.prompt_tokens", StringComparison.OrdinalIgnoreCase) ? 1 :
+                            key.Equals("usage.completion_tokens", StringComparison.OrdinalIgnoreCase) ? 2 :
+                            key.Equals("usage.input_tokens", StringComparison.OrdinalIgnoreCase) ? 3 :
+                            key.Equals("usage.output_tokens", StringComparison.OrdinalIgnoreCase) ? 4 : 10)
+            .ThenBy(key => key, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        for (var i = 0; i < orderedDiscoveredKeys.Length; i++)
+        {
+            var key = orderedDiscoveredKeys[i];
+            if (_knownTrendMetricKeys.Add(key)
+                && key.Equals("usage.total_tokens", StringComparison.OrdinalIgnoreCase))
+            {
+                _selectedTrendMetricKeys.Add(key);
+            }
+
+            var label = BuildUsageMetricLabel(key);
+            var color = palette[(i + 1) % palette.Length];
+            metrics.Add((key, label, color, false));
+        }
+
+        return metrics;
     }
 
     private IReadOnlyDictionary<string, string> BuildUserColors()
@@ -3633,6 +3848,55 @@
         }
 
         return "#64748b";
+    }
+
+    private bool IsTrendMetricSelected(string key)
+    {
+        return _selectedTrendMetricKeys.Contains(key);
+    }
+
+    private void OnTrendMetricSelectionChanged(string key, object? value)
+    {
+        var isSelected = value switch
+        {
+            bool boolValue => boolValue,
+            string stringValue when bool.TryParse(stringValue, out var parsedValue) => parsedValue,
+            _ => false,
+        };
+
+        if (isSelected)
+        {
+            _selectedTrendMetricKeys.Add(key);
+        }
+        else
+        {
+            _selectedTrendMetricKeys.Remove(key);
+        }
+    }
+
+    private IReadOnlyList<TrendMetricSeries> BuildSelectedTrendMetrics()
+    {
+        if (UsageTrendPoints.Count == 0)
+        {
+            return Array.Empty<TrendMetricSeries>();
+        }
+
+        var selectedSeries = new List<TrendMetricSeries>();
+        foreach (var metric in TrendMetricOptions)
+        {
+            if (!_selectedTrendMetricKeys.Contains(metric.Key))
+            {
+                continue;
+            }
+
+            var values = metric.IsSynthetic
+                ? UsageTrendPoints.Select(point => (long)point.Calls).ToArray()
+                : UsageTrendPoints.Select(point => point.UsageMetrics.TryGetValue(metric.Key, out var value) ? value : 0L).ToArray();
+
+            selectedSeries.Add(new TrendMetricSeries(metric.Label, metric.Color, values));
+        }
+
+        return selectedSeries;
     }
 
     private IReadOnlyList<UserTrendSeries> BuildUserTrendSeries()
@@ -3730,7 +3994,8 @@
                 GetUserColor(user),
                 BuildTrendPolyline(userSeriesValues[user].Select(value => (double)value), maxCalls),
                 userSeriesValues[user].Length == 0 ? 0 : userSeriesValues[user][^1],
-                maxCalls))
+                maxCalls,
+                userSeriesValues[user]))
             .ToArray();
     }
 
@@ -3742,7 +4007,19 @@
             return Array.Empty<UsageTrendPoint>();
         }
 
-        var buckets = new Dictionary<DateTimeOffset, UsageTrendPointAccumulator>();
+        var bucketSize = TimeSpan.FromMinutes(1);
+        var totalWindow = TimeSpan.FromHours(1);
+        var endTicks = DateTimeOffset.UtcNow.UtcTicks - (DateTimeOffset.UtcNow.UtcTicks % bucketSize.Ticks);
+        var endBucket = new DateTimeOffset(endTicks, TimeSpan.Zero);
+        var bucketCount = (int)(totalWindow.Ticks / bucketSize.Ticks) + 1;
+        var startBucket = endBucket - TimeSpan.FromTicks(bucketSize.Ticks * (bucketCount - 1));
+        var buckets = new UsageTrendPointAccumulator[bucketCount];
+
+        for (var i = 0; i < bucketCount; i++)
+        {
+            buckets[i] = new UsageTrendPointAccumulator();
+        }
+
         foreach (var item in filteredRequests)
         {
             if (!string.Equals(item.EventType, "S7P-ProxyRequest", StringComparison.OrdinalIgnoreCase)
@@ -3757,47 +4034,59 @@
                 continue;
             }
 
-            var bucket = new DateTimeOffset(
-                timestamp.Value.Year,
-                timestamp.Value.Month,
-                timestamp.Value.Day,
-                timestamp.Value.Hour,
-                timestamp.Value.Minute,
-                0,
-                TimeSpan.Zero);
-
-            if (!buckets.TryGetValue(bucket, out var accumulator))
+            var roundedTicks = timestamp.Value.UtcTicks - (timestamp.Value.UtcTicks % bucketSize.Ticks);
+            var bucket = new DateTimeOffset(roundedTicks, TimeSpan.Zero);
+            if (bucket < startBucket || bucket > endBucket)
             {
-                accumulator = new UsageTrendPointAccumulator();
-                buckets[bucket] = accumulator;
+                continue;
             }
+
+            var bucketOffset = bucket - startBucket;
+            var bucketIndex = (int)(bucketOffset.Ticks / bucketSize.Ticks);
+            if (bucketIndex < 0 || bucketIndex >= bucketCount)
+            {
+                continue;
+            }
+
+            var accumulator = buckets[bucketIndex];
 
             accumulator.Calls++;
 
             var usage = ParseUsageFromFinalResponse(item);
             if (usage.HasUsage)
             {
-                accumulator.TotalTokens += usage.TotalTokens;
+                foreach (var metric in usage.Metrics)
+                {
+                    accumulator.UsageMetrics[metric.Key] = accumulator.UsageMetrics.TryGetValue(metric.Key, out var currentValue)
+                        ? currentValue + metric.Value
+                        : metric.Value;
+                }
             }
         }
 
-        return buckets
-            .OrderBy(pair => pair.Key)
-            .TakeLast(45)
-            .Select(pair => new UsageTrendPoint(pair.Key, pair.Value.Calls, pair.Value.TotalTokens))
+        return Enumerable.Range(0, bucketCount)
+            .Select(index =>
+            {
+                var timestamp = startBucket + TimeSpan.FromTicks(bucketSize.Ticks * index);
+                var bucket = buckets[index];
+                return new UsageTrendPoint(
+                    timestamp,
+                    bucket.Calls,
+                    new Dictionary<string, long>(bucket.UsageMetrics, StringComparer.OrdinalIgnoreCase));
+            })
             .ToArray();
     }
 
     private string BuildTrendWindowLabel()
     {
-        if (UserTrendLines.Count == 0)
+        if (UsageTrendPoints.Count == 0)
         {
             return string.Empty;
         }
 
-        var end = DateTimeOffset.Now;
-        var start = end.AddHours(-1);
-        return $"Window: {start} to {end}";
+        var start = UsageTrendPoints[0].TimestampUtc.ToLocalTime();
+        var end = UsageTrendPoints[^1].TimestampUtc.ToLocalTime();
+        return $"Window: {start.ToString("MM/dd/yyyy HH:mm:ss zzz", CultureInfo.InvariantCulture)} to {end.ToString("MM/dd/yyyy HH:mm:ss zzz", CultureInfo.InvariantCulture)}";
     }
 
     private static string BuildTrendPolyline(IEnumerable<double> values, double? maxScale = null)
@@ -3855,43 +4144,182 @@
 
     private static UsageTotals ParseUsageFromFinalResponse(MultiRequestStatusItem item)
     {
-        // Usage is expected primarily in final proxy response event fields. ResponseHeadersText
-        // includes EventData key/value lines, so parse there first and then fall back to body.
-        var prompt = ParseLongUsageValue(item, "prompt_tokens", "prompt-tokens", "PromptTokens", "input_tokens", "input-tokens");
-        var completion = ParseLongUsageValue(item, "completion_tokens", "completion-tokens", "CompletionTokens", "output_tokens", "output-tokens");
-        var total = ParseLongUsageValue(item, "total_tokens", "total-tokens", "TotalTokens", "token_usage", "tokens");
+        var metrics = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
 
-        if (total <= 0)
+        static string NormalizeUsageMetricKey(string rawKey)
         {
-            total = prompt + completion;
-        }
-
-        var hasUsage = prompt > 0 || completion > 0 || total > 0;
-        return new UsageTotals(prompt, completion, total, hasUsage);
-    }
-
-    private static long ParseLongUsageValue(MultiRequestStatusItem item, params string[] candidateKeys)
-    {
-        foreach (var key in candidateKeys)
-        {
-            var fromHeaders = ExtractHeaderValue(item.ResponseHeadersText, key)
-                ?? ExtractHeaderValue(item.RequestHeadersText, key);
-            if (TryParseLong(fromHeaders, out var parsedHeader))
+            static string NormalizeSegment(string segment)
             {
-                return parsedHeader;
+                var builder = new System.Text.StringBuilder(segment.Length + 8);
+                for (var i = 0; i < segment.Length; i++)
+                {
+                    var current = segment[i];
+                    if (current == '-' || current == ' ')
+                    {
+                        builder.Append('_');
+                        continue;
+                    }
+
+                    if (current == '_')
+                    {
+                        builder.Append('_');
+                        continue;
+                    }
+
+                    if (char.IsUpper(current) && i > 0 && builder.Length > 0 && builder[^1] != '_')
+                    {
+                        builder.Append('_');
+                    }
+
+                    builder.Append(char.ToLowerInvariant(current));
+                }
+
+                return builder.ToString().Trim('_');
             }
 
-            var bodyMatch = Regex.Match(
-                item.ResponseBody ?? string.Empty,
-                $"\"{Regex.Escape(key)}\"\\s*:\\s*([0-9]+)",
-                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-            if (bodyMatch.Success && TryParseLong(bodyMatch.Groups[1].Value, out var parsedBody))
+            var trimmed = rawKey.Trim();
+            if (trimmed.StartsWith("Usage.", StringComparison.OrdinalIgnoreCase))
             {
-                return parsedBody;
+                trimmed = trimmed["Usage.".Length..];
+            }
+            else if (string.Equals(trimmed, "Usage", StringComparison.OrdinalIgnoreCase))
+            {
+                trimmed = string.Empty;
+            }
+
+            var normalizedSegments = trimmed
+                .Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(NormalizeSegment)
+                .Where(segment => !string.IsNullOrWhiteSpace(segment))
+                .ToArray();
+
+            return normalizedSegments.Length == 0
+                ? "usage"
+                : $"usage.{string.Join('.', normalizedSegments)}";
+        }
+
+        static void AddMetric(IDictionary<string, long> values, string rawKey, long value)
+        {
+            if (value < 0)
+            {
+                return;
+            }
+
+            var normalizedKey = NormalizeUsageMetricKey(rawKey);
+            if (normalizedKey.Length == 0)
+            {
+                return;
+            }
+
+            values[normalizedKey] = values.TryGetValue(normalizedKey, out var existingValue)
+                ? Math.Max(existingValue, value)
+                : value;
+        }
+
+        static void ReadUsageHeaders(string? headers, IDictionary<string, long> values)
+        {
+            if (string.IsNullOrWhiteSpace(headers))
+            {
+                return;
+            }
+
+            var lines = headers
+                .Replace("\r\n", "\n", StringComparison.Ordinal)
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            foreach (var line in lines)
+            {
+                var separatorIndex = line.IndexOf(':');
+                if (separatorIndex <= 0)
+                {
+                    continue;
+                }
+
+                var key = line[..separatorIndex].Trim();
+                if (!key.StartsWith("Usage.", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var rawValue = line[(separatorIndex + 1)..].Trim();
+                if (TryParseLong(rawValue, out var parsedValue))
+                {
+                    AddMetric(values, key, parsedValue);
+                }
             }
         }
 
-        return 0;
+        static void ReadUsageJson(JsonElement element, string prefix, IDictionary<string, long> values)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                var path = string.IsNullOrWhiteSpace(prefix)
+                    ? property.Name
+                    : $"{prefix}.{property.Name}";
+
+                if (property.Value.ValueKind == JsonValueKind.Object)
+                {
+                    ReadUsageJson(property.Value, path, values);
+                    continue;
+                }
+
+                if (property.Value.ValueKind == JsonValueKind.Number && property.Value.TryGetInt64(out var numericValue))
+                {
+                    AddMetric(values, path, numericValue);
+                    continue;
+                }
+
+                if (property.Value.ValueKind == JsonValueKind.String && TryParseLong(property.Value.GetString(), out var stringValue))
+                {
+                    AddMetric(values, path, stringValue);
+                }
+            }
+        }
+
+        ReadUsageHeaders(item.ResponseHeadersText, metrics);
+        ReadUsageHeaders(item.RequestHeadersText, metrics);
+
+        var responseBody = item.ResponseBody?.Trim();
+        if (!string.IsNullOrWhiteSpace(responseBody)
+            && (responseBody.StartsWith("{", StringComparison.Ordinal) || responseBody.StartsWith("[", StringComparison.Ordinal)))
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(responseBody);
+                if (document.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    if (document.RootElement.TryGetProperty("usage", out var usageElement)
+                        && usageElement.ValueKind == JsonValueKind.Object)
+                    {
+                        ReadUsageJson(usageElement, "usage", metrics);
+                    }
+                    else if (document.RootElement.TryGetProperty("response", out var responseElement)
+                        && responseElement.ValueKind == JsonValueKind.Object
+                        && responseElement.TryGetProperty("usage", out var nestedUsageElement)
+                        && nestedUsageElement.ValueKind == JsonValueKind.Object)
+                    {
+                        ReadUsageJson(nestedUsageElement, "usage", metrics);
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+            }
+        }
+
+        if (!metrics.ContainsKey("usage.total_tokens"))
+        {
+            var hasInput = metrics.TryGetValue("usage.input_tokens", out var inputTokens)
+                || metrics.TryGetValue("usage.prompt_tokens", out inputTokens);
+            var hasOutput = metrics.TryGetValue("usage.output_tokens", out var outputTokens)
+                || metrics.TryGetValue("usage.completion_tokens", out outputTokens);
+
+            if (hasInput && hasOutput)
+            {
+                metrics["usage.total_tokens"] = inputTokens + outputTokens;
+            }
+        }
+
+        return new UsageTotals(metrics, metrics.Count > 0);
     }
 
     private static bool TryParseLong(string? value, out long parsed)
@@ -4151,27 +4579,43 @@
         string User,
         int Calls,
         double Percent,
-        long PromptTokens,
-        long CompletionTokens,
-        long TotalTokens,
+        IReadOnlyDictionary<string, long> UsageMetrics,
         bool HasUsage);
-    private sealed record UserTrendSeries(string User, string Color, string Points, int LatestCalls, int MaxCalls);
-    private sealed record UsageTrendPoint(DateTimeOffset TimestampUtc, int Calls, long TotalTokens);
-    private sealed record UsageTotals(long PromptTokens, long CompletionTokens, long TotalTokens, bool HasUsage);
+    private sealed record TrendMetricSeries(string Label, string Color, IReadOnlyList<long> Values);
+    private sealed record UserTrendSeries(string User, string Color, string Points, int LatestCalls, int MaxCalls, IReadOnlyList<int> Values);
+    private sealed record UsageTrendPoint(DateTimeOffset TimestampUtc, int Calls, IReadOnlyDictionary<string, long> UsageMetrics);
+    private sealed record UsageTotals(IReadOnlyDictionary<string, long> Metrics, bool HasUsage);
 
     private sealed class UserUsageAggregate
     {
         public int Calls { get; set; }
-        public long PromptTokens { get; set; }
-        public long CompletionTokens { get; set; }
-        public long TotalTokens { get; set; }
+        public Dictionary<string, long> UsageMetrics { get; } = new(StringComparer.OrdinalIgnoreCase);
         public int UsageSamples { get; set; }
     }
 
     private sealed class UsageTrendPointAccumulator
     {
         public int Calls { get; set; }
-        public long TotalTokens { get; set; }
+        public Dictionary<string, long> UsageMetrics { get; } = new(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string BuildUsageMetricLabel(string key)
+    {
+        if (string.Equals(key, "__total_queries", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Total queries";
+        }
+
+        var trimmed = key.StartsWith("usage.", StringComparison.OrdinalIgnoreCase)
+            ? key["usage.".Length..]
+            : key;
+        var segments = trimmed
+            .Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(segment => segment.Replace("_", " ", StringComparison.Ordinal))
+            .Select(segment => CultureInfo.InvariantCulture.TextInfo.ToTitleCase(segment))
+            .ToArray();
+
+        return segments.Length == 0 ? key : string.Join(" / ", segments);
     }
 
     private void RefreshScopeState()
