@@ -1,6 +1,6 @@
 # Why Would You Put a Proxy in Front of Your AI Backends?
 
-Your AI backend throttles. A model endpoint goes down. A VIP customer's request waits behind a flood of low-priority traffic. Here are the questions most teams ask before deciding whether this fits their architecture.
+Depending on if you are servicing live users, high priority users or low level background tasks, you will likely want to choose when and where to fulfill your traffic.  Moreover AI backend typically throttle, and model have lifetime cycles. These and more are the reasons why you would want to put a proxy in fron of the backends. Here are the questions most teams ask before deciding whether this fits their architecture.
 
 ---
 
