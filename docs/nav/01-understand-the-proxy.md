@@ -79,31 +79,31 @@ No managed hosting, no gRPC/WebSocket, no model inference, no full API gateway f
 
 ### What is it?
 - [ ] What problem does SimpleL7Proxy solve that a standard Layer-4 load balancer cannot?
-  **Answer:** A Layer-4 balancer can spread connections, but it cannot inspect HTTP paths, headers, retry signals, or streamed token data, so SimpleL7Proxy adds AI-specific routing, fairness, failover, and telemetry.
+  **Answer:** A Layer-4 load balancer routes traffic based only on IP addresses and TCP ports — it cannot see inside the HTTP request. This means it cannot detect a `429 Too Many Requests` throttle signal, choose a backend based on the request URL path, or extract token counts from a streaming AI response. SimpleL7Proxy operates at the HTTP level (see next question), so it can add priority queuing, [circuit breaking](../Glossary.md#reliability), and per-request telemetry that a Layer-4 balancer simply cannot provide.
 - [ ] What is a Layer 7 proxy and why does that distinction matter for AI workloads?
-  **Answer:** A Layer 7 proxy understands HTTP requests and responses, which matters here because AI traffic needs path-aware routing, header-based policy, retry handling, and token extraction from streamed responses.
+  **Answer:** In networking, traffic moves through layers — Layer 4 handles raw TCP (source IP, destination IP, port) while Layer 7 is the application protocol, which for us means HTTP. A Layer 7 proxy reads request paths, inspects headers, and parses response bodies; a Layer-4 router can only forward packets. For AI workloads, this matters: the proxy must detect throttle codes like `429`, route `/openai/` and `/embeddings/` to different backends, and extract [token telemetry](../Glossary.md#observability) from streaming responses — none of which are possible at Layer 4.
 - [ ] What are the core capabilities in plain language (routing, queuing, circuit breaking, governance, telemetry)?
-  **Answer:** In plain terms, it picks a healthy backend, queues work by priority, stops sending traffic to failing hosts, enforces caller rules, and records per-request timing and token data.
+  **Answer:** In plain terms: routing picks a healthy backend and balances load across several; queuing holds incoming requests in a [priority queue](../Glossary.md#request-lifecycle) so critical work is processed first when workers are busy; [circuit breaking](../Glossary.md#reliability) stops sending requests to a failing backend and resumes automatically when it recovers; governance controls which callers can use the proxy and how much capacity each is allowed; telemetry records per-request timing and AI token counts for observability and chargeback.
 
 ### What does it look like from the outside?
 - [ ] Where does the proxy sit in the architecture — between what and what?
-  **Answer:** It sits between clients or APIM on the front side and backend AI endpoints on the back side.
+  **Answer:** It sits between clients (or Azure API Management, which handles developer-facing gateway concerns like subscriptions and authentication) on the ingress side and Azure AI backend endpoints on the egress side. Clients never call backends directly — the proxy is the single data-plane entry point.
 - [ ] What does a request look like going in, and what comes back?
-  **Answer:** A caller sends a normal HTTP request, and the proxy returns the backend response plus proxy-added headers such as worker, queue, and backend timing details.
+  **Answer:** A caller sends a standard HTTP request — the same format they would send to the backend directly. The proxy returns the backend's response unchanged but adds diagnostic headers: `BackendHost` (which backend was used), `x-Request-Worker` (which worker handled it), `x-Request-Queue-Duration` (milliseconds the request waited in the queue before a worker picked it up), `x-Request-Process-Duration` (milliseconds the backend took to respond), and `Total-Latency` (the end-to-end round-trip). These headers are primarily for debugging and operations monitoring.
 - [ ] What Azure services does it depend on (App Insights, Event Hubs, Service Bus, Blob, App Configuration)?
-  **Answer:** The core proxy only needs a backend to call, while Application Insights, Event Hubs, Service Bus, Blob Storage, and App Configuration are optional integrations for telemetry, async mode, and hot reload.
+  **Answer:** The core proxy needs only a backend to call — no Azure services are required to get started. Optional integrations: Application Insights and Event Hubs add telemetry sinks for observability; Service Bus and Blob Storage are needed only for async mode (where the proxy detaches long-running requests from the HTTP connection and writes results to a blob — see [→ Async Mode](../Glossary.md#async-mode)); App Configuration enables [Warm setting](../Glossary.md#configuration-management) hot-reload, which lets you change certain settings without restarting the container.
 
 ### How does it work inside?
 - [ ] What is the request flow from ingress to backend response? (priority queue → worker → backend selector → circuit breaker)
-  **Answer:** The request is validated, placed in the priority queue, picked up by a worker, matched to candidate backends, filtered by circuit state, forwarded, and then returned with telemetry.
+  **Answer:** The request is validated at ingress, placed in the [priority queue](../Glossary.md#request-lifecycle), and picked up by the next available worker. The worker runs the backend selection pipeline: the [path filter](../Glossary.md#backend-management) narrows candidates by URL prefix, load balancing sets their order, and the [circuit breaker](../Glossary.md#reliability) skips any host with too many recent failures. The proxy forwards the request to the first eligible backend, returns the response to the caller, and emits a telemetry event.
 - [ ] What are "workers" and why do they matter?
-  **Answer:** Workers are the concurrent request-processing threads that drain the queue, so their count directly affects throughput and queue wait time.
+  **Answer:** Workers are the processes that pick requests from the [priority queue](../Glossary.md#request-lifecycle) and forward them to backends. The proxy runs exactly `Workers` requests at the same time (default 10); any additional requests wait in the queue. More workers mean lower queue wait times but also higher memory and CPU consumption. See [→ Workers](../Glossary.md#request-lifecycle).
 - [ ] What is a "backend host" and how is it different from a URL?
-  **Answer:** A backend host is a configured routing target that includes a base URL plus behavior such as probe path, path prefix, auth mode, and stream processor.
+  **Answer:** A backend host is a configuration object for one backend service. Unlike a bare URL, it also carries: the health-check path the proxy polls to confirm the backend is alive (`probe=`), the authentication method (`usemi=true` for Managed Identity or `api-key=` for key-based auth), an optional URL path prefix for routing (`path=`), and optionally a stream processor for extracting AI token counts from responses. Each backend is configured as `Host1`, `Host2`, etc., using a semicolon-delimited connection string. See [→ Connection String Format](../Glossary.md#backend-management).
 - [ ] What is a priority queue and how does it affect which requests go first?
-  **Answer:** The priority queue is an in-memory queue where lower-numbered priority requests are dispatched before lower-priority work.
+  **Answer:** The [priority queue](../Glossary.md#request-lifecycle) holds requests until a worker is free. Each request is assigned a [priority level](../Glossary.md#request-lifecycle): lower integers are dispatched first (priority 1 runs before priority 2). Without priority configuration, all requests share the default priority and are served in arrival order. Because the queue is in-memory, it does not survive a proxy restart — requests waiting when the container stops are lost.
 - [ ] What is a circuit breaker and when does it open?
-  **Answer:** The circuit breaker is a per-host failure guard that opens when recent failures exceed `CBErrorThreshold` within `CBTimeslice`, causing that host to be skipped until it recovers.
+  **Answer:** The [circuit breaker](../Glossary.md#reliability) is a safety mechanism (the name comes from electrical circuit breakers that trip to prevent overload damage) that stops the proxy from sending requests to a backend that is clearly failing. When a backend's failure count exceeds `CBErrorThreshold` (default 50) within the last `CBTimeslice` seconds (default 60), the circuit opens and that host is skipped. It closes automatically once old failures age out of the window — no manual reset is needed. See [→ Auto-Recovery](../Glossary.md#reliability).
 
 ### Where does it run?
 - [ ] What is the supported deployment target (Azure Container Apps)?
@@ -115,9 +115,9 @@ No managed hosting, no gRPC/WebSocket, no model inference, no full API gateway f
 
 ### How does it compare?
 - [ ] When should I use this vs APIM? vs Azure API Gateway?
-  **Answer:** Use SimpleL7Proxy when you need backend-aware queuing, circuit breaking, retry, and token telemetry, and use APIM or another gateway for API products, policies, caller auth, and developer-facing gateway features.
+  **Answer:** Use SimpleL7Proxy when you need AI-specific reliability features: priority queuing, circuit breaking, retry across backends, and per-request token telemetry. Use Azure API Management (APIM) when you need API lifecycle management — developer portals, subscription management, caller authentication, and complex policy transformations. The two are complementary: APIM can sit in front of SimpleL7Proxy, handling caller concerns while SimpleL7Proxy manages backend reliability.
 - [ ] What does it NOT do (non-goals)?
-  **Answer:** It is not a managed service, full API gateway, protocol translator, model runtime, durable queue, or shared cross-instance circuit breaker.
+  **Answer:** SimpleL7Proxy is not a managed service (you host and operate it yourself), not a full API gateway (no developer portal, subscription management, or caller authentication), and not a protocol translator (HTTP only — no gRPC or WebSocket). Its [priority queue](../Glossary.md#request-lifecycle) is in-memory and does not survive container restarts. Circuit breaker state is local to each container instance — two proxy replicas do not share failure counters, so a backend that trips one instance's circuit may still receive traffic from another.
 
 ---
 

@@ -79,25 +79,25 @@ Check that `Host1` is reachable and the probe path returns 2xx. Review the conso
 - [ ] What do I need installed before I can run the proxy? (.NET version, Docker, Azure CLI, subscriptions)
   **Answer:** For source-based local work you need .NET 10 and Git, for local containers you need Docker, and for Azure deployment you need Azure CLI, `azd`, and a subscription that can create Container Apps resources.
 - [ ] What is the absolute minimum configuration required to start? (Port + Host1)
-  **Answer:** The minimum is a listen port and one backend entry, usually `Port` plus `Host1`, with `Host1` pointing at either a reachable backend or a direct-mode endpoint.
+  **Answer:** The minimum is `Port` (the port to listen on, typically `8000`) and one backend via `Host1` in the format `host=https://api.example.com;probe=/health`. If your backend has no health-check URL, append `mode=direct` instead of a probe path — this tells the proxy to treat the backend as always available without polling it. See [→ Direct Mode](../Glossary.md#backend-management).
 - [ ] Do I need any Azure resources before my first run, or can I run it fully locally?
   **Answer:** You can run it fully locally first, especially if you use the included mock backend or simulator.
 
 ### How do I run it?
 - [ ] How do I run the proxy from source locally? (exact commands)
-  **Answer:** Export `Port` and `Host1`, change to `/home/runner/work/SimpleL7Proxy/SimpleL7Proxy/src/SimpleL7Proxy`, and run `dotnet run`.
+  **Answer:** Set `Port` and `Host1` as environment variables, then run `dotnet run` from the `src/SimpleL7Proxy/` directory. Example: `export Port=8000 && export Host1="host=http://localhost:9000;probe=/health" && cd src/SimpleL7Proxy && dotnet run`.
 - [ ] How do I run the proxy as a Docker container locally?
   **Answer:** Build from `src` with `docker build -t simplel7proxy:latest -f SimpleL7Proxy/Dockerfile .`, then run `docker run -p 8000:443 -e "Host1=host=https://api.example.com;probe=/health" simplel7proxy:latest`.
 - [ ] How do I deploy the proxy to Azure Container Apps? (minimal steps)
   **Answer:** The shortest documented path is `.azure/setup.sh`, `azd provision`, optional App Configuration seeding, and then `.azure/deploy.sh`.
 - [ ] What port does the proxy listen on by default?
-  **Answer:** The runtime default is port `80`, although most local examples explicitly set `Port=8000`, and the container image exposes proxy traffic on port `443` inside the container.
+  **Answer:** The runtime default listen port is `80`. Examples in this documentation set `Port=8000` explicitly to avoid the elevated-permission requirement for ports below 1024 on Linux. Inside the container image, the proxy also listens on port `443` (TLS). For Azure Container Apps deployments that set `Port=8000`, the ACA ingress rule should target port `8000`.
 
 ### How do I point it at a backend?
 - [ ] What is the `Host1` connection string format? (minimal valid example)
   **Answer:** The minimal recommended form is `Host1="host=https://api.example.com;probe=/health"`.
 - [ ] What is the `probe` path and why is it required?
-  **Answer:** The probe path is the backend health-check URL, and standard hosts need it so the poller can keep only healthy backends in the active pool.
+  **Answer:** The probe path is the URL path the [health poller](../Glossary.md#backend-management) calls on a schedule (every 15 seconds by default) to check whether the backend is alive. A probe must return `2xx` for the backend to stay in the [active pool](../Glossary.md#backend-management) and receive traffic. If your backend has no health-check endpoint, use `mode=direct` instead of a probe path — that tells the proxy to skip health polling and always treat the backend as available. See [→ Direct Mode](../Glossary.md#backend-management).
 - [ ] Can I use the included LLM simulator as a backend so I don't need a real Azure OpenAI endpoint?
   **Answer:** Yes, the repo includes mock and simulator backends specifically so you can validate the proxy without a real Azure OpenAI deployment.
 
@@ -107,13 +107,13 @@ Check that `Host1` is reachable and the probe path returns 2xx. Review the conso
 - [ ] What does a healthy response look like?
   **Answer:** A healthy probe returns `200 OK`, usually with an `OK` body, while readiness also implies at least one backend is healthy.
 - [ ] How do I send a test request and see it proxied?
-  **Answer:** Send a normal `curl` request to the proxy host and confirm you receive the backend payload through the proxy instead of calling the backend directly.
+  **Answer:** Send a normal `curl` request to the proxy host and port. Confirm the response includes the `BackendHost` header — that header is injected by the proxy and shows which backend was used. If `BackendHost` is absent, the request did not pass through the proxy.
 - [ ] What headers does the proxy add to the response so I can confirm it passed through?
-  **Answer:** The common confirmation headers are `x-Request-Queue-Duration`, `x-Request-Process-Duration`, `x-Request-Worker`, `BackendHost`, and `Total-Latency`.
+  **Answer:** The proxy adds these headers to every proxied response: `BackendHost` (the backend URL used), `x-Request-Worker` (which worker processed it), `x-Request-Queue-Duration` (milliseconds the request waited in the queue), `x-Request-Process-Duration` (milliseconds the backend took to respond), and `Total-Latency` (end-to-end time). Seeing `BackendHost` in the response is the simplest confirmation that the request passed through the proxy.
 
 ### What do I do when it doesn't start?
 - [ ] What are the three most common startup failures and how do I fix each?
-  **Answer:** The most common startup problems are a missing or malformed `Host1`, a backend or probe path that is unreachable, and App Configuration or auth settings that do not match the environment.
+  **Answer:** The three most common startup failures: (1) **Missing or malformed `Host1`** — verify the connection string contains a `host=` key and the format matches `host=<url>;probe=<path>` exactly; (2) **Unreachable backend or probe path** — verify the backend URL is reachable from the proxy's network and that the probe path returns `2xx`; (3) **App Configuration or auth mismatch** — verify `AZURE_APPCONFIG_ENDPOINT`, the configured label, and that the managed identity has the `App Configuration Data Reader` RBAC role (Role-Based Access Control — Azure's permission system). In all cases, the console output and `eventslog.json` (written to the proxy's working directory) include the specific error message.
 - [ ] Where do I look for startup logs?
   **Answer:** Start with the console output, then inspect `eventslog.json`, and use `docker logs` as well if you launched the container locally.
 

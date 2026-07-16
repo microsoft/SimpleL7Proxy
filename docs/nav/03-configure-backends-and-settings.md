@@ -81,61 +81,61 @@ Connect to Azure App Configuration (`AZURE_APPCONFIG_ENDPOINT`). Warm settings u
 - [ ] What keys are supported in a `Host1` connection string? (`host=`, `probe=`, `weight=`, `usemi=`, `processor=`, etc.)
   **Answer:** The documented keys include `host`, `probe`, `path`, `mode`, `ipaddress`, `processor`, `usemi` or `useoauth`, `audience`, `api-key`, `api-key-header`, `stripprefix`, and `retryafter`.
 - [ ] How does the proxy discover that a backend is healthy or unhealthy?
-  **Answer:** The health poller calls each host's probe on a schedule, records success or failure, and keeps the host active only while its rolling success rate stays above `SuccessRate`.
+  **Answer:** The [health poller](../Glossary.md#backend-management) calls each backend's probe path every `PollInterval` milliseconds (default 15,000 ms — every 15 seconds). It tracks the percentage of recent probes that returned `2xx`. When this rolling [success rate](../Glossary.md#backend-management) drops below `SuccessRate` (default 80%), the backend is removed from the [active pool](../Glossary.md#backend-management) and stops receiving traffic. It is automatically readmitted once its success rate recovers.
 - [ ] How do I configure path-based routing — send `/openai/` to one host and `/embeddings/` to another?
-  **Answer:** Give each host a `path=` prefix, because specific path matches win first and the catch-all host is used only when no specific route matches.
+  **Answer:** Add `path=/openai/` to one backend and `path=/embeddings/` to another in their connection strings. The [path filter](../Glossary.md#backend-management) evaluates specific paths first, so a backend with `path=/openai/` receives only requests whose URL starts with `/openai/`. A backend with no `path=` key acts as the catch-all and receives any request that did not match a more specific path.
 - [ ] What is "direct mode" and when should I use it?
-  **Answer:** `mode=direct` disables probing and treats the host as always healthy, which is the right choice for scale-to-zero or serverless backends.
+  **Answer:** Adding `mode=direct` to a host connection string disables the health probe entirely and treats the backend as always available. Use this for backends that start on demand — for example, a provisioned Azure OpenAI endpoint that may have zero active replicas when idle. Without `mode=direct`, the [health poller](../Glossary.md#backend-management) would fail while the backend is cold and incorrectly remove it from the [active pool](../Glossary.md#backend-management). See [→ Direct Mode](../Glossary.md#backend-management).
 - [ ] How do I use Managed Identity instead of an API key?
-  **Answer:** Set `usemi=true` and supply the target `audience`, so the proxy acquires a token for that backend instead of sending an API key.
+  **Answer:** Add `usemi=true` and `audience=<resource-uri>` to the host connection string — for example, `audience=https://cognitiveservices.azure.com/` for Azure OpenAI. The proxy uses its [Managed Identity](../Glossary.md#authentication-and-security) (an Azure-managed credential attached to the container that requires no stored secrets) to request a short-lived OAuth2 access token for that resource at runtime. This is safer than a static API key because there is nothing to rotate or accidentally leak. See [→ Keyless Auth](../Glossary.md#authentication-and-security).
 
 ### Load balancing
 - [ ] What are the three load balancing modes (roundrobin / latency / random) and when do I use each?
-  **Answer:** Use `roundrobin` for even distribution, `latency` when you want the fastest backend first, and `random` when you want simple spread without a stable order.
+  **Answer:** `roundrobin` cycles through backends one at a time, distributing requests evenly regardless of performance. `latency` reorders backends by observed response time (measured by the [health poller](../Glossary.md#backend-management)) and always routes to the fastest one first. `random` assigns backends in a different order on each request, providing spread without tracking any state. For AI workloads with uneven backend throughput, `latency` or `roundrobin` is recommended. See [→ Load Balance Mode](../Glossary.md#backend-management).
 - [ ] How does the proxy retry across backends when one fails?
-  **Answer:** After path filtering and host ordering, the worker tries eligible hosts in sequence, skipping open circuits and moving to the next host on non-success responses.
+  **Answer:** After the [path filter](../Glossary.md#backend-management) narrows candidates and load balancing determines their order, the worker tries backends one by one. It skips any host whose [circuit breaker](../Glossary.md#reliability) is open. If a backend returns a status code not in `AcceptableStatusCodes`, it counts as a failure and the proxy advances to the next host. Retries continue until a success, until all hosts are exhausted (returning `503`), or until the request's [TTL](../Glossary.md#request-lifecycle) expires (returning `412`).
 - [ ] What is `MaxAttempts` and what happens when it is exceeded?
-  **Answer:** `MaxAttempts` caps total retries in `MultiPass` mode, and once the cap is hit the request stops retrying and fails with the normal exhaustion outcome.
+  **Answer:** `MaxAttempts` applies only when `IterationMode=MultiPass`, which allows the proxy to cycle through the backend list more than once. In that mode, `MaxAttempts` is the total number of backend attempts across all cycles — once reached, the proxy stops retrying and returns `503` to the client. The default `IterationMode=SinglePass` tries each backend at most once and `MaxAttempts` has no effect. See [→ IterationMode](../Glossary.md#backend-management).
 
 ### Timeouts
 - [ ] What is the difference between `Timeout` (per-host) and `TTL` (total request budget)?
-  **Answer:** `Timeout` limits one backend attempt, while `TTL` limits the full life of the request including queue wait and every retry.
+  **Answer:** `Timeout` (default 20 minutes) caps a single backend call — if the backend does not respond within that time, the attempt fails and the proxy tries the next host. [TTL](../Glossary.md#request-lifecycle) (`DefaultTTLSecs`, default 300 seconds) caps the entire request lifetime: queue wait time plus every retry attempt. When TTL expires, the caller receives `412`. For most AI workloads, the TTL is the more relevant limit to tune.
 - [ ] How do I set a timeout per backend host?
   **Answer:** The current proxy docs describe a global `Timeout` and a per-request `S7PTimeout` override, but they do not document a separate per-host timeout knob in `HostN`.
 - [ ] How can a caller override the timeout on a per-request basis?
-  **Answer:** A caller can send the `S7PTimeout` header with a timeout value in milliseconds.
+  **Answer:** A caller sends the [`S7PTimeout`](../Glossary.md#protocol-and-headers) header with a value in milliseconds. The `S7P` prefix is the proxy's request-header namespace. For example, `S7PTimeout: 60000` sets a 60-second per-attempt limit for that request, overriding the global `Timeout`. The request's overall [TTL](../Glossary.md#request-lifecycle) still applies as the ceiling.
 
 ### Circuit breaker
 - [ ] What settings control when a circuit opens? (`CBErrorThreshold`, `CBTimeslice`)
-  **Answer:** `CBErrorThreshold` sets how many failures are allowed, and `CBTimeslice` sets how long those failures stay in the sliding window.
+  **Answer:** `CBErrorThreshold` (default 50) is how many backend failures are tolerated before the [circuit breaker](../Glossary.md#reliability) opens. `CBTimeslice` (default 60 seconds) is how far back those failures are counted. Think of it as a rolling window: if 50 failures occur within any 60-second span, the circuit opens for that host. Failures older than `CBTimeslice` are discarded automatically, so a backend with occasional errors will not stay blocked indefinitely.
 - [ ] What HTTP status codes count as failures?
-  **Answer:** Any backend status not included in `AcceptableStatusCodes` counts as a circuit-breaker failure.
+  **Answer:** Any response code not listed in `AcceptableStatusCodes` counts as a [circuit breaker](../Glossary.md#reliability) failure. The default list is `200, 202, 400, 401, 403, 404, 408, 410, 412, 417`. Notably, `429` and `5xx` codes are not in the default list and will increment the failure counter. If you want the proxy to requeue on `429` instead of counting it as a failure, configure the backend to return [`S7PREQUEUE: true`](../Glossary.md#protocol-and-headers) on its `429` responses. See [→ AcceptableStatusCodes](../Glossary.md#reliability) and [→ Requeue](../Glossary.md#reliability).
 - [ ] How quickly does the circuit recover once the backend is healthy again?
-  **Answer:** Recovery is automatic once enough old failures age out of the `CBTimeslice` window and the host falls back below the threshold.
+  **Answer:** [Auto-recovery](../Glossary.md#reliability) is automatic. As failures older than `CBTimeslice` seconds expire, the failure count drops. Once it falls below `CBErrorThreshold`, the circuit closes and the host re-enters the [active pool](../Glossary.md#backend-management). No manual action is needed — the window drains on its own as time passes.
 
 ### Workers and queue
 - [ ] How many workers should I configure?
-  **Answer:** Start with the default `Workers=10`, then raise it as throughput needs grow or reserve tiers explicitly with `PriorityWorkers`.
+  **Answer:** Start with the default (`Workers=10`). Each worker handles one request at a time, so 10 workers means at most 10 simultaneous in-flight requests — any beyond that wait in the queue. Increase `Workers` to handle more concurrent load. Because `Workers` is a [Cold setting](../Glossary.md#configuration-management), changing it requires a container restart. See [→ Priority Workers](../Glossary.md#request-governance) if you want to reserve a portion of the worker pool for high-priority traffic.
 - [ ] What is `MaxQueueLength` and what happens when the queue is full?
-  **Answer:** `MaxQueueLength` is the maximum in-memory queue size, and once it is full the proxy rejects new work with a proxy-generated `429`.
+  **Answer:** `MaxQueueLength` (default 1000) is the maximum number of requests that can wait in the [priority queue](../Glossary.md#request-lifecycle) at one time. Once it is full, new arrivals are rejected immediately with a proxy-generated `429 Too Many Requests` — no backend is contacted. This `429` comes from the proxy itself, not a backend; see [→ Getting 429](05-diagnose-a-problem.md#getting-429-too-many-requests) to distinguish the two.
 - [ ] How does the priority queue work — who gets served first?
-  **Answer:** Lower-number priority requests are dequeued first, and optional priority worker reservations keep higher tiers from being starved by lower ones.
+  **Answer:** [Priority 1 is the highest priority](../Glossary.md#request-lifecycle) — lower integers are dispatched first, so a priority-1 request is served before a priority-2 request. Without worker reservations, a flood of high-priority requests could monopolize all workers and leave lower-priority requests waiting indefinitely (known as starvation). [Priority Workers](../Glossary.md#request-governance) prevent this by dedicating a fixed number of worker slots to each priority tier, guaranteeing lower tiers always have some capacity.
 
 ### Hot reload
 - [ ] Which settings can be changed without restarting the container?
-  **Answer:** Warm settings can be changed live through App Configuration, while Cold settings still require a container restart.
+  **Answer:** [Warm settings](../Glossary.md#configuration-management) are hot-reloaded from Azure App Configuration within ~30 seconds when the [Sentinel](../Glossary.md#configuration-management) key changes — no container restart needed. [Cold settings](../Glossary.md#configuration-management) (such as `Workers` and `AsyncModeEnabled`) only take effect after a container restart. There is also a third category: Hidden settings, which are derived at startup from connection strings and cannot be changed at runtime at all.
 - [ ] How do I connect to Azure App Configuration for hot-reload?
   **Answer:** Set `AZURE_APPCONFIG_ENDPOINT` or a connection string, assign `App Configuration Data Reader`, and use the matching `AZURE_APPCONFIG_LABEL`.
 - [ ] What is the Sentinel key pattern and how does it work?
-  **Answer:** `Warm:Sentinel` is the refresh trigger, so after you change a Warm key you bump Sentinel and all running instances reload their Warm settings on the next poll.
+  **Answer:** [`Warm:Sentinel`](../Glossary.md#configuration-management) is a key in Azure App Configuration whose sole purpose is to signal that settings have changed. Because the proxy polls App Configuration on a ~30-second interval (rather than receiving push notifications), it needs a stable change signal. After updating any [Warm setting](../Glossary.md#configuration-management), change the value of `Warm:Sentinel` to anything new — all running instances detect the change on their next poll and reload their Warm settings atomically. If you forget to bump Sentinel, the updated values are never applied to running containers.
 
 ### Governance
 - [ ] How do I restrict which callers can use the proxy (Entra App ID allowlist)?
-  **Answer:** Turn on `ValidateAuthAppID` and point the proxy at the allowlist source and header that carry the caller's app ID.
+  **Answer:** Set `ValidateAuthAppID=true`, then configure `ValidateAuthAppIDHeader` (the request header carrying the caller's Microsoft Entra Application ID — this is Azure's identity platform, formerly known as Azure Active Directory; the default header is `X-MS-CLIENT-PRINCIPAL-ID`) and `ValidateAuthAppIDUrl` (a URL or file path returning the list of permitted app IDs as JSON). Requests from unlisted app IDs are rejected with `401` before any backend is contacted. See [→ App ID Allowlist](../Glossary.md#request-governance).
 - [ ] How do I assign different priority tiers to different callers?
-  **Answer:** Map a request header through `PriorityKeyHeader`, `PriorityKeys`, and `PriorityValues`, then optionally reserve workers with `PriorityWorkers`.
+  **Answer:** Set `PriorityKeyHeader` to the name of the request header that carries the caller's tier value (default `S7PPriorityKey`). Set `PriorityKeys` to a comma-separated list of expected header values and `PriorityValues` to the corresponding priority integers — for example, `PriorityKeys=gold,silver` maps to `PriorityValues=1,2`. Optionally configure [Priority Workers](../Glossary.md#request-governance) to reserve dedicated worker slots per tier. See [→ Priority Mapping](../Glossary.md#request-governance).
 - [ ] How do I configure per-user request limits?
-  **Answer:** Enable user profiles and use `UserPriorityThreshold` so one caller cannot dominate more than the configured share of active requests.
+  **Answer:** First, enable [user profiles](../Glossary.md#request-governance) by setting `UserProfilesUrl` or `UserProfilesPath` to a JSON file that defines per-user settings. Once enabled, `UserPriorityThreshold` (a decimal fraction from 0.0 to 1.0, default 0.1) caps how much of the worker pool a single user can occupy simultaneously. For example, the default value of `0.1` means one user's requests can hold at most 10% of workers — with `Workers=10`, that is 1 worker at a time per user.
 
 ---
 

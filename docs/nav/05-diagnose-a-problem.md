@@ -79,19 +79,19 @@ Use the symptom lookup table in `TroubleshootTOC.md`. Identify your HTTP status 
 - [ ] How do I find the right guide for my symptom without reading every doc? (symptom → guide lookup table)
   **Answer:** Start with `TroubleshootTOC.md`, because it maps the most common symptoms directly to the dedicated troubleshooting guide.
 - [ ] What is the fastest way to get a first-pass diagnosis? (which headers and logs to check first)
-  **Answer:** Capture the HTTP status and body first, check `/readiness`, and then inspect the proxy-added response headers and `eventslog.json` or telemetry for the same request.
+  **Answer:** Capture the HTTP status code and response body first — proxy-generated errors include a plain-English reason in the body. Then call `/readiness` to see the proxy's current health state (including whether any backends are active). Check the response headers for `BackendHost`, `x-Backend-Attempts`, and any error headers the proxy added. If you need a full trace, check `eventslog.json` in the proxy's working directory — it writes one JSON record per request with timing, backend used, and status codes.
 - [ ] What does the proxy tell me in the response body when something goes wrong?
-  **Answer:** Proxy-generated errors usually include a concrete reason, and `503` responses can also include an attempts list that shows which backends were tried.
+  **Answer:** Proxy-generated error responses contain a JSON body with a plain-English reason. A `503` body also includes an `attempts` array where each entry shows the backend URL, the HTTP status code it returned (or the error type if the connection failed), and any error message. Reading the `attempts` array is usually faster than digging through logs and shows exactly which hosts were tried.
 
 ### Per-symptom questions (each guide must answer all of these)
 
 #### Getting 503 Service Unavailable
 - [ ] What does 503 mean in the context of this proxy? (all backends tried and failed)
-  **Answer:** A proxy `503` means the request exhausted every eligible backend and none of them completed successfully.
+  **Answer:** A proxy-generated `503` means the request worked through every eligible backend — those passing the [path filter](../Glossary.md#backend-management) and not blocked by an open [circuit breaker](../Glossary.md#reliability) — and none returned a success. Read the `attempts` array in the response body to see exactly which hosts were tried and what each returned. This is distinct from a backend directly returning `503`, which would appear as one entry in the same `attempts` array.
 - [ ] How do I read the JSON error body to see which hosts were tried and what each returned?
   **Answer:** Read the `attempts` array in the response body, because each entry shows the backend host, its status code, and the error text for that attempt.
 - [ ] Is this a circuit breaker problem or a real backend problem — how do I tell?
-  **Answer:** If readiness shows open circuits or the logs show hosts being blocked before calls are made, it is a circuit issue, while real backend failures show actual attempt entries and backend status codes.
+  **Answer:** Search the logs for lines containing `[CB-DELAY]` (the proxy is slowing traffic before the circuit trips) or `Circuit breaker BLOCKING` (the host is actively being skipped). Call `/readiness` — if active backend count is zero and the logs show circuit entries rather than probe-failure entries, it is a [circuit breaker](../Glossary.md#reliability) issue. A real backend failure shows up as an `attempts` entry in the `503` response body with an actual HTTP status code returned from the backend.
 - [ ] How do I force the proxy to retry a specific host for diagnosis?
   **Answer:** Temporarily narrow routing so only that host matches the request path, then resend the request and observe the single-host behavior directly.
 - [ ] What do I check after fixing it to confirm 503 is gone?
@@ -99,7 +99,7 @@ Use the symptom lookup table in `TroubleshootTOC.md`. Identify your HTTP status 
 
 #### Getting 429 Too Many Requests
 - [ ] Is this a proxy 429 (queue full) or a backend 429 (throttled) — how do I tell?
-  **Answer:** A proxy `429` explains queue, circuit, or host-availability problems in its body before any backend call, while a backend `429` appears only after a backend attempt or requeue decision.
+  **Answer:** A proxy-generated `429` has no `BackendHost` response header (because no backend was contacted) and its JSON body explains the proxy-side reason: queue full, circuits all open, or no active hosts. A backend `429` will have a `BackendHost` header and the body comes from the backend itself. If the [requeue](../Glossary.md#reliability) mechanism is active, a backend `429` may be transparently requeued and the client will never see it.
 - [ ] What setting controls when the queue rejects requests? (`MaxQueueLength`)
   **Answer:** `MaxQueueLength` is the setting that defines when the queue stops accepting new requests.
 - [ ] How do I tell if a specific user or priority tier is being throttled?
@@ -109,39 +109,39 @@ Use the symptom lookup table in `TroubleshootTOC.md`. Identify your HTTP status 
 
 #### Getting 412 Precondition Failed
 - [ ] What does 412 mean here? (TTL expired while waiting in the queue)
-  **Answer:** A `412` means the request's TTL expired before a worker could send it to any backend.
+  **Answer:** A `412 Precondition Failed` means the request's total time budget ([TTL](../Glossary.md#request-lifecycle)) ran out before a worker picked it up and sent it to any backend. This usually means the queue is backed up — more requests are arriving than workers can process. The immediate fix is to raise `DefaultTTLSecs` so requests have more time to wait; the root-cause fix is to add more workers or reduce request volume.
 - [ ] What is TTL and where does it come from? (default, or `S7PTTL` header)
-  **Answer:** TTL is the total request lifetime budget, and it comes from `DefaultTTLSecs` unless the caller overrides it with `S7PTTL`.
+  **Answer:** [TTL (Time-to-Live)](../Glossary.md#request-lifecycle) is the total wall-clock budget in seconds for a request, starting from when it enters the queue. The default comes from `DefaultTTLSecs` (default 300 seconds, or 5 minutes). Individual callers can override it per-request using the [`S7PTTL`](../Glossary.md#protocol-and-headers) header. Whichever value is smaller applies — a caller sending `S7PTTL: 10` will expire after 10 seconds even if `DefaultTTLSecs` is 300.
 - [ ] How do I increase the TTL so requests don't expire?
   **Answer:** Raise `DefaultTTLSecs` globally or send a larger `S7PTTL` value on the requests that need more time.
 - [ ] How do I tell if TTL is set incorrectly by the caller?
-  **Answer:** Compare the request's queue duration with the actual `S7PTTL` value the caller sent, because a small caller override will beat the server default every time.
+  **Answer:** Check the `x-Request-Queue-Duration` header in the `412` response (which shows how long the request waited) and compare it with the `S7PTTL` header value the caller sent. If the queue duration is close to the `S7PTTL` value and `S7PTTL` is much shorter than `DefaultTTLSecs`, the caller is sending an unexpectedly tight deadline that overrides the server default. If `S7PTTL` is absent, the request used `DefaultTTLSecs` as the budget.
 
 #### Getting 400 Bad Request (InvalidTTL)
 - [ ] What does `InvalidTTL` mean? (malformed TTL value in request header)
-  **Answer:** `InvalidTTL` means the proxy could not parse the TTL header value into any supported format.
+  **Answer:** `400 InvalidTTL` means the proxy could not parse the [`S7PTTL`](../Glossary.md#protocol-and-headers) header value. The three accepted formats are: a plain integer (seconds from now, e.g., `120`); a `+`-prefixed Unix timestamp in seconds marking the absolute deadline (e.g., `+1718000000`); or an ISO 8601 UTC datetime string. Any other format — including empty strings or non-numeric text — causes this error. See the question below for format examples.
 - [ ] What is the correct format for the `S7PTTL` header?
-  **Answer:** Use a relative number of seconds, a `+`-prefixed Unix epoch second, or a parseable UTC datetime such as ISO 8601.
+  **Answer:** Three formats are accepted: (1) a plain integer meaning seconds from now — `S7PTTL: 120` means expire in 2 minutes; (2) a `+` prefix followed by a Unix timestamp in seconds marking the absolute deadline — `S7PTTL: +1718000000`; (3) an ISO 8601 UTC datetime string such as `S7PTTL: 2024-06-10T00:00:00Z`. The simplest and most readable format is a plain integer. Anything else causes `400 InvalidTTL`.
 - [ ] How do I identify which callers are sending the bad header?
-  **Answer:** Inspect client, APIM, or proxy request logs for the `S7PTTL` header value and trace which caller or policy generated the malformed string.
+  **Answer:** Search APIM access logs or the proxy's request log for `S7PTTL` header values that are not plain integers and do not start with `+` or look like a datetime. In APIM, a misconfigured `set-header` policy is the most common source — check any policy that injects `S7PTTL` and verify its value expression produces a valid integer string.
 
 #### Circuit breaker stuck OPEN
 - [ ] How do I tell if a circuit is open? (which header or log field shows circuit state)
-  **Answer:** A failing `/readiness` probe and log lines such as `[CB-DELAY]` or `Circuit breaker BLOCKING` are the clearest signs that a circuit is open.
+  **Answer:** Search the proxy logs for lines containing `[CB-DELAY]` (the proxy is adding delay before a host's circuit trips) or `Circuit breaker BLOCKING` (the host is actively being skipped). Call `/readiness` — an unhealthy response combined with circuit-related log entries rather than probe-failure entries confirms the [circuit breaker](../Glossary.md#reliability) is the issue. Note that a circuit opening and a host leaving the [active pool](../Glossary.md#backend-management) are two separate mechanisms that can independently stop traffic from reaching a backend.
 - [ ] What causes a circuit to stay open longer than expected?
-  **Answer:** It usually stays open because the backend is still failing, the threshold is too low, or `CBTimeslice` is so large that old failures remain in the window.
+  **Answer:** The circuit stays open as long as the failure count within the last `CBTimeslice` seconds is still above `CBErrorThreshold`. Most common causes: the backend is still actively failing (verify with a direct `curl` from the same network); `CBErrorThreshold` is set too low for the backend's normal error rate; or `CBTimeslice` is large so historical failures take a long time to expire. See [→ Circuit Breaker](../Glossary.md#reliability).
 - [ ] How do I manually reset a circuit or force a backend back into rotation?
-  **Answer:** The docs do not describe a manual reset path, so the normal fix is to restore the backend or retune the circuit settings and let the sliding window age out.
+  **Answer:** There is no manual reset command. The circuit closes automatically once failures older than `CBTimeslice` seconds expire and the count drops below `CBErrorThreshold`. Practical workarounds: fix the underlying backend issue and wait for the window to drain; temporarily lower `CBTimeslice` to drain old failures faster; or restart the proxy container to clear all in-memory circuit state immediately.
 - [ ] How do I tune `CBErrorThreshold` and `CBTimeslice` to be less aggressive?
   **Answer:** Raise `CBErrorThreshold`, and if stale failures are hanging around too long, shorten `CBTimeslice` so the window reflects only recent behavior.
 
 #### Async request never completes / 202 never issued
 - [ ] What conditions must all be true for a 202 to be issued?
-  **Answer:** `AsyncModeEnabled` must be true, the request must carry the async opt-in header, the user's `async-config` must be enabled, and the request must outlast `AsyncTriggerTimeout`.
+  **Answer:** Four conditions must all be true: (1) `AsyncModeEnabled=true` at the proxy level; (2) the request includes the async opt-in header (default name `S7PAsyncMode`); (3) the [user profile](../Glossary.md#request-governance) for that caller has an `async-config` block that enables async; and (4) the backend has **not** responded within `AsyncTriggerTimeout` milliseconds (default 10,000 ms) — if the backend responds faster than this threshold, the proxy returns a normal synchronous response and never issues `202`. All four must hold simultaneously. See [→ AsyncTriggerTimeout](../Glossary.md#async-mode).
 - [ ] How do I tell if the proxy upgraded to async or is still processing synchronously?
-  **Answer:** A real async upgrade returns `202 Accepted` plus async result information, while a normal sync completion returns the final backend status directly.
+  **Answer:** A `202 Accepted` response means the proxy released the HTTP connection and is continuing processing in the background. The response body includes a reference to where the result will be written — a Blob Storage URL, and optionally a Service Bus notification. A synchronous completion returns the backend's actual status code (`200`, `201`, etc.) directly — not `202`.
 - [ ] How do I check if the blob storage container exists and has the right permissions?
-  **Answer:** Verify `AsyncBlobStorageConfig`, the user's configured container name, and the managed identity or connection string permissions for blob read and write access.
+  **Answer:** Check the proxy startup logs for `[BLOB]` connection messages. `AsyncBlobStorageConfig` is a semicolon-delimited connection string specifying the storage account endpoint and container name. The proxy's [Managed Identity](../Glossary.md#authentication-and-security) must have the `Storage Blob Data Contributor` role on that container — RBAC (Role-Based Access Control) is Azure's permission system. Verify by checking the managed identity's role assignments in the Azure portal or by attempting a direct blob write using the Azure CLI with that identity.
 - [ ] How do I check if the Service Bus topic received the completion event?
   **Answer:** Confirm `AsyncSBConfig` is correct and that the caller's configured topic or subscription actually receives the expected async status events.
 
@@ -161,7 +161,7 @@ Use the symptom lookup table in `TroubleshootTOC.md`. Identify your HTTP status 
 - [ ] What causes liveness to fail but readiness to pass (or vice versa)?
   **Answer:** Liveness failures point to process stalls or sidecar update problems, while readiness failures with liveness still healthy usually mean the app is up but no backend is ready.
 - [ ] How do I configure ACA health probe settings to match the proxy's startup time?
-  **Answer:** Give the startup probe a budget longer than one full backend poll cycle and point probes to port `9000` when the sidecar mode is enabled.
+  **Answer:** The startup probe must have a timeout budget longer than one full backend poll cycle. The poll interval is 15 seconds by default, so give the startup probe at least 30–45 seconds. When [Sidecar Mode](../Glossary.md#observability) is enabled — a separate health-probe container running on port 9000 that shields the proxy from probe traffic — point all ACA probe targets at port `9000` instead of the proxy's main port.
 
 #### Event Hub messages not arriving
 - [ ] What configuration is required for Event Hub telemetry to work?
@@ -169,17 +169,17 @@ Use the symptom lookup table in `TroubleshootTOC.md`. Identify your HTTP status 
 - [ ] How do I verify the connection string is correct and the namespace is reachable?
   **Answer:** Check startup for `[EVENT HUB]` connection messages and confirm the namespace, hub name, and sender role assignment are valid from the proxy environment.
 - [ ] What does the proxy do if Event Hub is unreachable — does it fail requests or continue?
-  **Answer:** The Event Hub backend is disabled and other sinks continue, so request handling continues even though Event Hub telemetry is missing.
+  **Answer:** If Event Hub is unreachable at startup, that telemetry sink is disabled for the life of the container but proxy request handling continues normally — all other configured sinks (Application Insights, local file) remain active. A connection error appears in startup logs under `[EVENT HUB]`. Request failures are never caused by telemetry sink failures.
 
 #### App Configuration not loading or refreshing
 - [ ] What RBAC role does the proxy's managed identity need?
-  **Answer:** The managed identity needs the `App Configuration Data Reader` role.
+  **Answer:** The proxy's [Managed Identity](../Glossary.md#authentication-and-security) needs the `App Configuration Data Reader` RBAC role on the App Configuration instance. RBAC (Role-Based Access Control) is Azure's permission system — this role grants read-only access to configuration keys. Without it, the proxy starts but cannot read settings from App Configuration and falls back to environment variables only.
 - [ ] How do I tell if settings are coming from App Config or from environment variables?
-  **Answer:** If no App Configuration endpoint or connection string is set the proxy uses environment variables only, and when App Configuration is connected it reads matching `Warm:` and `Cold:` keys for the active label.
+  **Answer:** If `AZURE_APPCONFIG_ENDPOINT` and any App Configuration connection string are both unset, the proxy uses environment variables only. When App Configuration is connected, it reads keys with a `Warm:` or `Cold:` prefix that match the configured `AZURE_APPCONFIG_LABEL` — a label used to isolate one deployment's settings from another (for example, `production` vs `staging`). Startup logs show which source is active for each setting group.
 - [ ] How do I force a settings reload without restarting the container?
   **Answer:** Change the Warm setting, then update `Warm:Sentinel` so every instance reloads its Warm values on the next refresh interval.
 - [ ] What is the Sentinel key and what happens if it is missing?
-  **Answer:** `Warm:Sentinel` is the hot-reload trigger, and if it is missing or never changes Warm settings will not refresh automatically at runtime.
+  **Answer:** [`Warm:Sentinel`](../Glossary.md#configuration-management) is a key in Azure App Configuration whose only job is to signal running proxy instances that [Warm settings](../Glossary.md#configuration-management) have changed. Because the proxy polls rather than receiving push notifications, it needs this stable change signal. If `Warm:Sentinel` is missing or you update a Warm setting without also changing `Warm:Sentinel`, the new setting values will be loaded at the next container restart but will **not** hot-reload into currently running instances.
 
 ---
 

@@ -79,11 +79,11 @@ Use the LLM Simulator (`test/LLMSimulator`) as a local backend. It returns OpenA
 - [ ] What tools do I need installed to build and run the proxy from source? (.NET version, IDE, etc.)
   **Answer:** You need .NET 10 and Git at minimum, with Docker and an editor such as VS Code being optional but useful.
 - [ ] What is the exact command to build the project?
-  **Answer:** Run `dotnet build /home/runner/work/SimpleL7Proxy/SimpleL7Proxy/SimpleL7Proxy.sln` from the repo root.
+  **Answer:** Run `dotnet build SimpleL7Proxy.sln` from the repository root.
 - [ ] What is the exact command to run the proxy locally?
-  **Answer:** Set `Port` and `Host1`, then run `cd /home/runner/work/SimpleL7Proxy/SimpleL7Proxy/src/SimpleL7Proxy && dotnet run`.
+  **Answer:** Set `Port` and `Host1`, then run `cd src/SimpleL7Proxy && dotnet run` from the repository root.
 - [ ] What is the exact command to run all tests?
-  **Answer:** Run `dotnet test /home/runner/work/SimpleL7Proxy/SimpleL7Proxy/SimpleL7Proxy.sln`.
+  **Answer:** Run `dotnet test SimpleL7Proxy.sln` from the repository root.
 - [ ] How do I point the local proxy at the LLM simulator for development without real Azure resources?
   **Answer:** Start the included mock or simulator backend and point `Host1` at it, for example `Host1=http://localhost:3000` for the Python null server.
 
@@ -91,7 +91,7 @@ Use the LLM Simulator (`test/LLMSimulator`) as a local backend. It returns OpenA
 - [ ] What are the main projects/assemblies and what does each one do?
   **Answer:** `src/SimpleL7Proxy` is the runtime, `src/Shared` holds shared utilities, `src/Shared-parser` holds stream and token parsing logic, `TestClient` is a manual client, and the test folders contain MSTest suites and helpers.
 - [ ] What is the entry point and how does startup work?
-  **Answer:** `Program.cs` is the entry point, and it loads config, builds DI, registers backends and hosted services, starts the probe server, and then runs the host.
+  **Answer:** `Program.cs` is the entry point. On startup it loads configuration (environment variables and, if configured, Azure App Configuration), builds the dependency injection container (the .NET mechanism for wiring up service dependencies), registers backend hosts, workers, the [health poller](../Glossary.md#backend-management), and telemetry sinks, then runs the .NET host which blocks until shutdown is signaled.
 - [ ] What is the request flow through the code? (which class handles what)
   **Answer:** The code path is `Server.cs` → priority queue → `ProxyWorker.cs` → `IteratorFactory.cs` and host iterators → `CircuitBreaker.cs` → backend response handling and telemetry.
   - Where does a request arrive?
@@ -107,9 +107,9 @@ Use the LLM Simulator (`test/LLMSimulator`) as a local backend. It returns OpenA
   - Where is the response written back?
     **Answer:** `ProxyWorker.cs` writes the final headers and body back to the HTTP response stream.
 - [ ] What are the key interfaces and why do they exist? (`IEventClient`, `IBackendSelector`, etc.)
-  **Answer:** The important abstractions are the event sink, backend health, async storage, and stream processor interfaces, which keep telemetry, host state, and async or parsing behavior swappable.
+  **Answer:** The main interfaces allow behavior to be swapped at configuration time without changing the worker code: `IEventClient` enables multiple telemetry sinks (App Insights, Event Hub, local file) to each receive the same event via the `CompositeEventClient` fan-out; `IBackendSelector` abstracts how the backend candidate list is built; and the stream-processor interface allows different response parsers (e.g., OpenAI SSE token extraction) to be plugged in per-host. Adding a new telemetry sink means implementing `IEventClient + IHostedService` and registering it — the worker code requires no changes.
 - [ ] What is the object lifecycle? When are workers created, destroyed, and how are resources disposed?
-  **Answer:** Workers and hosted services are created during startup and live until coordinated shutdown, while per-request objects such as `RequestData` and `ProxyData` are created for one request and disposed when that request finishes.
+  **Answer:** Workers and hosted services are created at startup and run until the .NET host signals shutdown (Ctrl+C, SIGTERM, or container stop). Per-request objects such as `RequestData` and `ProxyData` are scoped to a single request — they are created when a worker picks up the request and automatically released when that request completes or fails, using C#'s `IDisposable` pattern (a standard mechanism where objects declare a cleanup method that runs when they go out of scope).
 
 ### Making changes
 - [ ] What is the coding style guide for this project? (naming, bracing, spacing, comments)
