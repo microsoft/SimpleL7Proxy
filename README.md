@@ -1,5 +1,7 @@
 # SimpleL7Proxy
 
+Depending on whether you are evaluating the architecture, deploying your first instance, tuning production traffic, validating behavior, diagnosing a failure, or contributing code, you will need a different path through the proxy documentation.
+
 AI backends behave differently from normal HTTP services — they throttle, retry, and partially fail in ways that standard load balancers cannot handle. SimpleL7Proxy fills that gap: it sits between your clients and your Azure AI backends and adds priority queuing, health-aware routing, circuit breaking, per-user governance, and per-request telemetry.
 
 ---

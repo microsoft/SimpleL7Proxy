@@ -1,6 +1,6 @@
 # Building On and Contributing to SimpleL7Proxy
 
-Whether you're adding a feature, fixing a bug, or tracing a request through the code to understand what's happening — here's the map of the codebase, the conventions that apply, and how to get a contribution merged.
+Whether you are adding a feature, fixing a bug, or tracing a request, you will need to learn how the projects, request pipeline, extension points, tests, and contribution conventions fit together.
 
 ---
 
@@ -230,15 +230,15 @@ SimpleL7Proxy's `AppConfigService` polls App Configuration for `Warm:Sentinel`. 
 
 ---
 
-## Existing documents that cover this area
+## Related Documents
 
-| Document | What it covers | Gap? |
-|----------|----------------|------|
-| [BEGINNER_DEVELOPMENT.md](../BEGINNER_DEVELOPMENT.md) | Local setup, essential settings, first run | Entry point — verify build + test commands are present |
-| [ADVANCED_DEVELOPMENT.md](../ADVANCED_DEVELOPMENT.md) | Performance tuning, advanced features | Covers config but may lack code contribution guidance |
-| [design.md](../design.md) | Code structure, request flow, class responsibilities | Primary code-navigation document — verify it covers all key classes |
-| [docs/code/DISPOSAL_ARCHITECTURE.md](../code/DISPOSAL_ARCHITECTURE.md) | Object lifecycle and disposal patterns | Useful for contributors modifying worker/resource code |
-| [src/SimpleL7Proxy/Proxy/ObjectLifecycle.md](../../src/SimpleL7Proxy/Proxy/ObjectLifecycle.md) | Worker/object lifecycle | Near the source — verify it stays in sync with the code |
-| [DUMMY_BACKEND.md](../DUMMY_BACKEND.md) | LLM simulator setup | Required for local dev without Azure — link prominently |
+| Document | What it covers |
+|----------|----------------|
+| [Beginner Development](../BEGINNER_DEVELOPMENT.md) | Local setup, essential settings, and first run |
+| [Advanced Development](../ADVANCED_DEVELOPMENT.md) | Performance tuning and advanced features |
+| [Design](../design.md) | Code structure, request flow, and class responsibilities |
+| [Disposal Architecture](../code/DISPOSAL_ARCHITECTURE.md) | Object lifecycle and disposal patterns |
+| [Proxy Object Lifecycle](../../src/SimpleL7Proxy/Proxy/ObjectLifecycle.md) | Worker and request object lifecycles near the source |
+| [Dummy Backend](../DUMMY_BACKEND.md) | LLM simulator setup for local development |
 
 ---

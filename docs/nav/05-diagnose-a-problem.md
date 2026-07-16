@@ -1,6 +1,6 @@
 # What the Proxy Is Telling You When Something Goes Wrong
 
-Every unexpected status code is a signal. The proxy puts the reason right in the response — the hosts it tried, why each failed, and what to fix. Here's how to read it, organized by what you're seeing rather than what you already know.
+When a request fails, you will need to learn how status codes, response headers, health endpoints, and telemetry identify whether the problem began in the proxy, the queue, or a backend.
 
 ---
 
@@ -314,21 +314,21 @@ SimpleL7Proxy polls App Configuration on a ~30-second interval and only reloads 
 
 ---
 
-## Existing documents that cover this area
+## Related Documents
 
-| Document | What it covers | Gap? |
-|----------|----------------|------|
-| [TroubleshootTOC.md](../TroubleshootTOC.md) | Symptom → guide index | Entry point — verify every symptom has a guide |
-| [troubleshooting/requests-503.md](../troubleshooting/requests-503.md) | 503 diagnosis | Verify it answers all per-symptom questions above |
-| [troubleshooting/requests-429.md](../troubleshooting/requests-429.md) | 429 diagnosis | Verify it distinguishes proxy 429 vs backend 429 |
-| [troubleshooting/requests-412.md](../troubleshooting/requests-412.md) | 412 / TTL expiry | Verify it explains TTL mechanics clearly |
-| [troubleshooting/requests-400-invalid-ttl.md](../troubleshooting/requests-400-invalid-ttl.md) | 400 / bad TTL format | Verify it shows the correct header format |
-| [troubleshooting/circuit-breaker.md](../troubleshooting/circuit-breaker.md) | Stuck open circuit | Verify it explains how to read circuit state |
-| [troubleshooting/async-requests.md](../troubleshooting/async-requests.md) | Async never completing | Verify it covers blob + Service Bus checks |
-| [troubleshooting/async-202-never-issued.md](../troubleshooting/async-202-never-issued.md) | 202 not issued | Verify all four enablement conditions are explained |
-| [troubleshooting/backend-hosts.md](../troubleshooting/backend-hosts.md) | Backends not in pool | Verify probe path error is covered |
-| [troubleshooting/health-probes.md](../troubleshooting/health-probes.md) | Pod restarting | Verify ACA probe timing config is covered |
-| [troubleshooting/event-hub.md](../troubleshooting/event-hub.md) | No Event Hub messages | Verify connection string and RBAC are covered |
-| [troubleshooting/app-configuration.md](../troubleshooting/app-configuration.md) | App Config not loading | Verify Sentinel key and RBAC are covered |
+| Document | What it covers |
+|----------|----------------|
+| [Troubleshooting Index](../TroubleshootTOC.md) | Symptom-to-guide lookup |
+| [503 Responses](../troubleshooting/requests-503.md) | All eligible backends failing |
+| [429 Responses](../troubleshooting/requests-429.md) | Proxy rejection versus backend throttling |
+| [412 Responses](../troubleshooting/requests-412.md) | Request TTL expiry |
+| [400 Invalid TTL](../troubleshooting/requests-400-invalid-ttl.md) | Invalid `S7PTTL` header formats |
+| [Circuit Breaker](../troubleshooting/circuit-breaker.md) | A backend circuit remaining open |
+| [Async Requests](../troubleshooting/async-requests.md) | Async requests that do not complete |
+| [Async 202](../troubleshooting/async-202-never-issued.md) | Async requests that remain synchronous |
+| [Backend Hosts](../troubleshooting/backend-hosts.md) | Backends missing from the healthy pool |
+| [Health Probes](../troubleshooting/health-probes.md) | Probe failures and container restarts |
+| [Event Hub](../troubleshooting/event-hub.md) | Missing telemetry messages |
+| [App Configuration](../troubleshooting/app-configuration.md) | Settings that do not load or refresh |
 
 ---

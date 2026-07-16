@@ -1,6 +1,6 @@
 # See It Work: Runnable Scenarios That Show the Proxy Catching Failures
 
-Each scenario runs in under five minutes using the included simulator — no real Azure OpenAI account needed — and shows the proxy handling the failures that would otherwise reach your users.
+Because routing, retry, and telemetry are easiest to learn by observing them, you can use these proof-of-concept paths to trigger each behavior and verify the result from concrete signals.
 
 ---
 
@@ -200,5 +200,18 @@ Replace demo endpoints, app registration IDs, and backend connection strings wit
 - [ ] Can reproduce the behavior reliably
 - [ ] Knows which configuration knobs to change for their real workload
 - [ ] Knows which doc to go to for deeper configuration of that feature
+
+---
+
+## Related Documents
+
+| Document | What it covers |
+|----------|----------------|
+| [Failover POC](../POC-Failover-configuration.md) | Backend throttling and automatic failover |
+| [Priority Routing POC](../POC-Priority-configuration.md) | Routing requests by priority tier |
+| [Chargeback POC](../POC-Chargeback.md) | Per-user token telemetry and attribution |
+| [OpenAI Failover POC](../POC-OpenAI-Failover.md) | PTU-to-PAYGO failover through APIM |
+| [Secure the Proxy POC](../POC-Secure-the-proxy.md) | Protecting the proxy with Container Apps authentication |
+| [Secure APIM POC](../POC-security-the-apim.md) | Entra JWT validation for Azure API Management |
 
 ---

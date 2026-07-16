@@ -1,6 +1,6 @@
 # Why Would You Put a Proxy in Front of Your AI Backends?
 
-Depending on if you are servicing live users, high priority users or low level background tasks, you will likely want to choose when and where to fulfill your traffic.  Moreover AI backend typically throttle, and model have lifetime cycles. These and more are the reasons why you would want to put a proxy in fron of the backends. Here are the questions most teams ask before deciding whether this fits their architecture.
+Depending on whether you are serving live users, high-priority users, or low-priority background tasks, you will need to understand how the proxy decides when and where to fulfill each request.
 
 ---
 
@@ -184,13 +184,13 @@ It is not a managed service (you host and operate it yourself), not a full API g
 
 ---
 
-## Existing documents that cover this area
+## Related Documents
 
-| Document | What it covers | Gap? |
-|----------|----------------|------|
-| [OVERVIEW.md](../OVERVIEW.md) | Architecture, components, high-level flows | Covers most questions — verify completeness |
-| [README.md](../../README.md) | First-contact summary | May duplicate OVERVIEW — check for overlap |
-| [design.md](../design.md) | Code-level request flow | Too deep for this audience — link from developer section only |
-| [Glossary.md](../Glossary.md) | Term definitions | Should be linked early in this section |
+| Document | What it covers |
+|----------|----------------|
+| [Overview](../OVERVIEW.md) | Architecture, components, and high-level flows |
+| [Design](../design.md) | Code-level request flow |
+| [Glossary](../Glossary.md) | Definitions for proxy concepts and terminology |
+| [Get It Running](02-get-it-running.md) | The next discovery path for deploying or running the proxy |
 
 ---
