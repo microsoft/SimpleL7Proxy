@@ -53,7 +53,7 @@ Azure Container Apps is the primary deployment target, with optional VNet integr
 <td width="33%" valign="top">
 
 ### What does it NOT do?
-It doesn't manage your AI models, run a developer portal, or handle caller subscriptions and authentication — that's what APIM is for. It also won't keep a shared failure count across multiple proxy replicas, and any requests waiting in the queue when the container restarts are lost. Knowing this up front saves time evaluating the wrong tool.
+It doesn't manage your AI models, run a developer portal, or handle caller subscriptions and authentication — that's what APIM is for. 
 
 [→ What does it NOT do?](#what-does-it-not-do-1)
 
