@@ -18,7 +18,7 @@ For the complete list of Async-related environment variables and their default v
 | `AsyncClientConfigFieldName` | Warm | `async-config` | User profile field containing client async config |
 | `AsyncTimeout` | Warm | `1800000` (30 min) | Max async request lifetime (ms) |
 | `AsyncTriggerTimeout` | Warm | `10000` (10 s) | Time before a request upgrades to async (ms) |
-| `AsyncTTLSecs` | Warm | `86400` (24 h) | Blob SAS token lifetime (seconds) |
+| `AsyncTTLSecs` | Warm | `86400` (24 h) | Request TTL applied when async processing starts (seconds) |
 | `AsyncBlobStorageConfig` | Cold | `uri=https://mystorageaccount.blob.core.windows.net,mi=true` | Composite blob storage connection |
 | `AsyncBlobWorkerCount` | Cold | `2` | Number of background blob write workers |
 | `AsyncSBConfig` | Cold | `cs=...,ns=...,q=requeststatus,mi=false` | Composite Service Bus connection |
@@ -77,11 +77,17 @@ Clients need RBAC permission and a subscription to their topic. The topic name i
 
 | Event | Description |
 |---|---|
-| `InQueue` | Request enqueued for processing |
-| `RetryAfterDelay` | Request will delay before requeue |
-| `ReQueued` | Request has been requeued |
+| `None` | No lifecycle state assigned |
+| `Queued` | Request enqueued for processing |
+| `RetryScheduled` | Request will delay before requeue |
+| `Requeued` | Request has been requeued |
 | `Processing` | Request is being sent downstream |
+| `CheckingBackgroundRequestStatus` | Background request status is being checked |
+| `AsyncProcessingError` | Async processing encountered an error |
+| `AsyncProcessing` | Request is processing asynchronously |
 | `Processed` | Complete — blob URIs available |
+| `AsyncProcessed` | Async processing completed |
+| `BackgroundRequestSubmitted` | Background request was submitted |
 | `Failed` | Request failed |
 | `Expired` | Request expired |
 
@@ -135,11 +141,10 @@ AsyncBlobStorageConfig=uri=<storage-account-uri>,mi=<true|false>
 When `mi=false`, provide a connection string in the `uri` field instead.
 
 > [!WARNING]
-> Each client should have their own blob container with RBAC access. The `AsyncTTLSecs` setting controls how long SAS tokens remain valid.
+> Each client should have its own blob container with RBAC access. Current 202 responses return base blob URIs; the current blob URI path does not generate SAS tokens.
 
 **Required Azure RBAC Roles** (for Managed Identity):
 - **Storage Blob Data Contributor** — read, write, and delete blob data
-- **Storage Blob Delegator** — generate user delegation SAS tokens
 - **Storage Account Contributor** — manage storage account properties
 
 ### Blob Write Queue
@@ -155,7 +160,7 @@ AsyncBlobWorkerCount=2
 Each user's profile must include an async config field (named by `AsyncClientConfigFieldName`):
 
 ```
-<AsyncClientConfigFieldName>=enabled=<true|false>,containername=<name>,topic=<name>,timeout=<seconds>
+<AsyncClientConfigFieldName>=enabled=<true|false>,containername=<name>,topic=<name>,timeout=<value>,generatesas=<true|false>
 ```
 
 | Sub-field | Description |
@@ -163,7 +168,8 @@ Each user's profile must include an async config field (named by `AsyncClientCon
 | `enabled` | Whether this client can use async processing |
 | `containername` | Blob container for storing this client's results |
 | `topic` | Service Bus topic for status updates |
-| `timeout` | SAS token lifetime in seconds |
+| `timeout` | Optional per-user async configuration value |
+| `generatesas` | Parsed and retained, but the current blob URI path returns base URIs and does not generate SAS tokens |
 
 Each client's service principal needs RBAC access to both the blob container and the Service Bus topic.
 
@@ -217,14 +223,13 @@ AsyncClientRequestHeader=S7PAsyncMode
 
 1. **Use Managed Identity in production** for credential management
 2. **Limit storage access** using RBAC instead of connection strings
-3. **Configure blob retention** via `AsyncTTLSecs` to manage storage costs
+3. **Configure blob retention** with an Azure Storage lifecycle policy; the proxy does not delete blobs
 4. **Use Azure Key Vault** for connection strings if Managed Identity is unavailable
 
 ## Troubleshooting
 
 | Symptom | Cause |
 |---|---|
-| "Failed to create SAS token" | Managed identity missing Storage Blob Delegator role |
 | "BlobContainerClient not initialized" | `InitClientAsync` not called after AsyncWorker construction |
 | Service Bus connection failures | Connection string lacks send permissions for the topic |
 | Access denied errors | RBAC roles not assigned to the correct managed identity |
@@ -238,10 +243,8 @@ AsyncClientRequestHeader=S7PAsyncMode
 
 | Error Message | Cause | Solution |
 |---------------|-------|----------|
-| `Failed to generate SAS token for blob {BlobName} in container {ContainerName}` | SAS token generation failed, often due to missing permissions | Ensure managed identity has Storage Blob Delegator role, or verify connection string has account keys |
-| `Cannot generate SAS token. Either enable managed identity (UsesMI=true) or provide a connection string with account keys` | Authentication method not properly configured | Set `AsyncBlobStorageUseMI=true` for managed identity or provide valid connection string |
-| `AsyncBlobStorageAccountUri is not set. Cannot create BlobWriter` | Missing storage account URI for managed identity | Set `AsyncBlobStorageAccountUri` environment variable |
-| `Invalid blob storage connection string provided` | Invalid or empty connection string | Verify `AsyncBlobStorageConnectionString` is correctly formatted |
+| `AsyncBlobStorageAccountUri is not set. Cannot create BlobWriter` | Missing storage account URI in the composite config | Verify the `uri` field in `AsyncBlobStorageConfig` |
+| `Invalid blob storage connection string provided` | Invalid or empty connection string | Verify the `uri` field in `AsyncBlobStorageConfig` |
 | `Failed to create BlobServiceClient with managed identity` | Managed identity authentication failed | Check RBAC permissions and ensure managed identity is enabled |
 | `Failed to create BlobServiceClient with connection string` | Connection string authentication failed | Verify connection string format and account keys |
 | `UserId cannot be null or empty` | Missing user ID parameter | Ensure user ID is provided in requests |
@@ -266,7 +269,7 @@ AsyncClientRequestHeader=S7PAsyncMode
 |---------------|-------|----------|
 | `ArgumentNullException` for dependencies | Missing required service injection | Ensure all required services are registered in DI container |
 | Authentication timeout errors | Managed identity token acquisition failed | Check Azure resource configuration and network connectivity |
-| Permission denied on storage operations | Insufficient RBAC permissions | Verify all required roles are assigned: Storage Blob Data Contributor, Storage Blob Delegator |
+| Permission denied on storage operations | Insufficient RBAC permissions | Verify the managed identity has Storage Blob Data Contributor |
 
 ### Diagnostic Steps
 
@@ -288,9 +291,8 @@ AsyncClientRequestHeader=S7PAsyncMode
    ```bash
    # Check if all required variables are set
    echo $AsyncModeEnabled
-   echo $AsyncBlobStorageUseMI
-   echo $AsyncBlobStorageAccountUri
-   echo $AsyncSBConnectionString
+   echo $AsyncBlobStorageConfig
+   echo $AsyncSBConfig
    ```
 
 5. **Logging**:
@@ -300,7 +302,5 @@ AsyncClientRequestHeader=S7PAsyncMode
 
 ### Performance Considerations
 
-- **SAS Token Caching**: User delegation keys are cached for 1 hour to reduce API calls
 - **Service Bus Batching**: Messages are processed in batches for better throughput
 - **Container Client Reuse**: Container clients are cached per user to avoid recreation overhead 
-

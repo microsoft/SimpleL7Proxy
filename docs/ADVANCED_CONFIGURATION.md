@@ -172,7 +172,7 @@ With `UserPriorityThreshold=0.2` (20%):
 If there are 100 active requests in the system and User A has 21, User A's new requests are deprioritized until their count drops below 20.
 
 > [!TIP]
-> **Troubleshooting:** If a specific user's requests are consistently slow, confirm they are not triggering the threshold. Set `LogAllRequestHeaders=true` and look for requests arriving at a lower priority than expected in the `x-Request-Worker` response header.
+> **Troubleshooting:** If a specific user's requests are consistently slow, confirm they are not triggering the threshold. Set `LogAllRequestHeaders=true` and inspect proxy logs for the assigned priority.
 
 ---
 
@@ -193,4 +193,3 @@ If there are 100 active requests in the system and User A has 21, User A's new r
 |---------|------|---------|--------|
 | 1.1 | 2026-05-21 | Added metadata, TL;DR, Summary, Scope & Applicability; added Rule: callouts before each example; added [!TIP] troubleshooting hints; added Validation & Compliance and Version History sections | SimpleL7Proxy maintainers |
 | 1.0 | — | Initial version | SimpleL7Proxy maintainers |
-

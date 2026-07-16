@@ -35,7 +35,7 @@ Client
   │
   ├── AsyncTriggerTimeout elapsed? ──Yes──► Return async response (blob URIs) to client
   │                                         Continue in background under AsyncTimeout
-  │                                         Result retained for AsyncTTLSecs
+  │                                         Request expiration reset using AsyncTTLSecs
   No (synchronous path)
   │
   ▼
@@ -44,7 +44,7 @@ Client
   │ [Timeout ms] │                   │ [Timeout ms] │                   │ [Timeout ms] │
   └──────────────┘                   └──────────────┘                   └──────────────┘
        ▲                                                                       │
-       └───────── TTL expired anywhere along this chain → 503, no retry ───────┘
+       └───────── TTL expired anywhere along this chain → 412, no retry ───────┘
   │
   ▼
 Response to client
@@ -78,19 +78,19 @@ First attempt:  min(60 s, 45 s) = 45 s effective
 
 **Rule: After `AsyncTriggerTimeout` elapses the client is unblocked immediately; the proxy finishes processing under `AsyncTimeout`.**
 
-![Async timeout flow: client is released after AsyncTriggerTimeout; backend continues under AsyncTimeout; result retained for AsyncTTLSecs.](AsyncTimeouts.png)
+![Async timeout flow: client is released after AsyncTriggerTimeout; backend continues under AsyncTimeout; request expiration resets using AsyncTTLSecs.](AsyncTimeouts.png)
 
 ```
 AsyncTriggerTimeout: 10000    → client receives blob URIs after 10 s
 AsyncTimeout:        1800000  → backend has up to 30 min to complete
-AsyncTTLSecs:        86400    → result blob retained for 24 h
+AsyncTTLSecs:        86400    → async request expiration resets to 24 h
 ```
 
 > [!NOTE]
 > **No header overrides exist for async settings.** Configure them via environment variables only.
 
 > [!TIP]
-> **Troubleshooting:** If async results disappear sooner than expected, `AsyncTTLSecs` may be set too low.
+> **Troubleshooting:** If background processing expires sooner than expected, verify `AsyncTTLSecs`.
 
 ---
 
@@ -104,7 +104,7 @@ S7PTTL: 120         # TTL → 120 s for this request
 ```
 
 > [!NOTE]
-> **Defaults:** If a header is absent or unparseable, the corresponding global config value is used with no error.
+> **Defaults:** If an override header is absent, the corresponding global config value is used.
 
 > [!WARNING]
 > **Error:** An unparseable `S7PTTL` value returns **400 Bad Request** with error code `InvalidTTL`.
