@@ -13,7 +13,7 @@ Two environment variables, one command. Here's what to set up, what commands to 
 ### Minimum required before starting?
 .NET 10 SDK (for local dev) or Docker + Azure CLI (for container deployment). Minimum config: `Port` and one `Host1` connection string. No other Azure resources required for a first run.
 
-[→ Minimum required before starting?](#minimum-required-before-starting)
+[→ Minimum required before starting?](#minimum-required-before-starting-1)
 
 </td>
 <td width="33%" valign="top">
@@ -29,7 +29,7 @@ Two environment variables, one command. Here's what to set up, what commands to 
 ### How do I deploy to Azure?
 Use the interactive deployment script in `deployment/README.md`. Fill in a parameters file, run the script, and Azure Container Apps (ACA) handles the rest. Port 8000 is the expected ingress target.
 
-[→ How do I run it?](#how-do-i-run-it)
+[→ How do I deploy to Azure?](#how-do-i-run-it)
 
 </td>
 </tr>
@@ -39,7 +39,7 @@ Use the interactive deployment script in `deployment/README.md`. Fill in a param
 ### How do I point it at a backend?
 Set `Host1` to a connection string: `host=https://<endpoint>;probe=/health`. Use `mode=direct` for serverless endpoints that don't support probing. See the LLM simulator for a no-Azure-needed backend.
 
-[→ How do I point it at a backend?](#how-do-i-point-it-at-a-backend)
+[→ How do I point it at a backend?](#how-do-i-point-it-at-a-backend-1)
 
 </td>
 <td width="33%" valign="top">
@@ -47,7 +47,7 @@ Set `Host1` to a connection string: `host=https://<endpoint>;probe=/health`. Use
 ### How do I verify it's working?
 Call `curl -i http://localhost:8000/health` — a `200 OK` means the proxy is up. Send a test request and check the response for the `x-Request-Worker` header, which the proxy injects on every proxied response.
 
-[→ How do I verify it's working?](#how-do-i-verify-its-working)
+[→ How do I verify it's working?](#how-do-i-verify-its-working-1)
 
 </td>
 <td width="33%" valign="top">
@@ -55,9 +55,7 @@ Call `curl -i http://localhost:8000/health` — a `200 OK` means the proxy is up
 ### What if it doesn't start?
 Check that `Host1` is reachable and that the probe path returns a success response (HTTP 200–299). Review the console log and `eventslog.json`. Most startup failures trace back to a missing `Host1`, an unreachable backend, or a bad connection string key.
 
-> **⚠️ GAP:** No "top 3 startup failure" quick-reference exists. → [Content gap details](#content-gaps-to-fill)
-
-[→ What if it doesn't start?](#what-if-it-doesnt-start)
+[→ What if it doesn't start?](#what-if-it-doesnt-start-1)
 
 </td>
 </tr>
@@ -225,11 +223,3 @@ SimpleL7Proxy writes startup events to the console and to `eventslog.json` in it
 | [ENVIRONMENT_VARIABLES.md](../ENVIRONMENT_VARIABLES.md) | Minimum required config section | Needs a clear "minimum config" callout |
 
 ---
-
-## Content gaps to fill
-
-- [ ] A single "5 commands to a running proxy" block at the very top — no prerequisites section before it
-- [ ] A working `Host1` connection string example with a real probe path (`host=http://localhost:9000;probe=/health`)
-- [ ] A "what you will see" block: exact expected output when the proxy starts successfully
-- [ ] A table: "symptom → cause → fix" for the three most common startup failures
-- [ ] A clear link to the LLM simulator as the recommended backend for first-time runs

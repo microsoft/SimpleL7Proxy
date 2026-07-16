@@ -21,7 +21,7 @@ When an AI backend throttles or goes down, your users get errors. SimpleL7Proxy 
 ### What does "Layer 7" mean here?
 A standard balancer moves packets. This proxy reads the conversation — throttle codes, token counts, request paths. That difference is what lets it catch a `429` and retry silently on another backend instead of passing the error to your users.
 
-[→ What does "Layer 7" mean here?](#what-does-layer-7-mean-here)
+[→ What does "Layer 7" mean here?](#what-does-layer-7-mean-here-1)
 
 </td>
 <td width="33%" valign="top">
@@ -29,7 +29,7 @@ A standard balancer moves packets. This proxy reads the conversation — throttl
 ### Where does it sit architecturally?
 It runs between APIM (or clients) and Azure AI backends, inside the operator's VNet. Clients never talk directly to a backend — the proxy is the single point all requests go through.
 
-[→ Where does it sit architecturally?](#where-does-it-sit-architecturally)
+[→ Where does it sit architecturally?](#where-does-it-sit-architecturally-1)
 
 </td>
 </tr>
@@ -39,7 +39,7 @@ It runs between APIM (or clients) and Azure AI backends, inside the operator's V
 ### What happens to a request end to end?
 Your request waits in a queue, a worker picks it up, and the proxy finds a healthy backend to forward it to. If that backend fails, it tries the next one automatically. You get the response plus a few headers showing which backend was used and how long everything took. The whole thing is capped by a total time budget — see [TTL](../Glossary.md#request-lifecycle).
 
-[→ What happens to a request end to end?](#what-happens-to-a-request-end-to-end)
+[→ What happens to a request end to end?](#what-happens-to-a-request-end-to-end-1)
 
 </td>
 <td width="33%" valign="top">
@@ -47,7 +47,7 @@ Your request waits in a queue, a worker picks it up, and the proxy finds a healt
 ### Where does it run in Azure?
 Azure Container Apps is the primary deployment target, with optional VNet integration. It can also run locally from source for development. Sovereign cloud is supported.
 
-[→ Where does it run in Azure?](#where-does-it-run-in-azure)
+[→ Where does it run in Azure?](#where-does-it-run-in-azure-1)
 
 </td>
 <td width="33%" valign="top">
@@ -55,13 +55,11 @@ Azure Container Apps is the primary deployment target, with optional VNet integr
 ### What does it NOT do?
 It doesn't manage your AI models, run a developer portal, or handle caller subscriptions and authentication — that's what APIM is for. It also won't keep a shared failure count across multiple proxy replicas, and any requests waiting in the queue when the container restarts are lost. Knowing this up front saves time evaluating the wrong tool.
 
-[→ What does it NOT do?](#what-does-it-not-do)
+[→ What does it NOT do?](#what-does-it-not-do-1)
 
 </td>
 </tr>
 </table>
-
-> **⚠️ GAP — Comparison table missing:** There is no "use this vs APIM vs Azure Front Door" decision guide in any existing document. A reader evaluating alternatives has no single place to compare. → [Content gap details](#content-gaps-to-fill)
 
 ---
 
@@ -77,7 +75,7 @@ A standard load balancer moves traffic by IP and port — it has no idea what's 
 
 #### What is a Layer 7 proxy and why does that distinction matter for AI workloads?
 
-> See [What does "Layer 7" mean here?](#what-does-layer-7-mean-here) below.
+> See [What does "Layer 7" mean here?](#what-does-layer-7-mean-here-1) below.
 
 #### What are the core capabilities in plain language (routing, queuing, circuit breaking, governance, telemetry)?
 
@@ -196,10 +194,3 @@ It is not a managed service (you host and operate it yourself), not a full API g
 | [Glossary.md](../Glossary.md) | Term definitions | Should be linked early in this section |
 
 ---
-
-## Content gaps to fill
-
-- [ ] A single annotated architecture diagram (one diagram, not many) covering the full pipeline: client → queue → worker → backend selector → circuit breaker → backend → telemetry
-- [ ] A "not this, but that" table comparing the proxy to common alternatives (APIM, nginx, Azure Front Door)
-- [ ] A "non-goals" list so readers know what to stop looking for
-- [ ] A one-paragraph plain-English answer to "what problem does this solve?"
