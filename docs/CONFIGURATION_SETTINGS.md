@@ -53,7 +53,7 @@ These settings determine how many requests the proxy can handle simultaneously a
 | <small>`Server:StreamFlushInterval`</small> | <small>`StreamFlushInterval`</small> | `250`</small> | Interval (in milliseconds) used by StreamFlusher to flush active response streams. |
 | <small>`Security:UseOAuthGov`</small> | <small>`UseOAuthGov`</small> | `false`</small> | Switches OAuth endpoint logic to government cloud boundary. |
 | <small>`Security:IgnoreSSLCert`</small> | <small>`IgnoreSSLCert`</small> | `false`</small> | TLS certificate validation bypass for explicit non-production scenarios. |
-| <small>`Server:MaxUndrainedEvents`</small> | <small>`MaxUndrainedEvents`</small> | <small>`100`</small> | Backpressure cap for buffered Event Hub events. |
+| <small>`Server:MaxUndrainedEvents`</small> | <small>`EVENTHUB_MAX_UNDRAINED_EVENTS`</small> | <small>`10000`</small> | Backpressure cap for buffered Event Hub events. |
 </details>
 
 ACA monitors the container via liveness, readiness, and startup probes. By default these probes hit the proxy directly — expand to redirect them to a sidecar and reduce probe overhead on the proxy in high-volume deployments.
@@ -76,8 +76,8 @@ The circuit breaker prevents the proxy from sending requests to consistently fai
 
 | App Configuration Key | Env Var | Default | Why It Matters |
 |---|---|---|---|
-| <small>`CircuitBreaker:ErrorThreshold`</small> | <small>`CircuitBreakerErrorThreshold`</small> | <small>`50`</small> | Number of errors within the timeslice that triggers the circuit to open. With the defaults, more than 50 errors in 60 seconds opens the circuit. |
-| <small>`CircuitBreaker:Timeslice`</small> | <small>`CircuitBreakerTimeslice`</small> | <small>`60`</small> | Sliding window in seconds over which errors are counted toward the threshold. |
+| <small>`CircuitBreaker:ErrorThreshold`</small> | <small>`CBErrorThreshold`</small> | <small>`50`</small> | Number of errors within the timeslice that triggers the circuit to open. With the defaults, 50 errors in 60 seconds opens the circuit. |
+| <small>`CircuitBreaker:Timeslice`</small> | <small>`CBTimeslice`</small> | <small>`60`</small> | Sliding window in seconds over which errors are counted toward the threshold. |
 | <small>`Response:AcceptableStatusCodes`</small> | <small>`AcceptableStatusCodes`</small> | <small>`200,202,401,403,404,408,410,412,417,400`</small> | Status codes that are **not** counted as errors. Any response code outside this list increments the error counter toward the circuit-breaker threshold. |
 </details>
 
@@ -116,8 +116,8 @@ Use these settings to control what the proxy strips, forwards, or adds on behalf
 | <small>`Request:StripRequestHeaders`</small> | <small>`StripRequestHeaders`</small> | <small>`[]`</small> | Headers to remove from the inbound request before forwarding to the backend. |
 | <small>`Response:StripResponseHeaders`</small> | <small>`StripResponseHeaders`</small> | <small>`[]`</small> | Headers to remove from the backend response before returning to the caller. |
 | <small>`Request:Priority:DefaultPriority`</small> | <small>`DefaultPriority`</small> | <small>`2`</small> | Priority assigned to requests that don't supply a recognized priority key. |
-| <small>`Request:Priority:PriorityKeys`</small> | <small>`PriorityKeys`</small> | <small>`12345,234`</small> | Priority key values callers can send in the priority header. Paired by position with `PriorityValues`. |
-| <small>`Request:Priority:PriorityValues`</small> | <small>`PriorityValues`</small> | <small>`1,3`</small> | Priority level for each key in `PriorityKeys`. Key `12345` → priority `1`, key `234` → priority `3`. |
+| <small>`Request:Priority:PriorityKeys`</small> | <small>`PriorityKeys`</small> | <small>`high,medium,low`</small> | Priority key values callers can send in the priority header. Paired by position with `PriorityValues`. |
+| <small>`Request:Priority:PriorityValues`</small> | <small>`PriorityValues`</small> | <small>`1,2,3`</small> | Priority level for each key in `PriorityKeys`. |
 | <small>`Request:Headers:PriorityKeyHeader`</small> | <small>`PriorityKeyHeader`</small> | <small>`S7PPriorityKey`</small> | Header name callers use to send their priority key. |
 | <small>`Request:Priority:GreedyUserThreshold`</small> | <small>`UserPriorityThreshold`</small> | <small>`0.1`</small> | Maximum queue share a single user can hold (0.1 = 10%). Prevents one caller from monopolizing the queue. |
 | <small>`Request:DefaultTTLSecs`</small> | <small>`DefaultTTLSecs`</small> | <small>`300`</small> | How long (in seconds) a queued request is kept before it expires and is dropped. |
@@ -156,9 +156,9 @@ Key authentication blocks callers that don't supply a recognized key in a design
 
 | App Configuration Key | Env Var | Default | Why It Matters |
 |---|---|---|---|
-| <small>`Profiles:Auth:Config`</small> | <small>`ValidateAuthConfig`</small> | <small>`enabled=false,mode=key,header=S7P-KEY`</small> | Defines key-validation behavior (`enabled`, `mode`, `header`). |
-| <small>`Profiles:Auth:Key1`</small> | <small>`ValidateAuthKey1`</small> | <small>`key1`</small> | First accepted inbound key. |
-| <small>`Profiles:Auth:Key2`</small> | <small>`ValidateAuthKey2`</small> | <small>`key2`</small> | Second accepted inbound key for rotation support. |
+| <small>`Profiles:Auth:Config`</small> | <small>`ValidateAuthConfig`</small> | <small>`enabled=false,mode=none,header=S7P-KEY`</small> | Defines inbound key or OAuth validation behavior (`enabled`, `mode`, `header`). |
+| <small>`Profiles:Auth:Key1`</small> | <small>`ValidateAuthKey1`</small> | <small>`""`</small> | First accepted inbound key. |
+| <small>`Profiles:Auth:Key2`</small> | <small>`ValidateAuthKey2`</small> | <small>`""`</small> | Second accepted inbound key for rotation support. |
 </details>
 
 When EasyAuth is enabled, the proxy can further restrict access to a specific list of application IDs. Expand to configure the allowlist source and the token field used to identify the caller's app ID.
@@ -240,7 +240,7 @@ The proxy polls each backend to determine which endpoints are healthy before rou
 | <small>`Server:PollInterval`</small> | <small>`PollInterval`</small> | <small>`15000`</small> | How often (in ms) the proxy checks each backend endpoint's health. Default = every 15 seconds. |
 | <small>`Server:PollTimeout`</small> | <small>`PollTimeout`</small> | <small>`3000`</small> | How long (in ms) the proxy waits for a health-check response before marking the endpoint unhealthy. Default = 3 seconds. |
 | <small>`CircuitBreaker:SuccessRate`</small> | <small>`SuccessRate`</small> | <small>`80`</small> | Minimum percentage of successful responses required for an endpoint to receive traffic. Below 80%, the endpoint is skipped. |
-| <small>`LoadBalancing:Mode`</small> | <small>`LoadBalanceMode`</small> | <small>`latency`</small> | Endpoint selection strategy. Options: `latency` (prefer fastest), `priority` (prefer lower-numbered hosts), `roundrobin`. |
+| <small>`LoadBalancing:Mode`</small> | <small>`LoadBalanceMode`</small> | <small>`latency`</small> | Endpoint selection strategy. Options: `latency` (prefer fastest), `roundrobin`, or `random`. |
 | <small>`LoadBalancing:IterationMode`</small> | <small>`IterationMode`</small> | <small>`SinglePass`</small> | How endpoints are tried on retry. `SinglePass` tries each endpoint once per request. `MultiPass` allows repeated attempts up to `MaxAttempts`. |
 | <small>`Request:DefaultTimeout`</small> | <small>`Timeout`</small> | <small>`1200000`</small> | How long (in ms) the proxy waits for a backend response before timing out. Default = 20 minutes. |
 | <small>`LoadBalancing:MultiPass:MaxAttempts`</small> | <small>`MaxAttempts`</small> | <small>`10`</small> | Maximum total backend attempts per request when `IterationMode` is `MultiPass`. |
@@ -286,7 +286,7 @@ Each log sink requires its own connection credentials. Expand to connect Applica
 | <small>`Logging:EventHub:Namespace`</small> | <small>`EventHubNamespace`</small> | <small>`""`</small> | Managed-identity endpoint alternative to connection string. |
 | <small>`Logging:EventHub:StartupSeconds`</small> | <small>`EventHubStartupSeconds`</small> | <small>`10`</small> | Startup timeout for Event Hub sender initialization. |
 | <small>`Logging:EventHub:MaxReconnectAttempts`</small> | <small>`EventHubMaxReconnectAttempts`</small> | <small>`5`</small> | Reconnect cap for Event Hub sender failures. |
-| <small>`Server:MaxUndrainedEvents`</small> | <small>`MaxUndrainedEvents`</small> | <small>`100`</small> | See the server section above. |
+| <small>`Server:MaxUndrainedEvents`</small> | <small>`EVENTHUB_MAX_UNDRAINED_EVENTS`</small> | <small>`10000`</small> | See the server section above. |
 | <small>`Logging:ReuseEvents`</small> | <small>`ReuseEvents`</small> | <small>`false`</small> | Reduces allocation overhead in high-volume event paths. |
 
 </details>
@@ -309,7 +309,7 @@ Log volume can be high under load. Use these settings to route specific event ca
 | <small>`Logging:EventLoggers`</small> | <small>`EventLoggers`</small> | <small>`file`</small> | Comma-delimited sink selector (`eventhub`, `file`, or custom class). See [OBSERVABILITY.md](OBSERVABILITY.md#custom-event-loggers). |
 | <small>`Logging:LogToEvents`</small> | <small>`LogToEvents`</small> | <small>`async, backend, probe, circuitbreaker, custom, exception, profile, proxy, enqueued, auth`</small> | Categories sent through event logger sinks. |
 | <small>`Logging:LogToAI`</small> | <small>`LogToAI`</small> | <small>`*`</small> | Categories sent to Application Insights. |
-| <small>`Logging:LogToConsole`</small> | <small>`LogToConsole`</small> | <small>`*`</small> | Categories written to console output. |
+| <small>`Logging:LogToConsole`</small> | <small>`LogToConsole`</small> | <small>`*,-custom`</small> | Categories written to console output. |
 | <small>`Logging:Level`</small> | <small>`LogLevel`</small> | <small>`Information`</small> | Minimum verbosity. Options: `Trace`, `Debug`, `Information`, `Warning`, `Error`, `Critical`. |
 | <small>`Logging:LogDateTime`</small> | <small>`LogDateTime`</small> | <small>`false`</small> | Adds timestamps to console output. |
 | <small>`Logging:LogFileName`</small> | <small>`LogFileName`</small> | <small>`eventslog.json`</small> | File output path when `file` is in `EventLoggers`. Mount a persistent volume at this path to retain logs beyond the container's lifetime — this is the recommended way to extract file logs from a containerized deployment. |
@@ -384,14 +384,14 @@ Async mode decouples the proxy from long-running backend calls — the caller re
 | App Configuration Key | Env Var | Default | Why It Matters |
 |---|---|---|---|
 | <small>`Async:Enabled`</small> | <small>`AsyncModeEnabled`</small> | <small>`false`</small> | Master switch for async mode. When `false`, all requests are processed synchronously. |
-| <small>`Async:RequestAPIBaseUri`</small> | <small>`RequestAPIBaseUri`</small> | <small>`""`</small> | Base URL used when constructing async status callback URLs returned to callers. |
+| <small>`Async:RequestAPIBaseUri`</small> | <small>`RequestAPIBaseUri`</small> | <small>`https://example-function.azurewebsites.net/api/`</small> | Base URL used by the Request API subsystem. |
 | <small>`Async:Storage:BlobConfig`</small> | <small>`AsyncBlobStorageConfig`</small> | <small>`""`</small> | Blob Storage connection config. Use `cs=<conn>` for connection-string auth, or `uri=https://account.blob.core.windows.net/,mi=true` for managed identity. Also accepts a raw Azure Storage connection string. |
 | <small>`Async:Storage:ContainerName`</small> | <small>`StorageDbContainerName`</small> | <small>`Requests`</small> | Blob container name where async results are stored. |
-| <small>`Async:ServiceBus:Config`</small> | <small>`AsyncSBConfig`</small> | <small>`""`</small> | Service Bus connection config. Use `cs=<conn>,q=<queue>` for connection-string auth, or `ns=<namespace>,q=<queue>,mi=true` for managed identity. Queue defaults to `requeststatus`. |
+| <small>`Async:ServiceBus:Config`</small> | <small>`AsyncSBConfig`</small> | <small>`cs=example-sb-connection-string,ns=example-namespace,q=requeststatus,mi=false`</small> | Service Bus connection config. Use `cs=<conn>,q=<queue>` for connection-string auth, or `ns=<namespace>,q=<queue>,mi=true` for managed identity. Queue defaults to `requeststatus`. |
 
 </details>
 
-Expand to tune trigger timeouts, result retention, worker counts, and the header callers use to opt into async processing.
+Expand to tune trigger timeouts, async request lifetime, worker counts, and the header callers use to opt into async processing.
 <details>
 <summary><strong>Configuration</strong></summary>
 
@@ -399,10 +399,10 @@ Expand to tune trigger timeouts, result retention, worker counts, and the header
 |---|---|---|---|
 | <small>`Async:TriggerTimeout`</small> | <small>`AsyncTriggerTimeout`</small> | <small>`10000`</small> | How long (in ms) the proxy waits for a synchronous response before switching the request to async mode. Default = 10 seconds. |
 | <small>`Async:Timeout`</small> | <small>`AsyncTimeout`</small> | <small>`1800000`</small> | Maximum time (in ms) the proxy waits for the async backend to complete. Default = 30 minutes. |
-| <small>`Async:TTLSecs`</small> | <small>`AsyncTTLSecs`</small> | <small>`86400`</small> | How long (in seconds) async results are retained in storage for retrieval. Default = 24 hours. |
+| <small>`Async:TTLSecs`</small> | <small>`AsyncTTLSecs`</small> | <small>`86400`</small> | Request TTL in seconds applied when async processing starts, replacing the synchronous expiration. |
 | <small>`Async:ClassNames`</small> | <small>`AsyncClassNames`</small> | <small>`""`</small> | Override the default storage and async handler classes with custom implementations. |
 | <small>`Request:Headers:AsyncMode`</small> | <small>`AsyncClientRequestHeader`</small> | <small>`S7PAsyncMode`</small> | Header callers can send to explicitly request async processing for their request. |
-| <small>`Async:ClientConfigFieldName`</small> | <small>`AsyncClientConfigFieldName`</small> | <small>`async-config`</small> | Field name in the client request body that carries per-request async configuration. |
+| <small>`Async:ClientConfigFieldName`</small> | <small>`AsyncClientConfigFieldName`</small> | <small>`async-config`</small> | Field name in the user profile that carries per-user async configuration. |
 | <small>`Async:Storage:Workers`</small> | <small>`AsyncBlobWorkerCount`</small> | <small>`2`</small> | Number of background workers writing async results to Blob Storage. |
 | <small>`Async:Storage:MaxQueue`</small> | <small>`AsyncBlobMaxQueue`</small> | <small>`200`</small> | Maximum async results queued in memory waiting to be written. Requests are rejected when this limit is reached. |
 | <small>`Async:Storage:StreamingBufferSizeBytes`</small> | <small>`AsyncStreamingBufferSizeBytes`</small> | <small>`0`</small> | Write buffer size for streaming blob uploads. `0` uses the SDK default. |

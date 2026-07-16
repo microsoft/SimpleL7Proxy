@@ -4,13 +4,13 @@ SimpleL7Proxy exposes standard Kubernetes-compatible health endpoints to monitor
 
 ## Health Endpoints
 
-By default, the proxy serves these endpoints on the main application port (e.g., `80` or `8080`).
+By default, the proxy serves these endpoints on the main application port (`8000` by default).
 
 | Endpoint | Purpose | Logic | Returns |
 |----------|---------|-------|---------|
 | `/liveness` | Checks if the application is alive. | Returns **200 OK** if the process is running. | `200 OK` |
-| `/readiness` | Checks if the application can accept traffic. | Returns **200 OK** if at least one backend host is healthy. | `200 OK` / `503 Service Unavailable` |
-| `/startup` | Checks if initialization is complete. | Returns **200 OK** if the backend poller has completed its first pass. | `200 OK` / `503 Service Unavailable` |
+| `/readiness` | Checks if the application can accept traffic. | Returns **200 OK** when startup is complete, hosts are active and healthy, and event/blob queue backlogs are within limits. | `200 OK` / `503 Service Unavailable` |
+| `/startup` | Checks if initialization is complete. | Returns **200 OK** when initialization and the same host, event backlog, and blob queue health checks used by readiness pass. | `200 OK` / `503 Service Unavailable` |
 | `/health` | Generic health check. | Alias for liveness. **Note:** Only available on the main proxy port (not the sidecar). | `200 OK` |
 
 ## Response Codes

@@ -55,7 +55,7 @@ This document categorizes every SimpleL7Proxy configuration setting into three t
 | Env Var | Property | Mode | Default | Purpose |
 |---------|----------|------|---------|---------|
 | `DefaultTTLSecs` | `DefaultTTLSecs` | Warm | `300` s | Request TTL; how long before queue entry expires |
-| `AcceptableStatusCodes` | `AcceptableStatusCodes` | Warm | `[200,202,400,401,...]` | Status codes returned without retry |
+| `AcceptableStatusCodes` | `AcceptableStatusCodes` | Warm | `[200,202,401,403,404,408,410,412,417,400]` | Status codes returned without retry |
 | `UniqueUserHeaders` | `UniqueUserHeaders` | Warm | `["X-UserID"]` | Headers that identify a unique user for queue tracking |
 
 ### Load Balancing
@@ -66,9 +66,9 @@ This document categorizes every SimpleL7Proxy configuration setting into three t
 ### Circuit Breaker
 | Env Var | Property | Mode | Default | Purpose |
 |---------|----------|------|---------|---------|
-| `CBErrorThreshold` | `CircuitBreakerErrorThreshold` | Warm | `50` | Number of failures within the window that opens the circuit |
-| `CBTimeslice` | `CircuitBreakerTimeslice` | Warm | `60` s | Sliding window width — failures older than this are discarded |
-| `SuccessRate` | `SuccessRate` | Cold | `80` % | Min success rate to keep circuit closed |
+| `CBErrorThreshold` | `CBErrorThreshold` | Warm | `50` | Number of failures within the window that opens the circuit |
+| `CBTimeslice` | `CBTimeslice` | Warm | `60` s | Sliding window width — failures older than this are discarded |
+| `SuccessRate` | `SuccessRate` | Cold | `80` % | Minimum probe success rate for a host to remain in the active pool |
 
 ### Health Checking
 | Env Var | Property | Mode | Default | Purpose |
@@ -81,8 +81,8 @@ This document categorizes every SimpleL7Proxy configuration setting into three t
 |---------|----------|------|---------|---------|
 | `LogAllRequestHeaders` | `LogAllRequestHeaders` | Warm | `false` | Log all inbound headers (for debugging) |
 | `LogAllResponseHeaders` | `LogAllResponseHeaders` | Warm | `false` | Log all outbound headers (for debugging) |
-| `LogToConsole` | `LogToConsole` | Cold | `["*"]` | Event categories written to stdout |
-| `LogToEvents` | `LogToEvents` | Cold | `["async","backend","probe",...]` | Event categories written to event store |
+| `LogToConsole` | `LogToConsole` | Warm | `["*","-custom"]` | Event categories written to stdout |
+| `LogToEvents` | `LogToEvents` | Warm | `["async","backend","probe",...]` | Event categories written to event store |
 
 ### User Profiles (if using)
 | Env Var | Property | Mode | Default | Purpose |
@@ -114,7 +114,7 @@ This document categorizes every SimpleL7Proxy configuration setting into three t
 | `AsyncSBConfig` | `AsyncSBConfig` | Cold | `""` | Service Bus connection string + queue name |
 | `AsyncBlobWorkerCount` | `AsyncBlobWorkerCount` | Cold | `2` | Worker threads for blob uploads |
 | `AsyncTimeout` | `AsyncTimeout` | Warm | `1800000` ms (30 min) | Max backend processing time in async mode |
-| `AsyncTTLSecs` | `AsyncTTLSecs` | Warm | `86400` s (24 h) | Async result blob retention period |
+| `AsyncTTLSecs` | `AsyncTTLSecs` | Warm | `86400` s (24 h) | Request TTL applied when async processing starts |
 | `AsyncTriggerTimeout` | `AsyncTriggerTimeout` | Warm | `10000` ms | Delay before queued request converts to async |
 | `AsyncClientRequestHeader` | `AsyncClientRequestHeader` | Warm | `S7PAsyncMode` | Header clients use to enable async mode |
 | `AsyncClientConfigFieldName` | `AsyncClientConfigFieldName` | Warm | `async-config` | JSON field in async client config |
@@ -153,8 +153,8 @@ This document categorizes every SimpleL7Proxy configuration setting into three t
 ### Priority Management (Advanced)
 | Env Var | Property | Mode | Default | Purpose |
 |---------|----------|------|---------|---------|
-| `PriorityKeys` | `PriorityKeys` | Warm | `["12345","234"]` | Known priority key values |
-| `PriorityValues` | `PriorityValues` | Warm | `[1,3]` | Priority levels assigned per key |
+| `PriorityKeys` | `PriorityKeys` | Warm | `["high","medium","low"]` | Known priority key values |
+| `PriorityValues` | `PriorityValues` | Warm | `[1,2,3]` | Priority levels assigned per key |
 | `PriorityKeyHeader` | `PriorityKeyHeader` | Warm | `S7PPriorityKey` | Header clients use to pass priority key |
 | `UserPriorityThreshold` | `UserPriorityThreshold` | Warm | `0.1` | Max fraction of queue a single user may occupy |
 
@@ -172,24 +172,24 @@ This document categorizes every SimpleL7Proxy configuration setting into three t
 | Env Var | Property | Mode | Default | Purpose |
 |---------|----------|------|---------|---------|
 | `OAuthAudience` | `OAuthAudience` | Cold | `""` | Legacy global OAuth audience. Prefer `audience=` in `HostN` connection strings. |
-| `ValidateAuthConfig` | `ValidateAuthConfig` | Warm | `enabled=false, mode=key, header=S7P-KEY` | Enable inbound key validation and set required request header |
-| `ValidateAuthKey1` | `ValidateAuthKey1` | Warm | `key1` | First allowed inbound key value |
-| `ValidateAuthKey2` | `ValidateAuthKey2` | Warm | `key2` | Second allowed inbound key value |
+| `ValidateAuthConfig` | `ValidateAuthConfig` | Warm | `enabled=false, mode=none, header=S7P-KEY` | Enable inbound key or OAuth validation and set the request header |
+| `ValidateAuthKey1` | `ValidateAuthKey1` | Warm | `""` | First allowed inbound key value |
+| `ValidateAuthKey2` | `ValidateAuthKey2` | Warm | `""` | Second allowed inbound key value |
 
 Per-host auth should be configured in `HostN` connection strings using `useoauth` / `usemi`, `audience`, `api-key`, and `api-key-header`.
 
 ### Logging (Advanced)
 | Env Var | Property | Mode | Default | Purpose |
 |---------|----------|------|---------|---------|
-| `LogToAI` | `LogToAI` | Warm | `[""]` | Event categories sent to Application Insights |
+| `LogToAI` | `LogToAI` | Warm | `["*"]` | Event categories sent to Application Insights |
 | `APPINSIGHTS_CONNECTIONSTRING` | `AppInsightsConnectionString` | Cold | `""` | Application Insights connection string |
 | `EVENTHUB_CONNECTIONSTRING` | `EventHubConnectionString` | Cold | `""` | Event Hub connection string |
 | `EVENTHUB_NAME` | `EventHubName` | Cold | `""` | Event Hub name |
 | `EVENTHUB_NAMESPACE` | `EventHubNamespace` | Cold | `""` | Event Hub namespace |
 | `EVENTHUB_STARTUP_SECONDS` | `EventHubStartupSeconds` | Cold | `10` s | Delay before Event Hub starts sending |
 | `EVENTHUB_MAX_RECONNECT_ATTEMPTS` | `EventHubMaxReconnectAttempts` | Cold | `5` | Max reconnect attempts on failure |
-| `EVENTHUB_MAX_UNDRAINED_EVENTS` | `MaxUndrainedEvents` | Cold | `100` | Max buffered events before blocking |
-| `EVENT_LOGGERS` | `EventLoggers` | Cold | `file` | Comma-separated list of event sinks (file, eventhub, appinsights) |
+| `EVENTHUB_MAX_UNDRAINED_EVENTS` | `EVENTHUB_MAX_UNDRAINED_EVENTS` | Cold | `10000` | Max buffered events before blocking |
+| `EVENT_LOGGERS` | `EVENT_LOGGERS` | Cold | `file` | Comma-separated list of event sinks (`file`, `eventhub`, `none`, or custom type) |
 | `LOGFILE_NAME` | `LogFileName` | Cold | `eventslog.json` | Event log file path |
 | `LOGDATETIME` | `LogDateTime` | Cold | `false` | Prefix log entries with timestamp |
 | `LOG_LEVEL` | `LogLevel` | Hidden | `Information` | Log level (Debug, Information, Warning, Error) |
@@ -254,4 +254,3 @@ Per-host auth should be configured in `HostN` connection strings using `useoauth
 **Q: Which settings appear in the portal (App Configuration)?**
 → All **Warm** and **Cold** settings (regardless of frequency group).
 → **Hidden** settings are env-var only.
-
