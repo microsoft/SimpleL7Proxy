@@ -15,7 +15,7 @@ Architecture, components, and how requests flow end to end.
 
 **For:** architects and evaluators deciding whether to adopt.
 
-[→ Read the Overview](OVERVIEW.md)
+[→ Read the Overview](nav/01-understand-the-proxy.md)
 
 </td>
 <td width="33%" valign="top">
@@ -25,7 +25,7 @@ Deploy to Azure Container Apps or run locally from source in minutes.
 
 **For:** operators and developers doing a first deployment.
 
-[→ Follow the Quickstart](QUICKSTART.md)
+[→ Follow the Quickstart](nav/02-get-it-running.md)
 
 </td>
 <td width="33%" valign="top">
@@ -35,7 +35,7 @@ Environment variables, host setup, load balancing, and hot-reload settings.
 
 **For:** operators tuning a running deployment.
 
-[→ See Configuration](CONFIGURATION_CATEGORIES.md)
+[→ See Configuration](nav/03-configure-backends-and-settings.md)
 
 </td>
 </tr>
@@ -47,7 +47,7 @@ Walkthrough guides for failover, priority routing, and chargeback — each runna
 
 **For:** engineers validating behavior or preparing a demo.
 
-[→ Browse POC guides](TABLE_OF_CONTENTS.md#proof-of-concept-guides)
+[→ Browse POC guides](nav/04-try-a-proof-of-concept.md)
 
 </td>
 <td width="33%" valign="top">
@@ -57,7 +57,7 @@ Find your symptom — 429s, 503s, a stuck circuit breaker, async not completing 
 
 **For:** anyone debugging broken or unexpected behavior.
 
-[→ Open Troubleshooting](TroubleshootTOC.md)
+[→ Open Troubleshooting](nav/05-diagnose-a-problem.md)
 
 </td>
 <td width="33%" valign="top">
@@ -67,7 +67,7 @@ Run from source, understand the internals, and contribute changes.
 
 **For:** developers building on or contributing to the proxy.
 
-[→ Start Development](BEGINNER_DEVELOPMENT.md)
+[→ Start Development](nav/06-develop-and-contribute.md)
 
 </td>
 </tr>
