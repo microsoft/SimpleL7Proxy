@@ -11,7 +11,7 @@ namespace SimpleL7Proxy.StreamProcessor
         /// <summary>
         /// Copies content from source to destination without any processing.
         /// </summary>
-        public override async Task CopyToAsync(System.Net.Http.HttpContent sourceContent, Stream outputStream)
+        public override async Task CopyToAsync(System.Net.Http.HttpContent sourceContent, Stream outputStream, bool debug)
         {
             await sourceContent.CopyToAsync(outputStream).ConfigureAwait(false);
         }

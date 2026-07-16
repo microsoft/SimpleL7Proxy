@@ -1874,7 +1874,8 @@ public class ProxyWorker : IConfigChangeSubscriber
                 _logger.LogDebug("Streaming to {Destination} for request {Guid}", destinationType, request.Guid);
 
                 var addedToFlusher = _streamFlusher.AddStream(destination);
-                await processor.CopyToAsync(proxyResponse.Content, destination).ConfigureAwait(false);
+                var debugStream = request.Headers["S7PDEBUGSTREAM"] is {} debugValue && debugValue.Equals("true", StringComparison.OrdinalIgnoreCase);
+                await processor.CopyToAsync(proxyResponse.Content, destination, debugStream).ConfigureAwait(false);
                 if (addedToFlusher)
                 {
                     _streamFlusher.RemoveStream(destination);
