@@ -116,7 +116,7 @@ This line must appear **after** `Response.Close()`. Without it, the blob will be
 | Setting | Env Var | App Config key |
 |---------|---------|----------------|
 | Max async lifetime (ms) | `AsyncTimeout=<ms>` | `Warm:Async:Timeout` |
-| Blob SAS token lifetime | `AsyncTTLSecs=<s>` | `Warm:Async:TTLSecs` |
+| Async request TTL after upgrade | `AsyncTTLSecs=<s>` | `Warm:Async:TTLSecs` |
 
 ---
 

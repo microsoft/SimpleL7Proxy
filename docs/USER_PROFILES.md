@@ -173,7 +173,7 @@ Response:
 
 ### Async Processing Security
 - Ensure blob containers have proper access controls
-- Use time-limited SAS tokens for blob access
+- Protect returned base blob URIs with private networking and Azure RBAC
 - Validate Service Bus topic permissions
 
 </details>

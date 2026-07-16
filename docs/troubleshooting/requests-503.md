@@ -54,7 +54,7 @@ Check the circuit breaker status: `curl http://<proxy-host>/readiness`
 
 ### Backends returning codes in 3xx or 404
 
-Redirects (`3xx`) and `404` cause the proxy to skip to the next host. If all hosts return a redirect or 404, the result is 503.
+Responses listed in `AcceptableStatusCodes` return directly to the client. The default list includes `404`; redirects retry unless explicitly added to that setting.
 
 **Fix:** Verify the backend URLs and path routing are correct. Check `stripprefix` settings on each host — a stripped prefix may produce the wrong downstream path.
 
