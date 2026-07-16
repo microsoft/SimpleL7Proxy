@@ -1,6 +1,6 @@
-# Content Brief: 🔍 Understand the Proxy
+# Why Would You Put a Proxy in Front of Your AI Backends?
 
-If you're new to SimpleL7Proxy and want to understand what it does, where it fits, and whether it's right for your architecture — these are the questions most people ask first.
+Your AI backend throttles. A model endpoint goes down. A VIP customer's request waits behind a flood of low-priority traffic. These are the reliability and cost problems SimpleL7Proxy was built for. Here are the questions most people ask before deciding whether it belongs in their architecture.
 
 ---
 
@@ -11,7 +11,7 @@ If you're new to SimpleL7Proxy and want to understand what it does, where it fit
 <td width="33%" valign="top">
 
 ### What problem does it solve?
-Standard load balancers can't handle AI throttling, fairness, or token telemetry. SimpleL7Proxy sits between clients and Azure AI backends to add priority queuing, circuit breaking, and per-request governance.
+When an AI backend throttles or goes down, your users get errors. SimpleL7Proxy catches those failures before they reach callers — retrying transparently, queuing by priority, and keeping your application responsive even when backends struggle.
 
 [→ What problem does it solve?](#what-problem-does-it-solve)
 
@@ -19,7 +19,7 @@ Standard load balancers can't handle AI throttling, fairness, or token telemetry
 <td width="33%" valign="top">
 
 ### What does "Layer 7" mean here?
-The proxy inspects and acts on HTTP content — headers, paths, response bodies — not just TCP connections. This lets it read throttle signals, extract token counts, and route by request context.
+A standard balancer moves packets. This proxy reads the conversation — throttle codes, token counts, request paths. That difference is what lets it catch a `429` and retry silently on another backend instead of passing the error to your users.
 
 [→ What does "Layer 7" mean here?](#what-does-layer-7-mean-here)
 
@@ -53,7 +53,7 @@ Azure Container Apps is the primary deployment target, with optional VNet integr
 <td width="33%" valign="top">
 
 ### What does it NOT do?
-No managed hosting, no gRPC/WebSocket, no model inference, no full API gateway features (portals, subscriptions), no distributed circuit breaker state, no durable queue.
+No managed hosting, no gRPC/WebSocket, no model inference, no full API gateway features (portals, subscriptions), no distributed circuit breaker state, no durable queue. Knowing this up front saves time evaluating the wrong tool.
 
 [→ What does it NOT do?](#what-does-it-not-do)
 
@@ -65,7 +65,7 @@ No managed hosting, no gRPC/WebSocket, no model inference, no full API gateway f
 
 ---
 
-## Questions this section MUST answer
+## Full Answers
 
 ### What problem does it solve?
 
@@ -177,7 +177,7 @@ SimpleL7Proxy is not a managed service (you host and operate it yourself), not a
 
 ---
 
-## What the reader can do AFTER reading this
+## You Should Now Be Able To
 
 - [ ] Explain the proxy to a colleague in 2 minutes
 - [ ] Draw the architecture (client → queue → worker → backend → telemetry)

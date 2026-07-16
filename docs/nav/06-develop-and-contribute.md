@@ -1,6 +1,6 @@
-# Content Brief: 💻 Develop and Contribute
+# Building On and Contributing to SimpleL7Proxy
 
-If you want to build from source, understand how requests flow through the code, or contribute a change — this page maps the codebase and explains the conventions that apply.
+Whether you're adding a feature, fixing a bug, or just tracing a request through the code to understand what's happening — here's the map of the codebase, the conventions that apply, and how to get a contribution merged.
 
 ---
 
@@ -63,7 +63,7 @@ Use the LLM Simulator (`test/LLMSimulator`) as a local backend. It returns OpenA
 
 ---
 
-## Questions this section MUST answer
+## Full Answers
 
 ### How do I build and run from source?
 
@@ -220,7 +220,7 @@ SimpleL7Proxy's `AppConfigService` polls App Configuration for `Warm:Sentinel`. 
 
 ---
 
-## What the reader can do AFTER reading this
+## You Should Now Be Able To
 
 - [ ] Proxy builds and runs from source with `dotnet run`
 - [ ] Tests pass with `dotnet test`

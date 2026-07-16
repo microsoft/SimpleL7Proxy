@@ -1,6 +1,6 @@
-# Content Brief: 🚀 Get It Running
+# Running the Proxy: From Zero to Proxying Traffic in Minutes
 
-If you're ready to get the proxy running and want to avoid the common false starts — here's what to set up, what commands to run, and how to confirm it's working.
+Two environment variables, one command, and you're proxying traffic. This page skips the preamble — here's exactly what to set up, what commands to run, and how to confirm it's actually working.
 
 ---
 
@@ -65,7 +65,7 @@ Check that `Host1` is reachable and the probe path returns 2xx. Review the conso
 
 ---
 
-## Questions this section MUST answer
+## Full Answers
 
 ### Minimum required before starting?
 
@@ -204,7 +204,7 @@ SimpleL7Proxy writes startup events to the console and to `eventslog.json` in it
 
 ---
 
-## What the reader can do AFTER reading this
+## You Should Now Be Able To
 
 - [ ] Proxy is running and accepting requests
 - [ ] At least one backend is healthy in the backend pool

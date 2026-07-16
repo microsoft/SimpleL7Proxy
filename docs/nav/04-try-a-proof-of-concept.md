@@ -1,6 +1,6 @@
-# Content Brief: 🧪 Try a Proof of Concept
+# See It Work: Runnable Scenarios That Show the Proxy Catching Failures
 
-If you'd rather see the proxy's behavior than just read about it, each of these proof-of-concept scenarios runs in under five minutes using the included simulator — no real Azure OpenAI endpoint required.
+Don't take our word for it. Each scenario runs in under five minutes using the included simulator — no real Azure OpenAI account needed — and shows the proxy handling the exact failures that would otherwise reach your users.
 
 ---
 
@@ -65,7 +65,7 @@ The security POCs cover two layers: EasyAuth on the ACA proxy container (unauthe
 
 ---
 
-## Questions each POC MUST answer
+## Full Answers
 
 > Every POC file must answer all five questions. These are the content requirements for each scenario.
 
@@ -167,7 +167,7 @@ SimpleL7Proxy POCs are written with demo endpoints and identities. The first ada
 
 ---
 
-## What the reader can do AFTER each POC
+## You Should Now Be Able To
 
 - [ ] Can describe what happened in plain language
 - [ ] Can explain which setting(s) produced the observed behavior

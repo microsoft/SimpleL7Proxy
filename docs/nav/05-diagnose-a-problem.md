@@ -1,6 +1,6 @@
-# Content Brief: 🔧 Diagnose a Problem
+# What the Proxy Is Telling You When Something Goes Wrong
 
-If something is returning an unexpected status code or behaving unexpectedly, these are the most common causes — organized by what you're seeing, not by what you already know.
+Every unexpected status code is a signal. The proxy puts the reason right in the response — the hosts it tried, why each failed, and what to fix. Here's how to read it, organized by what you're seeing rather than what you already know.
 
 ---
 
@@ -63,7 +63,7 @@ Use the symptom lookup table in `TroubleshootTOC.md`. Identify your HTTP status 
 
 ---
 
-## Questions the troubleshooting section MUST answer
+## Full Answers
 
 ### Where to start if unsure?
 
@@ -304,7 +304,7 @@ SimpleL7Proxy polls App Configuration on a ~30-second interval and only reloads 
 
 ---
 
-## What the reader can do AFTER reading a troubleshooting guide
+## You Should Now Be Able To
 
 - [ ] Problem is identified (root cause, not just symptom)
 - [ ] Fix has been applied

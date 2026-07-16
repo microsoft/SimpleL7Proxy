@@ -1,6 +1,6 @@
-# Content Brief: ⚙️ Configure Backends and Settings
+# Configuring for Resilience, Speed, and Cost Control
 
-Once the proxy is running, these are the settings that operators reach for most — backends, load balancing, timeouts, circuit breaking, and how to change things without a restart.
+Once it's running, these are the settings that separate a reliable AI gateway from one that fails under load. Backends, load balancing, circuit breaking, timeouts — and how to change them without taking a running container offline.
 
 ---
 
@@ -19,7 +19,7 @@ Set `Host1` (through `Host9`) to a semicolon-delimited connection string: `host=
 <td width="33%" valign="top">
 
 ### Which load balance mode to use?
-`latency` (default) routes to the fastest backend. `roundrobin` distributes evenly. `random` shuffles each time. For AI workloads with uneven throughput, `latency` or `roundrobin` is recommended.
+`latency` mode keeps your fastest backend getting traffic — if one endpoint slows down, the proxy routes around it automatically. Use `roundrobin` if backends are equivalent and you want even cost distribution. `random` works if you just need spread without tracking state.
 
 [→ Which load balance mode to use?](#which-load-balance-mode-to-use)
 
@@ -27,7 +27,7 @@ Set `Host1` (through `Host9`) to a semicolon-delimited connection string: `host=
 <td width="33%" valign="top">
 
 ### Timeout vs TTL — what's the difference?
-`Timeout` (default 20 min) is the per-attempt limit for a single backend call. `DefaultTTLSecs` (default 300 s) is the total budget for a request including all retries. TTL expiry returns 412 to the client.
+TTL is the promise to your caller — a maximum wait before they get a definitive answer. Timeout is the limit on a single backend attempt. Get TTL wrong and callers wait too long or get `412`; get Timeout wrong and retries never have a chance to succeed.
 
 [→ Timeout vs TTL — what's the difference?](#timeout-vs-ttl--whats-the-difference)
 
@@ -45,7 +45,7 @@ When failures in the last `CBTimeslice` seconds (default 60 s) exceed `CBErrorTh
 <td width="33%" valign="top">
 
 ### How many workers should I set?
-Default is 10. Increase for higher concurrent throughput; decrease to reduce resource use. Workers are partitioned by priority tier when `PriorityWorkers` is configured.
+Workers control how many requests run simultaneously. Too few and callers wait in the queue; too many and you spend more on memory and compute than you need. Start at the default of 10 — it handles most workloads — and tune up only if queue wait times are consistently high.
 
 > **⚠️ GAP:** No guidance on workers-per-backend sizing formula exists in any doc. → [Content gap details](#content-gaps-to-fill)
 
@@ -55,7 +55,7 @@ Default is 10. Increase for higher concurrent throughput; decrease to reduce res
 <td width="33%" valign="top">
 
 ### How do I change settings without a restart?
-Connect to Azure App Configuration (`AZURE_APPCONFIG_ENDPOINT`). Warm settings update across all instances within ~30 s when the Sentinel key changes. Cold settings still require a restart.
+Connect to Azure App Configuration. Warm settings — timeouts, queue length, circuit breaker thresholds — update across all instances within ~30 seconds when the Sentinel key changes. No container restart, no dropped requests, no deployment coordination needed.
 
 [→ How do I change settings without a restart?](#how-do-i-change-settings-without-a-restart)
 
@@ -65,7 +65,7 @@ Connect to Azure App Configuration (`AZURE_APPCONFIG_ENDPOINT`). Warm settings u
 
 ---
 
-## Questions this section MUST answer
+## Full Answers
 
 ### How do I add a backend?
 
@@ -240,7 +240,7 @@ SimpleL7Proxy caps how much of the worker pool a single user can occupy using `U
 
 ---
 
-## What the reader can do AFTER reading this
+## You Should Now Be Able To
 
 - [ ] All backend hosts are configured and healthy
 - [ ] Timeouts and circuit breaker thresholds match the SLA of their backends
