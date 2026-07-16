@@ -328,7 +328,55 @@
                                 }
                             </div>
                             <div class="eventhub-trend-chart" role="img" aria-label="Historical per-user call trend leading to current time">
-                                <svg viewBox="0 0 1000 240" preserveAspectRatio="none" aria-hidden="true">
+                                @{
+                                    var yAxisMax = Math.Max(1, UserTrendLines.Max(series => series.MaxCalls));
+                                    const double chartWidth = 1000d;
+                                    const double chartHeight = 300d;
+                                    const double leftPadding = 56d;
+                                    const double rightPadding = 24d;
+                                    const double topPadding = 16d;
+                                    const double bottomPadding = 44d;
+                                    var drawableWidth = chartWidth - leftPadding - rightPadding;
+                                    var drawableHeight = chartHeight - topPadding - bottomPadding;
+
+                                    double ComputeYForValue(int value)
+                                    {
+                                        return topPadding + ((1d - (value / (double)yAxisMax)) * drawableHeight);
+                                    }
+
+                                    var yTicks = new[]
+                                    {
+                                        yAxisMax,
+                                        (int)Math.Ceiling(yAxisMax / 2d),
+                                        0,
+                                    }
+                                    .Distinct()
+                                    .OrderByDescending(value => value)
+                                    .ToArray();
+
+                                    var axisEndLocal = DateTimeOffset.Now;
+                                    var axisStartLocal = axisEndLocal.AddHours(-1);
+                                    var xTickCount = 5;
+                                }
+                                <svg viewBox="0 0 1000 300" preserveAspectRatio="none" aria-hidden="true">
+                                    @foreach (var tick in yTicks)
+                                    {
+                                        var y = ComputeYForValue(tick);
+                                        <line class="eventhub-trend-gridline" x1="@leftPadding" y1="@y" x2="@(chartWidth - rightPadding)" y2="@y" />
+                                        <svg:text class="eventhub-trend-axis-label y" x="@(leftPadding - 8)" y="@(y + 4)">@tick</svg:text>
+                                    }
+
+                                    @for (var i = 0; i < xTickCount; i++)
+                                    {
+                                        var x = leftPadding + ((drawableWidth * i) / (xTickCount - 1));
+                                        var time = axisStartLocal.AddMinutes(15 * i).ToString("HH:mm", CultureInfo.InvariantCulture);
+                                        <line class="eventhub-trend-gridline vertical" x1="@x" y1="@topPadding" x2="@x" y2="@(chartHeight - bottomPadding)" />
+                                        <svg:text class="eventhub-trend-axis-label x" x="@x" y="@(chartHeight - 14)">@time</svg:text>
+                                    }
+
+                                    <line class="eventhub-trend-axis" x1="@leftPadding" y1="@topPadding" x2="@leftPadding" y2="@(chartHeight - bottomPadding)" />
+                                    <line class="eventhub-trend-axis" x1="@leftPadding" y1="@(chartHeight - bottomPadding)" x2="@(chartWidth - rightPadding)" y2="@(chartHeight - bottomPadding)" />
+
                                     @foreach (var series in UserTrendLines)
                                     {
                                         <polyline class="eventhub-trend-line user" points="@series.Points" style="stroke:@series.Color" />
@@ -614,7 +662,36 @@
     .eventhub-trend-chart svg {
         display: block;
         width: 100%;
-        height: 11rem;
+        height: 12.5rem;
+    }
+
+    .eventhub-trend-axis {
+        stroke: #334155;
+        stroke-width: 1.1;
+    }
+
+    .eventhub-trend-gridline {
+        stroke: #cbd5e1;
+        stroke-width: 0.85;
+        stroke-dasharray: 3 3;
+    }
+
+    .eventhub-trend-gridline.vertical {
+        stroke: #dbe3ee;
+    }
+
+    .eventhub-trend-axis-label {
+        fill: #475569;
+        font-size: 13px;
+        font-weight: 600;
+    }
+
+    .eventhub-trend-axis-label.y {
+        text-anchor: end;
+    }
+
+    .eventhub-trend-axis-label.x {
+        text-anchor: middle;
     }
 
     .eventhub-trend-line {
@@ -3575,13 +3652,19 @@
             return Array.Empty<UserTrendSeries>();
         }
 
+        var bucketSize = TimeSpan.FromSeconds(5);
+        var totalWindow = TimeSpan.FromHours(1);
+        var endTicks = DateTimeOffset.UtcNow.UtcTicks - (DateTimeOffset.UtcNow.UtcTicks % bucketSize.Ticks);
+        var endBucket = new DateTimeOffset(endTicks, TimeSpan.Zero);
+        var bucketCount = (int)(totalWindow.Ticks / bucketSize.Ticks) + 1;
+        var startBucket = endBucket - TimeSpan.FromTicks(bucketSize.Ticks * (bucketCount - 1));
+
         var userSet = new HashSet<string>(usersToShow, StringComparer.OrdinalIgnoreCase);
-        var allBuckets = new SortedSet<DateTimeOffset>();
-        var userBuckets = new Dictionary<string, Dictionary<DateTimeOffset, int>>(StringComparer.OrdinalIgnoreCase);
+        var userSeriesValues = new Dictionary<string, int[]>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var user in usersToShow)
         {
-            userBuckets[user] = new Dictionary<DateTimeOffset, int>();
+            userSeriesValues[user] = new int[bucketCount];
         }
 
         foreach (var item in filteredRequests)
@@ -3611,45 +3694,34 @@
                 continue;
             }
 
-            var bucket = new DateTimeOffset(
-                timestamp.Value.Year,
-                timestamp.Value.Month,
-                timestamp.Value.Day,
-                timestamp.Value.Hour,
-                timestamp.Value.Minute,
-                0,
-                TimeSpan.Zero);
+            var roundedTicks = timestamp.Value.UtcTicks - (timestamp.Value.UtcTicks % bucketSize.Ticks);
+            var bucket = new DateTimeOffset(roundedTicks, TimeSpan.Zero);
+            if (bucket < startBucket || bucket > endBucket)
+            {
+                continue;
+            }
 
-            allBuckets.Add(bucket);
+            var bucketOffset = bucket - startBucket;
+            var bucketIndex = (int)(bucketOffset.Ticks / bucketSize.Ticks);
+            if (bucketIndex < 0 || bucketIndex >= bucketCount)
+            {
+                continue;
+            }
 
-            var perUser = userBuckets[user];
-            perUser[bucket] = perUser.TryGetValue(bucket, out var count)
-                ? count + 1
-                : 1;
-        }
-
-        var bucketList = allBuckets.TakeLast(45).ToArray();
-        if (bucketList.Length == 0)
-        {
-            return Array.Empty<UserTrendSeries>();
+            userSeriesValues[user][bucketIndex]++;
         }
 
         var maxCalls = 1;
-        var userSeriesValues = new Dictionary<string, int[]>(StringComparer.OrdinalIgnoreCase);
         foreach (var user in usersToShow)
         {
-            var values = new int[bucketList.Length];
-            var perUser = userBuckets[user];
-            for (var i = 0; i < bucketList.Length; i++)
+            var values = userSeriesValues[user];
+            for (var i = 0; i < values.Length; i++)
             {
-                values[i] = perUser.TryGetValue(bucketList[i], out var value) ? value : 0;
                 if (values[i] > maxCalls)
                 {
                     maxCalls = values[i];
                 }
             }
-
-            userSeriesValues[user] = values;
         }
 
         return usersToShow
@@ -3657,7 +3729,8 @@
                 user,
                 GetUserColor(user),
                 BuildTrendPolyline(userSeriesValues[user].Select(value => (double)value), maxCalls),
-                userSeriesValues[user].Length == 0 ? 0 : userSeriesValues[user][^1]))
+                userSeriesValues[user].Length == 0 ? 0 : userSeriesValues[user][^1],
+                maxCalls))
             .ToArray();
     }
 
@@ -3717,14 +3790,13 @@
 
     private string BuildTrendWindowLabel()
     {
-        var points = UsageTrendPoints;
-        if (points.Count == 0)
+        if (UserTrendLines.Count == 0)
         {
             return string.Empty;
         }
 
-        var start = points[0].TimestampUtc.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture);
-        var end = points[^1].TimestampUtc.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture);
+        var end = DateTimeOffset.Now;
+        var start = end.AddHours(-1);
         return $"Window: {start} to {end}";
     }
 
@@ -3737,11 +3809,11 @@
         }
 
         var width = 1000d;
-        var height = 240d;
-        var leftPadding = 20d;
-        var rightPadding = 20d;
-        var topPadding = 18d;
-        var bottomPadding = 16d;
+        var height = 300d;
+        var leftPadding = 56d;
+        var rightPadding = 24d;
+        var topPadding = 16d;
+        var bottomPadding = 44d;
         var drawableWidth = width - leftPadding - rightPadding;
         var drawableHeight = height - topPadding - bottomPadding;
         var maxValue = Math.Max(1d, maxScale ?? sequence.Max());
@@ -4083,7 +4155,7 @@
         long CompletionTokens,
         long TotalTokens,
         bool HasUsage);
-    private sealed record UserTrendSeries(string User, string Color, string Points, int LatestCalls);
+    private sealed record UserTrendSeries(string User, string Color, string Points, int LatestCalls, int MaxCalls);
     private sealed record UsageTrendPoint(DateTimeOffset TimestampUtc, int Calls, long TotalTokens);
     private sealed record UsageTotals(long PromptTokens, long CompletionTokens, long TotalTokens, bool HasUsage);
 
