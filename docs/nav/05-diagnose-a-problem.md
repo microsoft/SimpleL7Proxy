@@ -13,7 +13,7 @@ Every unexpected status code is a signal. The proxy puts the reason right in the
 ### Getting 503 — all backends failed?
 The proxy tried every backend and all failed. Read the JSON error body for per-attempt host + code details. Distinguish real backend failures from circuit-breaker skips by checking `/readiness` first.
 
-[→ Getting 503 — all backends failed?](#getting-503--all-backends-failed)
+[→ Getting 503 — all backends failed?](#getting-503--all-backends-failed-1)
 
 </td>
 <td width="33%" valign="top">
@@ -21,7 +21,7 @@ The proxy tried every backend and all failed. Read the JSON error body for per-a
 ### Getting 429 — request rejected?
 A proxy 429 means the request was rejected before any backend was tried. The response body tells you why: queue full, circuit breakers all open, or no active hosts. Each cause has a different fix.
 
-[→ Getting 429 — request rejected?](#getting-429--request-rejected)
+[→ Getting 429 — request rejected?](#getting-429--request-rejected-1)
 
 </td>
 <td width="33%" valign="top">
@@ -29,7 +29,7 @@ A proxy 429 means the request was rejected before any backend was tried. The res
 ### Getting 412 — TTL expired?
 The request waited in the queue longer than its `DefaultTTLSecs` budget (default 300 s). Increase `DefaultTTLSecs` or have callers set a longer `S7PTTL` header. Check for a backed-up queue first.
 
-[→ Getting 412 — TTL expired?](#getting-412--ttl-expired)
+[→ Getting 412 — TTL expired?](#getting-412--ttl-expired-1)
 
 </td>
 </tr>
@@ -39,7 +39,7 @@ The request waited in the queue longer than its `DefaultTTLSecs` budget (default
 ### Circuit breaker stuck open?
 The circuit self-heals when failures age out of the `CBTimeslice` window (default 60 seconds). If it stays open, backends are still actively failing. Check logs for `[CB-DELAY]` and `Circuit breaker BLOCKING` entries.
 
-[→ Circuit breaker stuck open?](#circuit-breaker-stuck-open)
+[→ Circuit breaker stuck open?](#circuit-breaker-stuck-open-1)
 
 </td>
 <td width="33%" valign="top">
@@ -47,7 +47,7 @@ The circuit self-heals when failures age out of the `CBTimeslice` window (defaul
 ### Async not returning 202?
 Four conditions must all be true: `AsyncModeEnabled=true`, the request carries the opt-in header (`S7PAsyncMode`), the user profile has a valid `async-config` block, and the backend hasn't responded within `AsyncTriggerTimeout` milliseconds. If the backend replies before that timeout, the proxy returns a normal synchronous response.
 
-[→ Async not returning 202?](#async-not-returning-202)
+[→ Async not returning 202?](#async-not-returning-202-1)
 
 </td>
 <td width="33%" valign="top">
@@ -55,7 +55,7 @@ Four conditions must all be true: `AsyncModeEnabled=true`, the request carries t
 ### Where to start if unsure?
 Use the symptom lookup table in `TroubleshootTOC.md`. Identify your HTTP status code or symptom, click the matching row, and follow the dedicated guide.
 
-> **⚠️ GAP:** No "first 5 checks" block exists for when the symptom is unknown. → [Content gap details](#content-gaps-to-fill)
+[→ Where to start if unsure?](#where-to-start-if-unsure-1)
 
 </td>
 </tr>
@@ -332,11 +332,3 @@ SimpleL7Proxy polls App Configuration on a ~30-second interval and only reloads 
 | [troubleshooting/app-configuration.md](../troubleshooting/app-configuration.md) | App Config not loading | Verify Sentinel key and RBAC are covered |
 
 ---
-
-## Content gaps to fill
-
-- [ ] Every guide must end with a "Verification" checklist (not a table) — explicit pass/fail signals
-- [ ] TroubleshootTOC.md should show the most common symptoms first, rare ones last
-- [ ] Add a "first 5 checks" block at the top of TroubleshootTOC.md for when you don't know the symptom yet
-- [ ] Distinguish proxy-generated error codes from backend pass-through codes in every guide
-- [ ] Add a "what you will see in logs / App Insights" note to each guide so SREs can correlate

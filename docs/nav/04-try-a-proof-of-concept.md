@@ -13,7 +13,7 @@ Each scenario runs in under five minutes using the included simulator — no rea
 ### What will I observe in failover?
 When Backend A returns `429`, APIM marks it throttled and retries on Backend B. The client still sees `200 OK`. Verified via `x-Backend-Attempts: 2` and a changed `x-backend-affinity` header.
 
-[→ What will I observe in failover?](#what-will-i-observe-in-failover)
+[→ What will I observe in failover?](#what-will-i-observe-in-failover-1)
 
 </td>
 <td width="33%" valign="top">
@@ -21,7 +21,7 @@ When Backend A returns `429`, APIM marks it throttled and retries on Backend B. 
 ### What does priority routing prove?
 A `llm_proxy_priority: 1` request routes only to backends whose `acceptablePriorities` includes priority 1. A request with no eligible backend returns `503`. Verified via `x-Backend-Attempts` and `backendLog`.
 
-[→ What does priority routing prove?](#what-does-priority-routing-prove)
+[→ What does priority routing prove?](#what-does-priority-routing-prove-1)
 
 </td>
 <td width="33%" valign="top">
@@ -29,7 +29,7 @@ A `llm_proxy_priority: 1` request routes only to backends whose `acceptablePrior
 ### How does chargeback telemetry work?
 Send a request with an `X-UserID` header. The proxy extracts token counts from the streaming response and logs them to Application Insights. Query by `X-UserID` to get per-user consumption.
 
-[→ How does chargeback telemetry work?](#how-does-chargeback-telemetry-work)
+[→ How does chargeback telemetry work?](#how-does-chargeback-telemetry-work-1)
 
 </td>
 </tr>
@@ -39,7 +39,7 @@ Send a request with an `X-UserID` header. The proxy extracts token counts from t
 ### Do I need real Azure OpenAI?
 No. The included LLM Simulator (an Azure Function) returns realistic OpenAI-format responses, simulates `429` throttling, and supports configurable latency — all without a real model endpoint.
 
-[→ Do I need real Azure OpenAI?](#do-i-need-real-azure-openai)
+[→ Do I need real Azure OpenAI?](#do-i-need-real-azure-openai-1)
 
 </td>
 <td width="33%" valign="top">
@@ -47,9 +47,7 @@ No. The included LLM Simulator (an Azure Function) returns realistic OpenAI-form
 ### How do I verify a POC worked?
 Each POC has a "What you will observe" section listing specific response headers (`x-Backend-Attempts`, `BackendHost`, `x-backend-affinity`) and, where relevant, App Insights queries.
 
-> **⚠️ GAP:** No POC has a verification *checklist* (pass/fail signals independent of App Insights). → [Content gap details](#content-gaps-to-fill)
-
-[→ How do I verify a POC worked?](#how-do-i-verify-a-poc-worked)
+[→ How do I verify a POC worked?](#how-do-i-verify-a-poc-worked-1)
 
 </td>
 <td width="33%" valign="top">
@@ -57,7 +55,7 @@ Each POC has a "What you will observe" section listing specific response headers
 ### How do I secure the proxy?
 The security POCs cover two layers: EasyAuth on the ACA proxy container (unauthenticated requests rejected before reaching the proxy), and `validate-jwt` in APIM for upstream caller validation.
 
-[→ How do I secure the proxy?](#how-do-i-secure-the-proxy)
+[→ How do I secure the proxy?](#how-do-i-secure-the-proxy-1)
 
 </td>
 </tr>
@@ -108,7 +106,7 @@ It depends on the scenario:
 
 #### What should I see in the response headers / body / logs during each step?
 
-Each POC has a "What you will observe" section that lists the specific headers, status codes, or log lines that change at each step. The table in [How does chargeback telemetry work?](#how-does-chargeback-telemetry-work) below shows the headers shared across scenarios.
+Each POC has a "What you will observe" section that lists the specific headers, status codes, or log lines that change at each step. The table in [How does chargeback telemetry work?](#how-does-chargeback-telemetry-work-1) below shows the headers shared across scenarios.
 
 ---
 
@@ -204,12 +202,3 @@ Replace demo endpoints, app registration IDs, and backend connection strings wit
 - [ ] Knows which doc to go to for deeper configuration of that feature
 
 ---
-
-## Content gaps to fill
-
-- [ ] Every POC must have a "TL;DR < 5 min" section at the top with numbered steps and expected output
-- [ ] Every POC must have a "What you will observe" block listing behavior as pure bullets (not narrative)
-- [ ] Every POC must have a verification checklist (not a table — a checklist of pass/fail signals)
-- [ ] Every POC must have a "why this happened" state machine (even a simple 3-state diagram)
-- [ ] Every POC must be verifiable without Azure App Insights (observable from response headers alone)
-- [ ] Add a POC index page that shows all scenarios at a glance with a one-line description of what each proves
