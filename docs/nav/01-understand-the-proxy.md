@@ -10,52 +10,40 @@ Depending on whether you are serving live users, high-priority business workflow
 <tr>
 <td width="33%" valign="top">
 
-### What problem does it solve?
+### [What problem does it solve?](#what-problem-does-it-solve-1)
 When an AI backend throttles or goes down, your users get errors. SimpleL7Proxy catches those failures before they reach callers — retrying transparently, queuing by priority, and keeping your application responsive even when backends struggle.
 
-[→ What problem does it solve?](#what-problem-does-it-solve-1)
-
 </td>
 <td width="33%" valign="top">
 
-### What does "Layer 7" mean here?
+### [What does "Layer 7" mean here?](#what-does-layer-7-mean-here-1)
 A standard balancer moves packets. This proxy reads the conversation — throttle codes, token counts, request paths. That difference is what lets it catch a `429` and retry silently on another backend instead of passing the error to your users.
 
-[→ What does "Layer 7" mean here?](#what-does-layer-7-mean-here-1)
-
 </td>
 <td width="33%" valign="top">
 
-### Where does it sit architecturally?
+### [Where does it sit architecturally?](#where-does-it-sit-architecturally-1)
 It runs between APIM (or clients) and Azure AI backends, inside the operator's VNet. Clients never talk directly to a backend — the proxy is the single point all requests go through.
-
-[→ Where does it sit architecturally?](#where-does-it-sit-architecturally-1)
 
 </td>
 </tr>
 <tr>
 <td width="33%" valign="top">
 
-### What happens to a request end to end?
+### [What happens to a request end to end?](#what-happens-to-a-request-end-to-end-1)
 Your request waits in a queue, a worker picks it up, and the proxy finds a healthy backend to forward it to. If that backend fails, it tries the next one automatically. You get the response plus a few headers showing which backend was used and how long everything took. The whole thing is capped by a total time budget — see [TTL](../Glossary.md#request-lifecycle).
 
-[→ What happens to a request end to end?](#what-happens-to-a-request-end-to-end-1)
-
 </td>
 <td width="33%" valign="top">
 
-### Where does it run in Azure?
+### [Where does it run in Azure?](#where-does-it-run-in-azure-1)
 Azure Container Apps is the primary deployment target, with optional VNet integration. It can also run locally from source for development. Sovereign cloud is supported.
 
-[→ Where does it run in Azure?](#where-does-it-run-in-azure-1)
-
 </td>
 <td width="33%" valign="top">
 
-### What does it NOT do?
+### [What does it NOT do?](#what-does-it-not-do-1)
 It doesn't manage your AI models, run a developer portal, or handle caller subscriptions and authentication — that's what APIM is for. 
-
-[→ What does it NOT do?](#what-does-it-not-do-1)
 
 </td>
 </tr>

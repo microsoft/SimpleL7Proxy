@@ -10,52 +10,40 @@ Every unexpected status code is a signal. The proxy puts the reason right in the
 <tr>
 <td width="33%" valign="top">
 
-### Getting 503 — all backends failed?
+### [Getting 503 — all backends failed?](#getting-503--all-backends-failed-1)
 The proxy tried every backend and all failed. Read the JSON error body for per-attempt host + code details. Distinguish real backend failures from circuit-breaker skips by checking `/readiness` first.
 
-[→ Getting 503 — all backends failed?](#getting-503--all-backends-failed-1)
-
 </td>
 <td width="33%" valign="top">
 
-### Getting 429 — request rejected?
+### [Getting 429 — request rejected?](#getting-429--request-rejected-1)
 A proxy 429 means the request was rejected before any backend was tried. The response body tells you why: queue full, circuit breakers all open, or no active hosts. Each cause has a different fix.
 
-[→ Getting 429 — request rejected?](#getting-429--request-rejected-1)
-
 </td>
 <td width="33%" valign="top">
 
-### Getting 412 — TTL expired?
+### [Getting 412 — TTL expired?](#getting-412--ttl-expired-1)
 The request waited in the queue longer than its `DefaultTTLSecs` budget (default 300 s). Increase `DefaultTTLSecs` or have callers set a longer `S7PTTL` header. Check for a backed-up queue first.
-
-[→ Getting 412 — TTL expired?](#getting-412--ttl-expired-1)
 
 </td>
 </tr>
 <tr>
 <td width="33%" valign="top">
 
-### Circuit breaker stuck open?
+### [Circuit breaker stuck open?](#circuit-breaker-stuck-open-1)
 The circuit self-heals when failures age out of the `CBTimeslice` window (default 60 seconds). If it stays open, backends are still actively failing. Check logs for `[CB-DELAY]` and `Circuit breaker BLOCKING` entries.
 
-[→ Circuit breaker stuck open?](#circuit-breaker-stuck-open-1)
-
 </td>
 <td width="33%" valign="top">
 
-### Async not returning 202?
+### [Async not returning 202?](#async-not-returning-202-1)
 Four conditions must all be true: `AsyncModeEnabled=true`, the request carries the opt-in header (`S7PAsyncMode`), the user profile has a valid `async-config` block, and the backend hasn't responded within `AsyncTriggerTimeout` milliseconds. If the backend replies before that timeout, the proxy returns a normal synchronous response.
 
-[→ Async not returning 202?](#async-not-returning-202-1)
-
 </td>
 <td width="33%" valign="top">
 
-### Where to start if unsure?
+### [Where to start if unsure?](#where-to-start-if-unsure-1)
 Use the symptom lookup table in `TroubleshootTOC.md`. Identify your HTTP status code or symptom, click the matching row, and follow the dedicated guide.
-
-[→ Where to start if unsure?](#where-to-start-if-unsure-1)
 
 </td>
 </tr>

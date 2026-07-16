@@ -10,52 +10,40 @@ Whether you're adding a feature, fixing a bug, or tracing a request through the 
 <tr>
 <td width="33%" valign="top">
 
-### How do I build and run from source?
+### [How do I build and run from source?](#how-do-i-build-and-run-from-source-1)
 Install .NET 10 SDK. Set `Port` and `Host1`, then `cd src/SimpleL7Proxy && dotnet run`. For VS Code, add a `.vscode/launch.json` with the env vars and press F5.
 
-[→ How do I build and run from source?](#how-do-i-build-and-run-from-source-1)
-
 </td>
 <td width="33%" valign="top">
 
-### Where does a request enter the code?
+### [Where does a request enter the code?](#where-does-a-request-enter-the-code-1)
 `Server.cs` listens and inserts requests into the priority queue. `ProxyWorker.cs` dequeues and proxies. `IteratorFactory.cs` creates the load-balanced host iterator. `CircuitBreaker.cs` gates each attempt.
 
-[→ Where does a request enter the code?](#where-does-a-request-enter-the-code-1)
-
 </td>
 <td width="33%" valign="top">
 
-### What is the request flow in code?
+### [What is the request flow in code?](#where-does-a-request-enter-the-code-1)
 `Server.cs` → Priority Queue → `ProxyWorker.cs` → `IteratorFactory.cs` (path filter → LB order) → `CircuitBreaker.cs` (gate) → backend HTTP call → telemetry event.
-
-[→ What is the request flow in code?](#where-does-a-request-enter-the-code-1)
 
 </td>
 </tr>
 <tr>
 <td width="33%" valign="top">
 
-### Where do I add a new config variable?
+### [Where do I add a new config variable?](#where-do-i-add-a-new-config-variable-1)
 Add the property to the relevant config class in `src/SimpleL7Proxy/Config/`. Follow the Warm/Cold/Hidden pattern. Register it in `ConfigFactory.cs` and document it in `ENVIRONMENT_VARIABLES.md`.
 
-[→ Where do I add a new config variable?](#where-do-i-add-a-new-config-variable-1)
-
 </td>
 <td width="33%" valign="top">
 
-### What coding conventions apply?
+### [What coding conventions apply?](#where-do-i-add-a-new-config-variable-1)
 PascalCase for classes/methods/properties, camelCase for locals, `_` prefix for private fields, K&R braces, 4-space indent. XML comments on public methods. See `.github/copilot-instructions.md` for the full standard.
 
-[→ What coding conventions apply?](#where-do-i-add-a-new-config-variable-1)
-
 </td>
 <td width="33%" valign="top">
 
-### How do I test without real Azure resources?
+### [How do I test without real Azure resources?](#how-do-i-build-and-run-from-source-1)
 Use the LLM Simulator (`test/LLMSimulator`) as a local backend. It returns OpenAI-format responses, simulates `429` throttling, and configurable latency — no Azure subscription needed for most dev scenarios.
-
-[→ How do I test without real Azure resources?](#how-do-i-build-and-run-from-source-1)
 
 </td>
 </tr>

@@ -10,52 +10,40 @@ Each scenario runs in under five minutes using the included simulator — no rea
 <tr>
 <td width="33%" valign="top">
 
-### What will I observe in failover?
+### [What will I observe in failover?](#what-will-i-observe-in-failover-1)
 When Backend A returns `429`, APIM marks it throttled and retries on Backend B. The client still sees `200 OK`. Verified via `x-Backend-Attempts: 2` and a changed `x-backend-affinity` header.
 
-[→ What will I observe in failover?](#what-will-i-observe-in-failover-1)
-
 </td>
 <td width="33%" valign="top">
 
-### What does priority routing prove?
+### [What does priority routing prove?](#what-does-priority-routing-prove-1)
 A `llm_proxy_priority: 1` request routes only to backends whose `acceptablePriorities` includes priority 1. A request with no eligible backend returns `503`. Verified via `x-Backend-Attempts` and `backendLog`.
 
-[→ What does priority routing prove?](#what-does-priority-routing-prove-1)
-
 </td>
 <td width="33%" valign="top">
 
-### How does chargeback telemetry work?
+### [How does chargeback telemetry work?](#how-does-chargeback-telemetry-work-1)
 Send a request with an `X-UserID` header. The proxy extracts token counts from the streaming response and logs them to Application Insights. Query by `X-UserID` to get per-user consumption.
-
-[→ How does chargeback telemetry work?](#how-does-chargeback-telemetry-work-1)
 
 </td>
 </tr>
 <tr>
 <td width="33%" valign="top">
 
-### Do I need real Azure OpenAI?
+### [Do I need real Azure OpenAI?](#do-i-need-real-azure-openai-1)
 No. The included LLM Simulator (an Azure Function) returns realistic OpenAI-format responses, simulates `429` throttling, and supports configurable latency — all without a real model endpoint.
 
-[→ Do I need real Azure OpenAI?](#do-i-need-real-azure-openai-1)
-
 </td>
 <td width="33%" valign="top">
 
-### How do I verify a POC worked?
+### [How do I verify a POC worked?](#how-do-i-verify-a-poc-worked-1)
 Each POC has a "What you will observe" section listing specific response headers (`x-Backend-Attempts`, `BackendHost`, `x-backend-affinity`) and, where relevant, App Insights queries.
 
-[→ How do I verify a POC worked?](#how-do-i-verify-a-poc-worked-1)
-
 </td>
 <td width="33%" valign="top">
 
-### How do I secure the proxy?
+### [How do I secure the proxy?](#how-do-i-secure-the-proxy-1)
 The security POCs cover two layers: EasyAuth on the ACA proxy container (unauthenticated requests rejected before reaching the proxy), and `validate-jwt` in APIM for upstream caller validation.
-
-[→ How do I secure the proxy?](#how-do-i-secure-the-proxy-1)
 
 </td>
 </tr>
