@@ -10,64 +10,52 @@ AI backends behave differently from normal HTTP services — they throttle, retr
 <tr>
 <td width="33%" valign="top">
 
-### 🔍 Understand the proxy
+### [🔍 Understand the proxy](docs/nav/01-understand-the-proxy.md)
 Architecture, components, and how requests flow end to end.
 
 **For:** architects and evaluators deciding whether to adopt.
 
-[→ Read the Overview](docs/nav/01-understand-the-proxy.md)
-
 </td>
 <td width="33%" valign="top">
 
-### 🚀 Get it running
+### [🚀 Get it running](docs/nav/02-get-it-running.md)
 Deploy to Azure Container Apps or run locally from source in minutes.
 
 **For:** operators and developers doing a first deployment.
 
-[→ Follow the Quickstart](docs/nav/02-get-it-running.md)
-
 </td>
 <td width="33%" valign="top">
 
-### ⚙️ Configure backends and settings
+### [⚙️ Configure backends and settings](docs/nav/03-configure-backends-and-settings.md)
 Environment variables, host setup, load balancing, and hot-reload settings.
 
 **For:** operators tuning a running deployment.
-
-[→ See Configuration](docs/nav/03-configure-backends-and-settings.md)
 
 </td>
 </tr>
 <tr>
 <td width="33%" valign="top">
 
-### 🧪 Try a proof of concept
+### [🧪 Try a proof of concept](docs/nav/04-try-a-proof-of-concept.md)
 Walkthrough guides for failover, priority routing, and chargeback — each runnable in under 5 minutes.
 
 **For:** engineers validating behavior or preparing a demo.
 
-[→ Browse POC guides](docs/nav/04-try-a-proof-of-concept.md)
-
 </td>
 <td width="33%" valign="top">
 
-### 🔧 Diagnose a problem
+### [🔧 Diagnose a problem](docs/nav/05-diagnose-a-problem.md)
 Find your symptom — 429s, 503s, a stuck circuit breaker, async not completing — and fix it fast.
 
 **For:** anyone debugging broken or unexpected behavior.
 
-[→ Open Troubleshooting](docs/nav/05-diagnose-a-problem.md)
-
 </td>
 <td width="33%" valign="top">
 
-### 💻 Develop and contribute
+### [💻 Develop and contribute](docs/nav/06-develop-and-contribute.md)
 Run from source, understand the internals, and contribute changes.
 
 **For:** developers building on or contributing to the proxy.
-
-[→ Start Development](docs/nav/06-develop-and-contribute.md)
 
 </td>
 </tr>
