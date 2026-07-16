@@ -37,7 +37,7 @@ It runs between APIM (or clients) and Azure AI backends, inside the operator's V
 <td width="33%" valign="top">
 
 ### What happens to a request end to end?
-Validate → priority queue → worker picks up → backend selection (path → load balance → circuit gate) → forward → inject headers → telemetry event. Total budget controlled by [TTL](../Glossary.md#request-lifecycle).
+Your request waits in a queue, a worker picks it up, and the proxy finds a healthy backend to forward it to. If that backend fails, it tries the next one automatically. You get the response plus a few headers showing which backend was used and how long everything took. The whole thing is capped by a total time budget — see [TTL](../Glossary.md#request-lifecycle).
 
 [→ What happens to a request end to end?](#what-happens-to-a-request-end-to-end)
 
@@ -53,7 +53,7 @@ Azure Container Apps is the primary deployment target, with optional VNet integr
 <td width="33%" valign="top">
 
 ### What does it NOT do?
-No managed hosting, no gRPC/WebSocket, no model inference, no full API gateway features (portals, subscriptions), no distributed circuit breaker state, no durable queue. Knowing this up front saves time evaluating the wrong tool.
+It doesn't manage your AI models, run a developer portal, or handle caller subscriptions and authentication — that's what APIM is for. It also won't keep a shared failure count across multiple proxy replicas, and any requests waiting in the queue when the container restarts are lost. Knowing this up front saves time evaluating the wrong tool.
 
 [→ What does it NOT do?](#what-does-it-not-do)
 
@@ -81,7 +81,7 @@ A standard load balancer moves traffic by IP and port — it has no idea what's 
 
 #### What are the core capabilities in plain language (routing, queuing, circuit breaking, governance, telemetry)?
 
-Five things it does: **routing** picks a healthy backend and balances load across several; **queuing** holds incoming requests in a [priority queue](../Glossary.md#request-lifecycle) so critical work is processed first; **[circuit breaking](../Glossary.md#reliability)** stops sending requests to a failing backend and resumes automatically when it recovers; **[governance](../Glossary.md#request-governance)** controls which callers can use the proxy and how much capacity each is allowed; and **telemetry** records per-request timing and AI token counts for observability and chargeback.
+Five things it does: **routing** picks a healthy backend and distributes load so no single backend gets overwhelmed; **queuing** holds incoming requests so your most critical work goes first even when the system is busy; **[circuit breaking](../Glossary.md#reliability)** automatically stops sending traffic to a failing backend — and brings it back once it recovers, with no manual reset; **[governance](../Glossary.md#request-governance)** controls which callers can use the proxy and how much capacity any single caller is allowed to consume; and **telemetry** records per-request timing and AI token counts so you can track latency, costs, and diagnose problems. See the [Glossary](../Glossary.md) for any unfamiliar terms.
 
 ---
 
@@ -117,7 +117,7 @@ SimpleL7Proxy needs only a backend to call — no Azure services are required to
 
 #### What is the request flow from ingress to backend response? (priority queue → worker → backend selector → circuit breaker)
 
-SimpleL7Proxy validates each incoming request, places it in the [priority queue](../Glossary.md#request-lifecycle), and a worker picks it up. The worker runs the backend selection pipeline: the [path filter](../Glossary.md#backend-management) narrows candidates by URL prefix, load balancing sets their order, and the [circuit breaker](../Glossary.md#reliability) skips any host with too many recent failures. The proxy forwards the request to the first eligible backend, returns the response to the caller, and emits a telemetry event.
+SimpleL7Proxy validates each incoming request, then places it in the [priority queue](../Glossary.md#request-lifecycle). A worker picks it up, runs the backend selection pipeline — the [path filter](../Glossary.md#backend-management) narrows candidates by URL prefix, load balancing sets their order, and the [circuit breaker](../Glossary.md#reliability) skips any host with too many recent failures — and forwards the request to the first eligible backend. The response goes back to the caller, a few diagnostic headers are added, and a telemetry event is recorded. The whole thing is bounded by the request's time budget (TTL): if it expires at any point — waiting in the queue or during retries — the caller gets a `412`.
 
 ```
 client → [priority queue] → worker → path filter → load balancer → circuit gate → backend → response + telemetry

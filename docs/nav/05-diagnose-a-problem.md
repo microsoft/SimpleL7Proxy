@@ -37,7 +37,7 @@ The request waited in the queue longer than its `DefaultTTLSecs` budget (default
 <td width="33%" valign="top">
 
 ### Circuit breaker stuck open?
-The circuit self-heals when failures age out of the `CBTimeslice` window (default 60 s). If it stays open, backends are still actively failing. Check logs for `[CB-DELAY]` and `Circuit breaker BLOCKING` entries.
+The circuit self-heals when failures age out of the `CBTimeslice` window (default 60 seconds). If it stays open, backends are still actively failing. Check logs for `[CB-DELAY]` and `Circuit breaker BLOCKING` entries.
 
 [→ Circuit breaker stuck open?](#circuit-breaker-stuck-open)
 
@@ -45,7 +45,7 @@ The circuit self-heals when failures age out of the `CBTimeslice` window (defaul
 <td width="33%" valign="top">
 
 ### Async not returning 202?
-Three gates must all be true: `AsyncModeEnabled=true`, the request carries the opt-in header (`S7PAsyncMode`), and the user profile has a valid `async-config` block. If the backend responds before `AsyncTriggerTimeout`, sync is expected.
+Four conditions must all be true: `AsyncModeEnabled=true`, the request carries the opt-in header (`S7PAsyncMode`), the user profile has a valid `async-config` block, and the backend hasn't responded within `AsyncTriggerTimeout` milliseconds. If the backend replies before that timeout, the proxy returns a normal synchronous response.
 
 [→ Async not returning 202?](#async-not-returning-202)
 
@@ -240,7 +240,7 @@ SimpleL7Proxy reports active backend count in `/readiness` and startup logs. Cal
 
 #### What is the probe path and what happens if it is wrong?
 
-SimpleL7Proxy marks a backend unhealthy and removes it from the active pool when its probe path does not return `2xx`. A wrong path — a 404 or 401 — has the same effect as a network failure.
+SimpleL7Proxy marks a backend unhealthy and removes it from the active pool when its probe path does not return a success response (HTTP 200–299). A wrong path — a `404` or `401` — has the same effect as a network failure.
 
 #### What does the proxy do if all hosts fail their probe at startup?
 
@@ -325,7 +325,7 @@ SimpleL7Proxy polls App Configuration on a ~30-second interval and only reloads 
 | [troubleshooting/requests-400-invalid-ttl.md](../troubleshooting/requests-400-invalid-ttl.md) | 400 / bad TTL format | Verify it shows the correct header format |
 | [troubleshooting/circuit-breaker.md](../troubleshooting/circuit-breaker.md) | Stuck open circuit | Verify it explains how to read circuit state |
 | [troubleshooting/async-requests.md](../troubleshooting/async-requests.md) | Async never completing | Verify it covers blob + Service Bus checks |
-| [troubleshooting/async-202-never-issued.md](../troubleshooting/async-202-never-issued.md) | 202 not issued | Verify three-level enablement is explained |
+| [troubleshooting/async-202-never-issued.md](../troubleshooting/async-202-never-issued.md) | 202 not issued | Verify all four enablement conditions are explained |
 | [troubleshooting/backend-hosts.md](../troubleshooting/backend-hosts.md) | Backends not in pool | Verify probe path error is covered |
 | [troubleshooting/health-probes.md](../troubleshooting/health-probes.md) | Pod restarting | Verify ACA probe timing config is covered |
 | [troubleshooting/event-hub.md](../troubleshooting/event-hub.md) | No Event Hub messages | Verify connection string and RBAC are covered |

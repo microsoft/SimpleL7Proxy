@@ -37,7 +37,7 @@ TTL is the promise to your caller — a maximum wait before they get a definitiv
 <td width="33%" valign="top">
 
 ### When does a circuit breaker open?
-When failures in the last `CBTimeslice` seconds (default 60 s) exceed `CBErrorThreshold` (default 50), the circuit opens and the host is skipped. It self-heals when old failures age out of the window.
+When failures in the last `CBTimeslice` seconds (default 60 seconds) exceed `CBErrorThreshold` (default 50), the circuit opens and the host is skipped. It self-heals when old failures age out of the window.
 
 [→ When does a circuit breaker open?](#when-does-a-circuit-breaker-open)
 
@@ -140,7 +140,7 @@ SimpleL7Proxy tries backends one by one in the order determined by load balancin
 
 #### What is `MaxAttempts` and what happens when it is exceeded?
 
-SimpleL7Proxy's `MaxAttempts` applies only when `IterationMode=MultiPass`, which allows the proxy to cycle through the backend list more than once. In that mode, `MaxAttempts` caps the total number of backend attempts across all cycles — once reached, the proxy returns `503`. The default `IterationMode=SinglePass` tries each backend at most once and `MaxAttempts` has no effect.
+By default, the proxy tries each backend at most once per request (`IterationMode=SinglePass`) and `MaxAttempts` has no effect. `MaxAttempts` only matters when you enable `IterationMode=MultiPass`, which lets the proxy cycle through the full backend list more than once — useful when you want aggressive retry behaviour on a small backend pool. In that mode, `MaxAttempts` caps the total number of backend attempts across all cycles: once reached, the proxy returns `503`. Leave `MaxAttempts` alone unless you have explicitly set `IterationMode=MultiPass`.
 
 ---
 

@@ -67,23 +67,24 @@ The security POCs cover two layers: EasyAuth on the ACA proxy container (unauthe
 
 ## Full Answers
 
-> Every POC file must answer all five questions. These are the content requirements for each scenario.
-
 ### What will I observe in failover?
 
-#### What will I observe? (exact observable outcomes, not "the proxy will route traffic")
+#### What will I observe? (exact observable outcomes)
 
-SimpleL7Proxy makes the backend retry visible in the response headers. Each POC should name the exact pass or fail signals up front, such as `200 OK`, `202 Accepted`, `403`, `503`, `x-Backend-Attempts`, `x-backend-affinity`, or a specific telemetry record.
+The proxy makes the retry visible in the response headers. For failover: the client sends one request, Backend A returns `429`, and the proxy retries on Backend B. The response the client receives is `200 OK`. Check these two headers to confirm it worked:
 
-**Example — failover:** Client sends one request. Backend A returns `429`. `x-Backend-Attempts: 2` in the response confirms the proxy retried. `BackendHost` shows Backend B was used. The client sees `200 OK`.
+- `x-Backend-Attempts: 2` — the proxy tried two backends
+- `BackendHost: <backend B url>` — Backend B served the final response
 
-#### What do I need running before I start? (simulator, config, Azure resources if any)
+See → [POC-Failover-configuration.md](../POC-Failover-configuration.md) for the step-by-step runthrough.
 
-SimpleL7Proxy POCs are designed to need only the proxy itself and the simulator or backend for that scenario. Each POC lists only the concrete prerequisites: usually the proxy, the simulator or backend, and any Azure services the scenario truly depends on.
+#### What do I need running before I start?
 
-#### How long will this take? (must be < 5 minutes for setup + execution)
+The proxy and the LLM simulator. No Azure subscription needed for most scenarios — the simulator returns realistic OpenAI-format responses, simulates `429` throttling, and supports configurable latency.
 
-SimpleL7Proxy POCs are intended to stay under five minutes once the base environment exists.
+#### How long will this take?
+
+Under five minutes once the proxy and simulator are running. The simulator setup is the longest step — it's a single command.
 
 ---
 
@@ -91,15 +92,23 @@ SimpleL7Proxy POCs are intended to stay under five minutes once the base environ
 
 #### What are the exact commands to run?
 
-SimpleL7Proxy POCs provide copy-paste-ready commands so the reader doesn't have to translate prose into commands — usually `curl`, `az`, or policy snippets.
+Each POC provides copy-paste commands. See the relevant file for the exact `curl` or `az` calls:
+- Failover: [POC-Failover-configuration.md](../POC-Failover-configuration.md)
+- Priority routing: [POC-Priority-configuration.md](../POC-Priority-configuration.md)
+- Chargeback: [POC-Chargeback.md](../POC-Chargeback.md)
+- PTU → PAYGO failover: [POC-OpenAI-Failover.md](../POC-OpenAI-Failover.md)
+- Securing the proxy: [POC-Secure-the-proxy.md](../POC-Secure-the-proxy.md)
 
 #### What do I send to trigger the behavior?
 
-SimpleL7Proxy responds to the specific trigger for each scenario. For priority routing, send a request with the priority header (`llm_proxy_priority: 1`). For failover, send any request when the primary backend is configured to return `429`. For chargeback, include `X-UserID`.
+It depends on the scenario:
+- **Failover:** Send any request when Backend A is configured to return `429`.
+- **Priority routing:** Send a request with the priority header — for example, `llm_proxy_priority: 1`.
+- **Chargeback:** Include `X-UserID` in the request to tag it for per-user tracking.
 
 #### What should I see in the response headers / body / logs during each step?
 
-SimpleL7Proxy produces predictable observable changes at each step. The reader should see specific headers, statuses, bodies, or log lines that change in a predictable way — not narrative descriptions.
+Each POC has a "What you will observe" section that lists the specific headers, status codes, or log lines that change at each step. The table in [How does chargeback telemetry work?](#how-does-chargeback-telemetry-work) below shows the headers shared across scenarios.
 
 ---
 
@@ -107,7 +116,7 @@ SimpleL7Proxy produces predictable observable changes at each step. The reader s
 
 #### What headers confirm the behavior? (e.g., `x-Backend-Attempts: 2` for failover)
 
-SimpleL7Proxy injects these headers as POC confirmation signals:
+These are the headers the proxy adds to every proxied response:
 
 | Header | What it confirms |
 |--------|-----------------|
@@ -117,25 +126,42 @@ SimpleL7Proxy injects these headers as POC confirmation signals:
 | `x-Request-Queue-Duration` | How long the request waited in the queue |
 | HTTP status code | Final outcome |
 
-#### What log entries or App Insights events confirm it? (exact field names and values)
+#### What log entries or App Insights events confirm it?
 
-SimpleL7Proxy logs a structured event per request. Verification should call out the exact `backendLog`, Application Insights field, or event dimension that proves the proxy took the expected path.
+For chargeback specifically: query Application Insights by the `X-UserID` dimension to see per-user token consumption. Each request emits an event with a `tokens` field that the proxy extracts from the streaming response body.
 
-#### What would I see if it did NOT work? (how to distinguish success from silent failure)
+For failover: `backendLog` in the event record shows which backends were tried and their individual status codes.
 
-SimpleL7Proxy POCs include a failure description for each scenario — the wrong status code, a missing header change, or telemetry that never appears — so you can distinguish success from a silent misconfiguration.
+#### What would I see if it did NOT work?
+
+- **Failover not working:** `x-Backend-Attempts: 1` (only one backend tried) and the client receives an error code rather than `200 OK`.
+- **Priority routing not working:** Low-priority requests are not held back under load — queue depth stays flat regardless of priority.
+- **Chargeback not working:** Application Insights shows no token fields, or querying by `X-UserID` returns no records. Check that `EVENT_LOGGERS` includes `appinsights` and the connection string is set.
 
 ---
 
 ### Do I need real Azure OpenAI?
 
+No — see [Quick Answer above](#do-i-need-real-azure-openai). The LLM Simulator covers failover, priority, and chargeback without a real endpoint. The APIM-based PTU → PAYGO failover POC does require an actual APIM instance.
+
 #### What setting(s) controlled the behavior I just observed?
 
-SimpleL7Proxy behavior is driven by a small set of configuration knobs in each scenario. The scenario names them explicitly — such as backend priority lists, retry count, timeout, auth settings, or telemetry configuration.
+The key configuration knobs depend on the scenario:
 
-#### What is the state machine? (e.g., CLOSED → OPEN → recovery for circuit breaker)
+| Scenario | Key settings |
+|----------|-------------|
+| Failover | `Host1`, `Host2` connection strings; `CBErrorThreshold` |
+| Priority routing | `PriorityKeys`, `PriorityValues`, `PriorityWorkers` |
+| Chargeback | `EVENT_LOGGERS`, `UserProfilesUrl`, processor key in `Host1` |
+| Security | `ValidateAuthAppID`, `ValidateAuthAppIDHeader` |
 
-SimpleL7Proxy's behavior in each scenario follows a simple state transition. Each POC explains this — for example: `select → throttle → retry → recover` for failover, or `validate → reject` vs `validate → allow` for security.
+#### What is the state machine?
+
+Each scenario follows a simple state transition:
+
+- **Failover:** `select backend → receive 429 → retry on next backend → return 200 to client`
+- **Circuit breaker:** `CLOSED → failures exceed threshold → OPEN → failures age out → CLOSED`
+- **Security:** `validate caller ID → not in allowlist → reject 401` vs `validate → allowed → forward`
 
 ---
 
@@ -143,7 +169,9 @@ SimpleL7Proxy's behavior in each scenario follows a simple state transition. Eac
 
 #### What variants can I try to see different behavior?
 
-SimpleL7Proxy POCs include variants: changing priority, latency, retry count, auth mode, backend health, or the chosen backend set to exercise different paths.
+- **Failover:** Configure both backends to return `429` — expect `503`.
+- **Priority routing:** Fill the queue with low-priority requests, then send a high-priority request and observe it served first.
+- **Chargeback:** Use different `X-UserID` values; each should appear as a separate record in App Insights.
 
 ---
 
@@ -151,7 +179,7 @@ SimpleL7Proxy POCs include variants: changing priority, latency, retry count, au
 
 #### What is the first thing I should change to adapt this to my own workload?
 
-SimpleL7Proxy POCs are written with demo endpoints and identities. The first adaptation is to replace demo endpoints, headers, identities, and the backend list with the real ones you plan to use in production.
+Replace demo endpoints, app registration IDs, and backend connection strings with your own. Start with `Host1` pointing at your real backend, then add EasyAuth against your Entra tenant. See → [POC-Secure-the-proxy.md](../POC-Secure-the-proxy.md).
 
 ---
 

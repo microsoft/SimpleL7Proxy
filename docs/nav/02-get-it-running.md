@@ -27,7 +27,7 @@ Two environment variables, one command. Here's what to set up, what commands to 
 <td width="33%" valign="top">
 
 ### How do I deploy to Azure?
-Use the interactive deployment script in `deployment/README.md`. Fill in a parameters file, run the script, and ACA handles the rest. Port 8000 is the expected ingress target.
+Use the interactive deployment script in `deployment/README.md`. Fill in a parameters file, run the script, and Azure Container Apps (ACA) handles the rest. Port 8000 is the expected ingress target.
 
 [→ How do I run it?](#how-do-i-run-it)
 
@@ -53,7 +53,7 @@ Call `curl -i http://localhost:8000/health` — a `200 OK` means the proxy is up
 <td width="33%" valign="top">
 
 ### What if it doesn't start?
-Check that `Host1` is reachable and the probe path returns 2xx. Review the console log and `eventslog.json`. Most startup failures are a missing `Host1`, an unreachable backend, or a bad connection string key.
+Check that `Host1` is reachable and that the probe path returns a success response (HTTP 200–299). Review the console log and `eventslog.json`. Most startup failures trace back to a missing `Host1`, an unreachable backend, or a bad connection string key.
 
 > **⚠️ GAP:** No "top 3 startup failure" quick-reference exists. → [Content gap details](#content-gaps-to-fill)
 
@@ -124,7 +124,7 @@ azd provision
 
 #### What port does the proxy listen on by default?
 
-SimpleL7Proxy defaults to port `80` at runtime. Examples in this documentation use `Port=8000` explicitly to avoid the elevated-permission requirement for ports below 1024 on Linux. Inside the container image, the proxy also listens on port `443` (TLS). For ACA deployments using `Port=8000`, the ingress rule should target port `8000`.
+Use `Port=8000` for local development — it's the value all examples in this documentation use, and it avoids the elevated-permission requirement that Linux places on ports below 1024 (including the built-in default of `80`). Inside the container image, the proxy also listens on port `443` (TLS). For ACA deployments using `Port=8000`, point the ingress rule at port `8000`.
 
 ---
 
@@ -142,7 +142,7 @@ The `host` and `probe` keys are the minimum for a probed backend.
 
 #### What is the `probe` path and why is it required?
 
-SimpleL7Proxy uses the probe path to call each backend on a schedule (every 15 seconds by default) to confirm it is alive. A probe must return `2xx` for the backend to stay in the [active pool](../Glossary.md#backend-management) and receive traffic. If your backend has no health-check endpoint, use `mode=direct` to skip health polling and always treat the backend as available. See [→ Direct Mode](../Glossary.md#backend-management).
+SimpleL7Proxy uses the probe path to call each backend on a schedule (every 15 seconds by default) to confirm it is alive. A probe must return a success response (HTTP 200–299) for the backend to stay in the [active pool](../Glossary.md#backend-management) and receive traffic. If your backend has no health-check endpoint, use `mode=direct` to skip health polling and always treat the backend as available. See [→ Direct Mode](../Glossary.md#backend-management).
 
 ![Health probe flow](../helthprobe.png)
 
@@ -193,7 +193,7 @@ SimpleL7Proxy startup fails in three predictable ways:
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `Host1` parse error or no backends registered | Missing or malformed `Host1` | Verify the connection string contains `host=` and matches `host=<url>;probe=<path>` exactly |
-| Probe fails immediately, backend never enters pool | Backend unreachable or probe path returns non-2xx | Verify the backend URL and probe path are reachable from the proxy's network |
+| Probe fails immediately, backend never enters pool | Backend unreachable or probe path returns a non-success response | Verify the backend URL and probe path are reachable from the proxy's network |
 | App Configuration connection refused or `403` | Missing endpoint, wrong label, or identity missing role | Verify `AZURE_APPCONFIG_ENDPOINT`, the label, and that the managed identity has `App Configuration Data Reader` |
 
 In all cases, the console output and `eventslog.json` include the specific error message.

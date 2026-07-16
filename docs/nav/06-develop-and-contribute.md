@@ -196,7 +196,7 @@ SimpleL7Proxy has no repo-hosted GitHub workflow checks in `.github/workflows`, 
 
 #### How do I run the linter / style checker locally before pushing?
 
-SimpleL7Proxy doesn't document a separate linter command today. Run `dotnet build` and `dotnet test` and keep changes aligned with the documented style guide.
+There is no separate lint step. Run `dotnet build` and `dotnet test`, and keep your changes aligned with the style guide. The build will catch most structural problems.
 
 ---
 
