@@ -1,211 +1,184 @@
-# Understand How the Proxy Controls AI Traffic
+# Why Would You Put a Proxy in Front of Your AI Backends?
 
-This guide explains the six decisions that determine which requests run, where they run, and whether callers wait for the result.
+Depending on whether you are serving live users, high-priority business workflows, or low-priority background jobs, you will likely want control over when, where, and how your traffic is fulfilled. AI backends can throttle, regions can become constrained, and models eventually reach the end of their lifecycle. These are some of the reasons teams place a proxy in front of their AI services. The questions below are the ones most teams ask when deciding whether this approach fits their architecture.
 
-> **TL;DR**
-> - **Queue priority and backend routing are separate decisions:** profiles influence when a request runs; routing determines where it runs.
-> - Backpressure protects the proxy, while health checks and circuit breakers protect it from unhealthy backends.
-> - Autoscale adds independent proxy replicas; async mode frees callers from waiting on long-running work.
+---
 
 ## Quick Answers
 
-| Question | Short answer |
-|---|---|
-| [How do user profiles determine queue priority?](#prioritizing-users-in-the-queue) | A profile supplies an `S7PPriorityKey`; `PriorityKeys` and `PriorityValues` map that key to an integer. Lower integers leave the queue first. |
-| [How do backpressure and circuit breaking differ?](#protecting-capacity-with-backpressure-and-circuit-breaking) | Backpressure rejects excess inbound work. Circuit breaking stops attempts to a backend with too many recent failures. |
-| [How does priority route to alternate backends?](#routing-priorities-to-alternate-backends) | APIM policy can restrict each backend to selected request priorities. The proxy's native backend selector routes by path, health, and load-balance order instead. |
-| [What is a direct backend versus an APIM backend?](#choosing-direct-or-apim-backends) | Direct mode skips active health probes. APIM mode treats APIM as a standard, probed backend gateway. |
-| [How does autoscale work?](#scaling-proxy-replicas) | Azure Container Apps adds replicas from a scale trigger such as HTTP concurrency, within configured minimum and maximum bounds. |
-| [When does async become important?](#moving-long-running-work-to-async) | Use async when a caller or gateway must not hold an HTTP connection for the full backend runtime. |
+<table>
+<tr>
+<td width="33%" valign="top">
 
-## Settings at a Glance
+### [What problem does it solve?](#what-problem-does-it-solve-1)
+When an AI backend throttles or goes down, your users get errors. SimpleL7Proxy catches those failures before they reach callers — retrying transparently, queuing by priority, and keeping your application responsive even when backends struggle.
 
-Units used in this guide: queue limits are requests, circuit-breaker windows are seconds, and async trigger timeouts are milliseconds.
+</td>
+<td width="33%" valign="top">
 
-| Setting | Default | What it controls | Reload |
-|---|---:|---|---|
-| `DefaultPriority` | `2` | Queue priority when no mapped key is present | Warm |
-| `PriorityKeys` / `PriorityValues` | `high,medium,low` / `1,2,3` | Maps profile or request keys to queue priorities | Warm |
-| `UserPriorityThreshold` | `0.1` | Share below which a user receives the secondary fairness boost | Warm |
-| `MaxQueueLength` | `1000` | Maximum queued requests per replica | Cold |
-| `CBErrorThreshold` | `50` | Recent failures that open a backend circuit | Warm |
-| `CBTimeslice` | `60` s | Circuit-breaker sliding window | Warm |
-| `AsyncModeEnabled` | `false` | Enables async processing service-wide | Cold |
-| `AsyncTriggerTimeout` | `10000` ms | Wait before an opted-in request changes to async | Warm |
-| ACA `minReplicas` / `maxReplicas` | Deployment-specific | Lower and upper replica bounds | Deployment |
-| ACA `concurrentRequests` | Deployment-specific | Per-replica HTTP concurrency scale target | Deployment |
+### [What does "Layer 7" mean here?](#what-does-layer-7-mean-here-1)
+A standard balancer moves packets. This proxy reads the conversation — throttle codes, token counts, request paths. That difference is what lets it catch a `429` and retry silently on another backend instead of passing the error to your users.
 
-> [!NOTE]
-> Warm settings reload through Azure App Configuration when configured. Cold settings require a proxy restart.
+</td>
+<td width="33%" valign="top">
 
-## One Request, Two Decisions
+### [Where does it sit architecturally?](#where-does-it-sit-architecturally-1)
+It runs between APIM (or clients) and Azure AI backends, inside the operator's VNet. Clients never talk directly to a backend — the proxy is the single point all requests go through.
 
-**The queue decides when work starts; the backend selector or APIM policy decides where it runs.**
+</td>
+</tr>
+<tr>
+<td width="33%" valign="top">
 
-```text
-Client/profile ──priority key──► [1. per-replica priority queue] ──► worker
-                                                                      │
-                           [backpressure: reject 429] ◄────────────────┤
-                                                                      ▼
-                 APIM priority policy OR proxy path/load-balance selector
-                                      │
-                         [health + circuit gate]
-                                      ▼
-                    direct service or APIM-fronted backend
-                                      │
-                   sync response OR async 202 + Blob/Service Bus
+### [What happens to a request end to end?](#what-happens-to-a-request-end-to-end-1)
+Your request waits in a queue, a worker picks it up, and the proxy finds a healthy backend to forward it to. If that backend fails, it tries the next one automatically. You get the response plus a few headers showing which backend was used and how long everything took. The whole thing is capped by a total time budget — see [TTL](../Glossary.md#request-lifecycle).
+
+</td>
+<td width="33%" valign="top">
+
+### [Where does it run in Azure?](#where-does-it-run-in-azure-1)
+Azure Container Apps is the primary deployment target, with optional VNet integration. It can also run locally from source for development. Sovereign cloud is supported.
+
+</td>
+<td width="33%" valign="top">
+
+### [What does it NOT do?](#what-does-it-not-do-1)
+It doesn't manage your AI models, run a developer portal, or handle caller subscriptions and authentication — that's what APIM is for. 
+
+</td>
+</tr>
+</table>
+
+---
+
+## Full Answers
+
+### What problem does it solve?
+
+#### What problem does SimpleL7Proxy solve that a standard Layer-4 load balancer cannot?
+
+A standard load balancer moves traffic by IP and port — it has no idea what's inside the HTTP messages. This proxy reads those messages: it can catch a `429` throttle response, route by URL path, and pull token counts from streaming AI responses. None of that is possible without reading HTTP.
+
+**Example:** An Azure OpenAI endpoint returns `429` when rate-limited. A Layer-4 balancer passes the `429` back unchanged; SimpleL7Proxy detects it, retries on a different backend, and — if configured — requeues the request transparently so the caller receives `200 OK` instead.
+
+#### What is a Layer 7 proxy and why does that distinction matter for AI workloads?
+
+> See [What does "Layer 7" mean here?](#what-does-layer-7-mean-here-1) below.
+
+#### What are the core capabilities in plain language (routing, queuing, circuit breaking, governance, telemetry)?
+
+Five things it does: **routing** picks a healthy backend and distributes load so no single backend gets overwhelmed; **queuing** holds incoming requests so your most critical work goes first even when the system is busy; **[circuit breaking](../Glossary.md#reliability)** automatically stops sending traffic to a failing backend — and brings it back once it recovers, with no manual reset; **[governance](../Glossary.md#request-governance)** controls which callers can use the proxy and how much capacity any single caller is allowed to consume; and **telemetry** records per-request timing and AI token counts so you can track latency, costs, and diagnose problems. See the [Glossary](../Glossary.md) for any unfamiliar terms.
+
+---
+
+### What does "Layer 7" mean here?
+
+#### What is a Layer 7 proxy and why does that distinction matter for AI workloads?
+
+The practical difference: a standard router only sees IP addresses and TCP ports — it can't read what's inside the HTTP messages. This proxy can, which is how it catches `429` throttle responses before your users see them, routes `/openai/` and `/embeddings/` to different backends, and extracts [token counts](../Glossary.md#observability) from streaming responses for cost tracking. ("Layer 7" is the technical name for the HTTP layer in the network stack.)
+
+---
+
+### Where does it sit architecturally?
+
+![SimpleL7Proxy architecture overview](../arch.png)
+
+#### Where does the proxy sit in the architecture — between what and what?
+
+SimpleL7Proxy sits between clients (or Azure API Management, which handles developer-facing gateway concerns like subscriptions and authentication) on the ingress side and Azure AI backend endpoints on the egress side. Clients never call backends directly — the proxy is the single data-plane entry point.
+
+#### What does a request look like going in, and what comes back?
+
+SimpleL7Proxy accepts a standard HTTP request — the same format a caller would send to the backend directly — and returns the backend's response unchanged, adding diagnostic headers: `BackendHost` (which backend was used), `x-Request-Worker` (which worker handled it), `x-Request-Queue-Duration` (milliseconds the request waited in the queue), `x-Request-Process-Duration` (milliseconds the backend took to respond), and `Total-Latency` (the end-to-end round-trip). These headers are primarily for debugging and operations monitoring.
+
+**Example:** `curl -i http://proxy:8000/openai/deployments/gpt-4/chat/completions` → response includes `BackendHost: https://my-aoai.openai.azure.com` and `x-Request-Queue-Duration: 12`.
+
+#### What Azure services does it depend on (App Insights, Event Hubs, Service Bus, Blob, App Configuration)?
+
+SimpleL7Proxy needs only a backend to call — no Azure services are required to get started. Optional integrations: Application Insights and Event Hubs add telemetry sinks; Service Bus and Blob Storage are needed only for async mode (where the proxy detaches long-running requests and writes results to a blob — see [→ Async Mode](../Glossary.md#async-mode)); App Configuration enables [Warm setting](../Glossary.md#configuration-management) hot-reload without restarting the container.
+
+---
+
+### What happens to a request end to end?
+
+#### What is the request flow from ingress to backend response? (priority queue → worker → backend selector → circuit breaker)
+
+SimpleL7Proxy validates each incoming request, then places it in the [priority queue](../Glossary.md#request-lifecycle). A worker picks it up, runs the backend selection pipeline — the [path filter](../Glossary.md#backend-management) narrows candidates by URL prefix, load balancing sets their order, and the [circuit breaker](../Glossary.md#reliability) skips any host with too many recent failures — and forwards the request to the first eligible backend. The response goes back to the caller, a few diagnostic headers are added, and a telemetry event is recorded. The whole thing is bounded by the request's time budget (TTL): if it expires at any point — waiting in the queue or during retries — the caller gets a `412`.
+
+```
+client → [priority queue] → worker → path filter → load balancer → circuit gate → backend → response + telemetry
 ```
 
-The first decision protects worker capacity and orders users. The second narrows and orders backend candidates. Health and circuit state can remove a candidate after routing has selected the candidate set.
+#### What are "workers" and why do they matter?
 
-## Prioritizing Users in the Queue
+SimpleL7Proxy uses a fixed pool of workers (default 10) to pick requests from the [priority queue](../Glossary.md#request-lifecycle) and forward them to backends. The proxy runs exactly `Workers` requests simultaneously — any additional requests wait in the queue. More workers mean lower queue wait times but higher memory and CPU consumption. See [→ Workers](../Glossary.md#request-lifecycle).
 
-**A profile's `S7PPriorityKey` maps to the primary queue priority; lower mapped integers run first.**
+#### What is a "backend host" and how is it different from a URL?
 
-```bash
-PriorityKeys=high,medium,low
-PriorityValues=1,2,3
-DefaultPriority=2
-```
+SimpleL7Proxy models each backend as a configuration object that carries more than just a URL: the health-check path the proxy polls to confirm the backend is alive (`probe=`), the authentication method (`usemi=true` for Managed Identity or `api-key=` for key-based auth), an optional URL path prefix for routing (`path=`), and optionally a stream processor for extracting AI token counts. Each backend is configured as `Host1`, `Host2`, etc., using a semicolon-delimited connection string. See [→ Connection String Format](../Glossary.md#backend-management).
 
-A matched user profile can supply `"S7PPriorityKey": "high"`. The proxy maps `high` to `1`, places that request ahead of priorities `2` and `3`, and uses enqueue time to preserve order among otherwise equal requests.
+#### What is a priority queue and how does it affect which requests go first?
 
-The proxy also tracks each user's share of active work. When a user is below `UserPriorityThreshold`, the request receives a secondary fairness boost. This favors an underrepresented user within the same primary priority; it does not let a lower primary priority jump ahead of a higher one.
+SimpleL7Proxy holds requests in an in-memory [priority queue](../Glossary.md#request-lifecycle) until a worker is free. Lower integer priorities are dispatched first — priority 1 runs before priority 2. Without priority configuration, all requests share the default priority and are served in arrival order. Because the queue is in-memory, it does not survive a proxy restart — requests waiting when the container stops are lost.
 
-> [!TIP]
-> **Troubleshooting:** If a profile appears to have no effect, verify that its key exactly matches a value in `PriorityKeys`, that `PriorityKeys` and `PriorityValues` have the same number of entries, and that the configured user ID header resolves to the expected profile.
+#### What is a circuit breaker and when does it open?
 
-See [User Profiles](../USER_PROFILES.md) for profile loading and field structure.
+SimpleL7Proxy uses a [circuit breaker](../Glossary.md#reliability) to stop sending requests to a backend that is clearly failing. When a backend's failure count exceeds `CBErrorThreshold` (default 50) within the last `CBTimeslice` seconds (default 60), the circuit opens and that host is skipped. It closes automatically once old failures age out of the window — no manual reset is needed. See [→ Auto-Recovery](../Glossary.md#reliability).
 
-## Protecting Capacity with Backpressure and Circuit Breaking
+**Example:** A backend starts returning `500` errors. After 50 failures within 60 seconds, the circuit opens. Traffic automatically shifts to other healthy backends. After 60 seconds with no new failures, the circuit closes and the backend re-enters rotation.
 
-**Backpressure limits admitted work; circuit breaking prevents admitted work from repeatedly hitting a failing backend.**
+---
 
-```bash
-MaxQueueLength=1000
-CBErrorThreshold=50
-CBTimeslice=60
-```
+### Where does it run in Azure?
 
-Backpressure acts at ingress on each replica. The proxy returns `429` when its queue is full, when telemetry backlog exceeds its safety limit, when no backend is active, or when all registered circuit breakers block processing. Before reaching the limit, a growing telemetry backlog can add a small admission delay.
+#### What is the supported deployment target (Azure Container Apps)?
 
-Each backend has its own sliding failure window. At the threshold, its circuit opens and the backend selector skips that host. Old failures age out after `CBTimeslice`, allowing the circuit to close automatically. Progressive delays begin before the threshold to slow traffic into a degrading backend.
+SimpleL7Proxy is designed for Azure Container Apps as its primary production deployment target. ACA provides the container runtime, VNet integration, managed identity support, and scaling controls the proxy relies on.
 
-> [!WARNING]
-> **Troubleshooting:** A `429` can mean capacity backpressure or unavailable backends. Read the response message and telemetry before increasing `MaxQueueLength`; a larger queue does not repair an unhealthy backend.
+#### Can it run locally? Can it run in other environments?
 
-See [Circuit Breaker](../CIRCUIT_BREAKER.md) for failure accounting and recovery.
+SimpleL7Proxy can run locally from source or as a container, and other container-capable environments work if they can provide the required network and configuration wiring.
 
-## Routing Priorities to Alternate Backends
+#### What network topologies does it support (public, VNet, sovereign)?
 
-**Use the APIM priority policy when request priority must determine backend eligibility; do not confuse this with the proxy's queue priority.**
+SimpleL7Proxy supports public ingress, private or VNet-connected deployments, and sovereign cloud configurations.
 
-```text
-priority 1 → Reserved backend accepts [1]
-priority 2 → Shared backend accepts [2,3]
-priority 3 → Shared or fallback accepts [3]
-```
+---
 
-The APIM policy reads `llm_proxy_priority`, builds a candidate set from each backend's `acceptablePriorities`, then orders eligible candidates by `priorityGroup`. A throttled or failed candidate can be bypassed for another eligible backend. If no backend accepts the request priority, APIM returns `503`.
+### What does it NOT do?
 
-Native SimpleL7Proxy `Host1`…`HostN` selection does not use queue priority to filter hosts. It filters by request path, orders by `LoadBalanceMode`, skips unhealthy or open-circuit hosts, and retries according to `IterationMode`.
+#### When should I use this vs APIM? vs Azure API Gateway?
 
-> [!TIP]
-> **Troubleshooting:** If a priority request reaches an unexpected backend, first identify the routing layer. In APIM, inspect `acceptablePriorities` and `priorityGroup`; in SimpleL7Proxy, inspect `path`, health, circuit state, and load-balance mode.
+Use it when you need reliability and cost visibility specific to AI backends: priority queuing, circuit breaking, retry across backends, and per-request token telemetry. Use Azure API Management when you need API lifecycle management — developer portals, subscription management, caller authentication, and complex policy transformations. The two are complementary: APIM can sit in front of this proxy, handling caller concerns while the proxy manages backend reliability.
 
-See [Priority Levels POC](../POC-Priority-configuration.md) for a runnable APIM example.
+| Need | Use |
+|------|-----|
+| Priority queue, circuit breaking, retry across backends | SimpleL7Proxy |
+| Developer portal, subscriptions, caller auth | Azure API Management |
+| Both | APIM in front of SimpleL7Proxy |
 
-## Choosing Direct or APIM Backends
+#### What does it NOT do (non-goals)?
 
-**Choose `mode=direct` only when the proxy must not actively probe the target; use `mode=apim` for a probed APIM gateway.**
+It is not a managed service (you host and operate it yourself), not a full API gateway (no developer portal, subscription management, or caller authentication), and not a protocol translator (HTTP only — no gRPC or WebSocket). The [priority queue](../Glossary.md#request-lifecycle) is in-memory and does not survive container restarts — requests waiting when the container stops are lost. Circuit breaker state is local to each container instance — two proxy replicas do not share failure counters, so a backend that trips one instance's circuit may still receive traffic from another.
 
-```bash
-Host1="host=https://model.example.com;mode=direct;path=/model"
-Host2="host=https://gateway.azure-api.net;mode=apim;path=/shared;probe=/health"
-# Both remain subject to per-request circuit breaking.
-```
-
-| Backend type | Proxy target | Active probe | Typical reason |
-|---|---|---|---|
-| Direct | Service or model endpoint | No | The target scales to zero, is on demand, or has no safe probe endpoint |
-| APIM | Azure API Management gateway | Yes | APIM supplies authentication, policy, subscriptions, transformations, or priority-aware routing |
-
-Direct mode always admits the host to the active set and relies on real request failures plus the circuit breaker for protection. APIM mode is the standard non-direct behavior: the proxy polls the configured probe and removes the gateway from the active set when probe success falls below the health threshold.
-
-> [!TIP]
-> **Troubleshooting:** If a scale-to-zero target wakes unexpectedly, check that it uses `mode=direct`. If an APIM backend never becomes active, call its configured probe path through APIM and verify authentication and network access.
-
-See [Backend Host Configuration](../BACKEND_HOSTS.md) for all host options.
-
-## Scaling Proxy Replicas
-
-**Autoscale creates independent queues and workers; set the scale target from measured per-replica capacity and downstream limits.**
-
-```yaml
-minReplicas: 1
-maxReplicas: 10
-concurrentRequests: "100"
-```
-
-Azure Container Apps uses KEDA-based triggers such as CPU or HTTP concurrency. When observed concurrency exceeds the configured target, ACA adds replicas up to `maxReplicas`; it removes replicas as demand falls, but not below `minReplicas`.
-
-Every replica owns its queue, user-share counters, workers, backend health observations, and circuit-breaker state. Scaling out increases total proxy capacity, but state is not pooled across replicas. A request already queued on one replica does not move to a newly created replica.
-
-> [!NOTE]
-> Repository deployment variants use different concurrency targets. Treat template values as starting points, not a universal default. Keep at least one replica for a latency-sensitive path and cap scale based on backend capacity.
-
-> [!TIP]
-> **Troubleshooting:** If replicas increase while queue latency remains high, compare the ACA ingress concurrency target with `Workers` and backend connection capacity. Autoscaling cannot make a saturated downstream service faster.
-
-See [Day 2 Operations](../../deployment/DAY2_OPERATIONS.md#scaling-considerations) for scaling guidance.
-
-## Moving Long-Running Work to Async
-
-**Use async when processing can outlive the caller's practical HTTP wait budget.**
-
-```bash
-AsyncModeEnabled=true
-AsyncTriggerTimeout=10000
-# Client sends: S7PAsyncMode: true
-```
-
-Async requires three opt-ins: the proxy service enables it, the user's profile grants it and names a Blob container and Service Bus topic, and the request sends the configured async header. Fast requests still finish synchronously. Once processing exceeds `AsyncTriggerTimeout`, the proxy returns `202`, stores request and response data in Blob Storage, and publishes lifecycle status through Service Bus.
-
-Async becomes important for long model runs, background jobs, or gateway/client timeouts that are shorter than backend processing. It changes delivery semantics and introduces Storage, Service Bus, RBAC, retention, and client status-handling requirements, so it is unnecessary for reliably short requests.
-
-> [!WARNING]
-> **Troubleshooting:** No `202` means one of the three opt-ins is missing or the request completed before `AsyncTriggerTimeout`. Verify the service setting, profile `async-config`, request header, and Azure permissions.
-
-See [Async Operation Configuration](../AsyncOperation.md) for the complete setup.
-
-## Worked Example
-
-**This example shows queue order, backend eligibility, circuit behavior, scale, and async as separate stages.**
-
-| Step | Concrete event | Effective outcome |
-|---:|---|---|
-| 1 | Premium user profile maps `high` → priority `1`; batch user maps `low` → `3` | Premium request leaves the replica queue first |
-| 2 | Premium request carries APIM routing priority `1` | APIM considers only backends whose `acceptablePriorities` contains `1` |
-| 3 | Reserved backend circuit is open | It is skipped; another priority-1-eligible backend is tried |
-| 4 | Queue reaches `MaxQueueLength=1000` | That replica rejects additional requests with `429` |
-| 5 | ACA HTTP concurrency crosses its configured target | ACA starts another replica, which has a new empty queue and independent circuit state |
-| 6 | An opted-in batch request runs longer than `10000` ms | Caller receives `202`; completion data moves through Blob Storage and Service Bus |
-
-The mental model is: **identify user → assign queue priority → admit or reject → select eligible backend → skip unhealthy candidates → return synchronously or detach asynchronously**.
+---
 
 ## You Should Now Be Able To
 
-- [ ] Explain why queue priority does not automatically select a backend
-- [ ] Distinguish capacity backpressure from backend circuit breaking
-- [ ] Choose between direct and APIM backend modes
-- [ ] Explain what state is local when ACA adds a replica
-- [ ] Decide whether a workload needs async delivery
+- [ ] Explain the proxy to a colleague in 2 minutes
+- [ ] Draw the architecture (client → queue → worker → backend → telemetry)
+- [ ] Decide whether this is the right tool for their scenario
+- [ ] Know which document to go to next (QUICKSTART, OVERVIEW, or SCENARIOS)
+
+---
 
 ## Related Documents
 
 | Document | What it covers |
-|---|---|
-| [Overview](../OVERVIEW.md) | Components and high-level workflows |
-| [Load Balancing](../LOAD_BALANCING.md) | Native backend selection and retries |
-| [User Profiles](../USER_PROFILES.md) | Per-user profile fields and loading |
-| [Get It Running](02-get-it-running.md) | Local and Azure startup paths |
+|----------|----------------|
+| [Overview](../OVERVIEW.md) | Architecture, components, and high-level flows |
+| [Design](../design.md) | Code-level request flow |
+| [Glossary](../Glossary.md) | Definitions for proxy concepts and terminology |
+| [Get It Running](02-get-it-running.md) | The next discovery path for deploying or running the proxy |
+
+---
