@@ -409,6 +409,13 @@ public sealed class EventHubReader : BackgroundService
             {
                 return;
             }
+            catch (System.Net.Sockets.SocketException)
+            {
+                _logger.LogWarning(
+                    "Event Hub reader is disconnected for partition {PartitionId}; retrying in 30 seconds.",
+                    partitionId);
+                await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken).ConfigureAwait(false);
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Event Hub read failed for partition {PartitionId}; retrying.", partitionId);

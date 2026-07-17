@@ -1138,6 +1138,10 @@
 
     private bool IsChatApi => VisionCatalog.GetApi(SelectedApi) is null && ChatCatalog.GetApi(SelectedApi) is not null;
 
+    private bool IsOpenAiStreamingChat => IsChatApi
+        && string.Equals(SelectedApi, "openai-chat", StringComparison.OrdinalIgnoreCase)
+        && string.Equals(ChatCatalog.GetModel(SelectedModel)?.Provider, "OpenAI", StringComparison.OrdinalIgnoreCase);
+
     private bool IsComputerVisionAnalysisApi => SelectedApiInfo?.RequestFormat.StartsWith("azure-ai-vision", StringComparison.OrdinalIgnoreCase) == true;
 
     private bool UsesPrompt => !IsComputerVisionAnalysisApi;
@@ -2213,6 +2217,11 @@
         foreach (var (name, value) in defaults)
         {
             FieldValues[name] = value;
+        }
+
+        if (IsOpenAiStreamingChat)
+        {
+            FieldValues["include_usage"] = "false";
         }
     }
 

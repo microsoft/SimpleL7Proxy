@@ -320,6 +320,7 @@
                                     aria-expanded="@_isTrendMetricMenuOpen"
                                     @onclick="() => _isTrendMetricMenuOpen = !_isTrendMetricMenuOpen">
                                 Metrics
+                                <span class="eventhub-trend-metric-caret" aria-hidden="true"></span>
                             </button>
                             <div class="eventhub-trend-selected-list" aria-label="Selected metrics">
                                 @foreach (var series in SelectedTrendMetrics)
@@ -330,24 +331,24 @@
                                     </span>
                                 }
                             </div>
-                        </div>
 
-                        @if (_isTrendMetricMenuOpen)
-                        {
-                            <div class="eventhub-trend-metric-dropdown" role="group" aria-label="Trend metrics">
-                                @foreach (var metric in TrendMetricOptions)
-                                {
-                                    <label class="eventhub-trend-metric-toggle">
-                                        <input type="checkbox"
-                                               class="form-check-input"
-                                               checked="@IsTrendMetricSelected(metric.Key)"
-                                               @onchange="args => OnTrendMetricSelectionChanged(metric.Key, args.Value)" />
-                                        <span class="eventhub-trend-dot" style="background-color:@metric.Color"></span>
-                                        @metric.Label
-                                    </label>
-                                }
-                            </div>
-                        }
+                            @if (_isTrendMetricMenuOpen)
+                            {
+                                <div class="eventhub-trend-metric-dropdown" role="group" aria-label="Trend metrics">
+                                    @foreach (var metric in TrendMetricOptions)
+                                    {
+                                        <label class="eventhub-trend-metric-toggle @(IsTrendMetricSelected(metric.Key) ? "is-selected" : string.Empty)">
+                                            <input type="checkbox"
+                                                   class="visually-hidden"
+                                                   checked="@IsTrendMetricSelected(metric.Key)"
+                                                   @onchange="args => OnTrendMetricSelectionChanged(metric.Key, args.Value)" />
+                                            <span class="eventhub-trend-dot" style="background-color:@metric.Color"></span>
+                                            @metric.Label
+                                        </label>
+                                    }
+                                </div>
+                            }
+                        </div>
 
                         @if (UsageTrendPoints.Count == 0)
                         {
@@ -359,18 +360,9 @@
                         }
                         else
                         {
-                            <div class="eventhub-trend-legend">
-                                @foreach (var series in SelectedTrendMetrics)
-                                {
-                                    <span class="eventhub-trend-user-legend-item" title="@series.Label">
-                                        <span class="eventhub-user-color-dot" style="background-color:@series.Color"></span>
-                                        @series.Label
-                                    </span>
-                                }
-                            </div>
-                            <div class="eventhub-trend-chart" role="img" aria-label="Historical usage trend for the selected metrics">
+                            <div class="eventhub-trend-chart" aria-label="Historical usage trend for the selected metrics">
                                 @{
-                                    var bucketCount = UsageTrendPoints.Count;
+                                    var bucketCount = UsageTrendSlots.Count;
                                     long yAxisMax = 1;
                                     foreach (var series in SelectedTrendMetrics)
                                     {
@@ -385,15 +377,13 @@
                                     const double bottomPadding = 44d;
                                     var drawableWidth = chartWidth - leftPadding - rightPadding;
                                     var drawableHeight = chartHeight - topPadding - bottomPadding;
-                                    var bucketWidth = bucketCount <= 1 ? drawableWidth : drawableWidth / bucketCount;
-                                    var metricBarWidth = Math.Max(3d, Math.Min(18d, (bucketWidth * 0.72d) / SelectedTrendMetrics.Count));
+                                    var bucketWidth = drawableWidth / bucketCount;
+                                    var metricBarWidth = Math.Max(8d, Math.Min(80d, (bucketWidth * 0.72d) / SelectedTrendMetrics.Count));
                                     var metricGroupWidth = metricBarWidth * SelectedTrendMetrics.Count;
 
                                     double ComputeXForIndex(int index)
                                     {
-                                        return bucketCount <= 1
-                                            ? leftPadding + (drawableWidth / 2d)
-                                            : leftPadding + (index * drawableWidth / (bucketCount - 1d));
+                                        return leftPadding + ((index + 0.5d) * bucketWidth);
                                     }
 
                                     double ComputeYForValue(long value)
@@ -411,9 +401,9 @@
                                     .OrderByDescending(value => value)
                                     .ToArray();
 
-                                    var xTickCount = bucketCount <= 1 ? 1 : Math.Min(5, bucketCount);
+                                    var xTickCount = bucketCount;
                                 }
-                                <svg viewBox="0 0 1000 300" preserveAspectRatio="none" aria-hidden="true">
+                                <svg viewBox="0 0 1000 300" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
                                     @foreach (var tick in yTicks)
                                     {
                                         var y = ComputeYForValue(tick);
@@ -423,11 +413,9 @@
 
                                     @for (var i = 0; i < xTickCount; i++)
                                     {
-                                        var bucketIndex = xTickCount == 1
-                                            ? bucketCount - 1
-                                            : (int)Math.Round(((bucketCount - 1d) * i) / (xTickCount - 1d));
+                                        var bucketIndex = i;
                                         var x = ComputeXForIndex(bucketIndex);
-                                        var time = UsageTrendPoints[bucketIndex].TimestampUtc.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture);
+                                        var time = GetTrendSlotAxisLabel(bucketIndex);
                                         <line class="eventhub-trend-gridline vertical" x1="@x" y1="@topPadding" x2="@x" y2="@(chartHeight - bottomPadding)" />
                                         <svg:text class="eventhub-trend-axis-label x" x="@x" y="@(chartHeight - 14)">@time</svg:text>
                                     }
@@ -437,6 +425,8 @@
 
                                     @for (var bucketIndex = 0; bucketIndex < bucketCount; bucketIndex++)
                                     {
+                                        var slot = UsageTrendSlots[bucketIndex];
+                                        var slotRequests = GetTrendSlotRequests(slot);
                                         for (var metricIndex = 0; metricIndex < SelectedTrendMetrics.Count; metricIndex++)
                                         {
                                             var series = SelectedTrendMetrics[metricIndex];
@@ -465,8 +455,55 @@
 
                                             <rect class="eventhub-trend-metric-outline" x="@x" y="@y" width="@metricBarWidth" height="@height" style="stroke:@series.Color" />
                                         }
+
+                                        @if (slotRequests.Count > 0)
+                                        {
+                                            <rect class="eventhub-trend-slot-target has-requests"
+                                                  x="@(leftPadding + (bucketIndex * bucketWidth))"
+                                                  y="@topPadding"
+                                                  width="@bucketWidth"
+                                                  height="@drawableHeight"
+                                                  tabindex="0"
+                                                  role="button"
+                                                  aria-label="Show requests for @GetTrendSlotLabel(slot)"
+                                                  @onclick="() => OpenTrendSlot(slot, slotRequests)" />
+                                        }
+                                        else
+                                        {
+                                            <rect class="eventhub-trend-slot-target"
+                                                  x="@(leftPadding + (bucketIndex * bucketWidth))"
+                                                  y="@topPadding"
+                                                  width="@bucketWidth"
+                                                  height="@drawableHeight" />
+                                        }
                                     }
                                 </svg>
+                                @if (_openTrendSlot is not null)
+                                {
+                                    <div class="eventhub-trend-request-panel" style="left:50%">
+                                        <div class="eventhub-trend-request-panel-header">
+                                            <div class="eventhub-trend-request-panel-title">@GetTrendSlotLabel(_openTrendSlot)</div>
+                                            <button type="button" class="eventhub-trend-request-panel-close" aria-label="Close request list" @onclick="CloseTrendSlot">&times;</button>
+                                        </div>
+                                        @if (_openTrendSlotRequests.Count == 0)
+                                        {
+                                            <div class="eventhub-trend-request-empty">No requests in this slot.</div>
+                                        }
+                                        else
+                                        {
+                                            <div class="eventhub-trend-request-list">
+                                                @foreach (var request in _openTrendSlotRequests)
+                                                {
+                                                    <button type="button" class="eventhub-trend-request-row" @onclick="() => OpenTrendRequest(request)">
+                                                        <span class="eventhub-trend-request-number">@GetTrendRequestLabel(request)</span>
+                                                        <span class="eventhub-trend-request-status @(request.StatusCode is >= 400 ? "failed" : "success")">@(request.StatusCode?.ToString() ?? request.Status)</span>
+                                                        <span class="eventhub-trend-request-duration">@FormatTrendRequestDuration(request)</span>
+                                                    </button>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
                             </div>
                             <div class="eventhub-trend-footnote text-muted small">
                                 @TrendWindowLabel
@@ -490,13 +527,41 @@
                     }
                     else
                     {
+                        <div class="eventhub-trend-metric-selector">
+                            <button type="button"
+                                    class="btn btn-sm btn-outline-secondary eventhub-trend-metric-button"
+                                    aria-haspopup="true"
+                                    aria-expanded="@_isUserShareMetricMenuOpen"
+                                    @onclick="() => _isUserShareMetricMenuOpen = !_isUserShareMetricMenuOpen">
+                                Share by: @SelectedUserShareMetric.Label
+                                <span class="eventhub-trend-metric-caret" aria-hidden="true"></span>
+                            </button>
+
+                            @if (_isUserShareMetricMenuOpen)
+                            {
+                                <div class="eventhub-trend-metric-dropdown" role="radiogroup" aria-label="Share calculation column">
+                                    @foreach (var metric in UserShareMetricOptions)
+                                    {
+                                        <label class="eventhub-trend-metric-toggle @(IsUserShareMetricSelected(metric.Key) ? "is-selected" : string.Empty)">
+                                            <input type="radio"
+                                                   class="visually-hidden"
+                                                   name="user-share-metric"
+                                                   checked="@IsUserShareMetricSelected(metric.Key)"
+                                                   @onchange="() => SelectUserShareMetric(metric.Key)" />
+                                            @metric.Label
+                                        </label>
+                                    }
+                                </div>
+                            }
+                        </div>
+
                         <div class="table-responsive">
                             <table class="table table-sm eventhub-chargeback-table mb-0">
                                 <thead>
                                     <tr>
                                         <th scope="col">User</th>
                                         <th scope="col" class="text-end">Calls</th>
-                                        <th scope="col" class="text-end">Share</th>
+                                        <th scope="col" class="text-end">Share (@SelectedUserShareMetric.Label)</th>
                                         @foreach (var metric in UsageTableMetrics)
                                         {
                                             <th scope="col" class="text-end">@metric.Label</th>
@@ -653,7 +718,7 @@
         @* ── Request column (request status) ── *@
         <div class="col-12 col-lg-4 eventhub-monitor-col order-1">
             <div class="eventhub-history-shell eventhub-request-stats-compact">
-                <EventHubRequestStatus Items="@HistoryItems" HeaderTone="@RequestHeaderTone" />
+                <EventHubRequestStatus Items="@HistoryItems" HeaderTone="@RequestHeaderTone" OpenRequest="@_trendRequestToOpen" />
             </div>
         </div>
 
@@ -677,6 +742,14 @@
 
     .eventhub-chargeback-card {
         flex: 0 0 auto;
+        position: relative;
+        z-index: 100;
+        overflow: visible;
+    }
+
+    .eventhub-chargeback-card > .card-body,
+    .eventhub-trend-chart {
+        overflow: visible;
     }
 
     .eventhub-chargeback-table-card {
@@ -684,32 +757,14 @@
         min-height: 0;
         display: flex;
         flex-direction: column;
+        position: relative;
+        z-index: 1;
     }
 
     .eventhub-chargeback-table-card > .card-body {
         flex: 1 1 auto;
         min-height: 0;
         overflow-y: auto;
-    }
-
-    .eventhub-trend-legend {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 0.85rem;
-        margin-bottom: 0.45rem;
-        font-size: 0.75rem;
-        color: #334155;
-        font-weight: 600;
-    }
-
-    .eventhub-trend-user-legend-item {
-        display: inline-flex;
-        align-items: center;
-        max-width: 12rem;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
     }
 
     .eventhub-trend-dot {
@@ -746,6 +801,8 @@
     }
 
     .eventhub-trend-metric-selector {
+        position: relative;
+        z-index: 10;
         display: flex;
         flex-wrap: wrap;
         align-items: center;
@@ -755,8 +812,33 @@
 
     .eventhub-trend-metric-button {
         flex: 0 0 auto;
-        font-size: 0.78rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.38rem;
+        min-height: 1.9rem;
+        padding: 0.18rem 0.65rem;
+        border: 2px solid #1f2937;
+        border-radius: 999px;
+        color: #1f2937;
+        font-size: 0.8rem;
         font-weight: 600;
+        background: #ffffff;
+    }
+
+    .eventhub-trend-metric-button:hover,
+    .eventhub-trend-metric-button:focus {
+        border-color: #0f172a;
+        color: #0f172a;
+        background: #f8fafc;
+        box-shadow: none;
+    }
+
+    .eventhub-trend-metric-caret {
+        width: 0;
+        height: 0;
+        border-top: 0.34rem solid currentColor;
+        border-right: 0.28rem solid transparent;
+        border-left: 0.28rem solid transparent;
     }
 
     .eventhub-trend-selected-list {
@@ -783,31 +865,46 @@
     }
 
     .eventhub-trend-metric-dropdown {
+        position: absolute;
+        z-index: 10;
+        top: calc(100% + 0.25rem);
+        left: 0;
         display: flex;
-        flex-wrap: wrap;
-        gap: 0.6rem 1rem;
+        flex-direction: column;
+        min-width: 18rem;
+        gap: 0;
         margin-bottom: 0.6rem;
-        padding: 0.65rem 0.75rem;
-        border: 1px solid #dbe1e8;
-        border-radius: 0.5rem;
+        padding: 0.35rem 0;
+        border: 1px solid #d1d5db;
+        border-radius: 0.65rem;
         background: #ffffff;
-        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+        box-shadow: 0 8px 18px rgba(15, 23, 42, 0.16);
         max-height: 13rem;
         overflow-y: auto;
     }
 
     .eventhub-trend-metric-toggle {
-        display: inline-flex;
+        display: flex;
         align-items: center;
-        gap: 0.45rem;
-        font-size: 0.78rem;
-        font-weight: 600;
-        color: #334155;
+        min-height: 2.5rem;
+        gap: 0.5rem;
+        padding: 0.45rem 1rem 0.45rem 1.2rem;
+        border-left: 3px solid transparent;
+        color: #475569;
+        font-size: 0.9rem;
+        font-weight: 500;
         cursor: pointer;
     }
 
-    .eventhub-trend-metric-toggle .form-check-input {
-        margin: 0;
+    .eventhub-trend-metric-toggle:hover {
+        background: #f8fafc;
+        color: #1e293b;
+    }
+
+    .eventhub-trend-metric-toggle.is-selected {
+        border-left-color: #059669;
+        color: #1e293b;
+        font-weight: 600;
     }
 
     .eventhub-user-color-dot {
@@ -821,6 +918,7 @@
     }
 
     .eventhub-trend-chart {
+        position: relative;
         border: 1px solid #dbe1e8;
         border-radius: 0.5rem;
         background: linear-gradient(180deg, #f8fbff 0%, #f8fafc 100%);
@@ -830,8 +928,108 @@
     .eventhub-trend-chart svg {
         display: block;
         width: 100%;
-        height: 12.5rem;
+        height: auto;
+        aspect-ratio: 10 / 3;
     }
+
+    .eventhub-trend-slot-target {
+        fill: transparent;
+    }
+
+    .eventhub-trend-slot-target.has-requests { cursor: pointer; }
+
+    .eventhub-trend-slot-target:hover,
+    .eventhub-trend-slot-target.has-requests:focus-visible {
+        fill: rgba(37, 99, 235, 0.18);
+        stroke: #2563eb;
+        stroke-width: 2;
+        outline: none;
+    }
+
+    .eventhub-trend-request-panel {
+        position: absolute;
+        z-index: 101;
+        top: 100%;
+        width: min(15rem, calc(100% - 1rem));
+        transform: translateX(-50%);
+        padding: 0.45rem;
+        border: 1px solid #94a3b8;
+        border-radius: 0.375rem;
+        background: #ffffff;
+        box-shadow: 0 6px 14px rgba(15, 23, 42, 0.2);
+    }
+
+    .eventhub-trend-request-panel-title {
+        margin-bottom: 0.25rem;
+        color: #334155;
+        font-size: 0.75rem;
+        font-weight: 700;
+    }
+
+    .eventhub-trend-request-panel-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 0.5rem;
+    }
+
+    .eventhub-trend-request-panel-close {
+        flex: 0 0 auto;
+        width: 1.15rem;
+        height: 1.15rem;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: #475569;
+        font-size: 1.15rem;
+        line-height: 1;
+    }
+
+    .eventhub-trend-request-panel-close:hover,
+    .eventhub-trend-request-panel-close:focus-visible {
+        color: #b91c1c;
+        outline: 1px solid #94a3b8;
+        outline-offset: 1px;
+    }
+
+    .eventhub-trend-request-list {
+        display: grid;
+        gap: 0.2rem;
+        max-height: min(32rem, calc(100dvh - 8rem));
+        overflow-y: auto;
+        padding-right: 0.2rem;
+    }
+
+    .eventhub-trend-request-row {
+        display: grid;
+        grid-template-columns: 2.5rem 3.5rem minmax(0, 1fr);
+        gap: 0.35rem;
+        align-items: center;
+        width: 100%;
+        padding: 0.25rem 0.35rem;
+        border: 0;
+        border-radius: 0.25rem;
+        background: #f8fafc;
+        color: #334155;
+        font-size: 0.72rem;
+        text-align: left;
+    }
+
+    .eventhub-trend-request-row:hover,
+    .eventhub-trend-request-row:focus-visible {
+        background: #e0f2fe;
+        outline: 2px solid rgba(14, 165, 233, 0.35);
+        outline-offset: 1px;
+    }
+
+    .eventhub-trend-request-number,
+    .eventhub-trend-request-duration {
+        font-variant-numeric: tabular-nums;
+    }
+
+    .eventhub-trend-request-status.success { color: #15803d; font-weight: 700; }
+    .eventhub-trend-request-status.failed { color: #b91c1c; font-weight: 700; }
+    .eventhub-trend-request-empty { color: #64748b; font-size: 0.72rem; }
 
     .eventhub-trend-axis {
         stroke: #0f172a;
@@ -860,7 +1058,8 @@
 
     .eventhub-trend-axis-label.x {
         text-anchor: middle;
-        font-size: 11px;
+        font-size: 20px;
+        font-weight: 800;
     }
 
     .eventhub-trend-stack-segment {
@@ -2365,9 +2564,16 @@
     private PeriodicTimer? _timer;
     private CancellationTokenSource? _cts;
     private bool _receivedFirst;
+    private bool _receivedFirstTrendRequest;
     private bool _columnResizerInitialized;
     private bool _isFilterDialogOpen;
     private bool _isTrendMetricMenuOpen;
+    private bool _isUserShareMetricMenuOpen;
+    private string _selectedUserShareMetricKey = "__calls";
+    private TrendSlot? _openTrendSlot;
+    private IReadOnlyList<MultiRequestStatusItem> _openTrendSlotRequests = Array.Empty<MultiRequestStatusItem>();
+    private string _openTrendSlotPanelLeft = "50%";
+    private MultiRequestStatusItem? _trendRequestToOpen;
     private readonly HashSet<string> _selectedTrendMetricKeys = new(StringComparer.OrdinalIgnoreCase)
     {
         "__total_queries",
@@ -2475,10 +2681,19 @@
     private IReadOnlyDictionary<string, string> UserColors => BuildUserColors();
     private IReadOnlyList<UserTrendSeries> UserTrendLines => BuildUserTrendSeries();
     private IReadOnlyList<UsageTrendPoint> UsageTrendPoints => BuildUsageTrendPoints();
+    private IReadOnlyList<TrendSlot> UsageTrendSlots => BuildUsageTrendSlots();
     private IReadOnlyList<(string Key, string Label, string Color, bool IsSynthetic)> TrendMetricOptions => BuildUsageMetricDefinitions();
     private IReadOnlyList<(string Key, string Label, string Color, bool IsSynthetic)> UsageTableMetrics => TrendMetricOptions
         .Where(metric => !metric.IsSynthetic)
         .ToArray();
+    private IReadOnlyList<(string Key, string Label)> UserShareMetricOptions => new (string Key, string Label)[]
+    {
+        ("__calls", "Calls"),
+    }
+    .Concat(UsageTableMetrics.Select(metric => (Key: metric.Key, Label: metric.Label)))
+    .ToArray();
+    private (string Key, string Label) SelectedUserShareMetric => UserShareMetricOptions
+        .FirstOrDefault(metric => string.Equals(metric.Item1, _selectedUserShareMetricKey, StringComparison.OrdinalIgnoreCase), ("__calls", "Calls"));
     private IReadOnlyList<TrendMetricSeries> SelectedTrendMetrics => BuildSelectedTrendMetrics();
     private string TrendWindowLabel => BuildTrendWindowLabel();
     private IReadOnlyList<PathCount> SuccessfulPaths => BuildPathCounts(success: true);
@@ -2627,10 +2842,11 @@
 
         IsConnected = true;
         _receivedFirst = false;
+        _receivedFirstTrendRequest = false;
+        Store.Changed += OnStoreChanged;
         _snapshot = Store.GetSnapshot();
         RefreshScopeState();
         _proxyMetricGroups = MetricsCatalog.GetActiveGroups(EffectiveScopeId);
-        Store.Changed += OnStoreChanged;
 
         _cts = new CancellationTokenSource();
         _timer = new PeriodicTimer(TimeSpan.FromSeconds(Math.Max(1, RefreshSeconds)));
@@ -2663,15 +2879,25 @@
     // immediately; subsequent updates are throttled to the refresh cadence below.
     private void OnStoreChanged()
     {
-        if (_receivedFirst)
+        if (_receivedFirst && _receivedFirstTrendRequest)
         {
             return;
         }
 
-        _receivedFirst = true;
         _ = InvokeAsync(() =>
         {
-            _snapshot = Store.GetSnapshot();
+            var snapshot = Store.GetSnapshot();
+            var hasTrendRequest = snapshot.Requests.Any(item =>
+                string.Equals(item.EventType, "S7P-ProxyRequest", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(item.EventType, "S7P-ProxyRequestExpired", StringComparison.OrdinalIgnoreCase));
+            if (_receivedFirst && !hasTrendRequest)
+            {
+                return;
+            }
+
+            _snapshot = snapshot;
+            _receivedFirst = true;
+            _receivedFirstTrendRequest |= hasTrendRequest;
             RefreshScopeState();
             _proxyMetricGroups = MetricsCatalog.GetActiveGroups(EffectiveScopeId);
             StateHasChanged();
@@ -3765,23 +3991,33 @@
             }
         }
 
-        var totalCalls = counts.Values.Sum(value => value.Calls);
-        if (totalCalls <= 0)
+        var totalShareValue = counts.Values.Sum(GetUserShareMetricValue);
+        if (totalShareValue <= 0)
         {
             return Array.Empty<UserShareRow>();
         }
 
         return counts
-            .OrderByDescending(pair => pair.Value.Calls)
+            .OrderByDescending(pair => GetUserShareMetricValue(pair.Value))
             .ThenBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
             .Take(12)
             .Select(pair => new UserShareRow(
                 pair.Key,
                 pair.Value.Calls,
-                (pair.Value.Calls * 100.0) / totalCalls,
+                (GetUserShareMetricValue(pair.Value) * 100.0) / totalShareValue,
                 new Dictionary<string, long>(pair.Value.UsageMetrics, StringComparer.OrdinalIgnoreCase),
                 pair.Value.UsageSamples > 0))
             .ToArray();
+    }
+
+    private long GetUserShareMetricValue(UserUsageAggregate aggregate)
+    {
+        if (string.Equals(_selectedUserShareMetricKey, "__calls", StringComparison.OrdinalIgnoreCase))
+        {
+            return aggregate.Calls;
+        }
+
+        return aggregate.UsageMetrics.TryGetValue(_selectedUserShareMetricKey, out var value) ? value : 0;
     }
 
     private IReadOnlyList<(string Key, string Label, string Color, bool IsSynthetic)> BuildUsageMetricDefinitions()
@@ -3890,11 +4126,24 @@
         {
             _selectedTrendMetricKeys.Remove(key);
         }
+
+        _isTrendMetricMenuOpen = false;
+    }
+
+    private bool IsUserShareMetricSelected(string key)
+    {
+        return string.Equals(_selectedUserShareMetricKey, key, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void SelectUserShareMetric(string key)
+    {
+        _selectedUserShareMetricKey = key;
+        _isUserShareMetricMenuOpen = false;
     }
 
     private IReadOnlyList<TrendMetricSeries> BuildSelectedTrendMetrics()
     {
-        if (UsageTrendPoints.Count == 0)
+        if (UsageTrendSlots.Count == 0)
         {
             return Array.Empty<TrendMetricSeries>();
         }
@@ -3909,9 +4158,9 @@
 
             if (metric.IsSynthetic)
             {
-                var values = UsageTrendPoints.Select(point => (long)point.Calls).ToArray();
-                var segments = UsageTrendPoints
-                    .Select(point => point.UserCalls
+                var values = UsageTrendSlots.Select(slot => (long)slot.Calls).ToArray();
+                var segments = UsageTrendSlots
+                    .Select(slot => slot.UserCalls
                         .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
                         .Select(pair => (pair.Key, GetUserColor(pair.Key), (long)pair.Value))
                         .ToArray())
@@ -3921,8 +4170,8 @@
                 continue;
             }
 
-            var metricValues = UsageTrendPoints
-                .Select(point => point.UsageMetrics.TryGetValue(metric.Key, out var value) ? value : 0L)
+            var metricValues = UsageTrendSlots
+                .Select(slot => slot.UsageMetrics.TryGetValue(metric.Key, out var value) ? value : 0L)
                 .ToArray();
             var metricSegments = metricValues
                 .Select(value => (IReadOnlyList<(string Label, string Color, long Value)>)new[] { (metric.Label, metric.Color, value) })
@@ -4105,7 +4354,7 @@
             }
         }
 
-        return Enumerable.Range(0, bucketCount)
+        var trendPoints = Enumerable.Range(0, bucketCount)
             .Select(index =>
             {
                 var timestamp = startBucket + TimeSpan.FromTicks(bucketSize.Ticks * index);
@@ -4117,6 +4366,24 @@
                     new Dictionary<string, int>(bucket.UserCalls, StringComparer.OrdinalIgnoreCase));
             })
             .ToArray();
+
+        var oldestActivityIndex = Array.FindIndex(trendPoints, point => point.Calls > 0);
+        var activityAgeInMinutes = oldestActivityIndex < 0
+            ? 0
+            : trendPoints.Length - 1 - oldestActivityIndex;
+        var displayedWindow = activityAgeInMinutes <= 1
+            ? TimeSpan.FromMinutes(1)
+            : activityAgeInMinutes <= 5
+                ? TimeSpan.FromMinutes(5)
+                : activityAgeInMinutes <= 10
+                    ? TimeSpan.FromMinutes(10)
+                    : activityAgeInMinutes <= 15
+                        ? TimeSpan.FromMinutes(15)
+                        : activityAgeInMinutes <= 30
+                            ? TimeSpan.FromMinutes(30)
+                            : TimeSpan.FromHours(1);
+        var displayedBucketCount = (int)(displayedWindow.Ticks / bucketSize.Ticks) + 1;
+        return trendPoints[^displayedBucketCount..];
     }
 
     private string BuildTrendWindowLabel()
@@ -4126,9 +4393,155 @@
             return string.Empty;
         }
 
-        var start = UsageTrendPoints[0].TimestampUtc.ToLocalTime();
-        var end = UsageTrendPoints[^1].TimestampUtc.ToLocalTime();
-        return $"Window: {start.ToString("MM/dd/yyyy HH:mm:ss zzz", CultureInfo.InvariantCulture)} to {end.ToString("MM/dd/yyyy HH:mm:ss zzz", CultureInfo.InvariantCulture)}";
+        return UsageTrendPoints.Count switch
+        {
+            <= 2 => "Window: Last minute data",
+            <= 6 => "Window: Last 5 mins data",
+            <= 11 => "Window: Last 10 mins data",
+            <= 16 => "Window: Last 15 mins data",
+            <= 31 => "Window: Last 30 mins data",
+            _ => "Window: Last 1 hour data",
+        };
+    }
+
+    private IReadOnlyList<TrendSlot> BuildUsageTrendSlots()
+    {
+        var points = UsageTrendPoints;
+        if (points.Count == 0)
+        {
+            return Array.Empty<TrendSlot>();
+        }
+
+        const int maxSlotCount = 10;
+        var slotCount = Math.Min(maxSlotCount, points.Count);
+        var slots = new List<TrendSlot>(slotCount);
+        for (var slotIndex = 0; slotIndex < slotCount; slotIndex++)
+        {
+            var startIndex = (int)Math.Floor((double)(slotIndex * points.Count) / slotCount);
+            var endExclusive = (int)Math.Floor((double)((slotIndex + 1) * points.Count) / slotCount);
+            if (endExclusive <= startIndex)
+            {
+                endExclusive = startIndex + 1;
+            }
+
+            var slotPoints = points.Skip(startIndex).Take(endExclusive - startIndex).ToArray();
+            var usage = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            var userCalls = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var point in slotPoints)
+            {
+                foreach (var metric in point.UsageMetrics)
+                {
+                    usage[metric.Key] = usage.TryGetValue(metric.Key, out var currentValue)
+                        ? currentValue + metric.Value
+                        : metric.Value;
+                }
+
+                foreach (var user in point.UserCalls)
+                {
+                    userCalls[user.Key] = userCalls.TryGetValue(user.Key, out var currentValue)
+                        ? currentValue + user.Value
+                        : user.Value;
+                }
+            }
+
+            slots.Add(new TrendSlot(
+                slotPoints[0].TimestampUtc,
+                slotPoints[^1].TimestampUtc.AddMinutes(1),
+                slotPoints.Sum(point => point.Calls),
+                usage,
+                userCalls));
+        }
+
+        return slots;
+    }
+
+    private IReadOnlyList<MultiRequestStatusItem> GetTrendSlotRequests(TrendSlot slot)
+    {
+        return GetFilteredRequestItems()
+            .Where(item => string.Equals(item.EventType, "S7P-ProxyRequest", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(item.EventType, "S7P-ProxyRequestExpired", StringComparison.OrdinalIgnoreCase))
+            .Where(item => ResolveRequestTimestampUtc(item) is { } timestamp
+                && timestamp >= slot.StartUtc && timestamp < slot.EndExclusiveUtc)
+            .OrderBy(item => item.RequestNumber)
+            .ToArray();
+    }
+
+    private void OpenTrendSlot(TrendSlot slot, IReadOnlyList<MultiRequestStatusItem> slotRequests)
+    {
+        if (slotRequests.Count == 0)
+        {
+            _openTrendSlot = null;
+            _openTrendSlotRequests = Array.Empty<MultiRequestStatusItem>();
+            return;
+        }
+
+        _openTrendSlot = slot;
+        _openTrendSlotRequests = slotRequests;
+        var slotIndex = UsageTrendSlots.ToList().FindIndex(candidate => candidate == slot);
+        _openTrendSlotPanelLeft = GetTrendSlotPanelLeft(slotIndex);
+    }
+
+    private void CloseTrendSlot()
+    {
+        _openTrendSlot = null;
+        _openTrendSlotRequests = Array.Empty<MultiRequestStatusItem>();
+    }
+
+    private static string GetTrendSlotLabel(TrendSlot slot)
+    {
+        var start = slot.StartUtc.ToLocalTime();
+        var end = slot.EndExclusiveUtc.AddMinutes(-1).ToLocalTime();
+        return start == end ? $"Requests at {start:HH:mm}" : $"Requests from {start:HH:mm} to {end:HH:mm}";
+    }
+
+    private string GetTrendSlotAxisLabel(int slotIndex)
+    {
+        var slots = UsageTrendSlots;
+        if (slotIndex < 0 || slotIndex >= slots.Count)
+        {
+            return string.Empty;
+        }
+
+        var minutesAgo = (int)Math.Max(0, Math.Round((DateTimeOffset.UtcNow - slots[slotIndex].EndExclusiveUtc).TotalMinutes));
+        return minutesAgo <= 0 ? "now" : $"{minutesAgo}m";
+    }
+
+    private string GetTrendSlotPanelLeft(int slotIndex)
+    {
+        var slots = UsageTrendSlots;
+        var percent = slots.Count <= 1 ? 50d : ((slotIndex + 0.5d) / slots.Count) * 100d;
+        percent = Math.Clamp(percent, 18d, 82d);
+        return percent.ToString("0.##", CultureInfo.InvariantCulture) + "%";
+    }
+
+    private void OpenTrendRequest(MultiRequestStatusItem request)
+    {
+        _trendRequestToOpen = null;
+        _trendRequestToOpen = request;
+        _openTrendSlot = null;
+        _openTrendSlotRequests = Array.Empty<MultiRequestStatusItem>();
+    }
+
+    private static string FormatTrendRequestDuration(MultiRequestStatusItem request)
+    {
+        return request.Duration is { } duration
+            ? $"{duration.TotalMilliseconds:0} ms"
+            : request.Status;
+    }
+
+    private static string GetTrendRequestLabel(MultiRequestStatusItem request)
+    {
+        var sevenPId = request.Phases?.SevenPId;
+        if (!string.IsNullOrWhiteSpace(sevenPId))
+        {
+            var separatorIndex = Math.Max(sevenPId.LastIndexOf('_'), sevenPId.LastIndexOf('-'));
+            if (separatorIndex >= 0 && separatorIndex < sevenPId.Length - 1)
+            {
+                return sevenPId[(separatorIndex + 1)..];
+            }
+        }
+
+        return request.RequestNumber.ToString(CultureInfo.InvariantCulture);
     }
 
     private static string BuildTrendPolyline(IEnumerable<double> values, double? maxScale = null)
@@ -4631,6 +5044,13 @@
     private sealed record UserTrendSeries(string User, string Color, string Points, int LatestCalls, int MaxCalls, IReadOnlyList<int> Values);
     private sealed record UsageTrendPoint(
         DateTimeOffset TimestampUtc,
+        int Calls,
+        IReadOnlyDictionary<string, long> UsageMetrics,
+        IReadOnlyDictionary<string, int> UserCalls);
+
+    private sealed record TrendSlot(
+        DateTimeOffset StartUtc,
+        DateTimeOffset EndExclusiveUtc,
         int Calls,
         IReadOnlyDictionary<string, long> UsageMetrics,
         IReadOnlyDictionary<string, int> UserCalls);

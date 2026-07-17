@@ -164,7 +164,20 @@ public static class RequestTemplateEngine
 
         foreach (var (name, value) in fields)
         {
+            if (string.Equals(name, "include_usage", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             obj[name] = ParseScalar(value);
+        }
+
+        if (IsUsageIncludedForStreaming(fields))
+        {
+            obj["stream_options"] = new JsonObject
+            {
+                ["include_usage"] = true
+            };
         }
     }
 
@@ -188,4 +201,8 @@ public static class RequestTemplateEngine
         "max_output_tokens" => "maxOutputTokens",
         _ => name
     };
+
+    private static bool IsUsageIncludedForStreaming(IReadOnlyDictionary<string, string> fields) =>
+        fields.TryGetValue("stream", out var stream) && bool.TryParse(stream, out var isStreaming) && isStreaming
+        && fields.TryGetValue("include_usage", out var includeUsage) && bool.TryParse(includeUsage, out var usageIncluded) && usageIncluded;
 }

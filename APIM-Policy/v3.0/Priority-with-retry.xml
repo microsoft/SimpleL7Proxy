@@ -2,13 +2,14 @@
 =============================================================================
 Azure API Policy Template
 =============================================================================
-Version:	 3.0.0
+Version:	 3.0.1
 Mode:	 Standard
 Updated:	 2026-07-03
  
 KEY CHANGES:
 
 IMPROVEMENTS:
+- Pull token processor from the endpoint catalog instead of hardcoding it in the policy
 - Return 429 "No Backends Available" instead of a bare 500 when all backends are throttled
 - on-error logs entry diagnostics (callCompleted, backendIndex, LastError)
 - Backend id now hashes url + label, giving each label independent throttle state.
@@ -838,7 +839,7 @@ REFACTOR:
 			</when>
 		</choose>
 		<set-header name="TOKENPROCESSOR" exists-action="override">
-			<value>MultiLineAllUsage</value>
+			<value>@(context.Variables.GetValueOrDefault<JObject>("selectedBackend", null)?.Value<string>("tokenProcessor") ?? "DefaultStream")</value>
 		</set-header>
 		<set-header name="@((string)context.Variables["AffinityHeaderName"])" exists-action="override">
 			<value>@(context.Variables.GetValueOrDefault<JObject>("selectedBackend", null)?.Value<string>("affinity") ?? "")</value>

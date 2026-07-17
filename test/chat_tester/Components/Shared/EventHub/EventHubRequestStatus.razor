@@ -656,8 +656,12 @@
     [Parameter]
     public string HeaderTone { get; set; } = "warn";
 
+    [Parameter]
+    public MultiRequestStatusItem? OpenRequest { get; set; }
+
     private MultiRequestStatusItem? HoveredItem { get; set; }
     private MultiRequestStatusItem? SelectedItem { get; set; }
+    private MultiRequestStatusItem? _lastOpenedRequest;
     private string SelectedPhaseTab { get; set; } = string.Empty;
     private string? BackendLogModalValue { get; set; }
 
@@ -736,6 +740,16 @@
     {
         RecomputeAggregates();
         UpdateRunningRequestIds();
+
+        if (OpenRequest is null)
+        {
+            _lastOpenedRequest = null;
+        }
+        else if (Items.Contains(OpenRequest) && !ReferenceEquals(_lastOpenedRequest, OpenRequest))
+        {
+            SelectItem(OpenRequest);
+            _lastOpenedRequest = OpenRequest;
+        }
 
         if (HoveredItem is not null && !Items.Contains(HoveredItem))
         {
