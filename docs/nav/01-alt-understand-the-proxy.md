@@ -17,13 +17,13 @@ A user profile can assign a queue priority to a request. Lower-numbered prioriti
 <td width="33%" valign="top">
 
 ### [How are proxy capacity and unhealthy backends protected?](#how-are-proxy-capacity-and-unhealthy-backends-protected-1)
-Backpressure rejects new work when a proxy replica reaches a safety limit. Circuit breaking stops attempts to a backend after too many failures, then admits it again after recovery.
+Backpressure slows admitted requests by making them wait for available capacity and rejects new work only when the queue is full. The proxy circuit breaker delays and eventually blocks attempts to a failing backend until it recovers.
 
 </td>
 <td width="33%" valign="top">
 
 ### [How does APIM determine which backends receive requests?](#how-does-apim-determine-which-backends-receive-requests-1)
-An APIM priority policy limits each request to backends that accept its priority, orders those backends, and can try another eligible backend after throttling or failure.
+The supplied APIM policy selects endpoints by priority and tracks each endpoint's throttle period. It skips throttled endpoints until their retry time, while the proxy can try another APIM region and requeue the request when every region is throttled.
 
 </td>
 </tr>
@@ -85,7 +85,7 @@ See [User Profiles](../USER_PROFILES.md) for profile structure and loading.
 
 #### What is backpressure?
 
-Backpressure is the proxy's refusal to admit more work when a replica is already at a safety limit. The proxy returns `429` when its queue reaches `MaxQueueLength`, when telemetry backlog exceeds its limit, when no host is active, or when circuit state blocks all backends.
+Backpressure slows the flow of work when demand exceeds immediately available capacity. Admitted requests wait in the priority queue until a worker is available, and the proxy can add delay while its telemetry backlog grows. It rejects a new request with `429` when the request queue reaches `MaxQueueLength`.
 
 #### What is circuit breaking?
 
@@ -93,15 +93,15 @@ Circuit breaking protects a specific backend from repeated calls while it is fai
 
 #### How are they different?
 
-Backpressure answers **"Can this proxy replica accept the request?"** Circuit breaking answers **"Can this backend safely receive an attempt?"** Increasing queue capacity does not repair an unhealthy backend, and raising a circuit threshold does not create more proxy capacity.
+Backpressure answers **"When can this replica process the request?"** Circuit breaking answers **"Can this backend safely receive an attempt?"** Waiting in the queue manages demand at the proxy; delaying or skipping a failing backend protects the downstream service.
 
 #### What does the caller observe when protection activates?
 
-The caller receives `429` when the replica refuses new work. When a backend is unavailable, the selector can try another eligible host; if no host can accept the request, the caller receives an error instead of adding more work to the failing path.
+An admitted synchronous request remains open while it waits in the queue. A new request receives `429` when the queue is full. If a backend's circuit is delaying or blocking attempts, processing takes longer or moves to another eligible backend.
 
 #### What happens before a circuit fully opens?
 
-The proxy adds progressive delays as failures rise from 50% to 90% of the configured threshold. This slows traffic into a degrading backend before the circuit blocks it completely.
+The proxy circuit breaker adds progressive delays as failures rise from 50% to 90% of the configured threshold. This slows traffic into a degrading backend before the circuit blocks that backend completely.
 
 See [Circuit Breaker](../CIRCUIT_BREAKER.md) for thresholds, delays, and recovery.
 
@@ -117,6 +117,10 @@ No. Native SimpleL7Proxy backend selection filters hosts by request path, orders
 
 The supplied APIM priority policy reads `llm_proxy_priority`. Each APIM backend declares `acceptablePriorities`; backends that do not accept the request's priority are removed before attempts begin. `priorityGroup` determines the order among eligible backends.
 
+#### How does the APIM policy handle a throttled endpoint?
+
+When an endpoint returns `429`, the supplied policy records its retry time and marks it as throttled. Later requests skip that endpoint until the retry time passes, so APIM can use another endpoint instead of immediately repeating an attempt that is expected to throttle.
+
 #### What controls native SimpleL7Proxy backend selection?
 
 The native selector first filters `HostN` entries by request path, orders the matching hosts using `LoadBalanceMode`, and then skips unhealthy or open-circuit hosts. It does not use queue priority to determine backend eligibility.
@@ -124,6 +128,14 @@ The native selector first filters `HostN` entries by request path, orders the ma
 #### What happens when the preferred backend fails?
 
 APIM can try the next backend that accepts the same request priority. A priority-1 request can therefore move from a reserved priority-1 backend to another priority-1-eligible backend without becoming eligible for a priority-2-only backend.
+
+#### What happens when every endpoint in an APIM region is throttled?
+
+After the APIM policy exhausts its eligible endpoints, it can return `429` with `S7PREQUEUE: true` and a retry delay. SimpleL7Proxy collects that response and tries the next configured APIM host, allowing the request to move to another region.
+
+#### What happens when every APIM region is throttled?
+
+After all configured APIM hosts return a requeue response, the proxy selects the shortest eligible retry delay, places the request back in its priority queue, and tries again after that delay. The request remains subject to its overall TTL while it waits and retries.
 
 #### What happens when no backend accepts the priority?
 
