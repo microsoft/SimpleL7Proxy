@@ -18,7 +18,7 @@ At a high level, the platform continuously balances reliability, performance, se
 <td width="33%" valign="top">
 
 ### [How do user profiles determine when requests run?](#how-do-user-profiles-determine-when-requests-run-1)
-A user profile can assign a queue priority and override the requested model. Lower-numbered priorities run first, while a model override rewrites the request before it reaches the backend.
+A user profile can assign a queue priority and override the requested model. High priorities run first, while a model override rewrites the request before it reaches the backend.
 
 </td>
 <td width="33%" valign="top">
@@ -64,13 +64,15 @@ Use async mode when processing may exceed the practical HTTP wait budget. The pr
 
 #### Where does a user's priority come from?
 
-When profiles are enabled, the proxy looks up the caller using the configured user ID field. A matched profile can provide `S7PPriorityKey`, such as `high`, `medium`, or `low`. The proxy maps that value using the paired `PriorityKeys` and `PriorityValues` settings.
+Incoming requests can pass in the priority as a header.
+
+When user profiles are enabled, the proxy caches the list of user profiles from CosmosDB into memory. For every incoming request, it matches the request to a profile and then assigns the priority.
 
 **Example:** With `PriorityKeys=high,medium,low` and `PriorityValues=1,2,3`, a profile containing `"S7PPriorityKey": "high"` receives priority `1`.
 
-#### What does the priority number change?
+#### What does the priority affect?
 
-It changes when a queued request is selected by a worker. Lower integers run first, so priority `1` is selected before priorities `2` and `3`. Requests with the same primary priority are ordered by a secondary user-fairness value and then enqueue time.
+In the **proxy**, the priorty changes the order in which queued request is selected by a worker. In the **APIM** it is used to select the order and priority of endpoints.
 
 #### When does the profile priority take effect?
 
@@ -82,11 +84,11 @@ Yes. A user profile can specify a model override. The proxy rewrites the origina
 
 #### What happens when no profile priority is available?
 
-The proxy uses `DefaultPriority`, which defaults to `2`, unless the configured priority header contains a recognized key. An unknown or missing key does not create a new priority.
+The proxy uses `DefaultPriority` when it cannot override it.
 
 #### How does the proxy prevent one user from dominating a priority?
 
-The proxy tracks each user's share of active requests. A user below `UserPriorityThreshold` receives a secondary fairness boost within the same primary priority. This boost does not allow a lower primary priority to overtake a higher one.
+The proxy tracks each user's share of active requests. A user below `UserPriorityThreshold` percentage receives a fairness boost that places it ahead of other similar priority requests. If a user uses more than their fair share, they will be processed after the others.
 
 See [User Profiles](../USER_PROFILES.md) for profile structure and loading.
 
@@ -96,23 +98,48 @@ See [User Profiles](../USER_PROFILES.md) for profile structure and loading.
 
 #### What is backpressure?
 
-Backpressure controls admission rather than execution speed. As undrained telemetry events accumulate in memory, the proxy progressively delays accepting new work so the event sink can catch up. Requests that are already admitted continue processing as fast as possible, and the admission delay disappears after the backlog drains.
+Backpressure protects the proxy when work arrives faster than it can be processed. The proxy first slows admission, then rejects requests with HTTP 429 when event backlog, queue capacity, backend availability, or enqueue limits are unsafe.
 
 #### What is circuit breaking?
 
-Circuit breaking protects a specific backend from repeated calls while it is failing. When failures reach `CBErrorThreshold` inside the `CBTimeslice` sliding window, the circuit opens and the backend selector skips that host. It closes automatically after enough failures age out.
+Circuit breaking protects unhealthy backends. It counts failures within a configured time window and stops admitting new work when the failure threshold is reached. Defaults are 50 failures in 60 seconds.
 
 #### How are they different?
 
-Backpressure answers **"How quickly can this replica accept more work?"** Circuit breaking answers **"Can this backend safely receive an attempt?"** Admission delay protects the proxy's telemetry pipeline; delaying or skipping a failing backend protects the downstream service.
+* Backpressure: Responds to proxy/system capacity pressure.
+* Circuit breaker: Responds specifically to repeated backend failures.
+* Circuit breaking is one signal that can activate the proxy’s broader backpressure behavior.
 
 #### What does the caller observe when protection activates?
 
-New requests take progressively longer to be admitted while the telemetry backlog is elevated. After admission, they are not intentionally slowed by backpressure. A new request receives `429` if the backlog exceeds `MaxUndrainedEvents` or the queue reaches `MaxQueueLength`.
+The circuit breaker does not switch from healthy to blocked immediately. As error rates, queue depth, or resource pressure increase, the proxy first enters a protective mode where requests are intentionally slowed down. This added latency acts as backpressure, giving downstream services time to recover and reducing the likelihood of a cascading failure.
+
+If conditions continue to deteriorate and configured thresholds are exceeded, the circuit fully opens and new requests are rejected with HTTP 429 (Too Many Requests). The response includes a specific reason, such as:
+
+* Max Events Exceeds Threshold
+* Too many failures in the last 60 seconds
+* Queue is full
+* No active hosts
+* Failed to enqueue request
+
+A Retry-After header is returned so callers know when to try again.
+
+During a planned shutdown or maintenance event, the proxy instead returns HTTP 503 (Service Unavailable).
 
 #### What happens before a circuit fully opens?
 
-The proxy circuit breaker adds progressive delays as failures rise from 50% to 90% of the configured threshold. This slows traffic into a degrading backend before the circuit blocks that backend completely.
+Once failures reach 50% of the threshold, the proxy progressively delays incoming requests:
+|Failure threshold reached |	Delay|
+|--|--|
+|50%	| 100 ms |
+|60%	| 200 ms |
+|70%	| 300 ms |
+|80%	| 400 ms |
+|90%	| 500 ms |
+|100%	| Reject with 429 |
+|--|--|
+
+Failures older than the configured time window are removed, allowing the circuit to recover and close again.
 
 See [Circuit Breaker](../CIRCUIT_BREAKER.md) for thresholds, delays, and recovery.
 
@@ -120,29 +147,37 @@ See [Circuit Breaker](../CIRCUIT_BREAKER.md) for thresholds, delays, and recover
 
 ### How does APIM determine which backends receive requests?
 
-#### Does queue priority select a native proxy backend?
+#### Does queue priority select a SimpleL7Proxy backend?
 
-No. Native SimpleL7Proxy backend selection filters hosts by request path, orders them by `LoadBalanceMode`, and skips unhealthy or open-circuit hosts. Queue priority controls when a worker receives the request, not which `HostN` receives it.
+No. SimpleL7Proxy backend selection filters hosts by request path, orders them by `LoadBalanceMode`, and skips unhealthy or open-circuit hosts. Queue priority controls when a worker receives the request.
 
 #### Where does priority-aware backend routing happen?
 
-The supplied APIM priority policy reads `llm_proxy_priority`. Each APIM backend declares `acceptablePriorities`; backends that do not accept the request's priority are removed before attempts begin. `priorityGroup` determines the order among eligible backends.
+The supplied APIM priority policy uses the request priority and determines the eligible backends for each request.
 
 #### How does the APIM policy handle a throttled endpoint?
 
-When an endpoint returns `429`, the supplied policy records its retry time and marks it as throttled. Later requests skip that endpoint until the retry time passes, so APIM can use another endpoint instead of immediately repeating an attempt that is expected to throttle.
+When an endpoint returns `429`, the policy records its retry time and marks it as throttled. Later requests skip that endpoint until the retry time passes, so APIM can use another endpoint instead of immediately repeating an attempt that is expected to throttle.
 
-#### What controls native SimpleL7Proxy backend selection?
+#### What controls SimpleL7Proxy backend selection?
 
-The native selector first filters `HostN` entries by request path, orders the matching hosts using `LoadBalanceMode`, and then skips unhealthy or open-circuit hosts. It does not use queue priority to determine backend eligibility.
+The selector first filters `Host` entries by request path, orders the matching hosts using `LoadBalanceMode`, and then skips unhealthy or open-circuit hosts. It does not use queue priority to determine backend eligibility.
 
 #### What happens when the preferred backend fails?
 
-APIM can try the next backend that accepts the same request priority. A priority-1 request can therefore move from a reserved priority-1 backend to another priority-1-eligible backend without becoming eligible for a priority-2-only backend.
+##### Proxy
+If the preferred backend is unavailable, throttled, or unhealthy, the proxy automatically retries the request against the next available backend in the configured list.
+
+##### APIM
+When using APIM backend pools, APIM evaluates backend priority groups in their configured order and selects an available endpoint within the highest-priority group. If no healthy endpoints remain in that group, APIM fails over to the next priority group.
+
+This approach enables organizations to reserve specific endpoints or capacity pools for different request priorities, ensuring that critical workloads continue to receive service during capacity constraints or backend failures.
 
 #### What happens when every endpoint in an APIM region is throttled?
 
-After the APIM policy exhausts its eligible endpoints, it can return `429` with `S7PREQUEUE: true` and a retry delay. SimpleL7Proxy collects that response and tries the next configured APIM host, allowing the request to move to another region.
+When APIM has exhausted all eligible endpoints in a region, it can return an HTTP 429 (Too Many Requests) response along with the S7PREQUEUE: true|false header and a recommended retry interval.
+
+SimpleL7Proxy interprets this response as a regional capacity constraint and automatically retries the request against the next configured APIM host. This allows traffic to fail over to another region with available capacity, improving resiliency and reducing the impact of localized throttling.
 
 #### What happens when every APIM region is throttled?
 
@@ -163,7 +198,7 @@ See [Priority Levels POC](../POC-Priority-configuration.md) for a runnable examp
 A direct backend uses `mode=direct`. The proxy does not send active health probes to it and always includes it in the active host set. Real request failures are still recorded by the circuit breaker.
 
 ```bash
-Host1="host=https://model.example.com;mode=direct;path=/model"
+Host_<name>="host=https://model.example.com;mode=direct;path=/model"
 ```
 
 #### When should I use direct mode?
@@ -176,10 +211,10 @@ Use APIM in the backend path when requests need gateway policies, transformation
 
 #### What is an APIM backend?
 
-An APIM backend points a `HostN` entry at Azure API Management. `mode=apim` is standard non-direct behavior: the proxy calls the configured probe and can remove APIM from the active set when health falls below the required success rate.
+An APIM backend points a `Host_<name>` entry at Azure API Management. `mode=apim` is standard non-direct behavior: the proxy calls the configured probe and can remove APIM from the active set when health falls below the required success rate.
 
 ```bash
-Host2="host=https://gateway.azure-api.net;mode=apim;path=/shared;probe=/health"
+Host_<name>="host=https://gateway.azure-api.net;mode=apim;path=/shared;probe=/health"
 ```
 
 #### Why put APIM behind the proxy?
@@ -194,11 +229,11 @@ See [Backend Host Configuration](../BACKEND_HOSTS.md) for all host options.
 
 #### What causes the proxy to scale out?
 
-Azure Container Apps uses KEDA-based triggers. HTTP concurrency is useful for bursty, streaming, or long-lived traffic; CPU is useful for steadier compute-bound traffic. When demand exceeds the configured target, ACA adds replicas up to `maxReplicas`.
+Azure Container Apps uses KEDA-based triggers. HTTP concurrency is useful for bursty, streaming, or long-lived traffic; CPU is useful for steadier compute-bound traffic. When demand exceeds the configured target, ACA adds replicas up to `maxReplicas`.  Each replica is allowed `terminationGracePeriodSeconds` to complete requests before being forced closed.
 
 #### What does each new replica contain?
 
-Each replica has its own in-memory queue, worker pool, user-share counters, backend health observations, and circuit-breaker state. A request already queued on one replica does not move to a newly created replica.
+Replicas operate independently. Each replica maintains its own queue, workers, fairness counters, backend health observations, and circuit-breaker state in memory. When a new replica is created, it starts with no queued work or operational history. Requests already queued on existing replicas are not moved, although `async` workloads can be redistributed through shared queueing systems.
 
 #### Does scale-out redistribute queued requests or state?
 
