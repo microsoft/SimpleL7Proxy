@@ -11,13 +11,13 @@ SimpleL7Proxy controls when requests run, which backends receive them, how failu
 <td width="33%" valign="top">
 
 ### [How do user profiles determine when requests run?](#how-do-user-profiles-determine-when-requests-run-1)
-A user profile can assign a queue priority to a request. Lower-numbered priorities run first, while fairness rules order requests from different users within the same priority.
+A user profile can assign a queue priority and override the requested model. Lower-numbered priorities run first, while a model override rewrites the request before it reaches the backend.
 
 </td>
 <td width="33%" valign="top">
 
 ### [How are proxy capacity and unhealthy backends protected?](#how-are-proxy-capacity-and-unhealthy-backends-protected-1)
-Backpressure slows admitted requests by making them wait for available capacity and rejects new work only when the queue is full. The proxy circuit breaker delays and eventually blocks attempts to a failing backend until it recovers.
+Backpressure slows how quickly a replica admits new work as its telemetry backlog grows; admitted work continues at full speed. The proxy circuit breaker delays and eventually blocks attempts to a failing backend until it recovers.
 
 </td>
 <td width="33%" valign="top">
@@ -69,6 +69,10 @@ It changes when a queued request is selected by a worker. Lower integers run fir
 
 The proxy resolves the profile before admitting the request to the queue. It assigns the mapped priority when the request is enqueued, so the value affects dispatch order as soon as the request begins waiting for a worker.
 
+#### Can a profile change the requested model?
+
+Yes. A user profile can specify a model override. The proxy rewrites the original request to use that model before forwarding it, so model selection can be controlled per user without requiring the caller to change the request.
+
 #### What happens when no profile priority is available?
 
 The proxy uses `DefaultPriority`, which defaults to `2`, unless the configured priority header contains a recognized key. An unknown or missing key does not create a new priority.
@@ -85,7 +89,7 @@ See [User Profiles](../USER_PROFILES.md) for profile structure and loading.
 
 #### What is backpressure?
 
-Backpressure slows the flow of work when demand exceeds immediately available capacity. Admitted requests wait in the priority queue until a worker is available, and the proxy can add delay while its telemetry backlog grows. It rejects a new request with `429` when the request queue reaches `MaxQueueLength`.
+Backpressure controls admission rather than execution speed. As undrained telemetry events accumulate in memory, the proxy progressively delays accepting new work so the event sink can catch up. Requests that are already admitted continue processing as fast as possible, and the admission delay disappears after the backlog drains.
 
 #### What is circuit breaking?
 
@@ -93,11 +97,11 @@ Circuit breaking protects a specific backend from repeated calls while it is fai
 
 #### How are they different?
 
-Backpressure answers **"When can this replica process the request?"** Circuit breaking answers **"Can this backend safely receive an attempt?"** Waiting in the queue manages demand at the proxy; delaying or skipping a failing backend protects the downstream service.
+Backpressure answers **"How quickly can this replica accept more work?"** Circuit breaking answers **"Can this backend safely receive an attempt?"** Admission delay protects the proxy's telemetry pipeline; delaying or skipping a failing backend protects the downstream service.
 
 #### What does the caller observe when protection activates?
 
-An admitted synchronous request remains open while it waits in the queue. A new request receives `429` when the queue is full. If a backend's circuit is delaying or blocking attempts, processing takes longer or moves to another eligible backend.
+New requests take progressively longer to be admitted while the telemetry backlog is elevated. After admission, they are not intentionally slowed by backpressure. A new request receives `429` if the backlog exceeds `MaxUndrainedEvents` or the queue reaches `MaxQueueLength`.
 
 #### What happens before a circuit fully opens?
 
@@ -193,6 +197,10 @@ Each replica has its own in-memory queue, worker pool, user-share counters, back
 
 No. Scale-out adds capacity for newly routed traffic, but queued requests stay on the replica that admitted them. Backend health and circuit-breaker decisions also remain local to each replica.
 
+#### What happens when a replica shuts down?
+
+The replica stops accepting new work and allows in-progress requests to complete for up to 30 minutes. Azure Container Apps starts a replacement replica set while the old replica drains, so new traffic moves to replacement capacity instead of entering the terminating replica.
+
 #### How should minimum and maximum replicas be chosen?
 
 Use `minReplicas` of at least `1` to avoid cold starts on a latency-sensitive path, and increase it for availability. Set `maxReplicas` from downstream backend capacity rather than proxy CPU alone; scaling the proxy cannot increase a backend's quota.
@@ -234,10 +242,11 @@ See [Async Operation Configuration](../AsyncOperation.md) for the complete setup
 ## You Should Now Be Able To
 
 - [ ] Explain how a profile becomes a queue priority
+- [ ] Explain how a profile can override the requested model
 - [ ] Distinguish backpressure from circuit breaking
 - [ ] Explain where priority-aware backend routing occurs
 - [ ] Choose between direct and APIM backend modes
-- [ ] Describe what changes and what stays local during autoscale
+- [ ] Describe what changes and what stays local during autoscale and shutdown
 - [ ] Decide when a request should use async processing
 
 ---
