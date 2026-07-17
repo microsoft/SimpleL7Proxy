@@ -1,6 +1,6 @@
 # Understand How the Proxy Controls AI Traffic
 
-Sending every request to an endpoint works great during POC and early dev phases, however as products mature they need greater control with priorities, routing, cost controls, reliability and observability all thrown into the mix.  The SimpleL7Proxy lets you decide how to route, retry , retry later, share costs and fullfill requests based on the application / user profile.
+Sending every request to an endpoint works during POC and early dev phases. As products mature they need greater control with priorities, routing, cost controls, reliability and observability all thrown into the mix.  The SimpleL7Proxy lets you decide how to route, retry , retry later, share costs and fullfill requests based on the application / user profile.
 
 When deployed in front of APIM, the proxy adds a User Profile governance layer that applies workload-specific policies for validation, routing,
 prioritization, and execution. This helps organizations balance reliability, performance, compliance, and cost across AI workloads.
