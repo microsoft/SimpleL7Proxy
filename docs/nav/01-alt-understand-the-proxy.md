@@ -5,7 +5,7 @@ Sending every request to an endpoint works great during POC and early dev phases
 When deployed in front of APIM, the proxy adds a User Profile governance layer that applies workload-specific policies for validation, routing,
 prioritization, and execution. This helps organizations balance reliability, performance, compliance, and cost across AI workloads.
 
-<img width="1076" height="522" alt="image" src="https://github.com/user-attachments/assets/e953e7d4-6ec9-43d8-a628-0f60c120dfe7" />
+<img width="1308" height="534" alt="image" src="https://github.com/user-attachments/assets/60b20f0c-cee1-44b7-8f6a-b97d84f590bf" />
 
 At a high level, the platform continuously balances reliability, performance, service quality, and cost by intelligently routing requests across regions, endpoints, priority queues, and AI models. Critical workloads receive preferential treatment, while less time-sensitive workloads are processed in a cost-efficient manner without impacting business-critical operations.
 
