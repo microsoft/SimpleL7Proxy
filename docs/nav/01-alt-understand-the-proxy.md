@@ -10,14 +10,14 @@ SimpleL7Proxy controls when requests run, which backends receive them, how failu
 <tr>
 <td width="33%" valign="top">
 
-### [How do user profiles determine queue priority?](#how-do-user-profiles-determine-queue-priority-1)
-A user profile can supply an `S7PPriorityKey`. The proxy maps that key through `PriorityKeys` and `PriorityValues`; lower integer values leave the queue first.
+### [User profiles can determine Model and Priority?](#how-do-user-profiles-determine-queue-priority-1)
+The proxy can map users to profiles and then to capabilities.  The combination of model and priority can be used to route requests to different endpoints. 
 
 </td>
 <td width="33%" valign="top">
 
 ### [How do backpressure and circuit breaking protect the proxy?](#how-do-backpressure-and-circuit-breaking-protect-the-proxy-1)
-Backpressure rejects work when a replica cannot safely accept more. Circuit breaking stops sending admitted work to backends with too many recent failures.
+Backpressure slows down the rate of incoming requests when a replica is busy fulfilling existing requests.  Circuit breaking stops receiving new work and to backends that have to many failures.
 
 </td>
 <td width="33%" valign="top">
@@ -31,7 +31,7 @@ An APIM priority policy can restrict each backend to selected request priorities
 <td width="33%" valign="top">
 
 ### [What is a direct backend versus an APIM backend?](#what-is-a-direct-backend-versus-an-apim-backend-1)
-A direct backend skips active health probes and is always admitted to the active set. An APIM backend is probed like a standard gateway backend and can provide policies, authentication, and transformations.
+A direct backend skips active health probes and is always admitted to the active set. An APIM backend is probed like a standard gateway backend and can provide policies, and transformations. Both support using Oauth or key based auth.
 
 </td>
 <td width="33%" valign="top">
