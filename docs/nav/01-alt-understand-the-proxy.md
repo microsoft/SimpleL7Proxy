@@ -1,6 +1,23 @@
 # Understand How the Proxy Controls AI Traffic
 
-SimpleL7Proxy controls when requests run, which backends receive them, how failures are contained, and when clients stop waiting synchronously. These six topics explain the decisions that matter most when designing an AI traffic path.
+Sending every request to an endpoint works great during POC and early dev phases, however as products mature they need greater control with priorities, routing, cost controls, reliability and observability all thrown into the mix.  The SimpleL7Proxy lets you decide how to route, retry , retry later, share costs and fullfill requests based on the application / user profile.
+
+<img width="1531" height="591" alt="image" src="https://github.com/user-attachments/assets/835a47ea-d6cc-4106-8be6-71f2f4cbb838" />
+
+There's a lot to unpack in this diagram, however the main points are:
+1. Retry from the other region(s) when endpoints are **throttled**, **overloaded** or **unreachable**
+2. Try the next endpoint if the first one is in a **throttled** state
+3. Send higher priority requests ahead of the others, but don't let older requests starve
+4. Decide which requests are given the white glove treatment and which ones can go to the end of the line.
+5. Decide which LLM model is best for the type of workload to further control costs.
+
+The user profile adds a layer of control by allowing requests to be:
+
+1. **Validated** by requiring fields
+2. Cleaned by **stripping headers**
+3. **Rerouted** to specific endpoints and models
+4. **Prioritized** into multiple levels:  P1, P2, P3, ...
+5. Nominated for **Async** priocessing if the response takes a long time
 
 ---
 
