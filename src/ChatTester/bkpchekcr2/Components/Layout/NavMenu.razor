@@ -1,0 +1,160 @@
+﻿@namespace chat_tester.Components.Layout
+@rendermode InteractiveServer
+@inject chat_tester.Components.Shared.UserPreferencesService Preferences
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+@{
+    var stateClass = collapsed ? "collapsed" : "expanded";
+}
+
+<div class="nav-menu @stateClass">
+    <div class="top-row ps-3 navbar navbar-dark">
+        <div class="container-fluid">
+            <button type="button" class="nav-toggler" title="@(collapsed ? "Expand navigation menu" : "Collapse navigation menu")"
+                    aria-label="Toggle navigation menu" aria-expanded="@(!collapsed)" @onclick="ToggleMenu"></button>
+            <a class="navbar-brand" href="">chat-tester</a>
+        </div>
+    </div>
+
+    <div class="nav-scrollable">
+        <nav class="nav flex-column h-100">
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="" Match="NavLinkMatch.All" title="Home">
+                    <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> <span class="nav-text">Home</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link fw-bold" href="investigator" title="Investigator">
+                    <span class="bi bi-eye-fill-nav-menu" aria-hidden="true"></span> <span class="nav-text">Investigator</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link fw-bold" href="chat" title="Chat">
+                    <span class="bi bi-chat-dots-fill-nav-menu" aria-hidden="true"></span> <span class="nav-text">Chat</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <span class="onboarding-target @(IsOnboardingStep("eventhub") ? "is-active" : string.Empty)">
+                    @if (IsOnboardingStep("eventhub"))
+                    {
+                        <span class="onboarding-orb" aria-hidden="true"></span>
+                    }
+                    <NavLink class="nav-link fw-bold" href="eventhub" title="EventHub Monitor" @onclick="OpenEventHubMonitorAsync">
+                        <span class="bi bi-speedometer2-nav-menu" aria-hidden="true"></span> <span class="nav-text">EventHub Monitor</span>
+                    </NavLink>
+                </span>
+            </div>
+
+            <div class="nav-item px-3">
+                <span class="onboarding-target @(IsOnboardingStep("insights") ? "is-active" : string.Empty)">
+                    @if (IsOnboardingStep("insights"))
+                    {
+                        <span class="onboarding-orb" aria-hidden="true"></span>
+                    }
+                    <NavLink class="nav-link fw-bold" href="insights" title="Insights" @onclick="OpenInsightsAsync">
+                        <span class="bi bi-graph-up-nav-menu" aria-hidden="true"></span> <span class="nav-text">Insights</span>
+                    </NavLink>
+                </span>
+            </div>
+
+            <div class="nav-item px-3 mt-3">
+                <span class="nav-section-label text-uppercase small text-white-50 fw-semibold">Tests</span>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="abort-test" title="Abort test">
+                    <span class="bi bi-plug-fill-nav-menu" aria-hidden="true"></span> <span class="nav-text">Abort test</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="url-tester" title="URL tester">
+                    <span class="bi bi-link-45deg-nav-menu" aria-hidden="true"></span> <span class="nav-text">URL tester</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="stress-test" title="Stress test">
+                    <span class="bi bi-speedometer2-nav-menu" aria-hidden="true"></span> <span class="nav-text">Stress test</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3 mt-auto nav-section-item">
+                <span class="nav-section-label text-uppercase small text-white-50 fw-semibold">Config</span>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="history" title="History">
+                    <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> <span class="nav-text">History</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="user-preferences" title="User Preferences">
+                    <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> <span class="nav-text">User Preferences</span>
+                </NavLink>
+            </div>
+        </nav>
+    </div>
+</div>
+
+@code {
+    private bool collapsed = true;
+    private string _onboardingStep = "home";
+    private DotNetObjectReference<NavMenu>? _onboardingReference;
+
+    private void ToggleMenu() => collapsed = !collapsed;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        await Preferences.LoadAsync();
+        _onboardingStep = Preferences.Preferences.Onboarding?.CurrentStep ?? "home";
+        _onboardingReference = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("userPreferences.subscribeOnboarding", _onboardingReference);
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public Task OnOnboardingStepChanged(string step)
+    {
+        _onboardingStep = step;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private bool IsOnboardingStep(string step) => string.Equals(_onboardingStep, step, StringComparison.Ordinal);
+
+    private Task OpenEventHubMonitorAsync() => Preferences.IsOnboardingStep("eventhub")
+        ? Preferences.SetOnboardingStepAsync("insights")
+        : Task.CompletedTask;
+
+    private Task OpenInsightsAsync() => Preferences.IsOnboardingStep("insights")
+        ? Preferences.SetOnboardingStepAsync("complete")
+        : Task.CompletedTask;
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_onboardingReference is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("userPreferences.unsubscribeOnboarding");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+
+        _onboardingReference?.Dispose();
+    }
+}
+

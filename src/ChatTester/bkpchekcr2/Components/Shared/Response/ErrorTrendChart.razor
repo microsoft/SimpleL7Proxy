@@ -1,0 +1,78 @@
+@namespace chat_tester.Components.Shared
+@using System.Globalization
+
+<div class="error-trend-section d-flex flex-column">
+    <div class="d-flex align-items-center justify-content-between mb-2 gap-2 flex-wrap">
+        <h6 class="mb-0">Error trend</h6>
+        <div class="d-flex align-items-center gap-2">
+            <select class="form-select form-select-sm error-trend-window" value="@WindowSelectValue" @onchange="WindowChanged">
+                <option value="auto">Auto</option>
+                <option value="5">5m</option>
+                <option value="10">10m</option>
+                <option value="30">30m</option>
+                <option value="60">1h</option>
+                <option value="360">6h</option>
+                <option value="1440">24h</option>
+                <option value="10080">7d</option>
+                <option value="43200">30d</option>
+            </select>
+            <span class="small text-muted">@TotalCountLabel</span>
+        </div>
+    </div>
+
+    @if (Buckets.Count == 0 || DisplayCount == 0)
+    {
+        <div class="text-muted small">No recent entries recorded.</div>
+    }
+    else
+    {
+        <div class="error-trend-scroll" @ref="_scrollContainer">
+            <div class="error-trend-chart" style="--error-slot-count: @Buckets.Count;" role="img" aria-label="Column graph of error counts over time">
+                @if (ShowVisibleWindowOutline)
+                {
+                    <div class="error-trend-visible-window" style="left: @VisibleWindowLeft; width: @VisibleWindowWidth;"></div>
+                }
+                @foreach (var bucket in ((IEnumerable<ErrorTrendBucket>)Buckets).Reverse())
+                {
+                    <div class="error-trend-slot">
+                        <div class="error-trend-slot-count">@(bucket.Count > 0 ? bucket.Count.ToString(CultureInfo.InvariantCulture) : string.Empty)</div>
+                        <div class="error-trend-slot-bars">
+                            @foreach (var mini in ((IEnumerable<ErrorTrendMini>)bucket.Minis).Reverse())
+                            {
+                                var miniH = MaxVisibleMiniCount == 0 ? 0 : (int)Math.Round(mini.Count * 100.0 / MaxVisibleMiniCount);
+                                <div class="error-trend-mini-col" title="@bucket.Tooltip">
+                                    @if (mini.Count > 0)
+                                    {
+                                        <div class="error-trend-bar-stack" style="height: @(miniH)% ;">
+                                            @foreach (var seg in mini.Segments)
+                                            {
+                                                <div class="error-trend-seg @seg.Css" style="height: @(seg.Percent)%;"></div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                        <div class="error-trend-slot-label">@bucket.Label</div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private ElementReference _scrollContainer;
+
+    [Parameter] public IReadOnlyList<ErrorTrendBucket> Buckets { get; set; } = Array.Empty<ErrorTrendBucket>();
+    [Parameter] public int MaxVisibleMiniCount { get; set; }
+    [Parameter] public string WindowSelectValue { get; set; } = "auto";
+    [Parameter] public EventCallback<ChangeEventArgs> WindowChanged { get; set; }
+    [Parameter] public string TotalCountLabel { get; set; } = string.Empty;
+    [Parameter] public int DisplayCount { get; set; }
+    [Parameter] public bool ShowVisibleWindowOutline { get; set; }
+    [Parameter] public string VisibleWindowLeft { get; set; } = "0%";
+    [Parameter] public string VisibleWindowWidth { get; set; } = "100%";
+
+    public ElementReference ScrollContainerRef => _scrollContainer;
+}

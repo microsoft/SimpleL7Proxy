@@ -1,0 +1,546 @@
+@namespace chat_tester.Components.Shared
+@using System.Linq
+@using System.Globalization
+@using System.Text.Encodings.Web
+@using System.Text.Json
+@inject ModelDefaults ModelDefaults
+@inject RequestDebugSettings DebugSettings
+
+<div class="mb-3">
+    <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
+        @if (ShowPrompt)
+        {
+            <label class="form-label mb-0" for="modelPanelPrompt">Prompt</label>
+        }
+        <div class="d-flex flex-wrap justify-content-end gap-4 ms-auto">
+            @if (AllowModeToggle)
+            {
+                <div class="form-check mb-0">
+                    <input class="form-check-input" type="checkbox" id="modelPanelSimpleCheck"
+                           checked="@SimpleMode" @onchange="OnSimpleModeChanged" />
+                    <label class="form-check-label" for="modelPanelSimpleCheck">Simple</label>
+                </div>
+            }
+
+            <div class="form-check mb-0">
+                <input class="form-check-input" type="checkbox" id="modelPanelDebugCheck"
+                       checked="@DebugSettings.DebugEnabled" @onchange="OnDebugChanged" />
+                <label class="form-check-label" for="modelPanelDebugCheck">Debug</label>
+            </div>
+        </div>
+    </div>
+
+    @if (ShowPrompt && SimpleMode)
+    {
+        <textarea class="form-control" id="modelPanelPrompt" rows="3" value="@Message"
+                  @oninput="OnMessageInput"></textarea>
+    }
+</div>
+
+<div class="d-flex flex-wrap align-items-end gap-3 mb-3">
+    <div class="flex-grow-1">
+        <label class="form-label" for="modelPanelSelect">Model</label>
+        <select class="form-select" id="modelPanelSelect" value="@SelectedModel" @onchange="OnModelSelected">
+            <option value="">Model...</option>
+            @foreach (var group in ModelDefaults.ListModels().GroupBy(m => m.Provider))
+            {
+                <optgroup label="@group.Key">
+                    @foreach (var model in group)
+                    {
+                        <option value="@model.Id">@model.DisplayName</option>
+                    }
+                </optgroup>
+            }
+        </select>
+    </div>
+
+    <div class="flex-grow-1">
+        <label class="form-label" for="modelPanelApiSelect">API</label>
+        <select class="form-select" id="modelPanelApiSelect" value="@SelectedApi"
+                @onchange="OnApiSelected" disabled="@(!AvailableApis.Any())">
+            <option value="">API...</option>
+            @foreach (var api in AvailableApis)
+            {
+                <option value="@api.Id">@api.DisplayName</option>
+            }
+        </select>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-12 col-md-4">
+        <label class="form-label" for="modelPanelPathPrefix">Prefix</label>
+        <input class="form-control" id="modelPanelPathPrefix" value="@CurrentPathPrefix"
+               @oninput="OnPathPrefixInput" />
+    </div>
+
+    <div class="col-12 col-md-8">
+        <label class="form-label" for="modelPanelEndpointPath">Path</label>
+        <input class="form-control" id="modelPanelEndpointPath" value="@CurrentEndpointPath"
+               @oninput="OnEndpointPathInput" />
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-12 @(SupportsStreaming && SimpleMode ? "col-md-8" : string.Empty)">
+        <label class="form-label" for="modelPanelContentType">Content-Type</label>
+        <select class="form-select" id="modelPanelContentType" value="@ContentType" @onchange="OnContentTypeSelected">
+            @foreach (var contentType in ContentTypeOptions)
+            {
+                <option value="@contentType">@contentType</option>
+            }
+        </select>
+    </div>
+
+    @if (SupportsStreaming && SimpleMode)
+    {
+        <div class="col-12 col-md-4">
+            <label class="form-label" for="modelPanelStream">Stream</label>
+            <select class="form-select" id="modelPanelStream" value="@StreamValue" @onchange="OnStreamSelected">
+                <option value="true">true</option>
+                <option value="false">false</option>
+            </select>
+        </div>
+    }
+</div>
+
+@if (SimpleMode)
+{
+    <details class="mb-3">
+        <summary class="fw-semibold mb-3">Model parameters</summary>
+
+        <div class="row g-3 mt-3">
+            @foreach (var field in FieldsForDisplay)
+            {
+                <div class="col-12 col-md-6 col-xl-4">
+                    <label class="form-label" for="@GetFieldId(field.Key)">@field.Key</label>
+                    @if (IsBooleanValue(field.Value))
+                    {
+                        <select class="form-select" id="@GetFieldId(field.Key)" value="@NormalizeBooleanValue(field.Value)"
+                                @onchange="args => OnFieldChanged(field.Key, args.Value?.ToString() ?? string.Empty)">
+                            <option value="true">true</option>
+                            <option value="false">false</option>
+                        </select>
+                    }
+                    else
+                    {
+                        <input class="form-control" id="@GetFieldId(field.Key)" value="@field.Value"
+                               @oninput="args => OnFieldChanged(field.Key, args.Value?.ToString() ?? string.Empty)" />
+                    }
+                </div>
+            }
+        </div>
+    </details>
+}
+
+@if (!SimpleMode)
+{
+    <div class="mb-3">
+        <label class="form-label" for="modelPanelRequestBody">Request JSON</label>
+        <textarea class="form-control font-monospace" id="modelPanelRequestBody" rows="@Rows"
+                  @oninput="OnCustomBodyInput">@_customBody</textarea>
+    </div>
+}
+
+@code {
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+
+    private readonly Dictionary<string, string> _fieldValues = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _endpointPaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _pathPrefixes = new(StringComparer.OrdinalIgnoreCase);
+    private string? _lastDefaultsKey;
+    private string? _loadedRequestBodyOverride;
+    private string _customBody = string.Empty;
+
+    private static readonly string[] ContentTypeOptions =
+    {
+        ChatTesterHttp.JsonContentType,
+        "application/json; charset=utf-8",
+        "application/x-ndjson"
+    };
+
+    /// <summary>The currently selected model name.</summary>
+    [Parameter]
+    public string SelectedModel { get; set; } = string.Empty;
+
+    /// <summary>Raised when the selected model changes.</summary>
+    [Parameter]
+    public EventCallback<string> SelectedModelChanged { get; set; }
+
+    /// <summary>The currently selected API id.</summary>
+    [Parameter]
+    public string SelectedApi { get; set; } = string.Empty;
+
+    /// <summary>Raised when the selected API changes.</summary>
+    [Parameter]
+    public EventCallback<string> SelectedApiChanged { get; set; }
+
+    /// <summary>Whether the simple (vs advanced) editing mode is active.</summary>
+    [Parameter]
+    public bool SimpleMode { get; set; } = true;
+
+    /// <summary>Whether the user can switch between simple and generated JSON modes.</summary>
+    [Parameter]
+    public bool AllowModeToggle { get; set; } = true;
+
+    /// <summary>Whether to show the user prompt textbox inside the model panel.</summary>
+    [Parameter]
+    public bool ShowPrompt { get; set; } = true;
+
+    /// <summary>Raised when the simple/advanced toggle changes.</summary>
+    [Parameter]
+    public EventCallback<bool> SimpleModeChanged { get; set; }
+
+    /// <summary>Raised when the debug toggle changes, after the shared setting is updated.</summary>
+    [Parameter]
+    public EventCallback<bool> DebugChanged { get; set; }
+
+    /// <summary>The user message used when constructing generated request JSON.</summary>
+    [Parameter]
+    public string Message { get; set; } = "tell me about the history of jokes";
+
+    /// <summary>Raised when the prompt message changes.</summary>
+    [Parameter]
+    public EventCallback<string> MessageChanged { get; set; }
+
+    /// <summary>Content-Type header value for the generated request.</summary>
+    [Parameter]
+    public string ContentType { get; set; } = ChatTesterHttp.JsonContentType;
+
+    /// <summary>Raised when the Content-Type value changes.</summary>
+    [Parameter]
+    public EventCallback<string> ContentTypeChanged { get; set; }
+
+    /// <summary>Textarea rows used for the generated request JSON.</summary>
+    [Parameter]
+    public int Rows { get; set; } = 12;
+
+    /// <summary>The endpoint path for the selected API, with model placeholders resolved.</summary>
+    public string EndpointPath => CombinePrefixAndPath(CurrentPathPrefix, CurrentEndpointPath);
+
+    /// <summary>The generated request JSON for the selected model, API, and field values.</summary>
+    public string RequestBody => _loadedRequestBodyOverride ?? (SimpleMode ? BuildRequestJson() : _customBody);
+
+    /// <summary>The current editable field defaults for the selected model and API.</summary>
+    public IReadOnlyDictionary<string, string> Fields => _fieldValues;
+
+    public async Task LoadRequestAsync(ModelRequest request)
+    {
+        SimpleMode = !AllowModeToggle;
+        await SimpleModeChanged.InvokeAsync(SimpleMode);
+
+        ContentType = string.IsNullOrWhiteSpace(request.ContentType)
+            ? ChatTesterHttp.JsonContentType
+            : request.ContentType;
+        await ContentTypeChanged.InvokeAsync(ContentType);
+
+        _loadedRequestBodyOverride = request.Body;
+        _customBody = request.Body;
+        EnsureSelectedApi();
+        EnsureEndpointState();
+        _pathPrefixes[SelectionKey] = string.Empty;
+        _endpointPaths[SelectionKey] = request.EndpointPath;
+    }
+
+    private IReadOnlyList<ApiInfo> AvailableApis => ModelDefaults.ApisForModel(SelectedModel);
+
+    private IReadOnlyList<KeyValuePair<string, string>> FieldsForDisplay => _fieldValues
+        .Where(parameter => !IsStreamField(parameter.Key))
+        .ToList();
+
+    private bool SupportsStreaming => _fieldValues.ContainsKey("stream");
+
+    private string StreamValue => _fieldValues.TryGetValue("stream", out var value)
+        ? NormalizeBooleanValue(value)
+        : "false";
+
+    private string SelectionKey => $"{SelectedModel}|{SelectedApi}";
+
+    private string CurrentEndpointPath => _endpointPaths.TryGetValue(SelectionKey, out var value)
+        ? value
+        : ResolveDefaultEndpointPath();
+
+    private string CurrentPathPrefix => _pathPrefixes.TryGetValue(SelectionKey, out var value)
+        ? value
+        : ModelDefaults.GetPathPrefix(SelectedModel, SelectedApi);
+
+    protected override void OnParametersSet()
+    {
+        if (!AllowModeToggle)
+        {
+            SimpleMode = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(SelectedModel))
+        {
+            SelectedModel = ModelDefaults.ListModels().FirstOrDefault()?.Id ?? string.Empty;
+        }
+
+        EnsureSelectedApi();
+        RefreshFieldsIfNeeded();
+        EnsureEndpointState();
+    }
+
+    private async Task OnModelSelected(ChangeEventArgs args)
+    {
+        ClearLoadedRequestOverride();
+        SelectedModel = args.Value?.ToString() ?? string.Empty;
+        await SelectedModelChanged.InvokeAsync(SelectedModel);
+
+        EnsureSelectedApi();
+        await SelectedApiChanged.InvokeAsync(SelectedApi);
+        ResetFields();
+        EnsureEndpointState();
+    }
+
+    private async Task OnApiSelected(ChangeEventArgs args)
+    {
+        ClearLoadedRequestOverride();
+        SelectedApi = args.Value?.ToString() ?? string.Empty;
+        await SelectedApiChanged.InvokeAsync(SelectedApi);
+        ResetFields();
+        EnsureEndpointState();
+    }
+
+    private void OnPathPrefixInput(ChangeEventArgs args)
+    {
+        _pathPrefixes[SelectionKey] = args.Value?.ToString() ?? string.Empty;
+    }
+
+    private void OnEndpointPathInput(ChangeEventArgs args)
+    {
+        _endpointPaths[SelectionKey] = args.Value?.ToString() ?? string.Empty;
+    }
+
+    private async Task OnMessageInput(ChangeEventArgs args)
+    {
+        ClearLoadedRequestOverride();
+        Message = args.Value?.ToString() ?? string.Empty;
+        await MessageChanged.InvokeAsync(Message);
+    }
+
+    private async Task OnContentTypeSelected(ChangeEventArgs args)
+    {
+        ContentType = args.Value?.ToString() ?? ChatTesterHttp.JsonContentType;
+        await ContentTypeChanged.InvokeAsync(ContentType);
+    }
+
+    private void OnStreamSelected(ChangeEventArgs args)
+    {
+        ClearLoadedRequestOverride();
+        if (SupportsStreaming)
+        {
+            _fieldValues["stream"] = args.Value?.ToString() ?? "false";
+        }
+    }
+
+    private async Task OnSimpleModeChanged(ChangeEventArgs args)
+    {
+        var newValue = args.Value is bool value && value;
+        if (!newValue && SimpleMode)
+        {
+            _customBody = BuildRequestJson();
+        }
+        SimpleMode = newValue;
+        await SimpleModeChanged.InvokeAsync(SimpleMode);
+    }
+
+    private void OnCustomBodyInput(ChangeEventArgs args)
+    {
+        ClearLoadedRequestOverride();
+        _customBody = args.Value?.ToString() ?? string.Empty;
+    }
+
+    private async Task OnDebugChanged(ChangeEventArgs args)
+    {
+        DebugSettings.DebugEnabled = args.Value is bool value && value;
+        await DebugChanged.InvokeAsync(DebugSettings.DebugEnabled);
+    }
+
+    private void OnFieldChanged(string name, string value)
+    {
+        ClearLoadedRequestOverride();
+        _fieldValues[name] = value;
+    }
+
+    private void ClearLoadedRequestOverride()
+    {
+        _loadedRequestBodyOverride = null;
+    }
+
+    private void EnsureSelectedApi()
+    {
+        var apis = AvailableApis;
+        if (apis.Any(a => string.Equals(a.Id, SelectedApi, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        SelectedApi = apis.FirstOrDefault()?.Id ?? string.Empty;
+    }
+
+    private void RefreshFieldsIfNeeded()
+    {
+        var key = $"{SelectedModel}|{SelectedApi}";
+        if (string.Equals(key, _lastDefaultsKey, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        ResetFields();
+    }
+
+    private void ResetFields()
+    {
+        _fieldValues.Clear();
+        foreach (var (name, value) in ModelDefaults.GetDefaults(SelectedModel, SelectedApi))
+        {
+            _fieldValues[name] = value;
+        }
+
+        _lastDefaultsKey = $"{SelectedModel}|{SelectedApi}";
+    }
+
+    private void EnsureEndpointState()
+    {
+        var key = SelectionKey;
+        if (!_endpointPaths.ContainsKey(key))
+        {
+            _endpointPaths[key] = ResolveDefaultEndpointPath();
+        }
+
+        if (!_pathPrefixes.ContainsKey(key))
+        {
+            _pathPrefixes[key] = ModelDefaults.GetPathPrefix(SelectedModel, SelectedApi);
+        }
+    }
+
+    private string ResolveDefaultEndpointPath()
+    {
+        var endpoint = ModelDefaults.GetApi(SelectedApi)?.Endpoint ?? string.Empty;
+        return endpoint.Replace("{model}", SelectedModel, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string CombinePrefixAndPath(string prefix, string path)
+    {
+        if (string.IsNullOrWhiteSpace(prefix))
+        {
+            return path;
+        }
+
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return prefix;
+        }
+
+        return prefix.TrimEnd('/') + "/" + path.TrimStart('/');
+    }
+
+    private string BuildRequestJson()
+    {
+        return JsonSerializer.Serialize(BuildRequestPayload(), SerializerOptions);
+    }
+
+    private object BuildRequestPayload()
+    {
+        var payload = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        var fields = _fieldValues.ToDictionary(kvp => kvp.Key, kvp => ParseValue(kvp.Value), StringComparer.OrdinalIgnoreCase);
+
+        switch (SelectedApi)
+        {
+            case "openai-responses":
+                payload["model"] = SelectedModel;
+                payload["input"] = Message;
+                AddFields(payload, fields);
+                return payload;
+
+            case "anthropic-messages":
+                payload["model"] = SelectedModel;
+                AddFields(payload, fields);
+                payload["messages"] = new[] { new { role = "user", content = Message } };
+                return payload;
+
+            case "gemini-generate-content":
+                payload["contents"] = new[]
+                {
+                    new
+                    {
+                        role = "user",
+                        parts = new[] { new { text = Message } }
+                    }
+                };
+                if (fields.Count > 0)
+                {
+                    payload["generationConfig"] = fields;
+                }
+                return payload;
+
+            case "cohere-v1-chat":
+                payload["model"] = SelectedModel;
+                payload["message"] = Message;
+                AddFields(payload, fields);
+                return payload;
+
+            case "cohere-v2-chat":
+                payload["model"] = SelectedModel;
+                payload["messages"] = new[] { new { role = "user", content = Message } };
+                AddFields(payload, fields);
+                return payload;
+
+            default:
+                payload["model"] = SelectedModel;
+                payload["messages"] = new[] { new { role = "user", content = Message } };
+                AddFields(payload, fields);
+                return payload;
+        }
+    }
+
+    private static void AddFields(Dictionary<string, object?> payload, IReadOnlyDictionary<string, object?> fields)
+    {
+        foreach (var (name, value) in fields)
+        {
+            if (value is string stringValue && string.IsNullOrWhiteSpace(stringValue))
+            {
+                continue;
+            }
+
+            payload[name] = value;
+        }
+    }
+
+    private static object? ParseValue(string value)
+    {
+        if (bool.TryParse(value, out var boolValue))
+        {
+            return boolValue;
+        }
+
+        if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var intValue))
+        {
+            return intValue;
+        }
+
+        if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var doubleValue))
+        {
+            return doubleValue;
+        }
+
+        return value;
+    }
+
+    private static bool IsBooleanValue(string value) =>
+        bool.TryParse(value, out _);
+
+    private static string NormalizeBooleanValue(string value) =>
+        bool.TryParse(value, out var boolValue) ? boolValue.ToString().ToLowerInvariant() : value;
+
+    private static bool IsStreamField(string fieldName) =>
+        string.Equals(fieldName, "stream", StringComparison.OrdinalIgnoreCase);
+
+    private static string GetFieldId(string fieldName) =>
+        "modelPanelField" + fieldName.Replace("_", string.Empty, StringComparison.OrdinalIgnoreCase);
+}

@@ -1,0 +1,291 @@
+@page "/abort-test"
+@namespace chat_tester.Components.Pages
+@rendermode InteractiveServer
+@inject IOptions<ChatTesterOptions> Options
+@inject HttpClient Http
+@inject ChatHistoryStore ChatHistoryStore
+@using chat_tester.Components.Shared
+@using Microsoft.Extensions.Options
+
+<PageTitle>Rapid disconnect test</PageTitle>
+
+<SectionContent SectionName="page-heading">
+    <div class="d-flex flex-wrap align-items-baseline gap-3">
+        <h1 class="h4 mb-0">Rapid disconnect stress test</h1>
+        <span class="text-muted small mb-0">Run a burst of aborted requests against a configurable host and an editable list of target paths.</span>
+    </div>
+</SectionContent>
+
+<div class="row g-4">
+    <div class="col-lg-5">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h5 class="card-title">Scenario form</h5>
+                <EditForm Model="this" OnValidSubmit="RunScenarioAsync">
+                    <ServerUrlPanel @ref="ServerUrlPanel" Settings="AuthSettings" InitialServerBaseUrl="@InitialServerBaseUrl" />
+
+                    <div class="mb-3">
+                        <label class="form-label">Method</label>
+                        <InputSelect class="form-select" @bind-Value="SelectedMethod">
+                            <option value="GET">GET</option>
+                            <option value="POST">POST</option>
+                        </InputSelect>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Request count</label>
+                        <InputNumber class="form-control" @bind-Value="RequestCount" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Abort delay (ms)</label>
+                        <InputNumber class="form-control" @bind-Value="AbortDelayMilliseconds" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Target URLs (one per line)</label>
+                        <InputTextArea class="form-control font-monospace" rows="10" @bind-Value="UrlTargetsText" />
+                        <div class="form-text">Each line becomes a distinct target. The list is editable so you can point the burst at your own probes.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Payload</label>
+                        <InputTextArea class="form-control font-monospace" rows="4" @bind-Value="Payload" />
+                    </div>
+
+                    <UserPanel Settings="UserSettings" />
+
+                    <button class="btn btn-danger" type="submit" disabled="@IsRunning">
+                        @(IsRunning ? "Running..." : "Start burst")
+                    </button>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-7">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h5 class="card-title">Run summary</h5>
+                <p class="mb-3">@StatusMessage</p>
+
+                @if (Results.Any())
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Endpoint</th>
+                                    <th>Result</th>
+                                    <th>Elapsed ms</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var result in Results.Take(50))
+                                {
+                                    <tr>
+                                        <td>@result.Index</td>
+                                        <td><code>@result.Url</code></td>
+                                        <td>@result.Outcome</td>
+                                        <td>@result.ElapsedMilliseconds</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <p class="text-muted">No requests have run yet.</p>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string InitialServerBaseUrl { get; set; } = string.Empty;
+    private string SelectedMethod { get; set; } = "GET";
+    private int RequestCount { get; set; } = 100;
+    private int AbortDelayMilliseconds { get; set; } = 25;
+    private string UrlTargetsText { get; set; } = string.Empty;
+    private string Payload { get; set; } = "{\"message\":\"abort-before-response\"}";
+    private bool IsRunning { get; set; }
+    private string StatusMessage { get; set; } = "Ready to begin.";
+    private List<ScenarioResult> Results { get; set; } = new();
+
+    [Inject]
+    private AuthTokenSettings AuthSettings { get; set; } = default!;
+    [Inject]
+    private UserSettings UserSettings { get; set; } = default!;
+    private ServerUrlPanel? ServerUrlPanel { get; set; }
+
+    protected override void OnInitialized()
+    {
+        var options = Options.Value;
+        InitialServerBaseUrl = options.ServerBaseUrl;
+        SelectedMethod = options.DefaultMethod;
+        RequestCount = options.RequestCount;
+        AbortDelayMilliseconds = options.AbortDelayMilliseconds;
+        Payload = options.Payload;
+        UrlTargetsText = string.Join(Environment.NewLine, options.TargetUrls);
+        AuthSettings.ApplyDefaultsIfMissing(options.AuthorizationHeaderName, options.AuthorizationHeaderPrefix);
+        UserSettings.ApplyDefaultsIfMissing(options.UserHeaderName, options.PriorityKeyHeader, options.UserNames);
+    }
+
+    private async Task RunScenarioAsync()
+    {
+        var serverBaseUrl = ServerUrlPanel?.ServerBaseUrl ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(serverBaseUrl))
+        {
+            StatusMessage = "Set a server base URL before running the test.";
+            return;
+        }
+
+        var targets = ChatTesterHttp.ParseTargetLines(UrlTargetsText);
+        if (targets.Count == 0)
+        {
+            StatusMessage = "Add at least one target URL before running the burst.";
+            return;
+        }
+
+        IsRunning = true;
+        StatusMessage = $"Starting {RequestCount} requests against {targets.Count} configured targets...";
+        Results.Clear();
+        StateHasChanged();
+
+        // Resolve the authorization header once so every request in the burst reuses it.
+        var headerName = AuthSettings.HeaderName;
+        var headerValue = string.Empty;
+        if (ServerUrlPanel is not null)
+        {
+            try
+            {
+                headerValue = await ServerUrlPanel.ResolveHeaderValueAsync();
+            }
+            catch (Exception ex)
+            {
+                IsRunning = false;
+                StatusMessage = $"Could not resolve authorization: {ex.Message}";
+                return;
+            }
+        }
+
+        try
+        {
+            var client = Http;
+            for (var index = 1; index <= RequestCount; index++)
+            {
+                var targetPath = targets[(index - 1) % targets.Count];
+                var endpoint = ChatTesterHttp.BuildSessionEndpoint(serverBaseUrl, targetPath, index);
+                var request = BuildRequest(endpoint, index, headerName, headerValue);
+                var requestHeaders = ChatTesterHttp.SummarizeRequestHeaders(request);
+                var cts = new CancellationTokenSource(Math.Max(1, AbortDelayMilliseconds));
+
+                try
+                {
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cts.Token);
+                    sw.Stop();
+                    var responseHeaders = ChatTesterHttp.SummarizeResponseHeaders(response);
+                    Results.Add(new ScenarioResult(index, endpoint.ToString(), "Completed unexpectedly", (int)sw.ElapsedMilliseconds));
+                    await ChatHistoryStore.AddRequest(new RequestHistoryEntry
+                    {
+                        Source = "Abort test",
+                        Method = SelectedMethod,
+                        ServerBaseUrl = serverBaseUrl,
+                        EndpointPath = endpoint.PathAndQuery,
+                        RequestHeadersText = requestHeaders,
+                        ResponseHeadersText = responseHeaders,
+                        RequestBody = Payload,
+                        StatusMessage = "Completed unexpectedly",
+                        Metrics = new ChatHistoryMetrics
+                        {
+                            Status = $"{(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}".Trim(),
+                            ContentType = response.Content.Headers.ContentType?.ToString() ?? "-",
+                            Duration = sw.Elapsed
+                        }
+                    });
+                }
+                catch (OperationCanceledException)
+                {
+                    Results.Add(new ScenarioResult(index, endpoint.ToString(), "Canceled before response", 0));
+                    await ChatHistoryStore.AddRequest(new RequestHistoryEntry
+                    {
+                        Source = "Abort test",
+                        Method = SelectedMethod,
+                        ServerBaseUrl = serverBaseUrl,
+                        EndpointPath = endpoint.PathAndQuery,
+                        RequestHeadersText = requestHeaders,
+                        RequestBody = Payload,
+                        StatusMessage = "Canceled before response",
+                        Metrics = new ChatHistoryMetrics { Status = "Canceled" }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Results.Add(new ScenarioResult(index, endpoint.ToString(), ex.Message, 0));
+                    await ChatHistoryStore.AddRequest(new RequestHistoryEntry
+                    {
+                        Source = "Abort test",
+                        Method = SelectedMethod,
+                        ServerBaseUrl = serverBaseUrl,
+                        EndpointPath = endpoint.PathAndQuery,
+                        RequestHeadersText = requestHeaders,
+                        RequestBody = Payload,
+                        ResponseBody = ex.Message,
+                        DisplayResponse = ex.Message,
+                        StatusMessage = "Failed",
+                        Metrics = new ChatHistoryMetrics { Status = "Failed" }
+                    });
+                }
+                finally
+                {
+                    request.Dispose();
+                    cts.Dispose();
+                }
+            }
+
+            var canceled = Results.Count(r => r.Outcome.Contains("Canceled", StringComparison.OrdinalIgnoreCase));
+            StatusMessage = $"Completed {RequestCount} requests. {canceled} were canceled before a response was received.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"The burst stopped with an error: {ex.Message}";
+        }
+        finally
+        {
+            IsRunning = false;
+            StateHasChanged();
+        }
+    }
+
+    private HttpRequestMessage BuildRequest(Uri endpoint, int index, string headerName, string headerValue)
+    {
+        var request = ChatTesterHttp.CreateRequest(SelectedMethod, endpoint, Payload);
+
+        ChatTesterHttp.TryApplyHeader(request, headerName, headerValue);
+        UserSettings.ApplyUser(request, index);
+
+        request.Headers.Add("X-Failure-Test-Id", index.ToString());
+        request.Headers.Add("X-Failure-Test-Mode", "abort-before-response");
+        return request;
+    }
+
+    private sealed class ScenarioResult
+    {
+        public ScenarioResult(int index, string url, string outcome, int elapsedMilliseconds)
+        {
+            Index = index;
+            Url = url;
+            Outcome = outcome;
+            ElapsedMilliseconds = elapsedMilliseconds;
+        }
+
+        public int Index { get; }
+        public string Url { get; }
+        public string Outcome { get; }
+        public int ElapsedMilliseconds { get; }
+    }
+}
