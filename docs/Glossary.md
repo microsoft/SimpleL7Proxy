@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Version** | 1.0 |
-| **Last Updated** | 2026-05-21 |
+| **Version** | 1.1 |
+| **Last Updated** | 2026-07-16 |
 | **Owner** | Platform Engineering |
 | **Review Cycle** | Updated with each feature release |
 
@@ -37,7 +37,7 @@ Concepts covering how a request moves from client ingress through the priority q
 |------|-----------|----------|
 | `DefaultPriority` | Fallback priority level assigned when the request carries no matching priority header value. | [ADVANCED_CONFIGURATION.md](ADVANCED_CONFIGURATION.md) |
 | Priority Level | Integer assigned to every request. Lower integer = higher dispatch precedence in the queue. | [ADVANCED_CONFIGURATION.md](ADVANCED_CONFIGURATION.md) |
-| Priority Queue | Min-heap data structure ordered by priority level. Drives the order in which worker threads pick up requests. | [ADVANCED_CONFIGURATION.md](ADVANCED_CONFIGURATION.md) |
+| Priority Queue | Sorted list ordered by priority level using binary-search insertion. Lower integers are dispatched first. | [ADVANCED_CONFIGURATION.md](ADVANCED_CONFIGURATION.md) |
 | TTL (Time-to-Live) | Total wall-clock budget for a request covering queue wait and all retry attempts. Expiry returns 412 to the client. | [TIMEOUTS.md](TIMEOUTS.md) |
 | `Workers` | Count of concurrent proxy worker threads. Cold setting — the default of 10 is for local testing only. | [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md) |
 
@@ -69,9 +69,9 @@ Concepts covering circuit breaking, retry, requeue, and the timeout model.
 |------|-----------|----------|
 | `AcceptableStatusCodes` | HTTP status codes from backends that are forwarded directly to the client and not counted as circuit-breaker failures. | [CIRCUIT_BREAKER.md](CIRCUIT_BREAKER.md) |
 | Auto-Recovery | The circuit breaker closes automatically once all failures age out of the sliding window. No manual action is required. | [CIRCUIT_BREAKER.md](CIRCUIT_BREAKER.md) |
-| Circuit Breaker | Per-host failure counter with a sliding time window. Opens when failures exceed `CBErrorThreshold`; skips that host in the selection pipeline. | [CIRCUIT_BREAKER.md](CIRCUIT_BREAKER.md) |
+| Circuit Breaker | Per-host failure counter with a sliding time window. Opens when failures reach `CBErrorThreshold`; skips that host in the selection pipeline. | [CIRCUIT_BREAKER.md](CIRCUIT_BREAKER.md) |
 | Progressive Delay | Artificial per-request delay (100 – 500 ms) added as a host's failure count approaches the open threshold, slowing traffic before the circuit trips. | [CIRCUIT_BREAKER.md](CIRCUIT_BREAKER.md) |
-| Requeue | Returning a request to the priority queue after all backends return 429 with `S7PREQUEUE: true`, using the shortest `Retry-After` seen across all backends. | [LOAD_BALANCING.md](LOAD_BALANCING.md) |
+| Requeue | Returning a request to the priority queue after host attempts are exhausted and at least one backend returned 429 with `S7PREQUEUE: true`, using the shortest eligible delay. | [LOAD_BALANCING.md](LOAD_BALANCING.md) |
 | `Timeout` | Per-host-attempt window in milliseconds. Resets on each retry. Effective limit per attempt = `min(remaining TTL, Timeout)`. | [TIMEOUTS.md](TIMEOUTS.md) |
 
 > [!NOTE]
@@ -85,7 +85,7 @@ Concepts covering the validation pipeline, user profiles, and priority mapping.
 
 | Term | Definition | See Also |
 |------|-----------|----------|
-| App ID Allowlist | File or URL returning permitted Entra Application IDs. Enforced at step 1 of the validation pipeline, before any other check. | [REQUEST_VALIDATION.md](REQUEST_VALIDATION.md) |
+| App ID Allowlist | File or URL returning permitted Entra Application IDs. Enforced at step 2 of the validation pipeline, after inbound auth. | [REQUEST_VALIDATION.md](REQUEST_VALIDATION.md) |
 | Priority Mapping | Maps an incoming request header value to an internal priority integer and allocates dedicated worker threads to that tier. | [ADVANCED_CONFIGURATION.md](ADVANCED_CONFIGURATION.md) |
 | Priority Workers | `PriorityLevel:WorkerCount` pairs that reserve dedicated worker threads for each priority level, ensuring high-priority traffic always has capacity. | [ADVANCED_CONFIGURATION.md](ADVANCED_CONFIGURATION.md) |
 | User Profile | Per-user JSON object loaded periodically from a URL or file. Drives priority assignment, async configuration, custom header injection, and throttling. | [USER_PROFILES.md](USER_PROFILES.md) |
@@ -103,8 +103,8 @@ Concepts covering long-running request handling decoupled from the HTTP connecti
 |------|-----------|----------|
 | `AsyncTimeout` | Maximum backend processing time in milliseconds once a request is in async mode (default 30 minutes). | [TIMEOUTS.md](TIMEOUTS.md) |
 | `AsyncTriggerTimeout` | Milliseconds elapsed since enqueue before the proxy releases the client with a 202 response and continues in the background. | [TIMEOUTS.md](TIMEOUTS.md) |
-| `AsyncTTLSecs` | Retention period in seconds for the async result blob after processing completes. Also sets the SAS token lifetime. | [AsyncOperation.md](AsyncOperation.md) |
-| Blob Lifecycle Policy | Azure Storage lifecycle management rule that automatically deletes result blobs after `BlobRetentionDays`. Must be configured in the storage account — the proxy setting alone does not delete blobs. | [StorageBlobConfig.md](StorageBlobConfig.md) |
+| `AsyncTTLSecs` | Request TTL in seconds applied when async processing starts, replacing the synchronous request expiration. | [AsyncOperation.md](AsyncOperation.md) |
+| Blob Lifecycle Policy | External Azure Storage lifecycle management rule used to delete result blobs. The proxy does not configure or enforce deletion. | [StorageBlobConfig.md](StorageBlobConfig.md) |
 
 > [!WARNING]
 > Async mode requires three simultaneous opt-ins: the proxy-wide `AsyncModeEnabled` flag, an `async-config` block in the user profile, and the `S7PAsyncMode` header on the individual request. All three MUST be present for async upgrade to occur.
@@ -159,9 +159,9 @@ Named HTTP signals that cross the client-proxy and proxy-backend boundaries.
 | Term | Direction | Definition | See Also |
 |------|-----------|-----------|----------|
 | `S7PAsyncMode` | Client → proxy | Per-request opt-in header that enables async mode for that call. Default header name is configurable. | [AsyncOperation.md](AsyncOperation.md) |
-| `S7PDEBUG` | Client → proxy | Enables debug-level response headers on the proxied response for a single request. | [RESPONSE_CODES.md](RESPONSE_CODES.md) |
+| `S7PDEBUG` | Client → proxy | Set to `true` to enable per-request debug tracing in logs. | [RESPONSE_CODES.md](RESPONSE_CODES.md) |
 | `S7PPriorityKey` | Client → proxy | Carries the caller's priority tier value. Mapped via `PriorityKeys` to an internal priority integer. | [ADVANCED_CONFIGURATION.md](ADVANCED_CONFIGURATION.md) |
-| `S7PREQUEUE` | Backend → proxy | Response header a backend sets on a 429 reply to signal the proxy MUST requeue the request rather than advance to the next host. | [RESPONSE_CODES.md](RESPONSE_CODES.md) |
+| `S7PREQUEUE` | Backend → proxy | Response header a backend sets on a 429 reply to make the request eligible for delayed requeue after available host attempts are exhausted. | [RESPONSE_CODES.md](RESPONSE_CODES.md) |
 | `S7PTimeout` | Client → proxy | Per-request override for the host-attempt timeout in milliseconds. | [TIMEOUTS.md](TIMEOUTS.md) |
 | `S7PTTL` | Client → proxy | Per-request override for the total TTL budget in seconds. | [TIMEOUTS.md](TIMEOUTS.md) |
 
@@ -171,4 +171,5 @@ Named HTTP signals that cross the client-proxy and proxy-backend boundaries.
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.1 | 2026-07-16 | Aligned queue, validation, requeue, async TTL, lifecycle, and protocol definitions with the concept taxonomy. |
 | 1.0 | 2026-05-21 | Initial gold-standard release. Reorganized by domain, added See Also links, added callouts, added protocol headers section. |

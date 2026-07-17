@@ -42,7 +42,7 @@ The user profile configuration source (URL or file) must return a **JSON Array**
     "userId": "unique-user-identifier",
     "S7PPriorityKey": "priority-key-value",
     "Header1": "Custom header value",
-    "async-config": "enabled=true, containername=my-container, topic=my-topic, timeout=3600"
+    "async-config": "enabled=true, containername=my-container, topic=my-topic, timeout=3600, generatesas=false"
   }
 ]
 ```
@@ -53,7 +53,7 @@ The user profile configuration source (URL or file) must return a **JSON Array**
 |---|---|---|
 | **userId** | **Required** | Unique identifier for the user. Must match the value extracted from the header configured in `UserIDFieldName`. |
 | **S7PPriorityKey** | Optional | A key corresponding to a priority level defined in `PriorityKeys`. If present, assigns this priority to the user's requests. |
-| **async-config** | Optional | A comma-separated string `key=value` enabling async processing. Requires: `enabled`, `containername`, and `topic`. Optional: `timeout` (seconds for SAS token). |
+| **async-config** | Optional | A comma-separated string `key=value` enabling async processing. Requires: `enabled`, `containername`, and `topic`. Optional: `timeout` and `generatesas`. `generatesas` is retained but current blob responses contain base URIs without generated SAS tokens. |
 | **[CustomHeader]** | Optional | Any other key-value pair will be injected as a specific HTTP header into the proxied request. |
 
 ## Example Configuration File
@@ -173,7 +173,7 @@ Response:
 
 ### Async Processing Security
 - Ensure blob containers have proper access controls
-- Use time-limited SAS tokens for blob access
+- Protect returned base blob URIs with private networking and Azure RBAC
 - Validate Service Bus topic permissions
 
 </details>

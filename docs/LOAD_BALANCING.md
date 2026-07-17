@@ -5,7 +5,7 @@ The proxy selects backends through a three-stage pipeline on every request: filt
 > **TL;DR**
 > - **Specific-path hosts always win** — if any configured host matches the request path, catch-all hosts are never tried.
 > - **`LoadBalanceMode`** controls host order (round-robin / latency / random); **`IterationMode`** controls how many attempts are made.
-> - **A `429` with `S7PREQUEUE`** requeues the request; any other non-2xx advances to the next host; TTL expiry stops iteration with `412`.
+> - **A `429` with `S7PREQUEUE`** makes the request eligible for requeue after attempts are exhausted; acceptable status codes return directly; TTL expiry stops iteration with `412`.
 
 ---
 
@@ -48,14 +48,14 @@ Request arrives
 │    circuit OPEN?  ──Yes──► skip, next host          │
 │    TTL expired?   ──Yes──► 412, stop                │
 │    send request                                     │
-│    2xx?           ──Yes──► return to client ✓       │
+│    acceptable?    ──Yes──► return to client ✓       │
 │    429+S7PREQUEUE ──────► collect, try next host    │
 │    other failure  ──────► try next host             │
 └─────────────────────────────────────────────────────┘
       │
       ▼  (all hosts exhausted)
-  All 429+S7PREQUEUE? → requeue with shortest retry-after
-  Else               → 503 Service Unavailable
+  Any 429+S7PREQUEUE? → requeue with shortest eligible delay
+  Else               → 502 or 503 based on failure type
 ```
 
 **The circuit-breaker gate means an OPEN host is never attempted, so `MaxAttempts` counts only hosts actually tried.**
@@ -99,7 +99,7 @@ MaxAttempts=7
 > **Default:** `IterationMode=SinglePass`. `MaxAttempts` is ignored in SinglePass mode.
 
 > [!TIP]
-> **Troubleshooting:** Seeing more failures than expected? A low `MaxAttempts` combined with many OPEN circuits can exhaust the attempt budget before a healthy host is reached — check circuit-breaker state with `LogHeaders=true`.
+> **Troubleshooting:** Seeing more failures than expected? Check circuit-breaker state and active-host health. OPEN circuits are skipped and do not consume the `MaxAttempts` budget.
 
 <details>
 <summary>Shared Iterators</summary>
@@ -112,15 +112,15 @@ Set `UseSharedIterators=true` when many concurrent requests target the same path
 
 ## Handling Responses
 
-**Rule: Only `2xx` returns to the client; everything else either retries, requeues, or stops.**
+**Rule: Every status in `AcceptableStatusCodes` returns to the client; other responses retry, requeue, or stop.**
 
 | Response | Action |
 |----------|--------|
-| `2xx` | Return to client |
-| `3xx`, `404`, `5xx` | Try next host |
-| `429` + `S7PREQUEUE` header | Collect; try next host. If **all** hosts return this, requeue with shortest `retry-after`. |
+| Any `AcceptableStatusCodes` value | Return to client without retry or circuit recording |
+| Any non-acceptable status | Try next host |
+| `429` + `S7PREQUEUE: true` | Collect; try next host. After attempts are exhausted, requeue if any eligible response was collected, using the shortest delay. |
 | `412` Precondition Failed | TTL expired — stop, no further retries |
-| All hosts exhausted (non-429) | `503 Service Unavailable` |
+| Attempts exhausted without requeue | `502` for mixed backend statuses or an unclassified transport error; `503` when no host was attempted or name-resolution/connection failures exhaust hosts |
 
 > [!WARNING]
 > **Error:** `412` means the request's TTL expired during iteration. Increase `DefaultTTLSecs` or reduce backend latency — adding more `MaxAttempts` will not help once TTL is gone.

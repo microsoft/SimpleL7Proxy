@@ -77,7 +77,7 @@ MaxQueueLength=500
 
 **Purpose:** Reject requests missing mandatory headers and block Entra application IDs not in the allowlist before they consume queue capacity.
 
-> **Rule: The `ValidateAuthAppID` check runs before all other validation. Unknown app IDs return `403` before the request enters the queue — this MUST be configured first when multi-tenant isolation is required.**
+> **Rule: The `ValidateAuthAppID` check is validation step 2, after optional inbound key/OAuth validation. Unknown app IDs return `403` before the request enters the queue.**
 
 ```bash
 DisallowedHeaders=X-Forwarded-For,X-Real-IP
@@ -136,7 +136,7 @@ APPINSIGHTS_CONNECTIONSTRING=<your-connection-string>
 ```
 
 > [!NOTE]
-> `AsyncTimeout` and `AsyncTriggerTimeout` are in milliseconds. `AsyncTTLSecs` (default 86400 s) controls how long result blobs are retained.
+> `AsyncTimeout` and `AsyncTriggerTimeout` are in milliseconds. `AsyncTTLSecs` (default 86400 s) resets the request TTL when async processing starts. Configure blob deletion separately with an Azure Storage lifecycle policy.
 
 > [!TIP]
 > For the full async configuration reference, including the `async-config` user profile field format, see [AsyncOperation.md](AsyncOperation.md).
