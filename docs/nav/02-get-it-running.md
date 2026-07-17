@@ -1,53 +1,135 @@
 # Running the Proxy: From Zero to Proxying Traffic in Minutes
 
-Two environment variables, one command. Here's what to set up, what commands to run, and how to confirm it's working.
+Choose the path that matches where the proxy runs and what it connects to, then follow that panel through the first successful query.
 
 ---
 
-## Quick Answers
+## Choose Your Setup
 
-<table>
-<tr>
-<td width="33%" valign="top">
+**Select one panel below.** Each panel is a complete route from prerequisites to the shared ChatTester verification step.
 
-### [Minimum required before starting?](#minimum-required-before-starting-1)
-.NET 10 SDK (for local dev) or Docker + Azure CLI (for container deployment). Minimum config: `Port` and one `Host1` connection string. No other Azure resources required for a first run.
+```text
+Where will the proxy run?
+├── Local source or Docker
+│   ├── LLM Simulator
+│   ├── Real LLM endpoint
+│   └── APIM
+└── Azure Container Apps
+    ├── LLM Simulator on Azure Functions
+    ├── Real LLM endpoint
+    └── APIM
+```
 
-</td>
-<td width="33%" valign="top">
+### Run the proxy locally
 
-### [How do I run it locally?](#how-do-i-run-it)
-`export Port=8000`, `export Host1="host=<url>;probe=/health"`, then `cd src/SimpleL7Proxy && dotnet run`. The proxy is ready when you see the startup banner in the console.
+<details>
+<summary><strong>Local proxy → local LLM Simulator</strong> — fastest path, no Azure resources</summary>
 
-</td>
-<td width="33%" valign="top">
+**Use this path to prove the request flow without Azure or real model access.**
 
-### [How do I deploy to Azure?](#how-do-i-run-it)
-Use the interactive deployment script in `deployment/README.md`. Fill in a parameters file, run the script, and Azure Container Apps (ACA) handles the rest. Port 8000 is the expected ingress target.
+1. Run the simulator locally with [LLM Simulator](../../test/LLMSimulator/Readme.md#run-it-locally-60-seconds).
+2. Run the proxy [from source](#how-do-i-run-the-proxy-from-source-locally-exact-commands) or [in Docker](#how-do-i-run-the-proxy-as-a-docker-container-locally).
+3. Set `Host1` to the simulator URL with `mode=direct`; no backend authentication is required.
+4. Continue to [Run ChatTester and send the first query](#run-chattester-and-send-the-first-query).
 
-</td>
-</tr>
-<tr>
-<td width="33%" valign="top">
+> [!TIP]
+> If the proxy runs in Docker, use `host.docker.internal` instead of `localhost` for the simulator host.
 
-### [How do I point it at a backend?](#how-do-i-point-it-at-a-backend-1)
-Set `Host1` to a connection string: `host=https://<endpoint>;probe=/health`. Use `mode=direct` for serverless endpoints that don't support probing. See the LLM simulator for a no-Azure-needed backend.
+</details>
 
-</td>
-<td width="33%" valign="top">
+<details>
+<summary><strong>Local proxy → real LLM endpoint</strong> — direct connection</summary>
 
-### [How do I verify it's working?](#how-do-i-verify-its-working-1)
-Call `curl -i http://localhost:8000/health` — a `200 OK` means the proxy is up. Send a test request and check the response for the `x-Request-Worker` header, which the proxy injects on every proxied response.
+**Use this path when APIM is not required and the proxy can reach the model endpoint directly.**
 
-</td>
-<td width="33%" valign="top">
+1. Run the proxy [from source](#how-do-i-run-the-proxy-from-source-locally-exact-commands) or [in Docker](#how-do-i-run-the-proxy-as-a-docker-container-locally).
+2. Configure the endpoint with [Managed Identity](../BACKEND_HOSTS.md#per-host-auth-behavior) or an [API key](../BACKEND_HOSTS.md#per-host-auth-behavior).
+3. Use `mode=direct` when the endpoint has no suitable health probe.
+4. Continue to [Run ChatTester and send the first query](#run-chattester-and-send-the-first-query).
 
-### [What if it doesn't start?](#what-if-it-doesnt-start-1)
-Check that `Host1` is reachable and that the probe path returns a success response (HTTP 200–299). Review the console log and `eventslog.json`. Most startup failures trace back to a missing `Host1`, an unreachable backend, or a bad connection string key.
+> [!WARNING]
+> Managed Identity works locally only when the local credential chain has access to the LLM resource. Use an API key when that identity path is unavailable.
 
-</td>
-</tr>
-</table>
+</details>
+
+<details>
+<summary><strong>Local proxy → APIM → LLM or Simulator</strong> — policy routing and governance</summary>
+
+**Use this path to test APIM priority, retry, throttling, affinity, or mixed-backend behavior.**
+
+1. Deploy the simulator to [Azure Functions](../../test/LLMSimulator/Readme.md#run-it-on-azure-functions-recommended), or prepare the real LLM endpoints.
+2. Upload the [APIM policy](../../APIM-Policy/readme.md) and edit every backend URL, path, priority, and `auth` value.
+3. Configure `Host1` with the APIM URL and the required APIM subscription-key or OAuth authentication.
+4. Run the proxy locally, then continue to [Run ChatTester and send the first query](#run-chattester-and-send-the-first-query).
+
+> [!NOTE]
+> APIM-to-backend authentication is separate from proxy-to-APIM authentication. Configure both hops.
+
+</details>
+
+### Deploy the proxy to Azure Container Apps
+
+<details>
+<summary><strong>Container Apps proxy → Azure Functions LLM Simulator</strong> — cloud test path</summary>
+
+**Use this path to validate the deployed proxy without consuming a real model endpoint.**
+
+1. Deploy and verify the [Azure Functions LLM Simulator](../../test/LLMSimulator/Readme.md#run-it-on-azure-functions-recommended).
+2. Choose public or private networking and [deploy the proxy](../../deployment/README.md).
+3. Set `HOST1` to the function URL with `mode=direct`; the included simulator requires no backend authentication.
+4. Continue to [Run ChatTester and send the first query](#run-chattester-and-send-the-first-query).
+
+> [!TIP]
+> Confirm the Container App can reach the function app before diagnosing proxy behavior.
+
+</details>
+
+<details>
+<summary><strong>Container Apps proxy → real LLM endpoint</strong> — direct production path</summary>
+
+**Use this path for the shortest production topology without APIM.**
+
+1. Choose public or private networking and [deploy the proxy](../../deployment/README.md).
+2. Configure the LLM endpoint with [Managed Identity](../BACKEND_HOSTS.md#per-host-auth-behavior) or an [API key](../BACKEND_HOSTS.md#per-host-auth-behavior).
+3. Grant the Container App identity access to the model resource when using Managed Identity.
+4. Continue to [Run ChatTester and send the first query](#run-chattester-and-send-the-first-query).
+
+> [!WARNING]
+> Do not store API keys in committed deployment parameter files.
+
+</details>
+
+<details>
+<summary><strong>Container Apps proxy → APIM → LLM or Simulator</strong> — governed production or failover path</summary>
+
+**Use this path when APIM owns backend selection, priority eligibility, retries, or governance.**
+
+1. Prepare real LLM endpoints, an [Azure Functions simulator](../../test/LLMSimulator/Readme.md#run-it-on-azure-functions-recommended), or both.
+2. Upload the [APIM policy](../../APIM-Policy/readme.md) and edit every backend URL, path, priority, and `auth` value.
+3. [Deploy the proxy](../../deployment/README.md), point `HOST1` at APIM, and configure subscription-key or OAuth authentication.
+4. Continue to [Run ChatTester and send the first query](#run-chattester-and-send-the-first-query).
+
+> [!NOTE]
+> For private deployments, Container Apps, APIM, Functions, DNS, and model private endpoints must share a working network path.
+
+</details>
+
+### Run ChatTester and send the first query
+
+<details open>
+<summary><strong>Shared final step for every setup</strong></summary>
+
+**A setup is complete only after one request passes through the proxy and returns a model-shaped response.**
+
+1. Verify the proxy `/health` and `/readiness` endpoints.
+2. Start [ChatTester](../../test/chat_tester/readme.md#requirements-and-startup).
+3. Set `ServerBaseUrl` to the local or Container App proxy URL and configure client-to-proxy authentication when required.
+4. Send one chat request and confirm `200 OK`, response content, `BackendHost`, and `x-Request-Worker`.
+
+> [!TIP]
+> If health succeeds but the query fails, test each hop directly: ChatTester → proxy, proxy → APIM, and APIM → backend.
+
+</details>
 
 ---
 
