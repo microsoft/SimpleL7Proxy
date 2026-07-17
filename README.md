@@ -19,7 +19,7 @@ Architecture, components, and how requests flow end to end.
 <td width="33%" valign="top">
 
 ### [🚀 Get it running](docs/nav/02-get-it-running.md)
-Deploy to Azure Container Apps or run locally from source in minutes.
+Deploy to Azure Container Apps, Kubernetes or run locally from source in minutes.
 
 **For:** operators and developers doing a first deployment.
 
