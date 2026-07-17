@@ -1,6 +1,6 @@
 # SimpleL7Proxy
 
-AI backends behave differently from normal HTTP services — they throttle, retry, and partially fail in ways that standard load balancers cannot handle. SimpleL7Proxy fills that gap: it sits between your clients and your Azure AI backends and adds priority queuing, health-aware routing, circuit breaking, per-user governance, and per-request telemetry.
+Depending on whether you are serving live users, high-priority business workflows, or low-priority background jobs, you will likely want control over when, where, and how your traffic is fulfilled. AI backends can throttle, regions can become constrained, and models eventually reach the end of their lifecycle. These are some of the reasons teams place a proxy in front of their AI services. The questions below are the ones most teams ask when deciding whether this approach fits their architecture.
 
 ---
 
