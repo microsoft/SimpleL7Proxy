@@ -3,16 +3,74 @@
 @using System.Globalization
 @using Microsoft.AspNetCore.Components.Web
 
-<div class="multi-request-status border rounded bg-white shadow-sm">
-    <div class="multi-request-status-header">
-        <span class="fw-semibold">Request status</span>
-        <span class="text-muted small">@CompletedCount/@Items.Count complete</span>
+@if (Items.Count > 0)
+{
+    <div class="multi-request-stats card shadow-sm">
+        <div class="card-header bg-dark text-white">
+            <span class="fw-semibold">Statistics</span>
+        </div>
+        <div class="card-body">
+        <div class="multi-request-stats-thermometer">
+            @foreach (var segment in OutcomeSegments)
+            {
+                <div class="multi-request-stats-segment @segment.Css" style="flex-grow: @segment.Count;" title="@segment.Label">
+                    <span class="multi-request-stats-segment-label">@segment.Label</span>
+                </div>
+            }
+        </div>
+        <table class="multi-request-stats-table">
+            <thead>
+                <tr>
+                    <th scope="col">Status</th>
+                    <th scope="col">Total</th>
+                    <th scope="col">TTFB</th>
+                    <th scope="col">Avg</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var group in StatusGroups)
+                {
+                    <tr class="multi-request-stats-row @GetGroupClass(group.StatusCode) @(SelectedStatusFilter == group.StatusCode ? "active" : string.Empty)"
+                        @onclick="() => FilterByStatus(group.StatusCode)">
+                        <th scope="row" class="multi-request-stats-code">@group.StatusCode</th>
+                        <td>@group.Count</td>
+                        <td>@group.TtfbText</td>
+                        <td>@group.AvgText</td>
+                    </tr>
+                }
+                <tr class="multi-request-stats-row all @(SelectedStatusFilter is null ? "active" : string.Empty)"
+                    @onclick="ClearStatusFilter">
+                    <th scope="row" class="multi-request-stats-code">ALL</th>
+                    <td>@Items.Count</td>
+                    <td>@OverallTtfbText</td>
+                    <td>@OverallAvgText</td>
+                </tr>
+            </tbody>
+        </table>
+        @if (StatisticsFooter is not null)
+        {
+            <div class="multi-request-stats-footer">
+                @StatisticsFooter
+            </div>
+        }
+        </div>
+    </div>
+}
+
+<div class="multi-request-status card shadow-sm">
+    <div class="card-header bg-dark text-white">
+        <div class="d-flex flex-wrap align-items-baseline gap-2">
+            <span class="fw-semibold">Request status</span>
+            <span class="text-white-50 small ms-auto">@CompletedCount/@Items.Count complete</span>
+        </div>
     </div>
 
+    <div class="card-body">
     <div class="multi-request-status-list" role="list">
-        @foreach (var item in Items)
+        @foreach (var item in FilteredItems)
         {
             <button class="multi-request-row" type="button" role="listitem"
+                    @key="item"
                     @onclick="() => SelectItem(item)"
                     @onmouseenter="args => ShowMetrics(item, args)"
                     @onmousemove="MoveMetrics"
@@ -26,48 +84,8 @@
             </button>
         }
     </div>
-</div>
-
-@if (Items.Count > 0)
-{
-    <div class="multi-request-stats border rounded bg-white shadow-sm">
-        <div class="multi-request-stats-title">Statistics:</div>
-        <div class="multi-request-stats-overview">
-            <div class="multi-request-stats-primary">
-                <div class="multi-request-stats-thermometer">
-                    @if (CompleteCount > 0)
-                    {
-                        <div class="multi-request-stats-segment complete" style="flex-grow: @CompleteCount;" title="Complete- @CompleteCount">
-                            <span class="multi-request-stats-segment-label">Complete- @CompleteCount</span>
-                        </div>
-                    }
-                    @if (IncompleteCount > 0)
-                    {
-                        <div class="multi-request-stats-segment incomplete" style="flex-grow: @IncompleteCount;" title="Incomplete: @IncompleteCount">
-                            <span class="multi-request-stats-segment-label">Incomplete: @IncompleteCount</span>
-                        </div>
-                    }
-                </div>
-                <div class="multi-request-stats-status-grid">
-                    @foreach (var group in StatusGroups)
-                    {
-                        <div class="multi-request-stats-status">
-                            <div class="multi-request-stats-status-code">Status: @group.StatusCode</div>
-                            <div>Total: @group.Count</div>
-                            <div>TTFB: @group.TtfbText</div>
-                            <div>Avg: @group.AvgText</div>
-                        </div>
-                    }
-                </div>
-            </div>
-            <div class="multi-request-stats-totals">
-                <div>Total: @CompleteCount/@Items.Count</div>
-                <div>Average TTFB: @OverallTtfbText</div>
-                <div>Average Time: @OverallAvgText</div>
-            </div>
-        </div>
     </div>
-}
+</div>
 
 @if (HoveredItem is not null)
 {
@@ -138,7 +156,7 @@
 }
 
 <style>
-    .multi-request-status {
+    .multi-request-status > .card-body {
         padding: 0.75rem;
     }
 
@@ -153,6 +171,7 @@
     .multi-request-status-list {
         display: grid;
         gap: 0.45rem;
+        align-content: start;
         max-height: min(58vh, 34rem);
         overflow-y: auto;
         padding-right: 0.25rem;
@@ -254,13 +273,13 @@
     }
 
     .multi-request-stats {
-        margin-top: 0.75rem;
-        padding: 1rem;
+        margin-top: 0;
+        flex: 0 0 auto;
     }
 
     .multi-request-stats-title {
         font-weight: 700;
-        font-size: 1.35rem;
+        font-size: 1rem;
         margin-bottom: 0.75rem;
     }
 
@@ -293,12 +312,20 @@
         flex-basis: 0;
     }
 
-    .multi-request-stats-segment.complete {
+    .multi-request-stats-segment.success {
         background: #2f9e44;
     }
 
-    .multi-request-stats-segment.incomplete {
-        background: #e8590c;
+    .multi-request-stats-segment.transient {
+        background: #f59f00;
+    }
+
+    .multi-request-stats-segment.permanent {
+        background: #e03131;
+    }
+
+    .multi-request-stats-segment.pending {
+        background: #adb5bd;
     }
 
     .multi-request-stats-segment-label {
@@ -312,22 +339,75 @@
         text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
     }
 
-    .multi-request-stats-status-grid {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.75rem 2.75rem;
+    .multi-request-stats-table {
+        width: 100%;
         margin-top: 0.85rem;
-    }
-
-    .multi-request-stats-status {
-        min-width: 6.5rem;
+        border-collapse: collapse;
+        font-size: 0.85rem;
         color: #212529;
-        font-size: 0.9rem;
-        line-height: 1.4;
     }
 
-    .multi-request-stats-status-code {
+    .multi-request-stats-table thead th {
+        text-align: right;
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: #6c757d;
+        font-weight: 600;
+        padding: 0.25rem 0.6rem;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    .multi-request-stats-table thead th:first-child {
+        text-align: left;
+    }
+
+    .multi-request-stats-footer {
+        margin-top: 0.85rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid #dee2e6;
+    }
+
+    .multi-request-stats-row {
+        cursor: pointer;
+    }
+
+    .multi-request-stats-row td,
+    .multi-request-stats-row > .multi-request-stats-code {
+        padding: 0.3rem 0.6rem;
+        border-bottom: 1px solid #f1f3f5;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .multi-request-stats-row > .multi-request-stats-code {
+        text-align: left;
         font-weight: 700;
+        border-left: 4px solid transparent;
+    }
+
+    .multi-request-stats-row:hover {
+        background: #f8f9fa;
+    }
+
+    .multi-request-stats-row.active {
+        background: rgba(13, 110, 253, 0.1);
+    }
+
+    .multi-request-stats-row.success > .multi-request-stats-code {
+        border-left-color: #2f9e44;
+    }
+
+    .multi-request-stats-row.transient > .multi-request-stats-code {
+        border-left-color: #f59f00;
+    }
+
+    .multi-request-stats-row.permanent > .multi-request-stats-code {
+        border-left-color: #e03131;
+    }
+
+    .multi-request-stats-row.all > .multi-request-stats-code {
+        border-left-color: #495057;
     }
 
     .multi-request-stats-totals {
@@ -412,6 +492,9 @@
     [Parameter]
     public IReadOnlyList<MultiRequestStatusItem> Items { get; set; } = [];
 
+    [Parameter]
+    public RenderFragment? StatisticsFooter { get; set; }
+
     private MultiRequestStatusItem? HoveredItem { get; set; }
 
     private MultiRequestStatusItem? SelectedItem { get; set; }
@@ -430,22 +513,17 @@
 
     private string HoverTop { get; set; } = "0px";
 
-    private int CompletedCount => Items.Count(item => item.IsComplete);
+    private int CompletedCount => _completedCount;
 
-    private double MaxDurationMilliseconds => Items
-        .Select(item => item.Duration?.TotalMilliseconds ?? 0)
-        .DefaultIfEmpty(0)
-        .Max();
+    private double MaxDurationMilliseconds => _maxDurationMilliseconds;
 
-    private int CompleteCount => Items.Count(item => item.IsComplete);
+    private int CompleteCount => _completedCount;
 
-    private int IncompleteCount => Items.Count - CompleteCount;
+    private int IncompleteCount => Items.Count - _completedCount;
 
-    private string OverallTtfbText =>
-        FormatMilliseconds(AverageMilliseconds(Items.Select(item => item.TimeToFirstByte)));
+    private string OverallTtfbText => _overallTtfbText;
 
-    private string OverallAvgText =>
-        FormatMilliseconds(AverageMilliseconds(Items.Select(item => item.Duration)));
+    private string OverallAvgText => _overallAvgText;
 
     private sealed record StatusGroup(
         int StatusCode,
@@ -453,20 +531,185 @@
         string TtfbText,
         string AvgText);
 
-    private IReadOnlyList<StatusGroup> StatusGroups => BuildStatusGroups();
+    private IReadOnlyList<StatusGroup> StatusGroups => _statusGroups;
 
-    private IReadOnlyList<StatusGroup> BuildStatusGroups()
+    private int? SelectedStatusFilter { get; set; }
+
+    private IReadOnlyList<MultiRequestStatusItem> FilteredItems => _filteredItems;
+
+    // Cached aggregates. These are recomputed only when the parent supplies new data
+    // (via OnParametersSet) or the status filter changes, not on every internal render
+    // (hover, tooltip movement, detail open). This keeps high-frequency stat updates
+    // cheap and avoids the O(n^2) MaxDuration lookup that previously ran per rendered row.
+    private double _maxDurationMilliseconds;
+    private int _completedCount;
+    private string _overallTtfbText = "-";
+    private string _overallAvgText = "-";
+    private IReadOnlyList<StatusGroup> _statusGroups = Array.Empty<StatusGroup>();
+    private IReadOnlyList<OutcomeSegment> _outcomeSegments = Array.Empty<OutcomeSegment>();
+    private IReadOnlyList<MultiRequestStatusItem> _filteredItems = Array.Empty<MultiRequestStatusItem>();
+
+    private void RecomputeAggregates()
     {
-        return Items
-            .Where(item => item.StatusCode.HasValue)
-            .GroupBy(item => item.StatusCode!.Value)
-            .OrderBy(group => group.Key)
-            .Select(group => new StatusGroup(
-                group.Key,
-                group.Count(),
-                FormatMilliseconds(AverageMilliseconds(group.Select(item => item.TimeToFirstByte))),
-                FormatMilliseconds(AverageMilliseconds(group.Select(item => item.Duration)))))
+        double maxDuration = 0;
+        var completed = 0;
+        double ttfbSum = 0;
+        var ttfbCount = 0;
+        double durationSum = 0;
+        var durationCount = 0;
+
+        var statusAcc = new Dictionary<int, StatusAccumulator>();
+        var outcomeCounts = new Dictionary<Outcome, int>();
+
+        foreach (var item in Items)
+        {
+            var durationMs = item.Duration?.TotalMilliseconds;
+            if (durationMs is { } d)
+            {
+                if (d > maxDuration)
+                {
+                    maxDuration = d;
+                }
+
+                durationSum += d;
+                durationCount++;
+            }
+
+            var ttfbMs = item.TimeToFirstByte?.TotalMilliseconds;
+            if (ttfbMs is { } t)
+            {
+                ttfbSum += t;
+                ttfbCount++;
+            }
+
+            if (item.IsComplete)
+            {
+                completed++;
+            }
+
+            var outcome = GetOutcome(item);
+            outcomeCounts[outcome] = outcomeCounts.GetValueOrDefault(outcome) + 1;
+
+            if (item.StatusCode is { } code)
+            {
+                var acc = statusAcc.GetValueOrDefault(code);
+                acc.Count++;
+                if (ttfbMs is { } t2)
+                {
+                    acc.TtfbSum += t2;
+                    acc.TtfbCount++;
+                }
+
+                if (durationMs is { } d2)
+                {
+                    acc.DurationSum += d2;
+                    acc.DurationCount++;
+                }
+
+                statusAcc[code] = acc;
+            }
+        }
+
+        _maxDurationMilliseconds = maxDuration;
+        _completedCount = completed;
+        _overallTtfbText = FormatMilliseconds(ttfbCount == 0 ? null : ttfbSum / ttfbCount);
+        _overallAvgText = FormatMilliseconds(durationCount == 0 ? null : durationSum / durationCount);
+
+        _statusGroups = statusAcc
+            .OrderBy(pair => pair.Key)
+            .Select(pair => new StatusGroup(
+                pair.Key,
+                pair.Value.Count,
+                FormatMilliseconds(pair.Value.TtfbCount == 0 ? null : pair.Value.TtfbSum / pair.Value.TtfbCount),
+                FormatMilliseconds(pair.Value.DurationCount == 0 ? null : pair.Value.DurationSum / pair.Value.DurationCount)))
             .ToList();
+
+        var segments = new List<OutcomeSegment>();
+        AddSegment(segments, outcomeCounts, Outcome.Success, "success", "Success");
+        AddSegment(segments, outcomeCounts, Outcome.Transient, "transient", "Transient");
+        AddSegment(segments, outcomeCounts, Outcome.Permanent, "permanent", "Permanent");
+        AddSegment(segments, outcomeCounts, Outcome.Pending, "pending", "Pending");
+        _outcomeSegments = segments;
+
+        RebuildFilteredItems();
+    }
+
+    private void RebuildFilteredItems()
+    {
+        _filteredItems = SelectedStatusFilter is { } code
+            ? Items.Where(item => item.StatusCode == code).ToList()
+            : Items;
+    }
+
+    private struct StatusAccumulator
+    {
+        public int Count;
+        public double TtfbSum;
+        public int TtfbCount;
+        public double DurationSum;
+        public int DurationCount;
+    }
+
+    private enum Outcome
+    {
+        Success,
+        Transient,
+        Permanent,
+        Pending
+    }
+
+    private sealed record OutcomeSegment(string Css, int Count, string Label);
+
+    private IReadOnlyList<OutcomeSegment> OutcomeSegments => _outcomeSegments;
+
+    private static void AddSegment(List<OutcomeSegment> segments, IReadOnlyDictionary<Outcome, int> counts, Outcome outcome, string css, string label)
+    {
+        if (counts.TryGetValue(outcome, out var count) && count > 0)
+        {
+            segments.Add(new OutcomeSegment(css, count, $"{label}: {count}"));
+        }
+    }
+
+    private static Outcome GetOutcome(MultiRequestStatusItem item)
+    {
+        if (item.StatusCode is { } code)
+        {
+            return GetOutcomeForCode(code);
+        }
+
+        return item.IsFailed ? Outcome.Permanent : Outcome.Pending;
+    }
+
+    private static Outcome GetOutcomeForCode(int code)
+    {
+        if (code is >= 200 and < 300)
+        {
+            return Outcome.Success;
+        }
+
+        return IsTransientStatusCode(code) ? Outcome.Transient : Outcome.Permanent;
+    }
+
+    private static bool IsTransientStatusCode(int code) =>
+        code is 408 or 409 or 412 or 425 or 429 or 500 or 502 or 503 or 504;
+
+    private static string GetGroupClass(int statusCode) => GetOutcomeForCode(statusCode) switch
+    {
+        Outcome.Success => "success",
+        Outcome.Transient => "transient",
+        _ => "permanent"
+    };
+
+    private void FilterByStatus(int statusCode)
+    {
+        SelectedStatusFilter = SelectedStatusFilter == statusCode ? null : statusCode;
+        RebuildFilteredItems();
+    }
+
+    private void ClearStatusFilter()
+    {
+        SelectedStatusFilter = null;
+        RebuildFilteredItems();
     }
 
     private static double? AverageMilliseconds(IEnumerable<TimeSpan?> values)
@@ -486,6 +729,8 @@
 
     protected override void OnParametersSet()
     {
+        RecomputeAggregates();
+
         if (HoveredItem is not null && !Items.Contains(HoveredItem))
         {
             HoveredItem = null;

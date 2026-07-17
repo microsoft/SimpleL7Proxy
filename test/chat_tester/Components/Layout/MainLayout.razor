@@ -1,5 +1,6 @@
 ﻿@namespace chat_tester.Components.Layout
 @inherits LayoutComponentBase
+@inject chat_tester.Components.Shared.UserPreferencesService Preferences
 
 <div class="page">
     <div class="sidebar">
@@ -27,3 +28,13 @@
     <a href="." class="reload">Reload</a>
     <span class="dismiss">🗙</span>
 </div>
+
+@code {
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && await Preferences.LoadAsync())
+        {
+            StateHasChanged();
+        }
+    }
+}

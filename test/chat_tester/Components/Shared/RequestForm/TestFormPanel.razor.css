@@ -14,9 +14,16 @@
     border-color: #fff #fff #fff;
 }
 
+.request-card:not(.panel-minimized):not(.fs-overlay) {
+    max-height: calc(100vh - 8rem);
+    display: flex;
+    flex-direction: column;
+}
+
 .request-card:not(.panel-minimized) .card-body {
     display: flex;
     flex-direction: column;
+    flex: 1 1 auto;
     min-height: 0;
     overflow: hidden;
 }
@@ -26,6 +33,7 @@
     flex: 1 1 auto;
     flex-direction: column;
     min-height: 0;
+    overflow: hidden;
 }
 
 .request-form-content {
@@ -36,6 +44,9 @@
 
 .request-form-actions {
     flex: 0 0 auto;
-    padding-top: 1rem;
-    background: #fff;
+    margin: 0 -1rem -1rem;
+    padding: 0.65rem 1rem;
+    border-top: 1px solid #dde1e6;
+    border-bottom-left-radius: var(--bs-card-border-radius, 0.375rem);
+    border-bottom-right-radius: var(--bs-card-border-radius, 0.375rem);
 }

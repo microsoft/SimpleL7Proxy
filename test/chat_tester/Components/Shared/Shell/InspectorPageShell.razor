@@ -7,34 +7,53 @@
             <h1 class="h4 mb-0">@Title</h1>
             <span class="text-muted small mb-0">@Tagline</span>
         </div>
+        @if (!string.IsNullOrWhiteSpace(MetadataLine1) || !string.IsNullOrWhiteSpace(MetadataLine2))
+        {
+            <div class="inspector-page-meta">
+                @if (!string.IsNullOrWhiteSpace(MetadataLine1))
+                {
+                    <span class="text-muted small mb-0">@MetadataLine1</span>
+                }
+                @if (!string.IsNullOrWhiteSpace(MetadataLine2))
+                {
+                    <span class="text-muted small mb-0">@MetadataLine2</span>
+                }
+            </div>
+        }
     </div>
 </SectionContent>
 
-<div class="inspector-page-shell">
-    <div class="inspector-page-controls">
-        <div class="inspector-page-control-row">
-            <HistoryTopBarSelector Entries="HistoryEntries"
-                                   SelectedEntryId="@SelectedHistoryEntryId"
-                                   SourceFilter="@HistorySource" />
-            <div class="inspector-collapse-controls">
-                <div class="inspector-panel-toggles" aria-label="Visible panels">
-                    <label class="form-check form-check-inline mb-0">
-                        <input class="form-check-input" type="checkbox" checked="@ShowRequestPanel" @onchange="RequestPanelVisibleChanged" />
-                        <span class="form-check-label">Request</span>
-                    </label>
-                    <label class="form-check form-check-inline mb-0">
-                        <input class="form-check-input" type="checkbox" checked="@ShowResultPanel" @onchange="ResultPanelVisibleChanged" />
-                        <span class="form-check-label">@ResultLabel</span>
-                    </label>
-                    <label class="form-check form-check-inline mb-0">
-                        <input class="form-check-input" type="checkbox" checked="@ShowRawPanel" @onchange="RawPanelVisibleChanged" />
-                        <span class="form-check-label">Raw</span>
-                    </label>
-                </div>
-                <AutoCollapseToggle Value="@AutoCollapse" ValueChanged="AutoCollapseChanged" />
+<div class="inspector-page-shell @(HideControls ? "inspector-page-shell-no-controls" : string.Empty)">
+    @if (!HideControls)
+    {
+        <div class="inspector-page-controls">
+            <div class="inspector-page-control-row">
+                @if (ShowEventHubFilters)
+                {
+                    <EventHubTopFilters EnvironmentOptions="@EnvironmentFilterOptions"
+                                        SelectedEnvironment="@SelectedEnvironment"
+                                        SelectedEnvironmentChanged="SelectedEnvironmentChanged"
+                                        ShowUserFilter="@ShowUserFilter"
+                                        UserOptions="@UserFilterOptions"
+                                        SelectedUser="@SelectedUser"
+                                        SelectedUserChanged="SelectedUserChanged"
+                                        ShowModelFilter="@ShowModelFilter"
+                                        ModelOptions="@ModelFilterOptions"
+                                        SelectedModel="@SelectedModel"
+                                        SelectedModelChanged="SelectedModelChanged" />
+                }
+                else
+                {
+                    <HistoryTopBarSelector Entries="HistoryEntries"
+                                           SelectedEntryId="@SelectedHistoryEntryId"
+                                           SourceFilter="@HistorySource" />
+                    <div class="inspector-collapse-controls">
+                        <AutoCollapseToggle Value="@AutoCollapse" ValueChanged="AutoCollapseChanged" />
+                    </div>
+                }
             </div>
         </div>
-    </div>
+    }
 
     <div class="inspector-page-content">
         @ChildContent
@@ -47,6 +66,12 @@
 
     [Parameter]
     public string Tagline { get; set; } = string.Empty;
+
+    [Parameter]
+    public string MetadataLine1 { get; set; } = string.Empty;
+
+    [Parameter]
+    public string MetadataLine2 { get; set; } = string.Empty;
 
     [Parameter]
     public IReadOnlyList<ChatHistoryEntry> HistoryEntries { get; set; } = Array.Empty<ChatHistoryEntry>();
@@ -86,4 +111,43 @@
 
     [Parameter]
     public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public bool HideControls { get; set; }
+
+    [Parameter]
+    public bool ShowEventHubFilters { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<string> EnvironmentFilterOptions { get; set; } = Array.Empty<string>();
+
+    [Parameter]
+    public string SelectedEnvironment { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> SelectedEnvironmentChanged { get; set; }
+
+    [Parameter]
+    public bool ShowUserFilter { get; set; } = true;
+
+    [Parameter]
+    public IReadOnlyList<string> UserFilterOptions { get; set; } = Array.Empty<string>();
+
+    [Parameter]
+    public string SelectedUser { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> SelectedUserChanged { get; set; }
+
+    [Parameter]
+    public bool ShowModelFilter { get; set; } = true;
+
+    [Parameter]
+    public IReadOnlyList<string> ModelFilterOptions { get; set; } = Array.Empty<string>();
+
+    [Parameter]
+    public string SelectedModel { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> SelectedModelChanged { get; set; }
 }

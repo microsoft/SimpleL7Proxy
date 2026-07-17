@@ -1,7 +1,4 @@
 using System.Text.Json;
-using Azure.Identity;
-using Azure.Storage.Blobs;
-using Microsoft.Azure.Cosmos;
 
 namespace chat_tester.Components.Shared;
 
@@ -20,19 +17,28 @@ public sealed class ChatHistoryStore
 
     private readonly IWebHostEnvironment _environment;
     private readonly HistorySettings _historySettings;
+    private readonly AuthTokenSettings _authSettings;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly List<ChatHistoryEntry> _entries = new();
     private ChatHistoryEntry[] _snapshot = [];
 
     private HistoryStorageSettings _settings = new();
-    private CosmosClient? _cosmosClient;
-    private string _cosmosAccount = string.Empty;
+    private readonly DocumentStorageRepository<ChatHistoryEntry> _repository;
 
-    public ChatHistoryStore(IWebHostEnvironment environment, HistorySettings historySettings)
+    public ChatHistoryStore(IWebHostEnvironment environment, HistorySettings historySettings, AuthTokenSettings authSettings)
     {
         _environment = environment;
         _historySettings = historySettings;
+        _authSettings = authSettings;
         _settings = NormalizeSettings(historySettings.Current);
+        _repository = new DocumentStorageRepository<ChatHistoryEntry>(
+            JsonOptions,
+            environment.ContentRootPath,
+            nameof(ChatHistoryEntry),
+            Path.Combine(DefaultDataDirectoryName, DefaultHistoryDirectoryName),
+            BuildHistoryPath,
+            diskFileSkip: name => string.Equals(name, LegacyHistoryFileName, StringComparison.OrdinalIgnoreCase),
+            diskLegacyLoader: LoadLegacyHistoryFromDiskAsync);
     }
 
     public int Count => _snapshot.Length;
@@ -104,7 +110,14 @@ public sealed class ChatHistoryStore
     }
 
     public Task<ChatHistoryEntry> AddRequest(RequestHistoryEntry request) =>
-        AddCoreAsync(ChatHistoryEntry.FromRequest(request));
+        AddCoreAsync(ChatHistoryEntry.FromRequest(RedactSensitiveHeaders(request)));
+
+    private RequestHistoryEntry RedactSensitiveHeaders(RequestHistoryEntry request)
+    {
+        request.RequestHeadersText = ChatTesterHttp.RedactSensitiveHeaders(request.RequestHeadersText, _authSettings.HeaderName);
+        request.ResponseHeadersText = ChatTesterHttp.RedactSensitiveHeaders(request.ResponseHeadersText, _authSettings.HeaderName);
+        return request;
+    }
 
     private async Task<ChatHistoryEntry> AddCoreAsync(ChatHistoryEntry entry)
     {
@@ -117,7 +130,7 @@ public sealed class ChatHistoryStore
             RefreshSnapshot();
             try
             {
-                await SaveEntryCoreAsync(_settings, entry);
+                await _repository.SaveAsync(_settings, entry);
                 LastStorageError = string.Empty;
             }
             catch (Exception ex)
@@ -148,7 +161,7 @@ public sealed class ChatHistoryStore
                 return false;
             }
 
-            await DeleteEntryCoreAsync(_settings, entry);
+            await _repository.DeleteAsync(_settings, entry);
             _entries.Remove(entry);
             RefreshSnapshot();
             return true;
@@ -163,12 +176,7 @@ public sealed class ChatHistoryStore
     {
         try
         {
-            return settings.Mode switch
-            {
-                HistoryStorageMode.BlobStorage => await LoadFromBlobStorageAsync(settings),
-                HistoryStorageMode.CosmosDb => await LoadFromCosmosAsync(settings),
-                _ => await LoadFromDiskAsync(settings)
-            };
+            return NormalizeEntries(await _repository.LoadAsync(settings));
         }
         catch (Exception ex)
         {
@@ -177,29 +185,21 @@ public sealed class ChatHistoryStore
         }
     }
 
-    private async Task<IReadOnlyList<ChatHistoryEntry>> LoadFromDiskAsync(HistoryStorageSettings settings)
+    private async Task<IReadOnlyList<ChatHistoryEntry>> LoadLegacyHistoryFromDiskAsync(string directory)
     {
         var entries = new List<ChatHistoryEntry>();
-        var directory = ResolveDiskDirectory(settings.DiskPath);
-        Directory.CreateDirectory(directory);
 
         foreach (var file in Directory.EnumerateFiles(directory, "*.json", SearchOption.AllDirectories))
         {
-            if (string.Equals(Path.GetFileName(file), LegacyHistoryFileName, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(Path.GetFileName(file), LegacyHistoryFileName, StringComparison.OrdinalIgnoreCase))
             {
-                var legacyEntries = JsonSerializer.Deserialize<List<ChatHistoryEntry>>(await File.ReadAllTextAsync(file), JsonOptions);
-                if (legacyEntries is not null)
-                {
-                    entries.AddRange(legacyEntries);
-                }
-
                 continue;
             }
 
-            var entry = JsonSerializer.Deserialize<ChatHistoryEntry>(await File.ReadAllTextAsync(file), JsonOptions);
-            if (entry is not null)
+            var legacyEntries = JsonSerializer.Deserialize<List<ChatHistoryEntry>>(await File.ReadAllTextAsync(file), JsonOptions);
+            if (legacyEntries is not null)
             {
-                entries.Add(entry);
+                entries.AddRange(legacyEntries);
             }
         }
 
@@ -213,190 +213,15 @@ public sealed class ChatHistoryStore
             }
         }
 
-        return NormalizeEntries(entries);
+        return entries;
     }
 
-    private async Task<IReadOnlyList<ChatHistoryEntry>> LoadFromBlobStorageAsync(HistoryStorageSettings settings)
-    {
-        if (string.IsNullOrWhiteSpace(settings.StorageAccountName) || string.IsNullOrWhiteSpace(settings.BlobContainerName))
-        {
-            return Array.Empty<ChatHistoryEntry>();
-        }
-
-        var entries = new List<ChatHistoryEntry>();
-        var container = CreateBlobContainerClient(settings);
-        await container.CreateIfNotExistsAsync();
-        await foreach (var blobItem in container.GetBlobsAsync())
-        {
-            if (!blobItem.Name.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var blob = container.GetBlobClient(blobItem.Name);
-            var response = await blob.DownloadContentAsync();
-            var entry = response.Value.Content.ToObjectFromJson<ChatHistoryEntry>(JsonOptions);
-            if (entry is not null)
-            {
-                entries.Add(entry);
-            }
-        }
-
-        return NormalizeEntries(entries);
-    }
-
-    private async Task<IReadOnlyList<ChatHistoryEntry>> LoadFromCosmosAsync(HistoryStorageSettings settings)
-    {
-        if (string.IsNullOrWhiteSpace(settings.CosmosAccount) || string.IsNullOrWhiteSpace(settings.CosmosDatabase) || string.IsNullOrWhiteSpace(settings.CosmosContainer))
-        {
-            return Array.Empty<ChatHistoryEntry>();
-        }
-
-        var container = await GetCosmosContainerAsync(settings);
-        var entries = new List<ChatHistoryEntry>();
-        using var iterator = container.GetItemQueryIterator<ChatHistoryEntry>(
-            new QueryDefinition("SELECT * FROM c WHERE c.documentType = @documentType ORDER BY c.createdAt")
-                .WithParameter("@documentType", nameof(ChatHistoryEntry)));
-
-        while (iterator.HasMoreResults)
-        {
-            foreach (var entry in await iterator.ReadNextAsync())
-            {
-                entries.Add(entry);
-            }
-        }
-
-        return NormalizeEntries(entries);
-    }
-
-    private async Task SaveEntryCoreAsync(HistoryStorageSettings settings, ChatHistoryEntry entry)
-    {
-        switch (settings.Mode)
-        {
-            case HistoryStorageMode.BlobStorage:
-                await SaveToBlobStorageAsync(settings, entry);
-                break;
-            case HistoryStorageMode.CosmosDb:
-                await SaveToCosmosAsync(settings, entry);
-                break;
-            default:
-                await SaveToDiskAsync(settings, entry);
-                break;
-        }
-    }
-
-    private async Task SaveToDiskAsync(HistoryStorageSettings settings, ChatHistoryEntry entry)
-    {
-        var path = Path.Combine(ResolveDiskDirectory(settings.DiskPath), BuildHistoryPath(entry));
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        await using var stream = File.Create(path);
-        await JsonSerializer.SerializeAsync(stream, entry, JsonOptions);
-    }
-
-    private async Task SaveToBlobStorageAsync(HistoryStorageSettings settings, ChatHistoryEntry entry)
-    {
-        if (string.IsNullOrWhiteSpace(settings.StorageAccountName) || string.IsNullOrWhiteSpace(settings.BlobContainerName))
-        {
-            return;
-        }
-
-        var container = CreateBlobContainerClient(settings);
-        await container.CreateIfNotExistsAsync();
-        var blob = container.GetBlobClient(BuildHistoryPath(entry).Replace(Path.DirectorySeparatorChar, '/'));
-        await using var stream = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(entry, JsonOptions));
-        await blob.UploadAsync(stream, overwrite: true);
-    }
-
-    private async Task SaveToCosmosAsync(HistoryStorageSettings settings, ChatHistoryEntry entry)
-    {
-        if (string.IsNullOrWhiteSpace(settings.CosmosAccount) || string.IsNullOrWhiteSpace(settings.CosmosDatabase) || string.IsNullOrWhiteSpace(settings.CosmosContainer))
-        {
-            return;
-        }
-
-        var container = await GetCosmosContainerAsync(settings);
-        await container.UpsertItemAsync(entry, new PartitionKey(entry.PartitionKey));
-    }
-
-    private async Task DeleteEntryCoreAsync(HistoryStorageSettings settings, ChatHistoryEntry entry)
-    {
-        switch (settings.Mode)
-        {
-            case HistoryStorageMode.BlobStorage:
-                if (!string.IsNullOrWhiteSpace(settings.StorageAccountName) && !string.IsNullOrWhiteSpace(settings.BlobContainerName))
-                {
-                    var container = CreateBlobContainerClient(settings);
-                    await container.GetBlobClient(BuildHistoryPath(entry).Replace(Path.DirectorySeparatorChar, '/')).DeleteIfExistsAsync();
-                }
-                break;
-            case HistoryStorageMode.CosmosDb:
-                if (!string.IsNullOrWhiteSpace(settings.CosmosAccount) && !string.IsNullOrWhiteSpace(settings.CosmosDatabase) && !string.IsNullOrWhiteSpace(settings.CosmosContainer))
-                {
-                    var container = await GetCosmosContainerAsync(settings);
-                    await container.DeleteItemAsync<ChatHistoryEntry>(entry.Id, new PartitionKey(entry.PartitionKey));
-                }
-                break;
-            default:
-                var directory = ResolveDiskDirectory(settings.DiskPath);
-                foreach (var file in Directory.EnumerateFiles(directory, $"{entry.Id}.json", SearchOption.AllDirectories))
-                {
-                    File.Delete(file);
-                }
-                break;
-        }
-    }
-
-    private async Task<Container> GetCosmosContainerAsync(HistoryStorageSettings settings)
-    {
-        var endpoint = BuildCosmosEndpoint(settings.CosmosAccount);
-        if (_cosmosClient is null || !string.Equals(_cosmosAccount, endpoint, StringComparison.OrdinalIgnoreCase))
-        {
-            _cosmosClient?.Dispose();
-            _cosmosClient = new CosmosClient(endpoint, new DefaultAzureCredential(), new CosmosClientOptions
-            {
-                ConnectionMode = ConnectionMode.Direct
-            });
-            _cosmosAccount = endpoint;
-        }
-
-        var database = await _cosmosClient.CreateDatabaseIfNotExistsAsync(settings.CosmosDatabase);
-        var container = await database.Database.CreateContainerIfNotExistsAsync(settings.CosmosContainer, "/partitionKey");
-        return container.Container;
-    }
-
-    private static BlobContainerClient CreateBlobContainerClient(HistoryStorageSettings settings)
-    {
-        var accountName = settings.StorageAccountName.Trim();
-        var containerName = settings.BlobContainerName.Trim();
-        var containerUri = new Uri($"https://{accountName}.blob.core.windows.net/{containerName}");
-        return new BlobContainerClient(containerUri, new DefaultAzureCredential());
-    }
-
-    private string ResolveDiskDirectory(string diskPath)
-    {
-        var configuredPath = string.IsNullOrWhiteSpace(diskPath)
-            ? Path.Combine(DefaultDataDirectoryName, DefaultHistoryDirectoryName)
-            : diskPath;
-
-        return Path.IsPathRooted(configuredPath)
-            ? configuredPath
-            : Path.Combine(_environment.ContentRootPath, configuredPath);
-    }
+    private string ResolveDiskDirectory(string diskPath) => _repository.ResolveDiskDirectory(diskPath);
 
     private static string BuildHistoryPath(ChatHistoryEntry entry)
     {
         var local = entry.CreatedAt.LocalDateTime;
         return Path.Combine(local.ToString("yyyy-MM"), local.ToString("dd"), $"{entry.Id}.json");
-    }
-
-    private static string BuildCosmosEndpoint(string account)
-    {
-        if (account.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || account.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-        {
-            return account;
-        }
-
-        return $"https://{account}.documents.azure.com:443/";
     }
 
     private static void PrepareEntry(ChatHistoryEntry entry)
@@ -489,7 +314,7 @@ public sealed class ChatHistoryStore
     };
 }
 
-public sealed class ChatHistoryEntry
+public sealed class ChatHistoryEntry : IStorageDocument
 {
     public string Id { get; set; } = string.Empty;
 

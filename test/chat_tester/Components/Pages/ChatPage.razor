@@ -23,7 +23,7 @@
     </div>
 </SectionContent>
 
-<div class="row g-4 multi-step-layout">
+<div class="row g-4 chat-workspace">
     <div class="col-12 request-col">
         <TestFormPanel @ref="FormPanel"
                       Settings="AuthSettings"
@@ -50,114 +50,174 @@
         </TestFormPanel>
     </div>
 
-    <div class="col-12 chat-col">
-        <div class="card shadow-sm multi-chat-card h-100">
-            <div class="card-header bg-primary text-white d-flex flex-wrap align-items-baseline gap-2">
-                <span class="fw-semibold">Chat</span>
-                <span class="text-white-50 small">@StatusMessage</span>
-                <div class="conversation-toolbar ms-auto">
-                    <select class="form-select form-select-sm conversation-select" value="@SelectedConversationId" @onchange="OnConversationChangedAsync" disabled="@IsRunning" title="Recall a previous conversation">
-                        <option value="">New conversation</option>
-                        @foreach (var conversation in ConversationChoices)
-                        {
-                            <option value="@conversation.Id">@FormatConversationOption(conversation)</option>
-                        }
-                    </select>
-                    <button class="btn btn-sm btn-light" type="button" disabled="@IsRunning" @onclick="StartNewConversation">New</button>
-                    <button class="btn btn-sm btn-light" type="button" disabled="@(IsRunning || Conversation.Count == 0)" @onclick="ClearConversation">Clear</button>
-                </div>
-            </div>
-            <div class="card-body p-0">
-                <div class="conversation-scroll" @ref="ConversationRef">
-                    <div class="conversation-content">
-                        @if (Conversation.Count == 0 && !IsRunning)
-                        {
-                            <div class="empty-conversation text-muted">No turns yet.</div>
-                        }
-                        else
-                        {
-                            @foreach (var turn in Conversation)
+    <div class="col-12 response-col">
+        <div class="response-stack">
+            <div class="card shadow-sm chat-response-card h-100">
+                <div class="card-header bg-primary text-white d-flex flex-wrap align-items-baseline gap-2">
+                    <span class="fw-semibold">Chat</span>
+                    <span class="text-white-50 small">@StatusMessage</span>
+                    <div class="conversation-toolbar ms-auto">
+                        <select class="form-select form-select-sm conversation-select" value="@SelectedConversationId" @onchange="OnConversationChangedAsync" disabled="@IsRunning" title="Recall a previous conversation">
+                            <option value="">New conversation</option>
+                            @foreach (var conversation in ConversationChoices)
                             {
-                                <div class="turn-group">
-                                    <ChatBubble Role="User" Message="@turn.UserMessage" />
-                                    <ChatBubble Role="Assistant"
-                                                 Message="@turn.AssistantMessage"
-                                                 Status="@turn.Status"
-                                                 Metrics="@turn.Metrics"
-                                                 RequestHeadersText="@turn.RequestHeadersText"
-                                                 ResponseHeadersText="@turn.ResponseHeadersText"
-                                                 RawResponseText="@turn.RawResponseText" />
-                                </div>
+                                <option value="@conversation.Id">@FormatConversationOption(conversation)</option>
                             }
-
-                            @if (PendingTurn is not null)
-                            {
-                                <div class="turn-group active-turn">
-                                    <ChatBubble Role="User" Message="@PendingTurn.UserMessage" />
-                                    <ChatBubble Role="Assistant" Message="@PendingTurn.AssistantMessage" Status="Streaming" />
-                                </div>
-                            }
-                        }
+                        </select>
+                        <button class="btn btn-sm btn-light" type="button" disabled="@IsRunning" @onclick="StartNewConversation">New</button>
+                        <button class="btn btn-sm btn-light" type="button" disabled="@(IsRunning || Conversation.Count == 0)" @onclick="ClearConversation">Clear</button>
                     </div>
                 </div>
-            </div>
-            <div class="card-footer chat-composer">
-                <label class="form-label small text-muted" for="multiStepChatInput">Message</label>
-                <div class="chat-composer-row">
-                    <textarea class="form-control" id="multiStepChatInput" rows="3" placeholder="Type the next message..." @ref="ChatInputRef" @bind="ChatInput" @bind:event="oninput"></textarea>
-                    <button class="btn btn-primary composer-send" type="button" disabled="@(!CanSend)" @onclick="SendNextTurnAsync">
-                        @(IsRunning ? "Sending..." : "Send")
-                    </button>
+                <div class="card-body p-0 chat-response-body">
+                    <div class="conversation-scroll" @ref="ConversationRef">
+                        <div class="conversation-content">
+                            @if (Conversation.Count == 0 && !IsRunning)
+                            {
+                                <div class="empty-conversation text-muted">No turns yet.</div>
+                            }
+                            else
+                            {
+                                @foreach (var turn in Conversation)
+                                {
+                                    <div class="turn-group">
+                                        <ChatBubble Role="User" Message="@turn.UserMessage" />
+                                        <ChatBubble Role="Assistant"
+                                                     Message="@turn.AssistantMessage"
+                                                     Status="@turn.Status"
+                                                     Metrics="@turn.Metrics"
+                                                     RequestHeadersText="@turn.RequestHeadersText"
+                                                     ResponseHeadersText="@turn.ResponseHeadersText"
+                                                     RawResponseText="@turn.RawResponseText"
+                                                     ShowRawExchangeAction="@(!string.IsNullOrWhiteSpace(turn.RawResponseText))"
+                                                     RawExchangeRequested="@(() => OpenRawExchangeAsync(turn))" />
+                                    </div>
+                                }
+
+                                @if (PendingTurn is not null)
+                                {
+                                    <div class="turn-group active-turn">
+                                        <ChatBubble Role="User" Message="@PendingTurn.UserMessage" />
+                                        <ChatBubble Role="Assistant" Message="@PendingTurn.AssistantMessage" Status="Streaming" />
+                                    </div>
+                                }
+                            }
+                        </div>
+                    </div>
+                </div>
+                <div class="card-footer chat-composer">
+                    <label class="form-label small text-muted" for="multiStepChatInput">Message</label>
+                    <div class="chat-composer-row">
+                        <textarea class="form-control" id="multiStepChatInput" rows="3" placeholder="Type the next message..." @ref="ChatInputRef" @bind="ChatInput" @bind:event="oninput"></textarea>
+                        <button class="btn btn-primary composer-send" type="button" disabled="@(!CanSend)" @onclick="SendNextTurnAsync">
+                            @(IsRunning ? "Sending..." : "Send")
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 </div>
 
+@if (IsRawExchangeModalOpen)
+{
+    <div class="chat-raw-exchange-backdrop" @onclick="CloseRawExchangeModal"></div>
+    <div class="chat-raw-exchange-dialog" role="dialog" aria-modal="true" aria-labelledby="chatRawExchangeTitle" @onclick:stopPropagation="true">
+        <div class="card shadow-lg chat-raw-exchange-shell">
+            <div class="card-header d-flex align-items-center gap-3">
+                <h2 class="h6 mb-0" id="chatRawExchangeTitle">Raw exchange</h2>
+                <button class="btn-close ms-auto" type="button" aria-label="Close raw exchange" @onclick="CloseRawExchangeModal"></button>
+            </div>
+            <div class="card-body">
+                <RawResponsePanel Title="Raw exchange"
+                                  StatusMessage="@RawExchangeStatusMessage"
+                                  ActiveTab="@ActiveRawExchangeTab"
+                                  ActiveTabChanged="SetActiveRawExchangeTabAsync"
+                                  DisplayState="@PanelDisplayState.Expanded"
+                                  DisplayStateChanged="SetRawExchangeDisplayStateAsync"
+                                  RequestHeadersText="@RawExchangeRequestHeadersText"
+                                  ResponseHeadersText="@RawExchangeResponseHeadersText"
+                                  RequestBodyDisplay="@RawExchangeRequestBodyDisplay"
+                                  ObservedResponse="@RawExchangeObservedResponse"
+                                  DisplayResponse="@RawExchangeDisplayResponse"
+                                  ShowDisplayToggle="false">
+                </RawResponsePanel>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     body {
         overflow: hidden;
     }
 
-    article.content {
-        height: calc(100dvh - 3.5rem);
+    main {
+        display: flex;
+        flex-direction: column;
+        height: 100dvh;
         min-height: 0;
+        overflow: hidden;
+    }
+
+    article.content {
+        flex: 1 1 auto;
+        min-height: 0;
+        padding-bottom: 0.5rem;
         display: flex;
         flex-direction: column;
         overflow: hidden;
     }
 
-    .multi-step-layout {
+    .chat-workspace {
         flex: 1 1 auto;
         height: auto;
         max-height: none;
         min-height: 0;
         overflow: hidden;
         align-items: stretch;
+        margin-left: 0;
+        margin-right: 0;
     }
 
-    .multi-step-layout > .request-col,
-    .multi-step-layout > .chat-col {
+    .chat-workspace > .request-col,
+    .chat-workspace > .response-col {
         height: 100%;
         min-height: 0;
         display: flex;
         flex-direction: column;
     }
 
-    .multi-step-layout > .request-col > .card,
-    .multi-step-layout > .chat-col > .card {
+    .chat-workspace > .request-col {
+        min-height: 0;
+    }
+
+    .chat-workspace > .response-col {
+        min-height: 0;
+    }
+
+    .chat-workspace > .request-col > .card,
+    .chat-workspace > .response-col > .card {
         width: 100%;
         height: 100%;
         max-height: 100%;
         min-height: 0;
     }
 
-    .multi-step-layout > .request-col > .card > .card-body {
+    .chat-workspace > .request-col > .card > .card-body {
         min-height: 0;
         overflow-y: auto;
     }
 
-    .multi-chat-card {
+    .response-stack {
+        display: flex;
+        flex-direction: column;
+        flex: 1 1 auto;
+        min-height: 0;
+        height: 100%;
+        overflow: visible;
+    }
+
+    .chat-response-card {
         display: flex;
         height: 100%;
         max-height: 100%;
@@ -166,10 +226,24 @@
         flex-direction: column;
     }
 
-    .multi-chat-card .card-body {
+    .chat-response-body {
+        display: flex;
+        flex-direction: column;
         min-height: 0;
         flex: 1 1 auto;
         overflow: hidden;
+    }
+
+    .chat-response-body > .conversation-scroll {
+        flex: 1 1 auto;
+        min-height: 0;
+        height: 100%;
+    }
+
+    .chat-workspace > .request-col > .request-card,
+    .chat-workspace > .response-col > .chat-response-card {
+        height: 100%;
+        min-height: 0;
     }
 
     .conversation-toolbar {
@@ -241,12 +315,71 @@
         min-width: 5.75rem;
     }
 
+    .chat-raw-exchange-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1090;
+        background: rgba(0, 0, 0, 0.55);
+    }
+
+    .chat-raw-exchange-dialog {
+        position: fixed;
+        inset: 2rem;
+        z-index: 1091;
+        display: flex;
+        align-items: stretch;
+        justify-content: center;
+        pointer-events: none;
+    }
+
+    .chat-raw-exchange-shell {
+        width: min(72rem, 100%);
+        height: 100%;
+        pointer-events: auto;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .chat-raw-exchange-shell > .card-body {
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+        padding: 0.75rem;
+    }
+
+    .chat-raw-exchange-shell .raw-card {
+        display: flex;
+        flex-direction: column;
+        height: calc(100% - 0.5rem);
+        margin-top: 0 !important;
+        min-height: 0;
+    }
+
+    .chat-raw-exchange-shell .raw-card .card-body {
+        display: flex;
+        flex-direction: column;
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden;
+        padding-bottom: 0;
+    }
+
+    .chat-raw-exchange-shell .raw-card .card-body > div {
+        flex: 1 1 auto;
+        min-height: 0;
+        max-height: none !important;
+        height: 100%;
+        overflow-y: auto;
+    }
+
     @@media (max-width: 575.98px) {
         body {
             overflow: auto;
         }
 
-        .multi-step-layout {
+        .chat-workspace {
             height: auto;
             max-height: none;
             min-height: calc(100vh - 7.25rem);
@@ -274,17 +407,27 @@
         .composer-send {
             width: 100%;
         }
+
+        .chat-raw-exchange-dialog {
+            inset: 0.75rem;
+        }
     }
 
     @@media (min-width: 992px) {
-        .multi-step-layout .request-col {
-            flex: 0 0 40%;
-            max-width: 40%;
+        .chat-workspace {
+            --chat-panel-height: calc(100dvh - 8.75rem);
         }
 
-        .multi-step-layout .chat-col {
+        .chat-workspace .request-col {
+            flex: 0 0 40%;
+            max-width: 40%;
+            height: var(--chat-panel-height);
+        }
+
+        .chat-workspace .response-col {
             flex: 0 0 60%;
             max-width: 60%;
+            height: var(--chat-panel-height);
         }
     }
 </style>
@@ -318,6 +461,14 @@
     private bool IsRunning { get; set; }
     private string StatusMessage { get; set; } = "Ready.";
     private string ChatInput { get; set; } = "tell me a joke";
+    private bool IsRawExchangeModalOpen { get; set; }
+    private string ActiveRawExchangeTab { get; set; } = "response-body";
+    private string RawExchangeStatusMessage { get; set; } = string.Empty;
+    private string RawExchangeRequestHeadersText { get; set; } = "No request headers.";
+    private string RawExchangeResponseHeadersText { get; set; } = "No response headers.";
+    private string RawExchangeRequestBodyDisplay { get; set; } = "No request body captured for this turn.";
+    private string RawExchangeObservedResponse { get; set; } = "No response yet.";
+    private string RawExchangeDisplayResponse { get; set; } = string.Empty;
     private DotNetObjectReference<ChatPage>? SelfReference { get; set; }
     private bool CanSend => !IsRunning && !string.IsNullOrWhiteSpace(ChatInput);
 
@@ -414,12 +565,20 @@
             metrics.ContentType = response.Content.Headers.ContentType?.ToString() ?? "-";
             responseHeadersText = ChatTesterHttp.SummarizeResponseHeaders(response);
             StatusMessage = $"Receiving {(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
+            if (PendingTurn is not null)
+            {
+                PendingTurn.AssistantMessage = $"Received {(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}...".Trim();
+            }
+
+            await InvokeAsync(StateHasChanged);
             var responseBody = await ReadAssistantResponseAsync(response, metrics);
             assistantText = responseBody.DisplayText;
             rawResponseText = responseBody.RawText;
             if (string.IsNullOrWhiteSpace(assistantText))
             {
-                assistantText = "The server returned an empty response body.";
+                assistantText = response.IsSuccessStatusCode
+                    ? "The server returned an empty response body."
+                    : $"Request failed with {(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}.".Trim();
             }
 
             finalStatus = $"{(int)response.StatusCode} {response.ReasonPhrase ?? string.Empty}".Trim();
@@ -506,19 +665,25 @@
 
     private async Task<(string DisplayText, string RawText)> ReadAssistantResponseAsync(HttpResponseMessage response, MultiStepChatMetrics metrics)
     {
+        var contentType = response.Content.Headers.ContentType?.ToString() ?? string.Empty;
+        if (!contentType.Contains("event-stream", StringComparison.OrdinalIgnoreCase))
+        {
+            // Non-streaming responses (including auth failures such as 401/403) are buffered so the
+            // reader cannot block waiting for stream data that will never arrive on a kept-alive connection.
+            var body = await response.Content.ReadAsStringAsync();
+            metrics.Chunks = string.IsNullOrEmpty(body) ? 0 : 1;
+            metrics.TotalBytes = Encoding.UTF8.GetByteCount(body);
+            var displayText = ChatStreamParser.ExtractDisplayContent(body);
+            return (string.IsNullOrWhiteSpace(displayText) ? body.Trim() : displayText, body);
+        }
+
         var rawBuilder = new StringBuilder();
         var assistantBuilder = new StringBuilder();
         using var stream = await response.Content.ReadAsStreamAsync();
         using var reader = new StreamReader(stream);
 
-        while (!reader.EndOfStream)
+        while (await reader.ReadLineAsync() is { } line)
         {
-            var line = await reader.ReadLineAsync();
-            if (line is null)
-            {
-                break;
-            }
-
             metrics.Chunks++;
             metrics.TotalBytes += Encoding.UTF8.GetByteCount(line) + 1;
             rawBuilder.AppendLine(line);
@@ -634,6 +799,34 @@
     {
         StartNewConversation();
     }
+
+    private Task OpenRawExchangeAsync(MultiStepChatTurn turn)
+    {
+        RawExchangeStatusMessage = turn.Status;
+        RawExchangeRequestHeadersText = string.IsNullOrWhiteSpace(turn.RequestHeadersText)
+            ? "No request headers."
+            : turn.RequestHeadersText;
+        RawExchangeResponseHeadersText = string.IsNullOrWhiteSpace(turn.ResponseHeadersText)
+            ? "No response headers."
+            : turn.ResponseHeadersText;
+        RawExchangeObservedResponse = string.IsNullOrWhiteSpace(turn.RawResponseText)
+            ? "No response yet."
+            : turn.RawResponseText;
+        RawExchangeDisplayResponse = turn.AssistantMessage;
+        ActiveRawExchangeTab = "response-body";
+        IsRawExchangeModalOpen = true;
+        return Task.CompletedTask;
+    }
+
+    private void CloseRawExchangeModal() => IsRawExchangeModalOpen = false;
+
+    private Task SetActiveRawExchangeTabAsync(string tab)
+    {
+        ActiveRawExchangeTab = tab;
+        return Task.CompletedTask;
+    }
+
+    private Task SetRawExchangeDisplayStateAsync(PanelDisplayState state) => Task.CompletedTask;
 
     private string EnsureConversationId()
     {

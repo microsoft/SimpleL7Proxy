@@ -56,7 +56,11 @@
 
             @if (ShowSubmitButton)
             {
-                <div class="request-form-actions">
+                <div class="request-form-actions @(RightAlignSubmit ? "d-flex justify-content-end gap-2" : string.Empty)">
+                    @if (IsBusy && OnAbort.HasDelegate)
+                    {
+                        <button class="btn btn-outline-danger" type="button" @onclick="HandleAbortAsync">Abort</button>
+                    }
                     <button class="btn @SubmitButtonClass" type="submit" disabled="@IsBusy">
                         @(IsBusy ? BusyLabel : SubmitLabel)
                     </button>
@@ -129,6 +133,12 @@
     public bool ShowSubmitButton { get; set; } = true;
 
     [Parameter]
+    public bool RightAlignSubmit { get; set; }
+
+    [Parameter]
+    public EventCallback OnAbort { get; set; }
+
+    [Parameter]
     public PanelDisplayState DisplayState { get; set; } = PanelDisplayState.Expanded;
 
     [Parameter]
@@ -196,4 +206,6 @@
     }
 
     private Task HandleSubmitAsync() => OnSubmit.InvokeAsync();
+
+    private Task HandleAbortAsync() => OnAbort.InvokeAsync();
 }

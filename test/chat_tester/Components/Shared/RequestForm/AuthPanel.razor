@@ -4,9 +4,9 @@
 @using System.Net.Http.Headers
 @inject HttpClient Http
 
-<div class="card border-light-subtle mb-3">
+<div class="card border-light-subtle mb-3 auth-panel">
     <div class="card-body py-3">
-        <div class="d-flex align-items-center justify-content-between">
+        <div class="auth-panel-header d-flex flex-wrap align-items-center justify-content-between gap-2">
             <div class="form-check">
                 <InputCheckbox class="form-check-input" @bind-Value="UseAuthorization" />
                 <label class="form-check-label">Send with authorization</label>
@@ -21,15 +21,15 @@
         {
             <div class="mt-3">
                 <div class="row g-3 mb-3 align-items-start">
-                    <div class="col-md-7">
+                    <div class="col-12 col-sm-7">
                         <label class="form-label">Header name</label>
                         <InputText class="form-control" @bind-Value="Settings.HeaderName" />
                         <div class="form-text">Examples: Authorization, x-api-key, X-API-Key</div>
                     </div>
 
-                    <div class="col-md-5">
+                    <div class="col-12 col-sm-5">
                         <label class="form-label d-block">Auth mode</label>
-                        <div class="d-flex gap-3 pt-1">
+                        <div class="d-flex flex-wrap gap-3 pt-1">
                             <div class="form-check">
                                 <input class="form-check-input" type="radio" id="authmode-key"
                                        checked="@(Settings.AuthMode.Equals("Key", StringComparison.OrdinalIgnoreCase))"
@@ -109,7 +109,7 @@
                 {
                     <div class="mb-3">
                         <label class="form-label">Key value</label>
-                        <InputTextArea class="form-control font-monospace" rows="4" @bind-Value="Settings.KeyValue" />
+                        <InputTextArea class="form-control font-monospace auth-key-value" rows="3" @bind-Value="Settings.KeyValue" />
                         <div class="form-text">This value is remembered for the current server session.</div>
                     </div>
                 }
@@ -117,6 +117,30 @@
         }
     </div>
 </div>
+
+<style>
+    .auth-panel .card-body {
+        min-width: 0;
+    }
+
+    .auth-panel-header .btn {
+        white-space: nowrap;
+    }
+
+    .auth-key-value {
+        resize: vertical;
+    }
+
+    @@media (max-width: 575.98px) {
+        .auth-panel-header {
+            align-items: flex-start !important;
+        }
+
+        .auth-panel-header .btn {
+            margin-left: auto;
+        }
+    }
+</style>
 
 @code {
     [Parameter]

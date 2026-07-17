@@ -2,13 +2,14 @@
 =============================================================================
 Azure API Policy Template
 =============================================================================
-Version:	 3.0.0
+Version:	 3.0.1
 Mode:	 Standard
 Updated:	 2026-07-03
  
 KEY CHANGES:
 
 IMPROVEMENTS:
+- Pull token processor from the endpoint catalog instead of hardcoding it in the policy
 - Return 429 "No Backends Available" instead of a bare 500 when all backends are throttled
 - on-error logs entry diagnostics (callCompleted, backendIndex, LastError)
 - Backend id now hashes url + label, giving each label independent throttle state.
@@ -838,13 +839,16 @@ REFACTOR:
 			</when>
 		</choose>
 		<set-header name="TOKENPROCESSOR" exists-action="override">
-			<value>MultiLineAllUsage</value>
+			<value>@(context.Variables.GetValueOrDefault<JObject>("selectedBackend", null)?.Value<string>("tokenProcessor") ?? "DefaultStream")</value>
 		</set-header>
 		<set-header name="@((string)context.Variables["AffinityHeaderName"])" exists-action="override">
 			<value>@(context.Variables.GetValueOrDefault<JObject>("selectedBackend", null)?.Value<string>("affinity") ?? "")</value>
 		</set-header>
 		<set-header name="x-Backend-Attempts" exists-action="override">
 			<value>@(context.Variables.GetValueOrDefault<int>("backendCallCounter", 0).ToString())</value>
+		</set-header>
+		<set-header name="x-Backend-Label" exists-action="override">
+			<value>@(context.Variables.GetValueOrDefault<JObject>("selectedBackend", null)?.Value<string>("label") ?? "")</value>
 		</set-header>
 		<set-header name="@((string)context.Variables["PolicyCycleCounterHeaderName"])" exists-action="override">
 			<value>@(context.Variables.GetValueOrDefault<int>("PolicyCycleCounter", 0).ToString())</value>

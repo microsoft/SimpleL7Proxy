@@ -647,6 +647,8 @@ public class ProxyWorker : IConfigChangeSubscriber
                 if (pr.Headers["Request-Queue-Duration"] is { } queueDuration) context.Response.Headers["Request-Queue-Duration"] = queueDuration;
                 if (pr.Headers["Request-Process-Duration"] is { } processDuration) context.Response.Headers["Request-Process-Duration"] = processDuration;
                 if (pr.Headers["Total-Latency"] is { } totalLatency) context.Response.Headers["Total-Latency"] = totalLatency;
+                if (detectModel && request.Model is { Length: > 0 } model) request.EventData["Model"] = model;
+                if (pr.Headers["x-backend-label"] is { } backendLabel) request.EventData["x-backend-label"] = backendLabel;
             }
 
             // Set content-specific headers
@@ -1439,7 +1441,8 @@ public class ProxyWorker : IConfigChangeSubscriber
             ["x-ProxyHost"] = _options.HostName,
             ["x-MID"] = request.MID,
             ["Attempts"] = request.BackendAttempts.ToString(),
-            ["Lifetime-Attempts"] = request.LifetimeBackendAttempts.ToString()
+            ["Lifetime-Attempts"] = request.LifetimeBackendAttempts.ToString(),
+            ["Model"] = request.Model
         };
 
         var errorResponse = new HttpResponseMessage(lastStatusCode) { Content = errorContent };
@@ -1735,6 +1738,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                 request.Context.Response.Headers["x-MID"] = request.MID;
                 request.Context.Response.Headers["Attempts"] = request.BackendAttempts.ToString();
                 request.Context.Response.Headers["Lifetime-Attempts"] = request.LifetimeBackendAttempts.ToString();
+                request.Context.Response.Headers["Model"] = request.Model;
 
                 await request.Context.Response.OutputStream.WriteAsync(Encoding.UTF8.GetBytes(errorBody)).ConfigureAwait(false);
                 await request.Context.Response.OutputStream.FlushAsync().ConfigureAwait(false);
@@ -1820,7 +1824,7 @@ public class ProxyWorker : IConfigChangeSubscriber
     /// <param name="processWith">The name of the processor to use for streaming</param>
     private async Task StreamResponseAsync(RequestData request, ProxyData pr)
     {
-        ProxyEvent requestSummary = request.EventData;
+        //ProxyEvent requestSummary = request.EventData;
         string processWith = pr.StreamingProcessor ?? StreamProcessorFactory.DEFAULT_PROCESSOR;
         var proxyResponse = pr.BodyResponseMessage;
 
@@ -1870,7 +1874,8 @@ public class ProxyWorker : IConfigChangeSubscriber
                 _logger.LogDebug("Streaming to {Destination} for request {Guid}", destinationType, request.Guid);
 
                 var addedToFlusher = _streamFlusher.AddStream(destination);
-                await processor.CopyToAsync(proxyResponse.Content, destination).ConfigureAwait(false);
+                var debugStream = request.Headers["S7PDEBUGSTREAM"] is {} debugValue && debugValue.Equals("true", StringComparison.OrdinalIgnoreCase);
+                await processor.CopyToAsync(proxyResponse.Content, destination, debugStream).ConfigureAwait(false);
                 if (addedToFlusher)
                 {
                     _streamFlusher.RemoveStream(destination);

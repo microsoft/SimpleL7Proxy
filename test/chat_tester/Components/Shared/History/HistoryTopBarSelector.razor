@@ -8,7 +8,7 @@
 }
 
 <form class="history-top-selector" method="get" action="@CurrentPath">
-    <label class="history-top-label" for="@SelectId">History</label>
+    <label class="history-top-label" for="@SelectId">Filters</label>
     <select class="form-select form-select-sm history-top-select"
             id="@SelectId"
             name="historyEntryId"
@@ -85,6 +85,11 @@
 
     private static string FormatEntry(ChatHistoryEntry entry)
     {
+        if (string.Equals(entry.Source, "EventHub monitor", StringComparison.OrdinalIgnoreCase))
+        {
+            return FormatStatus(entry);
+        }
+
         var status = FormatStatus(entry);
         return $"{entry.CreatedAt.LocalDateTime.ToString("MMM d, h:mm tt", CultureInfo.InvariantCulture)} - {status}";
     }

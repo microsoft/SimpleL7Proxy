@@ -127,6 +127,51 @@ public static class ChatTesterHttp
         }
     }
 
+    /// <summary>Placeholder written in place of a sensitive header value when redacting.</summary>
+    public const string RedactedValue = "[redacted]";
+
+    /// <summary>
+    /// Redacts the values of sensitive headers (always <c>Authorization</c>, plus any
+    /// <paramref name="additionalHeaderNames"/> such as the configured authorization header)
+    /// within a summarized headers block, preserving the original header names and casing.
+    /// </summary>
+    public static string RedactSensitiveHeaders(string headersText, params string?[] additionalHeaderNames)
+    {
+        if (string.IsNullOrWhiteSpace(headersText))
+        {
+            return headersText;
+        }
+
+        var sensitive = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Authorization" };
+        foreach (var name in additionalHeaderNames)
+        {
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                sensitive.Add(name.Trim());
+            }
+        }
+
+        var lines = headersText.Split('\n');
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i];
+            var colonIndex = line.IndexOf(':');
+            if (colonIndex <= 0)
+            {
+                continue;
+            }
+
+            var headerName = line[..colonIndex].Trim();
+            if (sensitive.Contains(headerName))
+            {
+                var trailingCr = line.EndsWith('\r') ? "\r" : string.Empty;
+                lines[i] = $"{line[..colonIndex]}: {RedactedValue}{trailingCr}";
+            }
+        }
+
+        return string.Join('\n', lines);
+    }
+
     private static string NormalizePath(string path)
     {
         if (string.IsNullOrEmpty(path))

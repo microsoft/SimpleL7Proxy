@@ -18,6 +18,12 @@
         acceptablePriorities  which request priorities it serves (1, 2, 3)
         timeout               seconds to wait before giving up
         auth                  "MI" for Managed Identity
+        tokenProcessor        how token usage is parsed. One of:
+                                  DefaultStream     - pass-through streaming (default)
+                                  OpenAI            - OpenAI response processing with batch detection
+                                  AllUsage          - usage tracking for OpenAI responses
+                                  MultiLineAllUsage - multi-line usage data extraction
+                                  AllUsage-2        - complete all-usage processing
 
     To ADD a backend:  copy an existing line and change the name/values.
     To ADD a model:    copy an existing model block in the BACKEND CATALOG,
@@ -37,20 +43,20 @@
         return new JObject {
 
             ["gpt-4o"] = new JObject {
-                ["BAD-PAYGO"] = new JObject { ["url"] = "https://nvm2sd.openai.azure.com/", ["path"] = "openai", ["priority"] = 1, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 10, ["auth"] = "MI" },
-                ["PAYGO"]     = new JObject { ["url"] = "https://nvm2.openai.azure.com/",   ["path"] = "openai", ["priority"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 10, ["auth"] = "MI" }
+                ["BAD-PAYGO"] = new JObject { ["url"] = "https://nvm2sd.openai.azure.com/", ["path"] = "openai", ["priority"] = 1, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 10, ["auth"] = "MI", ["tokenProcessor"] = "MultiLineAllUsage" },
+                ["PAYGO"]     = new JObject { ["url"] = "https://nvm2.openai.azure.com/",   ["path"] = "openai", ["priority"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 10, ["auth"] = "MI", ["tokenProcessor"] = "AllUsage" }
             },
 
             ["phi-4-reasoning"] = new JObject {
-                ["PHI-4"] = new JObject { ["url"] = "https://nvmaitest.services.ai.azure.com/", ["path"] = "openai", ["priority"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 40, ["auth"] = "MI" }
+                ["PHI-4"] = new JObject { ["url"] = "https://nvmaitest.services.ai.azure.com/", ["path"] = "openai", ["priority"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 40, ["auth"] = "MI", ["tokenProcessor"] = "MultiLineAllUsage" }
             },
 
             ["computervision"] = new JObject {
-                ["DEFAULT"] = new JObject { ["url"] = "https://cvnvm2.cognitiveservices.azure.com/", ["path"] = "", ["priority"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 10, ["auth"] = "MI" }
+                ["DEFAULT"] = new JObject { ["url"] = "https://cvnvm2.cognitiveservices.azure.com/", ["path"] = "", ["priority"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 10, ["auth"] = "MI", ["tokenProcessor"] = "MultiLineAllUsage" }
             },
 
             ["DEFAULT"] = new JObject {
-                ["DEFAULT"] = new JObject { ["url"] = "https://nvm2.openai.azure.com/", ["path"] = "openai", ["priority"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 10, ["auth"] = "MI" }
+                ["DEFAULT"] = new JObject { ["url"] = "https://nvm2.openai.azure.com/", ["path"] = "openai", ["priority"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 10, ["auth"] = "MI", ["tokenProcessor"] = "MultiLineAllUsage" }
             }
         };
     }" />
@@ -134,6 +140,7 @@
             // Optional fields with defaults.
             backend["path"] = (src["path"] != null && src["path"].Type != JTokenType.Null) ? src.Value<string>("path") : "openai";
             backend["auth"] = (src["auth"] != null && src["auth"].Type != JTokenType.Null) ? src.Value<string>("auth") : "MI";
+            backend["tokenProcessor"] = string.IsNullOrWhiteSpace(src.Value<string>("tokenProcessor")) ? "DefaultStream" : src.Value<string>("tokenProcessor");
             // acceptablePriorities may be a JArray ([1,2,3]) or a comma-separated string ("1,2,3").
             JToken ap = src["acceptablePriorities"];
             JArray priorities;

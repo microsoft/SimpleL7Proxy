@@ -6,7 +6,22 @@
     <details class="mb-3">
         <summary class="fw-semibold mb-3">@Label</summary>
         <div class="row g-3 mt-3">
-            @foreach (var field in FieldsForDisplay)
+            @if (FieldsForDisplay.Any(field => IsBooleanValue(field.Value)))
+            {
+                <div class="col-12">
+                    <div class="d-flex flex-wrap gap-3">
+                        @foreach (var field in FieldsForDisplay.Where(field => IsBooleanValue(field.Value)))
+                        {
+                            <div class="form-check mb-0">
+                                <input class="form-check-input" type="checkbox" id="@GetFieldId(field.Key)"
+                                       checked="@IsBooleanSelected(field.Value)" @onchange="args => RaiseBooleanFieldChanged(field.Key, args.Value)" />
+                                <label class="form-check-label" for="@GetFieldId(field.Key)">@field.Key</label>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+            @foreach (var field in FieldsForDisplay.Where(field => !IsBooleanValue(field.Value)))
             {
                 @if (IsFeaturesField(field.Key))
                 {
@@ -34,17 +49,7 @@
                 {
                     <div class="col-12 col-md-6 col-xl-4">
                         <label class="form-label" for="@GetFieldId(field.Key)">@field.Key</label>
-                        @if (IsBooleanValue(field.Value))
-                        {
-                            <select class="form-select" id="@GetFieldId(field.Key)" value="@NormalizeBooleanValue(field.Value)" @onchange="args => RaiseFieldChanged(field.Key, args.Value?.ToString() ?? string.Empty)">
-                                <option value="true">true</option>
-                                <option value="false">false</option>
-                            </select>
-                        }
-                        else
-                        {
-                            <input class="form-control" id="@GetFieldId(field.Key)" value="@field.Value" @oninput="args => RaiseFieldChanged(field.Key, args.Value?.ToString() ?? string.Empty)" />
-                        }
+                        <input class="form-control" id="@GetFieldId(field.Key)" value="@field.Value" @oninput="args => RaiseFieldChanged(field.Key, args.Value?.ToString() ?? string.Empty)" />
                     </div>
                 }
             }
@@ -81,8 +86,9 @@
         ("people", "People")
     };
 
-    private IEnumerable<KeyValuePair<string, string>> FieldsForDisplay =>
-        Fields.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase);
+    private IEnumerable<KeyValuePair<string, string>> FieldsForDisplay => Fields
+        .OrderByDescending(entry => IsBooleanValue(entry.Value))
+        .ThenBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase);
 
     private static bool IsFeaturesField(string name) => string.Equals(name, "features", StringComparison.OrdinalIgnoreCase);
 
@@ -104,9 +110,11 @@
 
     private static bool IsBooleanValue(string value) => bool.TryParse(value, out _);
 
-    private static string NormalizeBooleanValue(string value) => bool.TryParse(value, out var boolValue) ? boolValue.ToString().ToLowerInvariant() : value;
+    private static bool IsBooleanSelected(string value) => bool.TryParse(value, out var boolValue) && boolValue;
 
     private Task RaiseFieldChanged(string name, string value) => FieldChanged.InvokeAsync((name, value));
+
+    private Task RaiseBooleanFieldChanged(string name, object? value) => RaiseFieldChanged(name, value is bool selected && selected ? "true" : "false");
 
     private Task RaiseFeatureChanged(string feature, bool selected) => FeatureChanged.InvokeAsync((feature, selected));
 

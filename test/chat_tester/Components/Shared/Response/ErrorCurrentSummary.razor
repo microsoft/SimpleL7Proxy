@@ -1,0 +1,45 @@
+@namespace chat_tester.Components.Shared
+@using System.Globalization
+
+<div class="alert @AlertCss d-flex flex-column gap-1 mb-2" role="alert">
+    <div class="error-summary-head">
+        <span class="badge @BadgeCss fs-6 error-summary-badge">@BadgeText</span>
+        <div class="error-summary-route min-w-0">
+            <div class="error-summary-label">Request URL</div>
+            <div class="fw-semibold error-summary-url text-truncate" title="@PrimaryText">@PrimaryText</div>
+        </div>
+    </div>
+    <div class="error-summary-facts">
+        <span class="error-fact-pill"><span class="error-fact-name">Status</span><strong>@StatusText</strong></span>
+        <span class="error-fact-pill"><span class="error-fact-name">Failed after</span><strong>@DurationText</strong></span>
+        @if (CurrentTime is not null)
+        {
+            <span class="error-fact-pill"><span class="error-fact-name">At</span><strong>@CurrentTime.Value.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture)</strong></span>
+        }
+        @if (HasBackendLogHeader)
+        {
+            <span class="error-fact-pill backend-log">Backend log header</span>
+        }
+    </div>
+    <div class="error-duration-row compact">
+        <div class="error-duration-thermometer current @SeverityCss">
+            <div class="error-duration-fill" style="width: @DurationWidth;"></div>
+            <span class="error-duration-label">@DurationText</span>
+        </div>
+    </div>
+    <div class="error-message-lead">@MessageText</div>
+</div>
+
+@code {
+    [Parameter] public string AlertCss { get; set; } = "alert-danger";
+    [Parameter] public string BadgeCss { get; set; } = "text-bg-danger";
+    [Parameter] public string BadgeText { get; set; } = string.Empty;
+    [Parameter] public string PrimaryText { get; set; } = string.Empty;
+    [Parameter] public string StatusText { get; set; } = string.Empty;
+    [Parameter] public string DurationText { get; set; } = string.Empty;
+    [Parameter] public string DurationWidth { get; set; } = "0%";
+    [Parameter] public string SeverityCss { get; set; } = string.Empty;
+    [Parameter] public string MessageText { get; set; } = string.Empty;
+    [Parameter] public bool HasBackendLogHeader { get; set; }
+    [Parameter] public DateTimeOffset? CurrentTime { get; set; }
+}

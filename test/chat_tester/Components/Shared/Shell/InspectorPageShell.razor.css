@@ -15,11 +15,31 @@
     min-width: 0;
 }
 
+.inspector-page-meta {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.15rem;
+    text-align: right;
+    white-space: nowrap;
+}
+
 .inspector-page-shell {
     position: relative;
-    min-height: 100vh;
-    padding: 5.25rem 1.25rem 1.25rem 1.75rem;
+    height: 100%;
+    min-height: 0;
+    padding: 5.1rem 1rem 0.75rem 1.25rem;
     background: #fff;
+    overflow-y: auto;
+}
+
+.inspector-page-shell.inspector-page-shell-no-controls {
+    /* The MainLayout top-row header is fixed at 4.75rem tall and is
+       position: absolute, so it doesn't push page content down on its
+       own. Pages without the floating controls box still need this
+       padding to keep content from being covered by the header. */
+    padding-top: 4.75rem;
 }
 
 .inspector-page-controls {
@@ -38,6 +58,7 @@
     padding: 0.35rem 0.75rem 0.4rem;
     background: rgba(247, 247, 247, 0.98);
     border: 1px solid #d6d5d5;
+    border-right: 1px solid #c1c7cf;
     border-radius: 0.25rem;
 }
 
@@ -109,8 +130,18 @@
         gap: 0.5rem;
     }
 
+    .inspector-page-meta {
+        align-items: flex-start;
+        text-align: left;
+        white-space: normal;
+    }
+
     .inspector-page-shell {
         padding: 10.25rem 0.75rem 0.75rem;
+    }
+
+    .inspector-page-shell.inspector-page-shell-no-controls {
+        padding-top: 4.75rem;
     }
 
     .inspector-page-controls {

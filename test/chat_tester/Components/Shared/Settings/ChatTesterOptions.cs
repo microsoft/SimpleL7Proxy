@@ -84,7 +84,7 @@ public class ChatTesterOptions
     public ConversationStorageSettings Conversations { get; set; } = new();
 }
 
-public sealed class HistoryStorageSettings
+public sealed class HistoryStorageSettings : IStorageSettings
 {
     public string Mode { get; set; } = HistoryStorageMode.Disk;
 

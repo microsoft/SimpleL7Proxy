@@ -11,7 +11,10 @@
             <span class="text-white-50 small">@StatusMessage</span>
             <div class="d-flex flex-wrap align-items-center justify-content-end gap-2 ms-auto">
                 @HeaderActions
-                <PanelDisplayToggle State="@DisplayState" StateChanged="SetDisplayStateAsync" AriaLabel="@($"Toggle {Title} full screen")" />
+                @if (ShowDisplayToggle)
+                {
+                    <chat_tester.Components.Shared.PanelDisplayToggle State="@DisplayState" StateChanged="SetDisplayStateAsync" AriaLabel="@($"Toggle {Title} full screen")" />
+                }
             </div>
         </div>
         @if (!IsMinimized)
@@ -26,12 +29,18 @@
                 <li class="nav-item">
                     <button class="nav-link @(IsActiveTab("request-body") ? "active" : string.Empty)" type="button" @onclick='() => SetActiveTabAsync("request-body")'>Request body</button>
                 </li>
-                <li class="nav-item">
-                    <button class="nav-link @(IsActiveTab("response-body") ? "active" : string.Empty)" type="button" @onclick='() => SetActiveTabAsync("response-body")'>Response body</button>
-                </li>
-                <li class="nav-item">
-                    <button class="nav-link @(IsActiveTab("backend-log") ? "active" : string.Empty)" type="button" disabled="@(!HasBackendLog)" @onclick='() => SetActiveTabAsync("backend-log")'>Backend Log</button>
-                </li>
+                @foreach (var tab in BodyTabs)
+                {
+                    <li class="nav-item">
+                        <button class="nav-link @(IsActiveTab(tab.Id) ? "active" : string.Empty)" type="button" @onclick='() => SetActiveTabAsync(tab.Id)'>@tab.Title</button>
+                    </li>
+                }
+                @if (HasBackendLog)
+                {
+                    <li class="nav-item">
+                        <button class="nav-link @(IsActiveTab(BackendLogTab) ? "active" : string.Empty)" type="button" @onclick='() => SetActiveTabAsync(BackendLogTab)'>Backend Log</button>
+                    </li>
+                }
             </ul>
         }
     </div>
@@ -39,25 +48,33 @@
     {
         <div class="card-body @(IsFullscreen ? "overflow-auto" : string.Empty)">
             <div class="border rounded p-3 bg-light" style="@(IsFullscreen ? "max-height: calc(100vh - 180px);" : "max-height: 320px;") overflow-y: auto;" @ref="RawResponseRef">
-                @if (IsActiveTab("request-headers"))
+                @if (IsActiveTab(RequestHeadersTab))
                 {
                     <pre class="mb-0" style="white-space: pre-wrap; word-break: break-all;">@RequestHeadersText</pre>
                 }
-                else if (IsActiveTab("response-headers"))
+                else if (IsActiveTab(ResponseHeadersTab))
                 {
                     <pre class="mb-0" style="white-space: pre-wrap; word-break: break-all;">@ResponseHeadersText</pre>
                 }
-                else if (IsActiveTab("request-body"))
+                else if (IsActiveTab(RequestBodyTab))
                 {
                     <pre class="mb-0" style="white-space: pre-wrap; word-break: break-word;">@RequestBodyDisplay</pre>
                 }
-                else if (IsActiveTab("backend-log"))
+                else if (IsActiveTab(MarkdownBodyTab))
+                {
+                    <pre class="mb-0 raw-markdown-view" style="white-space: pre-wrap; word-break: break-word;">@BodyPreviewText</pre>
+                }
+                else if (IsActiveTab(HtmlBodyTab))
+                {
+                    <iframe class="raw-html-frame" sandbox srcdoc="@HtmlPreviewDocument"></iframe>
+                }
+                else if (IsActiveTab(BackendLogTab))
                 {
                     <div class="backend-log-view">@((MarkupString)RenderBackendLogPanel())</div>
                 }
                 else
                 {
-                    <pre class="mb-0" style="white-space: pre-wrap; word-break: break-word;">@ObservedResponse</pre>
+                    <pre class="mb-0 raw-text-view" style="white-space: pre-wrap; word-break: break-word;">@BodyPreviewText</pre>
                 }
             </div>
         </div>
@@ -207,10 +224,35 @@
         border-left-color: #198754;
         background: #d1e7dd;
     }
+
+    .raw-html-frame {
+        width: 100%;
+        min-height: 100%;
+        border: 0;
+        background: #fff;
+        display: block;
+    }
+
+    .raw-markdown-view,
+    .raw-text-view {
+        margin: 0;
+    }
 </style>
 
 @code {
     private ElementReference RawResponseRef;
+
+    private const string RequestHeadersTab = "request-headers";
+    private const string ResponseHeadersTab = "response-headers";
+    private const string RequestBodyTab = "request-body";
+    private const string TextBodyTab = "text";
+    private const string MarkdownBodyTab = "markdown";
+    private const string HtmlBodyTab = "html";
+    private const string BackendLogTab = "backend-log";
+    private const string LegacyResponseBodyTab = "response-body";
+    private const string LegacyRawTab = "raw";
+
+    private sealed record ResponseTab(string Id, string Title);
 
     [Parameter]
     public string Title { get; set; } = "Raw response";
@@ -234,6 +276,9 @@
     public RenderFragment? HeaderActions { get; set; }
 
     [Parameter]
+    public bool ShowDisplayToggle { get; set; } = true;
+
+    [Parameter]
     public string RequestHeadersText { get; set; } = "No request has been sent yet.";
 
     [Parameter]
@@ -246,9 +291,20 @@
     public string ObservedResponse { get; set; } = "No response yet.";
 
     [Parameter]
+    public string DisplayResponse { get; set; } = string.Empty;
+
+    [Parameter]
     public bool HasProxyError { get; set; }
 
+    private IReadOnlyList<ResponseTab> BodyTabs => BuildBodyTabs();
+
     private bool HasBackendLog => HasProxyError || BackendLogDetector.HasBackendLog(ResponseHeadersText, ObservedResponse);
+
+    private string BodyPreviewText => string.IsNullOrWhiteSpace(DisplayResponse) ? ObservedResponse : DisplayResponse;
+
+    private ResponseDisplayFormat BodyPreviewFormat => DetectBodyFormat();
+
+    private string EffectiveActiveTab => NormalizeActiveTab(ActiveTab);
 
     private bool IsMinimized => DisplayState == PanelDisplayState.Minimized;
 
@@ -260,6 +316,124 @@
         PanelDisplayState.Fullscreen => "fs-overlay",
         _ => string.Empty
     };
+
+    private IReadOnlyList<ResponseTab> BuildBodyTabs()
+    {
+        var tabs = new List<ResponseTab>
+        {
+            new(TextBodyTab, "Text")
+        };
+
+        if (BodyPreviewFormat == ResponseDisplayFormat.Markdown)
+        {
+            tabs.Add(new ResponseTab(MarkdownBodyTab, "Markdown"));
+        }
+        else if (BodyPreviewFormat == ResponseDisplayFormat.Html)
+        {
+            tabs.Add(new ResponseTab(HtmlBodyTab, "HTML"));
+        }
+
+        return tabs;
+    }
+
+    private ResponseDisplayFormat DetectBodyFormat()
+    {
+        var probe = CombineForInspection(DisplayResponse, ObservedResponse);
+        var contentType = GetContentType(ResponseHeadersText);
+
+        if (contentType.Contains("html", StringComparison.OrdinalIgnoreCase) ||
+            contentType.Contains("xhtml", StringComparison.OrdinalIgnoreCase) ||
+            LooksLikeHtml(probe))
+        {
+            return ResponseDisplayFormat.Html;
+        }
+
+        if (contentType.Contains("markdown", StringComparison.OrdinalIgnoreCase) ||
+            contentType.Contains("md", StringComparison.OrdinalIgnoreCase) ||
+            LooksLikeMarkdown(probe))
+        {
+            return ResponseDisplayFormat.Markdown;
+        }
+
+        return ResponseDisplayFormat.Text;
+    }
+
+    private string NormalizeActiveTab(string? tab)
+    {
+        if (string.IsNullOrWhiteSpace(tab) ||
+            string.Equals(tab, LegacyResponseBodyTab, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(tab, LegacyRawTab, StringComparison.OrdinalIgnoreCase))
+        {
+            return BodyPreviewFormat switch
+            {
+                ResponseDisplayFormat.Html when BodyTabs.Any(item => string.Equals(item.Id, HtmlBodyTab, StringComparison.OrdinalIgnoreCase)) => HtmlBodyTab,
+                ResponseDisplayFormat.Markdown when BodyTabs.Any(item => string.Equals(item.Id, MarkdownBodyTab, StringComparison.OrdinalIgnoreCase)) => MarkdownBodyTab,
+                _ => TextBodyTab
+            };
+        }
+
+        return tab;
+    }
+
+    private string HtmlPreviewDocument => BuildHtmlPreviewDocument(BodyPreviewText);
+
+    private static string CombineForInspection(params string?[] inputs) =>
+        string.Join('\n', inputs.Where(value => !string.IsNullOrWhiteSpace(value)).Select(value => value!.Trim()));
+
+    private static string GetContentType(string? responseHeaders)
+    {
+        if (string.IsNullOrWhiteSpace(responseHeaders))
+        {
+            return string.Empty;
+        }
+
+        foreach (var line in responseHeaders.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var separator = line.IndexOf(':');
+            if (separator <= 0)
+            {
+                continue;
+            }
+
+            var name = line[..separator].Trim();
+            if (!string.Equals(name, "content-type", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return line[(separator + 1)..].Trim();
+        }
+
+        return string.Empty;
+    }
+
+    private static bool LooksLikeHtml(string value) =>
+        value.Contains("<!DOCTYPE html", StringComparison.OrdinalIgnoreCase) ||
+        value.Contains("<html", StringComparison.OrdinalIgnoreCase) ||
+        value.Contains("<body", StringComparison.OrdinalIgnoreCase) ||
+        value.Contains("<head", StringComparison.OrdinalIgnoreCase);
+
+    private static bool LooksLikeMarkdown(string value)
+    {
+        var lines = value.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return lines.Any(line =>
+                   line.StartsWith("#", StringComparison.Ordinal) ||
+                   line.StartsWith("- ", StringComparison.Ordinal) ||
+                   line.StartsWith("* ", StringComparison.Ordinal) ||
+                   line.StartsWith("1. ", StringComparison.Ordinal) ||
+                   line.Contains("](", StringComparison.Ordinal)) &&
+               !LooksLikeHtml(value);
+    }
+
+    private static string BuildHtmlPreviewDocument(string html)
+    {
+        if (LooksLikeHtml(html))
+        {
+            return html;
+        }
+
+        return $"<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body>{html}</body></html>";
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -280,7 +454,7 @@
     }
 
     private bool IsActiveTab(string tab) =>
-        string.Equals(ActiveTab, tab, StringComparison.Ordinal);
+        string.Equals(EffectiveActiveTab, tab, StringComparison.Ordinal);
 
     private async Task SetActiveTabAsync(string tab)
     {

@@ -30,15 +30,25 @@ main:has(.inspector-page-shell) > .top-row {
     position: absolute !important;
     top: 0 !important;
     left: 0 !important;
-    right: 30.25rem !important;
+    right: 0 !important;
     z-index: 20 !important;
     background-color: rgba(247, 247, 247, 0.98) !important;
 }
 
+/* Pages that render the floating history/collapse controls box (28rem wide,
+   anchored top-right) need the header bar to stop short so it doesn't sit
+   under that box. Pages with HideControls="true" (e.g. EventHub monitor)
+   don't render that box, so the header should span the full width. */
+main:has(.inspector-page-shell:not(.inspector-page-shell-no-controls)) > .top-row {
+    right: 30.25rem !important;
+}
+
 body main:has(.inspector-page-shell) > article.content.px-4 {
-    min-height: 100vh;
+    height: calc(100dvh - 4.75rem);
+    min-height: 0;
     padding: 0 !important;
     background: #fff;
+    overflow: hidden;
 }
 
 @media (max-width: 767.98px) {
