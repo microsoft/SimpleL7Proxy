@@ -10,40 +10,40 @@ SimpleL7Proxy controls when requests run, which backends receive them, how failu
 <tr>
 <td width="33%" valign="top">
 
-### [User profiles can determine Model and Priority?](#how-do-user-profiles-determine-queue-priority-1)
-The proxy can map users to profiles and then to capabilities.  The combination of model and priority can be used to route requests to different endpoints. 
+### [How do user profiles determine when requests run?](#how-do-user-profiles-determine-when-requests-run-1)
+A user profile can assign a queue priority to a request. Lower-numbered priorities run first, while fairness rules order requests from different users within the same priority.
 
 </td>
 <td width="33%" valign="top">
 
-### [How do backpressure and circuit breaking protect the proxy?](#how-do-backpressure-and-circuit-breaking-protect-the-proxy-1)
-Backpressure slows down the rate of incoming requests when a replica is busy fulfilling existing requests.  Circuit breaking stops receiving new work and to backends that have to many failures.
+### [How are proxy capacity and unhealthy backends protected?](#how-are-proxy-capacity-and-unhealthy-backends-protected-1)
+Backpressure rejects new work when a proxy replica reaches a safety limit. Circuit breaking stops attempts to a backend after too many failures, then admits it again after recovery.
 
 </td>
 <td width="33%" valign="top">
 
-### [How does priority route requests to alternate backends?](#how-does-priority-route-requests-to-alternate-backends-1)
-An APIM priority policy can restrict each backend to selected request priorities, then try another eligible backend when the first is throttled or fails.
+### [How does APIM determine which backends receive requests?](#how-does-apim-determine-which-backends-receive-requests-1)
+An APIM priority policy limits each request to backends that accept its priority, orders those backends, and can try another eligible backend after throttling or failure.
 
 </td>
 </tr>
 <tr>
 <td width="33%" valign="top">
 
-### [What is a direct backend versus an APIM backend?](#what-is-a-direct-backend-versus-an-apim-backend-1)
-A direct backend skips active health probes and is always admitted to the active set. An APIM backend is probed like a standard gateway backend and can provide policies, and transformations. Both support using Oauth or key based auth.
+### [When should traffic go directly to a backend or through APIM?](#when-should-traffic-go-directly-to-a-backend-or-through-apim-1)
+Use direct mode when active probing is unsuitable. Route through APIM when the traffic path needs gateway policies, transformations, caller controls, or priority-aware backend selection.
 
 </td>
 <td width="33%" valign="top">
 
-### [How does autoscale work?](#how-does-autoscale-work-1)
-Azure Container Apps adds or removes independent proxy replicas from a trigger such as HTTP concurrency, within configured minimum and maximum replica limits.
+### [How does autoscaling expand proxy capacity?](#how-does-autoscaling-expand-proxy-capacity-1)
+Azure Container Apps adds independent proxy replicas from a trigger such as HTTP concurrency. Each replica adds workers and queue capacity but keeps its own queue, health observations, and circuit state.
 
 </td>
 <td width="33%" valign="top">
 
-### [When does async become important?](#when-does-async-become-important-1)
-Async matters when backend processing may exceed the practical HTTP wait budget. The proxy can return `202`, write results to Blob Storage, and publish status through Service Bus.
+### [When should clients stop waiting synchronously?](#when-should-clients-stop-waiting-synchronously-1)
+Use async mode when processing may exceed the practical HTTP wait budget. The proxy can return `202`, continue processing, store the result in Blob Storage, and publish status through Service Bus.
 
 </td>
 </tr>
@@ -53,7 +53,7 @@ Async matters when backend processing may exceed the practical HTTP wait budget.
 
 ## Full Answers
 
-### How do user profiles determine queue priority?
+### How do user profiles determine when requests run?
 
 #### Where does a user's priority come from?
 
@@ -64,6 +64,10 @@ When profiles are enabled, the proxy looks up the caller using the configured us
 #### What does the priority number change?
 
 It changes when a queued request is selected by a worker. Lower integers run first, so priority `1` is selected before priorities `2` and `3`. Requests with the same primary priority are ordered by a secondary user-fairness value and then enqueue time.
+
+#### When does the profile priority take effect?
+
+The proxy resolves the profile before admitting the request to the queue. It assigns the mapped priority when the request is enqueued, so the value affects dispatch order as soon as the request begins waiting for a worker.
 
 #### What happens when no profile priority is available?
 
@@ -77,7 +81,7 @@ See [User Profiles](../USER_PROFILES.md) for profile structure and loading.
 
 ---
 
-### How do backpressure and circuit breaking protect the proxy?
+### How are proxy capacity and unhealthy backends protected?
 
 #### What is backpressure?
 
@@ -91,6 +95,10 @@ Circuit breaking protects a specific backend from repeated calls while it is fai
 
 Backpressure answers **"Can this proxy replica accept the request?"** Circuit breaking answers **"Can this backend safely receive an attempt?"** Increasing queue capacity does not repair an unhealthy backend, and raising a circuit threshold does not create more proxy capacity.
 
+#### What does the caller observe when protection activates?
+
+The caller receives `429` when the replica refuses new work. When a backend is unavailable, the selector can try another eligible host; if no host can accept the request, the caller receives an error instead of adding more work to the failing path.
+
 #### What happens before a circuit fully opens?
 
 The proxy adds progressive delays as failures rise from 50% to 90% of the configured threshold. This slows traffic into a degrading backend before the circuit blocks it completely.
@@ -99,7 +107,7 @@ See [Circuit Breaker](../CIRCUIT_BREAKER.md) for thresholds, delays, and recover
 
 ---
 
-### How does priority route requests to alternate backends?
+### How does APIM determine which backends receive requests?
 
 #### Does queue priority select a native proxy backend?
 
@@ -108,6 +116,10 @@ No. Native SimpleL7Proxy backend selection filters hosts by request path, orders
 #### Where does priority-aware backend routing happen?
 
 The supplied APIM priority policy reads `llm_proxy_priority`. Each APIM backend declares `acceptablePriorities`; backends that do not accept the request's priority are removed before attempts begin. `priorityGroup` determines the order among eligible backends.
+
+#### What controls native SimpleL7Proxy backend selection?
+
+The native selector first filters `HostN` entries by request path, orders the matching hosts using `LoadBalanceMode`, and then skips unhealthy or open-circuit hosts. It does not use queue priority to determine backend eligibility.
 
 #### What happens when the preferred backend fails?
 
@@ -121,7 +133,7 @@ See [Priority Levels POC](../POC-Priority-configuration.md) for a runnable examp
 
 ---
 
-### What is a direct backend versus an APIM backend?
+### When should traffic go directly to a backend or through APIM?
 
 #### What is a direct backend?
 
@@ -134,6 +146,10 @@ Host1="host=https://model.example.com;mode=direct;path=/model"
 #### When should I use direct mode?
 
 Use it when probing would be unsafe or undesirable—for example, when a serverless target scales to zero or has no suitable probe endpoint. Because direct mode has no probe-derived latency, it sorts first when `LoadBalanceMode=latency`.
+
+#### When should I route through APIM?
+
+Use APIM in the backend path when requests need gateway policies, transformations, subscriptions, caller authentication, or priority-aware selection across the services behind APIM. This adds APIM as an operational dependency, so use it for capabilities the direct path does not provide.
 
 #### What is an APIM backend?
 
@@ -151,7 +167,7 @@ See [Backend Host Configuration](../BACKEND_HOSTS.md) for all host options.
 
 ---
 
-### How does autoscale work?
+### How does autoscaling expand proxy capacity?
 
 #### What causes the proxy to scale out?
 
@@ -160,6 +176,10 @@ Azure Container Apps uses KEDA-based triggers. HTTP concurrency is useful for bu
 #### What does each new replica contain?
 
 Each replica has its own in-memory queue, worker pool, user-share counters, backend health observations, and circuit-breaker state. A request already queued on one replica does not move to a newly created replica.
+
+#### Does scale-out redistribute queued requests or state?
+
+No. Scale-out adds capacity for newly routed traffic, but queued requests stay on the replica that admitted them. Backend health and circuit-breaker decisions also remain local to each replica.
 
 #### How should minimum and maximum replicas be chosen?
 
@@ -173,11 +193,15 @@ See [Day 2 Operations](../../deployment/DAY2_OPERATIONS.md#scaling-consideration
 
 ---
 
-### When does async become important?
+### When should clients stop waiting synchronously?
 
 #### What problem does async solve?
 
 Async separates backend processing time from the caller's HTTP connection lifetime. It is useful for long model runs, background jobs, or any request likely to exceed a client, gateway, or network timeout.
+
+#### Does async make backend processing faster?
+
+No. Async changes how the client waits for and retrieves the result; it does not reduce backend execution time. The benefit is releasing the HTTP connection while work continues.
 
 #### How does a request enter async mode?
 
