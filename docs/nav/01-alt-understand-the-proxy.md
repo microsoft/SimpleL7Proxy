@@ -2,22 +2,12 @@
 
 Sending every request to an endpoint works great during POC and early dev phases, however as products mature they need greater control with priorities, routing, cost controls, reliability and observability all thrown into the mix.  The SimpleL7Proxy lets you decide how to route, retry , retry later, share costs and fullfill requests based on the application / user profile.
 
-<img width="1531" height="591" alt="image" src="https://github.com/user-attachments/assets/835a47ea-d6cc-4106-8be6-71f2f4cbb838" />
+When deployed in front of APIM, the proxy adds a User Profile governance layer that applies workload-specific policies for validation, routing,
+prioritization, and execution. This helps organizations balance reliability, performance, compliance, and cost across AI workloads.
 
-There's a lot to unpack in this diagram, however the main points are:
-1. Retry from the other region(s) when endpoints are **throttled**, **overloaded** or **unreachable**
-2. Try the next endpoint if the first one is in a **throttled** state
-3. Send higher priority requests ahead of the others, but don't let older requests starve
-4. Decide which requests are given the white glove treatment and which ones can go to the end of the line.
-5. Decide which LLM model is best for the type of workload to further control costs.
+<img width="1076" height="522" alt="image" src="https://github.com/user-attachments/assets/e953e7d4-6ec9-43d8-a628-0f60c120dfe7" />
 
-The user profile adds a layer of control by allowing requests to be:
-
-1. **Validated** by requiring fields
-2. Cleaned by **stripping headers**
-3. **Rerouted** to specific endpoints and models
-4. **Prioritized** into multiple levels:  P1, P2, P3, ...
-5. Nominated for **Async** priocessing if the response takes a long time
+At a high level, the platform continuously balances reliability, performance, service quality, and cost by intelligently routing requests across regions, endpoints, priority queues, and AI models. Critical workloads receive preferential treatment, while less time-sensitive workloads are processed in a cost-efficient manner without impacting business-critical operations.
 
 ---
 
