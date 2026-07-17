@@ -1,6 +1,13 @@
-# Why Would You Put a Proxy in Front of Your AI Backends?
+# Understand How the Proxy Controls AI Traffic
 
-Depending on whether you are serving live users, high-priority business workflows, or low-priority background jobs, you will likely want control over when, where, and how your traffic is fulfilled. AI backends can throttle, regions can become constrained, and models eventually reach the end of their lifecycle. These are some of the reasons teams place a proxy in front of their AI services. The questions below are the ones most teams ask when deciding whether this approach fits their architecture.
+Sending every request to an endpoint works during POC and early dev phases. As products mature they need greater control with priorities, routing, cost controls, reliability and observability all thrown into the mix.  The SimpleL7Proxy lets you decide how to route, retry , retry later, share costs and fullfill requests based on the application / user profile.
+
+When deployed in front of APIM, the proxy adds a User Profile governance layer that applies workload-specific policies for validation, routing,
+prioritization, and execution. This helps organizations balance reliability, performance, compliance, and cost across AI workloads.
+
+<img width="1308" height="534" alt="image" src="https://github.com/user-attachments/assets/60b20f0c-cee1-44b7-8f6a-b97d84f590bf" />
+
+At a high level, the platform continuously balances reliability, performance, service quality, and cost by intelligently routing requests across regions, endpoints, priority queues, and AI models. Critical workloads receive preferential treatment, while less time-sensitive workloads are processed in a cost-efficient manner without impacting business-critical operations.
 
 ---
 
@@ -10,40 +17,40 @@ Depending on whether you are serving live users, high-priority business workflow
 <tr>
 <td width="33%" valign="top">
 
-### [What problem does it solve?](#what-problem-does-it-solve-1)
-When an AI backend throttles or goes down, your users get errors. SimpleL7Proxy catches those failures before they reach callers — retrying transparently, queuing by priority, and keeping your application responsive even when backends struggle.
+### [How do user profiles determine when requests run?](#how-do-user-profiles-determine-when-requests-run-1)
+A user profile can assign a queue priority and override the requested model. High priorities run first, while a model override rewrites the request before it reaches the backend.
 
 </td>
 <td width="33%" valign="top">
 
-### [What does "Layer 7" mean here?](#what-does-layer-7-mean-here-1)
-A standard balancer moves packets. This proxy reads the conversation — throttle codes, token counts, request paths. That difference is what lets it catch a `429` and retry silently on another backend instead of passing the error to your users.
+### [How are proxy capacity and unhealthy backends protected?](#how-are-proxy-capacity-and-unhealthy-backends-protected-1)
+Backpressure slows how quickly a replica admits new work as its telemetry backlog grows; admitted work continues at full speed. The proxy circuit breaker delays and eventually blocks attempts to a failing backend until it recovers.
 
 </td>
 <td width="33%" valign="top">
 
-### [Where does it sit architecturally?](#where-does-it-sit-architecturally-1)
-It runs between APIM (or clients) and Azure AI backends, inside the operator's VNet. Clients never talk directly to a backend — the proxy is the single point all requests go through.
+### [How does APIM determine which backends receive requests?](#how-does-apim-determine-which-backends-receive-requests-1)
+The supplied APIM policy selects endpoints by priority and tracks each endpoint's throttle period. It skips throttled endpoints until their retry time, while the proxy can try another APIM region and requeue the request when every region is throttled.
 
 </td>
 </tr>
 <tr>
 <td width="33%" valign="top">
 
-### [What happens to a request end to end?](#what-happens-to-a-request-end-to-end-1)
-Your request waits in a queue, a worker picks it up, and the proxy finds a healthy backend to forward it to. If that backend fails, it tries the next one automatically. You get the response plus a few headers showing which backend was used and how long everything took. The whole thing is capped by a total time budget — see [TTL](../Glossary.md#request-lifecycle).
+### [When should traffic go directly to a backend or through APIM?](#when-should-traffic-go-directly-to-a-backend-or-through-apim-1)
+Use direct mode when active probing is unsuitable. Route through APIM when the traffic path needs gateway policies, transformations, caller controls, or priority-aware backend selection.
 
 </td>
 <td width="33%" valign="top">
 
-### [Where does it run in Azure?](#where-does-it-run-in-azure-1)
-Azure Container Apps is the primary deployment target, with optional VNet integration. It can also run locally from source for development. Sovereign cloud is supported.
+### [How does autoscaling expand proxy capacity?](#how-does-autoscaling-expand-proxy-capacity-1)
+Azure Container Apps adds independent proxy replicas from a trigger such as HTTP concurrency. Each replica adds workers and queue capacity but keeps its own queue, health observations, and circuit state.
 
 </td>
 <td width="33%" valign="top">
 
-### [What does it NOT do?](#what-does-it-not-do-1)
-It doesn't manage your AI models, run a developer portal, or handle caller subscriptions and authentication — that's what APIM is for. 
+### [When should clients stop waiting synchronously?](#when-should-clients-stop-waiting-synchronously-1)
+Use async mode when processing may exceed the practical HTTP wait budget. The proxy can return `202`, continue processing, store the result in Blob Storage, and publish status through Service Bus.
 
 </td>
 </tr>
@@ -53,122 +60,236 @@ It doesn't manage your AI models, run a developer portal, or handle caller subsc
 
 ## Full Answers
 
-### What problem does it solve?
+### How do user profiles determine when requests run?
 
-#### What problem does SimpleL7Proxy solve that a standard Layer-4 load balancer cannot?
+#### Where does a user's priority come from?
 
-A standard load balancer moves traffic by IP and port — it has no idea what's inside the HTTP messages. This proxy reads those messages: it can catch a `429` throttle response, route by URL path, and pull token counts from streaming AI responses. None of that is possible without reading HTTP.
+Incoming requests can pass in the priority as a header.
 
-**Example:** An Azure OpenAI endpoint returns `429` when rate-limited. A Layer-4 balancer passes the `429` back unchanged; SimpleL7Proxy detects it, retries on a different backend, and — if configured — requeues the request transparently so the caller receives `200 OK` instead.
+When user profiles are enabled, the proxy caches the list of user profiles from CosmosDB into memory. For every incoming request, it matches the request to a profile and then assigns the priority.
 
-#### What is a Layer 7 proxy and why does that distinction matter for AI workloads?
+**Example:** With `PriorityKeys=high,medium,low` and `PriorityValues=1,2,3`, a profile containing `"S7PPriorityKey": "high"` receives priority `1`.
 
-> See [What does "Layer 7" mean here?](#what-does-layer-7-mean-here-1) below.
+#### What does the priority affect?
 
-#### What are the core capabilities in plain language (routing, queuing, circuit breaking, governance, telemetry)?
+In the **proxy**, the priorty changes the order in which queued request is selected by a worker. In the **APIM** it is used to select the order and priority of endpoints.
 
-Five things it does: **routing** picks a healthy backend and distributes load so no single backend gets overwhelmed; **queuing** holds incoming requests so your most critical work goes first even when the system is busy; **[circuit breaking](../Glossary.md#reliability)** automatically stops sending traffic to a failing backend — and brings it back once it recovers, with no manual reset; **[governance](../Glossary.md#request-governance)** controls which callers can use the proxy and how much capacity any single caller is allowed to consume; and **telemetry** records per-request timing and AI token counts so you can track latency, costs, and diagnose problems. See the [Glossary](../Glossary.md) for any unfamiliar terms.
+#### When does the profile priority take effect?
 
----
+The proxy resolves the profile before admitting the request to the queue. It assigns the mapped priority when the request is enqueued, so the value affects dispatch order as soon as the request begins waiting for a worker.
 
-### What does "Layer 7" mean here?
+#### Can a profile change the requested model?
 
-#### What is a Layer 7 proxy and why does that distinction matter for AI workloads?
+Yes. A user profile can specify a model override. The proxy rewrites the original request to use that model before forwarding it, so model selection can be controlled per user without requiring the caller to change the request.
 
-The practical difference: a standard router only sees IP addresses and TCP ports — it can't read what's inside the HTTP messages. This proxy can, which is how it catches `429` throttle responses before your users see them, routes `/openai/` and `/embeddings/` to different backends, and extracts [token counts](../Glossary.md#observability) from streaming responses for cost tracking. ("Layer 7" is the technical name for the HTTP layer in the network stack.)
+#### What happens when no profile priority is available?
 
----
+The proxy uses `DefaultPriority` when it cannot override it.
 
-### Where does it sit architecturally?
+#### How does the proxy prevent one user from dominating a priority?
 
-![SimpleL7Proxy architecture overview](../arch.png)
+The proxy tracks each user's share of active requests. A user below `UserPriorityThreshold` percentage receives a fairness boost that places it ahead of other similar priority requests. If a user uses more than their fair share, they will be processed after the others.
 
-#### Where does the proxy sit in the architecture — between what and what?
-
-SimpleL7Proxy sits between clients (or Azure API Management, which handles developer-facing gateway concerns like subscriptions and authentication) on the ingress side and Azure AI backend endpoints on the egress side. Clients never call backends directly — the proxy is the single data-plane entry point.
-
-#### What does a request look like going in, and what comes back?
-
-SimpleL7Proxy accepts a standard HTTP request — the same format a caller would send to the backend directly — and returns the backend's response unchanged, adding diagnostic headers: `BackendHost` (which backend was used), `x-Request-Worker` (which worker handled it), `x-Request-Queue-Duration` (milliseconds the request waited in the queue), `x-Request-Process-Duration` (milliseconds the backend took to respond), and `Total-Latency` (the end-to-end round-trip). These headers are primarily for debugging and operations monitoring.
-
-**Example:** `curl -i http://proxy:8000/openai/deployments/gpt-4/chat/completions` → response includes `BackendHost: https://my-aoai.openai.azure.com` and `x-Request-Queue-Duration: 12`.
-
-#### What Azure services does it depend on (App Insights, Event Hubs, Service Bus, Blob, App Configuration)?
-
-SimpleL7Proxy needs only a backend to call — no Azure services are required to get started. Optional integrations: Application Insights and Event Hubs add telemetry sinks; Service Bus and Blob Storage are needed only for async mode (where the proxy detaches long-running requests and writes results to a blob — see [→ Async Mode](../Glossary.md#async-mode)); App Configuration enables [Warm setting](../Glossary.md#configuration-management) hot-reload without restarting the container.
+See [User Profiles](../USER_PROFILES.md) for profile structure and loading.
 
 ---
 
-### What happens to a request end to end?
+### How are proxy capacity and unhealthy backends protected?
 
-#### What is the request flow from ingress to backend response? (priority queue → worker → backend selector → circuit breaker)
+#### What is backpressure?
 
-SimpleL7Proxy validates each incoming request, then places it in the [priority queue](../Glossary.md#request-lifecycle). A worker picks it up, runs the backend selection pipeline — the [path filter](../Glossary.md#backend-management) narrows candidates by URL prefix, load balancing sets their order, and the [circuit breaker](../Glossary.md#reliability) skips any host with too many recent failures — and forwards the request to the first eligible backend. The response goes back to the caller, a few diagnostic headers are added, and a telemetry event is recorded. The whole thing is bounded by the request's time budget (TTL): if it expires at any point — waiting in the queue or during retries — the caller gets a `412`.
+Backpressure protects the proxy when work arrives faster than it can be processed. The proxy first slows admission, then rejects requests with HTTP 429 when event backlog, queue capacity, backend availability, or enqueue limits are unsafe.
 
+#### What is circuit breaking?
+
+Circuit breaking protects unhealthy backends. It counts failures within a configured time window and stops admitting new work when the failure threshold is reached. Defaults are 50 failures in 60 seconds.
+
+#### How are they different?
+
+* Backpressure: Responds to proxy/system capacity pressure.
+* Circuit breaker: Responds specifically to repeated backend failures.
+* Circuit breaking is one signal that can activate the proxy’s broader backpressure behavior.
+
+#### What does the caller observe when protection activates?
+
+The circuit breaker does not switch from healthy to blocked immediately. As error rates, queue depth, or resource pressure increase, the proxy first enters a protective mode where requests are intentionally slowed down. This added latency acts as backpressure, giving downstream services time to recover and reducing the likelihood of a cascading failure.
+
+If conditions continue to deteriorate and configured thresholds are exceeded, the circuit fully opens and new requests are rejected with HTTP 429 (Too Many Requests). The response includes a specific reason, such as:
+
+* Max Events Exceeds Threshold
+* Too many failures in the last 60 seconds
+* Queue is full
+* No active hosts
+* Failed to enqueue request
+
+A Retry-After header is returned so callers know when to try again.
+
+During a planned shutdown or maintenance event, the proxy instead returns HTTP 503 (Service Unavailable).
+
+#### What happens before a circuit fully opens?
+
+Once failures reach 50% of the threshold, the proxy progressively delays incoming requests:
+|Failure threshold reached |	Delay|
+|--|--|
+|50%	| 100 ms |
+|60%	| 200 ms |
+|70%	| 300 ms |
+|80%	| 400 ms |
+|90%	| 500 ms |
+|100%	| Reject with 429 |
+|--|--|
+
+Failures older than the configured time window are removed, allowing the circuit to recover and close again.
+
+See [Circuit Breaker](../CIRCUIT_BREAKER.md) for thresholds, delays, and recovery.
+
+---
+
+### How does APIM determine which backends receive requests?
+
+#### Does queue priority select a SimpleL7Proxy backend?
+
+No. SimpleL7Proxy backend selection filters hosts by request path, orders them by `LoadBalanceMode`, and skips unhealthy or open-circuit hosts. Queue priority controls when a worker receives the request.
+
+#### Where does priority-aware backend routing happen?
+
+The supplied APIM priority policy uses the request priority and determines the eligible backends for each request.
+
+#### How does the APIM policy handle a throttled endpoint?
+
+When an endpoint returns `429`, the policy records its retry time and marks it as throttled. Later requests skip that endpoint until the retry time passes, so APIM can use another endpoint instead of immediately repeating an attempt that is expected to throttle.
+
+#### What controls SimpleL7Proxy backend selection?
+
+The selector first filters `Host` entries by request path, orders the matching hosts using `LoadBalanceMode`, and then skips unhealthy or open-circuit hosts. It does not use queue priority to determine backend eligibility.
+
+#### What happens when the preferred backend fails?
+
+##### Proxy
+If the preferred backend is unavailable, throttled, or unhealthy, the proxy automatically retries the request against the next available backend in the configured list.
+
+##### APIM
+When using APIM backend pools, APIM evaluates backend priority groups in their configured order and selects an available endpoint within the highest-priority group. If no healthy endpoints remain in that group, APIM fails over to the next priority group.
+
+This approach enables organizations to reserve specific endpoints or capacity pools for different request priorities, ensuring that critical workloads continue to receive service during capacity constraints or backend failures.
+
+#### What happens when every endpoint in an APIM region is throttled?
+
+When APIM has exhausted all eligible endpoints in a region, it can return an HTTP 429 (Too Many Requests) response along with the S7PREQUEUE: true|false header and a recommended retry interval.
+
+SimpleL7Proxy interprets this response as a regional capacity constraint and automatically retries the request against the next configured APIM host. This allows traffic to fail over to another region with available capacity, improving resiliency and reducing the impact of localized throttling.
+
+#### What happens when every APIM region is throttled?
+
+After all configured APIM hosts return a requeue response, the proxy selects the shortest eligible retry delay, places the request back in its priority queue, and tries again after that delay. The request remains subject to its overall TTL while it waits and retries.
+
+#### What happens when no backend accepts the priority?
+
+APIM returns `503 Service Unavailable`. Changing retry count cannot help because the candidate set is empty.
+
+See [Priority Levels POC](../POC-Priority-configuration.md) for a runnable example.
+
+---
+
+### When should traffic go directly to a backend or through APIM?
+
+#### What is a direct backend?
+
+A direct backend uses `mode=direct`. The proxy does not send active health probes to it and always includes it in the active host set. Real request failures are still recorded by the circuit breaker.
+
+```bash
+Host_<name>="host=https://model.example.com;mode=direct;path=/model"
 ```
-client → [priority queue] → worker → path filter → load balancer → circuit gate → backend → response + telemetry
+
+#### When should I use direct mode?
+
+Use it when probing would be unsafe or undesirable—for example, when a serverless target scales to zero or has no suitable probe endpoint. Because direct mode has no probe-derived latency, it sorts first when `LoadBalanceMode=latency`.
+
+#### When should I route through APIM?
+
+Use APIM in the backend path when requests need gateway policies, transformations, subscriptions, caller authentication, or priority-aware selection across the services behind APIM. This adds APIM as an operational dependency, so use it for capabilities the direct path does not provide.
+
+#### What is an APIM backend?
+
+An APIM backend points a `Host_<name>` entry at Azure API Management. `mode=apim` is standard non-direct behavior: the proxy calls the configured probe and can remove APIM from the active set when health falls below the required success rate.
+
+```bash
+Host_<name>="host=https://gateway.azure-api.net;mode=apim;path=/shared;probe=/health"
 ```
 
-#### What are "workers" and why do they matter?
+#### Why put APIM behind the proxy?
 
-SimpleL7Proxy uses a fixed pool of workers (default 10) to pick requests from the [priority queue](../Glossary.md#request-lifecycle) and forward them to backends. The proxy runs exactly `Workers` requests simultaneously — any additional requests wait in the queue. More workers mean lower queue wait times but higher memory and CPU consumption. See [→ Workers](../Glossary.md#request-lifecycle).
+APIM can supply API gateway capabilities such as caller authentication, subscriptions, transformations, and priority-aware backend policies. The proxy adds its own queue, worker controls, health tracking, circuit breaking, and telemetry around that gateway path.
 
-#### What is a "backend host" and how is it different from a URL?
-
-SimpleL7Proxy models each backend as a configuration object that carries more than just a URL: the health-check path the proxy polls to confirm the backend is alive (`probe=`), the authentication method (`usemi=true` for Managed Identity or `api-key=` for key-based auth), an optional URL path prefix for routing (`path=`), and optionally a stream processor for extracting AI token counts. Each backend is configured as `Host1`, `Host2`, etc., using a semicolon-delimited connection string. See [→ Connection String Format](../Glossary.md#backend-management).
-
-#### What is a priority queue and how does it affect which requests go first?
-
-SimpleL7Proxy holds requests in an in-memory [priority queue](../Glossary.md#request-lifecycle) until a worker is free. Lower integer priorities are dispatched first — priority 1 runs before priority 2. Without priority configuration, all requests share the default priority and are served in arrival order. Because the queue is in-memory, it does not survive a proxy restart — requests waiting when the container stops are lost.
-
-#### What is a circuit breaker and when does it open?
-
-SimpleL7Proxy uses a [circuit breaker](../Glossary.md#reliability) to stop sending requests to a backend that is clearly failing. When a backend's failure count exceeds `CBErrorThreshold` (default 50) within the last `CBTimeslice` seconds (default 60), the circuit opens and that host is skipped. It closes automatically once old failures age out of the window — no manual reset is needed. See [→ Auto-Recovery](../Glossary.md#reliability).
-
-**Example:** A backend starts returning `500` errors. After 50 failures within 60 seconds, the circuit opens. Traffic automatically shifts to other healthy backends. After 60 seconds with no new failures, the circuit closes and the backend re-enters rotation.
+See [Backend Host Configuration](../BACKEND_HOSTS.md) for all host options.
 
 ---
 
-### Where does it run in Azure?
+### How does autoscaling expand proxy capacity?
 
-#### What is the supported deployment target (Azure Container Apps)?
+#### What causes the proxy to scale out?
 
-SimpleL7Proxy is designed for Azure Container Apps as its primary production deployment target. ACA provides the container runtime, VNet integration, managed identity support, and scaling controls the proxy relies on.
+Azure Container Apps uses KEDA-based triggers. HTTP concurrency is useful for bursty, streaming, or long-lived traffic; CPU is useful for steadier compute-bound traffic. When demand exceeds the configured target, ACA adds replicas up to `maxReplicas`.  Each replica is allowed `terminationGracePeriodSeconds` to complete requests before being forced closed.
 
-#### Can it run locally? Can it run in other environments?
+#### What does each new replica contain?
 
-SimpleL7Proxy can run locally from source or as a container, and other container-capable environments work if they can provide the required network and configuration wiring.
+Replicas operate independently. Each replica maintains its own queue, workers, fairness counters, backend health observations, and circuit-breaker state in memory. When a new replica is created, it starts with no queued work or operational history. Requests already queued on existing replicas are not moved, although `async` workloads can be redistributed through shared queueing systems.
 
-#### What network topologies does it support (public, VNet, sovereign)?
+#### Does scale-out redistribute queued requests or state?
 
-SimpleL7Proxy supports public ingress, private or VNet-connected deployments, and sovereign cloud configurations.
+No. Scale-out adds capacity for newly routed traffic, but queued requests stay on the replica that admitted them. Backend health and circuit-breaker decisions also remain local to each replica.
+
+#### What happens when a replica shuts down?
+
+The replica stops accepting new work and allows in-progress requests to complete for up to 30 minutes. Azure Container Apps starts a replacement replica set while the old replica drains, so new traffic moves to replacement capacity instead of entering the terminating replica.
+
+#### How should minimum and maximum replicas be chosen?
+
+Use `minReplicas` of at least `1` to avoid cold starts on a latency-sensitive path, and increase it for availability. Set `maxReplicas` from downstream backend capacity rather than proxy CPU alone; scaling the proxy cannot increase a backend's quota.
+
+#### How does autoscale interact with workers and queue length?
+
+`Workers` limits concurrent processing inside each replica, while `MaxQueueLength` limits waiting work in that replica. The ACA scale target should reflect measured per-replica worker and backend connection capacity. Repository deployment templates contain different concurrency targets, so their values are starting points rather than a universal default.
+
+See [Day 2 Operations](../../deployment/DAY2_OPERATIONS.md#scaling-considerations) for scaling guidance.
 
 ---
 
-### What does it NOT do?
+### When should clients stop waiting synchronously?
 
-#### When should I use this vs APIM? vs Azure API Gateway?
+#### What problem does async solve?
 
-Use it when you need reliability and cost visibility specific to AI backends: priority queuing, circuit breaking, retry across backends, and per-request token telemetry. Use Azure API Management when you need API lifecycle management — developer portals, subscription management, caller authentication, and complex policy transformations. The two are complementary: APIM can sit in front of this proxy, handling caller concerns while the proxy manages backend reliability.
+Async separates backend processing time from the caller's HTTP connection lifetime. It is useful for long model runs, background jobs, or any request likely to exceed a client, gateway, or network timeout.
 
-| Need | Use |
-|------|-----|
-| Priority queue, circuit breaking, retry across backends | SimpleL7Proxy |
-| Developer portal, subscriptions, caller auth | Azure API Management |
-| Both | APIM in front of SimpleL7Proxy |
+#### Does async make backend processing faster?
 
-#### What does it NOT do (non-goals)?
+No. Async changes how the client waits for and retrieves the result; it does not reduce backend execution time. The benefit is releasing the HTTP connection while work continues.
 
-It is not a managed service (you host and operate it yourself), not a full API gateway (no developer portal, subscription management, or caller authentication), and not a protocol translator (HTTP only — no gRPC or WebSocket). The [priority queue](../Glossary.md#request-lifecycle) is in-memory and does not survive container restarts — requests waiting when the container stops are lost. Circuit breaker state is local to each container instance — two proxy replicas do not share failure counters, so a backend that trips one instance's circuit may still receive traffic from another.
+#### How does a request enter async mode?
+
+Three conditions must be true: `AsyncModeEnabled=true` for the proxy, the user's profile must allow async and name a Blob container and Service Bus topic, and the request must send the configured async header. Fast requests still complete synchronously.
+
+#### What happens after the async trigger timeout?
+
+When an opted-in request runs longer than `AsyncTriggerTimeout`, the proxy returns `202 Accepted`. Processing continues, response data is written to Azure Blob Storage, and lifecycle status is published through Azure Service Bus.
+
+#### When should I keep requests synchronous?
+
+Keep them synchronous when they reliably finish inside the caller's wait budget. Async adds Storage and Service Bus dependencies, RBAC configuration, result retention, and client-side status handling.
+
+See [Async Operation Configuration](../AsyncOperation.md) for the complete setup.
 
 ---
 
 ## You Should Now Be Able To
 
-- [ ] Explain the proxy to a colleague in 2 minutes
-- [ ] Draw the architecture (client → queue → worker → backend → telemetry)
-- [ ] Decide whether this is the right tool for their scenario
-- [ ] Know which document to go to next (QUICKSTART, OVERVIEW, or SCENARIOS)
+- [ ] Explain how a profile becomes a queue priority
+- [ ] Explain how a profile can override the requested model
+- [ ] Distinguish backpressure from circuit breaking
+- [ ] Explain where priority-aware backend routing occurs
+- [ ] Choose between direct and APIM backend modes
+- [ ] Describe what changes and what stays local during autoscale and shutdown
+- [ ] Decide when a request should use async processing
 
 ---
 
@@ -176,9 +297,9 @@ It is not a managed service (you host and operate it yourself), not a full API g
 
 | Document | What it covers |
 |----------|----------------|
-| [Overview](../OVERVIEW.md) | Architecture, components, and high-level flows |
-| [Design](../design.md) | Code-level request flow |
-| [Glossary](../Glossary.md) | Definitions for proxy concepts and terminology |
-| [Get It Running](02-get-it-running.md) | The next discovery path for deploying or running the proxy |
+| [User Profiles](../USER_PROFILES.md) | Per-user priority and async fields |
+| [Load Balancing](../LOAD_BALANCING.md) | Native backend selection and retry |
+| [Backend Hosts](../BACKEND_HOSTS.md) | Direct and probed host configuration |
+| [Get It Running](02-get-it-running.md) | The next discovery path for running the proxy |
 
 ---
