@@ -17,14 +17,16 @@ At a high level, the platform continuously balances reliability, performance, se
 <tr>
 <td width="33%" valign="top">
 
-### [How do user profiles determine when requests run?](#how-do-user-profiles-determine-when-requests-run-1)
-A user profile can assign a queue priority and override the requested model. High priorities run first, while a model override rewrites the request before it reaches the backend.
+### [What is a user profiles?](#how-do-user-profiles-determine-when-requests-run-1)
+
+A user profile maps a request to a priority that controls its queue order and can override the requested model. When no profile match exists, the proxy falls back to a default priority.
 
 </td>
 <td width="33%" valign="top">
 
-### [How are proxy capacity and unhealthy backends protected?](#how-are-proxy-capacity-and-unhealthy-backends-protected-1)
-Backpressure slows how quickly a replica admits new work as its telemetry backlog grows; admitted work continues at full speed. The proxy circuit breaker delays and eventually blocks attempts to a failing backend until it recovers.
+### [How does the proxy stay healthy and recover from failure?](#how-does-the-proxy-stay-healthy-and-recover-from-failure-1)
+
+The proxy stays healthy through three mechanisms: backpressure, circuit breaking, and health probes. Each stateless replica applies backpressure by progressively delaying and then rejecting requests as it saturates; if it stays unhealthy long enough, Azure Container Apps drains its connections and replaces it with a new instance. A separate circuit breaker tracks backend failures and stops sending traffic to a failing backend until it recovers.
 
 </td>
 <td width="33%" valign="top">
@@ -94,7 +96,7 @@ See [User Profiles](../USER_PROFILES.md) for profile structure and loading.
 
 ---
 
-### How are proxy capacity and unhealthy backends protected?
+### How does the proxy stay healthy and recover from failure?
 
 #### What is backpressure?
 
