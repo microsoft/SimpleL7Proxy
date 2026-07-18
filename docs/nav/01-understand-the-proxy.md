@@ -17,21 +17,24 @@ At a high level, the platform continuously balances reliability, performance, se
 <tr>
 <td width="33%" valign="top">
 
-### [What is a user profiles?](#how-do-user-profiles-determine-when-requests-run-1)
+### [What is a user profile?](#how-do-user-profiles-determine-when-requests-run)
 
 A user profile maps a request to a priority that controls its queue order and can override the requested model. When no profile match exists, the proxy falls back to a default priority.
 
 </td>
 <td width="33%" valign="top">
 
-### [How does the proxy stay healthy and recover from failure?](#how-does-the-proxy-stay-healthy-and-recover-from-failure-1)
+### [How do the proxy and APIM share retry responsibility?](#how-does-apim-determine-which-backends-receive-requests-1)
 
-The proxy stays healthy through three mechanisms: backpressure, circuit breaking, and health probes. Each stateless replica applies backpressure by progressively delaying and then rejecting requests as it saturates; if it stays unhealthy long enough, Azure Container Apps drains its connections and replaces it with a new instance. A separate circuit breaker tracks backend failures and stops sending traffic to a failing backend until it recovers.
+Requests are serviced by the proxy according to the priority of the user who made the request. The proxy retries each request until it completes, and it maintains full visibility into that activity.
+
+The APIM runs a policy that picks up where the proxy leaves off, routing prioritized requests to the appropriate endpoints. If APIM cannot complete a request, it signals the proxy to retry. The proxy then takes back control of fulfilling the request and keeps retrying until the TTL expires.
 
 </td>
 <td width="33%" valign="top">
 
 ### [How does APIM determine which backends receive requests?](#how-does-apim-determine-which-backends-receive-requests-1)
+
 The supplied APIM policy selects endpoints by priority and tracks each endpoint's throttle period. It skips throttled endpoints until their retry time, while the proxy can try another APIM region and requeue the request when every region is throttled.
 
 </td>
@@ -39,20 +42,41 @@ The supplied APIM policy selects endpoints by priority and tracks each endpoint'
 <tr>
 <td width="33%" valign="top">
 
-### [When should traffic go directly to a backend or through APIM?](#when-should-traffic-go-directly-to-a-backend-or-through-apim-1)
-Use direct mode when active probing is unsuitable. Route through APIM when the traffic path needs gateway policies, transformations, caller controls, or priority-aware backend selection.
+### [What role do health probes play in autoscaling?](#how-does-autoscaling-expand-proxy-capacity)
+
+Autoscaling is handled by Azure Container Apps, not the proxy itself. The proxy exposes three health probes — `/startup`, `/liveness`, and `/readiness` — that ACA uses to track each replica's health.
+
+ACA also monitors the number of incoming connections per replica. When that count exceeds a configured threshold, ACA starts a new replica and begins routing traffic to it.
+
+During scale-in, ACA stops routing new requests to a replica and gives it a grace period to drain its active connections before shutting it down. The proxy uses this window to finish in-flight work before it winds down.
+
+When backpressure is high, the proxy signals distress to ACA by failing the readiness probe. If a replica stays in distress long enough, ACA recycles it.
 
 </td>
+
 <td width="33%" valign="top">
 
-### [How does autoscaling expand proxy capacity?](#how-does-autoscaling-expand-proxy-capacity-1)
-Azure Container Apps adds independent proxy replicas from a trigger such as HTTP concurrency. Each replica adds workers and queue capacity but keeps its own queue, health observations, and circuit state.
+### [How does the proxy stay healthy and recover from failure?](#how-does-the-proxy-stay-healthy-and-recover-from-failure-1)
+
+The proxy is most resilient when deployed with Azure Container Apps as multiple replicas. 
+
+The proxy stays healthy through three mechanisms: backpressure, circuit breaking, and health probes. Each stateless replica applies backpressure by progressively delaying and then rejecting requests as it saturates; if it stays unhealthy long enough, Azure Container Apps drains its connections and replaces it with a new instance. A separate circuit breaker tracks backend failures and stops sending traffic to a failing backend until it recovers.
 
 </td>
+
 <td width="33%" valign="top">
 
 ### [When should clients stop waiting synchronously?](#when-should-clients-stop-waiting-synchronously-1)
 Use async mode when processing may exceed the practical HTTP wait budget. The proxy can return `202`, continue processing, store the result in Blob Storage, and publish status through Service Bus.
+
+</td>
+</tr>
+<tr>
+<td width="33%" valign="top">
+
+### [When should traffic go directly to a backend or through APIM?](#when-should-traffic-go-directly-to-a-backend-or-through-apim-1)
+
+Use direct mode for backends where health probing is unsafe or unnecessary, such as a serverless target that scales to zero. Route through APIM when requests need gateway policies, transformations, subscriptions, caller authentication, or priority-aware backend selection.
 
 </td>
 </tr>
