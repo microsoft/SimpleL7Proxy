@@ -11,72 +11,58 @@ At a high level, the platform continuously balances reliability, performance, se
 
 ---
 
-## Quick Answers
+## Quick Topics
 
 <table>
 <tr>
 <td width="33%" valign="top">
 
-### [What is a user profile?](#how-do-user-profiles-determine-when-requests-run)
+### [The User Profile](#how-do-user-profiles-determine-when-requests-run)
 
-A user profile maps a request to a priority that controls its queue order and can override the requested model. When no profile match exists, the proxy falls back to a default priority.
-
-</td>
-<td width="33%" valign="top">
-
-### [How do the proxy and APIM share retry responsibility?](#how-does-apim-determine-which-backends-receive-requests-1)
-
-Requests are serviced by the proxy according to the priority of the user who made the request. The proxy retries each request until it completes, and it maintains full visibility into that activity.
-
-The APIM runs a policy that picks up where the proxy leaves off, routing prioritized requests to the appropriate endpoints. If APIM cannot complete a request, it signals the proxy to retry. The proxy then takes back control of fulfilling the request and keeps retrying until the TTL expires.
+A user profile, loaded from CosmosDB, maps a request to a collection of headers, including **priority**. These headers can control de-queue order, override the requested model, or report metrics. Other fields can apply validation, mapping, and hygiene rules, or drive additional routing and policy decisions in the proxy and APIM. When no profile matches, the proxy falls back to a default priority.
 
 </td>
 <td width="33%" valign="top">
 
-### [How does APIM determine which backends receive requests?](#how-does-apim-determine-which-backends-receive-requests-1)
+### [Coordinating with APIM](#how-does-apim-determine-which-backends-receive-requests-1)
 
-The supplied APIM policy selects endpoints by priority and tracks each endpoint's throttle period. It skips throttled endpoints until their retry time, while the proxy can try another APIM region and requeue the request when every region is throttled.
+The proxy processes each request in priority order, enriching it before forwarding to APIM. It probes every APIM instance across all regions, retrying as needed through a priority queue that can put a request to sleep and wake it later. The proxy tracks TTL and keeps retrying until the request completes or expires, logging full activity to Application Insights, Event Hub, Service Bus, files, or custom code.
 
-</td>
-</tr>
-<tr>
-<td width="33%" valign="top">
-
-### [What role do health probes play in autoscaling?](#how-does-autoscaling-expand-proxy-capacity)
-
-Autoscaling is handled by Azure Container Apps, not the proxy itself. The proxy exposes three health probes — `/startup`, `/liveness`, and `/readiness` — that ACA uses to track each replica's health.
-
-ACA also monitors the number of incoming connections per replica. When that count exceeds a configured threshold, ACA starts a new replica and begins routing traffic to it.
-
-During scale-in, ACA stops routing new requests to a replica and gives it a grace period to drain its active connections before shutting it down. The proxy uses this window to finish in-flight work before it winds down.
-
-When backpressure is high, the proxy signals distress to ACA by failing the readiness probe. If a replica stays in distress long enough, ACA recycles it.
+On the APIM side, a policy selects endpoints by the request priority and tracks each endpoint's throttle period, skipping throttled endpoints until their retry time. If APIM cannot complete a request, it signals the proxy to retry other regions.
 
 </td>
 
 <td width="33%" valign="top">
 
-### [How does the proxy stay healthy and recover from failure?](#how-does-the-proxy-stay-healthy-and-recover-from-failure-1)
+### [Autoscaling with ACA](#how-does-autoscaling-expand-proxy-capacity)
 
-The proxy is most resilient when deployed with Azure Container Apps as multiple replicas. 
+Azure Container Apps makes all scaling decisions, guided by the proxy's `/startup`, `/liveness`, and `/readiness` probes. ACA **scales out** by comparing connections per replica to a configured threshold, and recycles any replica showing sustained backpressure.
 
-The proxy stays healthy through three mechanisms: backpressure, circuit breaking, and health probes. Each stateless replica applies backpressure by progressively delaying and then rejecting requests as it saturates; if it stays unhealthy long enough, Azure Container Apps drains its connections and replaces it with a new instance. A separate circuit breaker tracks backend failures and stops sending traffic to a failing backend until it recovers.
-
-</td>
-
-<td width="33%" valign="top">
-
-### [When should clients stop waiting synchronously?](#when-should-clients-stop-waiting-synchronously-1)
-Use async mode when processing may exceed the practical HTTP wait budget. The proxy can return `202`, continue processing, store the result in Blob Storage, and publish status through Service Bus.
+When a replica is scaled in or terminated, ACA stops routing new requests to it and gives it a grace period to **drain** its active connections. The proxy uses that window to finish in-flight work before shutting down.
 
 </td>
 </tr>
 <tr>
 <td width="33%" valign="top">
 
-### [When should traffic go directly to a backend or through APIM?](#when-should-traffic-go-directly-to-a-backend-or-through-apim-1)
+### [Resiliency](#how-does-the-proxy-stay-healthy-and-recover-from-failure-1)
 
-Use direct mode for backends where health probing is unsafe or unnecessary, such as a serverless target that scales to zero. Route through APIM when requests need gateway policies, transformations, subscriptions, caller authentication, or priority-aware backend selection.
+Each replica protects itself by signaling distress to ACA if needed. On the inbound side, **backpressure** progressively delays requests as the replica saturates. On the backend side, a **circuit breaker** stops sending traffic to a failing backend until it recovers.
+
+</td>
+
+<td width="33%" valign="top">
+
+### [Sync to Async](#when-should-clients-stop-waiting-synchronously-1)
+
+If a request runs longer than a configured trigger timeout, the proxy promotes it to async: it returns `202`, continues processing in the background, stores the result in Blob Storage, and publishes status through Service Bus. This can wrap any API call, giving it background-processing capability but especially use for long running LLM queries.
+
+</td>
+<td width="33%" valign="top">
+
+### [Direct Backends](#when-should-traffic-go-directly-to-a-backend-or-through-apim-1)
+
+Direct mode connects straight to an API endpoint, bypassing APIM entirely. That means APIM-provided capabilities—transformations, subscriptions, caller authentication, and priority-aware backend selection—are not available on that path.
 
 </td>
 </tr>
@@ -90,11 +76,19 @@ Use direct mode for backends where health probing is unsafe or unnecessary, such
 
 #### Where does a user's priority come from?
 
-Incoming requests can pass in the priority as a header.
+A request's priority can come from an incoming request header or from the user's profile. When user profiles are used, the proxy caches them from CosmosDB into memory, refreshing the cache every hour, and matches each incoming request to a profile to assign its priority.
 
-When user profiles are enabled, the proxy caches the list of user profiles from CosmosDB into memory. For every incoming request, it matches the request to a profile and then assigns the priority.
+Each priority has two parts: a human-friendly string that is sent in the header and its mapped numeric value used for priority ordering.
 
-**Example:** With `PriorityKeys=high,medium,low` and `PriorityValues=1,2,3`, a profile containing `"S7PPriorityKey": "high"` receives priority `1`.
+**Example:** With `PriorityKeys=high,medium,low` and `PriorityValues=1,2,3`, the strings map to values as follows:
+
+| Header string (`PriorityKeys`) | Numeric value (`PriorityValues`) |
+|---|---|
+| `high` | `1` |
+| `medium` | `2` |
+| `low` | `3` |
+
+A profile containing `"S7PPriorityKey": "high"` therefore receives priority `1`.
 
 #### What does the priority affect?
 
@@ -124,37 +118,29 @@ See [User Profiles](../USER_PROFILES.md) for profile structure and loading.
 
 #### What is backpressure?
 
-Backpressure protects the proxy when work arrives faster than it can be processed. The proxy first slows admission, then rejects requests with HTTP 429 when event backlog, queue capacity, backend availability, or enqueue limits are unsafe.
+Backpressure is the proxy's admission control. Before enqueueing a request, the proxy runs it through a fixed, ordered set of checks and either delays, rejects, or admits the request. Circuit-breaker failures are simply one of those checks — the circuit breaker is a signal that feeds into backpressure, not a mechanism that acts on its own.
 
 #### What is circuit breaking?
 
-Circuit breaking protects unhealthy backends. It counts failures within a configured time window and stops admitting new work when the failure threshold is reached. Defaults are 50 failures in 60 seconds.
+Circuit breaking tracks backend failures within a configured time window (default: 50 failures in 60 seconds) and is the second check in the backpressure sequence. As the failure count approaches the threshold, backpressure progressively delays admission; once the threshold is reached, new requests are rejected with `429`.
 
-#### How are they different?
+#### What checks make up backpressure, and in what order?
 
-* Backpressure: Responds to proxy/system capacity pressure.
-* Circuit breaker: Responds specifically to repeated backend failures.
-* Circuit breaking is one signal that can activate the proxy’s broader backpressure behavior.
+The proxy evaluates these conditions, in order, before enqueueing a request:
 
-#### What does the caller observe when protection activates?
+1. **Telemetry/event backlog** — above 50% of `MaxUndrainedEvents` (default `10,000`), admission is delayed; above the limit, the request is rejected with `429 Max Events Exceeds Threshold`.
+2. **Circuit-breaker failures** — at 50–90% of the failure threshold, admission is delayed 100–500 ms; at the threshold (default 50 failures in 60 seconds), the request is rejected with `429`.
+3. **Request queue full** — rejected with `429 Queue is full` once the queue reaches `MaxQueueLength` (default `1,000`).
+4. **No active backend hosts** — rejected with `429 No active hosts` when there are no active hosts available.
+5. **Concurrent enqueue failure** — the queue independently re-checks its capacity; a race can fill it after check 3 passes, so the enqueue attempt can still fail and produce a `429`.
 
-The circuit breaker does not switch from healthy to blocked immediately. As error rates, queue depth, or resource pressure increase, the proxy first enters a protective mode where requests are intentionally slowed down. This added latency acts as backpressure, giving downstream services time to recover and reducing the likelihood of a cascading failure.
-
-If conditions continue to deteriorate and configured thresholds are exceeded, the circuit fully opens and new requests are rejected with HTTP 429 (Too Many Requests). The response includes a specific reason, such as:
-
-* Max Events Exceeds Threshold
-* Too many failures in the last 60 seconds
-* Queue is full
-* No active hosts
-* Failed to enqueue request
-
-A Retry-After header is returned so callers know when to try again.
+Rejected requests receive a `Retry-After` header: the configured poll interval when no hosts are active, otherwise the literal value `500`. Probe requests bypass all of these admission checks.
 
 During a planned shutdown or maintenance event, the proxy instead returns HTTP 503 (Service Unavailable).
 
-#### What happens before a circuit fully opens?
+#### What happens as circuit-breaker failures approach the threshold?
 
-Once failures reach 50% of the threshold, the proxy progressively delays incoming requests:
+Once circuit-breaker failures reach 50% of the threshold, backpressure progressively delays incoming requests:
 |Failure threshold reached |	Delay|
 |--|--|
 |50%	| 100 ms |
@@ -253,9 +239,17 @@ See [Backend Host Configuration](../BACKEND_HOSTS.md) for all host options.
 
 ### How does autoscaling expand proxy capacity?
 
+#### Who is responsible for autoscaling?
+
+Autoscaling is handled by Azure Container Apps, not the proxy itself. ACA decides when to add or remove replicas; the proxy's role is to report its health accurately and drain in-flight work cleanly when asked.
+
 #### What causes the proxy to scale out?
 
-Azure Container Apps uses KEDA-based triggers. HTTP concurrency is useful for bursty, streaming, or long-lived traffic; CPU is useful for steadier compute-bound traffic. When demand exceeds the configured target, ACA adds replicas up to `maxReplicas`.  Each replica is allowed `terminationGracePeriodSeconds` to complete requests before being forced closed.
+Azure Container Apps uses KEDA-based triggers. HTTP concurrency is useful for bursty, streaming, or long-lived traffic; CPU is useful for steadier compute-bound traffic. ACA monitors the number of incoming connections per replica, and when that count exceeds the configured threshold, it starts a new replica and begins routing traffic to it. When demand exceeds the configured target, ACA adds replicas up to `maxReplicas`. 
+
+#### What role do health probes play in autoscaling?
+
+The proxy exposes three health probes — `/startup`, `/liveness`, and `/readiness` — that ACA uses to track each replica's health. ACA uses these signals, together with per-replica connection counts, to decide whether a replica is healthy enough to keep receiving traffic.
 
 #### What does each new replica contain?
 
@@ -267,7 +261,13 @@ No. Scale-out adds capacity for newly routed traffic, but queued requests stay o
 
 #### What happens when a replica shuts down?
 
-The replica stops accepting new work and allows in-progress requests to complete for up to 30 minutes. Azure Container Apps starts a replacement replica set while the old replica drains, so new traffic moves to replacement capacity instead of entering the terminating replica.
+During scale-in, ACA stops routing new requests to a replica and starts its `terminationGracePeriodSeconds` timer, giving the replica time (configurable up to 30 minutes) to drain active connections before it is shut down. The proxy uses this window to finish in-flight work before winding down.
+
+If the replica will be replaced, Azure Container Apps starts a replacement replica while the old one drains, so new traffic moves to replacement capacity instead of the terminating replica. Any requests still in flight when `terminationGracePeriodSeconds` elapses are forced closed.
+
+#### How does the proxy signal distress to ACA?
+
+When backpressure is high, the proxy signals distress to ACA by failing the readiness probe. This tells ACA to stop routing new requests to that replica. If a replica stays in distress long enough, ACA recycles it.
 
 #### How should minimum and maximum replicas be chosen?
 
