@@ -2,6 +2,17 @@
 
 You can rung the proxy locally from the source code or container or deployed it to a container service such as the Azure Container Apps.   After you deploy, come back to this guide to configure it.
 
+
+## Step 0: Clone the repo
+
+First clone the repo so that you have the source code.
+
+```sh:
+
+> git clone https://github.com/microsoft/SimpleL7Proxy.git
+> cd SimpleL7Proxy
+
+```
 ---
 
 ## Step 1: Choose Your Setup
@@ -105,8 +116,53 @@ No endpoint yet? Use the built-in simulator.
 </tr>
 </table>
 
+---
 
-## Full Answers
+## Step 3: Test it out
+
+You can use the chat testing tool to validate that the service is running or `curl` if you want to try it out on the command line.
+
+```sh:
+# pre-req:  dotnet 10
+cd src/Chat-tester
+dotnet run
+```
+By default the app will startup on `http://localhost:5259`, click into that and point to your proxy on the server tab.  Your server will be something like: `http(s)://localhost:8000`.  Select your endpoint model, type in a prompt and run the request.  It will look something like the screenshot below:  
+
+![alt text](chat-test.png)
+---
+
+## FAQ
+
+<details>
+<summary><strong>App Configuration</strong></summary>
+
+#### Whats the difference between Environment Variables and App Configuration
+
+Convenience! The proxy works the same way with both — the only difference is *where* the configuration lives. Environment variables are more direct; App Configuration is a central store with a UI and the ability to update a running proxy without a restart.
+
+**Environment variables** are set on the process or container. Every proxy instance reads them once, at startup. Changing a value means changing the environment and restarting the proxy so it picks up the new value.
+
+**App Configuration** is a central Azure store. You grant the proxy access to connect to it, and on startup the proxy downloads all the settings it needs. Settings are split into two kinds:
+
+- **Cold settings** (e.g. `Port`, `Workers`, `Timeout`, `PollInterval`) — read once at startup, just like environment variables. Changing one requires a restart.
+- **Warm settings** (e.g. `MaxAttempts`, `DefaultPriority`, `DefaultTTLSecs`) — hot-reloaded across every running instance in ~30 seconds. 
+
+See [→ Azure App Configuration](../AZURE_APP_CONFIGURATION.md) for the full Warm/Cold reference.
+
+#### Why App Configuration avoids a new ACA revision on every change
+
+In Azure Container Apps, environment variables are part of the container's revision template. **Changing any environment variable creates a new revision** — ACA spins up fresh replicas, drains the old ones, and rolls traffic over. That's disruptive for a small config tweak like adjusting a retry count or a TTL.
+
+With App Configuration, those values do **not** live in the revision template — the proxy reads them from App Configuration at runtime. Updating a Warm setting and bumping `Warm:Sentinel` pushes the change to all running replicas in ~30 seconds **with no new revision, no replica churn, and no dropped requests.** You only trigger a new revision when you change a Cold setting or deploy a new image.
+
+| Change | Environment variable | App Configuration (Warm) |
+|--------|----------------------|--------------------------|
+| Retry count, TTL, priority, thresholds | New ACA revision + replica rollout | Live update in ~30 s, no revision |
+| `Port`, `Workers`, `Timeout` (Cold) | New ACA revision | Restart required (Cold) |
+| New container image | New ACA revision | New ACA revision |
+
+</details>
 
 ### Minimum required before starting?
 
