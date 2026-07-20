@@ -70,10 +70,11 @@ Validation and priority rules applied before a request enters the queue.
 | Concept | Document |
 |---------|----------|
 | Validation pipeline execution order | [REQUEST_VALIDATION.md](REQUEST_VALIDATION.md) |
-| App ID validation (Entra allowlist, step 1) | [REQUEST_VALIDATION.md](REQUEST_VALIDATION.md#scenario-4-validate-caller-app-ids) |
-| Header stripping (DisallowedHeaders, step 2) | [REQUEST_VALIDATION.md](REQUEST_VALIDATION.md#scenario-2-strip-internal-headers-before-forwarding) |
-| Required headers (step 4, returns 417) | [REQUEST_VALIDATION.md](REQUEST_VALIDATION.md#scenario-1-require-specific-headers-on-every-request) |
-| Header value validation rules (step 5) | [REQUEST_VALIDATION.md](REQUEST_VALIDATION.md#scenario-3-validate-header-values-against-a-per-user-allowlist) |
+| Inbound key/OAuth validation (step 1) | [REQUEST_VALIDATION.md](REQUEST_VALIDATION.md#scenario-5-require-an-inbound-shared-key-header) |
+| App ID validation (Entra allowlist, step 2) | [REQUEST_VALIDATION.md](REQUEST_VALIDATION.md#scenario-4-block-unknown-entra-app-ids) |
+| Header stripping (DisallowedHeaders, step 3) | [REQUEST_VALIDATION.md](REQUEST_VALIDATION.md#scenario-2-strip-internal-headers-before-forwarding) |
+| Required headers (step 5, returns 417) | [REQUEST_VALIDATION.md](REQUEST_VALIDATION.md#scenario-1-require-specific-headers-on-every-request) |
+| Header value validation rules (step 6) | [REQUEST_VALIDATION.md](REQUEST_VALIDATION.md#scenario-3-validate-header-values-against-a-per-user-allowlist) |
 | User profiles: structure, fields, refresh | [USER_PROFILES.md](USER_PROFILES.md) |
 | User ID field, profile lookup | [USER_PROFILES.md](USER_PROFILES.md) |
 | Suspended users | [USER_PROFILES.md](USER_PROFILES.md#user-suspension) |
@@ -92,7 +93,7 @@ Long-running request handling that decouples client wait from backend processing
 | Async mode overview, three-level enablement | [AsyncOperation.md](AsyncOperation.md) |
 | AsyncTriggerTimeout and async upgrade (202 response) | [TIMEOUTS.md](TIMEOUTS.md#async-requests) |
 | Azure Service Bus configuration and status events | [AsyncOperation.md](AsyncOperation.md#azure-service-bus-configuration) |
-| Result blob storage, SAS token lifetime | [AsyncOperation.md](AsyncOperation.md) |
+| Result blob storage and returned base URIs | [AsyncOperation.md](AsyncOperation.md) |
 | Blob retention and lifecycle management | [StorageBlobConfig.md](StorageBlobConfig.md) |
 | Async processing variables (full reference) | [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md#async-processing-variables) |
 
@@ -176,11 +177,12 @@ Named HTTP signals that cross the client-proxy and proxy-backend boundaries.
 | `S7PAsyncMode` | Client → proxy | [AsyncOperation.md](AsyncOperation.md) |
 | `S7PDEBUG` | Client → proxy | [RESPONSE_CODES.md](RESPONSE_CODES.md#request-headers-proxy-reads-these) |
 | `S7PREQUEUE` | Backend → proxy | [RESPONSE_CODES.md](RESPONSE_CODES.md#backend-429-and-requeue) |
-| `x-Request-Queue-Duration` | Proxy → client | [RESPONSE_CODES.md](RESPONSE_CODES.md#response-headers-proxy-adds-these) |
-| `x-Request-Process-Duration` | Proxy → client | [RESPONSE_CODES.md](RESPONSE_CODES.md#response-headers-proxy-adds-these) |
-| `x-Request-Worker` | Proxy → client | [RESPONSE_CODES.md](RESPONSE_CODES.md#response-headers-proxy-adds-these) |
+| `Request-Queue-Duration` | Proxy → client | [RESPONSE_CODES.md](RESPONSE_CODES.md#response-headers-proxy-adds-these) |
+| `Request-Process-Duration` | Proxy → client | [RESPONSE_CODES.md](RESPONSE_CODES.md#response-headers-proxy-adds-these) |
 | `BackendHost` | Proxy → client | [RESPONSE_CODES.md](RESPONSE_CODES.md#response-headers-proxy-adds-these) |
 | `Total-Latency` | Proxy → client | [RESPONSE_CODES.md](RESPONSE_CODES.md#response-headers-proxy-adds-these) |
+| `Attempts` | Proxy → client | [RESPONSE_CODES.md](RESPONSE_CODES.md#response-headers-proxy-adds-these) |
+| `Lifetime-Attempts` | Proxy → client | [RESPONSE_CODES.md](RESPONSE_CODES.md#response-headers-proxy-adds-these) |
 
 ---
 

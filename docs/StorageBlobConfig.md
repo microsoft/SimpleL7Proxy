@@ -2,22 +2,22 @@
 
 | Attribute | Value |
 |-----------|-------|
-| **Version** | 1.1 |
-| **Last Updated** | 2026-05-21 |
+| **Version** | 1.2 |
+| **Last Updated** | 2026-07-16 |
 | **Owner** | SimpleL7Proxy maintainers |
 | **Review Cycle** | Quarterly |
 
 ## Summary
 
-SimpleL7Proxy writes one blob per async request to Azure Blob Storage. Blobs do not expire automatically. Operators MUST configure a storage lifecycle management policy to prevent unbounded storage growth and cost. `BlobRetentionDays` sets the retention window; `StorageDbContainerName` identifies the container the policy MUST target.
+SimpleL7Proxy writes async results to Azure Blob Storage. Blobs do not expire automatically. Operators MUST configure an external Azure Storage lifecycle management policy with an operator-selected retention window; the proxy does not configure or enforce blob deletion.
 
 > **TL;DR**
-> - `BlobRetentionDays` (default: `7`) sets the days-since-last-modification threshold for automatic deletion.
-> - A lifecycle management policy MUST be created in the Azure Storage account targeting `StorageDbContainerName` (default: `Requests`).
+> - The retention period is an Azure Storage lifecycle-policy value, not a SimpleL7Proxy setting.
+> - A lifecycle management policy MUST target every result container, including `StorageDbContainerName` (default: `Requests`) and any per-user containers.
 > - Three equivalent provisioning methods are available: Azure Portal, Azure CLI, and Bicep.
 
 > [!WARNING]
-> Setting `BlobRetentionDays` in the proxy configuration alone does NOT delete blobs. The Azure Storage lifecycle management policy MUST be created independently in the storage account.
+> `AsyncTTLSecs` controls async request expiration, not blob retention. The Azure Storage lifecycle management policy MUST be created independently in the storage account.
 
 ---
 
@@ -33,8 +33,9 @@ SimpleL7Proxy writes one blob per async request to Azure Blob Storage. Blobs do 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BlobRetentionDays` | `7` | Days after last modification before a blob is eligible for automatic deletion. Set to `0` to disable. |
-| `StorageDbContainerName` | `Requests` | Container name where async request blobs are stored. The lifecycle rule MUST target this name exactly. |
+| `StorageDbContainerName` | `Requests` | Default container name for async result blobs. A lifecycle rule MUST target this and any per-user container names. |
+
+The examples below use an operator-selected retention period of `7` days. This value exists only in the Azure Storage lifecycle policy.
 
 > [!NOTE]
 > Azure Blob Storage lifecycle management policies run once per day. Blobs are not deleted immediately when the retention period elapses — deletion occurs on the next daily policy evaluation.
@@ -51,8 +52,8 @@ The following three methods are equivalent. Operators MUST use exactly one.
 2. Select **Lifecycle Management** under **Data management**.
 3. Create a new rule with these settings:
    - **Rule name**: `DeleteExpiredAsyncBlobs`
-   - **Rule scope**: Apply to containers matching prefix `{StorageDbContainerName}` (default: `Requests`)
-   - **If blob was last modified more than (days ago)**: `{BlobRetentionDays}` (default: `7`)
+   - **Rule scope**: Apply to every async result container (default container: `Requests`)
+   - **If blob was last modified more than (days ago)**: the operator-selected retention period (example: `7`)
    - **Then delete the blob**: Checked
 
 ### Option 2: Azure CLI
@@ -138,7 +139,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2021-08-01' = {
 |-------|--------|-----------------|
 | Lifecycle policy exists | Azure Portal → Storage Account → Lifecycle Management | `DeleteExpiredAsyncBlobs` rule is present and enabled |
 | Target container correct | Inspect rule's prefix filter | Matches `StorageDbContainerName` value exactly |
-| Blobs deleted after retention | Wait `BlobRetentionDays` days after async requests complete | Blobs absent from container on next daily evaluation |
+| Blobs deleted after retention | Wait for the lifecycle policy's configured period after async requests complete | Blobs absent from container on next daily evaluation |
 | Container exists | Azure Portal → Storage Account → Containers | `{StorageDbContainerName}` container is present |
 
 ---
@@ -147,5 +148,6 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2021-08-01' = {
 
 | Version | Date | Changes | Author |
 |---------|------|---------|--------|
+| 1.2 | 2026-07-16 | Clarified that retention is controlled only by an external Azure Storage lifecycle policy; removed the nonexistent proxy `BlobRetentionDays` setting. | SimpleL7Proxy maintainers |
 | 1.1 | 2026-05-21 | Added H1 title, metadata, TL;DR, Summary, Scope & Applicability, Validation & Compliance, Version History; fixed Bicep code block language tag; standardized variable table | SimpleL7Proxy maintainers |
 | 1.0 | — | Initial version (no document title or intro) | SimpleL7Proxy maintainers |

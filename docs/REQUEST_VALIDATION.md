@@ -10,20 +10,20 @@ Reject or sanitize incoming requests before they enter the queue — return **41
 
 ## Reference Table
 
-All settings are **Warm** — changes apply instantly without a container restart.
+All settings are **Warm** — changes are hot-reloaded through Azure App Configuration when the Sentinel changes.
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
 | `RequiredHeaders` | `List<string>` | `[]` | Headers that must be non-empty; first missing header → 417. |
 | `DisallowedHeaders` | `List<string>` | `[]` | Headers stripped from the request before forwarding to the backend. |
 | `ValidateHeaders` | `Dictionary<string,string>` | `{}` | Rules: `SourceHeader=AllowlistHeader`. Value of `SourceHeader` must appear in the comma-separated list in `AllowlistHeader`. Supports `*` suffix for prefix matching. |
-| `ValidateAuthAppID` | `bool` | `false` | Enable App ID allowlisting (runs before all other checks). |
+| `ValidateAuthAppID` | `bool` | `false` | Enable App ID allowlisting (step 2, after inbound auth). |
 | `ValidateAuthAppIDUrl` | `string` | `""` | URL or `file:auth.json` for the App ID allowlist. Requires `UseProfiles=true`. |
 | `ValidateAuthAppIDHeader` | `string` | `X-MS-CLIENT-PRINCIPAL-ID` | Request header containing the caller's Entra App ID. |
 | `ValidateAuthAppFieldName` | `string` | `authAppID` | JSON field name in the allowlist file that holds the App ID value. |
-| `ValidateAuthConfig` | `string` | `enabled=false, mode=key, header=S7P-KEY` | Enables inbound key validation when `enabled=true` and `mode=key`; `header` chooses the inbound header name. |
-| `ValidateAuthKey1` | `string` | `key1` | First accepted inbound key value. |
-| `ValidateAuthKey2` | `string` | `key2` | Second accepted inbound key value. |
+| `ValidateAuthConfig` | `string` | `enabled=false, mode=none, header=S7P-KEY` | Enables inbound key, OAuth, or mixed validation; `header` chooses the inbound header name. |
+| `ValidateAuthKey1` | `string` | `""` | First accepted inbound key value. |
+| `ValidateAuthKey2` | `string` | `""` | Second accepted inbound key value. |
 
 > [!NOTE]
 > **Auto-population side effect:** Setting `ValidateHeaders=SourceHeader=AllowlistHeader` automatically adds both headers to `RequiredHeaders` **and** adds `AllowlistHeader` to `DisallowedHeaders`. The allowlist header is injected by the user profile service and must not reach the backend.
@@ -36,20 +36,22 @@ Validation runs on every non-probe request before it is enqueued. The order is f
 Incoming request
        │
        ▼
-[1] ValidateAuthAppID check ──── fail ──► 403 Forbidden  (DisallowedAppID)
-  OR ValidateAuth key check ─ fail ──► 403 Forbidden  (DisallowedKey)
+[1] Inbound key/OAuth check ───── fail ──► 403 Forbidden  (DisallowedKey)
        │ pass
        ▼
-[2] Strip DisallowedHeaders  (silent — no error returned)
+[2] ValidateAuthAppID check ───── fail ──► 403 Forbidden  (DisallowedAppID)
+       │ pass
+       ▼
+[3] Strip DisallowedHeaders  (silent — no error returned)
        │
        ▼
-[3] User profile lookup ─────── unknown ──► 403 Forbidden  (UnknownProfile)
+[4] User profile lookup ─────── unknown ──► 403 Forbidden  (UnknownProfile)
        │ found → inject profile headers into request
        ▼
-[4] RequiredHeaders check ───── first missing ──► 417 Expectation Failed  (IncompleteHeaders)
+[5] RequiredHeaders check ───── first missing ──► 417 Expectation Failed  (IncompleteHeaders)
        │ all present
        ▼
-[5] ValidateHeaders rules ───── first mismatch ──► 417 Expectation Failed  (InvalidHeader)
+[6] ValidateHeaders rules ───── first mismatch ──► 417 Expectation Failed  (InvalidHeader)
        │ all pass
        ▼
     Enqueue → workers → backend
@@ -157,7 +159,7 @@ The `admin` entry uses a wildcard: `gpt-4o`, `gpt-4o-mini`, and `gpt-4-turbo` al
 
 **Allowlist calling applications by their Entra App/Client ID — requests from any unlisted application receive 403.**
 
-This check executes *first*, before DisallowedHeaders stripping, user profile lookup, and header validation.
+This check executes at step 2, after optional inbound key/OAuth validation and before header stripping, user profile lookup, and header validation.
 
 ### Configuration
 
@@ -237,7 +239,7 @@ X-S7P-Error: Invalid Incoming Key: <value>
 ```
 
 > [!NOTE]
-> `ValidateAuthAppID` and key mode are mutually exclusive in the request path: when `ValidateAuthAppID=true`, App ID validation runs first and key validation is skipped.
+> Inbound auth is step 1 and App ID validation is step 2. When both are enabled, a request must pass both gates.
 
 ---
 

@@ -1,0 +1,164 @@
+@namespace chat_tester.Components.Shared
+@using System.Globalization
+
+<div class="border rounded bg-light p-3 small response-metrics">
+    <div class="fw-semibold mb-2">Metrics</div>
+    <div class="metric-row">
+        <span class="metric-name">Status</span>
+        <span class="metric-value">@Status</span>
+    </div>
+    <div class="metric-row">
+        <span class="metric-name">Content-Type</span>
+        <span class="metric-value" title="@ContentType">@FormatContentType(ContentType)</span>
+    </div>
+    <div class="metric-row">
+        <span class="metric-name">Time to first byte</span>
+        <span class="metric-value">@FormatDuration(TimeToFirstByte)</span>
+    </div>
+    <div class="metric-row">
+        <span class="metric-name">Duration</span>
+        <span class="metric-value">@FormatDuration(Duration)</span>
+    </div>
+    <div class="metric-row">
+        <span class="metric-name">Chunks</span>
+        <span class="metric-value">@Chunks</span>
+    </div>
+    <div class="metric-row">
+        <span class="metric-name">Total bytes</span>
+        <span class="metric-value">@TotalBytes</span>
+    </div>
+    @if (ShouldShowTokenMetrics)
+    {
+        <div class="metric-row">
+            <span class="metric-name">Input tokens</span>
+            <span class="metric-value">@FormatTokenCount(InputTokens)</span>
+        </div>
+        <div class="metric-row">
+            <span class="metric-name">Output tokens</span>
+            <span class="metric-value">@FormatTokenCount(OutputTokens)</span>
+        </div>
+        <div class="metric-row">
+            <span class="metric-name">Reasoning tokens</span>
+            <span class="metric-value">@FormatTokenCount(ReasoningTokens)</span>
+        </div>
+        <div class="metric-row">
+            <span class="metric-name">Cached input</span>
+            <span class="metric-value">@FormatTokenCount(CachedInputTokens)</span>
+        </div>
+        <div class="metric-row">
+            <span class="metric-name">Total tokens</span>
+            <span class="metric-value">@FormatTokenCount(TotalTokens)</span>
+        </div>
+    }
+</div>
+
+<style>
+    .response-metrics .metric-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.45rem 0.5rem;
+        border-radius: 0.25rem;
+    }
+
+    .response-metrics .metric-row:nth-child(even) {
+        background: rgba(13, 110, 253, 0.08);
+    }
+
+    .response-metrics .metric-name {
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .response-metrics .metric-value {
+        text-align: right;
+        white-space: nowrap;
+        overflow-wrap: normal;
+    }
+</style>
+
+@code {
+    [Parameter]
+    public string Status { get; set; } = "-";
+
+    [Parameter]
+    public string ContentType { get; set; } = "-";
+
+    [Parameter]
+    public TimeSpan? TimeToFirstByte { get; set; }
+
+    [Parameter]
+    public TimeSpan? Duration { get; set; }
+
+    [Parameter]
+    public int Chunks { get; set; }
+
+    [Parameter]
+    public long TotalBytes { get; set; }
+
+    [Parameter]
+    public bool ShowTokenMetrics { get; set; }
+
+    [Parameter]
+    public int? InputTokens { get; set; }
+
+    [Parameter]
+    public int? OutputTokens { get; set; }
+
+    [Parameter]
+    public int? ReasoningTokens { get; set; }
+
+    [Parameter]
+    public int? CachedInputTokens { get; set; }
+
+    [Parameter]
+    public int? TotalTokens { get; set; }
+
+    private bool ShouldShowTokenMetrics => ShowTokenMetrics
+        || InputTokens.HasValue
+        || OutputTokens.HasValue
+        || ReasoningTokens.HasValue
+        || CachedInputTokens.HasValue
+        || TotalTokens.HasValue;
+
+    private static string FormatDuration(TimeSpan? value) =>
+        value is null ? "-" : $"{value.Value.TotalMilliseconds:0} ms";
+
+    private static string FormatTokenCount(int? value) =>
+        value.HasValue ? value.Value.ToString("N0", CultureInfo.InvariantCulture) : "-";
+
+    private static string FormatContentType(string contentType)
+    {
+        if (string.IsNullOrWhiteSpace(contentType) || contentType == "-")
+        {
+            return "-";
+        }
+
+        if (contentType.Contains("event-stream", StringComparison.OrdinalIgnoreCase))
+        {
+            return "event-stream";
+        }
+
+        if (contentType.Contains("json", StringComparison.OrdinalIgnoreCase))
+        {
+            return "json";
+        }
+
+        if (contentType.Contains("html", StringComparison.OrdinalIgnoreCase))
+        {
+            return "html";
+        }
+
+        if (contentType.Contains("markdown", StringComparison.OrdinalIgnoreCase))
+        {
+            return "markdown";
+        }
+
+        if (contentType.Contains("text", StringComparison.OrdinalIgnoreCase))
+        {
+            return "text";
+        }
+
+        return contentType.Split(';', 2)[0];
+    }
+}

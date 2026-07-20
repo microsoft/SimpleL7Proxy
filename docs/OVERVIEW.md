@@ -57,8 +57,8 @@ SimpleL7Proxy is a single-process .NET service deployed as a container, typicall
 | Component | Role |
 |-----------|------|
 | Listener | Accepts inbound HTTP connections and passes each request to the validation pipeline. |
-| Validation Pipeline | Five ordered checks applied before a request enters the queue: caller identity, header stripping, user profile load, required headers, header value allowlist. |
-| Priority Queue | In-memory min-heap ordered by priority tier; holds requests pending worker dispatch. |
+| Validation Pipeline | Six ordered checks applied before a request enters the queue: inbound auth, App ID validation, header stripping, user profile load, required headers, and header value validation. |
+| Priority Queue | In-memory sorted list ordered by priority tier using binary-search insertion; holds requests pending worker dispatch. |
 | Worker Pool | Configurable thread pool that dequeues requests in priority order and drives backend selection and forwarding. |
 | Backend Selection Pipeline | Three-stage process per request: path filter → load-balance ordering → circuit-breaker gate. |
 | Circuit Breaker (per host) | Sliding-window failure counter; opens on error spike, closes automatically on recovery. Open hosts are skipped without consuming the retry budget. |

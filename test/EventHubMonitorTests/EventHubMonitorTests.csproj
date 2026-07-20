@@ -1,0 +1,18 @@
+<Project Sdk="MsTest.SDK/3.7.0">
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <IsPackable>false</IsPackable>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\chat_tester\chat_tester.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="fixtures\**\*">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+    </ItemGroup>
+</Project>
