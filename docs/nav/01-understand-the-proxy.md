@@ -1,14 +1,13 @@
 # Understand How the Proxy Controls AI Traffic
 
-Sending every request to an endpoint works during POC and early dev phases. As products mature they need greater control with priorities, routing, cost controls, reliability and observability all thrown into the mix.  The SimpleL7Proxy lets you decide how to route, retry , retry later, share costs and fullfill requests based on the application / user profile.
+A single endpoint is fine when you're just getting started. But as things grow, you start needing more — priorities, smarter routing, cost tracking, reliability, observability, all at once. SimpleL7Proxy is a straightforward way to handle that layer: it lets you route requests, retry them now or later, split costs, and treat requests differently depending on the app or user behind them.
 
-When deployed in front of APIM, the proxy adds a User Profile governance layer that applies workload-specific policies for validation, routing,
+When deployed in front of APIM, the proxy adds a user profile governance layer that applies workload-specific policies for validation, routing,
 prioritization, and execution. This helps organizations balance reliability, performance, compliance, and cost across AI workloads.
 
+The platform continuously balances reliability, performance, service quality, and cost by intelligently routing requests across regions, endpoints, priority queues, and AI models. Critical workloads receive preferential treatment, while less time-sensitive workloads are processed in a cost-efficient manner without impacting business-critical operations.
+
 <img width="1308" height="534" alt="image" src="https://github.com/user-attachments/assets/60b20f0c-cee1-44b7-8f6a-b97d84f590bf" />
-
-At a high level, the platform continuously balances reliability, performance, service quality, and cost by intelligently routing requests across regions, endpoints, priority queues, and AI models. Critical workloads receive preferential treatment, while less time-sensitive workloads are processed in a cost-efficient manner without impacting business-critical operations.
-
 ---
 
 ## Quick Topics
@@ -26,11 +25,9 @@ The proxy loads user profiles from CosmosDB and, at receive time, enriches each 
 
 ### [Coordinating with Backends](#how-does-apim-determine-which-backends-receive-requests-1)
 
-The proxy sends each request to the best available backend instance, using the same load-balance mode (latency, round robin, or random) across **direct** and **APIM** backends alike. Direct endpoints skip active probing and are always considered available, so under latency-based selection they sort first since they have no measured latency. APIM backends are periodically probed for availability and latency.
+The proxy and **APIM** each apply their own layer of smart routing and retry, working together so a request keeps retrying across backends and regions until it succeeds or its TTL expires. APIM independently adds extensive governance — routing, compliance, and more via its policy engine.
 
-Each backend is protected by a circuit breaker and obeys 429 retry behaviour. If retries are exhausted, the proxy can put the request to sleep and wake it later, tracking TTL until it completes or expires.
-
-On the APIM side, a policy selects endpoints by the request priority and tracks each endpoint's throttle period, skipping throttled endpoints until their retry time. If APIM cannot complete a request, it signals the proxy to retry other regions.
+Because **direct** backends skip active probing, no latency data is available for them, so they rely on path-based routing combined with `random` or `roundrobin` load balancing.
 
 </td>
 
@@ -62,9 +59,9 @@ If a request runs longer than a configured trigger timeout, the proxy promotes i
 </td>
 <td width="33%" valign="top">
 
-### Observability
+### [Observability](#how-does-the-proxy-handle-observability-and-telemetry)
 
-The proxy logs full request activity to Application Insights, Event Hub, Service Bus, files, or custom code.
+The proxy logs full request activity — including AI token usage pulled from streaming responses — to Application Insights, Event Hub, local files, or your own custom code.
 
 </td>
 </tr>
@@ -175,7 +172,11 @@ When an endpoint returns `429`, the policy records its retry time and marks it a
 
 #### What controls SimpleL7Proxy backend selection?
 
-The selector first filters `Host` entries by request path, orders the matching hosts using `LoadBalanceMode`, and then skips unhealthy or open-circuit hosts. It does not use queue priority to determine backend eligibility.
+The selector first filters `Host` entries by request path, orders the matching hosts using `LoadBalanceMode` (`latency`, `roundrobin`, or `random`), and then skips unhealthy or open-circuit hosts. The same `LoadBalanceMode` ordering and per-host circuit-breaker gating applies whether the matched hosts are direct or APIM-mode — both are ordered together in one candidate list. It does not use queue priority to determine backend eligibility.
+
+#### What happens when a backend attempt fails or returns 429?
+
+The proxy tries the next host in the ordered candidate list. A `429` response with `S7PREQUEUE: true` is collected as requeue-eligible before moving on. Once every host in the list has been tried, the proxy requeues the request — using the shortest eligible delay from any collected `429` responses — instead of failing it outright. This is bounded by the request's overall TTL: if the TTL expires first, iteration stops with `412` rather than continuing to retry.
 
 #### What happens when the preferred backend fails?
 
@@ -225,7 +226,7 @@ Use APIM in the backend path when requests need gateway policies, transformation
 
 #### What is an APIM backend?
 
-An APIM backend points a `Host_<name>` entry at Azure API Management. `mode=apim` is standard non-direct behavior: the proxy calls the configured probe and can remove APIM from the active set when health falls below the required success rate.
+An APIM backend points a `Host_<name>` entry at Azure API Management. `mode=apim` is standard non-direct behavior: the proxy sends the configured probe on every `PollInterval`, recording both a rolling success rate and latency on each successful probe. It can remove APIM from the active set when health falls below the required success rate, and uses the recorded latency to order hosts when `LoadBalanceMode=latency`.
 
 ```bash
 Host_<name>="host=https://gateway.azure-api.net;mode=apim;path=/shared;probe=/health"
@@ -309,6 +310,40 @@ See [Async Operation Configuration](../AsyncOperation.md) for the complete setup
 
 ---
 
+### How does the proxy handle observability and telemetry?
+
+#### Where does the proxy send telemetry?
+
+Two mechanisms run side by side. Standard ASP.NET telemetry (requests, dependencies, exceptions) goes straight to Azure Application Insights via `TelemetryClient` when `APPINSIGHTS_CONNECTIONSTRING` is set. Separately, every proxied request also produces a `ProxyEvent` that fans out through `EVENT_LOGGERS` to a local JSON log file, Azure Event Hubs, and/or a custom logger — any combination of these can run at the same time.
+
+#### How does the proxy fan events out to multiple sinks?
+
+`CompositeEventClient` holds a zero-lock, zero-allocation snapshot of the registered backends and dispatches each serialized `ProxyEvent` to all of them. Each backend buffers events in its own queue and flushes them asynchronously in the background, so a slow sink doesn't block the request path.
+
+#### What does each event contain?
+
+Standard fields include a correlation ID (`S7P_RequestId`), the backend that handled the request (`BackendHost`), its priority (`S7P_Priority`), circuit-breaker status, and retry count, plus request timing and, for streaming AI responses, token usage.
+
+#### How are tokens counted for streaming responses?
+
+Standard gateways struggle to count tokens in Server-Sent Events streams because the usage data often only appears in the final chunk. For hosts configured with `processor=OpenAI`, the proxy's stream processor parses the response on the fly — without buffering it — and extracts `Usage.Prompt_Tokens`, `Usage.Completion_Tokens`, and `Usage.Total_Tokens`.
+
+#### Can I plug in my own telemetry backend?
+
+Yes. Implement `IEventClient` and `IHostedService`, register with `CompositeEventClient` during `StartAsync`, and reference the class by its fully-qualified type name in `EVENT_LOGGERS`. Only types inside the `SimpleL7Proxy` assembly can be loaded this way.
+
+#### What happens if a telemetry backend is misconfigured or fails?
+
+The proxy still starts. A backend that fails to initialize — an unreachable Event Hub, for example — is silently disabled while the others keep running, and an invalid `EVENT_HEADERS` type falls back to the built-in default with a warning.
+
+#### How do I avoid logging sensitive headers?
+
+`LogAllRequestHeaders` / `LogAllResponseHeaders` turn on full header capture for debugging, and `LogAllRequestHeadersExcept` blacklists specific headers — such as `Authorization` or `api-key` — so they're never logged.
+
+See [Observability](../OBSERVABILITY.md) for telemetry channel configuration and the full event schema.
+
+---
+
 ## You Should Now Be Able To
 
 - [ ] Explain how a profile becomes a queue priority
@@ -318,6 +353,7 @@ See [Async Operation Configuration](../AsyncOperation.md) for the complete setup
 - [ ] Choose between direct and APIM backend modes
 - [ ] Describe what changes and what stays local during autoscale and shutdown
 - [ ] Decide when a request should use async processing
+- [ ] Explain where telemetry goes and how to add a custom sink
 
 ---
 
