@@ -26,11 +26,81 @@ Use this policy when you need:
 
 ## Control Flow
 
-![Request Flow](./Flow.png)
+![Request Flow](flow.png)
 
+---
 
 ## Configuration Guide
+<details>
+<summary>V3.0.x</summary>
 
+This policy seperates the policy into two parts: a fragment and an API policy.   The retry **Priority-with-retry** policy should be uploaded to each API that useses it and the **endpoint_selection_frag_30** should be uploaded as a fragment which will be shared by all the API's.
+
+This restructure moves the endpoint definition into the fragment, which is where all the edits will be made.
+
+### Editing the fragment (`endpoint_selection_frag_30.xml`)
+
+All routing configuration lives in the fragment. Only the four `set-variable` blocks marked **(edit me)** are meant to be changed; the blocks below them (`model`, `selectedBackends`, `authResource`, `listBackends`) are runtime logic and should be left alone.
+
+#### 1. Headers (optional)
+
+Set the header names your clients send. Change these only if your callers use different header names.
+
+```xml
+<set-variable name="priorityHeaderName" value="x-S7PPriority" />
+<set-variable name="PolicyCycleCounterHeaderName" value="x-PolicyCycleCounter" />
+<set-variable name="AffinityHeaderName" value="x-backend-affinity" />
+<set-variable name="modelHeaderName" value="x-LLMModel" />
+```
+
+#### 2. Backend catalog (`backendCatalog`)
+
+Each model name maps to one or more named backends. The name (e.g. `PAYGO`) is the label shown in the logs. `DEFAULT` is used when the requested model is not listed.
+
+```xml
+["gpt-4o"] = new JObject {
+    ["PAYGO"] = new JObject { ["url"] = "https://your-resource.openai.azure.com/", ["path"] = "openai", ["priority"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 10, ["auth"] = "MI", ["tokenProcessor"] = "AllUsage" }
+},
+```
+
+Backend fields:
+
+| Field | Meaning |
+| :--- | :--- |
+| `url` | Base address of the backend service. |
+| `path` | Appended to the url (usually `openai`). |
+| `priority` | Lower number is tried first (`1` before `2`). |
+| `acceptablePriorities` | Which request priorities this backend serves (`1`, `2`, `3`). Accepts a comma-separated string or array. |
+| `timeout` | Seconds to wait before giving up. |
+| `auth` | `"MI"` for Managed Identity. |
+| `tokenProcessor` | How token usage is parsed: `DefaultStream`, `OpenAI`, `AllUsage`, `MultiLineAllUsage`, or `AllUsage-2`. |
+
+- **To add a backend:** copy an existing line inside a model block and change the name/values.
+- **To add a model:** copy an existing model block, rename it, then add a matching entry in the AUTH RESOURCE block (step 4).
+
+#### 3. Priority rules (`priorityCfg`)
+
+For each request priority (`1`, `2`, `3`), set how many retries it gets and whether it may be requeued.
+
+```xml
+["1"] = new JObject { ["retryCount"] = 2, ["requeue"] = false },
+["2"] = new JObject { ["retryCount"] = 2, ["requeue"] = false },
+["3"] = new JObject { ["retryCount"] = 2, ["requeue"] = false }
+```
+
+#### 4. Auth resource (`authResourceByModel`)
+
+The Managed Identity token audience for each model. All backends for a model share one token, so this is set per model, not per backend. `DEFAULT` is used when the model is not listed. Add an entry here whenever you add a model in step 2.
+
+```xml
+["gpt-4o"]  = "https://cognitiveservices.azure.com",
+["DEFAULT"] = "https://cognitiveservices.azure.com"
+```
+
+</details>
+
+<details>
+<summary>V2.3.0</summary>
 ### 1. Define Backends
 
 Locate the `listBackends` variable initialization in the `<inbound>` region. Add your Azure OpenAI endpoints:
@@ -85,8 +155,10 @@ You can customize the header names used for control logic by modifying the varia
 <set-variable name="PolicyCycleCounterHeaderName" value="x-PolicyCycleCounter" /> <!-- Tracks retry attempts count -->
 <set-variable name="AffinityHeaderName" value="x-backend-affinity" /> <!-- Sticky session support -->
 ```
+</details>
 
-## Migrating from v2.0.1 to v2.1.0
+<details>
+<summary>Migrating from v2.0.1 to v2.1.0</summary>
 
 Most migrations are configuration-only. The main work is updating `listBackends` entries to the new schema and checking any retry settings that depended on the older retry-budget behavior.
 
@@ -120,6 +192,7 @@ Most migrations are configuration-only. The main work is updating `listBackends`
 6. **PTU skip-on-context-window now keys off `label`.**
     - In v2.0.1, the context-window-exceeded path skipped PTU backends when `ModelType == "PTU"`.
     - In v2.1.0, it skips them when `label == "PTU"`.
+
 
 ### Before and after example
 
@@ -164,6 +237,8 @@ backends.Add(new JObject()
 - Raise `retryCount` if you depended on the older `>= 0` retry behavior.
 - Keep `label: "PTU"` on PTU backends if you want context-window-exceeded requests to skip them.
 - Remove `limitConcurrency`, `bufferResponse`, or `timeout` only if the new defaults are acceptable.
+
+</details>
 
 ## Standalone Usage & Client Headers
 
