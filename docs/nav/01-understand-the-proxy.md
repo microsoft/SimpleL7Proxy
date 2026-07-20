@@ -28,7 +28,12 @@ The proxy loads **user profiles** from CosmosDB and, at receive time, enriches e
 
 ### [Priority Levels](#what-does-a-requests-priority-level-control)
 
-The proxy isn't limited to High, Medium, and Low — it supports any number of priority levels. Priority is more than queue order: it determines the **capacity** a request can draw on, the **retry policy** applied to it, and the **reliability guarantees** the platform provides.
+Priority is the mechanism that lets organizations allocate AI capacity according to business importance. A request's **priority** determines its queue position, which backends it may use, whether it can consume **PTU** or **PayGo** capacity, how aggressively it is retried, and how it is treated during periods of contention. Critical workloads receive stronger reliability guarantees, while less important workloads may be delayed, requeued, or restricted to lower-cost capacity.
+
+Rule of thumb:
+* **Service** all workloads
+* **Control** costs
+* **Prioritize** workloads
 
 </td>
 <td width="33%" valign="top">
@@ -66,7 +71,7 @@ The proxy logs full request activity — including AI token usage pulled from st
 
 </td>
 </tr><tr>
-<td width="33%" valign="top">
+<td colspan="3" width="100%" valign="top">
 
 ### [Resiliency & Autoscaling with ACA](#how-does-the-proxy-stay-resilient-and-autoscale-with-aca)
 
@@ -152,11 +157,7 @@ Each priority level has its own dedicated pool of workers, so higher-priority tr
 
 Within a priority level, the proxy tracks each user's share of active requests. A user who stays under `UserPriorityThreshold` (default `0.1`, i.e. 10%) gets a fairness boost ahead of other users at that level; once their share crosses the threshold, the boost is withheld until it drops back down.
 
-#### How do I make the fairness check stricter or more lenient?
-
-Lower `UserPriorityThreshold` toward `0.0` to deprioritize heavy users sooner, or raise it toward `1.0` to let a single user hold a larger share before losing the boost.
-
-See [Advanced Configuration](../ADVANCED_CONFIGURATION.md#userprioritythreshold) for the full threshold reference and a worked example.
+See [Advanced Configuration](../ADVANCED_CONFIGURATION.md#userprioritythreshold) for how to tune that threshold, with a worked example.
 
 ---
 
@@ -248,34 +249,11 @@ Circuit breaking tracks backend failures within a configured time window (defaul
 
 #### What checks make up backpressure, and in what order?
 
-The proxy evaluates these conditions, in order, before enqueueing a request:
-
-1. **Telemetry/event backlog** — above 50% of `MaxUndrainedEvents` (default `10,000`), admission is delayed; above the limit, the request is rejected with `429 Max Events Exceeds Threshold`.
-2. **Circuit-breaker failures** — at 50–90% of the failure threshold, admission is delayed 100–500 ms; at the threshold (default 50 failures in 60 seconds), the request is rejected with `429`.
-3. **Request queue full** — rejected with `429 Queue is full` once the queue reaches `MaxQueueLength` (default `1,000`).
-4. **No active backend hosts** — rejected with `429 No active hosts` when there are no active hosts available.
-5. **Concurrent enqueue failure** — the queue independently re-checks its capacity; a race can fill it after check 3 passes, so the enqueue attempt can still fail and produce a `429`.
-
-Rejected requests receive a `Retry-After` header: the configured poll interval when no hosts are active, otherwise the literal value `500`. Probe requests bypass all of these admission checks.
+Before enqueueing a request, the proxy runs it through a fixed, ordered sequence of admission checks — event backlog, then circuit-breaker failures, then queue capacity, then backend availability — delaying or rejecting with `429` as soon as one check fails. This staged design lets the proxy degrade gracefully under load: light pressure adds a small delay, sustained pressure rejects new work while in-flight requests keep draining. Probe requests bypass all of these checks.
 
 During a planned shutdown or maintenance event, the proxy instead returns HTTP 503 (Service Unavailable).
 
-#### What happens as circuit-breaker failures approach the threshold?
-
-Once circuit-breaker failures reach 50% of the threshold, backpressure progressively delays incoming requests:
-|Failure threshold reached |	Delay|
-|--|--|
-|50%	| 100 ms |
-|60%	| 200 ms |
-|70%	| 300 ms |
-|80%	| 400 ms |
-|90%	| 500 ms |
-|100%	| Reject with 429 |
-|--|--|
-
-Failures older than the configured time window are removed, allowing the circuit to recover and close again.
-
-See [Circuit Breaker](../CIRCUIT_BREAKER.md) for thresholds, delays, and recovery.
+See [Response Codes](../RESPONSE_CODES.md) for every `429` cause and response header, and [Circuit Breaker](../CIRCUIT_BREAKER.md) for the exact failure thresholds and progressive delays.
 
 #### Who is responsible for autoscaling?
 
@@ -307,15 +285,11 @@ If the replica will be replaced, Azure Container Apps starts a replacement repli
 
 When backpressure is high, the proxy signals distress to ACA by failing the readiness probe. This tells ACA to stop routing new requests to that replica. If a replica stays in distress long enough, ACA recycles it.
 
-#### How should minimum and maximum replicas be chosen?
-
-Use `minReplicas` of at least `1` to avoid cold starts on a latency-sensitive path, and increase it for availability. Set `maxReplicas` from downstream backend capacity rather than proxy CPU alone; scaling the proxy cannot increase a backend's quota.
-
 #### How does autoscale interact with workers and queue length?
 
-`Workers` limits concurrent processing inside each replica, while `MaxQueueLength` limits waiting work in that replica. The ACA scale target should reflect measured per-replica worker and backend connection capacity. Repository deployment templates contain different concurrency targets, so their values are starting points rather than a universal default.
+`Workers` limits concurrent processing inside each replica, while `MaxQueueLength` limits waiting work in that replica — both are independent of, and should be sized alongside, ACA's own replica-level scale trigger.
 
-See [Day 2 Operations](../../deployment/DAY2_OPERATIONS.md#scaling-considerations) for scaling guidance.
+See [Day 2 Operations](../../deployment/DAY2_OPERATIONS.md#scaling-considerations) for choosing replica counts, scale triggers, and concurrency targets together.
 
 ---
 
@@ -365,17 +339,13 @@ Standard gateways struggle to count tokens in Server-Sent Events streams because
 
 #### Can I plug in my own telemetry backend?
 
-Yes. Implement `IEventClient` and `IHostedService`, register with `CompositeEventClient` during `StartAsync`, and reference the class by its fully-qualified type name in `EVENT_LOGGERS`. Only types inside the `SimpleL7Proxy` assembly can be loaded this way.
+Yes — the proxy defines an `IEventClient`/`IHostedService` extensibility point and fans events out to every registered backend through `CompositeEventClient`, so a custom sink runs alongside the built-in ones rather than replacing them.
 
 #### What happens if a telemetry backend is misconfigured or fails?
 
 The proxy still starts. A backend that fails to initialize — an unreachable Event Hub, for example — is silently disabled while the others keep running, and an invalid `EVENT_HEADERS` type falls back to the built-in default with a warning.
 
-#### How do I avoid logging sensitive headers?
-
-`LogAllRequestHeaders` / `LogAllResponseHeaders` turn on full header capture for debugging, and `LogAllRequestHeadersExcept` blacklists specific headers — such as `Authorization` or `api-key` — so they're never logged.
-
-See [Observability](../OBSERVABILITY.md) for telemetry channel configuration and the full event schema.
+See [Observability](../OBSERVABILITY.md) for telemetry channel configuration, adding a custom event sink, and the full event schema.
 
 ---
 

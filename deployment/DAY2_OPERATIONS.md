@@ -57,6 +57,10 @@ SimpleL7Proxy runs on Azure Container Apps with KEDA-based autoscaling.
 - **HTTP concurrency** — better for bursty workloads or long-lived requests
   (async / streaming). Tune `concurrentRequests` to match per-replica
   backend connection budget.
+- Align `concurrentRequests` with the proxy's own `Workers` and
+  `MaxQueueLength` settings — repository deployment templates ship
+  different concurrency targets, so treat them as starting points, not
+  universal defaults.
 
 **Sizing tips**
 
