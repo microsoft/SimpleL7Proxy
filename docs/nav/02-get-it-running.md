@@ -1,55 +1,49 @@
 # Running the Proxy: From Zero to Proxying Traffic in Minutes
 
-Two environment variables, one command. Here's what to set up, what commands to run, and how to confirm it's working.
+You can rung the proxy locally from the source code or container or deployed it to a container service such as the Azure Container Apps.   After you deploy, come back to this guide to configure it.
 
 ---
 
-## Quick Answers
+## Step 1: Choose Your Setup
+
+**Choose where the proxy will run.** The next page asks which backend and authentication path you want.
 
 <table>
 <tr>
-<td width="33%" valign="top">
+<td width="50%" valign="top" style="background-color:#EEF3F8; border-radius:8px; padding:16px;">
 
-### [Minimum required before starting?](#minimum-required-before-starting-1)
-.NET 10 SDK (for local dev) or Docker + Azure CLI (for container deployment). Minimum config: `Port` and one `Host1` connection string. No other Azure resources required for a first run.
+### [💻 Run Locally](02-run-locally.md)
 
-</td>
-<td width="33%" valign="top">
+<div align="center">
 
-### [How do I run it locally?](#how-do-i-run-it)
-`export Port=8000`, `export Host1="host=<url>;probe=/health"`, then `cd src/SimpleL7Proxy && dotnet run`. The proxy is ready when you see the startup banner in the console.
+```sh:
+# You need:
 
-</td>
-<td width="33%" valign="top">
+* Dotnet 10
 
-### [How do I deploy to Azure?](#how-do-i-run-it)
-Use the interactive deployment script in `deployment/README.md`. Fill in a parameters file, run the script, and Azure Container Apps (ACA) handles the rest. Port 8000 is the expected ingress target.
+# or
 
-</td>
-</tr>
-<tr>
-<td width="33%" valign="top">
+* Docker
+```
 
-### [How do I point it at a backend?](#how-do-i-point-it-at-a-backend-1)
-Set `Host1` to a connection string: `host=https://<endpoint>;probe=/health`. Use `mode=direct` for serverless endpoints that don't support probing. See the LLM simulator for a no-Azure-needed backend.
+</div>
 
 </td>
-<td width="33%" valign="top">
+<td width="50%" valign="top" style="background-color:#EEF7F1; border-radius:8px; padding:16px;">
 
-### [How do I verify it's working?](#how-do-i-verify-its-working-1)
-Call `curl -i http://localhost:8000/health` — a `200 OK` means the proxy is up. Send a test request and check the response for the `x-Request-Worker` header, which the proxy injects on every proxied response.
+### [☁️ Run in Cloud](02-run-in-container-apps.md)
 
-</td>
-<td width="33%" valign="top">
 
-### [What if it doesn't start?](#what-if-it-doesnt-start-1)
-Check that `Host1` is reachable and that the probe path returns a success response (HTTP 200–299). Review the console log and `eventslog.json`. Most startup failures trace back to a missing `Host1`, an unreachable backend, or a bad connection string key.
-
+![alt text](image.png)
 </td>
 </tr>
 </table>
 
 ---
+
+## Step 2: Where are your LLM models?
+
+**Choose where the are .** The next page asks which backend and authentication path you want.
 
 ## Full Answers
 
