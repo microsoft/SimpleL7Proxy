@@ -21,12 +21,19 @@ Azure Container Apps independently scales the proxy up and down to match demand.
 
 ### [The User Profile](#how-do-user-profiles-determine-when-requests-run)
 
-The proxy loads user profiles from CosmosDB and, at receive time, enriches each incoming request with its matching profile data, mapped to key-value settings. The priority setting controls processing order, while other settings can override the requested model or report metrics. Additional fields can validate, map, or clean up the request, and drive further routing and policy decisions in both the proxy and APIM. When no profile matches, the proxy falls back to a default priority.
+The proxy loads **user profiles** from CosmosDB and, at receive time, enriches each incoming request with its matching profile data, mapped to key-value settings. The **priority** setting controls processing order, while other settings can override the requested **model** or report **metrics**. Additional fields can validate, map, or clean up the request, and drive further routing and policy decisions in both the proxy and APIM. When no profile matches, the proxy falls back to a default priority.
 
 </td>
 <td width="33%" valign="top">
 
-### [Coordinating with Backends](#how-does-apim-determine-which-backends-receive-requests-1)
+### [Priority Levels](#what-does-a-requests-priority-level-control)
+
+The proxy isn't limited to High, Medium, and Low — it supports any number of priority levels. Priority is more than queue order: it determines the **capacity** a request can draw on, the **retry policy** applied to it, and the **reliability guarantees** the platform provides.
+
+</td>
+<td width="33%" valign="top">
+
+### [Backend Selection & Failover](#how-does-apim-determine-which-backends-receive-requests-1)
 
 The proxy builds on top of **APIM** as a cross-region load balancer: it tries each configured backend host in turn — APIM instances and direct endpoints alike — retrying across backends and regions until a request succeeds or its TTL expires. APIM keeps running independently underneath, adding its own extensive governance — routing, compliance, and more — via its policy engine.
 
@@ -34,30 +41,21 @@ Because **direct** backends skip active probing, no latency data is available fo
 
 </td>
 
-<td width="33%" valign="top">
-
-### [Autoscaling with ACA](#how-does-autoscaling-expand-proxy-capacity)
-
-Azure Container Apps makes all scaling decisions, guided by the proxy's `/startup`, `/liveness`, and `/readiness` probes. ACA **scales out** by comparing connections per replica to a configured threshold, and recycles any replica showing sustained backpressure.
-
-When a replica is scaled in or terminated, ACA stops routing new requests to it and gives it a grace period to **drain** its active connections. The proxy uses that window to finish in-flight work before shutting down.
-
-</td>
 </tr>
 <tr>
 <td width="33%" valign="top">
 
-### [Resiliency](#how-does-the-proxy-stay-healthy-and-recover-from-failure-1)
+### [Queueing & Fairness](#how-does-the-proxy-keep-queueing-fair-across-users)
 
-Each replica protects itself by signaling distress to ACA if needed. On the inbound side, **backpressure** progressively delays requests as the replica saturates. On the backend side, a **circuit breaker** stops sending traffic to a failing backend until it recovers.
+All requests are filtered through a **priority queue** that ensures high priority work is favored over lower priority work.  At the same time, A flood of high-priority traffic can never **starve** out lower-priority requests, and no single user can **monopolize** a priority level at everyone else's expense.
 
 </td>
 
 <td width="33%" valign="top">
 
-### [Sync to Async](#when-should-clients-stop-waiting-synchronously-1)
+### [Long-Running Requests](#when-should-clients-stop-waiting-synchronously-1)
 
-If a request runs longer than a configured trigger timeout, the proxy promotes it to async: it returns `202`, continues processing in the background, stores the result in Blob Storage, and publishes status through Service Bus. This can wrap any API call, giving it background-processing capability but especially use for long running LLM queries.
+Long-running requests don't need to hold a client connection open. When a request runs past a configured timeout, the proxy promotes it to a **background operation**: it returns `202` right away, keeps working, and delivers the result through **Blob Storage** and **Service Bus** status updates. Any API call can opt in, but it matters most for long-running LLM queries that would otherwise risk a timeout.
 
 </td>
 <td width="33%" valign="top">
@@ -67,12 +65,22 @@ If a request runs longer than a configured trigger timeout, the proxy promotes i
 The proxy logs full request activity — including AI token usage pulled from streaming responses — to Application Insights, Event Hub, local files, or your own custom code.
 
 </td>
+</tr><tr>
+<td width="33%" valign="top">
+
+### [Resiliency & Autoscaling with ACA](#how-does-the-proxy-stay-resilient-and-autoscale-with-aca)
+
+Each replica protects itself and signals its health to ACA. On the inbound side, **backpressure** progressively delays requests as the replica saturates; on the backend side, a **circuit breaker** stops sending traffic to a failing backend until it recovers.
+
+ACA makes all scaling decisions using the proxy's `/startup`, `/liveness`, and `/readiness` probes — it **scales out** when connections per replica cross a configured threshold, recycles replicas under sustained backpressure, and gives scaled-in replicas a grace period to **drain** active connections before shutdown.
+
+</td>
 </tr>
 </table>
 
 ---
 
-## Full Answers
+## FAQ
 
 ### How do user profiles determine when requests run?
 
@@ -80,21 +88,7 @@ The proxy logs full request activity — including AI token usage pulled from st
 
 A request's priority can come from an incoming request header or from the user's profile. When user profiles are used, the proxy caches them from CosmosDB into memory, refreshing the cache every hour, and matches each incoming request to a profile to assign its priority.
 
-Each priority has two parts: a human-friendly string that is sent in the header and its mapped numeric value used for priority ordering.
-
-**Example:** With `PriorityKeys=high,medium,low` and `PriorityValues=1,2,3`, the strings map to values as follows:
-
-| Header string (`PriorityKeys`) | Numeric value (`PriorityValues`) |
-|---|---|
-| `high` | `1` |
-| `medium` | `2` |
-| `low` | `3` |
-
-A profile containing `"S7PPriorityKey": "high"` therefore receives priority `1`.
-
-#### What does the priority affect?
-
-In the **proxy**, the priorty changes the order in which queued request is selected by a worker. In the **APIM** it is used to select the order and priority of endpoints.
+See [Priority Levels](#what-does-a-requests-priority-level-control) for how priority values are structured and what they control.
 
 #### When does the profile priority take effect?
 
@@ -108,15 +102,141 @@ Yes. A user profile can specify a model override. The proxy rewrites the origina
 
 The proxy uses `DefaultPriority` when it cannot override it.
 
-#### How does the proxy prevent one user from dominating a priority?
-
-The proxy tracks each user's share of active requests. A user below `UserPriorityThreshold` percentage receives a fairness boost that places it ahead of other similar priority requests. If a user uses more than their fair share, they will be processed after the others.
-
 See [User Profiles](../USER_PROFILES.md) for profile structure and loading.
 
 ---
 
-### How does the proxy stay healthy and recover from failure?
+### What does a request's priority level control?
+
+#### What is a priority level made of?
+
+Each priority level has two parts: a human-friendly string sent in a header (`PriorityKeys`) and its mapped numeric value used for ordering (`PriorityValues`).
+
+**Example:** With `PriorityKeys=high,medium,low` and `PriorityValues=1,2,3`, the strings map to values as follows:
+
+| Header string (`PriorityKeys`) | Numeric value (`PriorityValues`) |
+|---|---|
+| `high` | `1` |
+| `medium` | `2` |
+| `low` | `3` |
+
+A profile containing `"S7PPriorityKey": "high"` therefore receives priority `1`.
+
+#### What does a request's priority actually control?
+
+In the **proxy**, priority changes the order in which a queued request is selected by a worker. In **APIM**, it selects the order and priority of eligible endpoints.
+
+#### Does priority affect which backends or capacity a request can use?
+
+Yes, but not through SimpleL7Proxy's own backend selection — that filters by request path and `LoadBalanceMode`, not priority. Within APIM, though, each backend declares which priorities it accepts, so a capacity pool can be reserved for higher-priority traffic while lower-priority requests are routed elsewhere.
+
+#### Do different priorities get different retry behavior?
+
+Retry count and whether an exhausted request may be requeued are both configured per priority level in the APIM policy, so retry aggressiveness can be tuned independently for each priority.
+
+#### What happens when no backend accepts a given priority?
+
+APIM returns `503 Service Unavailable`. Changing retry count cannot help because the candidate set is empty.
+
+See [Priority Levels POC](../POC-Priority-configuration.md) for a runnable example.
+
+---
+
+### How does the proxy keep queueing fair across users?
+
+#### How does the proxy keep high-priority traffic from starving lower-priority requests?
+
+Each priority level has its own dedicated pool of workers, so higher-priority traffic can't consume the capacity reserved for lower-priority requests.
+
+#### How does the proxy keep one user from monopolizing a priority level?
+
+Within a priority level, the proxy tracks each user's share of active requests. A user who stays under `UserPriorityThreshold` (default `0.1`, i.e. 10%) gets a fairness boost ahead of other users at that level; once their share crosses the threshold, the boost is withheld until it drops back down.
+
+#### How do I make the fairness check stricter or more lenient?
+
+Lower `UserPriorityThreshold` toward `0.0` to deprioritize heavy users sooner, or raise it toward `1.0` to let a single user hold a larger share before losing the boost.
+
+See [Advanced Configuration](../ADVANCED_CONFIGURATION.md#userprioritythreshold) for the full threshold reference and a worked example.
+
+---
+
+### How does APIM determine which backends receive requests?
+
+#### Where does priority-aware backend routing happen?
+
+The supplied APIM priority policy uses the request priority and determines the eligible backends for each request.
+
+#### How does the APIM policy handle a throttled endpoint?
+
+When an endpoint returns `429`, the policy records its retry time and marks it as throttled. Later requests skip that endpoint until the retry time passes, so APIM can use another endpoint instead of immediately repeating an attempt that is expected to throttle.
+
+#### What controls SimpleL7Proxy backend selection?
+
+The selector first filters `Host` entries by request path, orders the matching hosts using `LoadBalanceMode` (`latency`, `roundrobin`, or `random`), and then skips unhealthy or open-circuit hosts. The same `LoadBalanceMode` ordering and per-host circuit-breaker gating applies whether the matched hosts are direct or APIM-mode — both are ordered together in one candidate list. It does not use queue priority to determine backend eligibility.
+
+#### What happens when a backend attempt fails or returns 429?
+
+The proxy tries the next host in the ordered candidate list. A `429` response with `S7PREQUEUE: true` is collected as requeue-eligible before moving on. Once every host in the list has been tried, the proxy requeues the request — using the shortest eligible delay from any collected `429` responses — instead of failing it outright. This is bounded by the request's overall TTL: if the TTL expires first, iteration stops with `412` rather than continuing to retry.
+
+#### What happens when the preferred backend fails?
+
+##### Proxy
+If the preferred backend is unavailable, throttled, or unhealthy, the proxy automatically retries the request against the next available backend in the configured list.
+
+##### APIM
+When using APIM backend pools, APIM evaluates backend priority groups in their configured order and selects an available endpoint within the highest-priority group. If no healthy endpoints remain in that group, APIM fails over to the next priority group.
+
+This approach enables organizations to reserve specific endpoints or capacity pools for different request priorities, ensuring that critical workloads continue to receive service during capacity constraints or backend failures.
+
+#### What happens when every endpoint in an APIM region is throttled?
+
+When APIM has exhausted all eligible endpoints in a region, it can return an HTTP 429 (Too Many Requests) response along with the S7PREQUEUE: true|false header and a recommended retry interval.
+
+SimpleL7Proxy interprets this response as a regional capacity constraint and automatically retries the request against the next configured APIM host. This allows traffic to fail over to another region with available capacity, improving resiliency and reducing the impact of localized throttling.
+
+#### What happens when every APIM region is throttled?
+
+After all configured APIM hosts return a requeue response, the proxy selects the shortest eligible retry delay, places the request back in its priority queue, and tries again after that delay. The request remains subject to its overall TTL while it waits and retries.
+
+See [Load Balancing](../LOAD_BALANCING.md) for backend selection and retry mechanics.
+
+---
+
+### When should traffic go directly to a backend or through APIM?
+
+#### What is a direct backend?
+
+A direct backend uses `mode=direct`. The proxy does not send active health probes to it and always includes it in the active host set. Real request failures are still recorded by the circuit breaker.
+
+```bash
+Host_<name>="host=https://model.example.com;mode=direct;path=/model"
+```
+
+#### When should I use direct mode?
+
+Use it when probing would be unsafe or undesirable—for example, when a serverless target scales to zero or has no suitable probe endpoint. Because direct mode has no probe-derived latency, it sorts first when `LoadBalanceMode=latency`.
+
+#### When should I route through APIM?
+
+Use APIM in the backend path when requests need gateway policies, transformations, subscriptions, caller authentication, or priority-aware selection across the services behind APIM. This adds APIM as an operational dependency, so use it for capabilities the direct path does not provide.
+
+#### What is an APIM backend?
+
+An APIM backend points a `Host_<name>` entry at Azure API Management. `mode=apim` is standard non-direct behavior: the proxy sends the configured probe on every `PollInterval`, recording both a rolling success rate and latency on each successful probe. It can remove APIM from the active set when health falls below the required success rate, and uses the recorded latency to order hosts when `LoadBalanceMode=latency`.
+
+```bash
+Host_<name>="host=https://gateway.azure-api.net;mode=apim;path=/shared;probe=/health"
+```
+
+#### Why put APIM behind the proxy?
+
+APIM can supply API gateway capabilities such as caller authentication, subscriptions, transformations, and priority-aware backend policies. The proxy adds its own queue, worker controls, health tracking, circuit breaking, and telemetry around that gateway path.
+
+See [Backend Host Configuration](../BACKEND_HOSTS.md) for all host options.
+
+---
+
+### How does the proxy stay resilient and autoscale with ACA?
 
 #### What is backpressure?
 
@@ -156,94 +276,6 @@ Once circuit-breaker failures reach 50% of the threshold, backpressure progressi
 Failures older than the configured time window are removed, allowing the circuit to recover and close again.
 
 See [Circuit Breaker](../CIRCUIT_BREAKER.md) for thresholds, delays, and recovery.
-
----
-
-### How does APIM determine which backends receive requests?
-
-#### Does queue priority select a SimpleL7Proxy backend?
-
-No. SimpleL7Proxy backend selection filters hosts by request path, orders them by `LoadBalanceMode`, and skips unhealthy or open-circuit hosts. Queue priority controls when a worker receives the request.
-
-#### Where does priority-aware backend routing happen?
-
-The supplied APIM priority policy uses the request priority and determines the eligible backends for each request.
-
-#### How does the APIM policy handle a throttled endpoint?
-
-When an endpoint returns `429`, the policy records its retry time and marks it as throttled. Later requests skip that endpoint until the retry time passes, so APIM can use another endpoint instead of immediately repeating an attempt that is expected to throttle.
-
-#### What controls SimpleL7Proxy backend selection?
-
-The selector first filters `Host` entries by request path, orders the matching hosts using `LoadBalanceMode` (`latency`, `roundrobin`, or `random`), and then skips unhealthy or open-circuit hosts. The same `LoadBalanceMode` ordering and per-host circuit-breaker gating applies whether the matched hosts are direct or APIM-mode — both are ordered together in one candidate list. It does not use queue priority to determine backend eligibility.
-
-#### What happens when a backend attempt fails or returns 429?
-
-The proxy tries the next host in the ordered candidate list. A `429` response with `S7PREQUEUE: true` is collected as requeue-eligible before moving on. Once every host in the list has been tried, the proxy requeues the request — using the shortest eligible delay from any collected `429` responses — instead of failing it outright. This is bounded by the request's overall TTL: if the TTL expires first, iteration stops with `412` rather than continuing to retry.
-
-#### What happens when the preferred backend fails?
-
-##### Proxy
-If the preferred backend is unavailable, throttled, or unhealthy, the proxy automatically retries the request against the next available backend in the configured list.
-
-##### APIM
-When using APIM backend pools, APIM evaluates backend priority groups in their configured order and selects an available endpoint within the highest-priority group. If no healthy endpoints remain in that group, APIM fails over to the next priority group.
-
-This approach enables organizations to reserve specific endpoints or capacity pools for different request priorities, ensuring that critical workloads continue to receive service during capacity constraints or backend failures.
-
-#### What happens when every endpoint in an APIM region is throttled?
-
-When APIM has exhausted all eligible endpoints in a region, it can return an HTTP 429 (Too Many Requests) response along with the S7PREQUEUE: true|false header and a recommended retry interval.
-
-SimpleL7Proxy interprets this response as a regional capacity constraint and automatically retries the request against the next configured APIM host. This allows traffic to fail over to another region with available capacity, improving resiliency and reducing the impact of localized throttling.
-
-#### What happens when every APIM region is throttled?
-
-After all configured APIM hosts return a requeue response, the proxy selects the shortest eligible retry delay, places the request back in its priority queue, and tries again after that delay. The request remains subject to its overall TTL while it waits and retries.
-
-#### What happens when no backend accepts the priority?
-
-APIM returns `503 Service Unavailable`. Changing retry count cannot help because the candidate set is empty.
-
-See [Priority Levels POC](../POC-Priority-configuration.md) for a runnable example.
-
----
-
-### When should traffic go directly to a backend or through APIM?
-
-#### What is a direct backend?
-
-A direct backend uses `mode=direct`. The proxy does not send active health probes to it and always includes it in the active host set. Real request failures are still recorded by the circuit breaker.
-
-```bash
-Host_<name>="host=https://model.example.com;mode=direct;path=/model"
-```
-
-#### When should I use direct mode?
-
-Use it when probing would be unsafe or undesirable—for example, when a serverless target scales to zero or has no suitable probe endpoint. Because direct mode has no probe-derived latency, it sorts first when `LoadBalanceMode=latency`.
-
-#### When should I route through APIM?
-
-Use APIM in the backend path when requests need gateway policies, transformations, subscriptions, caller authentication, or priority-aware selection across the services behind APIM. This adds APIM as an operational dependency, so use it for capabilities the direct path does not provide.
-
-#### What is an APIM backend?
-
-An APIM backend points a `Host_<name>` entry at Azure API Management. `mode=apim` is standard non-direct behavior: the proxy sends the configured probe on every `PollInterval`, recording both a rolling success rate and latency on each successful probe. It can remove APIM from the active set when health falls below the required success rate, and uses the recorded latency to order hosts when `LoadBalanceMode=latency`.
-
-```bash
-Host_<name>="host=https://gateway.azure-api.net;mode=apim;path=/shared;probe=/health"
-```
-
-#### Why put APIM behind the proxy?
-
-APIM can supply API gateway capabilities such as caller authentication, subscriptions, transformations, and priority-aware backend policies. The proxy adds its own queue, worker controls, health tracking, circuit breaking, and telemetry around that gateway path.
-
-See [Backend Host Configuration](../BACKEND_HOSTS.md) for all host options.
-
----
-
-### How does autoscaling expand proxy capacity?
 
 #### Who is responsible for autoscaling?
 
