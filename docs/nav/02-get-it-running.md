@@ -1,37 +1,49 @@
 # Running the Proxy: From Zero to Proxying Traffic in Minutes
 
-Choose the path that matches where the proxy runs and what it connects to, then follow that panel through the first successful query.
+You can rung the proxy locally from the source code or container or deployed it to a container service such as the Azure Container Apps.   After you deploy, come back to this guide to configure it.
 
 ---
 
-## Choose Your Setup
+## Step 1: Choose Your Setup
 
 **Choose where the proxy will run.** The next page asks which backend and authentication path you want.
 
 <table>
 <tr>
-<td width="50%" valign="top">
+<td width="50%" valign="top" style="background-color:#EEF3F8; border-radius:8px; padding:16px;">
 
 ### [💻 Run Locally](02-run-locally.md)
 
-Run from source or Docker, then connect to a local simulator, a real LLM endpoint, or APIM.
+<div align="center">
 
-**[Choose local setup →](02-run-locally.md)**
+```sh:
+# You need:
+
+* Dotnet 10
+
+# or
+
+* Docker
+```
+
+</div>
 
 </td>
-<td width="50%" valign="top">
+<td width="50%" valign="top" style="background-color:#EEF7F1; border-radius:8px; padding:16px;">
 
-### [☁️ Run in Container Apps](02-run-in-container-apps.md)
+### [☁️ Run in Cloud](02-run-in-container-apps.md)
 
-Deploy to Azure Container Apps, then connect to an Azure Functions simulator, a real LLM endpoint, or APIM.
 
-**[Choose Container Apps setup →](02-run-in-container-apps.md)**
-
+![alt text](image.png)
 </td>
 </tr>
 </table>
 
 ---
+
+## Step 2: Where are your LLM models?
+
+**Choose where the are .** The next page asks which backend and authentication path you want.
 
 ## Full Answers
 
