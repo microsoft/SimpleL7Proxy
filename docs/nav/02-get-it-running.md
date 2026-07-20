@@ -45,7 +45,7 @@ First clone the repo so that you have the source code.
 ### [☁️ Run in Cloud](02-run-in-container-apps.md)
 
 
-![alt text](image.png)
+![alt text](aca.png)
 </td>
 </tr>
 </table>
@@ -127,9 +127,37 @@ You can use the chat testing tool to validate that the service is running or `cu
 cd src/Chat-tester
 dotnet run
 ```
-By default the app will startup on `http://localhost:5259`, click into that and point to your proxy on the server tab.  Your server will be something like: `http(s)://localhost:8000`.  Select your endpoint model, type in a prompt and run the request.  It will look something like the screenshot below:  
+
+### Server and port
+By default the app will startup on `http://localhost:5259`, click into that and point to your proxy on the server tab.  Your server will be something like: `http(s)://localhost:8000`.  
+
+If you deployed to `ACA`, the url will look more like this:  `https://simplel7dev.wittybeach-67bb528b.eastus.azurecontainerapps.io`
+
+See the ingress docs for your scenario [here:](https://learn.microsoft.com/en-us/azure/container-apps/ingress-overview)
+
+### model and prompt
+Select your endpoint model, type in a prompt and run the request.  
+
+### send the query
+It will look something like the screenshot below:  
 
 ![alt text](chat-test.png)
+
+
+If you have configured the eventhub, you can point to it from the chat tester to get a live view of activity on the proxy. Click any thumbnail to open the full-size image.
+
+<table>
+<tr>
+<td width="33%" align="center"><a href="chat-requests.png"><img src="chat-requests.png" alt="Event Hub live view 1" width="100%"></a></td>
+<td width="33%" align="center"><a href="chat-monitor.png"><img src="chat-monitor.png" alt="Event Hub live view 2" width="100%"></a></td>
+<td width="33%" align="center"><a href="chat-insights.png"><img src="chat-insights.png" alt="Event Hub live view 3" width="100%"></a></td>
+</tr>
+<tr>
+<td width="33%" align="center"><a href="chat-enqueue.png"><img src="chat-enqueue.png" alt="Event Hub live view 4" width="100%"></a></td>
+<td width="33%" align="center"><a href="chat-attempt.png"><img src="chat-attempt.png" alt="Event Hub live view 5" width="100%"></a></td>
+<td width="33%" align="center"><a href="chat-final.png"><img src="chat-final.png" alt="Event Hub live view 6" width="100%"></a></td>
+</tr>
+</table>
 ---
 
 ## FAQ
