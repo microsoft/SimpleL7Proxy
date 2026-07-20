@@ -19,14 +19,16 @@ At a high level, the platform continuously balances reliability, performance, se
 
 ### [The User Profile](#how-do-user-profiles-determine-when-requests-run)
 
-A user profile, loaded from CosmosDB, maps a request to a collection of headers, including **priority**. These headers can control de-queue order, override the requested model, or report metrics. Other fields can apply validation, mapping, and hygiene rules, or drive additional routing and policy decisions in the proxy and APIM. When no profile matches, the proxy falls back to a default priority.
+The proxy loads user profiles from CosmosDB and, at receive time, enriches each incoming request with its matching profile data, mapped to key-value settings. The priority setting controls processing order, while other settings can override the requested model or report metrics. Additional fields can validate, map, or clean up the request, and drive further routing and policy decisions in both the proxy and APIM. When no profile matches, the proxy falls back to a default priority.
 
 </td>
 <td width="33%" valign="top">
 
-### [Coordinating with APIM](#how-does-apim-determine-which-backends-receive-requests-1)
+### [Coordinating with Backends](#how-does-apim-determine-which-backends-receive-requests-1)
 
-The proxy processes each request in priority order, enriching it before forwarding to APIM. It probes every APIM instance across all regions, retrying as needed through a priority queue that can put a request to sleep and wake it later. The proxy tracks TTL and keeps retrying until the request completes or expires, logging full activity to Application Insights, Event Hub, Service Bus, files, or custom code.
+The proxy sends each request to the best available backend instance, using the same load-balance mode (latency, round robin, or random) across **direct** and **APIM** backends alike. Direct endpoints skip active probing and are always considered available, so under latency-based selection they sort first since they have no measured latency. APIM backends are periodically probed for availability and latency.
+
+Each backend is protected by a circuit breaker and obeys 429 retry behaviour. If retries are exhausted, the proxy can put the request to sleep and wake it later, tracking TTL until it completes or expires.
 
 On the APIM side, a policy selects endpoints by the request priority and tracks each endpoint's throttle period, skipping throttled endpoints until their retry time. If APIM cannot complete a request, it signals the proxy to retry other regions.
 
@@ -60,9 +62,9 @@ If a request runs longer than a configured trigger timeout, the proxy promotes i
 </td>
 <td width="33%" valign="top">
 
-### [Direct Backends](#when-should-traffic-go-directly-to-a-backend-or-through-apim-1)
+### Observability
 
-Direct mode connects straight to an API endpoint, bypassing APIM entirely. That means APIM-provided capabilities—transformations, subscriptions, caller authentication, and priority-aware backend selection—are not available on that path.
+The proxy logs full request activity to Application Insights, Event Hub, Service Bus, files, or custom code.
 
 </td>
 </tr>
