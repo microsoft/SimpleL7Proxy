@@ -43,7 +43,68 @@ You can rung the proxy locally from the source code or container or deployed it 
 
 ## Step 2: Where are your LLM models?
 
-**Choose where the are .** The next page asks which backend and authentication path you want.
+Now that the proxy is up and running, we need to configure a backend before we can try it out.
+
+**Pick your endpoint.**
+
+<table>
+<tr>
+<td width="33%" valign="top" style="background-color:#EEF3F8; border-radius:8px; padding:16px;">
+
+### [🧠 LLM Endpoint](02-connect-llm-endpoint.md)
+
+You already have an Azure OpenAI / AI Foundry endpoint.
+
+<div align="center">
+
+```sh:
+# You need:
+
+* Endpoint URL
+* API key or Managed Identity
+```
+
+</div>
+
+</td>
+<td width="33%" valign="top" style="background-color:#EEF7F1; border-radius:8px; padding:16px;">
+
+### [🛡️ APIM](02-connect-apim.md)
+
+Your endpoint sits behind Azure API Management.
+
+<div align="center">
+
+```sh:
+# You need:
+
+* APIM gateway URL
+* Priority-with-retry policy
+```
+
+</div>
+
+</td>
+<td width="33%" valign="top" style="background-color:#FBF3E7; border-radius:8px; padding:16px;">
+
+### [🧪 LLM Simulator](02-connect-llm-simulator.md)
+
+No endpoint yet? Use the built-in simulator.
+
+<div align="center">
+
+```sh:
+# You need:
+
+* Nothing - it's included
+```
+
+</div>
+
+</td>
+</tr>
+</table>
+
 
 ## Full Answers
 
