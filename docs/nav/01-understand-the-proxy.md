@@ -1,15 +1,18 @@
-# Understand How the Proxy Controls AI Traffic
+# Understanding the SimpleL7Proxy
 
-A single endpoint is fine when you're just getting started. But as things grow, you start needing more — priorities, smarter routing, cost tracking, reliability, observability, all at once. SimpleL7Proxy is a straightforward way to handle that layer: it lets you route requests, retry them now or later, split costs, and treat requests differently depending on the app or user behind them.
+SimpleL7Proxy manages the lifecycle of an AI request from arrival through execution, retry, and completion. Before processing begins, the proxy can enrich the request using a user profile that supplies priority, model overrides, async permissions, and reporting metadata.
 
-When deployed in front of APIM, the proxy adds a user profile governance layer that applies workload-specific policies for validation, routing,
-prioritization, and execution. This helps organizations balance reliability, performance, compliance, and cost across AI workloads.
+Incoming requests are admitted through backpressure controls and placed into priority-aware queues. Priority determines not only processing order, but also which regions, endpoints, capacity pools, and retry paths are available. Critical workloads can access additional capacity and more aggressive failover behavior, while lower-priority workloads may be delayed, requeued, or restricted to specific backend resources.
 
-The platform continuously balances reliability, performance, service quality, and cost by intelligently routing requests across regions, endpoints, priority queues, and AI models. Critical workloads receive preferential treatment, while less time-sensitive workloads are processed in a cost-efficient manner without impacting business-critical operations.
+The proxy continuously selects healthy backends, retries failures across regions when appropriate, and can promote long-running operations to asynchronous processing. Throughout the request lifecycle it records routing decisions, performance metrics, and usage data for observability and governance. Azure Container Apps independently scales proxy capacity to match demand.
+
+Requests that run longer than expected can be converted to background operations so callers are not required to keep HTTP connections open. Throughout the process, the proxy records routing decisions, performance metrics, and cost data for observability and governance.
+
+Azure Container Apps independently scales the proxy up and down to match demand.
 
 <img width="1308" height="534" alt="image" src="https://github.com/user-attachments/assets/60b20f0c-cee1-44b7-8f6a-b97d84f590bf" />
----
 
+---
 ## Quick Topics
 
 <table>
@@ -25,7 +28,7 @@ The proxy loads user profiles from CosmosDB and, at receive time, enriches each 
 
 ### [Coordinating with Backends](#how-does-apim-determine-which-backends-receive-requests-1)
 
-The proxy and **APIM** each apply their own layer of smart routing and retry, working together so a request keeps retrying across backends and regions until it succeeds or its TTL expires. APIM independently adds extensive governance — routing, compliance, and more via its policy engine.
+The proxy builds on top of **APIM** as a cross-region load balancer: it tries each configured backend host in turn — APIM instances and direct endpoints alike — retrying across backends and regions until a request succeeds or its TTL expires. APIM keeps running independently underneath, adding its own extensive governance — routing, compliance, and more — via its policy engine.
 
 Because **direct** backends skip active probing, no latency data is available for them, so they rely on path-based routing combined with `random` or `roundrobin` load balancing.
 
