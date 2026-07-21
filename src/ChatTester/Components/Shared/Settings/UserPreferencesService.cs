@@ -7,8 +7,8 @@ using Microsoft.JSInterop;
 namespace chat_tester.Components.Shared;
 
 /// <summary>
-/// Per-session bridge between the live settings singletons and a base64-encoded JSON
-/// <see cref="UserPreferences"/> blob persisted in a browser session cookie.
+/// Bridge between the live settings singletons and a base64-encoded JSON
+/// <see cref="UserPreferences"/> blob persisted in a browser cookie.
 /// <para>
 /// On <see cref="LoadAsync"/> the cookie is decoded and applied to the settings so the user's
 /// overrides are restored. <see cref="SaveAsync"/> stores only the values that differ from the
@@ -93,7 +93,7 @@ public sealed class UserPreferencesService
     public RequestPreferences RequestSelections { get; private set; } = new();
 
     /// <summary>
-    /// Loads preferences from the session cookie and applies them to the settings singletons.
+    /// Loads preferences from the persistent browser cookie and applies them to the settings singletons.
     /// Idempotent: only the first call per session reads the cookie.
     /// </summary>
     public async Task<bool> LoadAsync()
@@ -133,7 +133,7 @@ public sealed class UserPreferencesService
         return true;
     }
 
-    /// <summary>Writes the values that differ from the configuration defaults to the session cookie.</summary>
+    /// <summary>Writes the values that differ from the configuration defaults to the persistent browser cookie.</summary>
     public async Task SaveAsync()
     {
         var preferences = BuildDiff();
