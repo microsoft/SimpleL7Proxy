@@ -7,6 +7,7 @@
 @inject RequestDebugSettings DebugSettings
 @inject ChatHistoryStore ChatHistoryStore
 @inject ChatConversationStore ChatConversationStore
+@inject UserPreferencesService Preferences
 @implements IDisposable
 @using chat_tester.Components.Shared
 @using Microsoft.Extensions.Options
@@ -30,6 +31,7 @@
                       UserSettings="UserSettings"
                       HeaderSettings="HeaderSettings"
                       InitialServerBaseUrl="@InitialServerBaseUrl"
+                      InitialActiveTab="@InitialRequestTab"
                       HeaderSubtitle="Each request includes the prior turns."
                       CardTitle="Chat settings"
                       PromptTabLabel="Model"
@@ -471,6 +473,18 @@
     private string RawExchangeDisplayResponse { get; set; } = string.Empty;
     private DotNetObjectReference<ChatPage>? SelfReference { get; set; }
     private bool CanSend => !IsRunning && !string.IsNullOrWhiteSpace(ChatInput);
+    private bool HasRestoredSettings => Preferences.Preferences.Server is not null
+        || Preferences.Preferences.UserIdentity is not null
+        || Preferences.Preferences.Request is not null
+        || Preferences.Preferences.CustomHeaders is not null
+        || Preferences.Preferences.Display is not null
+        || Preferences.Preferences.Storage is not null;
+
+    private string InitialRequestTab => HasRestoredSettings
+        && ChatHistoryStore.GetSnapshot().Any(entry => string.Equals(entry.Source, "Chat", StringComparison.OrdinalIgnoreCase)
+            && HistoryEntryFormatter.GetHistoryStatusCode(entry) is >= 200 and < 400)
+        ? "prompt"
+        : "server";
 
     protected override void OnInitialized()
     {
@@ -490,10 +504,12 @@
         {
             if (firstRender)
             {
+                await Preferences.LoadAsync();
                 SelfReference = DotNetObjectReference.Create(this);
                 await JS.InvokeVoidAsync("chatComposer.register", ChatInputRef, SelfReference);
                 await JS.InvokeVoidAsync("chatScroll.register", ConversationRef);
                 await JS.InvokeVoidAsync("chatResponseDetails.register", ConversationRef);
+                StateHasChanged();
             }
 
             await JS.InvokeVoidAsync("chatScroll.scrollIfStuck", ConversationRef);

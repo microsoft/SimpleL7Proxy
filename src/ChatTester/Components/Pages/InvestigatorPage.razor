@@ -42,6 +42,7 @@
                            UserSettings="UserSettings"
                            HeaderSettings="HeaderSettings"
                            InitialServerBaseUrl="@InitialServerBaseUrl"
+                           InitialActiveTab="@InitialRequestTab"
                            DisplayState="@RequestPanelState"
                            DisplayStateChanged="SetRequestPanelStateAsync"
                            HeaderSubtitle="@RequestSubtitle"
@@ -1104,6 +1105,19 @@
     private TestFormPanel? FormPanel { get; set; }
 
     private IReadOnlyList<ChatHistoryEntry> HistoryEntries => ChatHistoryStore.GetSnapshot();
+
+    private bool HasRestoredSettings => Preferences.Preferences.Server is not null
+        || Preferences.Preferences.UserIdentity is not null
+        || Preferences.Preferences.Request is not null
+        || Preferences.Preferences.CustomHeaders is not null
+        || Preferences.Preferences.Display is not null
+        || Preferences.Preferences.Storage is not null;
+
+    private string InitialRequestTab => HasRestoredSettings
+        && HistoryEntries.Any(entry => string.Equals(entry.Source, HistorySource, StringComparison.OrdinalIgnoreCase)
+            && HistoryEntryFormatter.GetHistoryStatusCode(entry) is >= 200 and < 400)
+        ? "prompt"
+        : "server";
 
     private string RequestSubtitle => "Send a request.";
 
