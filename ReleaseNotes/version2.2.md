@@ -1,5 +1,17 @@
 # Release Notes #
 
+2.2.16
+
+Proxy:
+* Bug fix for missing container name in events
+* Detect model from request
+* Override model by setting S7P_Model_Override in config
+* Rotate the the logs on disk every hour
+
+APIM-POLICY:
+* Bugfix for status 400
+* Bugfix for missing S7PREQUEUE header when all hosts exhausted
+
 2.2.15
 
 Proxy:

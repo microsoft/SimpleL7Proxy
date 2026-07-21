@@ -1,0 +1,184 @@
+@page "/incomplete"
+@namespace chat_tester.Components.Pages
+@rendermode InteractiveServer
+@implements IDisposable
+@using chat_tester.Components.Shared
+@using chat_tester.Components.Shared.EventHub
+@using System.Text.RegularExpressions
+@inject EventHubMonitorStore Store
+
+<PageTitle>Incomplete / Unlabeled Records</PageTitle>
+
+<div class="container-fluid py-3">
+    <h4 class="mb-1">Incomplete / unlabeled backend records</h4>
+    <p class="text-muted small mb-3">
+        Records with no <code>x-backend-label</code> and no <code>Using &lt;NAME&gt; URL:</code> entry in their
+        <code>backendLog</code>. These are the ones the Endpoints card labels with a raw backend URL
+        (via the <code>Backend-Host</code> / <code>Host-URL</code> fallback). Click a row to investigate.
+        Records expire from memory after ~1 hour.
+    </p>
+
+    @if (IncompleteItems.Count == 0)
+    {
+        <div class="alert alert-success">No incomplete/unlabeled records in the current buffer.</div>
+    }
+    else
+    {
+        <div class="alert alert-warning py-2">
+            <strong>@IncompleteItems.Count</strong> unlabeled record(s) found.
+        </div>
+
+        <div class="table-responsive mb-3">
+            <table class="table table-sm table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th scope="col">#</th>
+                        <th scope="col">Event</th>
+                        <th scope="col">Model</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Derived label (URL)</th>
+                        <th scope="col">Backend host</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in IncompleteRows)
+                    {
+                        <tr>
+                            <td>@row.Item.RequestNumber</td>
+                            <td class="text-nowrap">@row.Item.EventType</td>
+                            <td>@row.Model</td>
+                            <td>@(row.Item.StatusCode?.ToString() ?? row.Item.Status)</td>
+                            <td class="font-monospace text-break">@row.DerivedLabel</td>
+                            <td class="font-monospace text-break">@row.BackendHost</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <EventHubRequestStatus Items="@IncompleteItems" HeaderTone="warn" />
+    }
+</div>
+
+@code {
+    private static readonly Regex UsingUrlRegex = new(
+        @"Using\s+([A-Za-z0-9_-]+)\s+URL:\s*(https?://[^\s|]+)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private IReadOnlyList<MultiRequestStatusItem> IncompleteItems { get; set; } = Array.Empty<MultiRequestStatusItem>();
+    private IReadOnlyList<IncompleteRow> IncompleteRows { get; set; } = Array.Empty<IncompleteRow>();
+
+    protected override void OnInitialized()
+    {
+        Store.Changed += OnStoreChanged;
+        Refresh();
+    }
+
+    private void OnStoreChanged() => _ = InvokeAsync(() =>
+    {
+        Refresh();
+        StateHasChanged();
+    });
+
+    private void Refresh()
+    {
+        var snapshot = Store.GetSnapshot();
+
+        var rows = snapshot.Requests
+            .Where(IsBackendOrProxyEvent)
+            .Where(item => !HasFriendlyLabel(item))
+            .Select(item => new IncompleteRow(
+                item,
+                ResolveModel(item),
+                ResolveDerivedLabel(item),
+                item.BackendHost))
+            .ToArray();
+
+        IncompleteRows = rows;
+        IncompleteItems = rows.Select(row => row.Item).ToArray();
+    }
+
+    private static bool IsBackendOrProxyEvent(MultiRequestStatusItem item) =>
+        string.Equals(item.EventType, "S7P-BackendRequest", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(item.EventType, "S7P-ProxyRequest", StringComparison.OrdinalIgnoreCase);
+
+    private static bool HasFriendlyLabel(MultiRequestStatusItem item)
+    {
+        var label = ExtractHeaderValue(item.ResponseHeadersText, "x-backend-label")
+            ?? ExtractHeaderValue(item.RequestHeadersText, "x-backend-label");
+        if (!string.IsNullOrWhiteSpace(label))
+        {
+            return true;
+        }
+
+        foreach (var log in EnumerateBackendLogs(item))
+        {
+            if (!string.IsNullOrWhiteSpace(log) && UsingUrlRegex.IsMatch(log))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static IEnumerable<string?> EnumerateBackendLogs(MultiRequestStatusItem item)
+    {
+        yield return ExtractHeaderValue(item.ResponseHeadersText, "backendLog");
+        for (var attempt = 1; ; attempt++)
+        {
+            var log = ExtractHeaderValue(item.ResponseHeadersText, $"Attempt-{attempt}-backendLog");
+            if (string.IsNullOrWhiteSpace(log))
+            {
+                yield break;
+            }
+
+            yield return log;
+        }
+    }
+
+    private static string ResolveDerivedLabel(MultiRequestStatusItem item) =>
+        ExtractHeaderValue(item.ResponseHeadersText, "Backend-Host")
+        ?? ExtractHeaderValue(item.RequestHeadersText, "Backend-Host")
+        ?? ExtractHeaderValue(item.RequestHeadersText, "Host-URL")
+        ?? (string.IsNullOrWhiteSpace(item.BackendHost) ? "-" : item.BackendHost);
+
+    private static string ResolveModel(MultiRequestStatusItem item)
+    {
+        var model = ExtractHeaderValue(item.RequestHeadersText, "Model")
+            ?? ExtractHeaderValue(item.ResponseHeadersText, "Model");
+        return string.IsNullOrWhiteSpace(model) ? "(unknown)" : model.Trim();
+    }
+
+    private static string? ExtractHeaderValue(string? headers, string headerName)
+    {
+        if (string.IsNullOrWhiteSpace(headers) || string.IsNullOrWhiteSpace(headerName))
+        {
+            return null;
+        }
+
+        var lines = headers
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var prefix = $"{headerName}:";
+        foreach (var line in lines)
+        {
+            if (!line.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return line[prefix.Length..].Trim();
+        }
+
+        return null;
+    }
+
+    public void Dispose() => Store.Changed -= OnStoreChanged;
+
+    private sealed record IncompleteRow(
+        MultiRequestStatusItem Item,
+        string Model,
+        string DerivedLabel,
+        string BackendHost);
+}

@@ -21,6 +21,10 @@ public class LogFileEventClient : IEventClient, IHostedService, IBatchMessageTra
 
     private readonly CompositeEventClient _composite;
     private readonly StringBuilder _sb = new();
+    private readonly string _filename;
+    private readonly object _writerLock = new();
+    private static readonly TimeSpan RotationInterval = TimeSpan.FromHours(1);
+    private Timer? _rotationTimer;
     private static Stream log = null!;
     private static StreamWriter writer = null!;
 
@@ -28,12 +32,9 @@ public class LogFileEventClient : IEventClient, IHostedService, IBatchMessageTra
     {
         var proxyOptions = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _composite = composite ?? throw new ArgumentNullException(nameof(composite));
+        _filename = filename ?? throw new ArgumentNullException(nameof(filename));
 
-        log = new FileStream(filename, FileMode.OpenOrCreate, FileAccess.Write);
-        writer = new StreamWriter(log)
-        {
-            AutoFlush = true,
-        };
+        OpenWriter();
 
         _pump = new BatchMessagePump<List<BatchMessageEnvelope>, BatchMessageEnvelope>(
             destination: DefaultDestination,
@@ -66,6 +67,47 @@ public class LogFileEventClient : IEventClient, IHostedService, IBatchMessageTra
             await _pump.StartAsync(cancellationToken).ConfigureAwait(false);
             _composite.Add(this);
             isRunning = true;
+            _rotationTimer = new Timer(RotateLog, null, RotationInterval, RotationInterval);
+        }
+    }
+
+    /// <summary>
+    /// Opens the log file for append, creating it if it does not exist.
+    /// </summary>
+    private void OpenWriter()
+    {
+        log = new FileStream(_filename, FileMode.Append, FileAccess.Write);
+        writer = new StreamWriter(log)
+        {
+            AutoFlush = false,
+        };
+    }
+
+    /// <summary>
+    /// Rotates the current log file by renaming it with a timestamp and reopening a fresh file for append.
+    /// </summary>
+    private void RotateLog(object? state)
+    {
+        lock (_writerLock)
+        {
+            try
+            {
+                writer.Flush();
+                writer.Dispose();
+                log?.Dispose();
+
+                if (File.Exists(_filename))
+                {
+                    var rotatedName = $"{_filename}.{DateTime.UtcNow:yyyyMMdd_HH}.log";
+                    File.Move(_filename, rotatedName);
+                }
+
+                OpenWriter();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"LogFileEventClient: log rotation failed: {ex.Message}");
+            }
         }
     }
 
@@ -136,8 +178,11 @@ public class LogFileEventClient : IEventClient, IHostedService, IBatchMessageTra
             _sb.AppendLine(message.Payload);
         }
 
-        writer.Write(_sb);
-        writer.Flush();
+        lock (_writerLock)
+        {
+            writer.Write(_sb);
+            writer.Flush();
+        }
         return Task.CompletedTask;
     }
 
@@ -148,10 +193,16 @@ public class LogFileEventClient : IEventClient, IHostedService, IBatchMessageTra
 
     Task IBatchMessageTransport<List<BatchMessageEnvelope>, BatchMessageEnvelope>.CloseAsync(CancellationToken cancellationToken)
     {
-        writer.Flush();
-        writer.Dispose();
-        log?.Close();
-        log?.Dispose();
+        _rotationTimer?.Dispose();
+        _rotationTimer = null;
+
+        lock (_writerLock)
+        {
+            writer.Flush();
+            writer.Dispose();
+            log?.Close();
+            log?.Dispose();
+        }
         return Task.CompletedTask;
     }
 
