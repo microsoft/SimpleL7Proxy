@@ -194,7 +194,7 @@
                                     </div>
                                     <div class="eventhub-model-summary">
                                         <span>Calls <strong>@endpoint.Calls</strong></span>
-                                        <span>Fail <strong>@endpoint.Failures</strong></span>
+                                        <span>Failed attempts <strong>@endpoint.Failures</strong></span>
                                         <span>Throttled <strong>@endpoint.ThrottledEvents</strong></span>
                                         <span>Endpoints <strong>@endpoint.EndpointCount</strong></span>
                                         <span>P1 <strong>@endpoint.Priority1Count</strong></span>
@@ -210,7 +210,7 @@
                                                     <tr>
                                                         <th scope="col">Label</th>
                                                         <th scope="col" class="text-end">Calls</th>
-                                                        <th scope="col" class="text-end">Fail</th>
+                                                        <th scope="col" class="text-end">Failed attempts</th>
                                                         <th scope="col" class="text-end">Throttled</th>
                                                         <th scope="col" class="text-end">P1</th>
                                                         <th scope="col" class="text-end">P2</th>
@@ -315,41 +315,32 @@
                     else
                     {
                         <div class="eventhub-trend-metric-selector">
-                            <button type="button"
-                                    class="btn btn-sm btn-outline-secondary eventhub-trend-metric-button"
-                                    aria-haspopup="true"
-                                    aria-expanded="@_isTrendMetricMenuOpen"
-                                    @onclick="() => _isTrendMetricMenuOpen = !_isTrendMetricMenuOpen">
-                                Metrics
-                                <span class="eventhub-trend-metric-caret" aria-hidden="true"></span>
-                            </button>
+                            <label class="visually-hidden" for="trend-metrics">Add a metric</label>
+                            <select id="trend-metrics"
+                                    class="form-select form-select-sm eventhub-trend-metric-select @(_isTrendMetricPickerExpanded ? "is-expanded" : string.Empty)"
+                                    value="@_trendMetricSelectionKey"
+                                    @onfocus="() => _isTrendMetricPickerExpanded = true"
+                                    @onblur="() => _isTrendMetricPickerExpanded = false"
+                                    @onchange="OnTrendMetricSelected">
+                                <option value="">Metrics</option>
+                                @foreach (var metric in TrendMetricOptions)
+                                {
+                                    <option value="@metric.Key" disabled="@IsTrendMetricSelected(metric.Key)">@metric.Label</option>
+                                }
+                            </select>
                             <div class="eventhub-trend-selected-list" aria-label="Selected metrics">
                                 @foreach (var series in SelectedTrendMetrics)
                                 {
-                                    <span class="eventhub-trend-selected-item" title="@series.Label">
+                                    <label class="eventhub-trend-selected-item" title="@series.Label">
+                                        <input type="checkbox"
+                                               checked="@IsTrendMetricSelected(series.Key)"
+                                               aria-label="Remove @series.Label"
+                                               @onchange="args => OnTrendMetricSelectionChanged(series.Key, args)" />
                                         <span class="eventhub-user-color-dot" style="background-color:@series.Color"></span>
                                         @series.Label
-                                    </span>
+                                    </label>
                                 }
                             </div>
-
-                            @if (_isTrendMetricMenuOpen)
-                            {
-                                <div class="eventhub-trend-metric-dropdown" role="group" aria-label="Trend metrics">
-                                    @foreach (var metric in TrendMetricOptions)
-                                    {
-                                        <label class="eventhub-trend-metric-toggle @(IsTrendMetricSelected(metric.Key) ? "is-selected" : string.Empty)">
-                                            <input type="checkbox"
-                                                   class="visually-hidden"
-                                                   checked="@IsTrendMetricSelected(metric.Key)"
-                                                   @onchange="args => OnTrendMetricSelectionChanged(metric.Key, args.Value)" />
-                                              <span class="eventhub-trend-check @(IsTrendMetricSelected(metric.Key) ? "is-visible" : string.Empty)" aria-hidden="true">&#10003;</span>
-                                            <span class="eventhub-trend-dot" style="background-color:@metric.Color"></span>
-                                            @metric.Label
-                                        </label>
-                                    }
-                                </div>
-                            }
                         </div>
 
                         @if (UsageTrendPoints.Count == 0)
@@ -535,31 +526,16 @@
                     else
                     {
                         <div class="eventhub-trend-metric-selector">
-                            <button type="button"
-                                    class="btn btn-sm btn-outline-secondary eventhub-trend-metric-button"
-                                    aria-haspopup="true"
-                                    aria-expanded="@_isUserShareMetricMenuOpen"
-                                    @onclick="() => _isUserShareMetricMenuOpen = !_isUserShareMetricMenuOpen">
-                                Share by: @SelectedUserShareMetric.Label
-                                <span class="eventhub-trend-metric-caret" aria-hidden="true"></span>
-                            </button>
-
-                            @if (_isUserShareMetricMenuOpen)
-                            {
-                                <div class="eventhub-trend-metric-dropdown" role="radiogroup" aria-label="Share calculation column">
-                                    @foreach (var metric in UserShareMetricOptions)
-                                    {
-                                        <label class="eventhub-trend-metric-toggle @(IsUserShareMetricSelected(metric.Key) ? "is-selected" : string.Empty)">
-                                            <input type="radio"
-                                                   class="visually-hidden"
-                                                   name="user-share-metric"
-                                                   checked="@IsUserShareMetricSelected(metric.Key)"
-                                                   @onchange="() => SelectUserShareMetric(metric.Key)" />
-                                            @metric.Label
-                                        </label>
-                                    }
-                                </div>
-                            }
+                            <label class="visually-hidden" for="user-share-metric">Share calculation column</label>
+                            <select id="user-share-metric"
+                                    class="form-select form-select-sm eventhub-trend-metric-select"
+                                    value="@_selectedUserShareMetricKey"
+                                    @onchange="OnUserShareMetricChanged">
+                                @foreach (var metric in UserShareMetricOptions)
+                                {
+                                    <option value="@metric.Key">Share by: @metric.Label</option>
+                                }
+                            </select>
                         </div>
 
                         <div class="table-responsive">
@@ -845,6 +821,15 @@
         margin-bottom: 0.45rem;
     }
 
+    .eventhub-trend-metric-select {
+        width: 6.75rem;
+        transition: width 120ms ease-out;
+    }
+
+    .eventhub-trend-metric-select.is-expanded {
+        width: min(32rem, 100%);
+    }
+
     .eventhub-trend-metric-button {
         flex: 0 0 auto;
         display: inline-flex;
@@ -897,6 +882,10 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+    }
+
+    .eventhub-trend-selected-item input {
+        margin: 0 0.35rem 0 0;
     }
 
     .eventhub-trend-check {
@@ -2626,9 +2615,9 @@
     private bool _receivedFirstTrendRequest;
     private bool _columnResizerInitialized;
     private bool _isFilterDialogOpen;
-    private bool _isTrendMetricMenuOpen;
-    private bool _isUserShareMetricMenuOpen;
+    private bool _isTrendMetricPickerExpanded;
     private string _selectedUserShareMetricKey = "__calls";
+    private string _trendMetricSelectionKey = string.Empty;
     private TrendSlot? _openTrendSlot;
     private IReadOnlyList<MultiRequestStatusItem> _openTrendSlotRequests = Array.Empty<MultiRequestStatusItem>();
     private string _openTrendSlotPanelLeft = "50%";
@@ -3881,7 +3870,7 @@
                     "-",
                     $"{endpointAggregates.Length} endpoint(s)",
                     "-",
-                        failures == 0 ? "Healthy" : $"{failureRate:0.#}% failures",
+                        failures == 0 ? "Healthy" : $"{failureRate:0.#}% attempts failed",
                     css);
             })
             .OrderByDescending(tile => tile.Calls)
@@ -4168,12 +4157,24 @@
         return _selectedTrendMetricKeys.Contains(key);
     }
 
-    private void OnTrendMetricSelectionChanged(string key, object? value)
+    private void OnTrendMetricSelected(ChangeEventArgs args)
     {
-        var isSelected = value switch
+        var key = args.Value?.ToString();
+        if (!string.IsNullOrWhiteSpace(key))
         {
-            bool boolValue => boolValue,
-            string stringValue when bool.TryParse(stringValue, out var parsedValue) => parsedValue,
+            _selectedTrendMetricKeys.Add(key);
+        }
+
+        _trendMetricSelectionKey = string.Empty;
+        _isTrendMetricPickerExpanded = false;
+    }
+
+    private void OnTrendMetricSelectionChanged(string key, ChangeEventArgs args)
+    {
+        var isSelected = args.Value switch
+        {
+            bool value => value,
+            string value when bool.TryParse(value, out var parsedValue) => parsedValue,
             _ => false,
         };
 
@@ -4185,19 +4186,11 @@
         {
             _selectedTrendMetricKeys.Remove(key);
         }
-
-        _isTrendMetricMenuOpen = false;
     }
 
-    private bool IsUserShareMetricSelected(string key)
+    private void OnUserShareMetricChanged(ChangeEventArgs args)
     {
-        return string.Equals(_selectedUserShareMetricKey, key, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private void SelectUserShareMetric(string key)
-    {
-        _selectedUserShareMetricKey = key;
-        _isUserShareMetricMenuOpen = false;
+        _selectedUserShareMetricKey = args.Value?.ToString() ?? "__calls";
     }
 
     private IReadOnlyList<TrendMetricSeries> BuildSelectedTrendMetrics()
@@ -4224,7 +4217,7 @@
                         .Select(pair => (pair.Key, GetUserColor(pair.Key), (long)pair.Value))
                         .ToArray())
                     .ToArray();
-                selectedSeries.Add(new TrendMetricSeries(metric.Label, metric.Color, values, segments));
+                selectedSeries.Add(new TrendMetricSeries(metric.Key, metric.Label, metric.Color, values, segments));
 
                 continue;
             }
@@ -4235,7 +4228,7 @@
             var metricSegments = metricValues
                 .Select(value => (IReadOnlyList<(string Label, string Color, long Value)>)new[] { (metric.Label, metric.Color, value) })
                 .ToArray();
-            selectedSeries.Add(new TrendMetricSeries(metric.Label, metric.Color, metricValues, metricSegments));
+            selectedSeries.Add(new TrendMetricSeries(metric.Key, metric.Label, metric.Color, metricValues, metricSegments));
         }
 
         return selectedSeries;
@@ -5101,6 +5094,7 @@
         IReadOnlyDictionary<string, long> UsageMetrics,
         bool HasUsage);
     private sealed record TrendMetricSeries(
+        string Key,
         string Label,
         string Color,
         IReadOnlyList<long> Values,

@@ -815,11 +815,22 @@
             flex: 1 1 auto;
             flex-direction: column;
             min-height: 0;
+            overflow: hidden;
+        }
+
+        .vision-workspace.multi-request-layout .multi-request-status > .card-body {
+            display: flex;
+            flex: 1 1 auto;
+            flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
         }
 
         .vision-workspace.multi-request-layout .multi-request-status-list {
             flex: 1 1 auto;
+            min-height: 0;
             max-height: none;
+            overflow-y: auto;
         }
 
         .response-stack {
@@ -1080,6 +1091,7 @@
     private string ErrorMessage { get; set; } = string.Empty;
     private DateTimeOffset? ErrorTimestamp { get; set; }
     private CancellationTokenSource? RequestCts { get; set; }
+    private long _lastBatchRenderTimestamp;
     private VisionResponseMetrics ResponseMetrics { get; set; } = new();
     private List<MultiRequestStatusItem> MultiRequestStatuses { get; } = new();
     private Dictionary<string, string> FieldValues { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -1115,7 +1127,9 @@
 
     private bool IsOnboardingRawExchangeStep => Preferences.IsOnboardingStep("raw-exchange");
 
-    private bool ShowOnboarding => !Preferences.IsOnboardingStep("complete");
+    private bool _isOnboardingDismissed;
+
+    private bool ShowOnboarding => !_isOnboardingDismissed && !Preferences.IsOnboardingStep("complete");
 
     private static readonly (string Id, string Text)[] OnboardingSteps =
     {
@@ -1829,6 +1843,7 @@
 
         RequestHeadersText = preparedRequests.FirstOrDefault()?.RequestHeadersText ?? "No request has been sent yet.";
         ShowResultPanelAfterResponse();
+    Interlocked.Exchange(ref _lastBatchRenderTimestamp, Environment.TickCount64);
         await InvokeAsync(StateHasChanged);
 
         var results = await Task.WhenAll(preparedRequests.Select(request => SendVisionBatchRequestAsync(client, request)));
@@ -1867,7 +1882,7 @@
         var statusItem = StartMultiRequestStatus(preparedRequest.RequestIndex);
         var metrics = new VisionResponseMetrics { Status = "Sending" };
         UpdateMultiRequestStatus(statusItem, metrics, null, isComplete: false, isFailed: false, $"Sending request {preparedRequest.RequestIndex + 1} of {NumberOfRequests}...");
-        await InvokeAsync(StateHasChanged);
+        await RefreshBatchStatusAsync();
 
         using var metricsTimer = new CancellationTokenSource();
         var stopwatch = Stopwatch.StartNew();
@@ -1883,7 +1898,7 @@
             metrics.ContentType = response.Content.Headers.ContentType?.ToString() ?? "-";
             var responseHeaders = ChatTesterHttp.SummarizeResponseHeaders(response);
             UpdateMultiRequestStatus(statusItem, metrics, statusCode, isComplete: false, isFailed: false, $"Reading response {preparedRequest.RequestIndex + 1} of {NumberOfRequests}: {metrics.Status}");
-            await InvokeAsync(StateHasChanged);
+            await RefreshBatchStatusAsync();
 
             var body = await response.Content.ReadAsStringAsync(cancellationToken);
             metrics.Chunks = string.IsNullOrEmpty(body) ? 0 : 1;
@@ -1904,7 +1919,7 @@
                 metrics,
                 visionResult);
             ApplyMultiRequestPayload(statusItem, result);
-            await InvokeAsync(StateHasChanged);
+            await RefreshBatchStatusAsync();
 
             return result;
         }
@@ -1925,7 +1940,7 @@
                 metrics,
                 VisionResponseParser.BuildPlainVisionResult(display));
             ApplyMultiRequestPayload(statusItem, result);
-            await InvokeAsync(StateHasChanged);
+            await RefreshBatchStatusAsync();
 
             return result;
         }
@@ -2224,9 +2239,30 @@
                 statusItem.TotalBytes = metrics.TotalBytes;
             }
 
-            await InvokeAsync(StateHasChanged);
+            if (statusItem is not null)
+            {
+                await RefreshBatchStatusAsync();
+            }
+            else
+            {
+                await InvokeAsync(StateHasChanged);
+            }
             await Task.Delay(100, cancellationToken);
         }
+    }
+
+    private async Task RefreshBatchStatusAsync()
+    {
+        const long refreshIntervalMilliseconds = 250;
+        var now = Environment.TickCount64;
+        var previous = Interlocked.Read(ref _lastBatchRenderTimestamp);
+        if (now - previous < refreshIntervalMilliseconds
+            || Interlocked.CompareExchange(ref _lastBatchRenderTimestamp, now, previous) != previous)
+        {
+            return;
+        }
+
+        await InvokeAsync(StateHasChanged);
     }
 
     private string BuildGeneratedRequestBody()
@@ -2492,7 +2528,11 @@
         }
     }
 
-    private Task CompleteOnboardingAsync() => Preferences.SetOnboardingStepAsync("complete");
+    private async Task CompleteOnboardingAsync()
+    {
+        _isOnboardingDismissed = true;
+        await Preferences.SetOnboardingStepAsync("complete");
+    }
 
     private async Task OnContentTypeChanged(ChangeEventArgs args)
     {
