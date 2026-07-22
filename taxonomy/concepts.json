@@ -51,7 +51,7 @@
       "definition": "Accepts inbound HTTP connections and submits each request to the priority queue.",
       "key_settings": ["Port", "Workers"],
       "related_concept_ids": ["c-priority-queue", "c-enqueue", "c-validation-pipeline"],
-      "docs": ["design.md", "ENVIRONMENT_VARIABLES.md"]
+      "docs": ["contributing/architecture.md", "reference/environment-variables.md"]
     },
     {
       "id": "c-request-data",
@@ -62,7 +62,7 @@
       "definition": "Runtime object holding all data for one inbound request: headers, body, path, assigned priority, and TTL expiry.",
       "key_settings": [],
       "related_concept_ids": ["c-proxy-data", "c-enqueue"],
-      "docs": ["design.md"]
+      "docs": ["contributing/architecture.md"]
     },
     {
       "id": "c-request-lifecycle-manager",
@@ -73,7 +73,7 @@
       "definition": "Coordinates request state transitions, TTL expiry, completion, failure, and cleanup across synchronous and asynchronous processing.",
       "key_settings": ["DefaultTTLSecs"],
       "related_concept_ids": ["c-request-data", "c-ttl", "c-async-mode"],
-      "docs": ["design.md", "TIMEOUTS.md"]
+      "docs": ["contributing/architecture.md", "reference/timeouts.md"]
     },
     {
       "id": "c-request-types",
@@ -84,7 +84,7 @@
       "definition": "Execution modes used to route responses and background work.",
       "values": ["Sync", "Async", "AsyncBackground", "AsyncBackgroundCheck", "StatusCheck"],
       "related_concept_ids": ["c-request-lifecycle-manager", "c-async-mode", "c-request-api"],
-      "docs": ["AsyncOperation.md"]
+      "docs": ["concepts/async-processing.md"]
     },
     {
       "id": "c-enqueue",
@@ -94,7 +94,7 @@
       "definition": "Submitting a RequestData into the priority queue. The TTL clock starts at this moment.",
       "key_settings": ["MaxQueueLength"],
       "related_concept_ids": ["c-ttl", "c-priority-queue", "c-max-queue-length", "c-validation-pipeline"],
-      "docs": ["RESPONSE_CODES.md", "TIMEOUTS.md"]
+      "docs": ["reference/headers-and-status-codes.md", "reference/timeouts.md"]
     },
     {
       "id": "c-max-queue-length",
@@ -104,7 +104,7 @@
       "definition": "Hard cap on queued requests. Requests arriving when the queue is full receive 429 Too Many Requests.",
       "key_settings": ["MaxQueueLength"],
       "related_concept_ids": ["c-enqueue"],
-      "docs": ["ENVIRONMENT_VARIABLES.md", "RESPONSE_CODES.md"]
+      "docs": ["reference/environment-variables.md", "reference/headers-and-status-codes.md"]
     },
     {
       "id": "c-priority-queue",
@@ -115,7 +115,7 @@
       "definition": "Sorted list ordered by priority level integer using binary-search insertion. Lower integer exits first.",
       "key_settings": ["DefaultPriority"],
       "related_concept_ids": ["c-priority-level", "c-proxy-worker"],
-      "docs": ["design.md", "ADVANCED_CONFIGURATION.md"]
+      "docs": ["contributing/architecture.md", "reference/advanced-configuration.md"]
     },
     {
       "id": "c-priority-level",
@@ -125,7 +125,7 @@
       "definition": "Integer assigned to every request. Lower number means higher dispatch precedence in the queue.",
       "key_settings": ["PriorityValues", "DefaultPriority"],
       "related_concept_ids": ["c-priority-queue", "c-priority-mapping", "c-default-priority"],
-      "docs": ["ADVANCED_CONFIGURATION.md", "ENVIRONMENT_VARIABLES.md"]
+      "docs": ["reference/advanced-configuration.md", "reference/environment-variables.md"]
     },
     {
       "id": "c-default-priority",
@@ -136,7 +136,7 @@
       "key_settings": ["DefaultPriority"],
       "default_value": 2,
       "related_concept_ids": ["c-priority-level", "c-priority-mapping"],
-      "docs": ["ADVANCED_CONFIGURATION.md", "CONFIGURATION_SETTINGS.md"]
+      "docs": ["reference/advanced-configuration.md", "reference/configuration.md"]
     },
     {
       "id": "c-ttl",
@@ -148,7 +148,7 @@
       "per_request_override_header": "S7PTTL",
       "unit": "seconds",
       "related_concept_ids": ["c-timeout", "c-enqueue"],
-      "docs": ["TIMEOUTS.md", "RESPONSE_CODES.md"]
+      "docs": ["reference/timeouts.md", "reference/headers-and-status-codes.md"]
     },
     {
       "id": "c-proxy-worker",
@@ -159,7 +159,7 @@
       "definition": "Worker loop that dequeues a request and drives the backend selection, send, and response write cycle.",
       "key_settings": ["Workers"],
       "related_concept_ids": ["c-priority-queue", "c-backend-selection-pipeline"],
-      "docs": ["design.md"]
+      "docs": ["contributing/architecture.md"]
     },
     {
       "id": "c-workers",
@@ -171,7 +171,7 @@
       "reload_type": "Cold",
       "default_value": 10,
       "related_concept_ids": ["c-proxy-worker", "c-priority-workers"],
-      "docs": ["ENVIRONMENT_VARIABLES.md", "CONFIGURATION_SETTINGS.md"]
+      "docs": ["reference/environment-variables.md", "reference/configuration.md"]
     },
     {
       "id": "c-proxy-data",
@@ -182,7 +182,7 @@
       "definition": "Runtime object holding a backend response: HTTP status code, response headers, and body.",
       "key_settings": [],
       "related_concept_ids": ["c-request-data", "c-pass-through"],
-      "docs": ["design.md"]
+      "docs": ["contributing/architecture.md"]
     },
     {
       "id": "c-pass-through",
@@ -192,7 +192,7 @@
       "definition": "Any backend status code in AcceptableStatusCodes is forwarded directly to the client without triggering retry or circuit recording.",
       "key_settings": ["AcceptableStatusCodes"],
       "related_concept_ids": ["c-acceptable-status-codes", "c-circuit-breaker"],
-      "docs": ["RESPONSE_CODES.md", "CIRCUIT_BREAKER.md"]
+      "docs": ["reference/headers-and-status-codes.md", "reference/circuit-breaker.md"]
     },
     {
       "id": "c-response-headers-injected",
@@ -209,7 +209,7 @@
         "Lifetime-Attempts"
       ],
       "related_concept_ids": ["c-proxy-event"],
-      "docs": ["RESPONSE_CODES.md"]
+      "docs": ["reference/headers-and-status-codes.md"]
     },
 
     {
@@ -221,7 +221,7 @@
       "key_settings": ["Host1","Host2","Host3","Host4","Host5","Host6","Host7","Host8","Host9"],
       "connection_string_keys": ["host","probe","path","mode","processor","usemi","useoauth","api-key","api_key","api-key-header","audience","ipaddress","enabled","stripprefix","strippathprefix","retryafter","useretryafter"],
       "related_concept_ids": ["c-connection-string-format", "c-health-poller", "c-circuit-breaker"],
-      "docs": ["BACKEND_HOSTS.md", "ENVIRONMENT_VARIABLES.md"]
+      "docs": ["reference/backend-hosts.md", "reference/environment-variables.md"]
     },
     {
       "id": "c-connection-string-format",
@@ -231,7 +231,7 @@
       "definition": "Preferred per-host configuration using a semicolon-delimited key=value string. Only this format supports path, mode, usemi, processor, and other modern options.",
       "example": "host=https://api.example.com;probe=/health;path=/api;usemi=true",
       "related_concept_ids": ["c-legacy-format", "c-composite-connection-string"],
-      "docs": ["BACKEND_HOSTS.md"]
+      "docs": ["reference/backend-hosts.md"]
     },
     {
       "id": "c-legacy-format",
@@ -242,7 +242,7 @@
       "deprecated": true,
       "deprecated_vars": ["Probe_path1","Probe_path2","Probe_path3","IP1","IP2"],
       "related_concept_ids": ["c-connection-string-format"],
-      "docs": ["BACKEND_HOSTS.md", "ENVIRONMENT_VARIABLES.md"]
+      "docs": ["reference/backend-hosts.md", "reference/environment-variables.md"]
     },
     {
       "id": "c-path-prefix",
@@ -252,7 +252,7 @@
       "definition": "URL prefix configured on a host via the path connection string key. Requests whose URL starts with this prefix are routed to this host.",
       "connection_string_key": "path",
       "related_concept_ids": ["c-path-filter", "c-catch-all-host", "c-strip-prefix"],
-      "docs": ["BACKEND_HOSTS.md", "LOAD_BALANCING.md"]
+      "docs": ["reference/backend-hosts.md", "reference/load-balancing.md"]
     },
     {
       "id": "c-catch-all-host",
@@ -262,7 +262,7 @@
       "definition": "A host with path=/ or no path configured. Receives requests that match no specific-path host.",
       "connection_string_key": "path",
       "related_concept_ids": ["c-path-prefix", "c-path-filter"],
-      "docs": ["BACKEND_HOSTS.md", "LOAD_BALANCING.md"]
+      "docs": ["reference/backend-hosts.md", "reference/load-balancing.md"]
     },
     {
       "id": "c-ip-override",
@@ -272,7 +272,7 @@
       "definition": "Forces all requests to a specific IP address, bypassing DNS resolution for that host.",
       "connection_string_key": "ipaddress",
       "related_concept_ids": ["c-backend-host"],
-      "docs": ["BACKEND_HOSTS.md"]
+      "docs": ["reference/backend-hosts.md"]
     },
     {
       "id": "c-strip-prefix",
@@ -283,7 +283,7 @@
       "connection_string_key": "stripprefix",
       "default_value": true,
       "related_concept_ids": ["c-path-prefix"],
-      "docs": ["BACKEND_HOSTS.md"]
+      "docs": ["reference/backend-hosts.md"]
     },
     {
       "id": "c-processor",
@@ -294,7 +294,7 @@
       "connection_string_key": "processor",
       "known_values": ["OpenAI", "AllUsage", "DefaultStream", "MultiLineAllUsage", "AllUsage-2"],
       "related_concept_ids": ["c-token-telemetry", "c-direct-mode"],
-      "docs": ["AI_FOUNDRY_INTEGRATION.md", "OBSERVABILITY.md"]
+      "docs": ["reference/ai-foundry-integration.md", "concepts/observability.md"]
     },
     {
       "id": "c-stream-processor-factory",
@@ -306,7 +306,7 @@
       "known_values": ["OpenAI", "AllUsage", "DefaultStream", "MultiLineAllUsage", "AllUsage-2"],
       "default_value": "DefaultStream",
       "related_concept_ids": ["c-processor", "c-token-telemetry", "c-streaming-microservice"],
-      "docs": ["OBSERVABILITY.md", "AI_FOUNDRY_INTEGRATION.md"]
+      "docs": ["concepts/observability.md", "reference/ai-foundry-integration.md"]
     },
     {
       "id": "c-direct-mode",
@@ -317,7 +317,7 @@
       "connection_string_key": "mode",
       "connection_string_value": "mode=direct",
       "related_concept_ids": ["c-health-poller", "c-processor", "c-backend-host"],
-      "docs": ["BACKEND_HOSTS.md", "AI_FOUNDRY_INTEGRATION.md"]
+      "docs": ["reference/backend-hosts.md", "reference/ai-foundry-integration.md"]
     },
 
     {
@@ -329,7 +329,7 @@
       "definition": "Background loop that probes each configured host at PollInterval ms intervals and tracks rolling success rate and average latency.",
       "key_settings": ["PollInterval", "PollTimeout"],
       "related_concept_ids": ["c-probe-path", "c-success-rate", "c-active-pool", "c-average-latency"],
-      "docs": ["BACKEND_HOSTS.md", "HEALTH_CHECKING.md"]
+      "docs": ["reference/backend-hosts.md", "reference/health-endpoints.md"]
     },
     {
       "id": "c-probe-path",
@@ -340,7 +340,7 @@
       "connection_string_key": "probe",
       "default_value": "echo/resource?param1=sample",
       "related_concept_ids": ["c-health-poller", "c-direct-mode"],
-      "docs": ["BACKEND_HOSTS.md"]
+      "docs": ["reference/backend-hosts.md"]
     },
     {
       "id": "c-success-rate",
@@ -352,7 +352,7 @@
       "default_value": 80,
       "unit": "percent",
       "related_concept_ids": ["c-active-pool", "c-health-poller"],
-      "docs": ["BACKEND_HOSTS.md"]
+      "docs": ["reference/backend-hosts.md"]
     },
     {
       "id": "c-active-pool",
@@ -362,7 +362,7 @@
       "definition": "Set of backend hosts currently eligible to receive traffic, filtered by rolling success rate threshold.",
       "key_settings": ["SuccessRate"],
       "related_concept_ids": ["c-success-rate", "c-health-poller", "c-circuit-breaker"],
-      "docs": ["BACKEND_HOSTS.md", "LOAD_BALANCING.md"]
+      "docs": ["reference/backend-hosts.md", "reference/load-balancing.md"]
     },
     {
       "id": "c-average-latency",
@@ -372,7 +372,7 @@
       "definition": "Rolling average probe response time per host. Used to order hosts in latency load-balance mode. Direct-mode hosts report 0 ms and sort first.",
       "key_settings": [],
       "related_concept_ids": ["c-health-poller", "c-latency-iterator"],
-      "docs": ["BACKEND_HOSTS.md", "LOAD_BALANCING.md"]
+      "docs": ["reference/backend-hosts.md", "reference/load-balancing.md"]
     },
     {
       "id": "c-base-host-health",
@@ -383,7 +383,7 @@
       "definition": "Runtime object holding a single host's health metrics: rolling success rate, average latency, and circuit breaker state.",
       "key_settings": [],
       "related_concept_ids": ["c-circuit-breaker", "c-success-rate", "c-average-latency"],
-      "docs": ["design.md"]
+      "docs": ["contributing/architecture.md"]
     },
 
     {
@@ -394,7 +394,7 @@
       "definition": "Three-stage process run on every request: (1) path filter, (2) load-balance ordering, (3) per-host circuit-breaker gate.",
       "stages": ["path-filter", "load-balance-mode", "circuit-breaker-gate"],
       "related_concept_ids": ["c-path-filter", "c-load-balance-mode", "c-circuit-breaker"],
-      "docs": ["LOAD_BALANCING.md", "design.md"]
+      "docs": ["reference/load-balancing.md", "contributing/architecture.md"]
     },
     {
       "id": "c-iterator-factory",
@@ -405,7 +405,7 @@
       "definition": "Creates a load-balance iterator for a given request path based on LoadBalanceMode configuration.",
       "key_settings": ["LoadBalanceMode"],
       "related_concept_ids": ["c-load-balance-mode", "c-shared-iterator"],
-      "docs": ["design.md", "LOAD_BALANCING.md"]
+      "docs": ["contributing/architecture.md", "reference/load-balancing.md"]
     },
     {
       "id": "c-path-filter",
@@ -415,7 +415,7 @@
       "definition": "Stage 1 of backend selection. Specific-path hosts are checked first; if none match, catch-all hosts are used. Specific paths always win.",
       "key_settings": ["path"],
       "related_concept_ids": ["c-path-prefix", "c-catch-all-host", "c-backend-selection-pipeline"],
-      "docs": ["LOAD_BALANCING.md", "BACKEND_HOSTS.md"]
+      "docs": ["reference/load-balancing.md", "reference/backend-hosts.md"]
     },
     {
       "id": "c-load-balance-mode",
@@ -428,7 +428,7 @@
       "default_value": "latency",
       "reload_type": "Warm",
       "related_concept_ids": ["c-round-robin-iterator", "c-latency-iterator", "c-random-iterator"],
-      "docs": ["LOAD_BALANCING.md"]
+      "docs": ["reference/load-balancing.md"]
     },
     {
       "id": "c-round-robin-iterator",
@@ -439,7 +439,7 @@
       "definition": "Distributes requests evenly across active hosts using a global atomic counter.",
       "config_value": "LoadBalanceMode=roundrobin",
       "related_concept_ids": ["c-load-balance-mode", "c-shared-iterator"],
-      "docs": ["LOAD_BALANCING.md"]
+      "docs": ["reference/load-balancing.md"]
     },
     {
       "id": "c-latency-iterator",
@@ -450,7 +450,7 @@
       "definition": "Orders hosts by ascending average probe latency per request. Direct-mode hosts always sort first at 0 ms.",
       "config_value": "LoadBalanceMode=latency",
       "related_concept_ids": ["c-load-balance-mode", "c-average-latency", "c-direct-mode"],
-      "docs": ["LOAD_BALANCING.md"]
+      "docs": ["reference/load-balancing.md"]
     },
     {
       "id": "c-random-iterator",
@@ -461,7 +461,7 @@
       "definition": "Shuffles active hosts randomly on each request, producing no predictable access pattern.",
       "config_value": "LoadBalanceMode=random",
       "related_concept_ids": ["c-load-balance-mode"],
-      "docs": ["LOAD_BALANCING.md"]
+      "docs": ["reference/load-balancing.md"]
     },
     {
       "id": "c-shared-iterator",
@@ -472,7 +472,7 @@
       "definition": "Single iterator shared across all concurrent requests to the same path. Enables strict round-robin fairness across parallel workers.",
       "key_settings": ["UseSharedIterators", "SharedIteratorTTLSeconds", "SharedIteratorCleanupIntervalSeconds"],
       "related_concept_ids": ["c-round-robin-iterator", "c-iterator-factory"],
-      "docs": ["LOAD_BALANCING.md"]
+      "docs": ["reference/load-balancing.md"]
     },
     {
       "id": "c-iteration-mode",
@@ -485,7 +485,7 @@
       "default_value": "SinglePass",
       "reload_type": "Warm",
       "related_concept_ids": ["c-max-attempts", "c-retry"],
-      "docs": ["LOAD_BALANCING.md"]
+      "docs": ["reference/load-balancing.md"]
     },
     {
       "id": "c-max-attempts",
@@ -497,7 +497,7 @@
       "default_value": 10,
       "reload_type": "Warm",
       "related_concept_ids": ["c-iteration-mode", "c-circuit-breaker"],
-      "docs": ["LOAD_BALANCING.md", "CONFIGURATION_SETTINGS.md"]
+      "docs": ["reference/load-balancing.md", "reference/configuration.md"]
     },
 
     {
@@ -511,7 +511,7 @@
       "states": ["CLOSED", "OPEN"],
       "reload_type": "Warm",
       "related_concept_ids": ["c-circuit-closed", "c-circuit-open", "c-sliding-window", "c-auto-recovery", "c-progressive-delay", "c-global-blocked-check"],
-      "docs": ["CIRCUIT_BREAKER.md"]
+      "docs": ["reference/circuit-breaker.md"]
     },
     {
       "id": "c-circuit-closed",
@@ -520,7 +520,7 @@
       "subdomain_id": "sd03-01",
       "definition": "Normal circuit breaker state. Requests are forwarded to the host.",
       "related_concept_ids": ["c-circuit-breaker", "c-circuit-open"],
-      "docs": ["CIRCUIT_BREAKER.md"]
+      "docs": ["reference/circuit-breaker.md"]
     },
     {
       "id": "c-circuit-open",
@@ -529,7 +529,7 @@
       "subdomain_id": "sd03-01",
       "definition": "Circuit tripped. Host is skipped by the load-balance iterator. Skipped hosts do not consume the MaxAttempts budget.",
       "related_concept_ids": ["c-circuit-breaker", "c-circuit-closed", "c-global-blocked-check"],
-      "docs": ["CIRCUIT_BREAKER.md"]
+      "docs": ["reference/circuit-breaker.md"]
     },
     {
       "id": "c-sliding-window",
@@ -539,7 +539,7 @@
       "definition": "Only failures timestamped within the last CBTimeslice seconds count toward the threshold. Older entries are pruned automatically.",
       "key_settings": ["CBTimeslice"],
       "related_concept_ids": ["c-circuit-breaker", "c-auto-recovery"],
-      "docs": ["CIRCUIT_BREAKER.md"]
+      "docs": ["reference/circuit-breaker.md"]
     },
     {
       "id": "c-auto-recovery",
@@ -548,7 +548,7 @@
       "subdomain_id": "sd03-01",
       "definition": "Circuit closes automatically when all failures age out of the sliding window. No manual intervention required.",
       "related_concept_ids": ["c-circuit-breaker", "c-sliding-window"],
-      "docs": ["CIRCUIT_BREAKER.md"]
+      "docs": ["reference/circuit-breaker.md"]
     },
     {
       "id": "c-progressive-delay",
@@ -564,7 +564,7 @@
         { "failure_pct_of_threshold": 90, "delay_ms": 500 }
       ],
       "related_concept_ids": ["c-circuit-breaker"],
-      "docs": ["CIRCUIT_BREAKER.md"]
+      "docs": ["reference/circuit-breaker.md"]
     },
     {
       "id": "c-global-blocked-check",
@@ -574,7 +574,7 @@
       "subdomain_id": "sd03-01",
       "definition": "Static circuit-breaker registry check that reports whether all registered circuit breakers are OPEN. The current request path does not call this helper directly.",
       "related_concept_ids": ["c-circuit-open"],
-      "docs": ["CIRCUIT_BREAKER.md"]
+      "docs": ["reference/circuit-breaker.md"]
     },
     {
       "id": "c-acceptable-status-codes",
@@ -586,7 +586,7 @@
       "default_value": [200, 202, 401, 403, 404, 408, 410, 412, 417, 400],
       "reload_type": "Warm",
       "related_concept_ids": ["c-circuit-breaker", "c-pass-through"],
-      "docs": ["CIRCUIT_BREAKER.md", "RESPONSE_CODES.md"]
+      "docs": ["reference/circuit-breaker.md", "reference/headers-and-status-codes.md"]
     },
 
     {
@@ -597,7 +597,7 @@
       "definition": "Advancing to the next host in the iterator after a non-acceptable backend response. Does not apply when the circuit is OPEN.",
       "key_settings": ["IterationMode", "MaxAttempts"],
       "related_concept_ids": ["c-iteration-mode", "c-max-attempts", "c-requeue"],
-      "docs": ["LOAD_BALANCING.md"]
+      "docs": ["reference/load-balancing.md"]
     },
     {
       "id": "c-requeue",
@@ -606,7 +606,7 @@
       "subdomain_id": "sd03-02",
       "definition": "Returning a request to the priority queue after host attempts are exhausted and at least one backend returned 429 with S7PREQUEUE:true. Uses the shortest requeue delay seen.",
       "related_concept_ids": ["c-retry", "c-s7prequeue-header", "c-retry-after"],
-      "docs": ["LOAD_BALANCING.md", "RESPONSE_CODES.md"]
+      "docs": ["reference/load-balancing.md", "reference/headers-and-status-codes.md"]
     },
     {
       "id": "c-s7prequeue-header",
@@ -616,7 +616,7 @@
       "subdomain_id": "sd03-02",
       "definition": "Response header a backend sets on a 429 reply to make the request eligible for delayed requeue after the proxy finishes trying available hosts.",
       "related_concept_ids": ["c-requeue", "c-retry-after"],
-      "docs": ["RESPONSE_CODES.md", "LOAD_BALANCING.md"]
+      "docs": ["reference/headers-and-status-codes.md", "reference/load-balancing.md"]
     },
     {
       "id": "c-retry-after",
@@ -626,7 +626,7 @@
       "definition": "Delay from retry-after-ms (milliseconds) or Retry-After (seconds), defaulting to 1000 ms. The proxy uses the shortest eligible delay seen after host attempts are exhausted.",
       "header_names": ["retry-after-ms", "Retry-After"],
       "related_concept_ids": ["c-requeue", "c-s7prequeue-header"],
-      "docs": ["LOAD_BALANCING.md"]
+      "docs": ["reference/load-balancing.md"]
     },
 
     {
@@ -641,7 +641,7 @@
       "default_value": 1200000,
       "reload_type": "Warm",
       "related_concept_ids": ["c-ttl", "c-async-trigger-timeout"],
-      "docs": ["TIMEOUTS.md"]
+      "docs": ["reference/timeouts.md"]
     },
     {
       "id": "c-async-trigger-timeout",
@@ -654,7 +654,7 @@
       "default_value": 10000,
       "reload_type": "Warm",
       "related_concept_ids": ["c-timeout", "c-async-mode", "c-async-timeout"],
-      "docs": ["TIMEOUTS.md", "AsyncOperation.md"]
+      "docs": ["reference/timeouts.md", "concepts/async-processing.md"]
     },
     {
       "id": "c-async-timeout",
@@ -667,7 +667,7 @@
       "default_value": 1800000,
       "reload_type": "Warm",
       "related_concept_ids": ["c-async-trigger-timeout", "c-async-ttl-secs"],
-      "docs": ["TIMEOUTS.md", "AsyncOperation.md"]
+      "docs": ["reference/timeouts.md", "concepts/async-processing.md"]
     },
     {
       "id": "c-async-ttl-secs",
@@ -680,7 +680,7 @@
       "default_value": 86400,
       "reload_type": "Warm",
       "related_concept_ids": ["c-async-mode", "c-async-timeout"],
-      "docs": ["TIMEOUTS.md", "AsyncOperation.md", "StorageBlobConfig.md"]
+      "docs": ["reference/timeouts.md", "concepts/async-processing.md", "reference/storage-blob-config.md"]
     },
 
     {
@@ -698,7 +698,7 @@
         { "order": 6, "concept_id": "c-header-validation-rule","on_failure_code": 417, "on_failure_label": "InvalidHeader" }
       ],
       "related_concept_ids": ["c-app-id-validation","c-inbound-key-validation","c-header-stripping","c-user-profile","c-required-headers","c-header-validation-rule"],
-      "docs": ["REQUEST_VALIDATION.md"]
+      "docs": ["how-to/configure-security.md"]
     },
     {
       "id": "c-app-id-validation",
@@ -710,7 +710,7 @@
       "on_failure_code": 403,
       "reload_type": "Warm",
       "related_concept_ids": ["c-app-id-allowlist", "c-validation-pipeline", "c-inbound-key-validation", "c-inbound-oauth-validation"],
-      "docs": ["REQUEST_VALIDATION.md", "ADVANCED_CONFIGURATION.md"]
+      "docs": ["how-to/configure-security.md", "reference/advanced-configuration.md"]
     },
     {
       "id": "c-inbound-key-validation",
@@ -723,7 +723,7 @@
       "on_failure_label": "DisallowedKey",
       "reload_type": "Warm",
       "related_concept_ids": ["c-validation-pipeline", "c-app-id-validation", "c-inbound-oauth-validation"],
-      "docs": ["REQUEST_VALIDATION.md", "ENVIRONMENT_VARIABLES.md"]
+      "docs": ["how-to/configure-security.md", "reference/environment-variables.md"]
     },
     {
       "id": "c-inbound-oauth-validation",
@@ -735,7 +735,7 @@
       "config_keys": ["enabled", "mode", "header", "issuer", "audience", "audiences", "claim", "requiredclaim", "validatelifetime", "validateissuer", "validateaudience", "validatesignature", "requiresignedtokens", "clockskewminutes"],
       "allowed_modes": ["none", "key", "oauth", "oauth2", "mixed"],
       "related_concept_ids": ["c-inbound-key-validation", "c-validation-pipeline"],
-      "docs": ["REQUEST_VALIDATION.md"]
+      "docs": ["how-to/configure-security.md"]
     },
     {
       "id": "c-request-preprocessor-plugins",
@@ -746,7 +746,7 @@
       "definition": "Configured IRequestPreprocessorPlugin implementations invoked before request validation and enqueue. The allow-all implementation is used when no valid plugin is configured.",
       "key_settings": ["RequestPreprocessorPlugins"],
       "related_concept_ids": ["c-validation-pipeline", "c-enqueue"],
-      "docs": ["ADVANCED_CONFIGURATION.md"]
+      "docs": ["reference/advanced-configuration.md"]
     },
     {
       "id": "c-header-stripping",
@@ -756,7 +756,7 @@
       "definition": "Step 3 of the validation pipeline. Removes headers listed in DisallowedHeaders silently. No error is returned to the caller.",
       "key_settings": ["DisallowedHeaders"],
       "related_concept_ids": ["c-disallowed-headers", "c-validation-pipeline"],
-      "docs": ["REQUEST_VALIDATION.md"]
+      "docs": ["how-to/configure-security.md"]
     },
     {
       "id": "c-required-headers",
@@ -769,7 +769,7 @@
       "on_failure_label": "IncompleteHeaders",
       "reload_type": "Warm",
       "related_concept_ids": ["c-validation-pipeline", "c-header-validation-rule"],
-      "docs": ["REQUEST_VALIDATION.md"]
+      "docs": ["how-to/configure-security.md"]
     },
     {
       "id": "c-disallowed-headers",
@@ -780,7 +780,7 @@
       "key_settings": ["DisallowedHeaders"],
       "auto_populated_by": ["c-header-validation-rule"],
       "related_concept_ids": ["c-header-stripping", "c-header-validation-rule"],
-      "docs": ["REQUEST_VALIDATION.md"]
+      "docs": ["how-to/configure-security.md"]
     },
     {
       "id": "c-header-validation-rule",
@@ -797,7 +797,7 @@
         "auto-adds AllowlistHeader to DisallowedHeaders"
       ],
       "related_concept_ids": ["c-user-profile", "c-required-headers", "c-disallowed-headers"],
-      "docs": ["REQUEST_VALIDATION.md", "ADVANCED_CONFIGURATION.md"]
+      "docs": ["how-to/configure-security.md", "reference/advanced-configuration.md"]
     },
     {
       "id": "c-app-id-allowlist",
@@ -807,7 +807,7 @@
       "definition": "File or URL returning the list of permitted Entra Application IDs. Enforced at step 2 of the validation pipeline.",
       "key_settings": ["ValidateAuthAppIDUrl", "ValidateAuthAppFieldName"],
       "related_concept_ids": ["c-app-id-validation"],
-      "docs": ["REQUEST_VALIDATION.md", "ENVIRONMENT_VARIABLES.md"]
+      "docs": ["how-to/configure-security.md", "reference/environment-variables.md"]
     },
 
     {
@@ -824,7 +824,7 @@
         { "field": "[CustomHeader]", "required": false, "description": "Any other key is injected as an HTTP request header." }
       ],
       "related_concept_ids": ["c-user-id", "c-s7p-priority-key-field", "c-async-config-field", "c-profile-refresh", "c-suspended-user"],
-      "docs": ["USER_PROFILES.md"]
+      "docs": ["reference/user-profiles.md"]
     },
     {
       "id": "c-user-id",
@@ -835,7 +835,7 @@
       "key_settings": ["UserIDFieldName"],
       "default_value": "userId",
       "related_concept_ids": ["c-user-profile"],
-      "docs": ["USER_PROFILES.md"]
+      "docs": ["reference/user-profiles.md"]
     },
     {
       "id": "c-s7p-priority-key-field",
@@ -844,7 +844,7 @@
       "subdomain_id": "sd04-03",
       "definition": "User profile field whose value is matched against PriorityKeys to assign a priority tier to the user's requests.",
       "related_concept_ids": ["c-user-profile", "c-priority-mapping"],
-      "docs": ["USER_PROFILES.md", "ADVANCED_CONFIGURATION.md"]
+      "docs": ["reference/user-profiles.md", "reference/advanced-configuration.md"]
     },
     {
       "id": "c-async-config-field",
@@ -857,7 +857,7 @@
       "optional_subfields": ["timeout", "generatesas"],
       "behavior_note": "generatesas is parsed and retained, but the current blob URI path returns base URIs and does not generate SAS tokens.",
       "related_concept_ids": ["c-user-profile", "c-async-mode"],
-      "docs": ["USER_PROFILES.md", "AsyncOperation.md"]
+      "docs": ["reference/user-profiles.md", "concepts/async-processing.md"]
     },
     {
       "id": "c-profile-refresh",
@@ -869,7 +869,7 @@
       "default_value": 3600,
       "unit": "seconds",
       "related_concept_ids": ["c-user-profile"],
-      "docs": ["USER_PROFILES.md", "ENVIRONMENT_VARIABLES.md"]
+      "docs": ["reference/user-profiles.md", "reference/environment-variables.md"]
     },
     {
       "id": "c-suspended-user",
@@ -880,7 +880,7 @@
       "key_settings": ["SuspendedUserConfigUrl"],
       "on_failure_code": 403,
       "related_concept_ids": ["c-user-profile"],
-      "docs": ["USER_PROFILES.md"]
+      "docs": ["reference/user-profiles.md"]
     },
 
     {
@@ -892,7 +892,7 @@
       "key_settings": ["PriorityKeyHeader", "PriorityKeys", "PriorityValues", "PriorityWorkers"],
       "constraint": "Count of PriorityKeys MUST equal count of PriorityValues. PriorityWorkers MUST reference only levels in PriorityValues.",
       "related_concept_ids": ["c-priority-key-header", "c-priority-keys", "c-priority-values", "c-priority-workers"],
-      "docs": ["ADVANCED_CONFIGURATION.md"]
+      "docs": ["reference/advanced-configuration.md"]
     },
     {
       "id": "c-priority-key-header",
@@ -904,7 +904,7 @@
       "default_value": "S7PPriorityKey",
       "reload_type": "Warm",
       "related_concept_ids": ["c-priority-mapping"],
-      "docs": ["ADVANCED_CONFIGURATION.md", "RESPONSE_CODES.md"]
+      "docs": ["reference/advanced-configuration.md", "reference/headers-and-status-codes.md"]
     },
     {
       "id": "c-priority-keys",
@@ -915,7 +915,7 @@
       "key_settings": ["PriorityKeys"],
       "reload_type": "Warm",
       "related_concept_ids": ["c-priority-mapping", "c-priority-values"],
-      "docs": ["ADVANCED_CONFIGURATION.md"]
+      "docs": ["reference/advanced-configuration.md"]
     },
     {
       "id": "c-priority-values",
@@ -926,7 +926,7 @@
       "key_settings": ["PriorityValues"],
       "reload_type": "Warm",
       "related_concept_ids": ["c-priority-mapping", "c-priority-keys"],
-      "docs": ["ADVANCED_CONFIGURATION.md"]
+      "docs": ["reference/advanced-configuration.md"]
     },
     {
       "id": "c-priority-workers",
@@ -938,7 +938,7 @@
       "format": "level:count,level:count",
       "reload_type": "Warm",
       "related_concept_ids": ["c-priority-mapping", "c-workers"],
-      "docs": ["ADVANCED_CONFIGURATION.md"]
+      "docs": ["reference/advanced-configuration.md"]
     },
     {
       "id": "c-per-user-throttling",
@@ -952,7 +952,7 @@
       "default_value": 0.1,
       "reload_type": "Warm",
       "related_concept_ids": ["c-priority-mapping", "c-user-profile"],
-      "docs": ["ADVANCED_CONFIGURATION.md", "USER_PROFILES.md"]
+      "docs": ["reference/advanced-configuration.md", "reference/user-profiles.md"]
     },
 
     {
@@ -968,7 +968,7 @@
         "AsyncClientRequestHeader on the request"
       ],
       "related_concept_ids": ["c-opt-in-header", "c-async-upgrade", "c-result-blob", "c-service-bus-status"],
-      "docs": ["AsyncOperation.md"]
+      "docs": ["concepts/async-processing.md"]
     },
     {
       "id": "c-opt-in-header",
@@ -979,7 +979,7 @@
       "default_value": "S7PAsyncMode",
       "reload_type": "Warm",
       "related_concept_ids": ["c-async-mode"],
-      "docs": ["AsyncOperation.md"]
+      "docs": ["concepts/async-processing.md"]
     },
     {
       "id": "c-async-upgrade",
@@ -988,7 +988,7 @@
       "definition": "After AsyncTriggerTimeout ms, the proxy returns 202 to the client containing blob URIs and continues backend processing in the background.",
       "key_settings": ["AsyncTriggerTimeout"],
       "related_concept_ids": ["c-async-trigger-timeout", "c-202-response", "c-result-blob"],
-      "docs": ["AsyncOperation.md", "TIMEOUTS.md"]
+      "docs": ["concepts/async-processing.md", "reference/timeouts.md"]
     },
     {
       "id": "c-202-response",
@@ -997,7 +997,7 @@
       "definition": "HTTP 202 returned after async upgrade. The JSON body and x-Data-Blob-URI and x-Header-Blob-URI response headers identify the result blobs.",
       "http_status": 202,
       "related_concept_ids": ["c-async-upgrade", "c-result-blob"],
-      "docs": ["AsyncOperation.md"]
+      "docs": ["concepts/async-processing.md"]
     },
     {
       "id": "c-result-blob",
@@ -1006,7 +1006,7 @@
       "definition": "Azure Blob Storage object written when the backend completes an async request. Its base URI is included in the 202 response body and headers.",
       "key_settings": ["AsyncBlobStorageConfig", "StorageDbContainerName"],
       "related_concept_ids": ["c-blob-lifecycle-policy", "c-async-blob-worker"],
-      "docs": ["AsyncOperation.md", "StorageBlobConfig.md"]
+      "docs": ["concepts/async-processing.md", "reference/storage-blob-config.md"]
     },
     {
       "id": "c-blob-lifecycle-policy",
@@ -1015,7 +1015,7 @@
       "definition": "External Azure Storage lifecycle management rule used to delete result blobs. The proxy does not configure or enforce blob deletion.",
       "key_settings": [],
       "related_concept_ids": ["c-result-blob"],
-      "docs": ["StorageBlobConfig.md"]
+      "docs": ["reference/storage-blob-config.md"]
     },
     {
       "id": "c-service-bus-status",
@@ -1024,7 +1024,7 @@
       "definition": "Real-time async lifecycle events sent to a per-user Azure Service Bus topic as requests move through processing states.",
       "key_settings": ["AsyncSBConfig"],
       "related_concept_ids": ["c-status-events", "c-async-mode"],
-      "docs": ["AsyncOperation.md"]
+      "docs": ["concepts/async-processing.md"]
     },
     {
       "id": "c-status-events",
@@ -1033,7 +1033,7 @@
       "definition": "Lifecycle notification values sent over Service Bus.",
       "values": ["None", "Queued", "RetryScheduled", "Requeued", "Processing", "CheckingBackgroundRequestStatus", "AsyncProcessingError", "AsyncProcessing", "Processed", "AsyncProcessed", "BackgroundRequestSubmitted", "Failed", "Expired"],
       "related_concept_ids": ["c-service-bus-status"],
-      "docs": ["AsyncOperation.md"]
+      "docs": ["concepts/async-processing.md"]
     },
     {
       "id": "c-async-blob-worker",
@@ -1044,7 +1044,7 @@
       "default_value": 2,
       "reload_type": "Cold",
       "related_concept_ids": ["c-result-blob"],
-      "docs": ["AsyncOperation.md"]
+      "docs": ["concepts/async-processing.md"]
     },
     {
       "id": "c-async-worker",
@@ -1054,7 +1054,7 @@
       "definition": "Coordinates async upgrade, client 202 release, blob response streams, status events, and request recovery state.",
       "key_settings": ["AsyncTriggerTimeout", "AsyncTimeout", "AsyncBlobMaxQueue"],
       "related_concept_ids": ["c-async-mode", "c-async-upgrade", "c-result-blob", "c-service-bus-status"],
-      "docs": ["AsyncOperation.md"]
+      "docs": ["concepts/async-processing.md"]
     },
     {
       "id": "c-request-api",
@@ -1065,7 +1065,7 @@
       "key_settings": ["RequestAPIBaseUri"],
       "status_values": ["New", "InProgress", "Completed", "Failed", "NeedsReprocessing", "ReSubmitted", "ReProcessing", "BackgroundProcessing"],
       "related_concept_ids": ["c-request-types", "c-async-worker", "c-result-blob"],
-      "docs": ["AsyncOperation.md"]
+      "docs": ["concepts/async-processing.md"]
     },
     {
       "id": "c-streaming-microservice",
@@ -1074,7 +1074,7 @@
       "domain_id": "d05",
       "definition": "HTTP-triggered Azure Function that streams an upstream URL through a selected stream processor and emits processor statistics to Application Insights.",
       "related_concept_ids": ["c-stream-processor-factory", "c-token-telemetry", "c-application-insights"],
-      "docs": ["AI_FOUNDRY_INTEGRATION.md", "OBSERVABILITY.md"]
+      "docs": ["reference/ai-foundry-integration.md", "concepts/observability.md"]
     },
 
     {
@@ -1084,7 +1084,7 @@
       "subdomain_id": "sd06-01",
       "definition": "Key/value dictionary capturing all dimensions of a single proxied request: HTTP status, timing, token counts, headers, and other metadata.",
       "related_concept_ids": ["c-event-headers", "c-composite-event-client"],
-      "docs": ["OBSERVABILITY.md"]
+      "docs": ["concepts/observability.md"]
     },
     {
       "id": "c-event-headers",
@@ -1095,7 +1095,7 @@
       "definition": "Common fields injected into every ProxyEvent: application version, container name, and revision. Supplied by the ICommonEventData implementation.",
       "key_settings": ["EVENT_HEADERS"],
       "related_concept_ids": ["c-proxy-event"],
-      "docs": ["OBSERVABILITY.md"]
+      "docs": ["concepts/observability.md"]
     },
     {
       "id": "c-composite-event-client",
@@ -1105,7 +1105,7 @@
       "subdomain_id": "sd06-01",
       "definition": "Fan-out dispatcher that sends every serialized ProxyEvent to all registered event logger backends. Uses FrozenDictionary for zero-lock dispatch on the hot path.",
       "related_concept_ids": ["c-event-logger-backend", "c-proxy-event"],
-      "docs": ["OBSERVABILITY.md"]
+      "docs": ["concepts/observability.md"]
     },
     {
       "id": "c-event-logger-backend",
@@ -1117,7 +1117,7 @@
       "built_in_values": ["file", "eventhub", "none"],
       "custom_value_format": "<fully-qualified-type-name>",
       "related_concept_ids": ["c-composite-event-client", "c-log-file", "c-event-hubs", "c-custom-event-logger"],
-      "docs": ["OBSERVABILITY.md"]
+      "docs": ["concepts/observability.md"]
     },
     {
       "id": "c-custom-event-logger",
@@ -1126,7 +1126,7 @@
       "subdomain_id": "sd06-01",
       "definition": "User-supplied IEventClient selected by fully qualified type name. IHostedService implementations are also started by the host and can self-register with CompositeEventClient.",
       "related_concept_ids": ["c-event-logger-backend", "c-composite-event-client"],
-      "docs": ["OBSERVABILITY.md"]
+      "docs": ["concepts/observability.md"]
     },
     {
       "id": "c-application-insights",
@@ -1136,7 +1136,7 @@
       "definition": "Primary production telemetry sink. Receives structured telemetry (requests, dependencies, exceptions) via TelemetryClient.",
       "key_settings": ["APPINSIGHTS_CONNECTIONSTRING"],
       "related_concept_ids": ["c-event-logger-backend"],
-      "docs": ["OBSERVABILITY.md"]
+      "docs": ["concepts/observability.md"]
     },
     {
       "id": "c-event-hubs",
@@ -1146,7 +1146,7 @@
       "definition": "High-volume streaming telemetry sink for JSON event lines. Supports connection-string auth or Managed Identity.",
       "key_settings": ["EVENTHUB_CONNECTIONSTRING", "EVENTHUB_NAMESPACE", "EVENTHUB_NAME"],
       "related_concept_ids": ["c-event-logger-backend"],
-      "docs": ["OBSERVABILITY.md"]
+      "docs": ["concepts/observability.md"]
     },
     {
       "id": "c-log-file",
@@ -1156,7 +1156,7 @@
       "definition": "Local JSON-lines file sink for development and testing. Buffers events and flushes at 10 events or every 2 seconds.",
       "key_settings": ["LOGFILE_NAME"],
       "related_concept_ids": ["c-event-logger-backend"],
-      "docs": ["OBSERVABILITY.md"]
+      "docs": ["concepts/observability.md"]
     },
     {
       "id": "c-token-telemetry",
@@ -1167,7 +1167,7 @@
       "key_settings": ["processor"],
       "connection_string_value": "processor=OpenAI",
       "related_concept_ids": ["c-processor", "c-proxy-event"],
-      "docs": ["OBSERVABILITY.md", "AI_FOUNDRY_INTEGRATION.md"]
+      "docs": ["concepts/observability.md", "reference/ai-foundry-integration.md"]
     },
     {
       "id": "c-liveness-endpoint",
@@ -1178,7 +1178,7 @@
       "path": "/liveness",
       "responses": { "200": "process running" },
       "related_concept_ids": ["c-readiness-endpoint", "c-sidecar-mode"],
-      "docs": ["HEALTH_CHECKING.md"]
+      "docs": ["reference/health-endpoints.md"]
     },
     {
       "id": "c-readiness-endpoint",
@@ -1189,7 +1189,7 @@
       "path": "/readiness",
       "responses": { "200": "proxy health criteria satisfied", "503": "startup, host, event backlog, or blob queue health criteria failed" },
       "related_concept_ids": ["c-liveness-endpoint", "c-active-pool"],
-      "docs": ["HEALTH_CHECKING.md"]
+      "docs": ["reference/health-endpoints.md"]
     },
     {
       "id": "c-startup-endpoint",
@@ -1200,7 +1200,7 @@
       "path": "/startup",
       "responses": { "200": "proxy initialized and healthy", "503": "initialization or health criteria failed" },
       "related_concept_ids": ["c-health-poller"],
-      "docs": ["HEALTH_CHECKING.md"]
+      "docs": ["reference/health-endpoints.md"]
     },
     {
       "id": "c-sidecar-mode",
@@ -1211,7 +1211,7 @@
       "key_settings": ["HealthProbeSidecar"],
       "ports": { "proxy": 8000, "sidecar": 9000 },
       "related_concept_ids": ["c-liveness-endpoint", "c-readiness-endpoint", "c-startup-endpoint"],
-      "docs": ["HEALTH_CHECKING.md", "SIDECAR_DEPLOYMENT.md"]
+      "docs": ["reference/health-endpoints.md", "how-to/deploy-sidecar.md"]
     },
     {
       "id": "c-health-probe-implementations",
@@ -1222,7 +1222,7 @@
       "code_files": ["HealthProbe/ProbeServer.cs", "HealthProbe-python/probe_server.py"],
       "key_settings": ["HEALTHPROBE_PORT"],
       "related_concept_ids": ["c-sidecar-mode", "c-liveness-endpoint", "c-readiness-endpoint", "c-startup-endpoint"],
-      "docs": ["HEALTH_CHECKING.md", "SIDECAR_DEPLOYMENT.md"]
+      "docs": ["reference/health-endpoints.md", "how-to/deploy-sidecar.md"]
     },
 
     {
@@ -1233,7 +1233,7 @@
       "label_in_app_config": "none or AZURE_APPCONFIG_LABEL",
       "key_prefix": "Warm:",
       "related_concept_ids": ["c-cold-setting", "c-hidden-setting", "c-sentinel"],
-      "docs": ["CONFIGURATION_SETTINGS.md", "AZURE_APP_CONFIGURATION.md"]
+      "docs": ["reference/configuration.md", "how-to/configure-app-configuration.md"]
     },
     {
       "id": "c-cold-setting",
@@ -1243,7 +1243,7 @@
       "label_in_app_config": "Cold",
       "key_prefix": "Warm:",
       "related_concept_ids": ["c-warm-setting", "c-hidden-setting"],
-      "docs": ["CONFIGURATION_SETTINGS.md", "AZURE_APP_CONFIGURATION.md"]
+      "docs": ["reference/configuration.md", "how-to/configure-app-configuration.md"]
     },
     {
       "id": "c-hidden-setting",
@@ -1251,7 +1251,7 @@
       "domain_id": "d07",
       "definition": "Configuration value never published to Azure App Configuration. Runtime-derived from composite connection strings or infrastructure state.",
       "related_concept_ids": ["c-warm-setting", "c-cold-setting"],
-      "docs": ["CONFIGURATION_SETTINGS.md"]
+      "docs": ["reference/configuration.md"]
     },
     {
       "id": "c-sentinel",
@@ -1260,7 +1260,7 @@
       "definition": "Special key (Warm:Sentinel) in Azure App Configuration. Bumping its value to any new value triggers hot-reload of all Warm settings across all running proxy instances.",
       "app_config_key": "Warm:Sentinel",
       "related_concept_ids": ["c-warm-setting"],
-      "docs": ["AZURE_APP_CONFIGURATION.md"]
+      "docs": ["how-to/configure-app-configuration.md"]
     },
     {
       "id": "c-composite-connection-string",
@@ -1269,7 +1269,7 @@
       "definition": "Semicolon or comma-delimited key=value string encoding multiple related settings in one environment variable.",
       "examples": ["Host1", "AsyncBlobStorageConfig", "AsyncSBConfig", "HealthProbeSidecar"],
       "related_concept_ids": ["c-connection-string-format"],
-      "docs": ["BACKEND_HOSTS.md", "AsyncOperation.md"]
+      "docs": ["reference/backend-hosts.md", "concepts/async-processing.md"]
     },
     {
       "id": "c-app-config-label",
@@ -1278,7 +1278,7 @@
       "definition": "Label filter applied when reading from Azure App Configuration. Allows isolated setting namespaces per environment.",
       "key_settings": ["AZURE_APPCONFIG_LABEL"],
       "related_concept_ids": ["c-warm-setting"],
-      "docs": ["AZURE_APP_CONFIGURATION.md"]
+      "docs": ["how-to/configure-app-configuration.md"]
     },
     {
       "id": "c-refresh-interval",
@@ -1289,7 +1289,7 @@
       "default_value": 30,
       "unit": "seconds",
       "related_concept_ids": ["c-sentinel", "c-warm-setting"],
-      "docs": ["AZURE_APP_CONFIGURATION.md", "CONFIGURATION_SETTINGS.md"]
+      "docs": ["how-to/configure-app-configuration.md", "reference/configuration.md"]
     },
     {
       "id": "c-stream-flush-interval",
@@ -1302,7 +1302,7 @@
       "unit": "milliseconds",
       "reload_type": "Cold",
       "related_concept_ids": ["c-cold-setting"],
-      "docs": ["CONFIGURATION_SETTINGS.md"]
+      "docs": ["reference/configuration.md"]
     },
     {
       "id": "c-config-plugin",
@@ -1312,7 +1312,7 @@
       "definition": "Startup extension selected by EnvPluginClass that supplies environment-specific configuration overrides before the proxy services are registered.",
       "key_settings": ["EnvPluginClass"],
       "related_concept_ids": ["c-warm-setting", "c-cold-setting"],
-      "docs": ["ADVANCED_CONFIGURATION.md"]
+      "docs": ["reference/advanced-configuration.md"]
     },
 
     {
@@ -1323,7 +1323,7 @@
       "connection_string_key": "usemi",
       "connection_string_value": "usemi=true",
       "related_concept_ids": ["c-keyless-auth", "c-oauth2-bearer"],
-      "docs": ["AI_FOUNDRY_INTEGRATION.md", "BACKEND_HOSTS.md"]
+      "docs": ["reference/ai-foundry-integration.md", "reference/backend-hosts.md"]
     },
     {
       "id": "c-oauth2-bearer",
@@ -1333,7 +1333,7 @@
       "connection_string_key": "useoauth",
       "connection_string_value": "useoauth=true",
       "related_concept_ids": ["c-managed-identity"],
-      "docs": ["BACKEND_HOSTS.md", "AI_FOUNDRY_INTEGRATION.md"]
+      "docs": ["reference/backend-hosts.md", "reference/ai-foundry-integration.md"]
     },
     {
       "id": "c-keyless-auth",
@@ -1342,7 +1342,7 @@
       "definition": "Configuration pattern using usemi=true and audience=https://cognitiveservices.azure.com to eliminate API key management for Azure OpenAI and AI Foundry backends.",
       "connection_string_example": "host=…;usemi=true;audience=https://cognitiveservices.azure.com",
       "related_concept_ids": ["c-managed-identity", "c-oauth2-bearer"],
-      "docs": ["AI_FOUNDRY_INTEGRATION.md"]
+      "docs": ["reference/ai-foundry-integration.md"]
     },
     {
       "id": "c-vnet-deployment",
@@ -1350,7 +1350,7 @@
       "domain_id": "d08",
       "definition": "Deployment pattern where the proxy runs entirely inside a Virtual Network with no external data plane dependencies. Supports sovereign and government cloud regions.",
       "related_concept_ids": ["c-managed-identity"],
-      "docs": ["OVERVIEW.md", "CONTAINER_DEPLOYMENT.md"]
+      "docs": ["concepts/architecture.md", "how-to/deploy-container-apps.md"]
     },
 
     {
@@ -1359,7 +1359,7 @@
       "domain_id": "d09",
       "definition": "Primary hosting platform for SimpleL7Proxy. Provides ingress, auto-scaling, managed identity, and revision management.",
       "related_concept_ids": ["c-sidecar-deployment", "c-container-image"],
-      "docs": ["CONTAINER_DEPLOYMENT.md", "SIDECAR_DEPLOYMENT.md"]
+      "docs": ["how-to/deploy-container-apps.md", "how-to/deploy-sidecar.md"]
     },
     {
       "id": "c-container-image",
@@ -1368,7 +1368,7 @@
       "definition": "Docker image pushed to Azure Container Registry (ACR) and deployed to Azure Container Apps.",
       "key_settings": ["ACR", "REGISTRY_SERVER"],
       "related_concept_ids": ["c-azure-container-apps"],
-      "docs": ["CONTAINER_DEPLOYMENT.md", "SIDECAR_DEPLOYMENT.md"]
+      "docs": ["how-to/deploy-container-apps.md", "how-to/deploy-sidecar.md"]
     },
     {
       "id": "c-sidecar-deployment",
@@ -1378,7 +1378,7 @@
       "key_settings": ["HealthProbeSidecar"],
       "ports": { "proxy": 8000, "health_probe": 9000 },
       "related_concept_ids": ["c-sidecar-mode", "c-azure-container-apps"],
-      "docs": ["SIDECAR_DEPLOYMENT.md"]
+      "docs": ["how-to/deploy-sidecar.md"]
     },
     {
       "id": "c-parameters-file",
@@ -1387,7 +1387,7 @@
       "definition": "Local parameter file consumed by the VNet provisioning script for Azure target, network, and subnet values.",
       "path": "deployment/VNet/deploy.parameters.sh",
       "related_concept_ids": ["c-vnet-deployment"],
-      "docs": ["SIDECAR_DEPLOYMENT.md"]
+      "docs": ["how-to/deploy-sidecar.md"]
     },
     {
       "id": "c-apim-integration",
@@ -1395,7 +1395,7 @@
       "domain_id": "d09",
       "definition": "Azure API Management as a front-end to SimpleL7Proxy. Adds semantic caching, PII scrubbing, TPM-based rate limiting, quota enforcement, and mTLS.",
       "related_concept_ids": ["c-ai-foundry-integration"],
-      "docs": ["AI_FOUNDRY_INTEGRATION.md", "OVERVIEW.md"]
+      "docs": ["reference/ai-foundry-integration.md", "concepts/architecture.md"]
     },
     {
       "id": "c-ai-foundry-integration",
@@ -1404,7 +1404,7 @@
       "definition": "Direct or APIM-mediated connection to Azure OpenAI and AI Foundry model endpoints. Requires processor=OpenAI for token count extraction.",
       "key_settings": ["processor", "usemi"],
       "related_concept_ids": ["c-processor", "c-apim-integration", "c-keyless-auth"],
-      "docs": ["AI_FOUNDRY_INTEGRATION.md"]
+      "docs": ["reference/ai-foundry-integration.md"]
     }
   ],
 

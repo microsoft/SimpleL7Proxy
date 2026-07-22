@@ -16,7 +16,7 @@ backend changes do **not** require rebuilding the image or redeploying ACA.
 - The proxy picks up changes on its configured refresh interval — no restart needed.
 - Validate by tailing ACA logs and confirming traffic now lands on the new host(s).
 
-See: [BACKEND_HOSTS.md](../docs/BACKEND_HOSTS.md), [AZURE_APP_CONFIGURATION.md](../docs/AZURE_APP_CONFIGURATION.md)
+See: [BACKEND_HOSTS.md](../docs/reference/backend-hosts.md), [AZURE_APP_CONFIGURATION.md](../docs/how-to/configure-app-configuration.md)
 
 ---
 
@@ -85,8 +85,8 @@ serves traffic per existing priorities. Restore the probe and health
 re-converges automatically.
 
 **Backend unreachable** — circuit breaker opens for that host; traffic shifts
-to the next-priority backend. See [CIRCUIT_BREAKER.md](../docs/CIRCUIT_BREAKER.md)
-and [HEALTH_CHECKING.md](../docs/HEALTH_CHECKING.md).
+to the next-priority backend. See [CIRCUIT_BREAKER.md](../docs/reference/circuit-breaker.md)
+and [HEALTH_CHECKING.md](../docs/reference/health-endpoints.md).
 
 ---
 
@@ -100,18 +100,18 @@ and [HEALTH_CHECKING.md](../docs/HEALTH_CHECKING.md).
   wired to a Log Analytics workspace; query `ContainerAppConsoleLogs_CL` and
   `ContainerAppSystemLogs_CL`.
 - **Application Insights** — distributed traces, request metrics, dependencies.
-  See [OBSERVABILITY.md](../docs/OBSERVABILITY.md).
+  See [OBSERVABILITY.md](../docs/concepts/observability.md).
 - **(Optional) Blob async logs** — full request/response bodies for async
-  flows. See [StorageBlobConfig.md](../docs/StorageBlobConfig.md) and
-  [AsyncOperation.md](../docs/AsyncOperation.md).
+  flows. See [StorageBlobConfig.md](../docs/reference/storage-blob-config.md) and
+  [AsyncOperation.md](../docs/concepts/async-processing.md).
 
 ---
 
 ## Related
 
 - [Deployment Guide](README.md)
-- [OBSERVABILITY.md](../docs/OBSERVABILITY.md)
-- [HEALTH_CHECKING.md](../docs/HEALTH_CHECKING.md)
-- [CIRCUIT_BREAKER.md](../docs/CIRCUIT_BREAKER.md)
-- [TIMEOUTS.md](../docs/TIMEOUTS.md)
-- [TroubleshootTOC.md](../docs/TroubleshootTOC.md)
+- [OBSERVABILITY.md](../docs/concepts/observability.md)
+- [HEALTH_CHECKING.md](../docs/reference/health-endpoints.md)
+- [CIRCUIT_BREAKER.md](../docs/reference/circuit-breaker.md)
+- [TIMEOUTS.md](../docs/reference/timeouts.md)
+- [TroubleshootTOC.md](../docs/troubleshooting/README.md)

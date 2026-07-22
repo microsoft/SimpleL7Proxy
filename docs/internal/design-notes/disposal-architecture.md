@@ -42,7 +42,7 @@ This document provides a comprehensive guide to the disposal patterns and lifecy
 - Stream ownership coordination with BlobWriter/AsyncWorker
 ```
 
-### ProxyWorker.cs  
+### ProxyWorker.cs
 **Purpose**: Long-running request processing service
 **Pattern**: NO IDisposable (intentional design)
 
@@ -55,7 +55,7 @@ This document provides a comprehensive guide to the disposal patterns and lifecy
 ```
 
 ### BlobWriter.cs
-**Purpose**: Singleton service for Azure blob operations  
+**Purpose**: Singleton service for Azure blob operations
 **Pattern**: Standard IDisposable with resource caching
 
 ```csharp
@@ -75,7 +75,7 @@ This document provides a comprehensive guide to the disposal patterns and lifecy
 // IStreamProcessor
 //   └── BaseStreamProcessor (abstract)
 //       ├── DefaultStreamProcessor
-//       ├── NullStreamProcessor  
+//       ├── NullStreamProcessor
 //       ├── HeaderTokensProcessor
 //       └── JsonStreamProcessor (abstract)
 //           ├── OpenAIProcessor
@@ -107,7 +107,7 @@ This document provides a comprehensive guide to the disposal patterns and lifecy
 
 ### Verification Checklist
 - [ ] ProxyWorker does NOT implement IDisposable
-- [ ] RequestData implements both IDisposable and IAsyncDisposable  
+- [ ] RequestData implements both IDisposable and IAsyncDisposable
 - [ ] Stream processors implement IDisposable
 - [ ] BlobWriter implements IDisposable
 - [ ] ObjectDisposedException is caught in RequestData disposal

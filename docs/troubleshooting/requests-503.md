@@ -73,8 +73,8 @@ Host1="host=https://api.backend.com;path=/api/v1;probe=/health"
 
 ## Related
 
-- [RESPONSE_CODES.md](../RESPONSE_CODES.md) — full list of proxy-originated codes
-- [BACKEND_HOSTS.md](../BACKEND_HOSTS.md) — host configuration reference
-- [CIRCUIT_BREAKER.md](../CIRCUIT_BREAKER.md) — circuit breaker reference
+- [RESPONSE_CODES.md](../reference/headers-and-status-codes.md) — full list of proxy-originated codes
+- [BACKEND_HOSTS.md](../reference/backend-hosts.md) — host configuration reference
+- [CIRCUIT_BREAKER.md](../reference/circuit-breaker.md) — circuit breaker reference
 - [circuit-breaker.md](circuit-breaker.md) — circuit breaker troubleshooting
 - [backend-hosts.md](backend-hosts.md) — backend host troubleshooting

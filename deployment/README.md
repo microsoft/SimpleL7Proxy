@@ -1,16 +1,16 @@
 # SimpleL7Proxy — Deployment (interactive)
 
-![Target architecture](arch.png)
+![Target architecture](../docs/assets/concepts/architecture.png)
 
-This is the **interactive deployment path** for SimpleL7Proxy. The deployment script 
+This is the **interactive deployment path** for SimpleL7Proxy. The deployment script
 lets you create a new installation or update an existing proxy to the latest version.
 
 This guide is intended for platform and infrastructure engineers deploying SimpleL7Proxy on Azure,
-as well as application teams consuming the proxy within private VNets. Completing all steps 
+as well as application teams consuming the proxy within private VNets. Completing all steps
 results in a private, VNet‑integrated Layer‑7 proxy running on Azure Container Apps, exposed
 through a private DNS name that is resolvable within the VNet.
 
-The public installation scenario uses all the same components, except that they are public 
+The public installation scenario uses all the same components, except that they are public
 access points locked down with ACLs.
 
 ---
@@ -90,7 +90,7 @@ Follow these steps in order:
 5. (Re)deploys the `container app` in either sidecar or internal mode.
 6. If you selected private networking, creates a `DNS zone`.
 7. Creates or reuses the `App Configuration` instance, copies the proxy settings and defaults, and connects the Container App.
-   
+
    **The options below apply to async mode.**
 8. Creates Blob Storage.
 9. Creates the RequestAPI Azure Function.
@@ -373,9 +373,9 @@ az network private-dns record-set list -g "${NETWORK_RESOURCE_GROUP}" -z "${DNS_
 ## References
 
 - [Day-2 Operations](DAY2_OPERATIONS.md)
-- [App Configuration keys](../docs/AZURE_APP_CONFIGURATION.md)
-- [Backend hosts](../docs/BACKEND_HOSTS.md)
-- [Health checking](../docs/HEALTH_CHECKING.md)
-- [Troubleshooting](../docs/TroubleshootTOC.md)
-- [Configuration reference](../docs/CONFIGURATION_SETTINGS.md)
-- [Advanced scenarios](../docs/ADVANCED_DEVELOPMENT.md)
+- [App Configuration keys](../docs/how-to/configure-app-configuration.md)
+- [Backend hosts](../docs/reference/backend-hosts.md)
+- [Health checking](../docs/reference/health-endpoints.md)
+- [Troubleshooting](../docs/troubleshooting/README.md)
+- [Configuration reference](../docs/reference/configuration.md)
+- [Advanced scenarios](../docs/contributing/development.md)

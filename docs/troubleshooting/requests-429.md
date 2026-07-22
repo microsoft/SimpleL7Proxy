@@ -99,7 +99,7 @@ The Event Hub logger buffer (`EVENTHUB_MAX_UNDRAINED_EVENTS`) is full. This typi
 
 ## Related
 
-- [RESPONSE_CODES.md](../RESPONSE_CODES.md) — full list of proxy-originated codes
-- [CIRCUIT_BREAKER.md](../CIRCUIT_BREAKER.md) — circuit breaker reference
+- [RESPONSE_CODES.md](../reference/headers-and-status-codes.md) — full list of proxy-originated codes
+- [CIRCUIT_BREAKER.md](../reference/circuit-breaker.md) — circuit breaker reference
 - [circuit-breaker.md](circuit-breaker.md) — circuit breaker troubleshooting
 - [backend-hosts.md](backend-hosts.md) — backend host troubleshooting
