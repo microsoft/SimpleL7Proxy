@@ -208,9 +208,9 @@ These metrics appear in the **Custom Dimensions** of the `Request` or `Event` te
 ```kusto
 requests
 | where customDimensions contains "Usage.Total_Tokens"
-| project 
-    timestamp, 
-    Duration = duration, 
+| project
+    timestamp,
+    Duration = duration,
     TotalTokens = toint(customDimensions["Usage.Total_Tokens"]),
     PromptTokens = toint(customDimensions["Usage.Prompt_Tokens"]),
     Model = customDimensions["Model"]

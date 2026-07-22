@@ -20,13 +20,13 @@ App Configuration allows settings to be changed without redeploying the containe
 **Auth option 2 — Connection string**
 1. Set `AZURE_APPCONFIG_CONNECTION_STRING`.
 
-**Scoping and refresh** (both options)  
-- `AZURE_APPCONFIG_LABEL` — filters which keys are loaded by label.  
+**Scoping and refresh** (both options)
+- `AZURE_APPCONFIG_LABEL` — filters which keys are loaded by label.
 - `AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS` — how often Warm settings are polled.
 
 > Settings marked **Warm** reload automatically on the refresh interval; settings marked **Cold** require a restart.
 
-![Warm](https://img.shields.io/badge/Warm-hot--reloaded%20(no%20restart)-2EA44F) ![Cold](https://img.shields.io/badge/Cold-restart%20required-E5534B) 
+![Warm](https://img.shields.io/badge/Warm-hot--reloaded%20(no%20restart)-2EA44F) ![Cold](https://img.shields.io/badge/Cold-restart%20required-E5534B)
 </details>
 
 ---
@@ -206,7 +206,7 @@ Host2=host=https://backend2.example.com;api-key=secret
 Each host entry supports authentication (managed identity or API key), path rewriting, health-check paths, and custom processors. Expand for the full list of supported fields.
 
 <details>
-<summary><strong>Endpoint properties</strong></summary> 
+<summary><strong>Endpoint properties</strong></summary>
 Each host entry supports the following fields:
 
 | Field | Description |

@@ -110,6 +110,3 @@ Purpose: Provide .NET service and dependency injection.
 - [LOAD_BALANCING.md](../reference/load-balancing.md) - Detailed backend selection algorithm
 - [CIRCUIT_BREAKER.md](../reference/circuit-breaker.md) - Circuit breaker configuration
 - [BACKEND_HOSTS.md](../reference/backend-hosts.md) - Host configuration options
-
-
-

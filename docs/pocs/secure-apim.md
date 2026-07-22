@@ -274,6 +274,3 @@ Run each check in order. All five must pass.
 | `401` with `"IDX10511: Signature validation failed"` | Issuer URL mismatch | APIM policy `<issuer>` must match the `iss` claim exactly — copy from jwt.io decode |
 | Role assignment succeeds but token still lacks `roles` | `appRoleAssignmentRequired` not set | Run `az ad sp update --id "$APP_ID" --set appRoleAssignmentRequired=true` |
 | Role assignment call fails with Graph authorization error | Caller lacks Entra directory privileges | Use an admin account for `az rest` assignment or assign via portal Enterprise Applications UI |
-
-
-

@@ -180,4 +180,3 @@ FilterActiveHosts:
 - [LOAD_BALANCING.md](load-balancing.md) — How hosts are ordered and retried per request
 - [CIRCUIT_BREAKER.md](circuit-breaker.md) — Per-request failure tracking and circuit state
 - [CONFIGURATION_SETTINGS.md](configuration.md) — `PollInterval`, `PollTimeout`, `SuccessRate` config keys
-

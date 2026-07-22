@@ -17,6 +17,3 @@
 | Clients receiving **412 Precondition Failed** | [Getting 412 / TTL expired](requests-412.md) |
 | Clients receiving **429 Too Many Requests** | [Getting 429 responses](requests-429.md) |
 | Clients receiving **503 Service Unavailable** or **502** | [Getting 503 / all backends failing](requests-503.md) |
-
-
-

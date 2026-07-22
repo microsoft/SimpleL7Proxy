@@ -44,7 +44,7 @@ Set the environment variable:
 `HealthProbeSidecar=Enabled=true;url=http://localhost:9000`
 
 **Kubernetes Config (Sidecar Mode)**:
-Point your probes to port `9000` instead of the main port and configure Liveness, Readiness, and Startup probes.  In this example configuration, the proxy will send updates every second.  The sidecar will fail if it has not heard from the proxy for 10 seconds. 
+Point your probes to port `9000` instead of the main port and configure Liveness, Readiness, and Startup probes.  In this example configuration, the proxy will send updates every second.  The sidecar will fail if it has not heard from the proxy for 10 seconds.
 
 ```yaml
 livenessProbe:
@@ -57,7 +57,7 @@ livenessProbe:
 
 readinessProbe:
   httpGet:
-    path: /readiness # or /startup 
+    path: /readiness # or /startup
     port: 9000
     scheme: HTTP
   failureThreshold: 3

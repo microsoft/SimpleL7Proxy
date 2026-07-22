@@ -136,4 +136,3 @@ See [LOAD_BALANCING.md](load-balancing.md) for how hosts are ordered and how `Ma
 - [BACKEND_HOSTS.md](backend-hosts.md) — Per-host configuration and health polling
 - [LOAD_BALANCING.md](load-balancing.md) — Iterator and retry settings
 - [CONFIGURATION_SETTINGS.md](configuration.md) — Full settings reference
-

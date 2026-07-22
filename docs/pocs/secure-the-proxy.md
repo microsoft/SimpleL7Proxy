@@ -148,5 +148,3 @@ az containerapp auth update \
 | `401` despite a valid Entra token | Auth platform not enabled, or no provider configured | `az containerapp auth show -n $CONTAINER_APP_NAME -g $RG` — confirm `platform.enabled=true` and `identityProviders.azureActiveDirectory` is populated |
 | Client secret rejected at authentication | Secret expired or rotated | Re-run `secureProxy.sh` — it mints a new 30-day secret and writes it to EasyAuth |
 | `AADSTS65001 consent_required` when requesting token | Calling client is not pre-authorized on the `api.access` scope | `./secureProxy.sh -a <name> -z <client-appId>` — or in the portal: **API app → Expose an API → Authorized client applications → Add**, paste the client's `appId`, check `api.access` |
-
-
