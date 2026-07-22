@@ -76,6 +76,6 @@ If neither appears, `EVENT_LOGGERS` may not include `eventhub`, or the setting c
 
 ## Related
 
-- [OBSERVABILITY.md](../OBSERVABILITY.md) — full Event Hub architecture and custom loggers
-- [ENVIRONMENT_VARIABLES.md](../ENVIRONMENT_VARIABLES.md) — all `EVENTHUB_*` variables
-- [AZURE_APP_CONFIGURATION.md](../AZURE_APP_CONFIGURATION.md) — how to set Cold settings in App Config
+- [OBSERVABILITY.md](../concepts/observability.md) — full Event Hub architecture and custom loggers
+- [ENVIRONMENT_VARIABLES.md](../reference/environment-variables.md) — all `EVENTHUB_*` variables
+- [AZURE_APP_CONFIGURATION.md](../how-to/configure-app-configuration.md) — how to set Cold settings in App Config

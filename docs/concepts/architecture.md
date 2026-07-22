@@ -15,7 +15,7 @@ SimpleL7Proxy is a self-hosted, open-source Layer 7 proxy for Azure AI workloads
 
 The proxy addresses a structural gap in AI platform deployments: when multiple clients with different latency and throughput requirements share a fixed pool of model backends, standard HTTP infrastructure provides no mechanism to enforce fairness, isolate failures, absorb long-running requests, or extract token-level telemetry from streaming responses. SimpleL7Proxy fills that gap as a self-hosted, operator-owned data-plane component that runs entirely within the operator's infrastructure.
 
-> Need help diagnosing issues quickly? Start at [TroubleshootTOC.md](TroubleshootTOC.md).
+> Need help diagnosing issues quickly? Start at [TroubleshootTOC.md](../troubleshooting/README.md).
 
 ---
 
@@ -50,7 +50,7 @@ The proxy addresses a structural gap in AI platform deployments: when multiple c
 
 ## High-Level Architecture
 
-![Architecture Diagram](arch.png)
+![Architecture Diagram](../assets/concepts/architecture.png)
 
 SimpleL7Proxy is a single-process .NET service deployed as a container, typically within Azure Container Apps behind Azure API Management. The table below describes the major internal components and their roles.
 

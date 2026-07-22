@@ -235,7 +235,7 @@ az containerapp show \
 
 ## Related Documentation
 
-- [CONTAINER_DEPLOYMENT.md](CONTAINER_DEPLOYMENT.md) — Single-container deployment (built-in probe server)
-- [HEALTH_CHECKING.md](HEALTH_CHECKING.md) — Health probe internals and endpoints
-- [BACKEND_HOSTS.md](BACKEND_HOSTS.md) — `HOST1` connection string format
-- [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md) — All proxy environment variables
+- [CONTAINER_DEPLOYMENT.md](deploy-container-apps.md) — Single-container deployment (built-in probe server)
+- [HEALTH_CHECKING.md](../reference/health-endpoints.md) — Health probe internals and endpoints
+- [BACKEND_HOSTS.md](../reference/backend-hosts.md) — `HOST1` connection string format
+- [CONFIGURATION_SETTINGS.md](../reference/configuration.md) — All proxy environment variables

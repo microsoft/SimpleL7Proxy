@@ -1,6 +1,6 @@
 # SimpleL7Proxy — Deployment (interactive)
 
-![Target architecture](arch.png)
+![Target architecture](../docs/assets/concepts/architecture.png)
 
 This is the **interactive deployment path** for SimpleL7Proxy. The deployment script 
 lets you create a new installation or update an existing proxy to the latest version.
@@ -373,9 +373,9 @@ az network private-dns record-set list -g "${NETWORK_RESOURCE_GROUP}" -z "${DNS_
 ## References
 
 - [Day-2 Operations](DAY2_OPERATIONS.md)
-- [App Configuration keys](../docs/AZURE_APP_CONFIGURATION.md)
-- [Backend hosts](../docs/BACKEND_HOSTS.md)
-- [Health checking](../docs/HEALTH_CHECKING.md)
-- [Troubleshooting](../docs/TroubleshootTOC.md)
-- [Configuration reference](../docs/CONFIGURATION_SETTINGS.md)
-- [Advanced scenarios](../docs/ADVANCED_DEVELOPMENT.md)
+- [App Configuration keys](../docs/how-to/configure-app-configuration.md)
+- [Backend hosts](../docs/reference/backend-hosts.md)
+- [Health checking](../docs/reference/health-endpoints.md)
+- [Troubleshooting](../docs/troubleshooting/README.md)
+- [Configuration reference](../docs/reference/configuration.md)
+- [Advanced scenarios](../docs/contributing/development.md)

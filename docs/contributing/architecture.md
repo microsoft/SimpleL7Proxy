@@ -43,13 +43,13 @@ When deployed in Azure Container Apps, it can be set up with auto-scale to handl
 
 ## Libraries Used
 
-Purpose:  Authenticate to Azure and acquire Oauth2 tokens. 
+Purpose:  Authenticate to Azure and acquire Oauth2 tokens.
 * Azure.Core: Provides essential classes and utilities for working with Azure services, including HTTP pipeline configuration, retry policies, and diagnostics.
 * Azure.Identity: Offers a variety of token credential implementations for authenticating Azure SDK clients using Microsoft Entra ID. It supports multiple authentication methods, including managed identities, service principals, and interactive user authentication.
 
 Purpose:  Log messages to application insights and EventHub
 * Azure.Messaging.EventHubs: Facilitates the sending and receiving of messages to and from Azure Event Hubs
-* Azure.Messaging.EventHubs.Processor 
+* Azure.Messaging.EventHubs.Processor
 * Microsoft.ApplicationInsights: Core library for Application Insights, which allows you to monitor and analyze telemetry data from your applications to improve performance and usability.
 
 * Microsoft.ApplicationInsights.AspNetCore: Integrates Application Insights with ASP.NET Core applications, enabling automatic collection of telemetry data such as requests, dependencies, and exceptions.
@@ -58,7 +58,7 @@ Purpose:  Log messages to application insights and EventHub
 * Microsoft.ApplicationInsights.WorkerService: Integrates Application Insights with .NET Core worker services, enabling telemetry collection for background services and long-running processes.
 
 
-Purpose: Provide .NET service and dependency injection. 
+Purpose: Provide .NET service and dependency injection.
 * Microsoft.Extensions.DependencyInjection: rovides a set of abstractions and a default implementation for dependency injection, allowing you to manage the lifetime and dependencies of your services.
 * Microsoft.Extensions.Hosting: Offers a set of abstractions for hosting applications, including support for running background services and handling application lifetime events.
 * Microsoft.Extensions.Http: Adds extensions for configuring and using HttpClient instances with dependency injection, including support for named clients and typed clients.
@@ -107,10 +107,9 @@ Purpose: Provide .NET service and dependency injection.
 
 ## Related Documentation
 
-- [LOAD_BALANCING.md](LOAD_BALANCING.md) - Detailed backend selection algorithm
-- [CIRCUIT_BREAKER.md](CIRCUIT_BREAKER.md) - Circuit breaker configuration
-- [BACKEND_HOSTS.md](BACKEND_HOSTS.md) - Host configuration options
-
+- [LOAD_BALANCING.md](../reference/load-balancing.md) - Detailed backend selection algorithm
+- [CIRCUIT_BREAKER.md](../reference/circuit-breaker.md) - Circuit breaker configuration
+- [BACKEND_HOSTS.md](../reference/backend-hosts.md) - Host configuration options
 
 
 

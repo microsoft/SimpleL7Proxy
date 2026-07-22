@@ -28,7 +28,7 @@
 
 | Setting | Value in this POC | Unit | Set in | Takes effect |
 | :--- | :--- | :--- | :--- | :--- |
-| Policy file | [`APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml`](../APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml) | — | APIM API | after policy save |
+| Policy file | [`APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml`](../../APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml) | — | APIM API | after policy save |
 | `acceptablePriorities` (Reserved) | `[1]` | priority levels | `listBackends` | after policy save |
 | `acceptablePriorities` (Shared) | `[2, 3]` | priority levels | `listBackends` | after policy save |
 | `acceptablePriorities` (AlwaysFail) | `[3]` | priority levels | `listBackends` | after policy save |
@@ -53,8 +53,8 @@
 
 **What matters:** this POC needs one APIM API, one deployed LLM Simulator function, and the v2.1.0 policy. No real Azure OpenAI endpoints are required.
 
-- An APIM instance with [`APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml`](../APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml) applied at the API level.
-- The LLM Simulator deployed as an Azure Function. See [`test/LLMSimulator/Readme.md`](../test/LLMSimulator/Readme.md). Verify it is running:
+- An APIM instance with [`APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml`](../../APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml) applied at the API level.
+- The LLM Simulator deployed as an Azure Function. See [`test/LLMSimulator/Readme.md`](../../test/LLMSimulator/Readme.md). Verify it is running:
   ```bash
   curl https://<funcapp>.azurewebsites.net/api/health
   # → 200 OK
@@ -74,7 +74,7 @@
 2. Select **APIs** and open the target API.
 3. Select **All operations**.
 4. Open the **Inbound processing** policy editor (`</>` icon).
-5. Replace the editor contents with [`APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml`](../APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml).
+5. Replace the editor contents with [`APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml`](../../APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml).
 6. Select **Save**.
 
 <details>
@@ -345,7 +345,7 @@ A priority-3 request now returns `503` instead of routing to `Shared`.
 { "label", "PAYGO" }, { "acceptablePriorities", new JArray(1,2,3) }, { "priorityGroup", 2 }
 ```
 
-See [POC-OpenAI-Failover.md](POC-OpenAI-Failover.md) for the full failover walkthrough.
+See [POC-OpenAI-Failover.md](openai-failover.md) for the full failover walkthrough.
 
 ### Requeue on exhaustion
 
@@ -370,11 +370,11 @@ cfg["3"] = new JObject { { "retryCount", 1 }, { "requeue", true } };
 
 ## Related documentation
 
-- [POC-Failover-configuration.md](POC-Failover-configuration.md) — Automatic failover and retry when a backend returns `429` or times out
-- [POC-OpenAI-Failover.md](POC-OpenAI-Failover.md) — Real Azure OpenAI PTU-to-PAYGO failover
-- [POC-Chargeback.md](POC-Chargeback.md) — Token-level usage tracking and per-user cost attribution
-- [BACKEND_HOSTS.md](BACKEND_HOSTS.md) — Host configuration options including `acceptablePriorities` and `priorityGroup`
-- [OBSERVABILITY.md](OBSERVABILITY.md) — Token metrics, telemetry channels, and event logger configuration
+- [POC-Failover-configuration.md](failover.md) — Automatic failover and retry when a backend returns `429` or times out
+- [POC-OpenAI-Failover.md](openai-failover.md) — Real Azure OpenAI PTU-to-PAYGO failover
+- [POC-Chargeback.md](chargeback.md) — Token-level usage tracking and per-user cost attribution
+- [BACKEND_HOSTS.md](../reference/backend-hosts.md) — Host configuration options including `acceptablePriorities` and `priorityGroup`
+- [OBSERVABILITY.md](../concepts/observability.md) — Token metrics, telemetry channels, and event logger configuration
 
 
 ---
@@ -398,7 +398,7 @@ The request priority is read from the `llm_proxy_priority` header. If the header
 ## Prerequisites
 
 - An APIM instance with `Priority-with-retry-enhancedLog.xml` applied to the target API. See [Applying the policy](#applying-the-policy).
-- The LLM Simulator deployed as an Azure Function. See [`test/LLMSimulator/Readme.md`](../test/LLMSimulator/Readme.md) — the fastest path is the portal ZIP deploy. Verify it's running:
+- The LLM Simulator deployed as an Azure Function. See [`test/LLMSimulator/Readme.md`](../../test/LLMSimulator/Readme.md) — the fastest path is the portal ZIP deploy. Verify it's running:
   ```bash
   curl https://<funcapp>.azurewebsites.net/api/health
   # → 200 OK
@@ -409,7 +409,7 @@ The request priority is read from the `llm_proxy_priority` header. If the header
 
 ## Applying the policy
 
-The policy file is [`APIM-Policy/Priority-with-retry-enhancedLog.xml`](../../APIM-Policy/Priority-with-retry-enhancedLog.xml).
+The policy file is [`APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml`](../../APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml).
 
 **Azure portal:**
 1. Open your APIM instance → **APIs** → select the target API.
@@ -666,7 +666,7 @@ Once the basic tests pass, a few variations are worth exploring:
 
 ## Related Documentation
 
-- [POC-Failover-configuration.md](POC-Failover-configuration.md) — Automatic failover and retry behaviour when a backend is slow or unavailable
-- [POC-Chargeback.md](POC-Chargeback.md) — Token-level usage tracking and per-user cost attribution
-- [BACKEND_HOSTS.md](BACKEND_HOSTS.md) — Host connection string options including `acceptablePriorities` and `processor=`
-- [OBSERVABILITY.md](OBSERVABILITY.md) — Token metrics, telemetry channels, and event logger configuration
+- [POC-Failover-configuration.md](failover.md) — Automatic failover and retry behaviour when a backend is slow or unavailable
+- [POC-Chargeback.md](chargeback.md) — Token-level usage tracking and per-user cost attribution
+- [BACKEND_HOSTS.md](../reference/backend-hosts.md) — Host connection string options including `acceptablePriorities` and `processor=`
+- [OBSERVABILITY.md](../concepts/observability.md) — Token metrics, telemetry channels, and event logger configuration

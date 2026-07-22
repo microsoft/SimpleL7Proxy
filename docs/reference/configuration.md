@@ -147,7 +147,7 @@ Profiles allow the proxy to apply per-user policy — such as routing priority o
 ---
 # Validation
 
-The proxy can be configured to reject unauthorized callers using either **OAuth** or **Keys**. Key authentication requires the caller to send a header with a recognized key. OAuth requires Entra ID integration. See [POC: Securing the proxy](POC-Secure-the-proxy.md).
+The proxy can be configured to reject unauthorized callers using either **OAuth** or **Keys**. Key authentication requires the caller to send a header with a recognized key. OAuth requires Entra ID integration. See [POC: Securing the proxy](../pocs/secure-the-proxy.md).
 
 Key authentication blocks callers that don't supply a recognized key in a designated header. Expand to configure the header name and the accepted key values.
 
@@ -306,7 +306,7 @@ Log volume can be high under load. Use these settings to route specific event ca
 
 | App Configuration Key | Env Var | Default | Why It Matters |
 |---|---|---|---|
-| <small>`Logging:EventLoggers`</small> | <small>`EventLoggers`</small> | <small>`file`</small> | Comma-delimited sink selector (`eventhub`, `file`, or custom class). See [OBSERVABILITY.md](OBSERVABILITY.md#custom-event-loggers). |
+| <small>`Logging:EventLoggers`</small> | <small>`EventLoggers`</small> | <small>`file`</small> | Comma-delimited sink selector (`eventhub`, `file`, or custom class). See [OBSERVABILITY.md](../concepts/observability.md#custom-event-loggers). |
 | <small>`Logging:LogToEvents`</small> | <small>`LogToEvents`</small> | <small>`async, backend, probe, circuitbreaker, custom, exception, profile, proxy, enqueued, auth`</small> | Categories sent through event logger sinks. |
 | <small>`Logging:LogToAI`</small> | <small>`LogToAI`</small> | <small>`*`</small> | Categories sent to Application Insights. |
 | <small>`Logging:LogToConsole`</small> | <small>`LogToConsole`</small> | <small>`*,-custom`</small> | Categories written to console output. |
@@ -418,9 +418,9 @@ Expand for links to guides on App Configuration setup, local development, timeou
 <details>
 <summary><strong>Related Documentation</strong></summary>
 
-- [AZURE_APP_CONFIGURATION.md](AZURE_APP_CONFIGURATION.md) - Hot-reload setup with App Configuration.
-- [BEGINNER_DEVELOPMENT.md](BEGINNER_DEVELOPMENT.md) - Local development setup and minimum config.
-- [TIMEOUTS.md](TIMEOUTS.md) - TTL, Timeout, and AsyncTimeout behavior.
-- [LOAD_BALANCING.md](LOAD_BALANCING.md) - Load balancing and iteration behavior.
+- [AZURE_APP_CONFIGURATION.md](../how-to/configure-app-configuration.md) - Hot-reload setup with App Configuration.
+- [Run SimpleL7Proxy Locally](../getting-started/local.md) - Local setup and minimum configuration.
+- [TIMEOUTS.md](timeouts.md) - TTL, Timeout, and AsyncTimeout behavior.
+- [LOAD_BALANCING.md](load-balancing.md) - Load balancing and iteration behavior.
 
 </details>

@@ -17,15 +17,15 @@ This document specifies the configuration for priority mapping, header validatio
 > - **User throttling:** set `UserPriorityThreshold` (0.0–1.0) to deprioritize users who exceed that fraction of the total queue.
 
 > [!NOTE]
-> All three features in this document are **Warm** settings. See [AZURE_APP_CONFIGURATION.md](AZURE_APP_CONFIGURATION.md) for how to apply changes without a restart. For the full settings reference, see [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md).
+> All three features in this document are **Warm** settings. See [AZURE_APP_CONFIGURATION.md](../how-to/configure-app-configuration.md) for how to apply changes without a restart. For the full settings reference, see [CONFIGURATION_SETTINGS.md](configuration.md).
 
 ---
 
 ## Scope & Applicability
 
 **In scope:** Priority mapping, header validation, and per-user throttling configuration.
-**Out of scope:** Backend host setup (see [BACKEND_HOSTS.md](BACKEND_HOSTS.md)); load balancing (see [LOAD_BALANCING.md](LOAD_BALANCING.md)); user profile structure (see [USER_PROFILES.md](USER_PROFILES.md)).
-**Dependencies:** [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md), [AZURE_APP_CONFIGURATION.md](AZURE_APP_CONFIGURATION.md).
+**Out of scope:** Backend host setup (see [BACKEND_HOSTS.md](backend-hosts.md)); load balancing (see [LOAD_BALANCING.md](load-balancing.md)); user profile structure (see [USER_PROFILES.md](user-profiles.md)).
+**Dependencies:** [CONFIGURATION_SETTINGS.md](configuration.md), [AZURE_APP_CONFIGURATION.md](../how-to/configure-app-configuration.md).
 
 ---
 

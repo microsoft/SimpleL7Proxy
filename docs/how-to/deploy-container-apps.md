@@ -443,7 +443,7 @@ probes:
 
 ## Sidecar Deployment (HealthProbe as separate container)
 
-For deployments where the health probe runs as a dedicated sidecar container alongside the proxy in the same Container App revision, see [SIDECAR_DEPLOYMENT.md](SIDECAR_DEPLOYMENT.md).
+For deployments where the health probe runs as a dedicated sidecar container alongside the proxy in the same Container App revision, see [SIDECAR_DEPLOYMENT.md](deploy-sidecar.md).
 
 ---
 
@@ -525,7 +525,7 @@ az containerapp revision list \
 
 ## Related Documentation
 
-- [BACKEND_HOSTS.md](BACKEND_HOSTS.md) — Host connection string format including probe paths
-- [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md) — All environment variables
-- [HEALTH_CHECKING.md](HEALTH_CHECKING.md) — Health probe internals
-- [OBSERVABILITY.md](OBSERVABILITY.md) — Application Insights setup
+- [BACKEND_HOSTS.md](../reference/backend-hosts.md) — Host connection string format including probe paths
+- [CONFIGURATION_SETTINGS.md](../reference/configuration.md) — All environment variables
+- [HEALTH_CHECKING.md](../reference/health-endpoints.md) — Health probe internals
+- [OBSERVABILITY.md](../concepts/observability.md) — Application Insights setup

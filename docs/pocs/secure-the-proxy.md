@@ -55,7 +55,7 @@ ACA EasyAuth sidecar
 
 In this POC the client is the Azure CLI, our validator is built into the ACA, and the permission on the proxy's app registration is a delegated scope named `api.access`.
 
-To simplify this setup, the [`secureProxy.sh`](../deployment/POC/secureProxy.sh) script in `deployment/POC/` will do the work of configuring the ACA to do the validation.
+To simplify this setup, the [`secureProxy.sh`](../../deployment/POC/secureProxy.sh) script in `deployment/POC/` will do the work of configuring the ACA to do the validation.
 
 Arguments:
 

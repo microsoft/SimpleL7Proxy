@@ -1,13 +1,13 @@
 # POC: Azure OpenAI Failover via APIM
 
-**Purpose:** Show that when a backend returns `429`, the APIM policy marks it as throttled, retries the same request against the next available backend, and the client still sees `200 OK`. Any combination of `PTU` and `PAYGO` backends can be used but for the purposes of this POC, we will a single PTU and a single PAYGO backed. 
+**Purpose:** Show that when a backend returns `429`, the APIM policy marks it as throttled, retries the same request against the next available backend, and the client still sees `200 OK`. Any combination of `PTU` and `PAYGO` backends can be used but for the purposes of this POC, we will a single PTU and a single PAYGO backed.
 
 > [!IMPORTANT]
 > **The rule: PTU at `priorityGroup: 1` wins when healthy; when it returns `429`, APIM throttles it for `Retry-After + 2s` and the same request retries against PAYGO at `priorityGroup: 2`. The client never sees the `429`.**
 
 ## TL;DR (< 5 minutes)
 
-1. Apply [`APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml`](../APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml) to your APIM API with two backends: PTU at `priorityGroup: 1` and PAYGO at `priorityGroup: 2`, both using the same deployment name.
+1. Apply [`APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml`](../../APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml) to your APIM API with two backends: PTU at `priorityGroup: 1` and PAYGO at `priorityGroup: 2`, both using the same deployment name.
 2. Send one healthy request, then a burst to exhaust PTU quota, then one more request while PTU is throttled.
 3. Read `x-Backend-Attempts`, `x-backend-affinity`, and `backendLog` to confirm PTU → PAYGO failover.
 
@@ -28,7 +28,7 @@
 
 | Setting | Value in this POC | Unit | Set in | Takes effect |
 | :--- | :--- | :--- | :--- | :--- |
-| Policy file | [`APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml`](../APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml) | — | APIM API | after policy save |
+| Policy file | [`APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml`](../../APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml) | — | APIM API | after policy save |
 | `priorityGroup` (PTU) | `1` | group | `listBackends` | after policy save |
 | `priorityGroup` (PAYGO) | `2` | group | `listBackends` | after policy save |
 | `timeout` | `30` | seconds | `listBackends` | after policy save |
@@ -53,7 +53,7 @@
 
 **What matters:** you need two Azure OpenAI resources with the same deployment name. The PTU resource needs low enough quota to trigger real `429` responses under load.
 
-- An APIM instance with [`APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml`](../APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml) applied at the API level.
+- An APIM instance with [`APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml`](../../APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml) applied at the API level.
 - Two Azure OpenAI resources with the same deployment name, for example `gpt-4o-mini`.
 - A PTU primary with capacity low enough to trigger `429` responses under the burst in step 2.
 - A PAYGO secondary in a separate Azure OpenAI resource.
@@ -75,7 +75,7 @@
 2. Select **APIs** and open the target API.
 3. Select **All operations**.
 4. Open the **Inbound processing** policy editor (`</>` icon).
-5. Replace the editor contents with [`APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml`](../APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml).
+5. Replace the editor contents with [`APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml`](../../APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml).
 6. Select **Save**.
 
 If you are using Managed Identity:
@@ -388,7 +388,7 @@ Confirm the APIM gateway does not override the backend setting with global respo
 
 - Lower PTU `timeout` to abandon slow PTU responses faster and reach PAYGO sooner.
 - Set `limitConcurrency` on PTU to pre-empt hard throttling by capping in-flight requests.
-- Restrict PTU to premium callers with `acceptablePriorities: [1]` and PAYGO to all callers with `acceptablePriorities: [1,2,3]`. See [POC-Priority-configuration.md](POC-Priority-configuration.md).
+- Restrict PTU to premium callers with `acceptablePriorities: [1]` and PAYGO to all callers with `acceptablePriorities: [1,2,3]`. See [POC-Priority-configuration.md](priority-routing.md).
 - Use `requeue: true` only when you want exhausted retries to return `429 + S7PREQUEUE: true` to SimpleL7Proxy instead of surfacing an error.
 
 ## Troubleshooting
@@ -410,12 +410,12 @@ Confirm the APIM gateway does not override the backend setting with global respo
 
 ## Related documentation
 
-- [POC-Failover-configuration.md](POC-Failover-configuration.md) — Same failover policy using the LLM Simulator instead of real Azure OpenAI endpoints
-- [POC-Priority-configuration.md](POC-Priority-configuration.md) — Priority-based backend selection by caller tier
-- [POC-Chargeback.md](POC-Chargeback.md) — Token usage tracking and per-user cost attribution
-- [AI_FOUNDRY_INTEGRATION.md](AI_FOUNDRY_INTEGRATION.md) — Wiring Azure OpenAI and AI Foundry endpoints into SimpleL7Proxy
-- [BACKEND_HOSTS.md](BACKEND_HOSTS.md) — Host configuration options including `timeout`, `retryCount`, and `acceptablePriorities`
-- [SECURITY.md](SECURITY.md) — Managed Identity, Key Vault, and secret rotation guidance
+- [POC-Failover-configuration.md](failover.md) — Same failover policy using the LLM Simulator instead of real Azure OpenAI endpoints
+- [POC-Priority-configuration.md](priority-routing.md) — Priority-based backend selection by caller tier
+- [POC-Chargeback.md](chargeback.md) — Token usage tracking and per-user cost attribution
+- [AI_FOUNDRY_INTEGRATION.md](../reference/ai-foundry-integration.md) — Wiring Azure OpenAI and AI Foundry endpoints into SimpleL7Proxy
+- [BACKEND_HOSTS.md](../reference/backend-hosts.md) — Host configuration options including `timeout`, `retryCount`, and `acceptablePriorities`
+- [SECURITY.md](../reference/security.md) — Managed Identity, Key Vault, and secret rotation guidance
 
 
 ## TL;DR
@@ -471,7 +471,7 @@ Older versions of the policy use `api-key` rather than `auth`.
 
 ### Minimal prerequisites
 
-- An APIM instance with [../APIM-Policy/Priority-with-retry-enhancedLog.xml](../APIM-Policy/Priority-with-retry-enhancedLog.xml) applied at the API level.
+- An APIM instance with [`APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml`](../../APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml) applied at the API level.
 - Two Azure OpenAI resources with the same deployment name, for example `gpt-4o-mini`.
 - A PTU primary with low enough capacity to trigger real `429` responses under load.
 - A PAYGO secondary in a separate Azure OpenAI resource.
@@ -891,9 +891,9 @@ Do not change multiple knobs at once while debugging. Check auth first, then dep
 
 ## Related Documentation
 
-- [POC-Failover-configuration.md](POC-Failover-configuration.md) - Same failover policy against the LLM Simulator instead of real Azure OpenAI backends.
-- [POC-Priority-configuration.md](POC-Priority-configuration.md) - Priority-based backend selection by caller tier.
-- [POC-Chargeback.md](POC-Chargeback.md) - Token usage tracking and per-user cost attribution.
-- [AI_FOUNDRY_INTEGRATION.md](AI_FOUNDRY_INTEGRATION.md) - Wiring Azure OpenAI and AI Foundry endpoints into SimpleL7Proxy.
-- [BACKEND_HOSTS.md](BACKEND_HOSTS.md) - Host configuration options such as `Timeout`, `retryCount`, and `acceptablePriorities`.
-- [SECURITY.md](SECURITY.md) - Managed Identity, Key Vault, and secret rotation guidance.
+- [POC-Failover-configuration.md](failover.md) - Same failover policy against the LLM Simulator instead of real Azure OpenAI backends.
+- [POC-Priority-configuration.md](priority-routing.md) - Priority-based backend selection by caller tier.
+- [POC-Chargeback.md](chargeback.md) - Token usage tracking and per-user cost attribution.
+- [AI_FOUNDRY_INTEGRATION.md](../reference/ai-foundry-integration.md) - Wiring Azure OpenAI and AI Foundry endpoints into SimpleL7Proxy.
+- [BACKEND_HOSTS.md](../reference/backend-hosts.md) - Host configuration options such as `Timeout`, `retryCount`, and `acceptablePriorities`.
+- [SECURITY.md](../reference/security.md) - Managed Identity, Key Vault, and secret rotation guidance.

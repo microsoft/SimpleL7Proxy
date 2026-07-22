@@ -24,7 +24,7 @@ SimpleL7Proxy writes async results to Azure Blob Storage. Blobs do not expire au
 ## Scope & Applicability
 
 **In scope:** Lifecycle management policy configuration for async request blobs written by SimpleL7Proxy.
-**Out of scope:** Blob Storage authentication and connection string setup (see [AsyncOperation.md](AsyncOperation.md)); blob container creation (the proxy creates the container automatically at startup).
+**Out of scope:** Blob Storage authentication and connection string setup (see [AsyncOperation.md](../concepts/async-processing.md)); blob container creation (the proxy creates the container automatically at startup).
 **Dependencies:** `AsyncModeEnabled=true`; `AsyncBlobStorageConfig` set with a valid storage account URI.
 
 ---

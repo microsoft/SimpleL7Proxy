@@ -17,7 +17,7 @@ This document categorizes every SimpleL7Proxy configuration setting into three t
 > - **Advanced:** MUST only be set when a specific capability (async, multi-tenancy, advanced auth) is explicitly required.
 
 > [!NOTE]
-> For the complete reference with Warm/Cold/Hidden reload classification and exact defaults, see [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md). For all environment variable definitions, see [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md).
+> For the complete reference with Warm/Cold/Hidden reload classification and exact defaults, see [CONFIGURATION_SETTINGS.md](configuration.md). For all environment variable definitions, see [ENVIRONMENT_VARIABLES.md](environment-variables.md).
 
 ---
 
@@ -211,13 +211,13 @@ Per-host auth should be configured in `HostN` connection strings using `useoauth
 
 | Document | SHALL Discuss | Notes |
 |----------|---|---------|
-| [BEGINNER_DEVELOPMENT.md](BEGINNER_DEVELOPMENT.md) | Essential | Local setup uses basic config |
-| [CONTAINER_DEPLOYMENT.md](CONTAINER_DEPLOYMENT.md) | Essential + Common | Initial deployment checklist |
-| [AZURE_APP_CONFIGURATION.md](AZURE_APP_CONFIGURATION.md) | Essential + Common | Seed script outputs both |
-| [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md) | All three (with labels) | Complete reference — the authoritative source |
-| [ADVANCED_CONFIGURATION.md](ADVANCED_CONFIGURATION.md) | Advanced only | Deep-dive: priority mapping, header validation, user throttling |
-| [TroubleshootTOC.md](TroubleshootTOC.md) | Common + Advanced (context-dependent) | Circuit-breaker thresholds (Common); sliding window settings (Advanced) |
-| [HEALTH_CHECKING.md](HEALTH_CHECKING.md) | Common (+ Advanced if sidecar) | `PollInterval`/`PollTimeout` are Common; sidecar config is Advanced |
+| [Run SimpleL7Proxy Locally](../getting-started/local.md) | Essential | Local setup uses basic configuration |
+| [CONTAINER_DEPLOYMENT.md](../how-to/deploy-container-apps.md) | Essential + Common | Initial deployment checklist |
+| [AZURE_APP_CONFIGURATION.md](../how-to/configure-app-configuration.md) | Essential + Common | Seed script outputs both |
+| [CONFIGURATION_SETTINGS.md](configuration.md) | All three (with labels) | Complete reference — the authoritative source |
+| [ADVANCED_CONFIGURATION.md](advanced-configuration.md) | Advanced only | Deep-dive: priority mapping, header validation, user throttling |
+| [TroubleshootTOC.md](../troubleshooting/README.md) | Common + Advanced (context-dependent) | Circuit-breaker thresholds (Common); sliding window settings (Advanced) |
+| [HEALTH_CHECKING.md](health-endpoints.md) | Common (+ Advanced if sidecar) | `PollInterval`/`PollTimeout` are Common; sidecar config is Advanced |
 
 ---
 

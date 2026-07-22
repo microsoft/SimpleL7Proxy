@@ -4,7 +4,7 @@ SimpleL7Proxy can read settings from **Container App environment variables** or 
 
 App Configuration is a dedicated service for managing configurations and keeps a labeled copy of the settings in a central store. Operators can view and change values, maintain separate values for each environment, and review the history of each key.
 
-To set up App Configuration, run [deploy.sh](../deployment/README.md#app-configuration) and select **7) App Configuration**. This creates the store, copies the proxy's current and default values under the selected label, grants the Container App managed identity read access, and adds the store endpoint and label to the Container App.
+To set up App Configuration, run [deploy.sh](../../deployment/README.md#app-configuration) and select **7) App Configuration**. This creates the store, copies the proxy's current and default values under the selected label, grants the Container App managed identity read access, and adds the store endpoint and label to the Container App.
 
 The deployment script connects the proxy through its managed identity and `AZURE_APPCONFIG_ENDPOINT`, so the Container App does not need to store a connection string. The proxy also supports `AZURE_APPCONFIG_CONNECTION_STRING` when a managed identity setup is not available.
 
@@ -71,7 +71,7 @@ These Container App environment variables tell each replica how to connect to Ap
 
 ## Before Changing Settings
 
-App Configuration must be deployed and connected to the proxy first. Follow the [App Configuration deployment steps](../deployment/README.md#app-configuration) to configure the deployment variables and run step 7.
+App Configuration must be deployed and connected to the proxy first. Follow the [App Configuration deployment steps](../../deployment/README.md#app-configuration) to configure the deployment variables and run step 7.
 
 After step 7 completes, return here to change and verify settings in Configuration explorer.
 
@@ -79,7 +79,7 @@ After step 7 completes, return here to change and verify settings in Configurati
 
 **Use Configuration explorer to find the settings copied for the deployed proxy; do not type a key name from memory.**
 
-Step 7 copies the available proxy settings into the App Configuration store. Configuration explorer is therefore the starting point for finding the full key name, current value, and label used by that deployment.  See [Configuration Settings](CONFIGURATION_SETTINGS.md) reference for setting details.
+Step 7 copies the available proxy settings into the App Configuration store. Configuration explorer is therefore the starting point for finding the full key name, current value, and label used by that deployment.  See [Configuration Settings](../reference/configuration.md) reference for setting details.
 
 In the Azure portal:
 
@@ -91,9 +91,7 @@ In the Azure portal:
 6. For a `Cold:` key, restart each active Container App revision that needs the new value. The sentinel does not need to change.
 7. Send a new request through the proxy and confirm the expected behavior.
 
-![Configuration explorer showing proxy settings grouped under Cold and Warm keys in hierarchy view](appconfig.png)
-
-In hierarchy view, the colon-separated key path is displayed as a tree. The screenshot shows categories under `Warm:` and the value and label stored for each setting. See Microsoft Learn for details about [keys, hierarchy, and labels in Azure App Configuration](https://learn.microsoft.com/azure/azure-app-configuration/concept-key-value#keys) and [viewing a key's history in Configuration explorer](https://learn.microsoft.com/azure/azure-app-configuration/concept-point-time-snapshot#historical-timeline-view-of-key-values).
+In hierarchy view, the colon-separated key path is displayed as a tree. See Microsoft Learn for details about [keys, hierarchy, and labels in Azure App Configuration](https://learn.microsoft.com/azure/azure-app-configuration/concept-key-value#keys) and [viewing a key's history in Configuration explorer](https://learn.microsoft.com/azure/azure-app-configuration/concept-point-time-snapshot#historical-timeline-view-of-key-values).
 
 To discover the same keys from Azure CLI, list the values under the proxy's label:
 
@@ -175,7 +173,7 @@ az containerapp logs show --name "$CONTAINER_APP_NAME" --resource-group "$CONTAI
 | `[APP-CONFIG] Sentinel missing` | Sentinel is absent under the selected label | Restore `Warm:Sentinel` under that label; rerun step 7 only if replacing the other stored values is acceptable |
 | No `Sentinel changed` log | Sentinel value did not change, label differs, or the poll interval has not elapsed | Query the sentinel by key and label, then wait one interval |
 | `[CONFIGS] App Configuration download failed` | Endpoint, managed identity access, role propagation, or network access failed | Check `AZURE_APPCONFIG_ENDPOINT` and **App Configuration Data Reader** on the store |
-| Refresh log appears but behavior does not change | Key is Cold, unknown, or invalid | Check the prefix and compare the path with [`ProxyConfig.cs`](../src/SimpleL7Proxy/Config/ProxyConfig.cs) |
+| Refresh log appears but behavior does not change | Key is Cold, unknown, or invalid | Check the prefix and compare the path with [`ProxyConfig.cs`](../../src/SimpleL7Proxy/Config/ProxyConfig.cs) |
 | Update reaches only some replicas | Replicas are on different polling cycles | Wait one complete interval and check logs from each replica |
 
 > [!NOTE]
@@ -185,6 +183,6 @@ az containerapp logs show --name "$CONTAINER_APP_NAME" --resource-group "$CONTAI
 
 | Document | What it covers |
 |---|---|
-| [Configuration Settings](CONFIGURATION_SETTINGS.md) | Proxy setting names, defaults, and reload behavior |
-| [Container Deployment](CONTAINER_DEPLOYMENT.md) | Container App deployment and runtime configuration |
-| [Deployment Guide](../deployment/README.md) | Deployment script prerequisites and steps |
+| [Configuration Settings](../reference/configuration.md) | Proxy setting names, defaults, and reload behavior |
+| [Container Deployment](deploy-container-apps.md) | Container App deployment and runtime configuration |
+| [Deployment Guide](../../deployment/README.md) | Deployment script prerequisites and steps |

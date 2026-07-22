@@ -125,7 +125,7 @@ FOR EACH HOST in iterator:
                   failure → TrackStatus() → try next host
 ```
 
-See [LOAD_BALANCING.md](LOAD_BALANCING.md) for how hosts are ordered and how `MaxAttempts` interacts with skipped hosts.
+See [LOAD_BALANCING.md](load-balancing.md) for how hosts are ordered and how `MaxAttempts` interacts with skipped hosts.
 
 </details>
 
@@ -133,7 +133,7 @@ See [LOAD_BALANCING.md](LOAD_BALANCING.md) for how hosts are ordered and how `Ma
 
 ## Related Documentation
 
-- [BACKEND_HOSTS.md](BACKEND_HOSTS.md) — Per-host configuration and health polling
-- [LOAD_BALANCING.md](LOAD_BALANCING.md) — Iterator and retry settings
-- [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md) — Full settings reference
+- [BACKEND_HOSTS.md](backend-hosts.md) — Per-host configuration and health polling
+- [LOAD_BALANCING.md](load-balancing.md) — Iterator and retry settings
+- [CONFIGURATION_SETTINGS.md](configuration.md) — Full settings reference
 

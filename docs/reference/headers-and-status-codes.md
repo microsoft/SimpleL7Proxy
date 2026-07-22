@@ -89,7 +89,7 @@ These headers are injected by the proxy on every successful proxied response.
 ## Health Probe Endpoints
 
 > [!NOTE]
-> Health probe endpoints are served on the **main application port** by default. Port 9000 is only used when the optional sidecar is enabled (see [HEALTH_CHECKING.md](HEALTH_CHECKING.md)).
+> Health probe endpoints are served on the **main application port** by default. Port 9000 is only used when the optional sidecar is enabled (see [HEALTH_CHECKING.md](health-endpoints.md)).
 
 | Path | Returns |
 |------|---------|
@@ -125,7 +125,7 @@ Client request arrives
 
 ## Related Documentation
 
-- [CIRCUIT_BREAKER.md](CIRCUIT_BREAKER.md) — When and why circuit breakers trip (429)
-- [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md) — `AcceptableStatusCodes`, `MaxQueueLength`, `DefaultTTLSecs`
-- [HEALTH_CHECKING.md](HEALTH_CHECKING.md) — Probe endpoint internals
-- [REQUEST_VALIDATION.md](REQUEST_VALIDATION.md) — Header validation rules (403 / 417)
+- [CIRCUIT_BREAKER.md](circuit-breaker.md) — When and why circuit breakers trip (429)
+- [CONFIGURATION_SETTINGS.md](configuration.md) — `AcceptableStatusCodes`, `MaxQueueLength`, `DefaultTTLSecs`
+- [HEALTH_CHECKING.md](health-endpoints.md) — Probe endpoint internals
+- [REQUEST_VALIDATION.md](../how-to/configure-security.md) — Header validation rules (403 / 417)

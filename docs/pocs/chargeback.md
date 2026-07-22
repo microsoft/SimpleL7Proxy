@@ -50,9 +50,9 @@ Nothing else is required for this POC.
 **Optional (alternate setup paths):**
 
 1. Use APIM routing instead of direct backend routing.
-2. Use the LLM Simulator instead of the Azure OpenAI endpoint. See [`test/LLMSimulator/Readme.md`](../test/LLMSimulator/Readme.md).
+2. Use the LLM Simulator instead of the Azure OpenAI endpoint. See [`test/LLMSimulator/Readme.md`](../../test/LLMSimulator/Readme.md).
 
-See [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md) for all environment variable options covering endpoints, logging, workers, and timeouts.
+See [CONFIGURATION_SETTINGS.md](../reference/configuration.md) for all environment variable options covering endpoints, logging, workers, and timeouts.
 
 
 ---
@@ -142,7 +142,7 @@ export Host1="host=https://<funcapp>.azurewebsites.net;mode=direct;path=/v1beta;
 <details>
 <summary>APIM — routing through Azure API Management</summary>
 
-APIM lets you implement capabilities such as governance, security, and compliance across your LLM backends. Connect the proxy to it using `mode=apim` with a probe path so the proxy can health-check the gateway. If auth is needed, see [POC-APIM-Security-Authorization.md](POC-APIM-Security-Authorization.md).
+APIM lets you implement capabilities such as governance, security, and compliance across your LLM backends. Connect the proxy to it using `mode=apim` with a probe path so the proxy can health-check the gateway. If auth is needed, see [Secure APIM](secure-apim.md).
 
 Replace `<apim-name>` with the name of your APIM instance.
 
@@ -247,14 +247,14 @@ requests
 ```
 
 You should see a response similar to the screenshot. If the query shows a `UserId` and counts for the usage fields, the full pipeline is working.
-![alt text](report.png)
+![alt text](../assets/concepts/report.png)
 
 
 Depending on the model, there may be additional usage fields worth reporting.
 
 For example, for `gpt-5.4-mini`, these are available in custom dimensions:
 
-![alt text](custom-dimension-usage-5-4.png)
+![alt text](../assets/concepts/custom-dimension-usage.png)
 
 ---
 
@@ -294,7 +294,7 @@ requests
 
 ## Send data to additional sinks
 
-Set `EVENT_LOGGERS` to one or more of `appinsights`, `eventhub`, or `file` (comma-separated). See [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md) for all options.
+Set `EVENT_LOGGERS` to one or more of `appinsights`, `eventhub`, or `file` (comma-separated). See [CONFIGURATION_SETTINGS.md](../reference/configuration.md) for all options.
 
 <details>
 <summary>Event Hubs</summary>
@@ -415,10 +415,10 @@ Every request also includes: `S7P_RequestId` (correlation ID), `S7P_Priority` (q
 
 ## Related Documentation
 
-- [BEGINNER_DEVELOPMENT.md](BEGINNER_DEVELOPMENT.md) — Running the proxy locally for the first time
-- [CONTAINER_DEPLOYMENT.md](CONTAINER_DEPLOYMENT.md) — Deploying to Azure Container Apps
-- [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md) — Full reference for all environment variables
-- [POC-Priority-configuration.md](POC-Priority-configuration.md) — Routing requests across backends by priority tier
-- [POC-Failover-configuration.md](POC-Failover-configuration.md) — Automatic failover and retry behaviour when a backend is slow or unavailable
-- [OBSERVABILITY.md](OBSERVABILITY.md) — Token metrics, telemetry channels, and event logger configuration
-- [BACKEND_HOSTS.md](BACKEND_HOSTS.md) — `processor=` and other host connection string options
+- [Run SimpleL7Proxy Locally](../getting-started/local.md) — Running the proxy locally for the first time
+- [CONTAINER_DEPLOYMENT.md](../how-to/deploy-container-apps.md) — Deploying to Azure Container Apps
+- [CONFIGURATION_SETTINGS.md](../reference/configuration.md) — Full reference for all environment variables
+- [POC-Priority-configuration.md](priority-routing.md) — Routing requests across backends by priority tier
+- [POC-Failover-configuration.md](failover.md) — Automatic failover and retry behaviour when a backend is slow or unavailable
+- [OBSERVABILITY.md](../concepts/observability.md) — Token metrics, telemetry channels, and event logger configuration
+- [BACKEND_HOSTS.md](../reference/backend-hosts.md) — `processor=` and other host connection string options

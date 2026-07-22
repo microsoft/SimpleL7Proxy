@@ -17,15 +17,15 @@ This document provides canonical, copy-paste-ready configuration blocks for comm
 > - All timeout and interval values are in **milliseconds** unless the variable name ends in `Secs`.
 
 > [!NOTE]
-> For environment variable definitions and defaults, see [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md). For Warm/Cold/Hidden reload classification, see [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md).
+> For environment variable definitions and defaults, see [ENVIRONMENT_VARIABLES.md](../reference/environment-variables.md). For Warm/Cold/Hidden reload classification, see [CONFIGURATION_SETTINGS.md](../reference/configuration.md).
 
 ---
 
 ## Scope & Applicability
 
 **In scope:** Copy-paste configuration blocks for the most common operational scenarios.
-**Out of scope:** Infrastructure provisioning (see [CONTAINER_DEPLOYMENT.md](CONTAINER_DEPLOYMENT.md)); App Configuration seeding (see [AZURE_APP_CONFIGURATION.md](AZURE_APP_CONFIGURATION.md)).
-**Dependencies:** [BACKEND_HOSTS.md](BACKEND_HOSTS.md), [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md).
+**Out of scope:** Infrastructure provisioning (see [CONTAINER_DEPLOYMENT.md](deploy-container-apps.md)); App Configuration seeding (see [AZURE_APP_CONFIGURATION.md](configure-app-configuration.md)).
+**Dependencies:** [BACKEND_HOSTS.md](../reference/backend-hosts.md), [CONFIGURATION_SETTINGS.md](../reference/configuration.md).
 
 ---
 
@@ -43,7 +43,7 @@ Host1="host=https://localhost:3000;probe=/health"
 This starts the proxy on port 8000. The health poller checks `/health` every 15 s (default `PollInterval`). Requests time out after 20 min (default `Timeout`). Latency-based load balancing is active by default.
 
 > [!TIP]
-> For a mock backend, see [DUMMY_BACKEND.md](DUMMY_BACKEND.md). The included null server at `test/nullserver/Python/streamserver.py` requires no external dependencies.
+> For a mock backend, see [DUMMY_BACKEND.md](llm-simulator.md). The included null server at `test/nullserver/Python/streamserver.py` requires no external dependencies.
 
 ---
 
@@ -69,7 +69,7 @@ MaxQueueLength=500
 > `PollInterval` is in milliseconds. `CBTimeslice` is in seconds. `SuccessRate` is a percentage (0–100).
 
 > [!TIP]
-> If a host opens the circuit on transient errors, add its non-failure status codes to `AcceptableStatusCodes`. See [CIRCUIT_BREAKER.md](CIRCUIT_BREAKER.md).
+> If a host opens the circuit on transient errors, add its non-failure status codes to `AcceptableStatusCodes`. See [CIRCUIT_BREAKER.md](../reference/circuit-breaker.md).
 
 ---
 
@@ -92,7 +92,7 @@ LogAllRequestHeadersExcept=Authorization,X-API-Key,Cookie
 > Setting `LogAllRequestHeaders=true` in production will include the `Authorization` header in logs unless it appears in `LogAllRequestHeadersExcept`. The default exclusion list covers `Authorization`.
 
 > [!TIP]
-> For the full validation execution order and wildcard path matching rules, see [REQUEST_VALIDATION.md](REQUEST_VALIDATION.md).
+> For the full validation execution order and wildcard path matching rules, see [REQUEST_VALIDATION.md](configure-security.md).
 
 ---
 
@@ -116,7 +116,7 @@ Timeout=300000
 > `Timeout` is in milliseconds. `KeepAliveIdleTimeoutSecs` is in seconds. Set `Timeout` to match your backend SLA, not to an arbitrarily large value.
 
 > [!TIP]
-> For preset configurations for common workloads (slow backends, fast failure detection), see [ADVANCED_DEVELOPMENT.md](ADVANCED_DEVELOPMENT.md).
+> For preset configurations for common workloads (slow backends, fast failure detection), see [ADVANCED_DEVELOPMENT.md](../contributing/development.md).
 
 ---
 
@@ -139,7 +139,7 @@ APPINSIGHTS_CONNECTIONSTRING=<your-connection-string>
 > `AsyncTimeout` and `AsyncTriggerTimeout` are in milliseconds. `AsyncTTLSecs` (default 86400 s) resets the request TTL when async processing starts. Configure blob deletion separately with an Azure Storage lifecycle policy.
 
 > [!TIP]
-> For the full async configuration reference, including the `async-config` user profile field format, see [AsyncOperation.md](AsyncOperation.md).
+> For the full async configuration reference, including the `async-config` user profile field format, see [AsyncOperation.md](../concepts/async-processing.md).
 
 ---
 
@@ -161,7 +161,7 @@ CBTimeslice=30
 ```
 
 > [!TIP]
-> For path-based routing (e.g., `/chat` to one region and `/embeddings` to another), use the `path=` key in each connection string. See [BACKEND_HOSTS.md](BACKEND_HOSTS.md#path-based-routing).
+> For path-based routing (e.g., `/chat` to one region and `/embeddings` to another), use the `path=` key in each connection string. See [BACKEND_HOSTS.md](../reference/backend-hosts.md#path-based-routing).
 
 ---
 
@@ -208,7 +208,7 @@ IgnoreSSLCert=true
 ```
 
 > [!TIP]
-> For VS Code `launch.json` configuration and IDE integration, see [BEGINNER_DEVELOPMENT.md](BEGINNER_DEVELOPMENT.md).
+> For local setup and IDE integration, see [Run SimpleL7Proxy Locally](../getting-started/local.md) and [Development](../contributing/development.md).
 
 ---
 

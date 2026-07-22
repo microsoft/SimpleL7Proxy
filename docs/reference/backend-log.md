@@ -1,6 +1,6 @@
 # backendLog Activity Log Reference
 
-Reference for every activity log entry emitted by [APIM-Policy/v2.3.0/Priority-with-retry.xml](../APIM-Policy/v2.3.0/Priority-with-retry.xml).
+Reference for every activity log entry emitted by [APIM-Policy/v2.3.0/Priority-with-retry.xml](../../APIM-Policy/v2.3.0/Priority-with-retry.xml).
 
 Each entry is a JSON object with two fields: `Elapsed` (string, `context.Elapsed.TotalSeconds` formatted `F3`) and `message`. Entries are serialized into the `backendLog` response header as `{Elapsed}s {message}` joined by ` | `, optionally prefixed by `DbgStr`, and truncated to 4000 characters.
 

@@ -7,7 +7,7 @@
 - Each client needs a user profile with async enabled, a blob container, and a Service Bus topic
 - Requests opt in via the `AsyncClientRequestHeader` header
 
-For the complete list of Async-related environment variables and their default values, see [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md#async-processing-variables).
+For the complete list of Async-related environment variables and their default values, see [ENVIRONMENT_VARIABLES.md](../reference/environment-variables.md#async-processing-variables).
 
 ## Configuration Reference
 

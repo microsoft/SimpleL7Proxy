@@ -9,7 +9,7 @@
 
 ## Summary
 
-This document is the exhaustive reference for every environment variable accepted by SimpleL7Proxy. Operators MUST use this document when configuring deployments. For Warm/Cold/Hidden reload classification and the complete defaults reference, see [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md).
+This document is the exhaustive reference for every environment variable accepted by SimpleL7Proxy. Operators MUST use this document when configuring deployments. For Warm/Cold/Hidden reload classification and the complete defaults reference, see [CONFIGURATION_SETTINGS.md](configuration.md).
 
 > **TL;DR**
 > - Set `Port` and at least one `Host1` connection string to start the proxy. No other settings are REQUIRED.
@@ -58,7 +58,7 @@ For production deployments, the following variables MUST also be set:
 | `APPINSIGHTS_CONNECTIONSTRING` | REQUIRED for production observability |
 
 > [!TIP]
-> For a full annotated walkthrough of minimum setup and local development options, see [BEGINNER_DEVELOPMENT.md](BEGINNER_DEVELOPMENT.md). For copy-paste production configurations, see [SCENARIOS.md](SCENARIOS.md).
+> For a full annotated walkthrough of minimum setup and local development options, see [Run SimpleL7Proxy Locally](../getting-started/local.md). For copy-paste production configurations, see [Common Scenarios](../how-to/common-scenarios.md).
 
 ## Basic Configuration
 
@@ -89,7 +89,7 @@ For production deployments, the following variables MUST also be set:
 | **UserConfigRefreshIntervalSecs** | int | Interval in seconds between user configuration refreshes. Requires restart.                                                                       | 3600 (1 hour)                            |
 | **UserSoftDeleteTTLMinutes**   | int  | Time in minutes before a soft-deleted user profile is permanently removed. Requires restart.                                                         | 360 (6 hours)                            |
 | **UserConfigUrl**             | string | URL or file path to fetch user configuration data.                                                                                                     | `""` (not set)                           |
-| **UserPriorityThreshold**     | float | Floating point threshold (0.0-1.0) for user priority calculations. If a user owns more than this percentage of requests, their priority is lowered to prevent monopolization. For details, see [Advanced Configuration](ADVANCED_CONFIGURATION.md#user-governance). | 0.1                                      |
+| **UserPriorityThreshold**     | float | Floating point threshold (0.0-1.0) for user priority calculations. If a user owns more than this percentage of requests, their priority is lowered to prevent monopolization. For details, see [Advanced Configuration](advanced-configuration.md#user-governance). | 0.1                                      |
 | **ValidateAuthAppFieldName**    | string | Name of the field in the authentication payload to validate as the App ID.                                                                            | authAppID                                |
 | **ValidateAuthAppID**           | bool | If true, enables validation of an application ID in the request for authentication. Entra has a limit of 13 application IDs, use this setting to make the check in the proxy code.                                                                  | false                                    |
 | **ValidateAuthAppIDHeader**     | string | Name of the header containing the App ID to validate.                                                                                                 | X-MS-CLIENT-PRINCIPAL-ID                 |
@@ -111,9 +111,9 @@ For production deployments, the following variables MUST also be set:
 | **DisallowedHeaders**         | string | A comma-separated list of headers that should be removed or disallowed when forwarding requests.                                                                                                  | None                                     |
 | **UserIDFieldName**          | string | JSON field name in the user profile config file used as the unique user identifier. Also accepts the legacy alias **LookupHeaderName** (kept for backward compatibility). | userId                                   |
 | **PriorityKeyHeader**          | string | Name of the header that contains the priority key for determining request priority.                                                                     | S7PPriorityKey                           |
-| **PriorityKeys**              | string array | Comma-separated list of keys for the header 'S7PPriorityKey'. See [Advanced Configuration](ADVANCED_CONFIGURATION.md#priority-management) for examples.  | "high,medium,low"                         |
-| **PriorityValues**            | int array | Comma-separated list of priorities mapping to **PriorityKeys**. See [Advanced Configuration](ADVANCED_CONFIGURATION.md#priority-management) for examples.   | "1,2,3"                                  |
-| **PriorityWorkers**           | string | Comma-separated list (e.g., "2:1,3:1") specifying worker threads per priority. See [Advanced Configuration](ADVANCED_CONFIGURATION.md#priority-management) for examples.                                                                                       | 2:1,3:1                                  |
+| **PriorityKeys**              | string array | Comma-separated list of keys for the header 'S7PPriorityKey'. See [Advanced Configuration](advanced-configuration.md#priority-management) for examples.  | "high,medium,low"                         |
+| **PriorityValues**            | int array | Comma-separated list of priorities mapping to **PriorityKeys**. See [Advanced Configuration](advanced-configuration.md#priority-management) for examples.   | "1,2,3"                                  |
+| **PriorityWorkers**           | string | Comma-separated list (e.g., "2:1,3:1") specifying worker threads per priority. See [Advanced Configuration](advanced-configuration.md#priority-management) for examples.                                                                                       | 2:1,3:1                                  |
 | **RequiredHeaders**           | string | A comma-separated list of headers required for incoming requests to be deemed valid.                                                                                                             | None                                     |
 | **StripRequestHeaders**       | string | Comma-separated list of headers to remove from the request before forwarding.                                                                         | (empty)                                  |
 | **StripResponseHeaders**      | string | Comma-separated list of headers to remove from the response before returning to client.                                                               | (empty)                                  |
@@ -121,7 +121,7 @@ For production deployments, the following variables MUST also be set:
 | **TTLHeader**                  | string | Name of the header used to specify time-to-live for requests.                                                                                         | S7PTTL                                   |
 | **UniqueUserHeaders**         | string | A list of header names that uniquely identify the caller or user.                                                                                                                               | X-UserID                                 |
 | **UserProfileHeader**         | string | Name of the header that contains user profile information when UseProfiles is enabled.                                                                 | X-UserProfile                            |
-| **ValidateHeaders**           | string | Comma-separated `SourceHeader:AllowedValuesHeader` pairs. Validates that the source header value appears in the allow-list header. Supports trailing `*` for prefix matching. See [Advanced Configuration](ADVANCED_CONFIGURATION.md#header-validation). | (empty)                                  |
+| **ValidateHeaders**           | string | Comma-separated `SourceHeader:AllowedValuesHeader` pairs. Validates that the source header value appears in the allow-list header. Supports trailing `*` for prefix matching. See [Advanced Configuration](advanced-configuration.md#header-validation). | (empty)                                  |
 
 ## Logging & Monitoring Variables
 
@@ -183,7 +183,7 @@ For production deployments, the following variables MUST also be set:
 | **AsyncTTLSecs**              | int | TTL for async requests in seconds.                                                                       | 86400 (24 hours)                         |
 
 > [!WARNING]
-> All async variables are **Cold** settings (see [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md)). They MUST be changed by redeploying or restarting the container — updating Azure App Configuration alone has no effect on Cold variables.
+> All async variables are **Cold** settings (see [CONFIGURATION_SETTINGS.md](configuration.md)). They MUST be changed by redeploying or restarting the container — updating Azure App Configuration alone has no effect on Cold variables.
 
 ## Connection Management Variables
 
@@ -218,7 +218,7 @@ These variables connect SimpleL7Proxy to [Azure App Configuration](https://learn
 | **CBErrorThreshold**          | int | Number of failures within the sliding window (`CBTimeslice` seconds) that opens the circuit.                                                                          | 50                                       |
 | **CBTimeslice**               | int | The duration (in seconds) of the sampling window for the circuit breaker's error rate.                             | 60                                       |
 | **DnsRefreshTimeout**         | int | The number of milliseconds to force a DNS refresh, useful for making services fail over more quickly.             | 120000                                   |
-| **Host1, Host2, ...**         | string | Up to 9 backend servers can be specified. Supports Connection Strings or Simple URLs. See [Backend Host Configuration](BACKEND_HOSTS.md) for full details. | None                                     |
+| **Host1, Host2, ...**         | string | Up to 9 backend servers can be specified. Supports Connection Strings or Simple URLs. See [Backend Host Configuration](backend-hosts.md) for full details. | None                                     |
 | **HostName**                  | string | A logical name for the backend host used for identification and logging.                                          | Default                                  |
 | **IterationMode**             | string | Controls how the proxy iterates through backends (SinglePass).                                           | SinglePass                               |
 | **IP1, IP2, ...**             | string | IP addresses that map to corresponding Host entries if DNS is unavailable. Ignored if `ipaddress` is set in connection string. | None                                     |
@@ -237,7 +237,7 @@ These variables connect SimpleL7Proxy to [Azure App Configuration](https://learn
 | **MaxEvents**                 | int  | Maximum number of events the proxy can store in memory.                                                          | 100000                                   |
 
 > [!TIP]
-> The `Host1`–`Host9` connection string format (`host=…;probe=…;path=…`) MUST be used for all new deployments. The legacy per-variable format (`Probe_path1`, `IP1`) is deprecated. Per-host auth must be configured in `HostN` using `useoauth`/`usemi`, `audience`, `api-key`, and `api-key-header`. See [BACKEND_HOSTS.md](BACKEND_HOSTS.md) for the complete key reference.
+> The `Host1`–`Host9` connection string format (`host=…;probe=…;path=…`) MUST be used for all new deployments. The legacy per-variable format (`Probe_path1`, `IP1`) is deprecated. Per-host auth must be configured in `HostN` using `useoauth`/`usemi`, `audience`, `api-key`, and `api-key-header`. See [BACKEND_HOSTS.md](backend-hosts.md) for the complete key reference.
 
 ## User Profile Configuration
 
@@ -271,7 +271,7 @@ This is a JSON formatted file that gets read every hour. It can be fetched from 
 ## Additional Configuration Notes
 
 - **Environment Variables vs Configuration File:** While most settings can be provided via environment variables, `appsettings.json` is supported in development mode only and MUST NOT be used in production deployments.
-- **Priority Configuration:** The count of entries in `PriorityKeys` MUST equal the count in `PriorityValues`. `PriorityWorkers` MUST reference only priority levels defined in `PriorityValues`. See [ADVANCED_CONFIGURATION.md](ADVANCED_CONFIGURATION.md#priority-management) for a worked example.
+- **Priority Configuration:** The count of entries in `PriorityKeys` MUST equal the count in `PriorityValues`. `PriorityWorkers` MUST reference only priority levels defined in `PriorityValues`. See [ADVANCED_CONFIGURATION.md](advanced-configuration.md#priority-management) for a worked example.
 - **DNS Refresh:** Set `DnsRefreshTimeout` to force DNS re-resolution at a frequency appropriate for your environment. The default is 120,000 ms (2 min). This setting is relevant in environments where backend IPs change on failover.
 
 ---
@@ -288,7 +288,7 @@ This is a JSON formatted file that gets read every hour. It can be fetched from 
 | Priority mapping active | Send request with header matching `PriorityKeyHeader` value | Request served at mapped priority (visible in proxy logs) |
 
 > [!NOTE]
-> Cold settings (per [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md)) MUST be changed by redeploying or restarting the container. Updating Azure App Configuration alone is insufficient for Cold variables.
+> Cold settings (per [CONFIGURATION_SETTINGS.md](configuration.md)) MUST be changed by redeploying or restarting the container. Updating Azure App Configuration alone is insufficient for Cold variables.
 
 ---
 

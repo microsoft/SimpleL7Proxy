@@ -78,7 +78,7 @@ LoadBalanceMode=latency   # try fastest host first
 | `random` | Avoiding predictable traffic patterns |
 
 > [!NOTE]
-> **Default:** `LoadBalanceMode=latency`. Path prefix is stripped before forwarding unless `stripprefix=false` is set on the host (see [BACKEND_HOSTS.md](BACKEND_HOSTS.md#controlling-path-prefix-stripping)).
+> **Default:** `LoadBalanceMode=latency`. Path prefix is stripped before forwarding unless `stripprefix=false` is set on the host (see [BACKEND_HOSTS.md](backend-hosts.md#controlling-path-prefix-stripping)).
 
 > [!TIP]
 > **Troubleshooting:** If a specific host is never reached, verify its configured path prefix matches the inbound request path; a mismatch silently excludes it from the candidate set.
@@ -168,6 +168,6 @@ Key response headers to inspect:
 
 ## Related Documentation
 
-- [BACKEND_HOSTS.md](BACKEND_HOSTS.md) — Host configuration and path prefixes
-- [CIRCUIT_BREAKER.md](CIRCUIT_BREAKER.md) — Circuit breaker configuration
-- [CONFIGURATION_SETTINGS.md](CONFIGURATION_SETTINGS.md) — All configuration options
+- [BACKEND_HOSTS.md](backend-hosts.md) — Host configuration and path prefixes
+- [CIRCUIT_BREAKER.md](circuit-breaker.md) — Circuit breaker configuration
+- [CONFIGURATION_SETTINGS.md](configuration.md) — All configuration options

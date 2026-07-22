@@ -14,7 +14,7 @@ User profiles are stored in a JSON file that the proxy reads periodically (every
 
 ## Configuration
 
-Configure user profiles using these environment variables. For detailed variable definitions, see [Environment Variables](ENVIRONMENT_VARIABLES.md).
+Configure user profiles using these environment variables. For detailed variable definitions, see [Environment Variables](environment-variables.md).
 
 | Variable | Description | Default |
 |----------|-------------|---------|

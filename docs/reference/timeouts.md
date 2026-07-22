@@ -58,7 +58,7 @@ Response to client
 
 **Rule: Each host attempt gets a fresh Timeout window, but the total request life is capped by TTL.**
 
-![Synchronous timeout flow: TTL caps the total request life; each host attempt gets a fresh Timeout window.](SyncTimeouts.png)
+![Synchronous timeout flow: TTL caps the total request life; each host attempt gets a fresh Timeout window.](../assets/concepts/sync-timeouts.png)
 
 ```
 DefaultTTLSecs: 60     → ExpiresAt = enqueue + 60 s
@@ -78,7 +78,7 @@ First attempt:  min(60 s, 45 s) = 45 s effective
 
 **Rule: After `AsyncTriggerTimeout` elapses the client is unblocked immediately; the proxy finishes processing under `AsyncTimeout`.**
 
-![Async timeout flow: client is released after AsyncTriggerTimeout; backend continues under AsyncTimeout; request expiration resets using AsyncTTLSecs.](AsyncTimeouts.png)
+![Async timeout flow: client is released after AsyncTriggerTimeout; backend continues under AsyncTimeout; request expiration resets using AsyncTTLSecs.](../assets/concepts/async-timeouts.png)
 
 ```
 AsyncTriggerTimeout: 10000    → client receives blob URIs after 10 s
