@@ -355,9 +355,21 @@
                         {
                             <div class="eventhub-trend-chart" aria-label="Historical usage trend for the selected metrics">
                                 @{
-                                    var bucketCount = UsageTrendSlots.Count;
+                                    // Compute these once per render. Each is an expensive property that
+                                    // rebuilds the full trend pipeline (re-parsing every event) on access,
+                                    // so they must not be evaluated repeatedly inside the render loops.
+                                    var trendSlots = UsageTrendSlots;
+                                    var trendMetrics = SelectedTrendMetrics;
+                                    var bucketCount = trendSlots.Count;
+                                    var trendRequestEntries = GetFilteredRequestItems()
+                                        .Where(item => string.Equals(item.EventType, "S7P-ProxyRequest", StringComparison.OrdinalIgnoreCase)
+                                            || string.Equals(item.EventType, "S7P-ProxyRequestExpired", StringComparison.OrdinalIgnoreCase))
+                                        .Select(item => new { Item = item, Timestamp = ResolveRequestTimestampUtc(item) })
+                                        .Where(entry => entry.Timestamp is not null)
+                                        .OrderBy(entry => entry.Item.RequestNumber)
+                                        .ToArray();
                                     long yAxisMax = 1;
-                                    foreach (var series in SelectedTrendMetrics)
+                                    foreach (var series in trendMetrics)
                                     {
                                         yAxisMax = Math.Max(yAxisMax, series.Values.Max());
                                     }
@@ -371,8 +383,8 @@
                                     var drawableWidth = chartWidth - leftPadding - rightPadding;
                                     var drawableHeight = chartHeight - topPadding - bottomPadding;
                                     var bucketWidth = drawableWidth / bucketCount;
-                                    var metricBarWidth = Math.Max(8d, Math.Min(80d, (bucketWidth * 0.72d) / SelectedTrendMetrics.Count));
-                                    var metricGroupWidth = metricBarWidth * SelectedTrendMetrics.Count;
+                                    var metricBarWidth = Math.Max(8d, Math.Min(80d, (bucketWidth * 0.72d) / trendMetrics.Count));
+                                    var metricGroupWidth = metricBarWidth * trendMetrics.Count;
 
                                     double ComputeXForIndex(int index)
                                     {
@@ -423,11 +435,14 @@
 
                                     @for (var bucketIndex = 0; bucketIndex < bucketCount; bucketIndex++)
                                     {
-                                        var slot = UsageTrendSlots[bucketIndex];
-                                        var slotRequests = GetTrendSlotRequests(slot);
-                                        for (var metricIndex = 0; metricIndex < SelectedTrendMetrics.Count; metricIndex++)
+                                        var slot = trendSlots[bucketIndex];
+                                        IReadOnlyList<MultiRequestStatusItem> slotRequests = trendRequestEntries
+                                            .Where(entry => entry.Timestamp >= slot.StartUtc && entry.Timestamp < slot.EndExclusiveUtc)
+                                            .Select(entry => entry.Item)
+                                            .ToArray();
+                                        for (var metricIndex = 0; metricIndex < trendMetrics.Count; metricIndex++)
                                         {
-                                            var series = SelectedTrendMetrics[metricIndex];
+                                            var series = trendMetrics[metricIndex];
                                             var totalValue = series.Values[bucketIndex];
                                             if (totalValue <= 0)
                                             {
