@@ -50,7 +50,7 @@ The proxy addresses a structural gap in AI platform deployments: when multiple c
 
 ## High-Level Architecture
 
-![Architecture Diagram](../assets/concepts/architecture.png)
+![Architecture Diagram](architecture.png)
 
 SimpleL7Proxy is a single-process .NET service deployed as a container, typically within Azure Container Apps behind Azure API Management. The table below describes the major internal components and their roles.
 

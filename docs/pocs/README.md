@@ -20,7 +20,7 @@ A failed backend attempt advances to another backend.
 </td>
 <td width="33%" valign="top">
 
-### [🧠 OpenAI Failover](openai-failover.md)
+### [🧠 Capacity Failover](openai-failover.md)
 Azure OpenAI capacity fails over across deployments.
 
 </td>
