@@ -89,7 +89,7 @@ Follow these steps in order:
 4. Compiles the source code and creates the `proxy images` in the ACR.
 5. (Re)deploys the `container app` in either sidecar or internal mode.
 6. If you selected private networking, creates a `DNS zone`.
-7. Connects the `App Configuration` instance to the container app and uploads the latest parameters.
+7. Creates or reuses the `App Configuration` instance, copies the proxy settings and defaults, and connects the Container App.
    
    **The options below apply to async mode.**
 8. Creates Blob Storage.
@@ -210,24 +210,43 @@ Use these only when deploying the sidecar variant (`proxy-with-sidecar/deploy.sh
 
 </details>
 
+<a id="app-configuration"></a>
 <details>
 <summary><strong>App Configuration</strong></summary>
 
-These settings control where runtime config is stored and how quickly updates are picked up.
+These settings identify the App Configuration store, the label applied to the copied settings, and whether step 7 connects the Container App to the store.
 
 | Variable | Used by | Suggested value | Purpose |
 |---|---|---|---|
 | `APPCONFIG_NAME` | AppConfiguration | `myapp-appcfg` | Store name. **Must be globally unique across Azure.** |
 | `APPCONFIG_SKU` | AppConfiguration | `standard` | `standard` or `free` |
-| `APPCONFIG_LABEL` | AppConfiguration | *(empty)* | Optional label for `Warm:*` keys |
-| `AZURE_APPCONFIG_REFRESH_SECONDS` | AppConfiguration | `30` | Hot-reload interval written to `Warm:RefreshSeconds` |
+| `APPCONFIG_LABEL` | AppConfiguration | `prod` | Label applied to the copied `Warm:*` and `Cold:*` keys |
+| `AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS` | AppConfiguration | `30` | How often each proxy replica checks `Warm:Sentinel`, in seconds |
 | `UPDATE_CONTAINER_APP_ENV` | AppConfiguration | `true` | Updates Container App environment variables so the proxy can connect to App Configuration |
 
+**Run step 5 before step 7.** Step 7 reads the deployed Container App's environment variables and managed identity.
+
+When step 7 runs, it:
+
+- Creates or reuses `APPCONFIG_NAME` in `APPCONFIG_RESOURCE_GROUP`.
+- Reads the settings declared with `[ConfigOption]` in `ProxyConfig.cs`.
+- Uses the current Container App value when one exists. Otherwise, it uses a local deployment value, the code default, or `-` when no value is defined.
+- Copies the settings as `Warm:` and `Cold:` keys under `APPCONFIG_LABEL`.
+- Adds `Warm:Sentinel` and `Warm:RefreshSeconds` under the same label.
+- Grants **App Configuration Data Reader** to the Container App managed identity.
+- Sets the App Configuration endpoint and label on the Container App when `UPDATE_CONTAINER_APP_ENV=true`.
+
+> [!WARNING]
+> Running step 7 again recopies the settings and gives `Warm:Sentinel` a new value. This can replace values changed directly in App Configuration. Export the existing configuration first, and rerun step 7 only when the values need to be rebuilt from the deployed app and code defaults.
+
 > [!NOTE]
-> **App Configuration auto-creation:** You do not need to create the App Configuration store before deploying.
-> Step 7 (`AppConfiguration/deploy.sh`) checks whether `APPCONFIG_NAME` exists in `APPCONFIG_RESOURCE_GROUP`
-> and creates it automatically if it doesn't. App Configuration names must be **globally unique** across Azure.
-> If the default `myapp-appcfg` is taken, append a unique suffix (for example, `myapp-appcfg42`) and rerun Step 7.
+> The store does not need to exist before step 7 runs. If `APPCONFIG_NAME` is already used elsewhere in Azure, choose a globally unique name, such as `myapp-appcfg42`, and rerun step 7.
+
+> [!NOTE]
+> Existing `deploy.parameters.sh` files can continue to use `AZURE_APPCONFIG_REFRESH_SECONDS`. Step 7 accepts it as a legacy alias, but new configurations should use `AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS`.
+
+> [!TIP]
+> If step 7 reports `Could not read Container App`, confirm that step 5 completed and that `CONTAINER_APP_NAME`, `CONTAINER_APP_RESOURCE_GROUP`, and the active Azure subscription identify the deployed app.
 
 </details>
 

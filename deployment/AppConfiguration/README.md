@@ -57,8 +57,8 @@ All parameters are set in `deploy.parameters.sh`.
 | `APPCONFIG_NAME` | Name of the App Configuration store (created if missing) |
 | `APPCONFIG_SKU` | `free` or `standard` |
 | `APPCONFIG_LABEL` | Label applied to all `Warm:*` keys (empty string = null / no label) |
-| `AZURE_APPCONFIG_REFRESH_SECONDS` | Refresh interval written to `Warm:RefreshSeconds` |
-| `UPDATE_CONTAINER_APP_ENV` | `true` to push `AZURE_APPCONFIG_ENDPOINT`, `AZURE_APPCONFIG_LABEL`, and `AZURE_APPCONFIG_REFRESH_SECONDS` env vars onto the Container App |
+| `AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS` | How often the proxy checks `Warm:Sentinel`, in seconds |
+| `UPDATE_CONTAINER_APP_ENV` | `true` to push `AZURE_APPCONFIG_ENDPOINT`, `AZURE_APPCONFIG_LABEL`, and `AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS` env vars onto the Container App |
 
 > **Do not commit `deploy.parameters.sh`** — it contains environment-specific values.
 > Only `deploy.parameters.example.sh` is checked in.
@@ -132,7 +132,7 @@ Container App so the proxy knows where to connect:
 
 - `AZURE_APPCONFIG_ENDPOINT`
 - `AZURE_APPCONFIG_LABEL`
-- `AZURE_APPCONFIG_REFRESH_SECONDS`
+- `AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS`
 
 ## Re-running
 

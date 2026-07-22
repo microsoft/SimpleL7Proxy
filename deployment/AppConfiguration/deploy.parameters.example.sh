@@ -29,9 +29,9 @@ export APPCONFIG_SKU="standard"
 # Label applied to Warm:* keys. Use '\0' for null label.
 export APPCONFIG_LABEL=""
 
-# Refresh interval (seconds) written to Warm:RefreshSeconds
-export AZURE_APPCONFIG_REFRESH_SECONDS="30"
+# Refresh interval (seconds) used when the proxy checks Warm:Sentinel
+export AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS="30"
 
-# Set to "true" to push AZURE_APPCONFIG_ENDPOINT/LABEL/REFRESH_SECONDS
+# Set to "true" to push AZURE_APPCONFIG_ENDPOINT/LABEL/REFRESH_INTERVAL_SECONDS
 # env vars onto the Container App after publishing keys.
 export UPDATE_CONTAINER_APP_ENV="true"

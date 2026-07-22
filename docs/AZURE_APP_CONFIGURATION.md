@@ -4,7 +4,7 @@ SimpleL7Proxy can read settings from **Container App environment variables** or 
 
 App Configuration is a dedicated service for managing configurations and keeps a labeled copy of the settings in a central store. Operators can view and change values, maintain separate values for each environment, and review the history of each key.
 
-To set up App Configuration, run `deployment/deploy.sh` and select **7) App Configuration**. Step 7 creates or reuses the store, copies the proxy's current and default values under the selected label, grants the Container App managed identity read access, and adds the store endpoint and label to the Container App.
+To set up App Configuration, run [deploy.sh](../deployment/README.md#app-configuration) and select **7) App Configuration**. This creates the store, copies the proxy's current and default values under the selected label, grants the Container App managed identity read access, and adds the store endpoint and label to the Container App.
 
 The deployment script connects the proxy through its managed identity and `AZURE_APPCONFIG_ENDPOINT`, so the Container App does not need to store a connection string. The proxy also supports `AZURE_APPCONFIG_CONNECTION_STRING` when a managed identity setup is not available.
 
@@ -45,162 +45,115 @@ flowchart LR
 
 ## Configuration Reference
 
-Units used in this document: refresh intervals are in seconds.
+### Setting Precedence
+
+Each proxy replica resolves its settings at startup in this order:
+
+1. Built-in proxy defaults.
+2. Container App environment variables.
+3. `Cold:` values from App Configuration.
+4. `Warm:` values from App Configuration, refreshed on a schedule.
+
+Each source overrides the sources listed before it. If an App Configuration key is missing, empty, or set to `-`, the environment variable or built-in default remains in effect. If App Configuration cannot be reached, the proxy starts with its environment variables and built-in defaults.
+
+During a runtime refresh, the proxy applies the `Warm:` keys that are present in App Configuration. Deleting a `Warm:` key does not restore its environment variable value on a running replica. Restart the replica to rebuild its settings and return to the environment variable or built-in default.
+
+### Proxy Runtime Variables
+
+These Container App environment variables tell each replica how to connect to App Configuration. The replica reads them before connecting to the store, so App Configuration does not override them.
 
 | Name | Required/default | What it controls |
 |---|---|---|
-| `LOCATION` | Required | Azure region for the App Configuration store |
-| `CONTAINER_APP_NAME` | Required | Existing proxy Container App read by step 7 |
-| `CONTAINER_APP_RESOURCE_GROUP` | Required | Resource group containing the proxy |
-| `APPCONFIG_RESOURCE_GROUP` | Required | Resource group that contains App Configuration |
-| `APPCONFIG_NAME` | Required; globally unique | App Configuration store name |
-| `APPCONFIG_SKU` | `standard` | App Configuration SKU |
-| `APPCONFIG_LABEL` | `prod` | Label copied onto the keys and selected by the proxy |
-| `UPDATE_CONTAINER_APP_ENV` | `true` | Whether step 7 connects the Container App to the store |
-| `AZURE_APPCONFIG_ENDPOINT` | Set by step 7 | Store endpoint used by the proxy with its managed identity |
-| `AZURE_APPCONFIG_LABEL` | Value of `APPCONFIG_LABEL` | Label read by the proxy |
-| `AZURE_APPCONFIG_REFRESH_SECONDS` | `30` | Value written by step 7 to `Warm:RefreshSeconds` and to a Container App environment variable |
+| `AZURE_APPCONFIG_ENDPOINT` | Required | Store endpoint used by the proxy with its managed identity |
+| `AZURE_APPCONFIG_CONNECTION_STRING` | Optional; unset | Alternative connection method when managed identity is not used |
+| `AZURE_APPCONFIG_LABEL` | Value of `APPCONFIG_LABEL` | Label the proxy reads from the store |
 | `AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS` | `30` | Interval the proxy uses when checking `Warm:Sentinel` |
 
-> [!NOTE]
-> The deployment script and the proxy currently use different environment variable names for the refresh interval. Step 7 sets `AZURE_APPCONFIG_REFRESH_SECONDS`, while the proxy reads `AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS`. The proxy therefore uses its 30-second default unless `AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS` is set on the Container App.
+## Before Changing Settings
 
-## Set Up App Configuration
+App Configuration must be deployed and connected to the proxy first. Follow the [App Configuration deployment steps](../deployment/README.md#app-configuration) to configure the deployment variables and run step 7.
 
-**The Container App must exist before step 7 runs because the script reads its current settings and managed identity.**
+After step 7 completes, return here to change and verify settings in Configuration explorer.
 
-From the repository root, create the shared deployment parameter file:
+## Change and Verify Settings
 
-```bash
-cd deployment
-cp deploy.parameters.example.sh deploy.parameters.sh
-${EDITOR:-vi} deploy.parameters.sh
-```
+**Use Configuration explorer to find the settings copied for the deployed proxy; do not type a key name from memory.**
 
-Set the Container App and App Configuration values for the environment:
-
-```bash
-export LOCATION="eastus"
-export CONTAINER_APP_NAME="ca-myapp-proxy"
-export CONTAINER_APP_RESOURCE_GROUP="rg-myapp-prod"
-export APPCONFIG_RESOURCE_GROUP="rg-myapp-appconfig"
-export APPCONFIG_NAME="myapp-appcfg"
-export APPCONFIG_LABEL="prod"
-export UPDATE_CONTAINER_APP_ENV="true"
-```
-
-Run the deployment menu and select step 7:
-
-```bash
-./deploy.sh
-# Select 7) App Configuration
-# Wait for: App Configuration deployment complete
-```
-
-After the script finishes, Configuration explorer contains the proxy settings that operators can inspect and change. There is no separate key creation or seeding task.
-
-- Creates or reuses the App Configuration store.
-- Reads the settings declared with `[ConfigOption]` in [`ProxyConfig.cs`](../src/SimpleL7Proxy/Config/ProxyConfig.cs).
-- Uses the current Container App value when one exists. Otherwise, it uses a local deployment value, the code default, or `-` when no value is defined.
-- Copies the settings as `Warm:` and `Cold:` keys under `APPCONFIG_LABEL`.
-- Adds `Warm:Sentinel` and `Warm:RefreshSeconds` under the same label.
-- Grants **App Configuration Data Reader** to the Container App managed identity.
-- Sets the App Configuration endpoint and label on the Container App.
-
-> [!WARNING]
-> Running step 7 again recopies the settings and gives `Warm:Sentinel` a new value. This can replace values changed directly in App Configuration. Rerun step 7 only when the App Configuration values need to be rebuilt from the deployed app and code defaults.
-
-> [!TIP]
-> If the script reports `Could not read Container App`, confirm that step 5 completed and that `CONTAINER_APP_NAME`, `CONTAINER_APP_RESOURCE_GROUP`, and the active Azure subscription identify the deployed app.
-
-## Change a Warm Setting
-
-**Change the existing `Warm:` key first, then give `Warm:Sentinel` a new value under the same label.**
-
-Changing the setting updates the value stored in App Configuration. Changing the sentinel tells each running replica that it needs to read the Warm settings again.
+Step 7 copies the available proxy settings into the App Configuration store. Configuration explorer is therefore the starting point for finding the full key name, current value, and label used by that deployment.  See [Configuration Settings](CONFIGURATION_SETTINGS.md) reference for setting details.
 
 In the Azure portal:
 
 1. Open the App Configuration store.
-2. Open **Configuration explorer** and filter by the label in `APPCONFIG_LABEL`.
-3. Find the required `Warm:` key, edit its value, and save it.
-4. Find `Warm:Sentinel`, give it any new value, and save it with the same label.
-5. Allow one refresh interval for each proxy replica to apply the change.
+2. Open **Configuration explorer**, select the label configured in `APPCONFIG_LABEL`, and enable **Hierarchy view**.
+3. Expand `Warm:` or `Cold:`, then expand a category such as `CircuitBreaker:` or `Async:` to browse its settings.
+4. Select an existing key, change its value, and keep the same label. A key and its label identify one value in App Configuration.
+5. For a `Warm:` key, give `Warm:Sentinel` a new value under the same label and wait one refresh interval.
+6. For a `Cold:` key, restart each active Container App revision that needs the new value. The sentinel does not need to change.
+7. Send a new request through the proxy and confirm the expected behavior.
 
-From the repository root, the same change can be made with Azure CLI:
+![Configuration explorer showing proxy settings grouped under Cold and Warm keys in hierarchy view](appconfig.png)
+
+In hierarchy view, the colon-separated key path is displayed as a tree. The screenshot shows categories under `Warm:` and the value and label stored for each setting. See Microsoft Learn for details about [keys, hierarchy, and labels in Azure App Configuration](https://learn.microsoft.com/azure/azure-app-configuration/concept-key-value#keys) and [viewing a key's history in Configuration explorer](https://learn.microsoft.com/azure/azure-app-configuration/concept-point-time-snapshot#historical-timeline-view-of-key-values).
+
+To discover the same keys from Azure CLI, list the values under the proxy's label:
 
 ```bash
 source deployment/deploy.parameters.sh
+az appconfig kv list --name "$APPCONFIG_NAME" --auth-mode login \
+    --label "$APPCONFIG_LABEL" --query "[].{Key:key,Value:value}" -o table
+```
+
+After choosing a key, copy its full name from Configuration explorer or the CLI output. This example uses `Warm:CircuitBreaker:ErrorThreshold`, which is visible in the screenshot:
+
+```bash
+SETTING_KEY="Warm:CircuitBreaker:ErrorThreshold"
+NEW_VALUE="60"
 az appconfig kv set --name "$APPCONFIG_NAME" --auth-mode login \
-    --label "$APPCONFIG_LABEL" --key "Warm:LoadBalancing:MultiPass:MaxAttempts" \
-    --value "5" --yes
+    --label "$APPCONFIG_LABEL" --key "$SETTING_KEY" \
+    --value "$NEW_VALUE" --yes
+```
+
+If `SETTING_KEY` starts with `Warm:`, update the sentinel:
+
+```bash
 az appconfig kv set --name "$APPCONFIG_NAME" --auth-mode login \
     --label "$APPCONFIG_LABEL" --key "Warm:Sentinel" \
     --value "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" --yes
 ```
 
-With the default polling interval, each replica checks the sentinel every 30 seconds. Replicas check independently, so they may not all receive the change at the same moment.
-
-> [!TIP]
-> If the value does not change in the proxy, confirm that the key starts with `Warm:`, that the sentinel value is different from its previous value, and that both keys use the label in `AZURE_APPCONFIG_LABEL`.
-
-### Worked Example
-
-**This example starts with a maximum-attempts value of 10 and changes it to 5 while the proxy remains online.**
-
-| Step | Operator action | What you observe |
-|---|---|---|
-| 1 | Confirm `Warm:LoadBalancing:MultiPass:MaxAttempts=10` with label `prod` | Configuration explorer shows the value currently available to the proxy |
-| 2 | Change the value to `5` with label `prod` | App Configuration stores `5`; running replicas have not been told to reload yet |
-| 3 | Give `Warm:Sentinel` a new value with label `prod` | Each replica can detect the change on its next poll |
-| 4 | Wait one polling interval | The viewed replica logs `[APP-CONFIG] Sentinel changed` |
-| 5 | Send new requests through the proxy | New requests use the updated maximum-attempts value |
-
-> [!TIP]
-> If Configuration explorer shows `5` but the proxy continues to use `10`, compare the labels on the setting and sentinel, then confirm that the sentinel value changed.
-
-## Verify a Warm Update
-
-**Check the stored values, the replica log, and the behavior of a new request.**
-
-From the repository root, load the deployment values and inspect the setting and sentinel:
+If `SETTING_KEY` starts with `Cold:`, restart the revision:
 
 ```bash
-source deployment/deploy.parameters.sh
-az appconfig kv show --name "$APPCONFIG_NAME" --auth-mode login --label "$APPCONFIG_LABEL" --key "Warm:LoadBalancing:MultiPass:MaxAttempts" -o table
-az appconfig kv show --name "$APPCONFIG_NAME" --auth-mode login --label "$APPCONFIG_LABEL" --key "Warm:Sentinel" -o table
+REVISION=$(az containerapp revision list --name "$CONTAINER_APP_NAME" \
+    --resource-group "$CONTAINER_APP_RESOURCE_GROUP" \
+    --query "[?properties.active].name | [0]" -o tsv)
+az containerapp revision restart --name "$CONTAINER_APP_NAME" \
+    --resource-group "$CONTAINER_APP_RESOURCE_GROUP" --revision "$REVISION"
+```
+
+For a Warm change, each replica checks the sentinel independently. With the default polling interval, replicas normally receive the new value within 30 seconds. For a Cold change, the example above restarts only the first active revision returned by Azure CLI. Restart every revision receiving traffic, or deploy a replacement revision and move traffic to it.
+
+Use the first and third commands to verify any setting. For a Warm setting, also inspect the sentinel with the second command:
+
+```bash
+az appconfig kv show --name "$APPCONFIG_NAME" --auth-mode login \
+    --label "$APPCONFIG_LABEL" --key "$SETTING_KEY" -o table
+az appconfig kv show --name "$APPCONFIG_NAME" --auth-mode login \
+    --label "$APPCONFIG_LABEL" --key "Warm:Sentinel" -o table
 az containerapp logs show --name "$CONTAINER_APP_NAME" --resource-group "$CONTAINER_APP_RESOURCE_GROUP" --follow
 ```
 
 Verification checklist:
 
 - [ ] The setting shows the expected value and label.
-- [ ] `Warm:Sentinel` shows a new value with the same label.
-- [ ] The replica whose logs are being viewed reports `[APP-CONFIG] Sentinel changed`.
+- [ ] For a Warm change, `Warm:Sentinel` has a new value under the same label and the replica log reports `[APP-CONFIG] Sentinel changed`.
+- [ ] For a Cold change, every revision receiving traffic has restarted.
 - [ ] New requests show the expected behavior.
-- [ ] No restart or new Container App revision was needed.
 
 When a replica starts, `[BOOTSTRAP] App Configuration- Warm: <count>, Cold: <count> Refresh: <seconds> secs` records how many settings it read and which polling interval it uses.
 
 > [!TIP]
-> If the store contains keys but the bootstrap counts are zero, compare the key labels with the Container App's `AZURE_APPCONFIG_LABEL` value. Labels are exact and case-sensitive. Check the logs for each replica when more than one replica is active.
-
-## Change a Cold Setting
-
-**Save the `Cold:` value in App Configuration, then restart each active revision that needs to read it.**
-
-The following example changes the worker count and restarts the first active revision returned by Azure CLI:
-
-```bash
-az appconfig kv set --name "$APPCONFIG_NAME" --auth-mode login --label "$APPCONFIG_LABEL" --key "Cold:Server:Workers" --value "12" --yes
-REVISION=$(az containerapp revision list --name "$CONTAINER_APP_NAME" --resource-group "$CONTAINER_APP_RESOURCE_GROUP" --query "[?properties.active].name | [0]" -o tsv)
-az containerapp revision restart --name "$CONTAINER_APP_NAME" --resource-group "$CONTAINER_APP_RESOURCE_GROUP" --revision "$REVISION"
-```
-
-Changing `Warm:Sentinel` is not required for a Cold setting because the proxy reads Cold values during startup.
-
-> [!WARNING]
-> The command above restarts one active revision. When traffic is split across multiple active revisions, restart each revision or deploy a replacement revision and move traffic to it.
+> If the stored value is correct but the proxy still uses the old value, check the key prefix and label. For a Warm key, confirm that the sentinel changed. For a Cold key, confirm that the revision restarted. If the bootstrap counts are zero, compare the stored label with `AZURE_APPCONFIG_LABEL`; labels are exact and case-sensitive.
 
 ## Troubleshoot Setting Changes
 
