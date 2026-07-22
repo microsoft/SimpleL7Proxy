@@ -1,46 +1,25 @@
-# Run SimpleL7Proxy Locally
+# Run the Proxy Locally
 
-Start the proxy from source with one backend and verify that it accepts traffic.
-
-## TL;DR
-
-- Install Git and the .NET 10 SDK.
-- Set `Port` and `Host1`.
-- Run the proxy from `src/SimpleL7Proxy`.
-
-| Setting | Value used here | Unit | Reload |
-|---------|-----------------|------|--------|
-| `Port` | `8000` | TCP port | Startup |
-| `Host1` | `host=http://localhost:9000;probe=/health` | Connection string | Startup |
+Before the proxy can accept traffic, it needs a port to listen on. Set that with the `Port` environment variable, then start the proxy either from source or in Docker.
 
 ## Run from Source
 
-**Set one listening port and one reachable backend before starting the proxy.**
-
 ```bash
-export Port=8000
-export Host1="host=http://localhost:9000;probe=/health"
+export Port=<port>
 cd src/SimpleL7Proxy && dotnet run
 ```
 
-The startup banner confirms that the listener is running. The proxy also writes `eventslog.json` in its working directory.
-
-> [!WARNING]
-> If the backend does not expose `/health`, use a valid probe path or configure `mode=direct`. See [Backend Hosts](../reference/backend-hosts.md).
-
 ## Run in Docker
 
-**Build with `src/` as the Docker context because the image needs both project directories.**
-
 ```bash
-docker build -t simplel7proxy:latest -f src/SimpleL7Proxy/Dockerfile src
-docker run --rm -p 8000:443 \
-  -e 'Host1=host=http://host.docker.internal:9000;probe=/health' simplel7proxy:latest
+export Port=<port>
+docker run -p ${Port}:443 simplel7proxy:latest
 ```
 
-> [!NOTE]
-> The container's port `443` carries plain HTTP. TLS terminates at the ingress layer.
+---
 
-## Next Step
+You should see something like this. Note, the setup is not yet complete. We still need to configure the backends, but you can see that the server port is listening. You can stop the proxy with: `CTRL-C`.
 
-Continue with [Connect a Backend](connect-backend.md), then [Verify the Proxy](verify.md).
+![alt text](image-1.png)
+
+[← Back to Choose Your Setup](02-get-it-running.md#step-1-choose-your-setup)

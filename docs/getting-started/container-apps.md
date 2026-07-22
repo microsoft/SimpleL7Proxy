@@ -1,47 +1,37 @@
-# Run SimpleL7Proxy in Azure Container Apps
+# Run in Azure Container Apps
 
-Provision and deploy SimpleL7Proxy to Azure Container Apps using the repository deployment workflow.
+Before the proxy can accept traffic, it needs a port to listen on. In Azure Container Apps you can set this by deploying with App Configuration, which pushes the `Port` setting to the container for you, or by setting it as a manually defined environment variable on the Container App.
 
-## TL;DR
+## Prerequisites
 
-- Install Azure CLI and `azd`, then authenticate to Azure.
-- Run `.azure/setup.sh`, `azd provision`, and `.azure/deploy.sh`.
-- Configure Container Apps ingress to target proxy port `8000`.
+Deploying to ACA needs three things in place first:
 
-| Setting | Value used here | Unit | Reload |
-|---------|-----------------|------|--------|
-| `Port` | `8000` | TCP port | Startup |
-| Ingress target port | `8000` | TCP port | Deployment |
-| `Host1` | Backend connection string | N/A | Startup |
+* **Azure Container Registry (ACR)** — holds the proxy's container image.
+* **Azure Container Apps environment** — where the proxy runs.
+* **App Configuration** — stores runtime settings such as `Port` so they aren't hardcoded.
 
-## Provision and Deploy
+## Deploy with the Setup Script
 
-**Use the repository workflow so resource names, identities, registry access, and ingress remain consistent.**
+The included setup script creates all three for you, so there's nothing to provision by hand first.
 
 ```bash
-.azure/setup.sh
-azd provision
-.azure/deploy.sh
+cd deployment
+cp deploy.parameters.example.sh deploy.parameters.sh
+vi deploy.parameters.sh        # set LOCATION, resource group names, ACR_NAME, etc.
+./deploy.sh                    # interactive menu
 ```
 
-For the full workflow and parameters, see [Deploy to Azure Container Apps](../how-to/deploy-container-apps.md) and [`deployment/README.md`](../../deployment/README.md).
+From the menu, the relevant steps are:
 
-> [!WARNING]
-> If the app starts but ingress returns an error, confirm that the Container Apps ingress target port matches `Port=8000`.
-
-## Configure the Backend
-
-**Set at least one `Host1` connection string before sending traffic.**
-
-```bash
-export Port=8000
-export Host1="host=https://api.example.com;probe=/health"
-azd deploy
+```
+1)  Prerequisites              (Prereq/validate.sh)
+3)  Validate/Create ACR        (ContainerImage/validate-acr.sh)
+5)  Azure Container Apps       (proxy/deploy.sh)
+7)  App Configuration          (AppConfiguration/deploy.sh)
 ```
 
-> [!TIP]
-> Use [Azure App Configuration](../how-to/configure-app-configuration.md) when operators need centralized configuration and warm reloads.
+See [deployment/README.md](../../deployment/README.md) for the full parameter reference and day-2 operations.
 
-## Next Step
+---
 
-Continue with [Connect a Backend](connect-backend.md), then [Verify the Proxy](verify.md).
+[← Back to Choose Your Setup](02-get-it-running.md#step-1-choose-your-setup)
