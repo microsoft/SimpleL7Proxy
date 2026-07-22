@@ -7,10 +7,6 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\chat_tester\chat_tester.csproj" />
-    </ItemGroup>
-
-    <ItemGroup>
         <None Include="fixtures\**\*">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </None>

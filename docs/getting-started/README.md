@@ -45,7 +45,7 @@ First clone the repo so that you have the source code.
 ### [☁️ Run in Cloud](container-apps.md)
 
 
-![alt text](aca.png)
+![alt text](container-apps.png)
 </td>
 </tr>
 </table>
@@ -80,7 +80,7 @@ You already have an Azure OpenAI / AI Foundry endpoint.
 </td>
 <td width="33%" valign="top" style="background-color:#EEF7F1; border-radius:8px; padding:16px;">
 
-### [🛡️ APIM](02-connect-apim.md)
+### [🛡️ APIM](connect-apim.md)
 
 Your endpoint sits behind Azure API Management.
 
@@ -149,7 +149,7 @@ If you have configured the eventhub, you can point to it from the chat tester to
 <table>
 <tr>
 <td width="33%" align="center"><a href="chat-requests.png"><img src="chat-requests.png" alt="Event Hub live view 1" width="100%"></a></td>
-<td width="33%" align="center"><a href="chat-monitor.png"><img src="chat-monitor.png" alt="Event Hub live view 2" width="100%"></a></td>
+<td width="33%" align="center"><a href=""><img src="chat-monitor.png" alt="Event Hub live view 2" width="100%"></a></td>
 <td width="33%" align="center"><a href="chat-insights.png"><img src="chat-insights.png" alt="Event Hub live view 3" width="100%"></a></td>
 </tr>
 <tr>
