@@ -1,0 +1,19 @@
+@namespace chat_tester.Components.Shared
+
+@if (Result.Caption is null)
+{
+    <div class="empty-result">No caption result was returned.</div>
+}
+else
+{
+    <div class="result-callout mb-3">
+        <div class="text-muted small text-uppercase fw-semibold">Caption</div>
+        <div class="fs-5 fw-semibold">@Result.Caption.Text</div>
+        <div class="small text-muted">Confidence @VisionResultFormatter.Confidence(Result.Caption.Confidence)</div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public VisionResultView Result { get; set; } = new();
+}

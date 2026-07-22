@@ -1,7 +1,7 @@
 <Project Sdk="MSTest.Sdk/3.7.0">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -11,5 +11,15 @@
       -->
     <TestingPlatformShowTestsFailure>true</TestingPlatformShowTestsFailure>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\src\SimpleL7Proxy\SimpleL7Proxy.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="configs\**\*.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 
 </Project>

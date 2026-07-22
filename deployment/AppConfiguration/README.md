@@ -1,155 +1,121 @@
-# Azure App Configuration Deployment
+# Deploy Azure App Configuration
 
-Provisions an Azure App Configuration store and populates it with the proxy's
-**publishable** settings — both **Warm** (hot-reloaded) and **Cold**
-(requires restart).  The running proxy watches a single sentinel key and
-hot-reloads all warm settings when it changes — no restart required.
-Cold settings are published so they can be centrally managed, but changing
-them requires a Container App restart.
+Step 7 of `deployment/deploy.sh` creates or reuses an App Configuration store, imports the proxy settings, assigns RBAC, and connects the Container App.
 
-## Config Modes
+For setting names, precedence, and runtime changes, see [Using Azure App Configuration with SimpleL7Proxy](../../docs/AZURE_APP_CONFIGURATION.md).
 
-Every `BackendOptions` property can be decorated with
-`[ConfigOption("Category:Name")]`.  The `Mode` parameter controls how
-the property is treated:
+## Requirements
 
-| Mode | Published to App Config? | Hot-reloaded? | Notes |
-|---|---|---|---|
-| **Warm** (default) | ✅ | ✅ | Value changes take effect within ~30 s |
-| **Cold** | ✅ | ❌ | Requires a Container App restart |
-| **Hidden** | ❌ | ❌ | Composite / derived at runtime — skipped by deploy.sh |
+- Deployment step 5 completed with `ENABLE_MANAGED_IDENTITY=true`.
+- Azure CLI authenticated to the target subscription.
+- Permission to create the store, update the Container App, and assign roles.
+- `deployment/deploy.parameters.sh` configured for the environment.
 
-## Prerequisites
-
-| Requirement | Details |
-|---|---|
-| **Azure CLI** | `az` ≥ 2.50 with the `containerapp` extension |
-| **jq** | Used to parse the Container App JSON |
-| **Azure login** | `az login` (the script will prompt if needed) |
-| **A running Container App** | The script reads its env vars as the source of truth for warm values |
-| **Bash 4+** | Uses associative arrays (`declare -A`) |
-
-## Quick Start
-
-```bash
-cd deployment/AppConfiguration
-
-# 1. Create your parameters file
-cp deploy.parameters.example.sh deploy.parameters.sh
-
-# 2. Edit deploy.parameters.sh with your values
-#    (see Parameters section below)
-
-# 3. Run
-./deploy.sh
-```
+Use `deployment/deploy.sh` as the entry point. It invokes `deployment/AppConfiguration/deploy.sh` for step 7.
 
 ## Parameters
 
-All parameters are set in `deploy.parameters.sh`.
+Set these values in `deployment/deploy.parameters.sh`:
 
-| Parameter | Description |
-|---|---|
-| `CONTAINER_APP_NAME` | Name of the Container App whose env vars are the source of warm values |
-| `CONTAINER_APP_RESOURCE_GROUP` | Resource group where the Container App lives |
-| `RESOURCE_GROUP` | Resource group for the App Configuration store (created if missing) |
-| `LOCATION` | Azure region for the App Configuration store |
-| `APPCONFIG_NAME` | Name of the App Configuration store (created if missing) |
-| `APPCONFIG_SKU` | `free` or `standard` |
-| `APPCONFIG_LABEL` | Label applied to all `Warm:*` keys (empty string = null / no label) |
-| `AZURE_APPCONFIG_REFRESH_SECONDS` | Refresh interval written to `Warm:RefreshSeconds` |
-| `UPDATE_CONTAINER_APP_ENV` | `true` to push `AZURE_APPCONFIG_ENDPOINT`, `AZURE_APPCONFIG_LABEL`, and `AZURE_APPCONFIG_REFRESH_SECONDS` env vars onto the Container App |
+| Variable | Required/default | Use |
+|---|---|---|
+| `CONTAINER_APP_NAME` | Required | Existing Container App |
+| `CONTAINER_APP_RESOURCE_GROUP` | Required | Resource group containing the Container App |
+| `APPCONFIG_RESOURCE_GROUP` | Required | Resource group for App Configuration |
+| `LOCATION` | Required | Region for a new resource group or store |
+| `APPCONFIG_NAME` | Required; globally unique | Store name |
+| `APPCONFIG_SKU` | `standard` | Store SKU |
+| `APPCONFIG_LABEL` | `prod` | Label assigned to imported keys |
+| `AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS` | `30` | Sentinel polling interval, in seconds |
+| `UPDATE_CONTAINER_APP_ENV` | `true` | Write the endpoint, label, and interval to the Container App |
 
-> **Do not commit `deploy.parameters.sh`** — it contains environment-specific values.
-> Only `deploy.parameters.example.sh` is checked in.
+> [!WARNING]
+> Do not commit `deployment/deploy.parameters.sh`.
 
-## What the Script Does
+## Deploy
 
-### 1. Read the live Container App
+From the repository root:
 
-Queries the Container App deployment and loads every env var from
-`containers[0].env` into memory.  Also discovers the container name
-(needed for the optional env-var update at the end).
+```bash
+cd deployment
+cp deploy.parameters.example.sh deploy.parameters.sh  # first deployment only
+${EDITOR:-vi} deploy.parameters.sh
+./deploy.sh
+```
 
-### 2. Ensure the App Configuration store exists
+Select **7) App Configuration**. The command completes with:
 
-Creates the resource group and App Configuration store if they don't
-already exist.
+```text
+App Configuration deployment complete
+Store: <store-name>
+Endpoint: <store-endpoint>
+Label: <label>
+Config keys published: <total> (Warm: <count>, Cold: <count>)
+```
 
-### 3. Assign RBAC (first run only)
+Step 7:
 
-Checks whether the signed-in Azure identity has the
-**App Configuration Data Owner** role on the store.  If not, assigns it
-and waits 30 seconds for propagation.
+- Reads the live Container App and [`ProxyConfig.cs`](../../src/SimpleL7Proxy/Config/ProxyConfig.cs).
+- Creates or reuses the resource group and App Configuration store.
+- Grants **App Configuration Data Owner** to the signed-in user and **App Configuration Data Reader** to the Container App identity when those assignments are missing.
+- Imports all publishable settings under `APPCONFIG_LABEL`. Values come from the Container App, local environment, code default, or `-`, in that order.
+- Writes `Warm:Sentinel` and `Warm:RefreshSeconds`.
+- When `UPDATE_CONTAINER_APP_ENV=true`, sets `AZURE_APPCONFIG_ENDPOINT`, `AZURE_APPCONFIG_LABEL`, and `AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS` on the Container App.
 
-### 4. Discover config properties from source code
+### JSON fallback reference
 
-Parses `BackendOptions.cs` with `awk`, scanning for the `[ConfigOption]` attribute:
+After the deployment summary, the script prints **Environment Variable Defaults (JSON)**. Keep this output as a baseline fallback configuration. Each property is a Container App environment-variable name, and its value is the default read from `ProxyConfig.cs`.
 
-- **`[ConfigOption("Category:Name")]`** — marks a property as warm-reloadable
-  (the default mode) and defines the key path under the `Warm:` prefix.
-  The env var name defaults to the property name.
-- **`[ConfigOption("Category:Name", ConfigName = "EnvVar")]`** — overrides
-  the env var name when it differs from the property name (e.g.,
-  `CONTAINER_APP_NAME` for the `ContainerApp` property).
-- **`[ConfigOption("Category:Name", Mode = ConfigMode.Cold)]`** — the
-  property is published to App Config but **not** hot-reloaded.  Changing
-  the value requires a Container App restart.
-- **`[ConfigOption("Category:Name", Mode = ConfigMode.Hidden)]`** — the
-  property is **skipped by deploy.sh**.  Its runtime value is composite or
-  derived (e.g., `IDStr` is built from a prefix + replicaID at startup).
-- **`[ParsedConfig("SourceConfig")]`** — marks a non-publishable property
-  whose default comes from a parsed composite config string (e.g.,
-  `AsyncBlobStorageConfig`, `AsyncSBConfig`).
+If a proxy replica starts while App Configuration is unreachable, it uses the environment variables defined on the Container App, followed by built-in defaults. To make the fallback explicit, create a new Container App revision and add the required non-null JSON entries as manual environment variables. In the Azure portal, open the Container App, select **Revisions and replicas** > **Create new revision**, edit the container, and add the name/value pairs under **Environment variables**. See [Manage environment variables on Azure Container Apps](https://learn.microsoft.com/azure/container-apps/environment-variables#add-environment-variables-on-existing-container-apps).
 
-Each discovered property (with Mode ≠ Hidden) produces a quad:
-`PropertyName | KeyPath | ConfigName | Mode`.
+The JSON is not a copy of the effective App Configuration values. It contains code defaults only. Update the retained values if the fallback must match environment-specific settings; use a KVSet export when the actual App Configuration keys, labels, and values must be preserved.
 
-### 5. Resolve values and publish
+## Rerun Step 7
 
-For each publishable property (Warm or Cold):
+Rerunning step 7 updates the managed keys under `APPCONFIG_LABEL` from the Container App, local environment, and code defaults. Values edited directly in App Configuration can be replaced when the same key and label are imported; unrelated keys are not deleted.
 
-1. **Container App env** — look up `ConfigName` in the env vars loaded in
-   step 1.
-2. **Local shell env** — if not found on the Container App, fall back to a
-   local shell variable with the same name.
-3. **Skip** — if neither has a value, the key is skipped.
+If a previous value is needed, use App Configuration's [point-in-time Restore](https://learn.microsoft.com/azure/azure-app-configuration/concept-point-time-snapshot#restore-key-values). For an offline or long-term copy, use [Import/export](https://learn.microsoft.com/azure/azure-app-configuration/howto-import-export-data). After recovery, follow [App Configuration operations](../../docs/AZURE_APP_CONFIGURATION.md#change-and-verify-settings) to apply the values to running replicas.
 
-Found values are written to the App Config store as `Warm:<KeyPath>`.
-The output shows the source of each value (`container-app` or `local-env`).
+## Verify
 
-### 6. Bump the sentinel
+Inspect the store, imported keys, and Container App connection:
 
-Writes `Warm:Sentinel` with the current UTC timestamp and
-`Warm:RefreshSeconds` with the configured interval.  The proxy SDK watches
-only `Warm:Sentinel` — when it changes, all `Warm:*` keys are reloaded as
-a batch.
+```bash
+cd deployment
+source deploy.parameters.sh
 
-### 7. Update Container App env vars (optional)
+az appconfig show --name "$APPCONFIG_NAME" \
+    --resource-group "$APPCONFIG_RESOURCE_GROUP" \
+    --query "{Name:name,Endpoint:endpoint,Sku:sku.name}" -o table
 
-If `UPDATE_CONTAINER_APP_ENV=true`, pushes three env vars onto the
-Container App so the proxy knows where to connect:
+az appconfig kv list --name "$APPCONFIG_NAME" --auth-mode login \
+    --label "$APPCONFIG_LABEL" --query "[].{Key:key,Value:value}" -o table
 
-- `AZURE_APPCONFIG_ENDPOINT`
-- `AZURE_APPCONFIG_LABEL`
-- `AZURE_APPCONFIG_REFRESH_SECONDS`
+az containerapp show --name "$CONTAINER_APP_NAME" \
+    --resource-group "$CONTAINER_APP_RESOURCE_GROUP" \
+    --query "properties.template.containers[0].env[?starts_with(name, 'AZURE_APPCONFIG_')]" \
+    -o table
+```
 
-## Re-running
+Expected results:
 
-The script is idempotent.  Run it again any time you want to sync the
-Container App's current env var values into App Configuration.  The
-sentinel bump ensures the proxy picks up the new values on its next
-refresh cycle.
+- The store exists in `APPCONFIG_RESOURCE_GROUP`.
+- The selected label contains the imported keys and `Warm:Sentinel`.
+- The Container App has the three `AZURE_APPCONFIG_*` values when `UPDATE_CONTAINER_APP_ENV=true`.
 
-## How the Proxy Consumes These Settings
+## Troubleshooting
 
-The proxy's `AzureAppConfigurationRefreshService` (a `BackgroundService`):
+| Symptom | Likely cause | Check |
+|---|---|---|
+| `Could not read Container App` | Incorrect app, resource group, subscription, or step 5 was not completed | Verify with `az containerapp show` |
+| `NameUnavailable` | Store name is already used in Azure | Change `APPCONFIG_NAME` |
+| No system-assigned managed identity | Identity was disabled during step 5 | Enable it and rerun steps 5 and 7 |
+| Import returns `403` | Missing data-plane access or RBAC propagation delay | Verify **App Configuration Data Owner** and retry |
+| `No [ConfigOption(...)] decorations found` | Source file is missing or cannot be parsed | Verify [`ProxyConfig.cs`](../../src/SimpleL7Proxy/Config/ProxyConfig.cs) |
+| `Could not update Container App env vars` | Missing update permission or incorrect app/container | Verify Azure permissions and deployment parameters |
 
-1. Connects to the App Configuration endpoint using managed identity.
-2. Selects all keys matching `Warm:*`.
-3. Registers `Warm:Sentinel` as the refresh trigger (`refreshAll: true`).
-4. Every `RefreshSeconds`, checks if the sentinel changed.
-5. On change, reloads all `Warm:*` keys and applies **only Warm-mode**
-   properties to `BackendOptions` via reflection using the `[ConfigOption]`
-   attribute metadata.  Cold properties are present in the store but
-   are **not** applied at runtime — they require a restart to take effect.
+## Related
+
+- [Interactive deployment](../README.md)
+- [App Configuration operations](../../docs/AZURE_APP_CONFIGURATION.md)
+- [Proxy setting reference](../../docs/CONFIGURATION_SETTINGS.md)

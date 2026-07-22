@@ -1,0 +1,12 @@
+@namespace chat_tester.Components.Shared
+
+<div class="metadata-grid metadata-grid-wide">
+    <div><span>Model version</span><strong>@VisionResultFormatter.Optional(Result.ModelVersion)</strong></div>
+    <div><span>Image width</span><strong>@VisionResultFormatter.Optional(Result.Metadata.Width)</strong></div>
+    <div><span>Image height</span><strong>@VisionResultFormatter.Optional(Result.Metadata.Height)</strong></div>
+</div>
+
+@code {
+    [Parameter]
+    public VisionResultView Result { get; set; } = new();
+}

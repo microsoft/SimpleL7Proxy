@@ -1,0 +1,60 @@
+@namespace chat_tester.Components.Shared
+@using chat_tester.Components.Shared
+@using Microsoft.AspNetCore.Components.Forms
+@inject UserPreferencesService Preferences
+
+<div class="header-panel rounded border p-3 mb-3">
+    <label class="form-label d-block">Custom headers</label>
+    <div class="form-text mb-2">
+        Sent with every request. Use <code>@HeaderSettings.IdToken</code> in a value to insert the
+        sequential request number.
+    </div>
+
+    @if (Settings.Headers.Count == 0)
+    {
+        <p class="text-muted small mb-2">No headers configured.</p>
+    }
+    else
+    {
+        @foreach (var header in Settings.Headers)
+        {
+            <div class="d-flex gap-2 mb-2 align-items-center" @key="header">
+                <input class="form-control" placeholder="Header name" @bind="header.Name" @bind:after="Preferences.SaveAsync" />
+                <input class="form-control" placeholder="Value" @bind="header.Value" @bind:after="Preferences.SaveAsync" />
+                <button class="btn btn-outline-danger" type="button" title="Remove header"
+                        @onclick="() => RemoveHeaderAsync(header)">&times;</button>
+            </div>
+        }
+    }
+
+    <button class="btn btn-sm btn-outline-secondary mt-1" type="button" @onclick="AddHeaderAsync">
+        + Add header
+    </button>
+</div>
+
+<style>
+    .header-panel {
+        background-color: #eef4fb;
+        border-color: #c5d8ef !important;
+    }
+</style>
+
+@code {
+    [Parameter]
+    public HeaderSettings Settings { get; set; } = new();
+
+    /// <summary>Applies the configured custom headers to the request.</summary>
+    public void ApplyHeaders(HttpRequestMessage request, int requestIndex) => Settings.ApplyHeaders(request, requestIndex);
+
+    private async Task AddHeaderAsync()
+    {
+        Settings.Add();
+        await Preferences.SaveAsync();
+    }
+
+    private async Task RemoveHeaderAsync(HeaderSettings.HeaderItem header)
+    {
+        Settings.Remove(header);
+        await Preferences.SaveAsync();
+    }
+}

@@ -1,0 +1,73 @@
+[
+  // 1. Block the deprecated v0 API surface entirely (no else -> skipped when path differs).
+  {
+    "name": "block-legacy-api",
+    "if": { "field": "path", "match": "regex", "value": "^/v0/.*$" },
+    "then": { "action": "deny", "status": "410" }
+  },
+
+  // 2. Route OpenAI-style inference paths to the chat backend pool (complex alternation + optional suffix).
+  {
+    "name": "route-inference",
+    "if": { "field": "path", "match": "regex", "value": "^/v[0-9]+/(chat/completions|responses|embeddings)(/.*)?$" },
+    "then": { "backend-pool": "chat-pool" }
+  },
+
+  // 3. Enterprise tier gets top priority and the premium pool.
+  {
+    "name": "enterprise-priority",
+    "if": { "field": "x-user-tier", "match": "equals", "value": "enterprise", "ignoreCase": true },
+    "then": { "S7PPriorityKey": "1", "backend-pool": "premium-pool" }
+  },
+
+  // 4. EU data residency for any well-formed EU region code.
+  {
+    "name": "eu-data-residency",
+    "if": { "field": "x-region", "match": "regex", "value": "^eu-(west|central|north|south)-[0-9]+$" },
+    "then": { "data-residency": "eu" }
+  },
+
+  // 5. Tag GPT-4 family models (gpt-4, gpt-4o, gpt-4.1, gpt-4-turbo, optional -mini) as advanced.
+  {
+    "name": "gpt4-family",
+    "if": { "field": "model", "match": "regex", "value": "^gpt-4(o|\\.1|-turbo)?(-mini)?$", "ignoreCase": true },
+    "then": { "model-tier": "advanced" }
+  },
+
+  // 6. Validate the bearer API key shape before it hits the backend.
+  {
+    "name": "validate-api-key",
+    "if": { "field": "authorization", "match": "regex", "value": "^Bearer\\s+sk-[A-Za-z0-9]{20,}$" },
+    "then": { "auth": "valid" }
+  },
+
+  // 7. Deny automated agents / scanners (no else -> skipped for normal clients).
+  {
+    "name": "block-bots",
+    "if": { "field": "user-agent", "match": "regex", "value": "^(probe|healthcheck|monitor|bot|curl|scanner)/.*", "ignoreCase": true },
+    "then": { "action": "deny", "status": "403" }
+  },
+
+  // 8. Only JSON request bodies are accepted for the API tier.
+  {
+    "name": "json-only",
+    "if": { "field": "content-type", "match": "startsWith", "value": "application/json" },
+    "then": { "validated": "true" }
+  },
+
+  // 9. Throttle write traffic more aggressively than reads.
+  {
+    "name": "write-throttle",
+    "if": { "field": "method", "match": "notEquals", "value": "GET", "ignoreCase": true },
+    "then": { "throttle": "standard" },
+    "else": { "throttle": "relaxed" }
+  },
+
+  // 10. Region-affinity pool selection with a global fallback.
+  {
+    "name": "region-affinity",
+    "if": { "field": "x-region", "match": "startsWith", "value": "eu-" },
+    "then": { "region-pool": "eu-pool" },
+    "else": { "region-pool": "global-pool" }
+  }
+]

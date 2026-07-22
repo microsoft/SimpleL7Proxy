@@ -1,0 +1,153 @@
+@namespace chat_tester.Components.Shared
+@using Microsoft.AspNetCore.Components.Sections
+
+<SectionContent SectionName="page-heading">
+    <div class="inspector-page-heading">
+        <div class="inspector-page-title">
+            <h1 class="h4 mb-0">@Title</h1>
+            <span class="text-muted small mb-0">@Tagline</span>
+        </div>
+        @if (!string.IsNullOrWhiteSpace(MetadataLine1) || !string.IsNullOrWhiteSpace(MetadataLine2))
+        {
+            <div class="inspector-page-meta">
+                @if (!string.IsNullOrWhiteSpace(MetadataLine1))
+                {
+                    <span class="text-muted small mb-0">@MetadataLine1</span>
+                }
+                @if (!string.IsNullOrWhiteSpace(MetadataLine2))
+                {
+                    <span class="text-muted small mb-0">@MetadataLine2</span>
+                }
+            </div>
+        }
+    </div>
+</SectionContent>
+
+<div class="inspector-page-shell @(HideControls ? "inspector-page-shell-no-controls" : string.Empty)">
+    @if (!HideControls)
+    {
+        <div class="inspector-page-controls">
+            <div class="inspector-page-control-row">
+                @if (ShowEventHubFilters)
+                {
+                    <EventHubTopFilters EnvironmentOptions="@EnvironmentFilterOptions"
+                                        SelectedEnvironment="@SelectedEnvironment"
+                                        SelectedEnvironmentChanged="SelectedEnvironmentChanged"
+                                        ShowUserFilter="@ShowUserFilter"
+                                        UserOptions="@UserFilterOptions"
+                                        SelectedUser="@SelectedUser"
+                                        SelectedUserChanged="SelectedUserChanged"
+                                        ShowModelFilter="@ShowModelFilter"
+                                        ModelOptions="@ModelFilterOptions"
+                                        SelectedModel="@SelectedModel"
+                                        SelectedModelChanged="SelectedModelChanged" />
+                }
+                else
+                {
+                    <HistoryTopBarSelector Entries="HistoryEntries"
+                                           SelectedEntryId="@SelectedHistoryEntryId"
+                                           SourceFilter="@HistorySource" />
+                    <div class="inspector-collapse-controls">
+                        <AutoCollapseToggle Value="@AutoCollapse" ValueChanged="AutoCollapseChanged" />
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <div class="inspector-page-content">
+        @ChildContent
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public string Tagline { get; set; } = string.Empty;
+
+    [Parameter]
+    public string MetadataLine1 { get; set; } = string.Empty;
+
+    [Parameter]
+    public string MetadataLine2 { get; set; } = string.Empty;
+
+    [Parameter]
+    public IReadOnlyList<ChatHistoryEntry> HistoryEntries { get; set; } = Array.Empty<ChatHistoryEntry>();
+
+    [Parameter]
+    public string? SelectedHistoryEntryId { get; set; }
+
+    [Parameter]
+    public string HistorySource { get; set; } = string.Empty;
+
+    [Parameter]
+    public bool AutoCollapse { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> AutoCollapseChanged { get; set; }
+
+    [Parameter]
+    public bool ShowRequestPanel { get; set; }
+
+    [Parameter]
+    public EventCallback<ChangeEventArgs> RequestPanelVisibleChanged { get; set; }
+
+    [Parameter]
+    public bool ShowResultPanel { get; set; }
+
+    [Parameter]
+    public EventCallback<ChangeEventArgs> ResultPanelVisibleChanged { get; set; }
+
+    [Parameter]
+    public string ResultLabel { get; set; } = "Result";
+
+    [Parameter]
+    public bool ShowRawPanel { get; set; }
+
+    [Parameter]
+    public EventCallback<ChangeEventArgs> RawPanelVisibleChanged { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public bool HideControls { get; set; }
+
+    [Parameter]
+    public bool ShowEventHubFilters { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<string> EnvironmentFilterOptions { get; set; } = Array.Empty<string>();
+
+    [Parameter]
+    public string SelectedEnvironment { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> SelectedEnvironmentChanged { get; set; }
+
+    [Parameter]
+    public bool ShowUserFilter { get; set; } = true;
+
+    [Parameter]
+    public IReadOnlyList<string> UserFilterOptions { get; set; } = Array.Empty<string>();
+
+    [Parameter]
+    public string SelectedUser { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> SelectedUserChanged { get; set; }
+
+    [Parameter]
+    public bool ShowModelFilter { get; set; } = true;
+
+    [Parameter]
+    public IReadOnlyList<string> ModelFilterOptions { get; set; } = Array.Empty<string>();
+
+    [Parameter]
+    public string SelectedModel { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> SelectedModelChanged { get; set; }
+}

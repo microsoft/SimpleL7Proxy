@@ -1503,7 +1503,7 @@
     { "name": "EVENTHUB_STARTUP_SECONDS","type": "int",   "reload": "Cold",  "default": 10,      "unit": "s", "concept_ids": ["c-event-hubs"] },
     { "name": "LOGDATETIME",           "type": "bool",   "reload": "Cold",   "default": false,   "concept_ids": ["c-proxy-event"] },
     { "name": "ReuseEvents",           "type": "bool",   "reload": "Cold",   "default": false,   "concept_ids": ["c-proxy-event"] },
-    { "name": "EnvPluginClass",        "type": "string", "reload": "Cold",   "default": "SimpleL7Proxy.Plugins.AzureConfigPlugin", "concept_ids": ["c-config-plugin"] },
+    { "name": "EnvPluginClass",        "type": "string", "reload": "Cold",   "default": "SimpleL7Proxy.Plugin.AzureConfigPlugin", "concept_ids": ["c-config-plugin"] },
     { "name": "GC2InternalSecs",       "type": "int",    "reload": "Cold",   "default": 300,     "unit": "s", "concept_ids": [] },
     { "name": "StreamFlushInterval",   "type": "int",    "reload": "Cold",   "default": 250,     "unit": "ms", "concept_ids": ["c-stream-flush-interval"] },
     { "name": "RequestPreprocessorPlugins","type":"string","reload":"Cold",  "default": "",      "concept_ids": ["c-request-preprocessor-plugins"] },
