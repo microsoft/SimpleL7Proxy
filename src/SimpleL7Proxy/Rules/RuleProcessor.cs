@@ -30,13 +30,13 @@ public sealed class RuleProcessor
 
         foreach (var rule in _config.Rules)
         {
-            var matched = rule.If.Evaluate(context, s7PHash);
-            var result = matched ? rule.Then : rule.Else;
+            var matchedPath = matchedRuleNames is null ? null : new List<string>();
+            var result = rule.Evaluate(context, s7PHash, matchedPath);
             if (result is not null)
             {
-                if (!string.IsNullOrEmpty(rule.Name))
+                if (matchedRuleNames is not null && matchedPath is { Count: > 0 })
                 {
-                    matchedRuleNames?.Add(matched ? rule.Name : rule.Name + "-else");
+                    matchedRuleNames.Add(string.Join('/', matchedPath));
                 }
 
                 yield return result;
@@ -57,7 +57,7 @@ public sealed class RuleProcessor
 
         foreach (var rule in _config.Rules)
         {
-            var result = rule.Evaluate(context, s7PHash);
+            var result = rule.Evaluate(context, s7PHash, matchedPath: null);
             if (result is not null)
             {
                 return result;

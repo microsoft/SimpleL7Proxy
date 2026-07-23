@@ -32,8 +32,8 @@ public sealed class Test1
         var ruleConfig = RuleConfigParser.ParseRules(
                         """
                         [
-                            { "name": "green-cohort", "if": { "field": "Hash:UserID", "match": "equals", "value": "20" }, "then": { "route": "green" } },
-                            { "name": "non-matching-rule", "if": { "field": "UserID", "match": "equals", "value": "other" }, "then": { "fallback": "no" }, "else": { "fallback": "yes" } }
+                            { "name": "green-cohort", "if": { "name": "user-hash", "field": "Hash:UserID", "match": "equals", "value": "20" }, "then": { "name": "green-route", "set": { "route": "green" } } },
+                            { "name": "non-matching-rule", "if": { "name": "other-user", "field": "UserID", "match": "equals", "value": "other" }, "then": { "name": "fallback-no", "set": { "fallback": "no" } }, "else": { "name": "fallback-yes", "set": { "fallback": "yes" } } }
                         ]
                         """);
         var snapshot = new UserProfileSnapshot(
@@ -58,7 +58,9 @@ public sealed class Test1
         Assert.AreEqual("a", request.UserID);
         Assert.AreEqual("green", request.Headers["route"]);
         Assert.AreEqual("yes", request.Headers["fallback"]);
-        CollectionAssert.AreEqual(new[] { "green-cohort", "non-matching-rule-else" }, matchedRuleNames);
+        CollectionAssert.AreEqual(
+            new[] { "green-cohort/user-hash/green-route", "non-matching-rule/fallback-yes" },
+            matchedRuleNames);
     }
 
     private sealed class StubUserProfileService(UserProfileSnapshot snapshot) : IUserProfileService
