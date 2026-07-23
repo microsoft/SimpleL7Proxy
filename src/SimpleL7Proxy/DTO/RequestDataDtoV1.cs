@@ -20,6 +20,7 @@ namespace SimpleL7Proxy.DTO
         public int LifetimePolicyCycleCounter { get; set; }
         public int Priority { get; set; }
         public int Priority2 { get; set; }
+        public short S7PHash { get; set; }
         public int Timeout { get; set; }
         public int version { get; set; } = 1;
         public ProxyEventDto ProxyEvent { get; set; }
@@ -51,6 +52,7 @@ namespace SimpleL7Proxy.DTO
             Path = data.Path;
             Priority = data.Priority;
             Priority2 = data.Priority2;
+            S7PHash = data.S7PHash;
             profileUserId = data.profileUserId;
             Requeued = data.Requeued;
             SBTopicName = data.SBTopicName;
@@ -152,6 +154,7 @@ namespace SimpleL7Proxy.DTO
             data.ParentId = ParentId;
             data.Priority = Priority;
             data.Priority2 = Priority2;
+            data.S7PHash = S7PHash;
             data.profileUserId = this.profileUserId;
             data.Requeued = Requeued;
             data.SBTopicName = SBTopicName;

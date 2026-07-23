@@ -5,9 +5,38 @@
         "Header1": "Value1",
         "Header2": "Value2",
         "fofo": "fofo",
+        "S7P-Model-Override": "gpt-4o",
         "internal-fofo2": "fofo2",
         "AllowedPaths": "/api*, /*",  
-        "async-config": "enabled=true, containername=user123456, topic=status-123456"
+        "async-config": "enabled=true, containername=user123456, topic=status-123456",
+        "rules": [
+            {
+                "name": "premium-tier-overrides",
+                "if": { "field": "x-user-tier", "match": "equals", "value": "premium", "ignoreCase": true },
+                "then": {
+                    "S7P-Model-Override": "gpt-4o",
+                    "S7PPriorityKey": "1"
+                }
+            },
+            {
+                "name": "eu-region-routing",
+                "if": { "field": "x-region", "match": "startsWith", "value": "eu-" },
+                "then": {
+                    "backend-pool": "eu-pool",
+                    "data-residency": "eu"
+                }
+            },
+            {
+                "name": "BlueGreenRouting",
+                "if": { "field": "S7PHash", "match": "LessThan", "value": "50" },
+                "then": {
+                    "Branch": "blue"
+                },
+                "else": {
+                    "Branch": "green"
+                }
+            }
+        ]
     },
     {
         "userId": "123455",

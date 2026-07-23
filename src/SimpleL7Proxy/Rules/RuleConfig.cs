@@ -1,15 +1,20 @@
+using System.Globalization;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace SimpleL7Proxy.Rules;
 
 /// <summary>
-/// String matching operators supported by a rule condition.
+/// String matching and numeric comparison operators supported by a rule condition.
 /// </summary>
 public enum MatchOperator
 {
     Equals,
     NotEquals,
+    GreaterThan,
+    GreaterThanOrEqual,
+    LessThan,
+    LessThanOrEqual,
     Contains,
     NotContains,
     StartsWith,
@@ -18,16 +23,18 @@ public enum MatchOperator
 }
 
 /// <summary>
-/// A single string-match condition evaluated against a named field in the
+/// A single condition evaluated against a named field in the
 /// evaluation context (for example a header name, "path", or "method").
 /// </summary>
 public sealed class RuleCondition
 {
+    private const string HashFieldPrefix = "Hash:";
+
     /// <summary>Name of the field in the context to test.</summary>
     [JsonPropertyName("field")]
     public string Field { get; set; } = string.Empty;
 
-    /// <summary>The string match operator to apply.</summary>
+    /// <summary>The match or comparison operator to apply.</summary>
     [JsonPropertyName("match")]
     public MatchOperator Match { get; set; } = MatchOperator.Equals;
 
@@ -42,28 +49,82 @@ public sealed class RuleCondition
     [JsonIgnore]
     private Regex? _compiledRegex;
 
+    [JsonIgnore]
+    private string? _hashedField;
+
     /// <summary>
     /// Evaluates this condition against the supplied context. Returns false when
     /// the field is not present in the context.
     /// </summary>
-    public bool Evaluate(IReadOnlyDictionary<string, string> context)
+    public bool Evaluate(IReadOnlyDictionary<string, string> context, short? s7PHash = null)
     {
-        if (!context.TryGetValue(Field, out var actual) || actual is null)
+        Span<char> computedValueBuffer = stackalloc char[6];
+
+        if (s7PHash.HasValue && string.Equals(Field, "S7PHash", StringComparison.OrdinalIgnoreCase))
         {
-            // A missing field only satisfies negated operators.
-            return Match is MatchOperator.NotEquals or MatchOperator.NotContains;
+            s7PHash.Value.TryFormat(computedValueBuffer, out var charsWritten, provider: CultureInfo.InvariantCulture);
+            return EvaluateActual(computedValueBuffer[..charsWritten]);
         }
 
+        if (GetHashedField() is { } hashedField)
+        {
+            short bucket;
+
+            if (s7PHash.HasValue && string.Equals(hashedField, "S7PHash", StringComparison.OrdinalIgnoreCase))
+            {
+                s7PHash.Value.TryFormat(computedValueBuffer, out var charsWritten, provider: CultureInfo.InvariantCulture);
+                bucket = RuleHash.CalculateBucket(computedValueBuffer[..charsWritten]);
+            }
+            else if (context.TryGetValue(hashedField, out var contextValue) && contextValue is not null)
+            {
+                bucket = RuleHash.CalculateBucket(contextValue.AsSpan());
+            }
+            else
+            {
+                return Match is MatchOperator.NotEquals or MatchOperator.NotContains;
+            }
+
+            bucket.TryFormat(computedValueBuffer, out var bucketCharsWritten, provider: CultureInfo.InvariantCulture);
+            return EvaluateActual(computedValueBuffer[..bucketCharsWritten]);
+        }
+
+        if (context.TryGetValue(Field, out var actual) && actual is not null)
+        {
+            return EvaluateActual(actual.AsSpan());
+        }
+
+        // A missing field only satisfies negated operators.
+        return Match is MatchOperator.NotEquals or MatchOperator.NotContains;
+    }
+
+    private bool EvaluateActual(ReadOnlySpan<char> actual)
+    {
         var comparison = IgnoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        decimal actualNumber = default;
+        decimal expectedNumber = default;
+
+        if (Match is MatchOperator.GreaterThan
+                or MatchOperator.GreaterThanOrEqual
+                or MatchOperator.LessThan
+                or MatchOperator.LessThanOrEqual
+            && (!decimal.TryParse(actual, NumberStyles.Float, CultureInfo.InvariantCulture, out actualNumber)
+                || !decimal.TryParse(Value, NumberStyles.Float, CultureInfo.InvariantCulture, out expectedNumber)))
+        {
+            return false;
+        }
 
         return Match switch
         {
-            MatchOperator.Equals => actual.Equals(Value, comparison),
-            MatchOperator.NotEquals => !actual.Equals(Value, comparison),
-            MatchOperator.Contains => actual.Contains(Value, comparison),
-            MatchOperator.NotContains => !actual.Contains(Value, comparison),
-            MatchOperator.StartsWith => actual.StartsWith(Value, comparison),
-            MatchOperator.EndsWith => actual.EndsWith(Value, comparison),
+            MatchOperator.Equals => actual.Equals(Value.AsSpan(), comparison),
+            MatchOperator.NotEquals => !actual.Equals(Value.AsSpan(), comparison),
+            MatchOperator.GreaterThan => actualNumber > expectedNumber,
+            MatchOperator.GreaterThanOrEqual => actualNumber >= expectedNumber,
+            MatchOperator.LessThan => actualNumber < expectedNumber,
+            MatchOperator.LessThanOrEqual => actualNumber <= expectedNumber,
+            MatchOperator.Contains => actual.Contains(Value.AsSpan(), comparison),
+            MatchOperator.NotContains => !actual.Contains(Value.AsSpan(), comparison),
+            MatchOperator.StartsWith => actual.StartsWith(Value.AsSpan(), comparison),
+            MatchOperator.EndsWith => actual.EndsWith(Value.AsSpan(), comparison),
             MatchOperator.Regex => GetRegex().IsMatch(actual),
             _ => false
         };
@@ -77,11 +138,29 @@ public sealed class RuleCondition
     /// </summary>
     public void Compile()
     {
+        _hashedField = Field.Length > HashFieldPrefix.Length
+            && Field.StartsWith(HashFieldPrefix, StringComparison.OrdinalIgnoreCase)
+                ? Field[HashFieldPrefix.Length..]
+                : string.Empty;
+
         _compiledRegex = Match == MatchOperator.Regex
             ? new Regex(
                 Value,
                 (IgnoreCase ? RegexOptions.IgnoreCase : RegexOptions.None) | RegexOptions.Compiled | RegexOptions.CultureInvariant)
             : null;
+    }
+
+    private string? GetHashedField()
+    {
+        if (_hashedField is not null)
+        {
+            return _hashedField.Length == 0 ? null : _hashedField;
+        }
+
+        return Field.Length > HashFieldPrefix.Length
+            && Field.StartsWith(HashFieldPrefix, StringComparison.OrdinalIgnoreCase)
+                ? Field[HashFieldPrefix.Length..]
+                : null;
     }
 
     private Regex GetRegex()
@@ -124,8 +203,8 @@ public sealed class Rule
     /// Evaluates the rule and returns the matching branch's key-value pairs, or
     /// null when the non-matching branch is not defined.
     /// </summary>
-    public IReadOnlyDictionary<string, string>? Evaluate(IReadOnlyDictionary<string, string> context)
-        => If.Evaluate(context) ? Then : Else;
+    public IReadOnlyDictionary<string, string>? Evaluate(IReadOnlyDictionary<string, string> context, short? s7PHash = null)
+        => If.Evaluate(context, s7PHash) ? Then : Else;
 
     /// <summary>
     /// Prepares the rule for high-throughput evaluation. Called once by the parser.

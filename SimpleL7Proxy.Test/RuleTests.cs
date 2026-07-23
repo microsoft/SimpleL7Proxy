@@ -58,6 +58,172 @@ public sealed class RuleTests
         Assert.AreEqual("standard-pool", result["backend-pool"]);
     }
 
+    [DataTestMethod]
+    [DataRow("greaterThan", "10", "9", "green")]
+    [DataRow("greaterThan", "10", "10", "blue")]
+    [DataRow("greaterThanOrEqual", "10", "10", "green")]
+    [DataRow("greaterThanOrEqual", "9.99", "10", "blue")]
+    [DataRow("lessThan", "10", "11", "green")]
+    [DataRow("lessThan", "10", "10", "blue")]
+    [DataRow("lessThanOrEqual", "10", "10", "green")]
+    [DataRow("lessThanOrEqual", "10.01", "10", "blue")]
+    public void ProcessFirst_NumericComparison_ReturnsExpectedBranch(
+        string match,
+        string actual,
+        string threshold,
+        string expectedPath)
+    {
+        var processor = new RuleProcessor(RuleConfigParser.ParseRules(
+            $$"""
+            [{
+              "if": { "field": "traffic-percent", "match": "{{match}}", "value": "{{threshold}}" },
+              "then": { "path": "green" },
+              "else": { "path": "blue" }
+            }]
+            """));
+        var context = new Dictionary<string, string> { ["traffic-percent"] = actual };
+
+        var result = processor.ProcessFirst(context);
+
+        Assert.IsNotNull(result);
+        Assert.AreEqual(expectedPath, result["path"]);
+    }
+
+    [DataTestMethod]
+    [DataRow("greaterThan", "not-a-number", "10")]
+    [DataRow("lessThan", "10", "not-a-number")]
+    public void ProcessFirst_NumericComparison_InvalidOperand_ReturnsElseBranch(
+        string match,
+        string actual,
+        string threshold)
+    {
+        var processor = new RuleProcessor(RuleConfigParser.ParseRules(
+            $$"""
+            [{
+              "if": { "field": "traffic-percent", "match": "{{match}}", "value": "{{threshold}}" },
+              "then": { "path": "green" },
+              "else": { "path": "blue" }
+            }]
+            """));
+        var context = new Dictionary<string, string> { ["traffic-percent"] = actual };
+
+        var result = processor.ProcessFirst(context);
+
+        Assert.IsNotNull(result);
+        Assert.AreEqual("blue", result["path"]);
+    }
+
+    [TestMethod]
+    public void ProcessFirst_NumericComparison_MissingField_ReturnsElseBranch()
+    {
+        var processor = new RuleProcessor(RuleConfigParser.ParseRules(
+            """[{ "if": { "field": "traffic-percent", "match": "lessThanOrEqual", "value": "10" }, "then": { "path": "green" }, "else": { "path": "blue" } }]"""));
+
+        var result = processor.ProcessFirst(new Dictionary<string, string>());
+
+        Assert.IsNotNull(result);
+        Assert.AreEqual("blue", result["path"]);
+    }
+
+    [DataTestMethod]
+    [DataRow(9, "green")]
+    [DataRow(10, "blue")]
+    public void Process_S7PHash_UsesPassedValue(int s7PHash, string expectedPath)
+    {
+        var processor = new RuleProcessor(RuleConfigParser.ParseRules(
+            """[{ "if": { "field": "S7PHash", "match": "lessThan", "value": "10" }, "then": { "path": "green" }, "else": { "path": "blue" } }]"""));
+        var context = new Dictionary<string, string> { ["S7PHash"] = "99" };
+
+        var result = processor.Process(context, (short)s7PHash).Single();
+        var firstResult = processor.ProcessFirst(context, (short)s7PHash);
+
+        Assert.AreEqual(expectedPath, result["path"]);
+        Assert.IsNotNull(firstResult);
+        Assert.AreEqual(expectedPath, firstResult["path"]);
+    }
+
+    [DataTestMethod]
+    [DataRow("", 61)]
+    [DataRow("a", 20)]
+    [DataRow("b", 77)]
+    [DataRow("c", 58)]
+    public void RuleHash_CalculateBucket_ReturnsKnownFnvBucket(string value, int expectedBucket)
+    {
+        var bucket = RuleHash.CalculateBucket(value.AsSpan());
+
+        Assert.AreEqual((short)expectedBucket, bucket);
+    }
+
+    [TestMethod]
+    public void RuleHash_CalculateBucket_TwoValuesUsesSeparator()
+    {
+        var bucket = RuleHash.CalculateBucket("a".AsSpan(), "b".AsSpan());
+
+        Assert.AreEqual((short)8, bucket);
+        Assert.AreEqual(RuleHash.CalculateBucket("a\nb".AsSpan()), bucket);
+        Assert.AreNotEqual(RuleHash.CalculateBucket("ab".AsSpan()), bucket);
+    }
+
+    [TestMethod]
+    public void Process_HashField_HashesNamedContextValue()
+    {
+        var processor = new RuleProcessor(RuleConfigParser.ParseRules(
+            """[{ "if": { "field": "Hash:UserID", "match": "equals", "value": "20" }, "then": { "path": "green" }, "else": { "path": "blue" } }]"""));
+        var context = new Dictionary<string, string>
+        {
+            ["UserID"] = "a",
+            ["Hash:UserID"] = "not-the-computed-hash"
+        };
+
+        var result = processor.Process(context).Single();
+        var firstResult = processor.ProcessFirst(context);
+
+        Assert.AreEqual("green", result["path"]);
+        Assert.IsNotNull(firstResult);
+        Assert.AreEqual("green", firstResult["path"]);
+    }
+
+    [TestMethod]
+    public void Process_MatchedRuleNames_ReportsAppliedThenAndElseBranchesOnly()
+    {
+        var processor = new RuleProcessor(RuleConfigParser.ParseRules(
+            """
+            [
+              { "name": "then-rule", "if": { "field": "tier", "match": "equals", "value": "premium" }, "then": { "then": "applied" } },
+              { "name": "else-rule", "if": { "field": "region", "match": "equals", "value": "eu" }, "then": { "else": "not-applied" }, "else": { "else": "applied" } },
+              { "name": "no-branch-rule", "if": { "field": "missing", "match": "equals", "value": "yes" }, "then": { "missing": "not-applied" } },
+              { "if": { "field": "mode", "match": "equals", "value": "other" }, "then": { "unnamed": "not-applied" }, "else": { "unnamed": "applied" } }
+            ]
+            """));
+        var context = new Dictionary<string, string>
+        {
+            ["tier"] = "premium",
+            ["region"] = "us",
+            ["mode"] = "current"
+        };
+        var matchedRuleNames = new List<string>();
+
+        var results = processor.Process(context, matchedRuleNames: matchedRuleNames).ToList();
+
+        Assert.AreEqual(3, results.Count);
+        Assert.AreEqual("applied", results[0]["then"]);
+        Assert.AreEqual("applied", results[1]["else"]);
+        Assert.AreEqual("applied", results[2]["unnamed"]);
+        CollectionAssert.AreEqual(new[] { "then-rule", "else-rule-else" }, matchedRuleNames);
+    }
+
+    [TestMethod]
+    public void ProcessFirst_HashField_MissingSource_ReturnsElseBranch()
+    {
+        var processor = new RuleProcessor(RuleConfigParser.ParseRules(
+            """[{ "if": { "field": "Hash:Missing", "match": "lessThan", "value": "10" }, "then": { "path": "green" }, "else": { "path": "blue" } }]"""));
+
+        var result = processor.ProcessFirst(new Dictionary<string, string>());
+
+        Assert.IsNotNull(result);
+        Assert.AreEqual("blue", result["path"]);
+    }
+
     [TestMethod]
     public void ProcessFirst_NoMatch_ReturnsDefault()
     {
@@ -67,7 +233,7 @@ public sealed class RuleTests
         var context = new Dictionary<string, string> { ["x"] = "not-y" };
 
         var fallback = new Dictionary<string, string> { ["backend-pool"] = "default" };
-        var result = processor.ProcessFirst(context, fallback);
+    var result = processor.ProcessFirst(context, defaultResult: fallback);
 
         Assert.AreSame(fallback, result);
     }
