@@ -64,3 +64,5 @@ Run from source, understand the internals, and contribute changes.
 ---
 
 > **Not sure where to start?** Run the [Failover POC](docs/pocs/failover.md) first — it exercises the core behavior in under 5 minutes and makes the architecture concrete before you read anything else.
+
+> **Looking for the full documentation index?** See the [Documentation hub](docs/README.md).
