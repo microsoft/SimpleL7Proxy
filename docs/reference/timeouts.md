@@ -1,18 +1,18 @@
 # Timeouts
 
-SimpleL7Proxy enforces deadline-based limits at three layers — TTL, per-host Timeout, and AsyncTimeout — so that no request runs indefinitely.
+SimpleL7Proxy keeps requests from running forever by putting three deadlines around every request: a TTL, a per-host Timeout, and an AsyncTimeout. This page walks through how each one works and how they interact.
 
 > **TL;DR**
-> - **Earliest expiration wins** — when TTL and Timeout both apply, whichever deadline arrives first is enforced.
-> - **TTL** (seconds) is the hard wall-clock budget for the entire request life: queue wait + all retry attempts.
-> - **Timeout** (milliseconds) is the per-host-attempt window; it resets on every retry.
-> - **AsyncTimeout** (milliseconds) replaces Timeout once a request switches to async mode.
+> - **Earliest expiration wins** — when TTL and Timeout both apply, whichever deadline arrives first is the one that fires.
+> - **TTL** (seconds) is the hard wall-clock budget for the whole request: queue wait + every retry attempt.
+> - **Timeout** (milliseconds) is the window for a single host attempt, and it resets on every retry.
+> - **AsyncTimeout** (milliseconds) takes over from Timeout once a request switches to async mode.
 
 ---
 
-> **Units used in this doc:** TTL values are in **seconds**; all Timeout values are in **milliseconds**.
+> **Heads up on units:** TTL values are in **seconds**; every Timeout value is in **milliseconds**.
 
-## Reference — All Settings
+## All the Settings at a Glance
 
 | Setting | Default | Unit | Override Header | Config Key | Reload |
 |---|---|---|---|---|---|
@@ -24,9 +24,9 @@ SimpleL7Proxy enforces deadline-based limits at three layers — TTL, per-host T
 
 ---
 
-## Request Flow
+## How a Request Flows
 
-The diagram below covers both synchronous and async paths. All clocks start at **enqueue time**.
+Here's the whole picture — both the synchronous and async paths in one diagram. Every clock starts ticking the moment the request is **enqueued**.
 
 ```
 Client
@@ -50,15 +50,15 @@ Client
 Response to client
 ```
 
-**On every host attempt, the effective deadline = min(remaining TTL, Timeout).**
+**On every host attempt, the effective deadline is whichever is smaller: the remaining TTL or the Timeout.**
 
 ---
 
 ## Synchronous Requests
 
-**Rule: Each host attempt gets a fresh Timeout window, but the total request life is capped by TTL.**
+Each host attempt gets a fresh Timeout window, but no matter how many attempts you make, the total request life is still capped by TTL.
 
-![Synchronous timeout flow: TTL caps the total request life; each host attempt gets a fresh Timeout window.](../assets/concepts/sync-timeouts.png)
+![Synchronous timeout flow: TTL caps the total request life; each host attempt gets a fresh Timeout window.](sync-timeouts.png)
 
 ```
 DefaultTTLSecs: 60     → ExpiresAt = enqueue + 60 s
@@ -67,18 +67,18 @@ First attempt:  min(60 s, 45 s) = 45 s effective
 ```
 
 > [!NOTE]
-> **Default:** `DefaultTTLSecs = 300 s`, `Timeout = 1,200,000 ms`. Both are used when no override headers are present.
+> **Defaults:** `DefaultTTLSecs = 300 s` and `Timeout = 1,200,000 ms`. These kick in whenever no override headers are present.
 
 > [!TIP]
-> **Troubleshooting:** If requests expire faster than expected, verify that the client is not sending a short `S7PTTL` header — it silently overrides `DefaultTTLSecs`.
+> **Requests expiring sooner than you expect?** Check that the client isn't sending a short `S7PTTL` header — it silently overrides `DefaultTTLSecs`.
 
 ---
 
 ## Async Requests
 
-**Rule: After `AsyncTriggerTimeout` elapses the client is unblocked immediately; the proxy finishes processing under `AsyncTimeout`.**
+Once `AsyncTriggerTimeout` elapses, the client is unblocked right away and the proxy keeps working in the background under `AsyncTimeout`.
 
-![Async timeout flow: client is released after AsyncTriggerTimeout; backend continues under AsyncTimeout; request expiration resets using AsyncTTLSecs.](../assets/concepts/async-timeouts.png)
+![Async timeout flow: client is released after AsyncTriggerTimeout; backend continues under AsyncTimeout; request expiration resets using AsyncTTLSecs.](async-timeouts.png)
 
 ```
 AsyncTriggerTimeout: 10000    → client receives blob URIs after 10 s
@@ -87,16 +87,16 @@ AsyncTTLSecs:        86400    → async request expiration resets to 24 h
 ```
 
 > [!NOTE]
-> **No header overrides exist for async settings.** Configure them via environment variables only.
+> **There are no header overrides for async settings** — configure them through environment variables only.
 
 > [!TIP]
-> **Troubleshooting:** If background processing expires sooner than expected, verify `AsyncTTLSecs`.
+> **Background work finishing too early?** Check `AsyncTTLSecs`.
 
 ---
 
-## Per-Request Overrides
+## Overriding Timeouts Per Request
 
-**Rule: Send `S7PTTL` (seconds) or `S7PTimeout` (milliseconds) headers to replace the global defaults for one request.**
+Want different limits for a single request? Send an `S7PTTL` (seconds) or `S7PTimeout` (milliseconds) header and it replaces the global default for that one request.
 
 ```http
 S7PTimeout: 60000   # per-host timeout → 60 s for this request
@@ -104,12 +104,12 @@ S7PTTL: 120         # TTL → 120 s for this request
 ```
 
 > [!NOTE]
-> **Defaults:** If an override header is absent, the corresponding global config value is used.
+> **Leave a header off and you get the default.** If an override header is absent, the proxy falls back to the corresponding global config value.
 
 > [!WARNING]
-> **Error:** An unparseable `S7PTTL` value returns **400 Bad Request** with error code `InvalidTTL`.
+> **Watch the format:** an `S7PTTL` value the proxy can't parse returns **400 Bad Request** with error code `InvalidTTL`.
 
-Supported `S7PTTL` formats:
+The `S7PTTL` header accepts any of these formats:
 
 | Format | Example | Meaning |
 |---|---|---|
@@ -123,7 +123,9 @@ Supported `S7PTTL` formats:
 <details>
 <summary>Worked Example</summary>
 
-> **Scenario:** `DefaultTTLSecs = 60`, `Timeout = 45000`. No override headers. Request queues for 5 s, then needs two host attempts.
+Let's walk through a concrete case so you can see the two deadlines racing each other.
+
+> **Scenario:** `DefaultTTLSecs = 60`, `Timeout = 45000`. No override headers. The request queues for 5 s, then needs two host attempts.
 
 | Event | Wall clock | TTL remaining | Host window | Effective deadline | Outcome |
 |---|---|---|---|---|---|
@@ -133,6 +135,6 @@ Supported `S7PTTL` formats:
 | Host 2 attempt | 50 s | 10 s | 45 s window | **min(10 s, 45 s) = 10 s** | Attempt Host 2 |
 | TTL expires | 60 s | 0 s | — | — | 503 — no more retries |
 
-**The TTL (not the per-host Timeout) determined the final deadline on the second attempt.**
+**Notice that on the second attempt it was the TTL — not the per-host Timeout — that set the deadline.**
 
 </details>
