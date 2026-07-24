@@ -87,7 +87,7 @@ public sealed class RuleCondition
     {
         Span<char> computedValueBuffer = stackalloc char[6];
 
-        if (s7PHash.HasValue && string.Equals(Field, "S7PHash", StringComparison.OrdinalIgnoreCase))
+        if (s7PHash.HasValue && string.Equals(Field, Constants.S7PHash, StringComparison.OrdinalIgnoreCase))
         {
             s7PHash.Value.TryFormat(computedValueBuffer, out var charsWritten, provider: CultureInfo.InvariantCulture);
             return EvaluateActual(computedValueBuffer[..charsWritten]);
@@ -97,7 +97,7 @@ public sealed class RuleCondition
         {
             short bucket;
 
-            if (s7PHash.HasValue && string.Equals(hashedField, "S7PHash", StringComparison.OrdinalIgnoreCase))
+            if (s7PHash.HasValue && string.Equals(hashedField, Constants.S7PHash, StringComparison.OrdinalIgnoreCase))
             {
                 s7PHash.Value.TryFormat(computedValueBuffer, out var charsWritten, provider: CultureInfo.InvariantCulture);
                 bucket = RuleHash.CalculateBucket(computedValueBuffer[..charsWritten]);
