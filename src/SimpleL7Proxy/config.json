@@ -5,9 +5,72 @@
         "Header1": "Value1",
         "Header2": "Value2",
         "fofo": "fofo",
+        "S7P-Model-Override": "gpt-4o",
         "internal-fofo2": "fofo2",
         "AllowedPaths": "/api*, /*",  
-        "async-config": "enabled=true, containername=user123456, topic=status-123456"
+        "async-config": "enabled=true, containername=user123456, topic=status-123456",
+        "rules": [
+            {
+                "name": "premium-tier-overrides",
+                "if": { "name": "premium-tier", "field": "x-user-tier", "match": "equals", "value": "premium", "ignoreCase": true },
+                "then": {
+                    "name": "premium-overrides",
+                    "set": {
+                        "S7P-Model-Override": "gpt-4o",
+                        "S7PPriorityKey": "1"
+                    }
+                }
+            },
+            {
+                "name": "eu-region-routing",
+                "if": { "name": "eu-region", "field": "x-region", "match": "startsWith", "value": "eu-" },
+                "then": {
+                    "name": "eu-routing",
+                    "set": {
+                        "backend-pool": "eu-pool",
+                        "data-residency": "eu"
+                    }
+                }
+            },
+            {
+                "name": "BlueGreenRouting",
+                "if": { "name": "hash-0-25", "field": "S7PHash", "match": "between", "value": "0", "value2": "25", "mode": "inClosedOpenRange" },
+                "then": {
+                    "name": "blue-0-25",
+                    "set": {"Branch": "blue"}
+                },
+                "elseif": [
+                    {
+                        "name": "hash-25-40-clause",
+                        "if": { "name": "hash-25-40", "field": "S7PHash", "match": "between", "value": "25", "value2": "40", "mode": "inClosedOpenRange" },
+                        "then": {
+                            "name": "green-25-40",
+                            "set" : { "Branch": "green" }
+                        }
+                    },
+                    {
+                        "name": "hash-40-70-clause",
+                        "if": { "name": "hash-40-70", "field": "S7PHash", "match": "between", "value": "40", "value2": "70", "mode": "inClosedOpenRange" },
+                        "then": {
+                            "name": "yellow-40-70",
+                            "set": {"Branch": "yellow"}
+                        }
+                    },
+                    {
+                        "name": "hash-70-90-clause",
+                        "if": { "name": "hash-70-90", "field": "S7PHash", "match": "between", "value": "70", "value2": "90", "mode": "inClosedOpenRange" },
+                        "then": {
+                            "name": "orange-70-90",
+                            "set": {"Branch": "orange"}
+                        }
+                    }
+                ],
+                "else": {
+                    "name": "red-fallback",
+                    "set": {"Branch": "red"}
+                }
+            }
+        ]
     },
     {
         "userId": "123455",

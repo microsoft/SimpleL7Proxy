@@ -88,6 +88,6 @@ This is intentional — it slows traffic to the struggling host before fully blo
 
 ## Related
 
-- [CIRCUIT_BREAKER.md](../CIRCUIT_BREAKER.md) — full circuit breaker reference
+- [CIRCUIT_BREAKER.md](../reference/circuit-breaker.md) — full circuit breaker reference
 - [requests-429.md](requests-429.md) — 429 responses caused by open circuits
 - [backend-hosts.md](backend-hosts.md) — backend health and probing

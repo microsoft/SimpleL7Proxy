@@ -109,7 +109,7 @@ namespace SimpleL7Proxy.Async.Jobs
 
         private async Task DataFromBlob(RequestData request)
         {
-            if ( request.BodyBytes == null || request.BodyBytes.Length == 0)
+            if (request.BodyBytes == null || request.BodyBytes.Value.Length == 0)
             {
                 // populate the fields that were stored in the backup blob
                 await _backupService.RestoreIntoAsync(request);

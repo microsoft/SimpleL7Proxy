@@ -1,0 +1,104 @@
+﻿@page "/"
+@namespace chat_tester.Components.Pages
+@rendermode InteractiveServer
+@inject chat_tester.Components.Shared.UserPreferencesService Preferences
+@inject NavigationManager Navigation
+
+<PageTitle>chat-tester</PageTitle>
+
+<h1>chat-tester</h1>
+<p class="lead">A local Blazor app for sending chat-style requests through a server and inspecting the response stream.</p>
+
+<div class="row g-4">
+    <div class="col-md-4">
+        <div class="card shadow-sm h-100 border-primary">
+            <div class="card-body">
+                <h5 class="card-title">Step 1: Send queries</h5>
+                <p class="card-text">Send image prompts through OpenAI, Anthropic, Gemini, or Azure AI Vision schemas and inspect the response payload.</p>
+                <div class="onboarding-target @(ShowInvestigatorGuide ? "is-active" : string.Empty)">
+                    @if (ShowInvestigatorGuide)
+                    {
+                        <span class="onboarding-orb" aria-hidden="true"></span>
+                    }
+                    <button class="btn btn-primary" type="button" @onclick="StartInvestigationAsync">Send queries</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card shadow-sm h-100 border-primary">
+            <div class="card-body">
+                <h5 class="card-title">Step 2: Monitor the traffic</h5>
+                <p class="card-text">Monitor proxy requests, backends, endpoints, circuit-breaker state, and runtime metrics.</p>
+                <a class="btn btn-primary" href="eventhub">Monitor traffic</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card shadow-sm h-100 border-primary">
+            <div class="card-body">
+                <h5 class="card-title">Step 3: Main insights</h5>
+                <p class="card-text">Explore the Event Hub feed through the insights-focused analysis view.</p>
+                <a class="btn btn-primary" href="insights">View insights</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (ShowOnboarding)
+{
+    <aside class="onboarding-steps" aria-label="Getting started steps">
+        <h2>Getting started</h2>
+        <ol>
+            @foreach (var step in OnboardingSteps)
+            {
+                <li class="@(Preferences.IsOnboardingStep(step.Id) ? "is-active" : string.Empty)">
+                    @if (Preferences.IsOnboardingStep(step.Id))
+                    {
+                        <span class="onboarding-step-pointer" aria-hidden="true">&#128073;</span>
+                    }
+                    <span>@step.Text</span>
+                </li>
+            }
+        </ol>
+        <button class="btn btn-sm btn-outline-secondary mt-2" type="button" @onclick="CompleteOnboardingAsync">I'm done</button>
+    </aside>
+}
+
+@code {
+    private static readonly (string Id, string Text)[] OnboardingSteps =
+    {
+        ("home", "Click on Send queries"),
+        ("server", "Confirm the server URL and authorization"),
+        ("model", "Click on the Model tab"),
+        ("model-select", "Pick the GPT-4o model"),
+        ("path", "Make sure that the path is correct"),
+        ("prompt", "Type in the prompt"),
+        ("parameters", "Expand API parameters"),
+        ("include-usage", "Click on include_usage"),
+        ("send", "Click on Send"),
+        ("raw-exchange", "Explore the raw exchange"),
+        ("eventhub", "Open EventHub Monitor"),
+        ("insights", "Open Insights")
+    };
+
+    private bool ShowInvestigatorGuide => Preferences.IsOnboardingStep("home");
+
+    private bool ShowOnboarding => !Preferences.IsOnboardingStep("complete");
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && await Preferences.LoadAsync())
+        {
+            StateHasChanged();
+        }
+    }
+
+    private async Task StartInvestigationAsync()
+    {
+        await Preferences.SetOnboardingStepAsync("server");
+        Navigation.NavigateTo("investigator");
+    }
+
+    private Task CompleteOnboardingAsync() => Preferences.SetOnboardingStepAsync("complete");
+}

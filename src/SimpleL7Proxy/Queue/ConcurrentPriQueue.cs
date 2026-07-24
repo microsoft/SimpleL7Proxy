@@ -10,6 +10,7 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
     private readonly SemaphoreSlim _enqueueEvent = new SemaphoreSlim(0);
     private readonly object _lock = new object(); // Lock object for synchronization
     private ConcurrentSignal<T> _taskSignaler = new ConcurrentSignal<T>();
+    private int _queuedProbeCount;
     private readonly ILogger<ConcurrentPriQueue<T>> _logger;
     //private int insertions = 0;
     //private int extractions = 0;
@@ -63,26 +64,29 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
 
     public bool Enqueue(T item, int priority, int priority2, DateTime timestamp, bool allowOverflow = false)
     {
-        // Lock-free fast path for priority 0 (probe requests)
+        // Priority 0 is rare. Synchronize its waiter handoff and queue fallback so a
+        // probe cannot arrive between the dedicated worker's queue check and registration.
         if (priority == 0) {
-            // Try dedicated probe worker first
-            var t = _taskSignaler.GetNextProbeTask();
-            if (t != null)
+            lock (_lock)
             {
-                t.TaskCompletionSource.SetResult(item);
-                return true;
+                var worker = _taskSignaler.GetNextProbeTask();
+                if (worker != null)
+                {
+                    worker.TaskCompletionSource.SetResult(item);
+                    return true;
+                }
+
+                if (!allowOverflow && _priorityQueue.Count >= MaxQueueLength)
+                {
+                    return false;
+                }
+
+                _priorityQueue.Enqueue(new PriorityQueueItem<T>(item, priority, priority2, timestamp));
+                _queuedProbeCount++;
             }
-            
-            // Try any available worker next (still lock-free)
-            var anyWorker = _taskSignaler.GetNextTask();
-            if (anyWorker != null)
-            {
-                anyWorker.TaskCompletionSource.SetResult(item);
-                return true;
-            }
-            
-            // Only queue if NO workers available at all
-            // This should be rare for probe requests
+
+            _enqueueEvent.Release();
+            return true;
         }
 
         var queueItem = new PriorityQueueItem<T>(item, priority, priority2, timestamp);
@@ -125,11 +129,11 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
                     break;
             }
 
-            while (_priorityQueue.Count > 0 && _taskSignaler.HasWaitingTasks())
+            while (_priorityQueue.Count > 0)
             {
                 //Console.WriteLine("SignalWorker: Woke up .. getting task");
                 var nextWorker = _taskSignaler.GetNextTask();
-                if (nextWorker == null) continue;
+                if (nextWorker == null) break;
 
                 try {
                     lock (_lock)
@@ -142,7 +146,12 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
                         }
 
                         // Dequeue and deliver in one atomic operation
-                        var item = _priorityQueue.Dequeue(nextWorker.Priority);
+                        var dispatchProbe = _queuedProbeCount > 0;
+                        var item = _priorityQueue.Dequeue(dispatchProbe ? 0 : nextWorker.Priority);
+                        if (dispatchProbe)
+                        {
+                            _queuedProbeCount--;
+                        }
                         nextWorker.TaskCompletionSource.SetResult(item);
                     }
                 } catch (InvalidOperationException) {
@@ -163,8 +172,26 @@ public class ConcurrentPriQueue<T> : IConcurrentPriQueue<T>
     {
         try
         {
-            // Register this worker's wait and nudge the signaler in case items already exist
-            var waitTask = _taskSignaler.WaitForSignalAsync(preferredPriority);
+            Task<T> waitTask;
+            if (preferredPriority == 0)
+            {
+                lock (_lock)
+                {
+                    if (_queuedProbeCount > 0)
+                    {
+                        _queuedProbeCount--;
+                        return _priorityQueue.Dequeue(0);
+                    }
+
+                    waitTask = _taskSignaler.WaitForSignalAsync(preferredPriority);
+                }
+            }
+            else
+            {
+                waitTask = _taskSignaler.WaitForSignalAsync(preferredPriority);
+            }
+
+            // Nudge the signaler in case items already exist.
             _enqueueEvent.Release(); // wake SignalWorker for potential item->worker pairing
             var parameter = await waitTask.ConfigureAwait(false);
             return parameter;

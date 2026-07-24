@@ -150,7 +150,7 @@ To customize a template:
 ## Environment Variable Reference
 
 For detailed information about each environment variable and its impact, refer to:
-- [Environment Variables Documentation](../../docs/ENVIRONMENT_VARIABLES.md)
+- [Environment Variables Documentation](../../docs/reference/environment-variables.md)
 - [Environment Variables Analysis](./ENVIRONMENT_VARIABLES_ANALYSIS.md) - Complete list from C# source code
 
 ## Important Notes

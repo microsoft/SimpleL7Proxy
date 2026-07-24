@@ -94,7 +94,7 @@ By implementing this policy, the company can:
 }" />
 ```
 
-> For details on how `LimitConcurrency` works and available options, see [How It Works](../how-it-works.md#how-limitconcurrency-works).
+> For an overview of `LimitConcurrency`, see [Key Capabilities](../readme.md#key-capabilities).
 
 ## Results
 

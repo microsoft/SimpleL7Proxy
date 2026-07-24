@@ -89,7 +89,7 @@ If the file doesn't exist, create it and document any important lessons learned 
 
 
 ## definition of a gold standard document:
- - A POC doc is complete when: A new user can run it in <5 minutes , Behavior is visible and verifiable, No section requires rereading to understand
+ - A POC doc is complete when: prerequisites and setup time are stated accurately, behavior is visible and verifiable, and no section requires rereading to understand. Do not claim a completion time unless it has been validated from a clean environment that includes every documented prerequisite.
  - The reader can explain:what happened, why it happened, how to reproduce it
 
 ## when writing POCs'

@@ -1,0 +1,210 @@
+@page "/user-preferences"
+@namespace chat_tester.Components.Pages
+@rendermode InteractiveServer
+@inject ChatHistoryStore HistoryStore
+@inject UserPreferencesService Preferences
+@inject NavigationManager Navigation
+@using chat_tester.Components.Shared
+@using Microsoft.AspNetCore.Components.Forms
+
+<PageTitle>User Preferences</PageTitle>
+
+<SectionContent SectionName="page-heading">
+    <div class="d-flex flex-wrap align-items-center gap-3">
+        <h1 class="h4 mb-0">User Preferences</h1>
+    </div>
+</SectionContent>
+
+<div class="card shadow-sm">
+    <div class="card-header bg-secondary text-white d-flex align-items-baseline gap-2">
+        <span class="fw-semibold">History Storage Settings</span>
+    </div>
+    <div class="card-body">
+        <EditForm Model="Settings" OnValidSubmit="SaveSettingsAsync">
+            <div class="row g-3 align-items-end">
+                <div class="col-12 col-md-4">
+                    <label class="form-label">History storage</label>
+                    <InputSelect class="form-select" @bind-Value="Settings.Mode">
+                        <option value="@HistoryStorageMode.Disk">Save to disk</option>
+                        <option value="@HistoryStorageMode.BlobStorage">Save to Storage Account</option>
+                        <option value="@HistoryStorageMode.CosmosDb">Save to CosmosDB</option>
+                    </InputSelect>
+                </div>
+
+                @if (Settings.Mode == HistoryStorageMode.Disk)
+                {
+                    <div class="col-12 col-md-8">
+                        <label class="form-label">Path</label>
+                        <InputText class="form-control" @bind-Value="Settings.DiskPath" />
+                    </div>
+                }
+                else if (Settings.Mode == HistoryStorageMode.BlobStorage)
+                {
+                    <div class="col-12 col-md-4">
+                        <label class="form-label">Storage account name</label>
+                        <InputText class="form-control" @bind-Value="Settings.StorageAccountName" />
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label">Blob container</label>
+                        <InputText class="form-control" @bind-Value="Settings.BlobContainerName" />
+                    </div>
+                }
+                else if (Settings.Mode == HistoryStorageMode.CosmosDb)
+                {
+                    <div class="col-12 col-md-3">
+                        <label class="form-label">Account</label>
+                        <InputText class="form-control" @bind-Value="Settings.CosmosAccount" />
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <label class="form-label">Database</label>
+                        <InputText class="form-control" @bind-Value="Settings.CosmosDatabase" />
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <label class="form-label">Container</label>
+                        <InputText class="form-control" @bind-Value="Settings.CosmosContainer" />
+                    </div>
+                }
+            </div>
+
+            <div class="border-top pt-3 mt-3 small text-muted">
+                <div class="fw-semibold text-body">Active target</div>
+                <div class="text-break">@HistoryStore.StorageDescription</div>
+                <div class="mt-2">@HistoryStatusText</div>
+            </div>
+
+            <div class="d-flex gap-2 mt-3">
+                <button class="btn btn-outline-secondary" type="button" disabled="@(IsSaving || IsRefreshing)" @onclick="RefreshHistoryAsync">@(IsRefreshing ? "Refreshing..." : "Refresh")</button>
+                <button class="btn btn-primary" type="submit" disabled="@(IsSaving || IsRefreshing)">@(IsSaving ? "Saving..." : "Save settings")</button>
+                <button class="btn btn-secondary ms-auto" type="button" @onclick="GoToHistory">Back to History</button>
+            </div>
+        </EditForm>
+    </div>
+</div>
+
+<div class="card shadow-sm mt-3">
+    <div class="card-header bg-light d-flex align-items-baseline gap-2">
+        <span class="fw-semibold">Preferences JSON</span>
+        <span class="text-muted small">View and edit persisted user preferences</span>
+    </div>
+    <div class="card-body">
+        <label class="form-label" for="prefs-json">Current preferences</label>
+        <InputTextArea id="prefs-json" class="form-control font-monospace" rows="14" @bind-Value="PreferencesJson" />
+        <div class="small text-muted mt-2">@PreferencesStatusMessage</div>
+        <div class="d-flex gap-2 mt-3">
+            <button class="btn btn-outline-secondary" type="button" disabled="@IsApplyingPreferences" @onclick="ReloadPreferencesJson">Reload</button>
+            <button class="btn btn-primary" type="button" disabled="@IsApplyingPreferences" @onclick="ApplyPreferencesJsonAsync">@(IsApplyingPreferences ? "Applying..." : "Apply JSON")</button>
+            <button class="btn btn-outline-danger ms-auto" type="button" disabled="@IsApplyingPreferences" @onclick="ResetPreferencesAsync">Reset preferences</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    private HistoryStorageSettings Settings { get; set; } = new();
+    private bool IsSaving { get; set; }
+    private bool IsRefreshing { get; set; }
+    private bool IsApplyingPreferences { get; set; }
+    private string PreferencesJson { get; set; } = string.Empty;
+    private string StatusMessage { get; set; } = "Settings loaded from appsettings.json.";
+    private string PreferencesStatusMessage { get; set; } = "Loaded current preferences.";
+    private string HistoryStatusText => string.IsNullOrWhiteSpace(HistoryStore.LastStorageError)
+        ? StatusMessage
+        : $"{StatusMessage} Storage error: {HistoryStore.LastStorageError}";
+
+    protected override void OnInitialized()
+    {
+        Settings = HistoryStore.Settings;
+        PreferencesJson = Preferences.ExportJson();
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        IsSaving = true;
+        StatusMessage = "Loading history from the selected target...";
+        try
+        {
+            await HistoryStore.ApplySettingsAsync(Settings);
+            await Preferences.SaveAsync();
+            Settings = HistoryStore.Settings;
+            StatusMessage = "History settings applied and refreshed.";
+            ReloadPreferencesJson();
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Could not apply history settings: {ex.Message}";
+        }
+        finally
+        {
+            IsSaving = false;
+        }
+    }
+
+    private async Task RefreshHistoryAsync()
+    {
+        IsRefreshing = true;
+        StatusMessage = "Refreshing history...";
+        try
+        {
+            await HistoryStore.RefreshAsync();
+            Settings = HistoryStore.Settings;
+            StatusMessage = "History refreshed.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Could not refresh history: {ex.Message}";
+        }
+        finally
+        {
+            IsRefreshing = false;
+        }
+    }
+
+    private void ReloadPreferencesJson()
+    {
+        PreferencesJson = Preferences.ExportJson();
+        PreferencesStatusMessage = "Loaded current preferences.";
+    }
+
+    private async Task ApplyPreferencesJsonAsync()
+    {
+        IsApplyingPreferences = true;
+        try
+        {
+            var result = await Preferences.ImportJsonAsync(PreferencesJson);
+            if (!result.Success)
+            {
+                PreferencesStatusMessage = result.Error;
+                return;
+            }
+
+            await HistoryStore.ReloadAsync();
+            Settings = HistoryStore.Settings;
+            PreferencesJson = Preferences.ExportJson();
+            PreferencesStatusMessage = "Preferences updated.";
+            StatusMessage = "Settings updated from preferences.";
+        }
+        finally
+        {
+            IsApplyingPreferences = false;
+        }
+    }
+
+    private async Task ResetPreferencesAsync()
+    {
+        IsApplyingPreferences = true;
+        try
+        {
+            await Preferences.ResetAsync();
+            await HistoryStore.ReloadAsync();
+            Settings = HistoryStore.Settings;
+            PreferencesJson = Preferences.ExportJson();
+            PreferencesStatusMessage = "Preferences reset to defaults.";
+            StatusMessage = "History settings reset to defaults.";
+        }
+        finally
+        {
+            IsApplyingPreferences = false;
+        }
+    }
+
+    private void GoToHistory() => Navigation.NavigateTo("/history");
+}

@@ -74,7 +74,7 @@ curl -i https://<proxy-host>/<path> -H "S7PTTL: 300"
 
 ## Related
 
-- [../RESPONSE_CODES.md](../RESPONSE_CODES.md) — `400 InvalidTTL` behavior
+- [../RESPONSE_CODES.md](../reference/headers-and-status-codes.md) — `400 InvalidTTL` behavior
 - [requests-412.md](requests-412.md) — TTL expired after successful parsing
-- [../TIMEOUTS.md](../TIMEOUTS.md) — TTL and timeout interactions
-- [../REQUEST_VALIDATION.md](../REQUEST_VALIDATION.md) — other request validation failures
+- [../TIMEOUTS.md](../reference/timeouts.md) — TTL and timeout interactions
+- [../REQUEST_VALIDATION.md](../how-to/configure-security.md) — other request validation failures

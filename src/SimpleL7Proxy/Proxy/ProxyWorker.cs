@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -8,6 +9,7 @@ using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Backend.Iterators;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
+using SimpleL7Proxy.Llm;
 using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Async.ServiceBus;
@@ -647,6 +649,8 @@ public class ProxyWorker : IConfigChangeSubscriber
                 if (pr.Headers["Request-Queue-Duration"] is { } queueDuration) context.Response.Headers["Request-Queue-Duration"] = queueDuration;
                 if (pr.Headers["Request-Process-Duration"] is { } processDuration) context.Response.Headers["Request-Process-Duration"] = processDuration;
                 if (pr.Headers["Total-Latency"] is { } totalLatency) context.Response.Headers["Total-Latency"] = totalLatency;
+                if (detectModel && request.Model is { Length: > 0 } model) request.EventData["Model"] = model;
+                if (pr.Headers["x-backend-label"] is { } backendLabel) request.EventData["x-backend-label"] = backendLabel;
             }
 
             // Set content-specific headers
@@ -978,8 +982,28 @@ public class ProxyWorker : IConfigChangeSubscriber
                 request.FullURL = host.Config.BuildDestinationUrl(request.Path);
 
                 requestState = "Cache Body";
+
                 // Read the body stream once and reuse it
-                byte[] bodyBytes = await request.CacheBodyAsync().ConfigureAwait(false);
+                ReadOnlyMemory<byte> bodyBytes = await request.CacheBodyAsync(out bool wasCached).ConfigureAwait(false);
+
+                if (detectModel && !wasCached && bodyBytes.Length > 0)
+                {
+
+                    if (request.Debug)
+                    {
+                        _logger.LogInformation("[ValidateModel:{Guid}] Detecting model in request body of {Length} bytes, override: {Override}",
+                            request.Guid, bodyBytes.Length, request.Headers["S7P-Model-Override"] ?? "(none)");
+                    }
+        
+                    bodyBytes = ModelSwapper.ValidateModel(request, bodyBytes, request.Headers["S7P-Model-Override"]);
+
+                    if (request.Headers["S7PDEBUGBODY"] is {} debugBodyHeader && debugBodyHeader.Equals("true", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var bodyString = System.Text.Encoding.UTF8.GetString(bodyBytes.Span);
+                        _logger.LogInformation("[ValidateModel:{Guid}] Request body after model validation: {BodyContent}",
+                            request.Guid, bodyString);
+                    }
+                }
 
                 if (request.runAsync &&
                     !request.AsyncTriggered &&
@@ -1006,7 +1030,11 @@ public class ProxyWorker : IConfigChangeSubscriber
 
                 requestState = "Create Backend Request";
 
-                using (ByteArrayContent bodyContent = new(bodyBytes))
+                var bodySegment = MemoryMarshal.TryGetArray(bodyBytes, out var segment) && segment.Array != null
+                    ? segment
+                    : new ArraySegment<byte>(bodyBytes.ToArray());
+
+                using (ByteArrayContent bodyContent = new(bodySegment.Array!, bodySegment.Offset, bodySegment.Count))
                 using (HttpRequestMessage proxyRequest = new(new(request.Method), request.FullURL))
                 {
                     proxyRequest.Content = bodyContent;
@@ -1190,7 +1218,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                                 // request was successful, so we can disable the skip
                                 request.SkipDispose = false;
                                 requestAttempt["RequestSuccess"] = "true"; // Track success in event data
-                                bodyBytes = [];
+                                bodyBytes = ReadOnlyMemory<byte>.Empty;
                             }
 
                             pr.Headers["BackendHost"] = requestSummary["Backend-Host"] = pr.BackendHostname;
@@ -1439,7 +1467,8 @@ public class ProxyWorker : IConfigChangeSubscriber
             ["x-ProxyHost"] = _options.HostName,
             ["x-MID"] = request.MID,
             ["Attempts"] = request.BackendAttempts.ToString(),
-            ["Lifetime-Attempts"] = request.LifetimeBackendAttempts.ToString()
+            ["Lifetime-Attempts"] = request.LifetimeBackendAttempts.ToString(),
+            ["Model"] = request.Model
         };
 
         var errorResponse = new HttpResponseMessage(lastStatusCode) { Content = errorContent };
@@ -1735,6 +1764,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                 request.Context.Response.Headers["x-MID"] = request.MID;
                 request.Context.Response.Headers["Attempts"] = request.BackendAttempts.ToString();
                 request.Context.Response.Headers["Lifetime-Attempts"] = request.LifetimeBackendAttempts.ToString();
+                request.Context.Response.Headers["Model"] = request.Model;
 
                 await request.Context.Response.OutputStream.WriteAsync(Encoding.UTF8.GetBytes(errorBody)).ConfigureAwait(false);
                 await request.Context.Response.OutputStream.FlushAsync().ConfigureAwait(false);
@@ -1820,7 +1850,7 @@ public class ProxyWorker : IConfigChangeSubscriber
     /// <param name="processWith">The name of the processor to use for streaming</param>
     private async Task StreamResponseAsync(RequestData request, ProxyData pr)
     {
-        ProxyEvent requestSummary = request.EventData;
+        //ProxyEvent requestSummary = request.EventData;
         string processWith = pr.StreamingProcessor ?? StreamProcessorFactory.DEFAULT_PROCESSOR;
         var proxyResponse = pr.BodyResponseMessage;
 
@@ -1870,7 +1900,8 @@ public class ProxyWorker : IConfigChangeSubscriber
                 _logger.LogDebug("Streaming to {Destination} for request {Guid}", destinationType, request.Guid);
 
                 var addedToFlusher = _streamFlusher.AddStream(destination);
-                await processor.CopyToAsync(proxyResponse.Content, destination).ConfigureAwait(false);
+                var debugStream = request.Headers["S7PDEBUGSTREAM"] is {} debugValue && debugValue.Equals("true", StringComparison.OrdinalIgnoreCase);
+                await processor.CopyToAsync(proxyResponse.Content, destination, debugStream).ConfigureAwait(false);
                 if (addedToFlusher)
                 {
                     _streamFlusher.RemoveStream(destination);

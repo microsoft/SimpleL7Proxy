@@ -101,7 +101,7 @@ The proxy acquires a token from the managed identity endpoint. If the token acqu
 
 ## Related
 
-- [BACKEND_HOSTS.md](../BACKEND_HOSTS.md) — full host configuration reference
-- [HEALTH_CHECKING.md](../HEALTH_CHECKING.md) — health endpoint reference
+- [BACKEND_HOSTS.md](../reference/backend-hosts.md) — full host configuration reference
+- [HEALTH_CHECKING.md](../reference/health-endpoints.md) — health endpoint reference
 - [circuit-breaker.md](circuit-breaker.md) — circuit breaker troubleshooting
 - [health-probes.md](health-probes.md) — Kubernetes probe configuration

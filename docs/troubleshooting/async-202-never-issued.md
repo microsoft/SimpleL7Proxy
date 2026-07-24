@@ -84,6 +84,6 @@ curl -i https://<proxy-host>/<path> -H "S7PAsyncMode: true"
 ## Related
 
 - [async-requests.md](async-requests.md) — broader async troubleshooting
-- [../AsyncOperation.md](../AsyncOperation.md) — async config and flow reference
-- [../TIMEOUTS.md](../TIMEOUTS.md) — timeout interactions
+- [../AsyncOperation.md](../concepts/async-processing.md) — async config and flow reference
+- [../TIMEOUTS.md](../reference/timeouts.md) — timeout interactions
 - [app-configuration.md](app-configuration.md) — App Config label/key troubleshooting
