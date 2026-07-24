@@ -6,7 +6,7 @@
 
 | | | | |
 |---|---|---|---|
-| | [Architecture](concepts/architecture.md) | [Async Processing](concepts/async-processing.md) | [FAQ](concepts/understand-faq.md) |
+| | [Architecture](concepts/architecture.md) | [Async Processing](concepts/async-processing.md) | [FAQ](concepts/faq/README.md) |
 | | [Observability](concepts/observability.md) | [Overview](concepts/README.md) | [Reliability](concepts/reliability.md) |
 | | [Request Lifecycle](concepts/request-lifecycle.md) | | |
 
