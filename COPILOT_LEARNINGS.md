@@ -10,3 +10,4 @@
 - Check that a search command exists before using it as an `if` condition; a command-not-found result can enter the `else` branch and print a false validation success.
 - Anchor typo-validation patterns to word boundaries; a substring such as `assing` also matches valid words such as `assignment`.
 - Do not combine `Delete File` and `Add File` for the same path in one `apply_patch` call; the patch correction can merge old and new content. Delete and add in separate patch calls when a full replacement is necessary.
+- Do not advertise POCs as completing within a fixed time unless that duration was validated from a clean environment including all prerequisites; distinguish quick verification from Azure provisioning and policy setup.

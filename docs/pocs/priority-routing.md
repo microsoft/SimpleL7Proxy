@@ -1,11 +1,26 @@
 # POC: Priority Levels
 
-**Purpose:** Show that `acceptablePriorities` on each backend restricts the eligible candidate set per request, so a priority-1 request goes only to backends that accept it, a shared backend handles lower priorities, and a request with no eligible backend gets `503`.
+**Purpose:** Show how SimpleL7Proxy and APIM implement priority routing together. The proxy assigns and queues each request by priority; the APIM policy uses that priority to restrict the eligible backend set.
 
 > [!IMPORTANT]
-> **The rule: the policy builds the candidate set from backends whose `acceptablePriorities` includes the request priority before the retry loop starts. Backends outside the set are invisible for the lifetime of that request.**
+> **Priority routing requires both components. SimpleL7Proxy must assign and forward the numeric priority, and APIM must apply the priority-aware policy and backend configuration.**
 
-## TL;DR (< 5 minutes)
+## How the Two Components Work Together
+
+SimpleL7Proxy and APIM have separate responsibilities connected by request and response headers:
+
+| Component | Responsibility |
+| :--- | :--- |
+| SimpleL7Proxy | Maps the caller's configured priority key to a number, orders the request in its priority queue, and forwards the number to APIM in `x-S7PPriority`. |
+| APIM policy | Reads `x-S7PPriority`, filters `listBackends` by `acceptablePriorities`, and retries within the eligible backend set. |
+| SimpleL7Proxy + APIM | When APIM returns `429` with `S7PREQUEUE: true` and a retry delay, the proxy places the request back in its queue instead of returning the throttle response to the caller. |
+
+Configuring only the proxy provides priority queue ordering but not priority-aware backend selection inside APIM. Configuring only APIM can filter backends when a client supplies the priority header, but it does not provide the proxy's queueing and requeue behavior.
+
+> [!NOTE]
+> The requests in this POC call APIM directly to isolate and verify its backend-filtering behavior. An end-to-end deployment must also [configure priority mapping in SimpleL7Proxy](../reference/advanced-configuration.md#priority-mapping), [connect the proxy to APIM](../getting-started/connect-apim.md), and set the policy's `priorityHeaderName` to `x-S7PPriority`.
+
+## TL;DR
 
 1. Deploy the LLM Simulator and configure three backends: `Reserved` (priority-1 only), `Shared` (priority-2 and 3), `AlwaysFail` (priority-3, returns 500).
 2. Send four requests — with `llm_proxy_priority: 1`, `2`, no header, and a modified config with no eligible backend.
@@ -51,9 +66,13 @@
 
 ### Minimal prerequisites
 
-**What matters:** this POC needs one APIM API, one deployed LLM Simulator function, and the v2.1.0 policy. No real Azure OpenAI endpoints are required.
+**What matters:** the direct tests need one APIM API, one deployed LLM Simulator function, and the v2.1.0 policy. The end-to-end implementation also requires SimpleL7Proxy with priority mapping and an APIM host configured. No real Azure OpenAI endpoints are required.
 
 - An APIM instance with [`APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml`](../../APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml) applied at the API level.
+- For the end-to-end implementation, a running SimpleL7Proxy instance configured to:
+  - Map caller priority keys with `PriorityKeyHeader`, `PriorityKeys`, and `PriorityValues`.
+  - Send requests to APIM through a configured host.
+  - Use `x-S7PPriority` as the APIM policy's `priorityHeaderName`.
 - The LLM Simulator deployed as an Azure Function. See [`test/LLMSimulator/Readme.md`](../../test/LLMSimulator/Readme.md). Verify it is running:
   ```bash
   curl https://<funcapp>.azurewebsites.net/api/health

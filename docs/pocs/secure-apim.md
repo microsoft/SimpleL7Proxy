@@ -2,7 +2,7 @@
 
 **APIM rejects every request that does not carry a valid Entra JWT with the correct audience and an assigned role.**
 
-## TL;DR (< 5 minutes)
+## TL;DR
 
 1. Create an Entra app registration, add an `API.Caller` app role, assign it to your Container App's managed identity.
 2. Add a `<validate-jwt>` inbound policy to APIM that checks `aud`, `iss`, and `roles`.

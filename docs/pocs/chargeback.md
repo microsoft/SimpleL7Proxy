@@ -5,7 +5,7 @@
 > [!CONCEPT]
 > **Chargeback works by tagging each request with a user ID, allowing the proxy to extract token usage from the response and send that data to telemetry for per-user querying.**
 
-## TL;DR (< 5 minutes)
+## TL;DR
 
 1. Send a request through the proxy with an `X-UserID` header.
 2. The proxy captures token usage from the model response and logs it to Application Insights.

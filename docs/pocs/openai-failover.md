@@ -5,7 +5,7 @@
 > [!IMPORTANT]
 > **The rule: PTU at `priorityGroup: 1` wins when healthy; when it returns `429`, APIM throttles it for `Retry-After + 2s` and the same request retries against PAYGO at `priorityGroup: 2`. The client never sees the `429`.**
 
-## TL;DR (< 5 minutes)
+## TL;DR
 
 1. Apply [`APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml`](../../APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml) to your APIM API with two backends: PTU at `priorityGroup: 1` and PAYGO at `priorityGroup: 2`, both using the same deployment name.
 2. Send one healthy request, then a burst to exhaust PTU quota, then one more request while PTU is throttled.
