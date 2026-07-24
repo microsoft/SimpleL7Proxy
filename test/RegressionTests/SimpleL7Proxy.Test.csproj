@@ -24,6 +24,9 @@
     <None Include="..\..\src\SimpleL7Proxy\config.json" Link="configs\profile-config.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Include="..\nullserver\Python\stream_server.py" Link="tools\stream_server.py">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

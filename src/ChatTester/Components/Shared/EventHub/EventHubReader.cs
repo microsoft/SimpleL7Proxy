@@ -410,10 +410,13 @@ public sealed class EventHubReader : BackgroundService
             {
                 return;
             }
-            catch (System.Net.Sockets.SocketException)
+            catch (Exception ex) when (
+                ex is System.Net.Sockets.SocketException
+                || ex is TimeoutException
+                || ex is EventHubsException { IsTransient: true })
             {
                 _logger.LogWarning(
-                    "Event Hub reader is disconnected for partition {PartitionId}; retrying in 30 seconds.",
+                    "Event Hub is temporarily unreachable for partition {PartitionId}. DNS or network connectivity issue; retrying in 30 seconds.",
                     partitionId);
                 await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken).ConfigureAwait(false);
             }
