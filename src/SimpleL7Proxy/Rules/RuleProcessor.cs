@@ -21,15 +21,24 @@ public sealed class RuleProcessor
     /// Evaluates every rule against the context and returns each rule's
     /// key-value result in order. Rules without a matching branch are skipped.
     /// </summary>
-    public IEnumerable<IReadOnlyDictionary<string, string>> Process(IReadOnlyDictionary<string, string> context)
+    public IEnumerable<IReadOnlyDictionary<string, string>> Process(
+        IReadOnlyDictionary<string, string> context,
+        short? s7PHash = null,
+        ICollection<string>? matchedRuleNames = null)
     {
         ArgumentNullException.ThrowIfNull(context);
 
         foreach (var rule in _config.Rules)
         {
-            var result = rule.Evaluate(context);
+            var matchedPath = matchedRuleNames is null ? null : new List<string>();
+            var result = rule.Evaluate(context, s7PHash, matchedPath);
             if (result is not null)
             {
+                if (matchedRuleNames is not null && matchedPath is { Count: > 0 })
+                {
+                    matchedRuleNames.Add(string.Join('/', matchedPath));
+                }
+
                 yield return result;
             }
         }
@@ -39,13 +48,16 @@ public sealed class RuleProcessor
     /// Evaluates rules in order and returns the first non-null key-value result,
     /// or <paramref name="defaultResult"/> when no rule produces a result.
     /// </summary>
-    public IReadOnlyDictionary<string, string>? ProcessFirst(IReadOnlyDictionary<string, string> context, IReadOnlyDictionary<string, string>? defaultResult = null)
+    public IReadOnlyDictionary<string, string>? ProcessFirst(
+        IReadOnlyDictionary<string, string> context,
+        short? s7PHash = null,
+        IReadOnlyDictionary<string, string>? defaultResult = null)
     {
         ArgumentNullException.ThrowIfNull(context);
 
         foreach (var rule in _config.Rules)
         {
-            var result = rule.Evaluate(context);
+            var result = rule.Evaluate(context, s7PHash, matchedPath: null);
             if (result is not null)
             {
                 return result;

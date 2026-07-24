@@ -1143,7 +1143,13 @@
 
     private bool _isOnboardingDismissed;
 
-    private bool ShowOnboarding => !_isOnboardingDismissed && !Preferences.IsOnboardingStep("complete");
+    private bool _preferencesLoaded;
+
+    // Only surface the onboarding popup once the browser cookie has been read, so a completed
+    // onboarding state persisted in the cookie is honored and the popup never flashes on first render.
+    private bool ShowOnboarding => _preferencesLoaded
+        && !_isOnboardingDismissed
+        && !Preferences.IsOnboardingStep("complete");
 
     private static readonly (string Id, string Text)[] OnboardingSteps =
     {
@@ -1622,6 +1628,7 @@
         if (firstRender)
         {
             await Preferences.LoadAsync();
+            _preferencesLoaded = true;
             ApplyStoredSelections();
             StateHasChanged();
         }

@@ -210,6 +210,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     public int defaultTimeout { get; set; } = 0; // header timeout or default timeout in milliseconds
     public int Priority { get; set; }
     public int Priority2 { get; set; }
+    public short S7PHash { get; set; }
     public int Timeout { get; set; }  // calculated timeout in milliseconds
     public List<Dictionary<string, string>> incompleteRequests = new();
     public ProxyEvent EventData;

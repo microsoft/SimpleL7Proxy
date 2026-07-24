@@ -14,9 +14,16 @@ namespace SimpleL7Proxy.Rules;
 ///   "rules": [
 ///     {
 ///       "name": "route-premium",
-///       "if": { "field": "x-user-tier", "match": "equals", "value": "premium", "ignoreCase": true },
-///       "then": { "backend-pool": "premium-pool", "S7PPriorityKey": "1" },
-///       "else": { "backend-pool": "standard-pool" }
+///       "if": { "name": "premium-tier", "field": "x-user-tier", "match": "equals", "value": "premium", "ignoreCase": true },
+///       "then": { "name": "premium-route", "set": { "backend-pool": "premium-pool", "S7PPriorityKey": "1" } },
+///       "elseif": [
+///         {
+///           "name": "canary-clause",
+///           "if": { "name": "canary-hash", "field": "S7PHash", "match": "between", "value": "10", "value2": "20", "mode": "inClosedOpenRange" },
+///           "then": { "name": "canary-route", "set": { "backend-pool": "canary-pool" } }
+///         }
+///       ],
+///       "else": { "name": "standard-route", "set": { "backend-pool": "standard-pool" } }
 ///     }
 ///   ]
 /// }

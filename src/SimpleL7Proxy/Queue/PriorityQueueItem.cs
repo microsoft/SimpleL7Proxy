@@ -2,7 +2,7 @@
 public class PriorityQueueItem<T> : IComparable<PriorityQueueItem<T>>
 {
     public T Item { get; }
-    private int Priority { get; set; }
+    internal int Priority { get; private set; }
     private int Priority2 { get; }
     private bool ignorePriority2 { get; set; }
 

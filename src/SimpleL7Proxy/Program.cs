@@ -286,6 +286,7 @@ public class Program
         services.AddSingleton<UserProfile>();
         services.AddSingleton<IUserProfileService>(provider => provider.GetRequiredService<UserProfile>());
         services.AddHostedService<UserProfile>(provider => provider.GetRequiredService<UserProfile>());
+        services.AddSingleton<ProfileEnricher>();
 
         services.AddSingleton<IRequeueWorker, RequeueDelayWorker>();
         services.AddSingleton<IShutdownParticipant>(sp => (IShutdownParticipant)sp.GetRequiredService<IRequeueWorker>());

@@ -19,7 +19,7 @@ using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.Proxy;
 using SimpleL7Proxy.Plugin;
 using SimpleL7Proxy.Async.ServiceBus;
-using System.Text;
+using SimpleL7Proxy.Rules;
 
 using Shared.HealthProbe;
 
@@ -39,6 +39,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
 
     private readonly IUserPriorityService _userPriority;
     private readonly IUserProfileService _userProfile;
+    private readonly ProfileEnricher _profileEnricher;
     private CancellationTokenSource? _cancellationTokenSource;
     private CancellationTokenSource? _probesCts; // Controls when probe serving finally stops
     private readonly IConcurrentPriQueue<RequestData> _requestsQueue;// = new ConcurrentPriQueue<RequestData>();
@@ -73,6 +74,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
         IHostApplicationLifetime appLifetime,
         IUserPriorityService userPriority,
         IUserProfileService userProfile,
+        ProfileEnricher profileEnricher,
         //IServiceBusRequestService serviceBusRequestService,
         IEventClient? eventHubClient,
         IEndpointMonitorService backends,
@@ -87,6 +89,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
         ArgumentNullException.ThrowIfNull(backends, nameof(backends));
         ArgumentNullException.ThrowIfNull(userPriority, nameof(userPriority));
         ArgumentNullException.ThrowIfNull(userProfile, nameof(userProfile));
+        ArgumentNullException.ThrowIfNull(profileEnricher, nameof(profileEnricher));
         ArgumentNullException.ThrowIfNull(logger, nameof(logger));
         ArgumentNullException.ThrowIfNull(appLifetime, nameof(appLifetime));
         ArgumentNullException.ThrowIfNull(requestsQueue, nameof(requestsQueue));
@@ -101,6 +104,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
         _eventHubClient = eventHubClient;
         _userPriority = userPriority;
         _userProfile = userProfile;
+        _profileEnricher = profileEnricher;
         _logger = logger;
         _blobWriter = blobWriter;
         _healthService = healthService;
@@ -297,7 +301,6 @@ public class Server : BackgroundService, IConfigChangeSubscriber
 
         long counter = 0;
         int livenessPriority = _options.PriorityValues.Min();
-        bool doUserProfile = _options.UseProfiles;
         // Only enable async mode if configured AND blob storage is available (not using NullBlobWriter)
         bool doAsync = _options.AsyncModeEnabled && !(_blobWriter is NullBlobWriter);
         int maxEvents = _options.MaxUndrainedEvents;
@@ -402,6 +405,8 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                         _requestsQueue.Enqueue(rd, priority, userPriorityBoost, rd.EnqueueTime, true);
                         continue;
                     }
+
+                    rd.S7PHash = CalculateS7PHash(lc.Request, ed["RequestUserAgent"]);
 
                     // Give plugins an early chance to enrich RequestData and decide whether
                     // request processing should continue.
@@ -547,53 +552,16 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                     rd.Headers.Remove(header);
                                 }
 
-                                rd.UserID = "";
                                 // Normalize path once: ensure non-empty and starts with '/'
                                 if (string.IsNullOrEmpty(rd.Path))
                                     rd.Path = "/";
                                 else if (!rd.Path.StartsWith('/'))
                                     rd.Path = "/" + rd.Path;
                                 rd.Headers["S7Path"] = rd.Path; // Copy path
-                                // Lookup the user profile and add the headers to the request
-                                if (doUserProfile)
+                                var matchedProfileRules = _profileEnricher.Enrich(rd);
+                                if (matchedProfileRules.Length > 0 && rd.Debug)
                                 {
-                                    var requestUser = rd.Headers[_options.UserProfileHeader];
-                                    if (!string.IsNullOrEmpty(requestUser))
-                                    {
-                                        rd.profileUserId = requestUser;
-                                        (var headers, var isSoftDeleted, var isStale) = _userProfile.GetUserProfile(requestUser);
-
-                                        if (headers != null && headers.Count > 0)
-                                        {
-                                            foreach (var header in headers)
-                                            {
-                                                if (!header.Key.StartsWith("internal-"))
-                                                {
-                                                    rd.Headers.Set(header.Key, header.Value);
-                                                    if (rd.Debug)
-                                                        _logger.LogInformation("Add Header: {Header} = {Value}", header.Key, header.Value);
-                                                }
-                                            }
-                                        }
-                                        else
-                                        {
-                                            if (rd.Debug)
-                                                _logger.LogInformation("User profile for {User} not found.", requestUser);
-                                            throw new ProxyErrorException(
-                                                ProxyErrorException.ErrorType.UnknownProfile,
-                                                HttpStatusCode.Forbidden,
-                                                "User profile not found: " + requestUser
-                                            );
-                                        }
-                                    }
-                                    else if (_options.UserConfigRequired)
-                                    {
-                                        throw new ProxyErrorException(
-                                            ProxyErrorException.ErrorType.UnknownProfile,
-                                            HttpStatusCode.Forbidden,
-                                            "User profile not found: " + requestUser
-                                        );
-                                    }
+                                    ed["S7P-MatchedRules"] = string.Join(",", matchedProfileRules);
                                 }
 
                                 // Check for any required headers
@@ -654,20 +622,6 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                                     }
                                     if (rd.Debug)
                                         _logger.LogInformation("Validation check passed for all headers.");
-                                }
-
-                                // Determine priority boost based on the UserID 
-                                if (_options.UniqueUserHeaders.Count > 0)
-                                {
-                                    foreach (var header in _options.UniqueUserHeaders)
-                                    {
-                                        rd.UserID += rd.Headers[header] ?? "";
-                                    }
-                                }
-
-                                if (String.IsNullOrEmpty(rd.UserID))
-                                {
-                                    rd.UserID = "defaultUser";
                                 }
 
                                 ed["UserID"] = rd.UserID;
@@ -921,6 +875,24 @@ public class Server : BackgroundService, IConfigChangeSubscriber
         }
 
         _staticEvent.WriteOutput("[SHUTDOWN] ✓");
+    }
+
+    private static short CalculateS7PHash(HttpListenerRequest request, string? userAgent)
+    {
+        var frontDoorClientIp = !string.IsNullOrWhiteSpace(request.Headers["X-Azure-FDID"])
+            ? request.Headers["X-Azure-ClientIP"]?
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .LastOrDefault()
+            : null;
+        var forwardedClientIp = request.Headers["X-Forwarded-For"]?
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .LastOrDefault();
+        var clientIp = frontDoorClientIp
+            ?? forwardedClientIp
+            ?? request.RemoteEndPoint?.Address.ToString()
+            ?? string.Empty;
+
+        return RuleHash.CalculateBucket(userAgent.AsSpan(), clientIp.AsSpan());
     }
 
     private (bool isValid, string message) ValidateAuthKey(string? incomingKey, string message)

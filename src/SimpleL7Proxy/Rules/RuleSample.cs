@@ -11,20 +11,20 @@ public static class RuleSample
       "rules": [
         {
           "name": "route-premium",
-          "if": { "field": "x-user-tier", "match": "equals", "value": "premium" },
-          "then": { "backend-pool": "premium-pool", "S7PPriorityKey": "1" },
-          "else": { "backend-pool": "standard-pool" }
+          "if": { "name": "premium-tier", "field": "x-user-tier", "match": "equals", "value": "premium" },
+          "then": { "name": "premium-route", "set": { "backend-pool": "premium-pool", "S7PPriorityKey": "1" } },
+          "else": { "name": "standard-route", "set": { "backend-pool": "standard-pool" } }
         },
         {
           "name": "block-legacy-api",
-          "if": { "field": "path", "match": "startsWith", "value": "/v0/" },
-          "then": { "action": "deny" }
+          "if": { "name": "legacy-path", "field": "path", "match": "startsWith", "value": "/v0/" },
+          "then": { "name": "deny-legacy", "set": { "action": "deny" } }
         },
         {
           "name": "large-region-match",
-          "if": { "field": "x-region", "match": "regex", "value": "^(us|eu)-.*", "ignoreCase": true },
-          "then": { "backend-pool": "regional-pool" },
-          "else": { "backend-pool": "global-pool" }
+          "if": { "name": "known-region", "field": "x-region", "match": "regex", "value": "^(us|eu)-.*", "ignoreCase": true },
+          "then": { "name": "regional-route", "set": { "backend-pool": "regional-pool" } },
+          "else": { "name": "global-route", "set": { "backend-pool": "global-pool" } }
         }
       ]
     }
