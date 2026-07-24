@@ -70,6 +70,6 @@ If the queue is consistently long, workers are not draining fast enough. Options
 
 ## Related
 
-- [TIMEOUTS.md](../TIMEOUTS.md) — TTL, Timeout, and AsyncTimeout interactions
-- [RESPONSE_CODES.md](../RESPONSE_CODES.md) — full list of proxy-originated codes
+- [TIMEOUTS.md](../reference/timeouts.md) — TTL, Timeout, and AsyncTimeout interactions
+- [RESPONSE_CODES.md](../reference/headers-and-status-codes.md) — full list of proxy-originated codes
 - [requests-429.md](requests-429.md) — queue full (upstream cause of 412 under load)

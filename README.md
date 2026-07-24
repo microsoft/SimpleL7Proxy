@@ -10,7 +10,7 @@ Depending on whether you are serving live users, high-priority business workflow
 <tr>
 <td width="33%" valign="top">
 
-### [🔍 Understand the proxy](docs/nav/01-understand-the-proxy.md)
+### [🔍 Understand the proxy](docs/concepts/README.md)
 Architecture, components, and how requests flow end to end.
 
 **For:** architects and evaluators deciding whether to adopt.
@@ -18,7 +18,7 @@ Architecture, components, and how requests flow end to end.
 </td>
 <td width="33%" valign="top">
 
-### [🚀 Get it running](docs/nav/02-get-it-running.md)
+### [🚀 Get it running](docs/getting-started/README.md)
 Deploy to Azure Container Apps, Kubernetes or run locally from source in minutes.
 
 **For:** operators and developers doing a first deployment.
@@ -26,7 +26,7 @@ Deploy to Azure Container Apps, Kubernetes or run locally from source in minutes
 </td>
 <td width="33%" valign="top">
 
-### [⚙️ Configure backends and settings](docs/nav/03-configure-backends-and-settings.md)
+### [⚙️ Configure backends and settings](docs/how-to/README.md)
 Environment variables, host setup, load balancing, and hot-reload settings.
 
 **For:** operators tuning a running deployment.
@@ -36,7 +36,7 @@ Environment variables, host setup, load balancing, and hot-reload settings.
 <tr>
 <td width="33%" valign="top">
 
-### [🧪 Try a proof of concept](docs/nav/04-try-a-proof-of-concept.md)
+### [🧪 Try a proof of concept](docs/pocs/README.md)
 Walkthrough guides for failover, priority routing, and chargeback — each runnable in under 5 minutes.
 
 **For:** engineers validating behavior or preparing a demo.
@@ -44,7 +44,7 @@ Walkthrough guides for failover, priority routing, and chargeback — each runna
 </td>
 <td width="33%" valign="top">
 
-### [🔧 Diagnose a problem](docs/nav/05-diagnose-a-problem.md)
+### [🔧 Diagnose a problem](docs/troubleshooting/README.md)
 Find your symptom — 429s, 503s, a stuck circuit breaker, async not completing — and fix it fast.
 
 **For:** anyone debugging broken or unexpected behavior.
@@ -52,7 +52,7 @@ Find your symptom — 429s, 503s, a stuck circuit breaker, async not completing 
 </td>
 <td width="33%" valign="top">
 
-### [💻 Develop and contribute](docs/nav/06-develop-and-contribute.md)
+### [💻 Develop and contribute](docs/contributing/README.md)
 Run from source, understand the internals, and contribute changes.
 
 **For:** developers building on or contributing to the proxy.
@@ -63,4 +63,6 @@ Run from source, understand the internals, and contribute changes.
 
 ---
 
-> **Not sure where to start?** Run the [Failover POC](docs/POC-Failover-configuration.md) first — it exercises the core behavior in under 5 minutes and makes the architecture concrete before you read anything else.
+> **Not sure where to start?** Run the [Failover POC](docs/pocs/failover.md) first — it exercises the core behavior in under 5 minutes and makes the architecture concrete before you read anything else.
+
+> **Looking for the full documentation index?** See the [Documentation hub](docs/README.md).

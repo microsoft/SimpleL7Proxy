@@ -102,6 +102,6 @@ Cold settings (keys prefixed `Cold:`) are not reloaded at runtime. Bumping `Warm
 
 ## Related
 
-- [AZURE_APP_CONFIGURATION.md](../AZURE_APP_CONFIGURATION.md) — full App Config setup guide
-- [CONFIGURATION_SETTINGS.md](../CONFIGURATION_SETTINGS.md) — all settings with Warm/Cold classification
-- [ENVIRONMENT_VARIABLES.md](../ENVIRONMENT_VARIABLES.md) — complete environment variable reference
+- [AZURE_APP_CONFIGURATION.md](../how-to/configure-app-configuration.md) — full App Config setup guide
+- [CONFIGURATION_SETTINGS.md](../reference/configuration.md) — all settings with Warm/Cold classification
+- [ENVIRONMENT_VARIABLES.md](../reference/environment-variables.md) — complete environment variable reference

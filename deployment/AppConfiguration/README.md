@@ -2,7 +2,7 @@
 
 Step 7 of `deployment/deploy.sh` creates or reuses an App Configuration store, imports the proxy settings, assigns RBAC, and connects the Container App.
 
-For setting names, precedence, and runtime changes, see [Using Azure App Configuration with SimpleL7Proxy](../../docs/AZURE_APP_CONFIGURATION.md).
+For setting names, precedence, and runtime changes, see [Using Azure App Configuration with SimpleL7Proxy](../../docs/how-to/configure-app-configuration.md).
 
 ## Requirements
 
@@ -74,7 +74,7 @@ The JSON is not a copy of the effective App Configuration values. It contains co
 
 Rerunning step 7 updates the managed keys under `APPCONFIG_LABEL` from the Container App, local environment, and code defaults. Values edited directly in App Configuration can be replaced when the same key and label are imported; unrelated keys are not deleted.
 
-If a previous value is needed, use App Configuration's [point-in-time Restore](https://learn.microsoft.com/azure/azure-app-configuration/concept-point-time-snapshot#restore-key-values). For an offline or long-term copy, use [Import/export](https://learn.microsoft.com/azure/azure-app-configuration/howto-import-export-data). After recovery, follow [App Configuration operations](../../docs/AZURE_APP_CONFIGURATION.md#change-and-verify-settings) to apply the values to running replicas.
+If a previous value is needed, use App Configuration's [point-in-time Restore](https://learn.microsoft.com/azure/azure-app-configuration/concept-point-time-snapshot#restore-key-values). For an offline or long-term copy, use [Import/export](https://learn.microsoft.com/azure/azure-app-configuration/howto-import-export-data). After recovery, follow [App Configuration operations](../../docs/how-to/configure-app-configuration.md#change-and-verify-settings) to apply the values to running replicas.
 
 ## Verify
 
@@ -117,5 +117,5 @@ Expected results:
 ## Related
 
 - [Interactive deployment](../README.md)
-- [App Configuration operations](../../docs/AZURE_APP_CONFIGURATION.md)
-- [Proxy setting reference](../../docs/CONFIGURATION_SETTINGS.md)
+- [App Configuration operations](../../docs/how-to/configure-app-configuration.md)
+- [Proxy setting reference](../../docs/reference/configuration.md)

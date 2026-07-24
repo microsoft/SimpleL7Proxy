@@ -102,7 +102,7 @@ startupProbe:
 
 ## Related
 
-- [HEALTH_CHECKING.md](../HEALTH_CHECKING.md) — full health probe reference
-- [SIDECAR_DEPLOYMENT.md](../SIDECAR_DEPLOYMENT.md) — sidecar deployment configuration
+- [HEALTH_CHECKING.md](../reference/health-endpoints.md) — full health probe reference
+- [SIDECAR_DEPLOYMENT.md](../how-to/deploy-sidecar.md) — sidecar deployment configuration
 - [circuit-breaker.md](circuit-breaker.md) — circuit breaker troubleshooting
 - [backend-hosts.md](backend-hosts.md) — backend host troubleshooting
