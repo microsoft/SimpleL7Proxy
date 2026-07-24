@@ -3,6 +3,9 @@
 2.2.16
 
 Proxy:
+* Support for conditional fields in user profile
+* Bug fix: multiple heath requests could be throttled 
+* Rotate logs every hour if writing to files
 * Bug fix for missing container name in events
 * Detect model from request
 * Override model by setting S7P_Model_Override in config
