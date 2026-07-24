@@ -34,4 +34,4 @@ Host_<name>="host=https://gateway.azure-api.net;mode=apim;path=/shared;probe=/he
 
 APIM can supply API gateway capabilities such as caller authentication, subscriptions, transformations, and priority-aware backend policies. The proxy adds its own queue, worker controls, health tracking, circuit breaking, and telemetry around that gateway path.
 
-See [Backend Host Configuration](../BACKEND_HOSTS.md) for all host options.
+See [Backend Host Configuration](../reference/backend-hosts.md) for all host options.

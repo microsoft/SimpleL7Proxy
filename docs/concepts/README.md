@@ -116,9 +116,9 @@ ACA makes all scaling decisions using the proxy's `/startup`, `/liveness`, and `
 
 | Document | What it covers |
 |----------|----------------|
-| [User Profiles](../USER_PROFILES.md) | Per-user priority and async fields |
-| [Load Balancing](../LOAD_BALANCING.md) | Native backend selection and retry |
-| [Backend Hosts](../BACKEND_HOSTS.md) | Direct and probed host configuration |
-| [Get It Running](02-get-it-running.md) | The next discovery path for running the proxy |
+| [User Profiles](../reference/user-profiles.md) | Per-user priority and async fields |
+| [Load Balancing](../reference/load-balancing.md) | Native backend selection and retry |
+| [Backend Hosts](../reference/backend-hosts.md) | Direct and probed host configuration |
+| [Get It Running](../getting-started/README.md) | The next discovery path for running the proxy |
 
 ---

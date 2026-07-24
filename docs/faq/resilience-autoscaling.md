@@ -20,7 +20,7 @@ Before enqueueing a request, the proxy runs it through a fixed, ordered sequence
 
 During a planned shutdown or maintenance event, the proxy instead returns HTTP 503 (Service Unavailable).
 
-See [Response Codes](../RESPONSE_CODES.md) for every `429` cause and response header, and [Circuit Breaker](../CIRCUIT_BREAKER.md) for the exact failure thresholds and progressive delays.
+See [Response Codes](../reference/headers-and-status-codes.md) for every `429` cause and response header, and [Circuit Breaker](../reference/circuit-breaker.md) for the exact failure thresholds and progressive delays.
 
 ### Who is responsible for autoscaling?
 

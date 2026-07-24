@@ -24,4 +24,4 @@ Yes. A user profile can specify a model override. The proxy rewrites the origina
 
 The proxy uses `DefaultPriority` when it cannot override it.
 
-See [User Profiles](../USER_PROFILES.md) for profile structure and loading.
+See [User Profiles](../reference/user-profiles.md) for profile structure and loading.

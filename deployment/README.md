@@ -1,6 +1,6 @@
 # SimpleL7Proxy — Deployment (interactive)
 
-![Target architecture](../docs/assets/concepts/architecture.png)
+![Target architecture](../docs/concepts/architecture.png)
 
 This is the **interactive deployment path** for SimpleL7Proxy. The deployment script
 lets you create a new installation or update an existing proxy to the latest version.

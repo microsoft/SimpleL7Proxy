@@ -26,4 +26,4 @@ When an opted-in request runs longer than `AsyncTriggerTimeout`, the proxy retur
 
 Keep them synchronous when they reliably finish inside the caller's wait budget. Async adds Storage and Service Bus dependencies, RBAC configuration, result retention, and client-side status handling.
 
-See [Async Operation Configuration](../AsyncOperation.md) for the complete setup.
+See [Async Operation Configuration](../concepts/async-processing.md) for the complete setup.

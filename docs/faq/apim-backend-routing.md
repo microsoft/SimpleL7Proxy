@@ -42,4 +42,4 @@ SimpleL7Proxy interprets this response as a regional capacity constraint and aut
 
 After all configured APIM hosts return a requeue response, the proxy selects the shortest eligible retry delay, places the request back in its priority queue, and tries again after that delay. The request remains subject to its overall TTL while it waits and retries.
 
-See [Load Balancing](../LOAD_BALANCING.md) for backend selection and retry mechanics.
+See [Load Balancing](../reference/load-balancing.md) for backend selection and retry mechanics.

@@ -20,6 +20,6 @@ docker run -p ${Port}:443 simplel7proxy:latest
 
 You should see something like this. Note, the setup is not yet complete. We still need to configure the backends, but you can see that the server port is listening. You can stop the proxy with: `CTRL-C`.
 
-![alt text](image-1.png)
+![alt text](port-only.png)
 
-[← Back to Choose Your Setup](02-get-it-running.md#step-1-choose-your-setup)
+[← Back to Choose Your Setup](README.md#2-choose-where-to-run)

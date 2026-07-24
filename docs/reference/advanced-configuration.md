@@ -30,9 +30,9 @@ This document specifies the configuration for priority mapping, header validatio
 ---
 
 ## Table of Contents
-- [Priority Management](#priority-management)
+- [Priority mapping](#priority-mapping)
 - [Header Validation](#header-validation)
-- [User Governance](#user-governance)
+- [User throttling](#user-throttling)
 - [Validation \& Compliance](#validation--compliance)
 - [Version History](#version-history)
 
