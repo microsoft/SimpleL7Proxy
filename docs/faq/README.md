@@ -1,6 +1,6 @@
 # Understanding the SimpleL7Proxy — FAQ
 
-Detailed questions and answers for each [Quick Topic](../README.md#quick-topics) in the proxy discovery path. Each topic below has its own page.
+Detailed questions and answers for each [Quick Topic](../concepts/README.md#quick-topics) in the proxy discovery path. Each topic below has its own page.
 
 ---
 

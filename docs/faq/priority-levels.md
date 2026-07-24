@@ -36,4 +36,4 @@ Retry count and whether an exhausted request may be requeued are both configured
 
 APIM returns `503 Service Unavailable`. Changing retry count cannot help because the candidate set is empty.
 
-See [Priority Levels POC](../../POC-Priority-configuration.md) for a runnable example.
+See [Priority Levels POC](../POC-Priority-configuration.md) for a runnable example.

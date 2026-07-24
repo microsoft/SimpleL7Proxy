@@ -1,3 +1,3 @@
 # LLM Simulator Guide Moved
 
-The canonical document is now [LLM Simulator](how-to/llm-simulator.md).
+The canonical document is now [LLM Simulator](llm-simulator.md).

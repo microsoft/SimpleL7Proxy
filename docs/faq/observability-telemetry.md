@@ -30,4 +30,4 @@ Yes — the proxy defines an `IEventClient`/`IHostedService` extensibility point
 
 The proxy still starts. A backend that fails to initialize — an unreachable Event Hub, for example — is silently disabled while the others keep running, and an invalid `EVENT_HEADERS` type falls back to the built-in default with a warning.
 
-See [Observability](../../OBSERVABILITY.md) for telemetry channel configuration, adding a custom event sink, and the full event schema.
+See [Observability](../OBSERVABILITY.md) for telemetry channel configuration, adding a custom event sink, and the full event schema.

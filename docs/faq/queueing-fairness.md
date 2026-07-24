@@ -14,4 +14,4 @@ Each priority level has its own dedicated pool of workers, so higher-priority tr
 
 Within a priority level, the proxy tracks each user's share of active requests. A user who stays under `UserPriorityThreshold` (default `0.1`, i.e. 10%) gets a fairness boost ahead of other users at that level; once their share crosses the threshold, the boost is withheld until it drops back down.
 
-See [Advanced Configuration](../../ADVANCED_CONFIGURATION.md#userprioritythreshold) for how to tune that threshold, with a worked example.
+See [Advanced Configuration](../ADVANCED_CONFIGURATION.md#userprioritythreshold) for how to tune that threshold, with a worked example.

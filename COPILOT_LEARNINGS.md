@@ -8,3 +8,5 @@
 - A focused validation command for chat tester UI changes is `dotnet build test/chat_tester/chat_tester.csproj /property:GenerateFullPaths=true /consoleloggerparameters:NoSummary`.
 - When splitting a Razor page into separate pages, remove old backing members/events in the original page in the same edit to avoid orphaned references that can trigger misleading design-time Razor errors.
 - Check that a search command exists before using it as an `if` condition; a command-not-found result can enter the `else` branch and print a false validation success.
+- Anchor typo-validation patterns to word boundaries; a substring such as `assing` also matches valid words such as `assignment`.
+- Do not combine `Delete File` and `Add File` for the same path in one `apply_patch` call; the patch correction can merge old and new content. Delete and add in separate patch calls when a full replacement is necessary.

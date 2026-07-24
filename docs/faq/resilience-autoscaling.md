@@ -20,7 +20,7 @@ Before enqueueing a request, the proxy runs it through a fixed, ordered sequence
 
 During a planned shutdown or maintenance event, the proxy instead returns HTTP 503 (Service Unavailable).
 
-See [Response Codes](../../RESPONSE_CODES.md) for every `429` cause and response header, and [Circuit Breaker](../../CIRCUIT_BREAKER.md) for the exact failure thresholds and progressive delays.
+See [Response Codes](../RESPONSE_CODES.md) for every `429` cause and response header, and [Circuit Breaker](../CIRCUIT_BREAKER.md) for the exact failure thresholds and progressive delays.
 
 ### Who is responsible for autoscaling?
 
@@ -56,4 +56,4 @@ When backpressure is high, the proxy signals distress to ACA by failing the read
 
 `Workers` limits concurrent processing inside each replica, while `MaxQueueLength` limits waiting work in that replica — both are independent of, and should be sized alongside, ACA's own replica-level scale trigger.
 
-See [Day 2 Operations](../../../deployment/DAY2_OPERATIONS.md#scaling-considerations) for choosing replica counts, scale triggers, and concurrency targets together.
+See [Day 2 Operations](../../deployment/DAY2_OPERATIONS.md#scaling-considerations) for choosing replica counts, scale triggers, and concurrency targets together.
