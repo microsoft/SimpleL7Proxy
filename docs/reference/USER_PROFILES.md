@@ -1,3 +1,3 @@
 # User Profile Reference Moved
 
-The canonical document is now [User Profiles](reference/user-profiles.md).
+The canonical document is now [User Profiles](user-profiles.md).

@@ -1,25 +1,63 @@
 # Run the Proxy Locally
 
-Before the proxy can accept traffic, it needs a port to listen on. Set that with the `Port` environment variable, then start the proxy either from source or in Docker.
+The proxy has over 80 settings, thankfully they all have sensible defaults. The two most important settings are the port that the proxy listens on and the backend list.  We'll cover the backends later in the guides, but for the port the proxy listens on `8000`. To use a different port, set the `Port` environment variable.
+
+When running in Docker:
+
+- The container's exposed port must match the value of `Port`.
+- The host port can be any available port and does not need to match `Port`.
+
+This guide starts the proxy and verifies that it is accepting HTTP requests.
+
+
+## Prerequisites
+
+**Run commands from the repository root and choose one local runtime.**
+
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) for running from source.
+- [Docker](https://docs.docker.com/get-docker/) for running the container image.
 
 ## Run from Source
 
+**Run the .NET project from the repository root.**
+
 ```bash
-export Port=<port>
-cd src/SimpleL7Proxy && dotnet run
+dotnet run --project src/SimpleL7Proxy/SimpleL7Proxy.csproj
 ```
 
 ## Run in Docker
 
+**Build the image with `src` as the Docker context, then publish the default port.**
+
 ```bash
-export Port=<port>
-docker run -p ${Port}:443 simplel7proxy:latest
+docker build --tag simplel7proxy:latest \
+	--file src/SimpleL7Proxy/Dockerfile src
+
+docker run --publish 8000:8000 simplel7proxy:latest
 ```
 
----
+To use a different proxy port, pass the same value to the container:
 
-You should see something like this. Note, the setup is not yet complete. We still need to configure the backends, but you can see that the server port is listening. You can stop the proxy with: `CTRL-C`.
+```bash
+export Port=8080
+docker run --env Port="${Port}" --publish "${Port}:${Port}" simplel7proxy:latest
+```
 
-![alt text](image-1.png)
+## Verify the Listener
 
-[← Back to Choose Your Setup](02-get-it-running.md#step-1-choose-your-setup)
+**Call the health endpoints from a second terminal.**
+
+```bash
+curl -i http://localhost:8000/liveness
+curl -i http://localhost:8000/readiness
+```
+
+- `/liveness` returns `200 OK` when the proxy process is running.
+- `/readiness` returns `503 Service Unavailable` until an eligible backend is configured.
+
+![Proxy listening on the configured port](port-only.png)
+
+Press `Ctrl+C` in the first terminal to stop the proxy.
+
+
+[← Back to Choose Your Setup](README.md#2-choose-where-to-run)

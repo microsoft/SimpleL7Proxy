@@ -306,7 +306,7 @@ Log volume can be high under load. Use these settings to route specific event ca
 
 | App Configuration Key | Env Var | Default | Why It Matters |
 |---|---|---|---|
-| <small>`Logging:EventLoggers`</small> | <small>`EventLoggers`</small> | <small>`file`</small> | Comma-delimited sink selector (`eventhub`, `file`, or custom class). See [OBSERVABILITY.md](../concepts/observability.md#custom-event-loggers). |
+| <small>`Logging:EventLoggers`</small> | <small>`EventLoggers`</small> | <small>`file`</small> | Comma-delimited sink selector (`eventhub`, `file`, or custom class). See [OBSERVABILITY.md](../concepts/observability.md#event-logging-architecture). |
 | <small>`Logging:LogToEvents`</small> | <small>`LogToEvents`</small> | <small>`async, backend, probe, circuitbreaker, custom, exception, profile, proxy, enqueued, auth`</small> | Categories sent through event logger sinks. |
 | <small>`Logging:LogToAI`</small> | <small>`LogToAI`</small> | <small>`*`</small> | Categories sent to Application Insights. |
 | <small>`Logging:LogToConsole`</small> | <small>`LogToConsole`</small> | <small>`*,-custom`</small> | Categories written to console output. |

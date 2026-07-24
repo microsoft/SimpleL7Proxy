@@ -2,7 +2,7 @@
 
 **Protect the proxy from unauthorized access.**
 
-## TL;DR (< 5 minutes)
+## TL;DR
 
 1. Run the `secureProxy.sh` script to configure EasyAuth in ACA and enable authentication.
 2. Call the proxy with a bearer token from a trusted client — everything else is denied.

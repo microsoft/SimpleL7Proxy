@@ -132,7 +132,7 @@ By default, the proxy tries each backend at most once per request (`IterationMod
 
 ### Timeout vs TTL — what's the difference?
 
-![Synchronous request timeouts](../assets/concepts/sync-timeouts.png)
+![Synchronous request timeouts](../reference/sync-timeouts.png)
 
 #### What is the difference between `Timeout` (per-host) and `TTL` (total request budget)?
 

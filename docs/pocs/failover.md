@@ -8,7 +8,7 @@
 > [!IMPORTANT]
 > **The rule: when Backend A returns `429`, APIM marks it throttled for `Retry-After + 2s`, retries the request against the next healthy backend, and the client still sees `200 OK`.**
 
-## TL;DR (< 5 minutes)
+## TL;DR
 
 1. Apply [`APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml`](../../APIM-Policy/v2.1.0/Priority-with-retry-enhancedLog.xml) to your APIM API and use the exact two `listBackends` entries below.
 2. Keep `retryCount: 2` so the policy has one failed attempt and one recovery attempt.

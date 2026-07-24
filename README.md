@@ -19,7 +19,7 @@ Architecture, components, and how requests flow end to end.
 <td width="33%" valign="top">
 
 ### [🚀 Get it running](docs/getting-started/README.md)
-Deploy to Azure Container Apps, Kubernetes or run locally from source in minutes.
+Choose a deployment path for Azure Container Apps, Kubernetes, or local development.
 
 **For:** operators and developers doing a first deployment.
 
@@ -37,7 +37,7 @@ Environment variables, host setup, load balancing, and hot-reload settings.
 <td width="33%" valign="top">
 
 ### [🧪 Try a proof of concept](docs/pocs/README.md)
-Walkthrough guides for failover, priority routing, and chargeback — each runnable in under 5 minutes.
+Run guided scenarios for failover, priority routing, chargeback, and security.
 
 **For:** engineers validating behavior or preparing a demo.
 
@@ -63,6 +63,6 @@ Run from source, understand the internals, and contribute changes.
 
 ---
 
-> **Not sure where to start?** Run the [Failover POC](docs/pocs/failover.md) first — it exercises the core behavior in under 5 minutes and makes the architecture concrete before you read anything else.
+> **Not sure where to start?** Run the [Failover POC](docs/pocs/failover.md) first. It demonstrates the core retry behavior and makes the architecture concrete before you read anything else.
 
 > **Looking for the full documentation index?** See the [Documentation hub](docs/README.md).

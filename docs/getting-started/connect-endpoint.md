@@ -1,43 +1,64 @@
-# Connect to an LLM Endpoint ( Direct Host )
+# Connect an Azure OpenAI or Azure AI Foundry Endpoint
 
-Point the proxy directly at an Azure OpenAI / Azure AI Foundry deployment — no gateway in between. This is the lowest-cost option when you don't need APIM's policy engine on top.
+Connect SimpleL7Proxy directly to a model endpoint without an API Management gateway.
 
-<details>
-<summary><strong>Connect with an API Key</strong></summary>
+## TL;DR
 
-```bash
-export AZURE_OPENAI_API_KEY="<KEY>"
-export Host_endpoint1="host=<URL>;path=/;mode=direct;api_key=${AZURE_OPENAI_API_KEY}"
+- Set `Host1` with `mode=direct` and `processor=OpenAI`.
+- Authenticate with an API key or the proxy's managed identity.
+- Verify `/readiness`, then send a model request and check `BackendHost`.
 
-```
+## Use an API Key
 
-If correctly configured, you will see something like this:
-![alt text](S7P-port-key.png)
-
-> [!NOTE]
-> Many organizations disable key based auth, so you may need to use Managed Identity.
-
-</details>
-
-
-<details>
-<summary><strong>Connect with Managed Identity</strong></summary>
-
-In this scenario, you want the proxy to use its managed identity to authorize to the endpoint.  You will need to grant the apropriate identity.  In the case of `OpenAI`, use `Cognitive Services OpenAI User` and assing it to your account ( or VM ).
+**Store the endpoint API key in `Host1`; the proxy sends it in the backend `api-key` header.**
 
 ```bash
-export Host1="host=<URL>;path=/;usemi=true; audience=https://cognitiveservices.azure.com"
+export AZURE_OPENAI_API_KEY="<api-key>"
+export Host1="host=https://<resource-name>.openai.azure.com;mode=direct;processor=OpenAI;api-key=${AZURE_OPENAI_API_KEY}"
+dotnet run --project src/SimpleL7Proxy/SimpleL7Proxy.csproj
 ```
-If correctly configured, you will see something like this:
-![alt text](S7P-port-mi.png)
+
+![Proxy configured with an API key](port-api-key.png)
 
 > [!NOTE]
-> We are using `https://cognitiveservices.azure.com` for OpenAI, update if your audience is different
- 
-</details>
+> Use the API key from the Azure OpenAI or Azure AI Foundry resource. Do not use an Azure subscription key or an APIM subscription key for a direct endpoint.
 
-See [→ AI Foundry Integration](../AI_FOUNDRY_INTEGRATION.md) for the full configuration guide.
+## Use Managed Identity
 
----
+**Assign the proxy's managed identity the `Cognitive Services OpenAI User` role at the Azure OpenAI or Azure AI Foundry resource scope.**
 
-[← Back to Where are your LLM models?](02-get-it-running.md#step-2-where-are-your-llm-models)
+The role assignment belongs on the model resource that receives the request, not on the user account, virtual machine, or Container App resource itself. When the proxy runs in Azure Container Apps, select the system-assigned or user-assigned identity attached to that Container App as the role member.
+
+```bash
+export Host1="host=https://<resource-name>.openai.azure.com;mode=direct;processor=OpenAI;usemi=true;audience=https://cognitiveservices.azure.com"
+dotnet run --project src/SimpleL7Proxy/SimpleL7Proxy.csproj
+```
+
+![Proxy configured with managed identity](port-managed-identity.png)
+
+> [!NOTE]
+> `https://cognitiveservices.azure.com` is the token audience for Azure OpenAI. Use the audience required by the target service when connecting a different provider.
+
+See [Azure AI Foundry and OpenAI Integration](../reference/ai-foundry-integration.md) for routing, authentication, and token-usage configuration.
+
+## Verify the Connection
+
+**Readiness must succeed before a model request can be forwarded.**
+
+```bash
+curl -i http://localhost:8000/readiness
+curl -i "http://localhost:8000/openai/deployments/<deployment>/chat/completions?api-version=<api-version>" \
+  -H "Content-Type: application/json" \
+  --data '{"messages":[{"role":"user","content":"Reply with OK"}]}'
+```
+
+### Expected Result
+
+- `/readiness` returns `200 OK` after the proxy finishes startup.
+- The model request returns the backend response rather than an authentication error.
+- A successful proxied response includes `BackendHost` with the configured endpoint hostname.
+
+> [!WARNING]
+> A `401` or `403` from the model request indicates an invalid API key, an incorrect token audience, or a missing role assignment. Readiness can still succeed in direct mode because direct hosts are not actively probed.
+
+[Back to backend selection](README.md#3-connect-a-backend)

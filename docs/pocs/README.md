@@ -16,19 +16,20 @@ Want to see what SimpleL7Proxy actually does? These are hands-on scenarios you c
 
 ### [🔁 Failover](failover.md)
 A failed backend attempt advances to another backend.
-
+<img src="region-fail.png" alt="alt text" width="80%">
 </td>
 <td width="33%" valign="top">
 
 ### [🧠 Capacity Failover](openai-failover.md)
 Azure OpenAI capacity fails over across deployments.
-
+<img src="capacity-fail.png" alt="alt text" width="80%">
 </td>
 <td width="33%" valign="top">
 
 ### [🎯 Priority Routing](priority-routing.md)
 APIM backend eligibility follows request priority.
 
+<img src="routing.png" alt="alt text" width="80%">
 </td>
 </tr>
 <tr>
@@ -37,17 +38,21 @@ APIM backend eligibility follows request priority.
 ### [💰 Chargeback](chargeback.md)
 Usage telemetry gets attributed to the right caller.
 
+<img src="chargeback.png" alt="alt text" width="80%">
 </td>
 <td width="33%" valign="top">
 
 ### [🔒 Secure the Proxy](secure-the-proxy.md)
 Proxy ingress rejects unauthorized callers.
 
+<img src="eazy-auth.png" alt="alt text" width="80%">
 </td>
 <td width="33%" valign="top">
 
 ### [🛡️ Secure APIM](secure-apim.md)
 APIM validates callers before forwarding.
+
+<img src="jwt-validate.png" alt="alt text" width="80%">
 
 </td>
 </tr>

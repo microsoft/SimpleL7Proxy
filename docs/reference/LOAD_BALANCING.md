@@ -1,3 +1,3 @@
 # Load Balancing Reference Moved
 
-The canonical document is now [Load Balancing](reference/load-balancing.md).
+The canonical document is now [Load Balancing](load-balancing.md).

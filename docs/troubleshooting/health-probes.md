@@ -1,108 +1,110 @@
-# Health Probe Failures / Pod Restarts
+# Troubleshoot Health Probes and Restarts
 
-> **TL;DR**
-> Probe failures under heavy load usually mean ThreadPool starvation. Enable the **Health Probe Sidecar** to isolate probes from application traffic. Under light load, probe failures almost always mean no backends are healthy.
+Map each probe status and body to the complete set of supported health conditions before changing orchestration thresholds.
 
----
+## TL;DR
 
-## Probe endpoints reference
+1. Confirm whether the probe targets the main proxy port or the optional sidecar port; they do not expose identical endpoints or liveness behavior.
+2. Treat `Active Hosts: 0` and `Failed Hosts: True` as aggregate states with multiple possible causes.
+3. Use `/health` and `/healthdetail` on the main port plus proxy and sidecar logs to identify the failing component.
 
-| Endpoint | Port | Returns 200 when… |
-|----------|------|-------------------|
-| `/liveness` | main / 9000 | Process is running |
-| `/readiness` | main / 9000 | At least one backend is healthy |
-| `/startup` | main / 9000 | Backend poller has completed its first pass |
-| `/health` | main only | Always 200 (alias for liveness) |
+## Separate Main and Sidecar Endpoints
 
----
+**Send probes to one serving process consistently and interpret that process’s behavior.**
 
-## Symptom: readiness returns 503
+| Endpoint | Main proxy port | Sidecar port (`HEALTHPROBE_PORT`, default `9000`) |
+|----------|-----------------|---------------------------------------------------|
+| `/liveness` | `200 OK` while the main listener can answer | GET returns `200 OK` while status updates are current; returns `503` when updates are stale |
+| `/readiness` | `200` or `503` from the current health aggregate | Mirrors the last pushed readiness state; GET returns `503` when updates are stale |
+| `/startup` | `200` or `503` from the current health aggregate | Mirrors the last pushed startup state; GET returns `503` when updates are stale |
+| `/health` | `200` diagnostic report, including readiness and startup state | Not exposed (`404`) |
+| `/healthdetail` | `200` expanded diagnostics | Not exposed (`404`) |
+| `/internal/update-status` | Not a public main-process probe | Sidecar update endpoint used by the main process |
 
-The probe body will tell you why:
+The main application port is configured by `Port` and is `8000` in the standard examples. The sidecar listens on `HEALTHPROBE_PORT`, default `9000`, as a separate process.
 
-| Body | Cause |
-|------|-------|
-| `Not Healthy. Active Hosts: 0` | No backends passed health checks |
-| `Not Healthy. Failed Hosts: True` | At least one circuit breaker is open |
+> [!NOTE]
+> Sidecar GET responses consider the last update stale after 20 seconds. The current sidecar HEAD handlers do not apply the same stale-update check, so use GET probes when stale-main-process detection is required.
 
-**Fix for "Active Hosts: 0":**
-- Verify `Host1`…`Host9` are correctly configured with valid URLs and probe paths.
-- Test the backend probe path directly: `curl <backend-url>/<probe-path>`
-- Check `PollInterval` and `PollTimeout` — if `PollTimeout` is shorter than the backend's response time, every probe times out.
+## Map Status and Body to Causes
 
-| Setting | Env Var | App Config key |
-|---------|---------|----------------|
-| Poll interval (ms) | `PollInterval=<ms>` | `Cold:Server:PollInterval` |
-| Probe timeout (ms) | `PollTimeout=<ms>` | `Cold:Server:PollTimeout` |
+**A body names an aggregate state, not a unique root cause.**
 
-> [!TIP]
-> Set `SuccessRate` lower (e.g. `50`) to keep a partially-recovering host in the active pool. Default is `80` (%).
+| Status and body | Endpoint source | Supported causes to check |
+|-----------------|-----------------|---------------------------|
+| `200 OK`, `OK` | Main or sidecar `/liveness`; ready `/readiness` or `/startup` | Handler is responding; for readiness/startup, all current aggregate checks passed |
+| `503`, `Not Healthy.  Active Hosts: 0` | Main `/readiness` or `/startup` | Startup readiness gates are incomplete; event backlog exceeds `EVENTHUB_MAX_UNDRAINED_EVENTS`; async blob queue exceeds `AsyncBlobMaxQueue`; or active-host count is zero |
+| `503`, `Not Healthy.  Failed Hosts: True` | Main `/readiness` or `/startup` | Circuit status check reports failed, or the event client reports unhealthy |
+| `503`, `Not Healthy.  Active Hosts: 0` | Sidecar `/readiness` or `/startup` | The last pushed state was a zero-host aggregate, with the same possible main-process causes above |
+| `503`, `Not Healthy.  Failed Hosts: True` | Sidecar GET `/liveness` | At least one update was received, but the most recent update is more than 20 seconds old |
+| `503`, `Not Healthy.  Failed Hosts: True` | Sidecar GET `/readiness` or `/startup` | The last pushed state was failed, or a previously received update is more than 20 seconds old |
+| `200` diagnostic body showing `/readiness : 503 ...` | Main `/health` or `/healthdetail` | Diagnostic endpoint is working while readiness or startup is unhealthy; inspect the reported participants, queues, and hosts |
+| Timeout, connection refusal, or reset with no HTTP body | Main or sidecar | Wrong port, process unavailable, listener saturation, network policy, container restart, or probe timeout |
 
-**Fix for "Failed Hosts: True":**
-→ See [circuit-breaker.md](circuit-breaker.md).
+`ReadinessZeroHosts` is reused when `_systemReady` is false, the event backlog is excessive, the blob queue is unhealthy, or active-host count is zero. `ReadinessFailedHosts` is reused for a failed circuit status or an unhealthy event client. The same mapping is used for startup status.
 
----
+## Inspect Main-Process Health
 
-## Symptom: probes slow or timing out under high load
-
-Under heavy load (~1000 concurrent requests), async Kestrel handlers compete with proxy workers for ThreadPool threads. Probes can queue for 1–2 seconds, causing Kubernetes to mark the pod unhealthy and restart it.
-
-**Fix — enable the Health Probe Sidecar:**
-
-The sidecar is a lightweight Kestrel process on port 9000 that serves probes from memory. The main proxy pushes its health state to it every second. Probes are served synchronously, avoiding any ThreadPool dependency.
+**Use main-port diagnostics to separate initialization, event, blob, circuit, and host conditions.**
 
 ```bash
-# Enable sidecar
+curl -i http://<proxy-host>:<main-port>/readiness
+curl -i http://<proxy-host>:<main-port>/health
+curl -i http://<proxy-host>:<main-port>/healthdetail
+```
+
+Check:
+
+- Startup readiness logs for `Backends`, `BackendTokens`, `Workers`, `UserProfiles`, and `EventClient`; async mode adds template, blob-writer, and Service Bus participants.
+- `Undrained` versus `EVENTHUB_MAX_UNDRAINED_EVENTS`.
+- `Blob Queue` versus `AsyncBlobMaxQueue`.
+- Event-client health and recent drain activity.
+- Active and configured backend hosts, probe status, authentication, DNS, and circuit logs.
+
+Startup failure is not limited to waiting for the first backend poll. Any incomplete readiness participant or failed aggregate check can keep `/startup` at `503`.
+
+## Inspect Sidecar Health
+
+**Verify both the sidecar listener and status-update channel from the main process.**
+
+```bash
+curl -i http://localhost:9000/liveness
+curl -i http://localhost:9000/readiness
+curl -i http://localhost:9000/startup
+```
+
+Confirm the main proxy logs `External health probe sidecar enabled`, the configured URL targets the sidecar, and update requests to `/internal/update-status` succeed. Sidecar logs report missing or invalid update parameters; main-process logs report failed update attempts. Before the first update arrives, sidecar liveness returns `200`, while readiness and startup use their initial zero-host state.
+
+The sidecar runs a separate tuned Kestrel service and serves cached status from memory. This reduces contention with the main listener, but it does not eliminate .NET runtime, Kestrel, socket, scheduling, or ThreadPool dependencies.
+
+```bash
 HealthProbeSidecar=Enabled=true;url=http://localhost:9000
 ```
 
-Then point your Kubernetes probes to port 9000:
+## Configure Orchestrator Probes
+
+**Set startup and failure budgets from observed initialization and response latency, not only `PollInterval`.**
 
 ```yaml
 livenessProbe:
-  httpGet:
-    path: /liveness
-    port: 9000
+  httpGet: { path: /liveness, port: 9000 }
   failureThreshold: 3
   periodSeconds: 5
-
 readinessProbe:
-  httpGet:
-    path: /readiness
-    port: 9000
+  httpGet: { path: /readiness, port: 9000 }
   failureThreshold: 3
   periodSeconds: 5
-
 startupProbe:
-  httpGet:
-    path: /startup
-    port: 9000
+  httpGet: { path: /startup, port: 9000 }
   failureThreshold: 30
   periodSeconds: 5
 ```
 
-> [!NOTE]
-> If the sidecar does not receive a status update from the main proxy for more than 10 seconds, it automatically fails all probes — protecting against a silently deadlocked main process.
-
----
-
-## Symptom: startup probe fails before backends are ready
-
-The startup probe returns 503 until the backend poller completes its first pass. If `failureThreshold × periodSeconds` is shorter than `PollInterval`, the pod restarts before it can become ready.
-
-**Fix:** Increase `failureThreshold` on the startup probe so it waits at least as long as one full poll cycle.
-
-```yaml
-startupProbe:
-  failureThreshold: 30   # 30 × 5s = 150s budget
-  periodSeconds: 5
-```
-
----
+Ensure the startup budget covers backend initialization, token acquisition, workers, profiles, event clients, and enabled async participants. For sidecar probes, also allow the sidecar process to start and receive its first status update.
 
 ## Related
 
-- [HEALTH_CHECKING.md](../reference/health-endpoints.md) — full health probe reference
-- [SIDECAR_DEPLOYMENT.md](../how-to/deploy-sidecar.md) — sidecar deployment configuration
-- [circuit-breaker.md](circuit-breaker.md) — circuit breaker troubleshooting
-- [backend-hosts.md](backend-hosts.md) — backend host troubleshooting
+- [Health Endpoint Reference](../reference/health-endpoints.md)
+- [Deploy the Health Probe Sidecar](../how-to/deploy-sidecar.md)
+- [Circuit Breaker Troubleshooting](circuit-breaker.md)
+- [Backend Host Troubleshooting](backend-hosts.md)

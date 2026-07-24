@@ -78,7 +78,7 @@ LoadBalanceMode=latency   # try fastest host first
 | `random` | Avoiding predictable traffic patterns |
 
 > [!NOTE]
-> **Default:** `LoadBalanceMode=latency`. Path prefix is stripped before forwarding unless `stripprefix=false` is set on the host (see [BACKEND_HOSTS.md](backend-hosts.md#controlling-path-prefix-stripping)).
+> **Default:** `LoadBalanceMode=latency`. Path prefix is stripped before forwarding unless `stripprefix=false` is set on the host (see [BACKEND_HOSTS.md](backend-hosts.md#configuring-hosts)).
 
 > [!TIP]
 > **Troubleshooting:** If a specific host is never reached, verify its configured path prefix matches the inbound request path; a mismatch silently excludes it from the candidate set.

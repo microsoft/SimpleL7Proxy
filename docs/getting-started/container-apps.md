@@ -34,4 +34,4 @@ See [deployment/README.md](../../deployment/README.md) for the full parameter re
 
 ---
 
-[← Back to Choose Your Setup](02-get-it-running.md#step-1-choose-your-setup)
+[← Back to Choose Your Setup](README.md#2-choose-where-to-run)

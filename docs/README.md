@@ -6,7 +6,7 @@
 
 | | | | |
 |---|---|---|---|
-| | [Architecture](concepts/architecture.md) | [Async Processing](concepts/async-processing.md) | [FAQ](concepts/understand-faq.md) |
+| | [Architecture](concepts/architecture.md) | [Async Processing](concepts/async-processing.md) | [FAQ](faq/README.md) |
 | | [Observability](concepts/observability.md) | [Overview](concepts/README.md) | [Reliability](concepts/reliability.md) |
 | | [Request Lifecycle](concepts/request-lifecycle.md) | | |
 
@@ -15,30 +15,27 @@
 | | | | |
 |---|---|---|---|
 | | [Connect APIM](getting-started/connect-apim.md) | [Connect Endpoint](getting-started/connect-endpoint.md) | [Connect LLM Simulator](getting-started/connect-llm-simulator.md) |
-| | [Container Apps](getting-started/container-apps.md) | [Overview](getting-started/README.md) | [Quickstart](getting-started/QUICKSTART.md) |
-| | [Run Locally](getting-started/local.md) | [Verify](getting-started/verify.md) | |
+| | [Container Apps](getting-started/container-apps.md) | [Overview](getting-started/README.md) | [Run Locally](getting-started/local.md) |
+| | [Verify](getting-started/verify.md) | | |
 
 ## How-to Guides
 
 | | | | |
 |---|---|---|---|
-| | [App Configuration](how-to/configure-app-configuration.md) | [Azure App Configuration](how-to/AZURE_APP_CONFIGURATION.md) | [Common Scenarios](how-to/common-scenarios.md) |
-| | [Configure Backends](how-to/configure-backends.md) | [Configure Security](how-to/configure-security.md) | [Container Deployment](how-to/CONTAINER_DEPLOYMENT.md) |
-| | [Deploy Container Apps](how-to/deploy-container-apps.md) | [Deploy Sidecar](how-to/deploy-sidecar.md) | [Dummy Backend](how-to/DUMMY_BACKEND.md) |
+| | [App Configuration](how-to/configure-app-configuration.md) | [Common Scenarios](how-to/common-scenarios.md) | [Configure Backends](how-to/configure-backends.md) |
+| | [Configure Security](how-to/configure-security.md) | [Deploy Container Apps](how-to/deploy-container-apps.md) | [Deploy Sidecar](how-to/deploy-sidecar.md) |
 | | [LLM Simulator](how-to/llm-simulator.md) | [Overview](how-to/README.md) | |
 
 ## Reference
 
 | | | | |
 |---|---|---|---|
-| | [Advanced Configuration](reference/advanced-configuration.md) | [AI Foundry Integration](reference/ai-foundry-integration.md) | [AI_FOUNDRY_INTEGRATION.md](reference/AI_FOUNDRY_INTEGRATION.md) |
-| | [Backend Hosts](reference/backend-hosts.md) | [Backend Log](reference/backend-log.md) | [BACKEND_HOSTS.md](reference/BACKEND_HOSTS.md) |
-| | [Circuit Breaker](reference/circuit-breaker.md) | [Configuration](reference/configuration.md) | [Configuration Categories](reference/configuration-categories.md) |
-| | [Environment Variables](reference/environment-variables.md) | [ENVIRONMENT_VARIABLES.md](reference/ENVIRONMENT_VARIABLES.md) | [Glossary](reference/glossary.md) |
-| | [Glossary.md](reference/Glossary.md) | [Headers & Status Codes](reference/headers-and-status-codes.md) | [Health Endpoints](reference/health-endpoints.md) |
-| | [Load Balancing](reference/load-balancing.md) | [LOAD_BALANCING.md](reference/LOAD_BALANCING.md) | [Overview](reference/README.md) |
-| | [Security](reference/security.md) | [Storage Blob Config](reference/storage-blob-config.md) | [Timeouts](reference/timeouts.md) |
-| | [User Profiles](reference/user-profiles.md) | [USER_PROFILES.md](reference/USER_PROFILES.md) | |
+| | [Advanced Configuration](reference/advanced-configuration.md) | [AI Foundry Integration](reference/ai-foundry-integration.md) | [Backend Hosts](reference/backend-hosts.md) |
+| | [Backend Log](reference/backend-log.md) | [Circuit Breaker](reference/circuit-breaker.md) | [Configuration](reference/configuration.md) |
+| | [Configuration Categories](reference/configuration-categories.md) | [Environment Variables](reference/environment-variables.md) | [Glossary](reference/glossary.md) |
+| | [Headers & Status Codes](reference/headers-and-status-codes.md) | [Health Endpoints](reference/health-endpoints.md) | [Load Balancing](reference/load-balancing.md) |
+| | [Overview](reference/README.md) | [Security](reference/security.md) | [Storage Blob Config](reference/storage-blob-config.md) |
+| | [Timeouts](reference/timeouts.md) | [User Profiles](reference/user-profiles.md) | |
 
 ## Proofs of Concept
 
@@ -61,8 +58,8 @@
 
 | | | | |
 |---|---|---|---|
-| | [Architecture](contributing/architecture.md) | [Beginner Development](contributing/BEGINNER_DEVELOPMENT.md) | [Development](contributing/development.md) |
-| | [Overview](contributing/README.md) | [Testing](contributing/testing.md) | |
+| | [Architecture](contributing/architecture.md) | [Development](contributing/development.md) | [Overview](contributing/README.md) |
+| | [Testing](contributing/testing.md) | | |
 
 ## Internal
 

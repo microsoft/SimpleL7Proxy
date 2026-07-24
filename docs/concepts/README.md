@@ -23,7 +23,7 @@ Azure Container Apps independently scales the proxy up and down to match demand.
 
 The proxy loads **user profiles** from CosmosDB and, at receive time, enriches each incoming request with its matching profile data, mapped to key-value settings. The **priority** setting controls processing order, while other settings can override the requested **model** or report **metrics**. Additional fields can validate, map, or clean up the request, and drive further routing and policy decisions in both the proxy and APIM. When no profile matches, the proxy falls back to a default priority.
 
-[See the FAQ →](understand-faq.md#how-do-user-profiles-determine-when-requests-run)
+[See the FAQ →](../faq/user-profiles.md)
 
 </td>
 <td width="33%" valign="top">
@@ -37,7 +37,7 @@ Rule of thumb:
 * **Control** costs
 * **Prioritize** workloads
 
-[See the FAQ →](understand-faq.md#what-does-a-requests-priority-level-control)
+[See the FAQ →](../faq/priority-levels.md)
 
 </td>
 <td width="33%" valign="top">
@@ -48,7 +48,7 @@ The proxy builds on top of **APIM** as a cross-region load balancer: it tries ea
 
 Because **direct** backends skip active probing, no latency data is available for them, so they rely on path-based routing combined with `random` or `roundrobin` load balancing.
 
-[See the FAQ →](understand-faq.md#how-does-apim-determine-which-backends-receive-requests)
+[See the FAQ →](../faq/apim-backend-routing.md)
 
 </td>
 
@@ -60,7 +60,7 @@ Because **direct** backends skip active probing, no latency data is available fo
 
 All requests are filtered through a **priority queue** that ensures high priority work is favored over lower priority work.  At the same time, A flood of high-priority traffic can never **starve** out lower-priority requests, and no single user can **monopolize** a priority level at everyone else's expense.
 
-[See the FAQ →](understand-faq.md#how-does-the-proxy-keep-queueing-fair-across-users)
+[See the FAQ →](../faq/queueing-fairness.md)
 
 </td>
 
@@ -70,7 +70,7 @@ All requests are filtered through a **priority queue** that ensures high priorit
 
 Long-running requests don't need to hold a client connection open. When a request runs past a configured timeout, the proxy promotes it to a **background operation**: it returns `202` right away, keeps working, and delivers the result through **Blob Storage** and **Service Bus** status updates. Any API call can opt in, but it matters most for long-running LLM queries that would otherwise risk a timeout.
 
-[See the FAQ →](understand-faq.md#when-should-clients-stop-waiting-synchronously)
+[See the FAQ →](../faq/async-operation.md)
 
 </td>
 <td width="33%" valign="top">
@@ -79,7 +79,7 @@ Long-running requests don't need to hold a client connection open. When a reques
 
 The proxy logs full request activity — including AI token usage pulled from streaming responses — to Application Insights, Event Hub, local files, or your own custom code.
 
-[See the FAQ →](understand-faq.md#how-does-the-proxy-handle-observability-and-telemetry)
+[See the FAQ →](../faq/observability-telemetry.md)
 
 </td>
 </tr><tr>
@@ -91,7 +91,7 @@ Each replica protects itself and signals its health to ACA. On the inbound side,
 
 ACA makes all scaling decisions using the proxy's `/startup`, `/liveness`, and `/readiness` probes — it **scales out** when connections per replica cross a configured threshold, recycles replicas under sustained backpressure, and gives scaled-in replicas a grace period to **drain** active connections before shutdown.
 
-[See the FAQ →](understand-faq.md#how-does-the-proxy-stay-resilient-and-autoscale-with-aca)
+[See the FAQ →](../faq/resilience-autoscaling.md)
 
 </td>
 </tr>
@@ -116,9 +116,9 @@ ACA makes all scaling decisions using the proxy's `/startup`, `/liveness`, and `
 
 | Document | What it covers |
 |----------|----------------|
-| [User Profiles](../USER_PROFILES.md) | Per-user priority and async fields |
-| [Load Balancing](../LOAD_BALANCING.md) | Native backend selection and retry |
-| [Backend Hosts](../BACKEND_HOSTS.md) | Direct and probed host configuration |
-| [Get It Running](02-get-it-running.md) | The next discovery path for running the proxy |
+| [User Profiles](../reference/user-profiles.md) | Per-user priority and async fields |
+| [Load Balancing](../reference/load-balancing.md) | Native backend selection and retry |
+| [Backend Hosts](../reference/backend-hosts.md) | Direct and probed host configuration |
+| [Get It Running](../getting-started/README.md) | The next discovery path for running the proxy |
 
 ---
