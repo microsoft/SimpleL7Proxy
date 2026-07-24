@@ -13,7 +13,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\src\SimpleL7Proxy\SimpleL7Proxy.csproj" />
+    <ProjectReference Include="..\..\src\SimpleL7Proxy\SimpleL7Proxy.csproj" />
     <Compile Include="QueueTests.cs.txt" />
   </ItemGroup>
 
@@ -21,7 +21,10 @@
     <None Update="configs\**\*.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="..\src\SimpleL7Proxy\config.json" Link="configs\profile-config.json">
+    <None Include="..\..\src\SimpleL7Proxy\config.json" Link="configs\profile-config.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\nullserver\Python\stream_server.py" Link="tools\stream_server.py">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
