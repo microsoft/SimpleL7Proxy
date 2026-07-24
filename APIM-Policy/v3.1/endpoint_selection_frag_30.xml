@@ -36,6 +36,11 @@
     <set-variable name="AffinityHeaderName" value="x-backend-affinity" />
     <set-variable name="modelHeaderName" value="x-LLMModel" />
 
+    <!-- set the request ID in case we need to debug -->
+    <set-header name="x-ms-client-request-id" exists-action="override">
+        <value>@(context.Request.Headers.GetValueOrDefault("x-S7P-id", Guid.NewGuid().ToString()))</value>
+    </set-header>
+
     <!-- ================= BACKEND CATALOG (edit me) =================
         Each model name maps to the list of backends it may use.
         "DEFAULT" is used when the requested model is not listed here. -->
@@ -67,9 +72,9 @@
             requeue    = whether the request may be sent back to the queue -->
     <set-variable name="priorityCfg" value="@{
         return new JObject {
-            ["1"] = new JObject { ["retryCount"] = 2, ["requeue"] = false },
-            ["2"] = new JObject { ["retryCount"] = 2, ["requeue"] = false },
-            ["3"] = new JObject { ["retryCount"] = 2, ["requeue"] = false }
+            ["1"] = new JObject { ["retryCount"] = 2, ["requeue"] = true },
+            ["2"] = new JObject { ["retryCount"] = 2, ["requeue"] = true },
+            ["3"] = new JObject { ["retryCount"] = 2, ["requeue"] = true }
         };
     }" />
 

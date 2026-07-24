@@ -1,0 +1,20 @@
+Priority-with-retry v3.1 Current Issues
+Updated: 2026-07-24
+
+1. Mixed backend authentication modes (both Managed Identity and API key) are not supported.
+Action: Acquire MI only after selecting an MI backend, or define a fallback.
+
+2. Sticky context-window state can cause a later 401 or 404 to be retried and returned as 429.
+Action: Limit the permanent-error override to the matching 400 response.
+
+3. Context failover skips only a backend labeled exactly PTU, so a differently named PTU backend can be selected again.
+Action: Use an explicit backend capability instead of a display label.
+
+4. A valid non-chunked 200 without Content-Length can be retried even when it has a body.
+Action: Check actual buffered body content while preserving the PTU workaround.
+
+5. DNS, TLS, or connection failures can return 500 without trying another backend.
+Action: Validate APIM traces and add transport-failure failover handling.
+
+6. backendLog and X-Policy-LastError can expose backend URLs and internal errors without S7PDEBUG.
+Action: Disable the backendlog header response if this is a risk for your application.
