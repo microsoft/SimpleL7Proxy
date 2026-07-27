@@ -66,7 +66,7 @@ APPCONFIG_NAME="${APPCONFIG_NAME:?'APPCONFIG_NAME must be set'}"
 # ----------------------------------------------------------------------------
 APPCONFIG_SKU="${APPCONFIG_SKU:-standard}"
 APPCONFIG_LABEL="${APPCONFIG_LABEL:-prod}"
-AZURE_APPCONFIG_REFRESH_SECONDS="${AZURE_APPCONFIG_REFRESH_SECONDS:-30}"
+AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS="${AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS:-${AZURE_APPCONFIG_REFRESH_SECONDS:-30}}"
 UPDATE_CONTAINER_APP_ENV="${UPDATE_CONTAINER_APP_ENV:-true}"
 
 BACKEND_OPTIONS_FILE="${BACKEND_OPTIONS_FILE:-${REPO_ROOT}/src/SimpleL7Proxy/Config/ProxyConfig.cs}"
@@ -391,7 +391,7 @@ done
 # Add Sentinel and RefreshSeconds to the import batch (always Warm)
 echo "," >> "${IMPORT_JSON_FILE}"
 printf '  "Warm:Sentinel": "%s",\n' "$(date -u +%s)" >> "${IMPORT_JSON_FILE}"
-printf '  "Warm:RefreshSeconds": "%s"' "${AZURE_APPCONFIG_REFRESH_SECONDS}" >> "${IMPORT_JSON_FILE}"
+printf '  "Warm:RefreshSeconds": "%s"' "${AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS}" >> "${IMPORT_JSON_FILE}"
 
 echo "" >> "${IMPORT_JSON_FILE}"
 echo "}" >> "${IMPORT_JSON_FILE}"
@@ -419,7 +419,7 @@ if [ "${UPDATE_CONTAINER_APP_ENV}" = "true" ]; then
         --set-env-vars \
             "AZURE_APPCONFIG_ENDPOINT=${APPCONFIG_ENDPOINT}" \
             "AZURE_APPCONFIG_LABEL=${APPCONFIG_LABEL}" \
-            "AZURE_APPCONFIG_REFRESH_SECONDS=${AZURE_APPCONFIG_REFRESH_SECONDS}" \
+            "AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS=${AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS}" \
         >/dev/null || echo -e "${YELLOW}Warning: Could not update Container App env vars (continuing).${NC}"
 fi
 

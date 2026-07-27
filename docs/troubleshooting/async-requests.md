@@ -122,6 +122,6 @@ This line must appear **after** `Response.Close()`. Without it, the blob will be
 
 ## Related
 
-- [AsyncOperation.md](../AsyncOperation.md) — full async configuration reference
-- [USER_PROFILES.md](../USER_PROFILES.md) — how to configure async per user profile
-- [TIMEOUTS.md](../TIMEOUTS.md) — TTL and timeout interactions
+- [AsyncOperation.md](../concepts/async-processing.md) — full async configuration reference
+- [USER_PROFILES.md](../reference/user-profiles.md) — how to configure async per user profile
+- [TIMEOUTS.md](../reference/timeouts.md) — TTL and timeout interactions

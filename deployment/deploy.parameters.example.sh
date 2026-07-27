@@ -96,7 +96,7 @@ export TERMINATION_GRACE_PERIOD_SECONDS="30"
 export APPCONFIG_NAME="myapp-appcfg"       # Must be globally unique across Azure
 export APPCONFIG_SKU="standard"
 export APPCONFIG_LABEL="prod"
-export AZURE_APPCONFIG_REFRESH_SECONDS="30"
+export AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS="30"
 export UPDATE_CONTAINER_APP_ENV="true"
 
 # =============================================================================

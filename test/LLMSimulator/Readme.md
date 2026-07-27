@@ -5,7 +5,7 @@
 > [!IMPORTANT]
 > **The rule: your client code points at this simulator unchanged. It mirrors real provider URL shapes, so existing SDKs, proxies, and gateways work without modification.**
 
-## TL;DR (< 5 minutes)
+## TL;DR
 
 1. Deploy `function.zip` to a Function App via portal ZIP deploy, or run `func start` locally.
 2. Set `BASE` to your function host URL.

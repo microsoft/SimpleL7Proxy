@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Azure.Core;
 using Azure.Identity;
 using Azure.Messaging.EventHubs;
@@ -409,10 +410,13 @@ public sealed class EventHubReader : BackgroundService
             {
                 return;
             }
-            catch (System.Net.Sockets.SocketException)
+            catch (Exception ex) when (
+                ex is System.Net.Sockets.SocketException
+                || ex is TimeoutException
+                || ex is EventHubsException { IsTransient: true })
             {
                 _logger.LogWarning(
-                    "Event Hub reader is disconnected for partition {PartitionId}; retrying in 30 seconds.",
+                    "Event Hub is temporarily unreachable for partition {PartitionId}. DNS or network connectivity issue; retrying in 30 seconds.",
                     partitionId);
                 await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken).ConfigureAwait(false);
             }
@@ -461,6 +465,12 @@ public sealed class EventHubReader : BackgroundService
 
             parsed.Add(new ParsedEventRecord(raw, eventData));
 
+            if (eventData.TryGetValue("Type", out var recordType)
+                && IsIncompleteRecord(eventData, recordType))
+            {
+                AppendIncompleteRecord(raw);
+            }
+
             if (ProcessEventData(eventData))
             {
                 processed++;
@@ -488,6 +498,71 @@ public sealed class EventHubReader : BackgroundService
     private void LogInvalidRecord(Exception exception, string source)
     {
         _logger.LogWarning(exception, "Ignoring invalid Event Hub record from {Source}.", source);
+    }
+
+    // Matches the friendly backend selection logged by the APIM Priority-with-retry policy
+    // (e.g. "Using PAYGO URL: https://..."). Records without this AND without an x-backend-label
+    // are the "incomplete" / unlabeled attempts the Endpoints card falls back to a raw URL for.
+    private static readonly Regex UsingBackendUrlRegex = new(
+        @"Using\s+[A-Za-z0-9_-]+\s+URL:\s*https?://",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    // incomplete.json lives next to the running binary; appended as JSON Lines (one record/line).
+    private static readonly string IncompleteRecordsPath =
+        Path.Combine(AppContext.BaseDirectory, "incomplete.json");
+
+    private readonly object _incompleteFileGate = new();
+
+    // A backend attempt (S7P-BackendRequest) or the final response (S7P-ProxyRequest) is
+    // "incomplete" when it carries neither an x-backend-label header nor a "Using <NAME> URL:"
+    // entry in any backendLog, so no friendly backend label can be resolved for it.
+    private static bool IsIncompleteRecord(IReadOnlyDictionary<string, string> eventData, string eventType)
+    {
+        if (eventType is not ("S7P-BackendRequest" or "S7P-ProxyRequest"))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(GetValue(eventData, "x-backend-label")))
+        {
+            return false;
+        }
+
+        if (UsingBackendUrlRegex.IsMatch(GetValue(eventData, "backendLog")))
+        {
+            return false;
+        }
+
+        for (var attempt = 1; ; attempt++)
+        {
+            var log = GetValue(eventData, $"Attempt-{attempt}-backendLog");
+            if (string.IsNullOrWhiteSpace(log))
+            {
+                break;
+            }
+
+            if (UsingBackendUrlRegex.IsMatch(log))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private void AppendIncompleteRecord(string raw)
+    {
+        try
+        {
+            lock (_incompleteFileGate)
+            {
+                File.AppendAllText(IncompleteRecordsPath, raw.Trim() + Environment.NewLine);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to append incomplete record to {Path}.", IncompleteRecordsPath);
+        }
     }
 
     private bool ProcessEventData(IReadOnlyDictionary<string, string> eventData)

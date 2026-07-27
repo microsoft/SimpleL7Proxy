@@ -1,16 +1,16 @@
 # SimpleL7Proxy — Deployment (interactive)
 
-![Target architecture](arch.png)
+![Target architecture](../docs/concepts/architecture.png)
 
-This is the **interactive deployment path** for SimpleL7Proxy. The deployment script 
+This is the **interactive deployment path** for SimpleL7Proxy. The deployment script
 lets you create a new installation or update an existing proxy to the latest version.
 
 This guide is intended for platform and infrastructure engineers deploying SimpleL7Proxy on Azure,
-as well as application teams consuming the proxy within private VNets. Completing all steps 
+as well as application teams consuming the proxy within private VNets. Completing all steps
 results in a private, VNet‑integrated Layer‑7 proxy running on Azure Container Apps, exposed
 through a private DNS name that is resolvable within the VNet.
 
-The public installation scenario uses all the same components, except that they are public 
+The public installation scenario uses all the same components, except that they are public
 access points locked down with ACLs.
 
 ---
@@ -89,8 +89,8 @@ Follow these steps in order:
 4. Compiles the source code and creates the `proxy images` in the ACR.
 5. (Re)deploys the `container app` in either sidecar or internal mode.
 6. If you selected private networking, creates a `DNS zone`.
-7. Connects the `App Configuration` instance to the container app and uploads the latest parameters.
-   
+7. Creates or reuses the `App Configuration` instance, copies the proxy settings and defaults, and connects the Container App.
+
    **The options below apply to async mode.**
 8. Creates Blob Storage.
 9. Creates the RequestAPI Azure Function.
@@ -210,24 +210,43 @@ Use these only when deploying the sidecar variant (`proxy-with-sidecar/deploy.sh
 
 </details>
 
+<a id="app-configuration"></a>
 <details>
 <summary><strong>App Configuration</strong></summary>
 
-These settings control where runtime config is stored and how quickly updates are picked up.
+These settings identify the App Configuration store, the label applied to the copied settings, and whether step 7 connects the Container App to the store.
 
 | Variable | Used by | Suggested value | Purpose |
 |---|---|---|---|
 | `APPCONFIG_NAME` | AppConfiguration | `myapp-appcfg` | Store name. **Must be globally unique across Azure.** |
 | `APPCONFIG_SKU` | AppConfiguration | `standard` | `standard` or `free` |
-| `APPCONFIG_LABEL` | AppConfiguration | *(empty)* | Optional label for `Warm:*` keys |
-| `AZURE_APPCONFIG_REFRESH_SECONDS` | AppConfiguration | `30` | Hot-reload interval written to `Warm:RefreshSeconds` |
+| `APPCONFIG_LABEL` | AppConfiguration | `prod` | Label applied to the copied `Warm:*` and `Cold:*` keys |
+| `AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS` | AppConfiguration | `30` | How often each proxy replica checks `Warm:Sentinel`, in seconds |
 | `UPDATE_CONTAINER_APP_ENV` | AppConfiguration | `true` | Updates Container App environment variables so the proxy can connect to App Configuration |
 
+**Run step 5 before step 7.** Step 7 reads the deployed Container App's environment variables and managed identity.
+
+When step 7 runs, it:
+
+- Creates or reuses `APPCONFIG_NAME` in `APPCONFIG_RESOURCE_GROUP`.
+- Reads the settings declared with `[ConfigOption]` in `ProxyConfig.cs`.
+- Uses the current Container App value when one exists. Otherwise, it uses a local deployment value, the code default, or `-` when no value is defined.
+- Copies the settings as `Warm:` and `Cold:` keys under `APPCONFIG_LABEL`.
+- Adds `Warm:Sentinel` and `Warm:RefreshSeconds` under the same label.
+- Grants **App Configuration Data Reader** to the Container App managed identity.
+- Sets the App Configuration endpoint and label on the Container App when `UPDATE_CONTAINER_APP_ENV=true`.
+
+> [!WARNING]
+> Running step 7 again recopies the settings and gives `Warm:Sentinel` a new value. This can replace values changed directly in App Configuration. Export the existing configuration first, and rerun step 7 only when the values need to be rebuilt from the deployed app and code defaults.
+
 > [!NOTE]
-> **App Configuration auto-creation:** You do not need to create the App Configuration store before deploying.
-> Step 7 (`AppConfiguration/deploy.sh`) checks whether `APPCONFIG_NAME` exists in `APPCONFIG_RESOURCE_GROUP`
-> and creates it automatically if it doesn't. App Configuration names must be **globally unique** across Azure.
-> If the default `myapp-appcfg` is taken, append a unique suffix (for example, `myapp-appcfg42`) and rerun Step 7.
+> The store does not need to exist before step 7 runs. If `APPCONFIG_NAME` is already used elsewhere in Azure, choose a globally unique name, such as `myapp-appcfg42`, and rerun step 7.
+
+> [!NOTE]
+> Existing `deploy.parameters.sh` files can continue to use `AZURE_APPCONFIG_REFRESH_SECONDS`. Step 7 accepts it as a legacy alias, but new configurations should use `AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS`.
+
+> [!TIP]
+> If step 7 reports `Could not read Container App`, confirm that step 5 completed and that `CONTAINER_APP_NAME`, `CONTAINER_APP_RESOURCE_GROUP`, and the active Azure subscription identify the deployed app.
 
 </details>
 
@@ -354,9 +373,9 @@ az network private-dns record-set list -g "${NETWORK_RESOURCE_GROUP}" -z "${DNS_
 ## References
 
 - [Day-2 Operations](DAY2_OPERATIONS.md)
-- [App Configuration keys](../docs/AZURE_APP_CONFIGURATION.md)
-- [Backend hosts](../docs/BACKEND_HOSTS.md)
-- [Health checking](../docs/HEALTH_CHECKING.md)
-- [Troubleshooting](../docs/TroubleshootTOC.md)
-- [Configuration reference](../docs/CONFIGURATION_SETTINGS.md)
-- [Advanced scenarios](../docs/ADVANCED_DEVELOPMENT.md)
+- [App Configuration keys](../docs/how-to/configure-app-configuration.md)
+- [Backend hosts](../docs/reference/backend-hosts.md)
+- [Health checking](../docs/reference/health-endpoints.md)
+- [Troubleshooting](../docs/troubleshooting/README.md)
+- [Configuration reference](../docs/reference/configuration.md)
+- [Advanced scenarios](../docs/contributing/development.md)

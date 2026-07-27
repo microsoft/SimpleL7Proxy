@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -8,6 +9,7 @@ using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Backend.Iterators;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
+using SimpleL7Proxy.Llm;
 using SimpleL7Proxy.Queue;
 using SimpleL7Proxy.User;
 using SimpleL7Proxy.Async.ServiceBus;
@@ -980,8 +982,28 @@ public class ProxyWorker : IConfigChangeSubscriber
                 request.FullURL = host.Config.BuildDestinationUrl(request.Path);
 
                 requestState = "Cache Body";
+
                 // Read the body stream once and reuse it
-                byte[] bodyBytes = await request.CacheBodyAsync().ConfigureAwait(false);
+                ReadOnlyMemory<byte> bodyBytes = await request.CacheBodyAsync(out bool wasCached).ConfigureAwait(false);
+
+                if (detectModel && !wasCached && bodyBytes.Length > 0)
+                {
+
+                    if (request.Debug)
+                    {
+                        _logger.LogInformation("[ValidateModel:{Guid}] Detecting model in request body of {Length} bytes, override: {Override}",
+                            request.Guid, bodyBytes.Length, request.Headers["S7P-Model-Override"] ?? "(none)");
+                    }
+        
+                    bodyBytes = ModelSwapper.ValidateModel(request, bodyBytes, request.Headers["S7P-Model-Override"]);
+
+                    if (request.Headers["S7PDEBUGBODY"] is {} debugBodyHeader && debugBodyHeader.Equals("true", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var bodyString = System.Text.Encoding.UTF8.GetString(bodyBytes.Span);
+                        _logger.LogInformation("[ValidateModel:{Guid}] Request body after model validation: {BodyContent}",
+                            request.Guid, bodyString);
+                    }
+                }
 
                 if (request.runAsync &&
                     !request.AsyncTriggered &&
@@ -1008,7 +1030,11 @@ public class ProxyWorker : IConfigChangeSubscriber
 
                 requestState = "Create Backend Request";
 
-                using (ByteArrayContent bodyContent = new(bodyBytes))
+                var bodySegment = MemoryMarshal.TryGetArray(bodyBytes, out var segment) && segment.Array != null
+                    ? segment
+                    : new ArraySegment<byte>(bodyBytes.ToArray());
+
+                using (ByteArrayContent bodyContent = new(bodySegment.Array!, bodySegment.Offset, bodySegment.Count))
                 using (HttpRequestMessage proxyRequest = new(new(request.Method), request.FullURL))
                 {
                     proxyRequest.Content = bodyContent;
@@ -1192,7 +1218,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                                 // request was successful, so we can disable the skip
                                 request.SkipDispose = false;
                                 requestAttempt["RequestSuccess"] = "true"; // Track success in event data
-                                bodyBytes = [];
+                                bodyBytes = ReadOnlyMemory<byte>.Empty;
                             }
 
                             pr.Headers["BackendHost"] = requestSummary["Backend-Host"] = pr.BackendHostname;

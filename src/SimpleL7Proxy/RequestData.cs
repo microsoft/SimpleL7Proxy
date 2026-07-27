@@ -2,7 +2,6 @@ using System;
 using System.Collections.Concurrent;
 using System.IO;
 using System.Net;
-using System.Text.Json;
 using System.Threading.Tasks;
 
 using Microsoft.Extensions.ObjectPool;
@@ -201,7 +200,7 @@ public class RequestData : IDisposable, IAsyncDisposable
 
     public bool Debug { get; set; }
     public bool SkipDispose { get; set; } = false;
-    public byte[]? BodyBytes { get; set; } = null;
+    public ReadOnlyMemory<byte>? BodyBytes { get; set; } = null;
     public DateTime DequeueTime { get; set; }
     public DateTime EnqueueTime { get; set; }
     public DateTime ExpiresAt { get; set; }
@@ -211,6 +210,7 @@ public class RequestData : IDisposable, IAsyncDisposable
     public int defaultTimeout { get; set; } = 0; // header timeout or default timeout in milliseconds
     public int Priority { get; set; }
     public int Priority2 { get; set; }
+    public short S7PHash { get; set; }
     public int Timeout { get; set; }  // calculated timeout in milliseconds
     public List<Dictionary<string, string>> incompleteRequests = new();
     public ProxyEvent EventData;
@@ -332,10 +332,18 @@ public class RequestData : IDisposable, IAsyncDisposable
         OutputStream = null; // Will be set when processing the request
     }
 
-    public void setBody(byte[] bytes)
+    public void setBody(ReadOnlyMemory<byte> bytes)
     {
         BodyBytes = bytes;
-        Body = new MemoryStream(bytes);
+        if (System.Runtime.InteropServices.MemoryMarshal.TryGetArray(bytes, out var segment)
+            && segment.Array != null)
+        {
+            Body = new MemoryStream(segment.Array, segment.Offset, segment.Count, writable: false, publiclyVisible: true);
+        }
+        else
+        {
+            Body = new MemoryStream(bytes.ToArray(), writable: false);
+        }
     }
 
 
@@ -372,26 +380,31 @@ public class RequestData : IDisposable, IAsyncDisposable
         }
     }
 
-    public async Task<byte[]> CacheBodyAsync()
+    public Task<ReadOnlyMemory<byte>> CacheBodyAsync(out bool wasCached)
     {
         if (BodyBytes != null)
         {
-            return BodyBytes;
+            wasCached = true;
+            return Task.FromResult(BodyBytes.Value);
         }
+
+        wasCached = false;
 
         if (Body is null)
         {
-            return [];
+            return Task.FromResult(ReadOnlyMemory<byte>.Empty);
         }
 
-        try
+        return ReadAndCacheBodyAsync();
+
+        async Task<ReadOnlyMemory<byte>> ReadAndCacheBodyAsync()
         {
             long contentLength = Context?.Request.ContentLength64 ?? -1;
 
             if (contentLength == 0)
             {
-                BodyBytes = [];
-                return BodyBytes;
+                BodyBytes = ReadOnlyMemory<byte>.Empty;
+                return BodyBytes.Value;
             }
 
             if (contentLength > 0 && contentLength <= int.MaxValue)
@@ -399,7 +412,7 @@ public class RequestData : IDisposable, IAsyncDisposable
                 var bodyBytes = GC.AllocateUninitializedArray<byte>((int)contentLength);
                 await Body.ReadExactlyAsync(bodyBytes).ConfigureAwait(false);
                 BodyBytes = bodyBytes;
-                return BodyBytes;
+                return BodyBytes.Value;
             }
 
             // Unknown-length bodies, such as chunked requests, still need a growable buffer.
@@ -409,59 +422,7 @@ public class RequestData : IDisposable, IAsyncDisposable
                 BodyBytes = ms.ToArray();
             }
 
-            return BodyBytes;
-        }
-        finally
-        {
-            if (BodyBytes is { Length: > 0 })
-            {
-                try
-                {
-                    var reader = new Utf8JsonReader(BodyBytes, isFinalBlock: true, state: default);
-
-                    if (reader.Read() && reader.TokenType == JsonTokenType.StartObject)
-                    {
-                        while (reader.Read())
-                        {
-                            if (reader.TokenType == JsonTokenType.EndObject)
-                            {
-                                break;
-                            }
-
-                            if (reader.TokenType != JsonTokenType.PropertyName)
-                            {
-                                continue;
-                            }
-
-                            bool isModelProperty = reader.ValueTextEquals("model"u8);
-                            if (!reader.Read())
-                            {
-                                break;
-                            }
-
-                            if (isModelProperty && reader.TokenType == JsonTokenType.String)
-                            {
-                                var model = reader.GetString();
-                                if (!string.IsNullOrWhiteSpace(model))
-                                {
-                                    Model = model;
-                                }
-
-                                break;
-                            }
-
-                            reader.Skip();
-                        }
-                    }
-                }
-                catch (JsonException)
-                {
-                    if (string.IsNullOrEmpty(Model) )
-                    {
-                        Model = "Error parsing model";
-                    }
-                }
-            }
+            return BodyBytes.Value;
         }
     }
 

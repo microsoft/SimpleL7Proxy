@@ -142,7 +142,7 @@ namespace SimpleL7Proxy.DTO
                     }
 
                     _logger.LogTrace($"[{requestData.Guid}] BackupService.BackupAsync | Action: WriteBody | Guid: {requestData.Guid} | Container: {Constants.Server} | Blob: {bodyBlobName} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
-                    await _requestStore.WriteAsync(Constants.Server, bodyBlobName, requestData.BodyBytes).ConfigureAwait(false);
+                    await _requestStore.WriteAsync(Constants.Server, bodyBlobName, requestData.BodyBytes.Value).ConfigureAwait(false);
                     _logger.LogTrace($"[{requestData.Guid}] BackupService.BackupAsync | Action: WriteBody-Complete | Guid: {requestData.Guid} | Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
 
                 }

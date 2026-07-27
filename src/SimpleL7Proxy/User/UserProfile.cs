@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Frozen;
 using System.IO;
 using System.Text;
 using System.Net.Http;
@@ -10,6 +11,7 @@ using Microsoft.Extensions.Logging;
 
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.Events;
+using SimpleL7Proxy.Rules;
 using Microsoft.AspNetCore.Http;
 
 namespace SimpleL7Proxy.User;
@@ -23,6 +25,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
     private volatile Dictionary<string, Dictionary<string, string>> userProfiles = new Dictionary<string, Dictionary<string, string>>();
     private volatile List<string> suspendedUserProfiles = new List<string>();
     private volatile Dictionary<string, Dictionary<string, string>> authAppIDs = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+    private volatile Dictionary<string, UserProfileSnapshot> userProfileSnapshots = new Dictionary<string, UserProfileSnapshot>();
     // private DateTime? lastSuccessfulProfileLoad = null;
     // private TimeSpan? staleDuration = null;
 
@@ -44,6 +47,9 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
     // Special keys used to mark deleted profiles in-place
     private const string s_DeletedAtKey = "__DeletedAt";
     private const string s_ExpiresAtKey = "__ExpiresAt";
+
+    // Property name holding a profile's rule definitions (parsed into a RuleConfig)
+    private const string s_RulesKey = "rules";
 
     private readonly ILogger<UserProfile> _logger;
     private volatile Dictionary<string, AsyncClientInfo> _userInformation = new();
@@ -540,6 +546,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
         Dictionary<string, Dictionary<string, string>> localUserProfiles = new Dictionary<string, Dictionary<string, string>>();
         List<string> localSuspendedUserProfiles = new List<string>();
         Dictionary<string, Dictionary<string, string>> localAuthAppIDs = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, RuleConfig> localUserProfileRules = new Dictionary<string, RuleConfig>();
 
         if (string.IsNullOrWhiteSpace(fileContent))
         {
@@ -622,6 +629,21 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
                                         _logger.LogWarning($"Profile {entityId} contains reserved key '{property.Name}' - removing key");
                                         continue;
                                     }
+
+                                    if (property.Name.Equals(s_RulesKey, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        // Parse rules into a RuleConfig instead of storing as a raw key-value pair.
+                                        try
+                                        {
+                                            localUserProfileRules[entityId] = RuleConfigParser.ParseRules(property.Value.GetRawText());
+                                        }
+                                        catch (ArgumentException ex)
+                                        {
+                                            _logger.LogWarning($"Profile {entityId} has invalid rules definition - skipping rules: {ex.Message}");
+                                        }
+                                        continue;
+                                    }
+
                                     kvPairs[property.Name] = property.Value.ToString();
                                 }
                             }
@@ -660,6 +682,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
             else if (mode == ParsingMode.ProfileMode)
             {
                 var (result, _, _, _) = ApplySoftDeletes(userProfiles, localUserProfiles, "Profile");
+                var localUserProfileSnapshots = CreateProfileSnapshots(result, localUserProfileRules, userProfileSnapshots);
 
                 if (result.Count == 0)
                 {
@@ -667,6 +690,7 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
                     response.Message = "No valid user profiles found in config.";
                 }
                 Interlocked.Exchange(ref userProfiles, result);
+                Interlocked.Exchange(ref userProfileSnapshots, localUserProfileSnapshots);
                 Interlocked.Exchange(ref _userInformation, CreateDefaultAsyncClientInfoCache());
             }
         }
@@ -713,6 +737,91 @@ public class UserProfile : BackgroundService, IUserProfileService, IConfigChange
         }
 
         return (new Dictionary<string, string>(), false, false);
+    }
+
+    public UserProfileSnapshot? GetUserProfileSnapshot(string userId)
+    {
+        if (string.IsNullOrEmpty(userId))
+        {
+            return null;
+        }
+
+        var currentSnapshots = userProfileSnapshots;
+        if (!currentSnapshots.TryGetValue(userId, out var snapshot))
+        {
+            return null;
+        }
+
+        if (snapshot.IsSoftDeleted && snapshot.ExpiresAt is { } expiresAt && expiresAt <= DateTime.UtcNow)
+        {
+            return null;
+        }
+
+        return snapshot;
+    }
+
+    /// <summary>
+    /// Returns the parsed rules for the given user, or null when the user has no
+    /// rules defined. Processing of the rules is handled elsewhere.
+    /// </summary>
+    public RuleConfig? GetUserProfileRules(string userId)
+    {
+        return GetUserProfileSnapshot(userId)?.Rules;
+    }
+
+    private static Dictionary<string, UserProfileSnapshot> CreateProfileSnapshots(
+        Dictionary<string, Dictionary<string, string>> profiles,
+        Dictionary<string, RuleConfig> rules,
+        Dictionary<string, UserProfileSnapshot> currentSnapshots)
+    {
+        var snapshots = new Dictionary<string, UserProfileSnapshot>(profiles.Count);
+
+        foreach (var (userId, profile) in profiles)
+        {
+            var publicHeaders = new Dictionary<string, string>();
+            foreach (var (key, value) in profile)
+            {
+                if (!key.StartsWith("internal-", StringComparison.Ordinal)
+                    && key != s_DeletedAtKey
+                    && key != s_ExpiresAtKey)
+                {
+                    publicHeaders[key] = value;
+                }
+            }
+
+            DateTime? expiresAt = null;
+            var isSoftDeleted = false;
+
+            if (profile.ContainsKey(s_DeletedAtKey)
+                && profile.TryGetValue(s_ExpiresAtKey, out var expiresAtValue)
+                && DateTime.TryParse(expiresAtValue, out var parsedExpiresAt))
+            {
+                isSoftDeleted = true;
+                expiresAt = parsedExpiresAt;
+            }
+
+            RuleConfig? ruleConfig = null;
+            RuleProcessor? ruleProcessor = null;
+
+            if (rules.TryGetValue(userId, out ruleConfig))
+            {
+                ruleProcessor = new RuleProcessor(ruleConfig);
+            }
+            else if (isSoftDeleted && currentSnapshots.TryGetValue(userId, out var currentSnapshot))
+            {
+                ruleConfig = currentSnapshot.Rules;
+                ruleProcessor = currentSnapshot.RuleProcessor;
+            }
+
+            snapshots[userId] = new UserProfileSnapshot(
+                publicHeaders.ToFrozenDictionary(),
+                ruleConfig,
+                ruleProcessor,
+                isSoftDeleted,
+                expiresAt);
+        }
+
+        return snapshots;
     }
 
     public bool IsUserSuspended(string userId)

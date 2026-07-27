@@ -1,5 +1,5 @@
-// Minimal helpers to read/write a browser session cookie (no expiry => cleared when the
-// browser session ends). The value stored is a base64-encoded JSON blob of user preferences.
+// Minimal helpers to read/write a persistent browser cookie. The value stored is a
+// base64-encoded JSON blob of user preferences.
 window.userPreferences = {
     get: function (name) {
         const prefix = name + "=";
@@ -13,8 +13,8 @@ window.userPreferences = {
         return null;
     },
     set: function (name, value) {
-        // Session cookie: no "expires"/"max-age" so it is discarded when the browser closes.
-        document.cookie = name + "=" + encodeURIComponent(value) + "; path=/; SameSite=Lax";
+        // Keep preferences, including onboarding progress, across browser sessions for one year.
+        document.cookie = name + "=" + encodeURIComponent(value) + "; path=/; Max-Age=31536000; SameSite=Lax";
     },
     clear: function (name) {
         document.cookie = name + "=; path=/; Max-Age=0; SameSite=Lax";

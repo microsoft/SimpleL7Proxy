@@ -521,7 +521,7 @@ public static class ConfigFactory
       }
       catch (UriFormatException e)
       {
-        _logger?.LogError(e, "Could not add {HostKey} with {Hostname}", entry.HostKey, entry.Hostname);
+        _logger?.LogError(e, "{msg}: Could not add {HostKey} with {Hostname}", e.Message, entry.HostKey, entry.Hostname);
       }
     }
 

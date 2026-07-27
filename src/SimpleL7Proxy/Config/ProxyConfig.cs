@@ -219,7 +219,7 @@ public class ProxyConfig
 
     // ── Server ──
     [ConfigOption("Server:EnvPluginClass", ConfigName = "EnvPluginClass", Mode = ConfigMode.Cold)]
-    public string EnvPluginClass { get; set; } = "SimpleL7Proxy.Plugins.AzureConfigPlugin";
+    public string EnvPluginClass { get; set; } = "SimpleL7Proxy.Plugin.AzureConfigPlugin";
     [ConfigOption("Server:GC2InternalSecs", ConfigName = "GC2InternalSecs", Mode = ConfigMode.Cold)]
     public int GC2InternalSecs { get; set; } = 300; // 5 minutes
     [ConfigOption("Server:StreamFlushInterval", ConfigName = "StreamFlushInterval", Mode = ConfigMode.Cold)]

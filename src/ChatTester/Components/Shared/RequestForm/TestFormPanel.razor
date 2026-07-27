@@ -125,6 +125,9 @@
     public string? InitialServerBaseUrl { get; set; }
 
     [Parameter]
+    public string InitialActiveTab { get; set; } = "server";
+
+    [Parameter]
     public string HeaderSubtitle { get; set; } = "Send a chat request.";
 
     [Parameter]
@@ -189,6 +192,14 @@
     private HeaderPanel? HeaderPanel { get; set; }
 
     public string ActiveTab { get; private set; } = "server";
+
+    protected override void OnParametersSet()
+    {
+        if (ActiveTab == "server" && InitialActiveTab is "user" or "headers" or "prompt")
+        {
+            ActiveTab = InitialActiveTab;
+        }
+    }
 
     private bool IsMinimized => DisplayState == PanelDisplayState.Minimized;
 
