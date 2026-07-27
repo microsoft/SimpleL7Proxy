@@ -78,8 +78,8 @@ public class RequeueDelayWorker : IRequeueWorker, IShutdownParticipant, IDisposa
                 request.BackendAttempts = 0;
 
                 // Requeue the request
-                _logger.LogCritical("Requeued request, Pri: {Priority}, Expires-At: {ExpiresAt}, GUID: {Guid}",
-                    request.Priority, request.ExpiresAtString, request.Guid);
+                _logger.LogCritical("[{Guid}] Requeued request, Pri: {Priority}, Expires-At: {ExpiresAt}, DelayMs: {delayMs}",
+                    request.Guid, request.Priority, request.ExpiresAtString, delayMs);
                     
                 _requestsQueue.Requeue(request, request.Priority, request.Priority2, request.EnqueueTime);
             }
