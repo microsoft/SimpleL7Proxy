@@ -1,0 +1,144 @@
+<fragment>
+	<!-- Test-only endpoint catalog for the v3.1 policy scenario API. -->
+	<set-variable name="priorityHeaderName" value="x-S7PPriority" />
+	<set-variable name="PolicyCycleCounterHeaderName" value="x-PolicyCycleCounter" />
+	<set-variable name="AffinityHeaderName" value="x-backend-affinity" />
+	<set-variable name="modelHeaderName" value="x-LLMModel" />
+
+	<set-header name="x-ms-client-request-id" exists-action="override">
+		<value>@(context.Request.Headers.GetValueOrDefault("x-S7P-id", Guid.NewGuid().ToString()))</value>
+	</set-header>
+
+	<!-- The named value must be the simulator origin, without /api. -->
+	<set-variable name="backendCatalog" value="@{
+		string simulator = "{{policy-test-simulator-base-url}}".TrimEnd('/');
+		return new JObject {
+			["policy-default"] = new JObject {
+				["SIM-A"] = new JObject { ["url"] = simulator + "/api/policy-scenario/a", ["path"] = "", ["priorityGroup"] = 1, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 5, ["auth"] = "", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = true },
+				["SIM-B"] = new JObject { ["url"] = simulator + "/api/policy-scenario/b", ["path"] = "", ["priorityGroup"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 5, ["auth"] = "", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = true }
+			},
+			["policy-context"] = new JObject {
+				["PTU"] = new JObject { ["url"] = simulator + "/api/policy-scenario/a", ["path"] = "", ["priorityGroup"] = 1, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 5, ["auth"] = "", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = true },
+				["PAYGO"] = new JObject { ["url"] = simulator + "/api/policy-scenario/b", ["path"] = "", ["priorityGroup"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 5, ["auth"] = "", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = true }
+			},
+			["policy-timeout"] = new JObject {
+				["SIM-A"] = new JObject { ["url"] = simulator + "/api/policy-scenario/a", ["path"] = "", ["priorityGroup"] = 1, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 1, ["auth"] = "", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = true },
+				["SIM-B"] = new JObject { ["url"] = simulator + "/api/policy-scenario/b", ["path"] = "", ["priorityGroup"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 5, ["auth"] = "", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = true }
+			},
+			["policy-stream"] = new JObject {
+				["SIM-A"] = new JObject { ["url"] = simulator + "/api/policy-scenario/a", ["path"] = "", ["priorityGroup"] = 1, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 5, ["auth"] = "", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = false },
+				["SIM-B"] = new JObject { ["url"] = simulator + "/api/policy-scenario/b", ["path"] = "", ["priorityGroup"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 5, ["auth"] = "", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = false }
+			},
+			["policy-limit"] = new JObject {
+				["SIM-A"] = new JObject { ["url"] = simulator + "/api/policy-scenario/a", ["path"] = "", ["priorityGroup"] = 1, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 5, ["auth"] = "", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "low", ["bufferResponse"] = true },
+				["SIM-B"] = new JObject { ["url"] = simulator + "/api/policy-scenario/b", ["path"] = "", ["priorityGroup"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 5, ["auth"] = "", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = true }
+			},
+			["policy-priority"] = new JObject {
+				["SIM-A"] = new JObject { ["url"] = simulator + "/api/policy-scenario/a", ["path"] = "", ["priorityGroup"] = 1, ["acceptablePriorities"] = "1", ["timeout"] = 5, ["auth"] = "", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = true },
+				["SIM-B"] = new JObject { ["url"] = simulator + "/api/policy-scenario/b", ["path"] = "", ["priorityGroup"] = 2, ["acceptablePriorities"] = "2", ["timeout"] = 5, ["auth"] = "", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = true }
+			},
+			["policy-auth"] = new JObject {
+				["SIM-A"] = new JObject { ["url"] = simulator + "/api/policy-scenario/a", ["path"] = "", ["priorityGroup"] = 1, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 5, ["auth"] = "simulated-api-key", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = true },
+				["SIM-B"] = new JObject { ["url"] = simulator + "/api/policy-scenario/b", ["path"] = "", ["priorityGroup"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 5, ["auth"] = "", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = true }
+			},
+			["policy-mi"] = new JObject {
+				["SIM-A"] = new JObject { ["url"] = simulator + "/api/policy-scenario/a", ["path"] = "", ["priorityGroup"] = 1, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 5, ["auth"] = "MI", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = true },
+				["SIM-B"] = new JObject { ["url"] = simulator + "/api/policy-scenario/b", ["path"] = "", ["priorityGroup"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 5, ["auth"] = "", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = true }
+			},
+			["DEFAULT"] = new JObject {
+				["SIM-A"] = new JObject { ["url"] = simulator + "/api/policy-scenario/a", ["path"] = "", ["priorityGroup"] = 1, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 5, ["auth"] = "", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = true },
+				["SIM-B"] = new JObject { ["url"] = simulator + "/api/policy-scenario/b", ["path"] = "", ["priorityGroup"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 5, ["auth"] = "", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = true }
+			}
+		};
+	}" />
+
+	<!-- Priority 1: failover without proxy requeue; priority 2: requeue enabled; priority 3: one call only. -->
+	<set-variable name="priorityCfg" value="@{
+		return new JObject {
+			["1"] = new JObject { ["retryCount"] = 2, ["requeue"] = false },
+			["2"] = new JObject { ["retryCount"] = 2, ["requeue"] = true },
+			["3"] = new JObject { ["retryCount"] = 1, ["requeue"] = false }
+		};
+	}" />
+
+	<set-variable name="authResourceByModel" value="@{
+		return new JObject {
+			["policy-default"] = "https://cognitiveservices.azure.com",
+			["policy-context"] = "https://cognitiveservices.azure.com",
+			["policy-timeout"] = "https://cognitiveservices.azure.com",
+			["policy-stream"] = "https://cognitiveservices.azure.com",
+			["policy-limit"] = "https://cognitiveservices.azure.com",
+			["policy-priority"] = "https://cognitiveservices.azure.com",
+			["policy-auth"] = "https://cognitiveservices.azure.com",
+			["policy-mi"] = "https://cognitiveservices.azure.com",
+			["DEFAULT"] = "https://cognitiveservices.azure.com"
+		};
+	}" />
+
+	<set-variable name="model" value="@{
+		string requested = context.Request.Headers.GetValueOrDefault((string)context.Variables["modelHeaderName"], "policy-default");
+		requested = requested?.Trim().ToLowerInvariant();
+		return string.IsNullOrWhiteSpace(requested) ? "policy-default" : requested;
+	}" />
+
+	<set-variable name="selectedBackends" value="@{
+		JObject catalog = (JObject)context.Variables["backendCatalog"];
+		string model = (string)context.Variables["model"];
+		JObject backends = catalog[model] as JObject;
+		return backends == null || backends.Count == 0 ? (JObject)catalog["DEFAULT"] : backends;
+	}" />
+
+	<set-variable name="authResource" value="@{
+		JObject resources = (JObject)context.Variables["authResourceByModel"];
+		string model = (string)context.Variables["model"];
+		return resources[model]?.ToString() ?? resources["DEFAULT"].ToString();
+	}" />
+
+	<set-variable name="listBackends" value="@{
+		JObject selected = (JObject)context.Variables["selectedBackends"];
+		JArray backends = new JArray();
+		string salt = "0123456789";
+		using (var sha = System.Security.Cryptography.SHA256.Create()) {
+		foreach (var prop in selected.Properties()) {
+			JObject src = (JObject)prop.Value;
+			JObject backend = new JObject();
+			backend["label"] = prop.Name;
+			backend["url"] = src.Value<string>("url") ?? "";
+			backend["priorityGroup"] = src["priorityGroup"]?.Value<int>() ?? 1;
+			backend["timeout"] = src["timeout"]?.Value<int>() ?? 10;
+			backend["path"] = src["path"]?.Value<string>() ?? "openai";
+			backend["auth"] = src["auth"]?.Value<string>() ?? "MI";
+			backend["tokenProcessor"] = string.IsNullOrWhiteSpace(src.Value<string>("tokenProcessor")) ? "DefaultStream" : src.Value<string>("tokenProcessor");
+
+			JToken acceptable = src["acceptablePriorities"];
+			JArray priorities = new JArray();
+			if (acceptable != null && acceptable.Type == JTokenType.Array) {
+				priorities = (JArray)acceptable.DeepClone();
+			} else if (acceptable != null && acceptable.Type == JTokenType.String) {
+				foreach (string part in acceptable.Value<string>().Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries)) {
+					if (int.TryParse(part.Trim(), out int priority)) { priorities.Add(priority); }
+				}
+			}
+			if (priorities.Count == 0) { priorities = new JArray(1, 2, 3); }
+			backend["acceptablePriorities"] = priorities;
+			backend["limitConcurrency"] = string.IsNullOrWhiteSpace(src.Value<string>("limitConcurrency")) ? "off" : src.Value<string>("limitConcurrency");
+			backend["bufferResponse"] = src["bufferResponse"]?.DeepClone() ?? true;
+
+			string rawUrl = backend.Value<string>("url").TrimEnd('/');
+			string rawPath = backend.Value<string>("path").TrimStart('/');
+			string joinedUrl = string.IsNullOrEmpty(rawPath) ? rawUrl : rawUrl + "/" + rawPath;
+			backend["url"] = joinedUrl;
+			string saltedUrl = salt + joinedUrl + prop.Name;
+			backend["affinity"] = string.Concat(
+				sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(saltedUrl))
+				.Take(10)
+				.Select(value => value.ToString("x2")));
+			backend["isThrottling"] = false;
+			backend["retryAfter"] = DateTime.MinValue;
+			backend["defaultRetryAfter"] = 10;
+			backends.Add(backend);
+		}
+		}
+		return backends;
+	}" />
+</fragment>

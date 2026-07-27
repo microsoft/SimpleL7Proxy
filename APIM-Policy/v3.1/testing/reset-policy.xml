@@ -1,0 +1,15 @@
+<policies>
+	<inbound>
+		<!-- Reset is idempotent: a missing cache entry already represents clean state. -->
+		<cache-remove-value key="@("throttle-" + context.Api.Id)" fail-on-cache-removal-error="false" />
+		<return-response>
+			<set-status code="204" reason="Policy Test State Reset" />
+			<set-header name="X-Policy-Test-Reset" exists-action="override">
+				<value>true</value>
+			</set-header>
+		</return-response>
+	</inbound>
+	<backend />
+	<outbound />
+	<on-error />
+</policies>
