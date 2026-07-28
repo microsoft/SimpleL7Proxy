@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Logging.Abstractions;
+using SimpleL7Proxy.Backend.Iterators;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.Proxy;
@@ -73,7 +74,8 @@ public sealed class Test1
             Guid = Guid.NewGuid(),
             Path = "/v1/chat/completions",
             Method = "POST",
-            S7PHash = 73
+            S7PHash = 73,
+            IterationMode = IterationModeEnum.MultiPass
         };
         source.Headers["X-Test"] = "value";
 
@@ -85,6 +87,8 @@ public sealed class Test1
         deserialized.PopulateInto(restored);
         Assert.AreEqual((short)73, deserialized.S7PHash);
         Assert.AreEqual((short)73, restored.S7PHash);
+        Assert.AreEqual(IterationModeEnum.MultiPass, deserialized.IterationMode);
+        Assert.AreEqual(IterationModeEnum.MultiPass, restored.IterationMode);
         Assert.AreEqual(source.Guid, restored.Guid);
         Assert.AreEqual("value", restored.Headers["X-Test"]);
     }
@@ -93,12 +97,18 @@ public sealed class Test1
     public void RequestDataDtoV1_OldPayloadWithoutS7PHash_DefaultsToZero()
     {
         var deserialized = RequestDataDtoV1.Deserialize("{}");
-        using var restored = new RequestData { S7PHash = 99 };
+        using var restored = new RequestData
+        {
+            S7PHash = 99,
+            IterationMode = IterationModeEnum.MultiPass
+        };
 
         Assert.IsNotNull(deserialized);
         deserialized.PopulateInto(restored);
         Assert.AreEqual((short)0, deserialized.S7PHash);
         Assert.AreEqual((short)0, restored.S7PHash);
+        Assert.IsNull(deserialized.IterationMode);
+        Assert.AreEqual(IterationModeEnum.MultiPass, restored.IterationMode);
     }
 
     [TestMethod]

@@ -22,7 +22,7 @@ public abstract class HostIterator : IHostIterator
     {
         _hosts = hosts ?? throw new ArgumentNullException(nameof(hosts));
         _mode = mode;
-        _maxAttempts = Math.Max(1, maxAttempts);
+        _maxAttempts = maxAttempts;
         _currentLoop = 1;
         _totalAttempts = 0;
         _hasCompletedAllPasses = false;
@@ -45,6 +45,7 @@ public abstract class HostIterator : IHostIterator
     
     /// <summary>
     /// Gets the maximum number of attempts configured for this iterator.
+    /// A value of 0 disables the attempt limit.
     /// </summary>
     public int MaxAttempts => _maxAttempts;
     
@@ -67,7 +68,9 @@ public abstract class HostIterator : IHostIterator
             return false;
 
         // In MultiPass mode, check if we've reached max attempts before trying next host
-        if (_mode == IterationModeEnum.MultiPass && _totalAttempts >= _maxAttempts)
+        if (_mode == IterationModeEnum.MultiPass &&
+            _maxAttempts > 0 &&
+            _totalAttempts >= _maxAttempts)
         {
             _hasCompletedAllPasses = true;
             return false;
@@ -103,7 +106,7 @@ public abstract class HostIterator : IHostIterator
                 return false;
 
             case IterationModeEnum.MultiPass:
-                if (_currentLoop >= _maxAttempts)
+                if (_maxAttempts > 0 && _currentLoop >= _maxAttempts)
                 {
                     _hasCompletedAllPasses = true;
                     return false;

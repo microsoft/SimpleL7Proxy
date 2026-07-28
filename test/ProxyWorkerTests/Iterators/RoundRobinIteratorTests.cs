@@ -147,6 +147,31 @@ public class RoundRobinIteratorTests
             "A skipped host should not consume the attempt budget.");
     }
 
+    [DataTestMethod]
+    [DataRow(0)]
+    [DataRow(-1)]
+    public void MultiPass_MaxAttemptsLessThanOne_DisablesLimit(int disabledMaxAttempts)
+    {
+        var hosts = TestHostFactory.CreateHosts(3);
+        var iterator = new RoundRobinHostIterator(
+            hosts,
+            IterationModeEnum.MultiPass,
+            disabledMaxAttempts);
+
+        Assert.AreEqual(disabledMaxAttempts, iterator.MaxAttempts);
+
+        int attemptsBeyondOnePass = hosts.Count * 3;
+        for (int attempt = 0; attempt < attemptsBeyondOnePass; attempt++)
+        {
+            Assert.IsTrue(iterator.MoveNext(),
+                $"MaxAttempts={disabledMaxAttempts} should remain enabled beyond one host pass.");
+            iterator.RecordResult(iterator.Current, success: false);
+        }
+
+        Assert.IsTrue(iterator.MoveNext(),
+            $"MaxAttempts={disabledMaxAttempts} should not stop after {attemptsBeyondOnePass} attempts.");
+    }
+
     [TestMethod]
     public void MultiPass_CyclesThroughHostsMultipleTimes()
     {

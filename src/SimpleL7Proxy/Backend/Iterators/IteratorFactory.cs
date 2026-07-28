@@ -36,15 +36,15 @@ public static class IteratorFactory
     }
 
     /// <summary>
-    /// Creates an iterator that retries across hosts up to a maximum total number of attempts.
-    /// Will cycle through all hosts multiple times if needed until maxAttempts is reached.
+    /// Creates an iterator that retries across hosts in multiple passes.
+    /// maxAttempts limits total attempts; set it to 0 to disable that limit.
     /// Best for high-availability scenarios where you want to retry aggressively.
     /// </summary>
     /// <param name="backendService">The backend service to get active hosts from</param>
     /// <param name="loadBalanceMode">Load balancing strategy: "roundrobin", "latency", or "random"</param>
-    /// <param name="maxAttempts">Maximum total number of host attempts across all passes (e.g., 30)</param>
+    /// <param name="maxAttempts">Maximum total number of host attempts across all passes. Set to 0 to disable the attempt-count limit.</param>
     /// <param name="requestPath">The normalized request path (e.g., /openai/v1/chat) to filter hosts by</param>
-    /// <returns>An iterator configured for multi-pass iteration with retry limit</returns>
+    /// <returns>An iterator configured for multi-pass iteration</returns>
     public static IHostIterator CreateMultiPassIterator(
         IEndpointMonitorService backendService,
         string loadBalanceMode,

@@ -38,7 +38,7 @@ public class RoundRobinHostIterator : HostIterator
     /// <summary>
     /// Moves to the next host in round-robin order.
     /// In SinglePass mode: stops after visiting each host once.
-    /// In MultiPass mode: continues until maxAttempts total attempts are reached (handled by base class).
+    /// In MultiPass mode: maxAttempts limits total attempts; 0 disables the limit (handled by base class).
     /// </summary>
     protected override bool MoveToNextHost()
     {

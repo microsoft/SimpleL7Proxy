@@ -45,6 +45,7 @@ public class ProxyConfig
     public IterationModeEnum IterationMode { get; set; } = IterationModeEnum.SinglePass;
     [ConfigOption("LoadBalancing:Mode")]
     public string LoadBalanceMode { get; set; } = Constants.Latency;
+    /// <summary>Maximum backend attempts in MultiPass mode. Set to 0 to disable the attempt-count limit.</summary>
     [ConfigOption("LoadBalancing:MultiPass:MaxAttempts")]
     public int MaxAttempts { get; set; } = 10;
 

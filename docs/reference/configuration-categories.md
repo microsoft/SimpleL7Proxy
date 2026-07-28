@@ -42,7 +42,7 @@ This document categorizes every SimpleL7Proxy configuration setting into three t
 | Env Var | Property | Mode | Default | Purpose |
 |---------|----------|------|---------|---------|
 | `Timeout` | `Timeout` | Warm | `1200000` ms (20 min) | Per-host request timeout; adjust for your SLAs |
-| `MaxAttempts` | `MaxAttempts` | Warm | `10` | Max retries per request |
+| `MaxAttempts` | `MaxAttempts` | Warm | `10` | Maximum total attempts in MultiPass; set to `0` to disable the attempt-count limit |
 | `DefaultPriority` | `DefaultPriority` | Warm | `2` | Base priority for requests without priority header |
 
 ---

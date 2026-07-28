@@ -2,6 +2,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using SimpleL7Proxy.Backend.Iterators;
 
 namespace SimpleL7Proxy.DTO
 {
@@ -18,6 +19,7 @@ namespace SimpleL7Proxy.DTO
         public int AsyncBlobAccessTimeoutSecs { get; set; }
         public int LifetimeBackendAttempts { get; set; }
         public int LifetimePolicyCycleCounter { get; set; }
+        public IterationModeEnum? IterationMode { get; set; }
         public int Priority { get; set; }
         public int Priority2 { get; set; }
         public short S7PHash { get; set; }
@@ -39,6 +41,7 @@ namespace SimpleL7Proxy.DTO
             AsyncBlobAccessTimeoutSecs = data.AsyncBlobAccessTimeoutSecs;
             LifetimeBackendAttempts = data.LifetimeBackendAttempts;
             LifetimePolicyCycleCounter = data.LifetimePolicyCycleCounter;
+            IterationMode = data.IterationMode;
             BlobContainerName = data.BlobContainerName;
             DequeueTime = data.DequeueTime;
             EnqueueTime = data.EnqueueTime;
@@ -145,6 +148,8 @@ namespace SimpleL7Proxy.DTO
             data.BackendAttempts = 0;
             data.LifetimePolicyCycleCounter = this.LifetimePolicyCycleCounter;
             data.PolicyCycleCounter = 0;
+            if (IterationMode.HasValue)
+                data.IterationMode = IterationMode.Value;
             data.BlobContainerName = BlobContainerName;
             data.DequeueTime = DequeueTime;
             data.EnqueueTime = EnqueueTime;

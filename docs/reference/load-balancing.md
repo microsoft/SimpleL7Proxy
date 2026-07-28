@@ -15,7 +15,7 @@ The proxy selects backends through a three-stage pipeline on every request: filt
 |----------|---------|-------------|
 | `LoadBalanceMode` | `latency` | Host ordering: `roundrobin`, `latency`, or `random` |
 | `IterationMode` | `SinglePass` | Retry strategy: `SinglePass` or `MultiPass` |
-| `MaxAttempts` | `10` | Max total attempts (MultiPass only) |
+| `MaxAttempts` | `10` | Maximum total attempts in MultiPass mode; set to `0` to disable the attempt-count limit |
 | `UseSharedIterators` | `true` | Share iterator state across concurrent requests to the same path |
 | `SharedIteratorTTLSeconds` | `60` | Seconds before an unused shared iterator is discarded |
 | `SharedIteratorCleanupIntervalSeconds` | `30` | How often expired shared iterators are cleaned up |
@@ -87,16 +87,21 @@ LoadBalanceMode=latency   # try fastest host first
 
 ## Retrying Across Backends
 
-**Rule: `SinglePass` tries each host once; `MultiPass` cycles through all hosts up to `MaxAttempts` total.**
+**Rule: `SinglePass` tries each host once; `MultiPass` cycles through hosts until `MaxAttempts` or another stop condition is reached.**
 
 ```bash
 IterationMode=MultiPass
-MaxAttempts=7
+MaxAttempts=7        # set to 0 for no attempt-count limit
 # 3 hosts → up to 2 full passes + 1 extra attempt
 ```
 
 > [!NOTE]
-> **Default:** `IterationMode=SinglePass`. `MaxAttempts` is ignored in SinglePass mode.
+> **Default:** `IterationMode=SinglePass` and `MaxAttempts=10`. `MaxAttempts` is ignored in SinglePass mode; set it to `0` to disable the attempt-count limit in MultiPass mode.
+
+Send `S7P-Iterator: SinglePass` or `S7P-Iterator: MultiPass` to override `IterationMode` for one request. Values are case-insensitive; a missing or invalid header uses the current configured default.
+
+> [!WARNING]
+> With `MaxAttempts=0`, retries can continue until success, TTL expiry, cancellation, or another terminal condition stops the request.
 
 > [!TIP]
 > **Troubleshooting:** Seeing more failures than expected? Check circuit-breaker state and active-host health. OPEN circuits are skipped and do not consume the `MaxAttempts` budget.
