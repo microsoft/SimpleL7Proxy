@@ -11,6 +11,7 @@ using System.Net;
 using System.Text.Json;
 using System.Threading;
 using SimpleL7Proxy.Backend;
+using SimpleL7Proxy.Backend.Iterators;
 using SimpleL7Proxy.Async.BlobStorage;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.User;
@@ -62,6 +63,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
     // Precomputed frozen collections for O(1) hot-path lookups, recomputed on config change
     private volatile FrozenSet<string> _disallowedHeaders = null!;
     private volatile FrozenDictionary<string, int> _priorityKeyToValue = null!;
+    private volatile IterationModeEnum _defaultIterationMode;
 
     // Precomputed validation rules to avoid dictionary iteration and string ops per request
     private readonly record struct ValidateHeaderRule(string SourceHeader, string AllowedValuesHeader, string DisplayName);
@@ -134,6 +136,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
             options => options.TimeoutHeader,
             options => options.DefaultTTLSecs,
             options => options.TTLHeader,
+            options => options.IterationMode,
             options => options.MaxQueueLength,
             options => options.PollInterval
             ]);
@@ -164,6 +167,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
     public void InitVars()
     {
         // Recompute frozen sets from updated options
+        _defaultIterationMode = _options.IterationMode;
         _disallowedHeaders = _options.DisallowedHeaders.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
         _priorityKeyToValue = _options.PriorityKeys
             .Zip(_options.PriorityValues)
@@ -383,8 +387,16 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                     //delayCts.Cancel();
                     var rd = new RequestData(lc, requestId)
                     {
-                        Guid = requestGuid
+                        Guid = requestGuid,
+                        IterationMode = _defaultIterationMode
                     };
+
+                    var iterationModeHeader = rd.Headers["S7P-Iterator"].AsSpan().Trim();
+                    if (Enum.TryParse(iterationModeHeader, true, out IterationModeEnum iterationMode) &&
+                        iterationMode is IterationModeEnum.SinglePass or IterationModeEnum.MultiPass)
+                    {
+                        rd.IterationMode = iterationMode;
+                    }
 
                     ed = rd.EventData;
                     ed["Date"] = DateTime.UtcNow.ToString("o");

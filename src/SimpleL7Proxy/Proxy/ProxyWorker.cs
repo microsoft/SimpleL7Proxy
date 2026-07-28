@@ -884,9 +884,8 @@ public class ProxyWorker : IConfigChangeSubscriber
         // Try the request on each active host, stop if it worked
         // Use helper method to abstract over shared vs per-request iterators
 
-        // TODO: Replace dummy parameters with request header lookup (e.g. request.Headers["x-S7P-IterationMode"])
-        bool loop_once = true;
-        bool loop_for_max_attempts = false;
+        bool loop_once = request.IterationMode == IterationModeEnum.SinglePass;
+        bool loop_for_max_attempts = request.IterationMode == IterationModeEnum.MultiPass;
 
         // For shared iterators, compute the max attempts for this request so the
         // circular iterator doesn't spin forever.  Per-request iterators already
@@ -896,9 +895,9 @@ public class ProxyWorker : IConfigChangeSubscriber
         {
             if (loop_once)
                 maxSharedAttempts = matchingHostCount;              // SinglePass: try each host once
-            else if (loop_for_max_attempts)
+            else if (loop_for_max_attempts && _options.MaxAttempts > 0)
                 maxSharedAttempts = _options.MaxAttempts;           // MultiPass: use configured max
-            // else: no limit (original circular behaviour)
+            // else: no attempt-count limit
         }
 
         BaseHostHealth? host;
@@ -1601,7 +1600,7 @@ public class ProxyWorker : IConfigChangeSubscriber
         else
         {
             // Use per-request iterator (original behavior)
-            hostIterator = _options.IterationMode switch
+            hostIterator = request.IterationMode switch
             {
                 IterationModeEnum.SinglePass => IteratorFactory.CreateSinglePassIterator(
                     _backends,
