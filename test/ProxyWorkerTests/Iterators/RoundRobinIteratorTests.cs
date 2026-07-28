@@ -129,13 +129,22 @@ public class RoundRobinIteratorTests
         int maxAttempts = 7;
         var iterator = new RoundRobinHostIterator(hosts, IterationModeEnum.MultiPass, maxAttempts);
 
-        int count = 0;
-        while (iterator.MoveNext()) count++;
+        int selectedHostCount = 0;
+        int attemptCount = 0;
+        while (iterator.MoveNext())
+        {
+            selectedHostCount++;
+            if (selectedHostCount == 1)
+                continue; // Simulate a host skipped by the circuit breaker
 
-        Assert.IsTrue(count <= maxAttempts,
-            $"MultiPass should not exceed maxAttempts ({maxAttempts}). Got {count}.");
-        Assert.IsTrue(count >= hosts.Count,
-            $"MultiPass should visit at least all hosts once ({hosts.Count}). Got {count}.");
+            iterator.RecordResult(iterator.Current, success: false);
+            attemptCount++;
+        }
+
+        Assert.AreEqual(maxAttempts, attemptCount,
+            "MultiPass should stop after the configured number of actual attempts.");
+        Assert.AreEqual(maxAttempts + 1, selectedHostCount,
+            "A skipped host should not consume the attempt budget.");
     }
 
     [TestMethod]
@@ -261,6 +270,7 @@ public class RoundRobinIteratorTests
         while (iterator.MoveNext())
         {
             result.Add(iterator.Current);
+            iterator.RecordResult(iterator.Current, success: false);
         }
         return result;
     }

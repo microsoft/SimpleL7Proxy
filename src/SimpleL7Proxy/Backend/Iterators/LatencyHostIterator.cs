@@ -51,6 +51,7 @@ public class LatencyBasedHostIterator : HostIterator
     /// </summary>
     public override void RecordResult(BaseHostHealth host, bool success)
     {
+        base.RecordResult(host, success);
         // Latency tracking is handled by the backend service health checker
         // No additional tracking needed for this iterator type
     }

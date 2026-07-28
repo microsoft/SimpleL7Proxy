@@ -15,7 +15,7 @@ public abstract class HostIterator : IHostIterator
     protected readonly int _maxAttempts;
     
     protected int _currentLoop;
-    protected int _totalAttempts; // Track total attempts across all passes
+    protected int _totalAttempts; // Track actual backend attempts across all passes
     protected bool _hasCompletedAllPasses;
 
     protected HostIterator(List<BaseHostHealth> hosts, IterationModeEnum mode, int maxAttempts)
@@ -81,8 +81,6 @@ public abstract class HostIterator : IHostIterator
             return HandlePassCompletion();
         }
 
-        // Increment total attempts after successfully moving to a host
-        _totalAttempts++;
         return true;
     }
 
@@ -130,12 +128,13 @@ public abstract class HostIterator : IHostIterator
     }
 
     /// <summary>
-    /// Records the result of a request to a host.
-    /// Default implementation does nothing - derived classes can override for specific tracking.
+    /// Records an actual request attempt after the host passes pre-send checks.
+    /// Derived classes can override for strategy-specific tracking.
     /// </summary>
     public virtual void RecordResult(BaseHostHealth host, bool success)
     {
-        // Default implementation does nothing
+        if (_mode == IterationModeEnum.MultiPass)
+            _totalAttempts++;
     }
 
     /// <summary>
