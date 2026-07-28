@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\SimpleL7Proxy\SimpleL7Proxy.csproj" />
+    <Compile Include="..\LLMSimulator\PolicyStressState.cs" Link="PolicyStressState.cs" />
     <Compile Include="QueueTests.cs.txt" />
   </ItemGroup>
 

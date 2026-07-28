@@ -123,6 +123,7 @@ Notes:	 3.1-notes.md
 				JObject state = loaded != null && loaded["backends"] != null && loaded["backends"].Type == JTokenType.Object
 					? (JObject)loaded["backends"]
 					: new JObject();
+
 				JObject throttleState = new JObject { ["dirty"] = false, ["backends"] = state };
 				JArray backends = (JArray)context.Variables["listBackends"];
 				JArray priorityBackendIndxs = (JArray)((JObject)context.Variables["initObj"])["PriBackendIndxs"];
@@ -139,6 +140,7 @@ Notes:	 3.1-notes.md
 				int backendIndex = context.Variables.GetValueOrDefault<int>("backendIndex", -1);
 				bool callAttempted = context.Variables.GetValueOrDefault<bool>("callAttempted", false);
 				string elapsed = context.Elapsed.TotalSeconds.ToString("F3");
+
 				if (backendIndex < 0 || backendIndex >= backends.Count) {
 					if (callAttempted) {
 						activityLog.Add(new JObject { ["Elapsed"] = elapsed, ["message"] = $"Invalid backend index: {backendIndex}" });

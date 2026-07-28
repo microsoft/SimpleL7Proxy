@@ -41,6 +41,12 @@
 				["SIM-A"] = new JObject { ["url"] = simulator + "/api/policy-scenario/a", ["path"] = "", ["priorityGroup"] = 1, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 5, ["auth"] = "simulated-api-key", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = true },
 				["SIM-B"] = new JObject { ["url"] = simulator + "/api/policy-scenario/b", ["path"] = "", ["priorityGroup"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 5, ["auth"] = "", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = true }
 			},
+			// Each unique /api/policy-stress/{endpointId} URL receives an independent 100,000 TPM budget.
+			["policy-stress"] = new JObject {
+				["STRESS-A"] = new JObject { ["url"] = simulator + "/api/policy-stress/stress-a", ["path"] = "", ["priorityGroup"] = 1, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 30, ["auth"] = "", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = true },
+				["STRESS-B"] = new JObject { ["url"] = simulator + "/api/policy-stress/stress-b", ["path"] = "", ["priorityGroup"] = 1, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 30, ["auth"] = "", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = true },
+				["STRESS-C"] = new JObject { ["url"] = simulator + "/api/policy-stress/stress-c", ["path"] = "", ["priorityGroup"] = 1, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 30, ["auth"] = "", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = true }
+			},
 			["policy-mi"] = new JObject {
 				["SIM-A"] = new JObject { ["url"] = simulator + "/api/policy-scenario/a", ["path"] = "", ["priorityGroup"] = 1, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 5, ["auth"] = "MI", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = true },
 				["SIM-B"] = new JObject { ["url"] = simulator + "/api/policy-scenario/b", ["path"] = "", ["priorityGroup"] = 2, ["acceptablePriorities"] = "1, 2, 3", ["timeout"] = 5, ["auth"] = "", ["tokenProcessor"] = "DefaultStream", ["limitConcurrency"] = "off", ["bufferResponse"] = true }
@@ -70,6 +76,7 @@
 			["policy-limit"] = "https://cognitiveservices.azure.com",
 			["policy-priority"] = "https://cognitiveservices.azure.com",
 			["policy-auth"] = "https://cognitiveservices.azure.com",
+			["policy-stress"] = "https://cognitiveservices.azure.com",
 			["policy-mi"] = "https://cognitiveservices.azure.com",
 			["DEFAULT"] = "https://cognitiveservices.azure.com"
 		};

@@ -14,7 +14,7 @@ namespace SimpleL7Proxy.Test;
 /// </summary>
 [TestClass]
 [DoNotParallelize]
-public sealed class PolicyScenarioIntegrationTests
+public sealed partial class PolicyScenarioIntegrationTests
 {
     private const int StartupTimeoutSeconds = 180;
     private const int DefaultRequestTimeoutSeconds = 45;
