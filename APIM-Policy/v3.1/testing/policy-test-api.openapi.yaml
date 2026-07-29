@@ -1,0 +1,48 @@
+openapi: 3.0.3
+info:
+  title: SimpleL7Proxy v3.1 Policy Tests
+  version: 1.0.0
+  description: Dedicated API surface for exercising the v3.1 retry policy through SimpleL7Proxy.
+paths:
+  /{caseId}/{specA}/{specB}/openai/v1/chat/completions:
+    post:
+      operationId: runPolicyScenario
+      summary: Run one encoded two-backend policy scenario
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: specA
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: specB
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        default:
+          description: Response produced by the v3.1 retry policy
+  /reset:
+    options:
+      operationId: resetPolicyState
+      summary: Remove the dedicated API throttle-cache entry
+      responses:
+        '204':
+          description: Test state reset
+          headers:
+            X-Policy-Test-Reset:
+              schema:
+                type: string
+              description: Always true when reset succeeds

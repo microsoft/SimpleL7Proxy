@@ -126,7 +126,21 @@ SimpleL7Proxy tries backends one by one in the order determined by load balancin
 
 #### What is `MaxAttempts` and what happens when it is exceeded?
 
-By default, the proxy tries each backend at most once per request (`IterationMode=SinglePass`) and `MaxAttempts` has no effect. `MaxAttempts` only matters when you enable `IterationMode=MultiPass`, which lets the proxy cycle through the full backend list more than once — useful when you want aggressive retry behaviour on a small backend pool. In that mode, `MaxAttempts` caps the total number of backend attempts across all cycles: once reached, the proxy returns `503`. Leave `MaxAttempts` alone unless you have explicitly set `IterationMode=MultiPass`.
+**`MaxAttempts` caps total attempts in MultiPass mode; set it to `0` to disable that attempt-count limit.**
+
+```bash
+IterationMode=MultiPass
+MaxAttempts=10
+# Set to 0 for no attempt-count limit
+```
+
+By default, `IterationMode=SinglePass` tries each backend at most once, so `MaxAttempts` has no effect. MultiPass can cycle through the backend list repeatedly. When a positive cap is reached, the proxy enters its normal exhausted-host handling, which can requeue the request or return a terminal error.
+
+> [!WARNING]
+> With `MaxAttempts=0`, retries continue until success, TTL expiry, cancellation, or another terminal condition.
+
+> [!TIP]
+> If attempts stop earlier than expected, check `IterationMode`, request TTL, and circuit-breaker state. OPEN hosts are skipped and do not consume the attempt budget.
 
 ---
 

@@ -241,9 +241,9 @@ The proxy polls each backend to determine which endpoints are healthy before rou
 | <small>`Server:PollTimeout`</small> | <small>`PollTimeout`</small> | <small>`3000`</small> | How long (in ms) the proxy waits for a health-check response before marking the endpoint unhealthy. Default = 3 seconds. |
 | <small>`CircuitBreaker:SuccessRate`</small> | <small>`SuccessRate`</small> | <small>`80`</small> | Minimum percentage of successful responses required for an endpoint to receive traffic. Below 80%, the endpoint is skipped. |
 | <small>`LoadBalancing:Mode`</small> | <small>`LoadBalanceMode`</small> | <small>`latency`</small> | Endpoint selection strategy. Options: `latency` (prefer fastest), `roundrobin`, or `random`. |
-| <small>`LoadBalancing:IterationMode`</small> | <small>`IterationMode`</small> | <small>`SinglePass`</small> | How endpoints are tried on retry. `SinglePass` tries each endpoint once per request. `MultiPass` allows repeated attempts up to `MaxAttempts`. |
+| <small>`LoadBalancing:IterationMode`</small> | <small>`IterationMode`</small> | <small>`SinglePass`</small> | How endpoints are tried on retry. `SinglePass` tries each endpoint once per request. `MultiPass` allows repeated attempts, capped by `MaxAttempts`. |
 | <small>`Request:DefaultTimeout`</small> | <small>`Timeout`</small> | <small>`1200000`</small> | How long (in ms) the proxy waits for a backend response before timing out. Default = 20 minutes. |
-| <small>`LoadBalancing:MultiPass:MaxAttempts`</small> | <small>`MaxAttempts`</small> | <small>`10`</small> | Maximum total backend attempts per request when `IterationMode` is `MultiPass`. |
+| <small>`LoadBalancing:MultiPass:MaxAttempts`</small> | <small>`MaxAttempts`</small> | <small>`10`</small> | Maximum total backend attempts per request in `MultiPass`; set to `0` to disable the attempt-count limit. |
 
 </details>
 

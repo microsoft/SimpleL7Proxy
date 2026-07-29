@@ -74,6 +74,7 @@ public class RandomHostIterator : HostIterator
     /// </summary>
     public override void RecordResult(BaseHostHealth host, bool success)
     {
-        // Random selection doesn't need result tracking
+        base.RecordResult(host, success);
+        // Random selection doesn't need additional result tracking
     }
 }

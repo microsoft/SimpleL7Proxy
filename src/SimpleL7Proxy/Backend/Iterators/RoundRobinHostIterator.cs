@@ -38,14 +38,15 @@ public class RoundRobinHostIterator : HostIterator
     /// <summary>
     /// Moves to the next host in round-robin order.
     /// In SinglePass mode: stops after visiting each host once.
-    /// In MultiPass mode: continues until maxAttempts total attempts are reached (handled by base class).
+    /// In MultiPass mode: maxAttempts limits total attempts; 0 disables the limit (handled by base class).
     /// </summary>
     protected override bool MoveToNextHost()
     {
         if (_hosts.Count == 0) return false;
         
-        // SinglePass mode: stop after visiting all hosts once
-        if (_mode == IterationModeEnum.SinglePass && _hostsVisitedInCurrentPass >= _hosts.Count)
+        // Complete the current pass after every host has been visited.
+        // The base class decides whether to stop or begin another pass.
+        if (_hostsVisitedInCurrentPass >= _hosts.Count)
         {
             return false; // Completed this pass
         }
@@ -82,6 +83,7 @@ public class RoundRobinHostIterator : HostIterator
     /// </summary>
     public override void RecordResult(BaseHostHealth host, bool success)
     {
-        // Round robin doesn't adjust selection based on results
+        base.RecordResult(host, success);
+        // Round robin doesn't make any additional adjustments based on results
     }
 }

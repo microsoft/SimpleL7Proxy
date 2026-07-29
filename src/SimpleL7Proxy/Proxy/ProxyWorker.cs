@@ -850,6 +850,7 @@ public class ProxyWorker : IConfigChangeSubscriber
         HttpStatusCode lastStatusCode = HttpStatusCode.ServiceUnavailable;
         var requestSummary = request.EventData;
         int intCode = 0;
+        bool ttlExpired = false;
 
         // Read the body stream once and reuse it
         //byte[] bodyBytes = await request.CachBodyAsync().ConfigureAwait(false);
@@ -884,9 +885,8 @@ public class ProxyWorker : IConfigChangeSubscriber
         // Try the request on each active host, stop if it worked
         // Use helper method to abstract over shared vs per-request iterators
 
-        // TODO: Replace dummy parameters with request header lookup (e.g. request.Headers["x-S7P-IterationMode"])
-        bool loop_once = true;
-        bool loop_for_max_attempts = false;
+        bool loop_once = request.IterationMode == IterationModeEnum.SinglePass;
+        bool loop_for_max_attempts = request.IterationMode == IterationModeEnum.MultiPass;
 
         // For shared iterators, compute the max attempts for this request so the
         // circular iterator doesn't spin forever.  Per-request iterators already
@@ -896,9 +896,9 @@ public class ProxyWorker : IConfigChangeSubscriber
         {
             if (loop_once)
                 maxSharedAttempts = matchingHostCount;              // SinglePass: try each host once
-            else if (loop_for_max_attempts)
+            else if (loop_for_max_attempts && _options.MaxAttempts > 0)
                 maxSharedAttempts = _options.MaxAttempts;           // MultiPass: use configured max
-            // else: no limit (original circular behaviour)
+            // else: no attempt-count limit
         }
 
         BaseHostHealth? host;
@@ -1043,8 +1043,8 @@ public class ProxyWorker : IConfigChangeSubscriber
                     // proxyRequest.Version = HttpVersion.Version11;
                     // proxyRequest.VersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
 
-                    proxyRequest.Headers.Add("x-PolicyCycleCounter", request.PolicyCycleCounter.ToString());
-                    proxyRequest.Headers.Add("x-LifetimePolicyCycleCounter", request.LifetimePolicyCycleCounter.ToString());
+                    proxyRequest.Headers.Add("x-PolicyCycleCounter", request.APIMPolicyCycleCounter.ToString());
+                    proxyRequest.Headers.Add("x-LifetimePolicyCycleCounter", request.LifetimeAPIMPolicyCycleCounter.ToString());
                     proxyRequest.Headers.Add("x-LLMModel", request.Model);
                     ProxyHelperUtils.CopyHeaders(request.Headers, proxyRequest, true, s_stripRequestHeaders);
 
@@ -1184,13 +1184,13 @@ public class ProxyWorker : IConfigChangeSubscriber
                             }
 
 
-                            if (proxyResponse.Headers.TryGetValues("x-PolicyCycleCounter", out var policyAttempts))
+                            if (proxyResponse.Headers.TryGetValues("x-PolicyCycleCounter", out var apimPolicyAttempts))
                             {
-                                if (int.TryParse(policyAttempts.FirstOrDefault(), out var pAttempts))
+                                if (int.TryParse(apimPolicyAttempts.FirstOrDefault(), out var apimPolicyCycleCounter))
                                 {
-                                    var delta = pAttempts - request.PolicyCycleCounter;
-                                    request.LifetimePolicyCycleCounter += delta;
-                                    request.PolicyCycleCounter = pAttempts;
+                                    var apimPolicyCycleDelta = apimPolicyCycleCounter - request.APIMPolicyCycleCounter;
+                                    request.LifetimeAPIMPolicyCycleCounter += apimPolicyCycleDelta;
+                                    request.APIMPolicyCycleCounter = apimPolicyCycleCounter;
                                 }
                             }
 
@@ -1280,6 +1280,7 @@ public class ProxyWorker : IConfigChangeSubscriber
 
                 if (e.Type == ProxyErrorException.ErrorType.TTLExpired)
                 {
+                    ttlExpired = true;
                     intCode = 412;//(int)HttpResponseCode.PreconditionFailed; // 412
                     lastStatusCode = HttpStatusCode.PreconditionFailed;
                     TriggerHostCB = false;
@@ -1394,7 +1395,12 @@ public class ProxyWorker : IConfigChangeSubscriber
 
         // If we get here, then no hosts were able to handle the request
 
-        if (retryAfter.Count > 0)
+        var maxAttemptsReached = !ttlExpired &&
+            request.IterationMode == IterationModeEnum.MultiPass &&
+            _options.MaxAttempts > 0 &&
+            request.BackendAttempts >= _options.MaxAttempts;
+
+        if (!maxAttemptsReached && retryAfter.Count > 0)
         {
             // If we have retry after values, return the smallest one
             var exc = retryAfter.MinBy(x => x.RetryAfter);
@@ -1410,8 +1416,26 @@ public class ProxyWorker : IConfigChangeSubscriber
         int currentStatusCode;
         ProxyHelperUtils.GenerateErrorMessage(incompleteRequests, out sb, out statusMatches, out currentStatusCode);
 
-        // 502 Bad Gateway  or   call status code form all attempts ( if they are the same )
-        lastStatusCode = statusMatches ? (HttpStatusCode)currentStatusCode : HttpStatusCode.BadGateway;
+        string errorDetail;
+        if (maxAttemptsReached)
+        {
+            lastStatusCode = HttpStatusCode.PreconditionFailed;
+            errorDetail = $"Maximum backend attempts reached ({_options.MaxAttempts}).";
+        }
+        else
+        {
+            // 502 Bad Gateway or the common status code when all attempts match
+            lastStatusCode = statusMatches ? (HttpStatusCode)currentStatusCode : HttpStatusCode.BadGateway;
+            errorDetail = ttlExpired
+                ? "Request TTL expired."
+                : incompleteRequests.Count == 0
+                    ? "No backend attempts were completed."
+                    : statusMatches
+                        ? $"All backend attempts returned HTTP {currentStatusCode}."
+                        : "Backends returned mixed status codes.";
+        }
+        var errorMessage = $"No active hosts were able to handle the request: {errorDetail}";
+        sb.Insert(0, errorMessage + Environment.NewLine);
         // requestSummary.Type = EventType.ProxyError;
 
         // ASYNC: Synchronize with AsyncWorker if it was started, even for error responses
@@ -1434,7 +1458,7 @@ public class ProxyWorker : IConfigChangeSubscriber
 
         var errorBodyStr = sb.ToString();
         var errorBytes = Encoding.UTF8.GetBytes(errorBodyStr);
-        var recordedStatusCode = ProxyHelperUtils.RecordIncompleteRequests(requestSummary, lastStatusCode, "No active hosts were able to handle the request", incompleteRequests);
+        var recordedStatusCode = ProxyHelperUtils.RecordIncompleteRequests(requestSummary, lastStatusCode, errorMessage, incompleteRequests);
 
         if (request.AsyncTriggered)
         {
@@ -1601,7 +1625,7 @@ public class ProxyWorker : IConfigChangeSubscriber
         else
         {
             // Use per-request iterator (original behavior)
-            hostIterator = _options.IterationMode switch
+            hostIterator = request.IterationMode switch
             {
                 IterationModeEnum.SinglePass => IteratorFactory.CreateSinglePassIterator(
                     _backends,

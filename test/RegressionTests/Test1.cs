@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Logging.Abstractions;
+using SimpleL7Proxy.Backend.Iterators;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.Proxy;
@@ -8,8 +9,21 @@ using SimpleL7Proxy.User;
 namespace SimpleL7Proxy.Test;
 
 [TestClass]
-public sealed class Test1
+public sealed class Test1 : IRegressionTestMetadata
 {
+    public IReadOnlyDictionary<string, RegressionFeature> RegressionFeatures { get; } =
+        new Dictionary<string, RegressionFeature>
+        {
+            ["profile-enrichment"] = new(
+                "Identity & Profiles",
+                "Profile enrichment",
+                "Ensures tenant identity, profile headers, and profile rules are applied consistently before routing and authorization."),
+            ["request-state-compatibility"] = new(
+                "Request Lifecycle",
+                "Request state compatibility",
+                "Preserves routing and telemetry state across persistence, restart, and previously stored request payloads.")
+        };
+
     [TestInitialize]
     public void TestInit()
     {
@@ -23,6 +37,7 @@ public sealed class Test1
     }
 
     [TestMethod]
+    [RegressionTestCase("profile-enrichment", "Profile headers and rules enrich the request", "A valid profile must add tenant identity, apply matching rules, and report the rule paths used for routing.")]
     public void ProfileEnricher_AppliesSnapshotHeadersAndRules()
     {
         var options = new ProxyConfig
@@ -66,6 +81,7 @@ public sealed class Test1
     }
 
     [TestMethod]
+    [RegressionTestCase("request-state-compatibility", "Saved request state survives recovery", "Serialization and recovery must preserve request identity, headers, hash, iterator mode, and APIM policy totals while retaining legacy JSON names.")]
     public void RequestDataDtoV1_S7PHash_RoundTripsThroughJsonAndPopulate()
     {
         using var source = new RequestData
@@ -73,7 +89,10 @@ public sealed class Test1
             Guid = Guid.NewGuid(),
             Path = "/v1/chat/completions",
             Method = "POST",
-            S7PHash = 73
+            S7PHash = 73,
+            IterationMode = IterationModeEnum.MultiPass,
+            APIMPolicyCycleCounter = 3,
+            LifetimeAPIMPolicyCycleCounter = 7
         };
         source.Headers["X-Test"] = "value";
 
@@ -85,23 +104,38 @@ public sealed class Test1
         deserialized.PopulateInto(restored);
         Assert.AreEqual((short)73, deserialized.S7PHash);
         Assert.AreEqual((short)73, restored.S7PHash);
+        Assert.AreEqual(IterationModeEnum.MultiPass, deserialized.IterationMode);
+        Assert.AreEqual(IterationModeEnum.MultiPass, restored.IterationMode);
+        Assert.AreEqual(7, deserialized.LifetimeAPIMPolicyCycleCounter);
+        Assert.AreEqual(7, restored.LifetimeAPIMPolicyCycleCounter);
+        Assert.AreEqual(0, restored.APIMPolicyCycleCounter);
+        StringAssert.Contains(json, "\"LifetimePolicyCycleCounter\": 7");
+        Assert.IsFalse(json.Contains("LifetimeAPIMPolicyCycleCounter", StringComparison.Ordinal));
         Assert.AreEqual(source.Guid, restored.Guid);
         Assert.AreEqual("value", restored.Headers["X-Test"]);
     }
 
     [TestMethod]
+    [RegressionTestCase("request-state-compatibility", "Older saved requests restore with safe defaults", "An older payload without S7P hash or iterator fields must default the hash to zero and retain the request's current iterator mode.")]
     public void RequestDataDtoV1_OldPayloadWithoutS7PHash_DefaultsToZero()
     {
         var deserialized = RequestDataDtoV1.Deserialize("{}");
-        using var restored = new RequestData { S7PHash = 99 };
+        using var restored = new RequestData
+        {
+            S7PHash = 99,
+            IterationMode = IterationModeEnum.MultiPass
+        };
 
         Assert.IsNotNull(deserialized);
         deserialized.PopulateInto(restored);
         Assert.AreEqual((short)0, deserialized.S7PHash);
         Assert.AreEqual((short)0, restored.S7PHash);
+        Assert.IsNull(deserialized.IterationMode);
+        Assert.AreEqual(IterationModeEnum.MultiPass, restored.IterationMode);
     }
 
     [TestMethod]
+    [RegressionTestCase("profile-enrichment", "Requests work when profiles are disabled", "Without profile lookup, the proxy must still derive a user identity from configured request headers.")]
     public void ProfileEnricher_ProfilesDisabled_ComputesUserIdWithoutSnapshot()
     {
         var options = new ProxyConfig
@@ -123,6 +157,7 @@ public sealed class Test1
     }
 
     [TestMethod]
+    [RegressionTestCase("profile-enrichment", "Required profile identity cannot be omitted", "When profiles are mandatory, a request without the profile header must be rejected instead of routed anonymously.")]
     public void ProfileEnricher_RequiredProfileHeaderMissing_ThrowsUnknownProfile()
     {
         var options = new ProxyConfig
@@ -144,6 +179,7 @@ public sealed class Test1
     }
 
     [TestMethod]
+    [RegressionTestCase("profile-enrichment", "Unknown profiles are rejected", "A request naming a profile that cannot be loaded must fail rather than continue with incomplete tenant configuration.")]
     public void ProfileEnricher_ProfileSnapshotMissing_ThrowsUnknownProfile()
     {
         var options = new ProxyConfig
@@ -165,6 +201,7 @@ public sealed class Test1
     }
 
     [TestMethod]
+    [RegressionTestCase("profile-enrichment", "Ruleless profiles still apply identity headers", "A profile without routing rules must still apply its configured tenant headers and user identity.")]
     public void ProfileEnricher_RulelessSnapshot_AppliesHeadersAndReturnsNoNames()
     {
         var options = new ProxyConfig
@@ -194,6 +231,7 @@ public sealed class Test1
     }
 
     [TestMethod]
+    [RegressionTestCase("profile-enrichment", "Profile rules receive request metadata and can override defaults", "Profile rules must see path, method, user, profile, and hash metadata and may intentionally override profile-provided routing headers.")]
     public void ProfileEnricher_RulesReceiveRequestMetadataAndCanOverrideProfileHeaders()
     {
         var options = new ProxyConfig

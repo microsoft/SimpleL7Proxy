@@ -8,9 +8,19 @@ namespace SimpleL7Proxy.Test;
 
 [TestClass]
 [DoNotParallelize]
-public sealed class QueueTests
+public sealed class QueueTests : IRegressionTestMetadata
 {
+    public IReadOnlyDictionary<string, RegressionFeature> RegressionFeatures { get; } =
+        new Dictionary<string, RegressionFeature>
+        {
+            ["probe-availability"] = new("Queueing & Scheduling", "Probe availability", "Keeps health probes responsive without allowing ordinary traffic to consume reserved probe capacity."),
+            ["retry-admission"] = new("Queueing & Scheduling", "Retry admission", "Ensures retryable work is not dropped when the admission limit for new work has been reached."),
+            ["priority-ordering"] = new("Queueing & Scheduling", "Priority ordering", "Ensures urgent and preferred-priority requests reach the intended workers before lower-priority work."),
+            ["concurrent-delivery"] = new("Queueing & Scheduling", "Concurrent delivery", "Guards against lost or duplicate requests when many priority workers process the queue concurrently.")
+        };
+
     [TestMethod]
+    [RegressionTestCase("probe-availability", "Queued probes resume when the probe worker is available", "A probe waiting in the queue must be delivered as soon as reserved probe capacity becomes available.")]
     public async Task QueuedProbe_IsDeliveredWhenProbeWorkerBecomesAvailable()
     {
         var queue = CreateQueue();
@@ -39,6 +49,7 @@ public sealed class QueueTests
     }
 
     [TestMethod]
+    [RegressionTestCase("probe-availability", "Queued probes take precedence over ordinary work", "When a probe and ordinary request are queued together, the next available regular worker must service the probe first.")]
     public async Task QueuedProbe_IsDeliveredBeforeOrdinaryWorkToNextRegularWorker()
     {
         var queue = CreateQueue();
@@ -67,6 +78,7 @@ public sealed class QueueTests
     }
 
     [TestMethod]
+    [RegressionTestCase("probe-availability", "Waiting regular workers can service concurrent probes", "A probe arriving while a regular worker waits must be delivered immediately rather than remaining queued.")]
     public async Task ConcurrentProbe_IsDeliveredDirectlyToWaitingRegularWorker()
     {
         var queue = CreateQueue();
@@ -94,6 +106,7 @@ public sealed class QueueTests
     }
 
     [TestMethod]
+    [RegressionTestCase("probe-availability", "Ordinary requests cannot consume the reserved probe worker", "Normal traffic must remain queued until a regular worker is available, preserving dedicated probe capacity.")]
     public async Task OrdinaryWork_DoesNotUseReservedProbeWorker()
     {
         var queue = CreateQueue();
@@ -120,6 +133,7 @@ public sealed class QueueTests
     }
 
     [TestMethod]
+    [RegressionTestCase("retry-admission", "Retries are accepted when new-work capacity is full", "A request already admitted for processing must be requeued even when the queue rejects additional new work.")]
     public async Task Requeue_IsAcceptedAboveNewWorkAdmissionLimit()
     {
         var queue = CreateQueue(maxQueueLength: 1);
@@ -150,6 +164,7 @@ public sealed class QueueTests
     }
 
     [TestMethod]
+    [RegressionTestCase("priority-ordering", "Priority, boost, and age determine delivery order", "Requests must be delivered by primary priority, then user boost, then oldest timestamp.")]
     public void PriorityQueue_OrdersByPrimaryPriorityBoostAndTimestamp()
     {
         var queue = new SimpleL7Proxy.Queue.PriorityQueue<string>();
@@ -175,6 +190,7 @@ public sealed class QueueTests
     }
 
     [TestMethod]
+    [RegressionTestCase("priority-ordering", "Preferred workers receive matching priority work", "A worker assigned to a priority must receive matching queued work without consuming requests from other priorities first.")]
     public async Task PreferredPriorityWorker_ReceivesMatchingQueuedRequest()
     {
         var queue = CreateQueue();
@@ -202,6 +218,7 @@ public sealed class QueueTests
     }
 
     [TestMethod]
+    [RegressionTestCase("concurrent-delivery", "Concurrent priority workers deliver every request exactly once", "Twenty thousand mixed-priority requests processed by one thousand workers must complete without loss or duplication.")]
     [Timeout(15000)]
     public async Task ThousandMixedPriorityWorkers_DeliverEveryRequestExactlyOnce()
     {
@@ -321,9 +338,22 @@ public sealed class QueueTests
 
 [TestClass]
 [DoNotParallelize]
-public sealed class UserPriorityTests
+public sealed class UserPriorityTests : IRegressionTestMetadata
 {
+    public IReadOnlyDictionary<string, RegressionFeature> RegressionFeatures { get; } =
+        new Dictionary<string, RegressionFeature>
+        {
+            ["per-user-fairness"] = new(
+                "Queueing & Scheduling",
+                "Per-user fairness",
+                "Prevents one high-volume user from monopolizing shared worker capacity.")
+        };
+
     [TestMethod]
+    [RegressionTestCase(
+        "per-user-fairness",
+        "Heavy users receive a lower scheduling boost",
+        "A user owning more than its fair share of active requests must lose the boost granted to lighter users.")]
     public void BoostIndicator_UsesUsersShareOfActiveRequests()
     {
         var userPriority = CreateUserPriority(threshold: 0.5f);
@@ -347,6 +377,10 @@ public sealed class UserPriorityTests
     }
 
     [TestMethod]
+    [RegressionTestCase(
+        "per-user-fairness",
+        "User request accounting remains consistent",
+        "Adding and removing requests must keep per-user and global active counts accurate for fair scheduling.")]
     public void AddAndRemoveRequest_MaintainsUserAndTotalState()
     {
         var userPriority = CreateUserPriority(threshold: 0.5f);

@@ -53,7 +53,7 @@ Concepts covering backend host configuration, health probing, and the selection 
 | Connection String Format | Preferred per-host configuration using a semicolon-delimited `key=value` string (e.g., `host=…;probe=…;path=…`). Supports all modern options. | [BACKEND_HOSTS.md](backend-hosts.md) |
 | Direct Mode | Backend mode where the host is always treated as healthy and no probe is ever sent. Use for serverless or on-demand backends. | [BACKEND_HOSTS.md](backend-hosts.md) |
 | Health Poller | Background loop that probes each configured host at `PollInterval` ms and tracks rolling success rate and average latency. | [BACKEND_HOSTS.md](backend-hosts.md) |
-| `IterationMode` | Controls retry breadth. `SinglePass` tries each host at most once. `MultiPass` cycles up to `MaxAttempts` total. | [LOAD_BALANCING.md](load-balancing.md) |
+| `IterationMode` | Controls retry breadth. `SinglePass` tries each host at most once. `MultiPass` uses `MaxAttempts` as its total-attempt cap; set `MaxAttempts` to `0` to disable that cap. | [LOAD_BALANCING.md](load-balancing.md) |
 | Load Balance Mode | Determines host ordering within the candidate set: `roundrobin` (even), `latency` (fastest first), or `random`. | [LOAD_BALANCING.md](load-balancing.md) |
 | Path Filter | Stage 1 of backend selection. Specific-path hosts are checked first; catch-all hosts receive requests that match no specific path. | [LOAD_BALANCING.md](load-balancing.md) |
 | Shared Iterator | A single load-balance iterator shared across all concurrent requests to the same path, enabling strict round-robin fairness. | [LOAD_BALANCING.md](load-balancing.md) |
@@ -164,6 +164,7 @@ Named HTTP signals that cross the client-proxy and proxy-backend boundaries.
 | `S7PREQUEUE` | Backend → proxy | Response header a backend sets on a 429 reply to make the request eligible for delayed requeue after available host attempts are exhausted. | [RESPONSE_CODES.md](headers-and-status-codes.md) |
 | `S7PTimeout` | Client → proxy | Per-request override for the host-attempt timeout in milliseconds. | [TIMEOUTS.md](timeouts.md) |
 | `S7PTTL` | Client → proxy | Per-request override for the total TTL budget in seconds. | [TIMEOUTS.md](timeouts.md) |
+| `S7P-Iterator` | Client → proxy | Per-request `IterationMode` override. Accepts `SinglePass` or `MultiPass`; missing or invalid values use the current configured default. | [LOAD_BALANCING.md](load-balancing.md) |
 
 ---
 

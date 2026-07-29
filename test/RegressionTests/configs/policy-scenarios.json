@@ -1,0 +1,219 @@
+{
+  "scenarios": [
+    {
+      "name": "healthy-200",
+      "model": "policy-default",
+      "priorityKey": "high",
+      "a": { "delayMs": 0, "status": 200, "body": "openai" },
+      "b": { "delayMs": 0, "status": 500, "body": "json-error" },
+      "expected": {
+        "status": 200,
+        "backendAttempts": 1,
+        "requiredLog": ["Using SIM-A", "StatusCode: 200 - Success"],
+        "forbiddenLog": ["Using SIM-B"]
+      }
+    },
+    {
+      "name": "created-201-is-terminal",
+      "model": "policy-default",
+      "priorityKey": "high",
+      "a": { "delayMs": 0, "status": 201, "body": "text", "bodyText": "created" },
+      "b": { "delayMs": 0, "status": 500, "body": "json-error" },
+      "expected": {
+        "status": 201,
+        "backendAttempts": 1,
+        "requiredLog": ["Using SIM-A", "StatusCode: 201 - Success"],
+        "forbiddenLog": ["Using SIM-B"]
+      }
+    },
+    {
+      "name": "no-content-204-is-terminal",
+      "model": "policy-default",
+      "priorityKey": "high",
+      "a": { "delayMs": 0, "status": 204, "body": "empty" },
+      "b": { "delayMs": 0, "status": 500, "body": "json-error" },
+      "expected": {
+        "status": 204,
+        "backendAttempts": 1,
+        "requiredLog": ["Using SIM-A", "StatusCode: 204 - Success"],
+        "forbiddenLog": ["Using SIM-B"]
+      }
+    },
+    {
+      "name": "empty-200-retries-until-budget-exhausted",
+      "model": "policy-default",
+      "priorityKey": "high",
+      "a": { "delayMs": 0, "status": 200, "body": "empty" },
+      "b": { "delayMs": 0, "status": 200, "body": "openai" },
+      "expected": {
+        "status": 429,
+        "backendAttempts": 2,
+        "requiredLog": ["Using SIM-A", "StatusCode: 200 - Empty Response"],
+        "forbiddenLog": ["Using SIM-B"]
+      }
+    },
+    {
+      "name": "empty-200-exhausts-one-call-budget",
+      "model": "policy-default",
+      "priorityKey": "low",
+      "a": { "delayMs": 0, "status": 200, "body": "empty" },
+      "b": { "delayMs": 0, "status": 200, "body": "openai" },
+      "expected": {
+        "status": 429,
+        "backendAttempts": 1,
+        "requiredLog": ["Using SIM-A", "StatusCode: 200 - Empty Response"],
+        "forbiddenLog": ["Using SIM-B"]
+      }
+    },
+    {
+      "name": "generic-400-is-permanent",
+      "model": "policy-default",
+      "priorityKey": "high",
+      "a": { "delayMs": 0, "status": 400, "body": "json-error", "bodyText": "bad request" },
+      "b": { "delayMs": 0, "status": 200, "body": "openai" },
+      "expected": {
+        "status": 400,
+        "backendAttempts": 1,
+        "requiredLog": ["Using SIM-A", "StatusCode: 400 - Perm Error"],
+        "forbiddenLog": ["Using SIM-B"]
+      }
+    },
+    {
+      "name": "unauthorized-401-is-permanent",
+      "model": "policy-default",
+      "priorityKey": "high",
+      "a": { "delayMs": 0, "status": 401, "body": "json-error", "bodyText": "unauthorized" },
+      "b": { "delayMs": 0, "status": 200, "body": "openai" },
+      "expected": {
+        "status": 401,
+        "backendAttempts": 1,
+        "requiredLog": ["Using SIM-A", "StatusCode: 401 - Perm Error"],
+        "forbiddenLog": ["Using SIM-B"]
+      }
+    },
+    {
+      "name": "context-length-skips-ptu",
+      "model": "policy-context",
+      "priorityKey": "high",
+      "a": { "delayMs": 0, "status": 400, "body": "context-length" },
+      "b": { "delayMs": 0, "status": 200, "body": "openai" },
+      "expected": {
+        "status": 200,
+        "backendAttempts": 2,
+        "requiredLog": ["Using PTU", "CONTEXT WINDOW EXCEEDED", "Using PAYGO"],
+        "forbiddenLog": []
+      }
+    },
+    {
+      "name": "retry-after-seconds-wins",
+      "model": "policy-default",
+      "priorityKey": "high",
+      "a": {
+        "delayMs": 0,
+        "status": 429,
+        "body": "json-error",
+        "headers": { "Retry-After": "30", "retry-after-ms": "9716" }
+      },
+      "b": { "delayMs": 0, "status": 200, "body": "openai" },
+      "expected": {
+        "status": 200,
+        "backendAttempts": 2,
+        "requiredLog": ["Using SIM-A", "retry-after-ms", "retry-after", "THROTTLED: SIM-A Retry-After: 00:32", "Using SIM-B"],
+        "forbiddenLog": []
+      }
+    },
+    {
+      "name": "retry-after-ms-only",
+      "model": "policy-default",
+      "priorityKey": "high",
+      "a": {
+        "delayMs": 0,
+        "status": 429,
+        "body": "json-error",
+        "headers": { "retry-after-ms": "1500" }
+      },
+      "b": { "delayMs": 0, "status": 200, "body": "openai" },
+      "expected": {
+        "status": 200,
+        "backendAttempts": 2,
+        "requiredLog": ["Using SIM-A", "THROTTLED: SIM-A Retry-After: 00:04", "Using SIM-B"],
+        "forbiddenLog": []
+      }
+    },
+    {
+      "name": "invalid-retry-headers-use-default",
+      "model": "policy-default",
+      "priorityKey": "high",
+      "a": {
+        "delayMs": 0,
+        "status": 429,
+        "body": "json-error",
+        "headers": { "Retry-After": "invalid", "retry-after-ms": "0" }
+      },
+      "b": { "delayMs": 0, "status": 200, "body": "openai" },
+      "expected": {
+        "status": 200,
+        "backendAttempts": 2,
+        "requiredLog": ["Using SIM-A", "THROTTLED: SIM-A Retry-After: 00:10", "Using SIM-B"],
+        "forbiddenLog": []
+      }
+    },
+    {
+      "name": "temporary-500-fails-over",
+      "model": "policy-default",
+      "priorityKey": "high",
+      "a": {
+        "delayMs": 0,
+        "status": 500,
+        "body": "json-error",
+        "headers": { "Retry-After": "2" }
+      },
+      "b": { "delayMs": 0, "status": 200, "body": "openai" },
+      "expected": {
+        "status": 200,
+        "backendAttempts": 2,
+        "requiredLog": ["Using SIM-A", "StatusCode: 500", "THROTTLED: SIM-A Retry-After: 00:04", "Using SIM-B"],
+        "forbiddenLog": []
+      }
+    },
+    {
+      "name": "both-backends-throttled-without-requeue",
+      "model": "policy-default",
+      "priorityKey": "high",
+      "a": { "delayMs": 0, "status": 429, "body": "json-error", "headers": { "Retry-After": "2" } },
+      "b": { "delayMs": 0, "status": 429, "body": "json-error", "headers": { "Retry-After": "3" } },
+      "expected": {
+        "status": 429,
+        "backendAttempts": 2,
+        "requiredLog": ["Using SIM-A", "Using SIM-B", "REQUEUE: RequeueAllowed=False"],
+        "forbiddenLog": []
+      }
+    },
+    {
+      "name": "api-key-is-cleared-before-no-auth-backend",
+      "model": "policy-auth",
+      "priorityKey": "high",
+      "a": { "delayMs": 0, "status": 500, "body": "json-error" },
+      "b": { "delayMs": 0, "status": 200, "body": "openai" },
+      "expected": {
+        "status": 200,
+        "backendAttempts": 2,
+        "requiredLog": ["Using SIM-A", "\"X-Sim-Has-Api-Key\":[\"true\"]", "Using SIM-B", "\"X-Sim-Has-Api-Key\":[\"false\"]"],
+        "forbiddenLog": []
+      }
+    },
+    {
+      "name": "streaming-200-is-terminal",
+      "model": "policy-stream",
+      "priorityKey": "high",
+      "a": { "delayMs": 0, "status": 200, "body": "sse" },
+      "b": { "delayMs": 0, "status": 500, "body": "json-error" },
+      "expected": {
+        "status": 200,
+        "backendAttempts": 1,
+        "requiredLog": ["Using SIM-A"],
+        "forbiddenLog": ["Using SIM-B"]
+      }
+    }
+  ]
+}

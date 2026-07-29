@@ -9,8 +9,25 @@ namespace SimpleL7Proxy.Test;
 /// transitions and <see cref="ModelSwapper.ValidateModel"/> detect and rewrite paths.
 /// </summary>
 [TestClass]
-public sealed class ModelRemapTests
+public sealed class ModelRemapTests : IRegressionTestMetadata
 {
+    public IReadOnlyDictionary<string, RegressionFeature> RegressionFeatures { get; } =
+        new Dictionary<string, RegressionFeature>
+        {
+            ["model-family-mapping"] = new(
+                "AI Request Compatibility",
+                "Model family mapping",
+                "Prevents requests from carrying fields that are unsupported by the backend model family selected for routing."),
+            ["model-detection"] = new(
+                "AI Request Compatibility",
+                "Model detection",
+                "Ensures the proxy identifies the requested model without changing valid payloads or trusting nested lookalike fields."),
+            ["model-override"] = new(
+                "AI Request Compatibility",
+                "Model override rewriting",
+                "Keeps rerouted requests valid when the proxy switches a request to a different model family.")
+        };
+
     // ---- Helpers -------------------------------------------------------
 
     private static (string Body, string Model) Run(string body, string? modelOverride = null)
@@ -26,6 +43,7 @@ public sealed class ModelRemapTests
     // ---- ModelMap: family transition selection -------------------------
 
     [TestMethod]
+    [RegressionTestCase("model-family-mapping", "GPT-4o to GPT-5 uses reasoning transforms", "Selecting GPT-5 for a classic request must apply the field removal and rename rules required by reasoning models.")]
     public void ModelMap_ClassicToGpt5_UsesClassicToReasoningMaps()
     {
         var (remove, rename) = ModelMap.Get("gpt-4o", "gpt-5");
@@ -35,6 +53,7 @@ public sealed class ModelRemapTests
     }
 
     [TestMethod]
+    [RegressionTestCase("model-family-mapping", "Classic to reasoning uses reasoning transforms", "Routing a classic request to an o-series model must select the classic-to-reasoning compatibility maps.")]
     public void ModelMap_ClassicToReasoning_UsesClassicToReasoningMaps()
     {
         var (remove, rename) = ModelMap.Get("gpt-4.1", "o3");
@@ -44,6 +63,7 @@ public sealed class ModelRemapTests
     }
 
     [TestMethod]
+    [RegressionTestCase("model-family-mapping", "GPT-5 to classic removes unsupported fields", "Routing GPT-5 input to a classic model must remove GPT-5-only fields and restore classic token field names.")]
     public void ModelMap_Gpt5ToClassic_RemovesGpt5FieldsAndRenamesToClassic()
     {
         var (remove, rename) = ModelMap.Get("gpt-5-mini", "gpt-4o");
@@ -53,6 +73,7 @@ public sealed class ModelRemapTests
     }
 
     [TestMethod]
+    [RegressionTestCase("model-family-mapping", "GPT-5 to reasoning removes verbosity only", "Routing between reasoning families must drop unsupported verbosity without renaming compatible token fields.")]
     public void ModelMap_Gpt5ToReasoning_RemovesVerbosityNoRename()
     {
         var (remove, rename) = ModelMap.Get("gpt-5", "o4-mini");
@@ -62,6 +83,7 @@ public sealed class ModelRemapTests
     }
 
     [TestMethod]
+    [RegressionTestCase("model-family-mapping", "Reasoning to classic restores classic fields", "Routing an o-series request to a classic model must select the reasoning-to-classic compatibility maps.")]
     public void ModelMap_ReasoningToClassic_UsesReasoningToClassicMaps()
     {
         var (remove, rename) = ModelMap.Get("o3", "gpt-4");
@@ -71,6 +93,7 @@ public sealed class ModelRemapTests
     }
 
     [TestMethod]
+    [RegressionTestCase("model-family-mapping", "Same-family routing preserves request fields", "Switching models within the same family must not remove or rename otherwise valid request fields.")]
     public void ModelMap_SameFamily_NoTransform()
     {
         var (remove, rename) = ModelMap.Get("gpt-4", "gpt-4o");
@@ -80,6 +103,7 @@ public sealed class ModelRemapTests
     }
 
     [TestMethod]
+    [RegressionTestCase("model-family-mapping", "Unknown source models remain untouched", "An unrecognized model must not trigger speculative field removal or renaming.")]
     public void ModelMap_UnknownModel_NoTransform()
     {
         var (remove, rename) = ModelMap.Get("llama-3", "gpt-4");
@@ -89,6 +113,7 @@ public sealed class ModelRemapTests
     }
 
     [TestMethod]
+    [RegressionTestCase("model-family-mapping", "Model family matching ignores case", "Model routing must choose the same compatibility maps regardless of model-name casing.")]
     public void ModelMap_FamilyDetection_IsCaseInsensitive()
     {
         var (remove, rename) = ModelMap.Get("GPT-4O", "GPT-5");
@@ -100,6 +125,7 @@ public sealed class ModelRemapTests
     // ---- ValidateModel: detect-only (no override) ----------------------
 
     [TestMethod]
+    [RegressionTestCase("model-detection", "Top-level model is captured without rewriting", "Reading a valid top-level model must populate request metadata while leaving the original body unchanged.")]
     public void Detect_CapturesTopLevelModel_BodyUnchanged()
     {
         const string body = """{"model":"gpt-4o","messages":[]}""";
@@ -111,6 +137,7 @@ public sealed class ModelRemapTests
     }
 
     [TestMethod]
+    [RegressionTestCase("model-detection", "Nested model fields are not treated as routing input", "Only the top-level model field may control routing; nested payload data must be ignored.")]
     public void Detect_NestedModelIgnored()
     {
         var (result, model) = Run("""{"payload":{"model":"gpt-4o"},"n":1}""");
@@ -120,6 +147,7 @@ public sealed class ModelRemapTests
     }
 
     [TestMethod]
+    [RegressionTestCase("model-detection", "Missing model leaves routing metadata empty", "Requests without a model field must not invent a model identity.")]
     public void Detect_ModelAbsent_LeavesModelEmpty()
     {
         var (_, model) = Run("""{"messages":[],"temperature":0.5}""");
@@ -128,6 +156,7 @@ public sealed class ModelRemapTests
     }
 
     [TestMethod]
+    [RegressionTestCase("model-detection", "Blank model values are ignored", "Whitespace-only model values must not be treated as valid routing metadata.")]
     public void Detect_EmptyModelValue_NotCaptured()
     {
         var (_, model) = Run("""{"model":"   "}""");
@@ -136,6 +165,7 @@ public sealed class ModelRemapTests
     }
 
     [TestMethod]
+    [RegressionTestCase("model-detection", "Non-object JSON passes through unchanged", "JSON arrays and other non-object bodies must not be rewritten or assigned a model.")]
     public void Detect_NonObjectBody_ReturnedUnchanged()
     {
         var (result, model) = Run("[1,2,3]");
@@ -145,6 +175,7 @@ public sealed class ModelRemapTests
     }
 
     [TestMethod]
+    [RegressionTestCase("model-detection", "Malformed JSON is visible as a detection error", "Invalid JSON must set an observable error sentinel instead of silently selecting a model.")]
     public void Detect_MalformedJson_SetsErrorSentinel()
     {
         // Invalid value token, thrown before any "model" property is captured.
@@ -156,6 +187,7 @@ public sealed class ModelRemapTests
     // ---- ValidateModel: override / rewrite -----------------------------
 
     [TestMethod]
+    [RegressionTestCase("model-override", "Override replaces the existing model", "A requested model override must update the routing model and serialized request while preserving unrelated fields.")]
     public void Override_ReplacesExistingModel()
     {
         var (result, model) = Run("""{"model":"gpt-4o","keep":true}""", "gpt-5");
@@ -167,6 +199,7 @@ public sealed class ModelRemapTests
     }
 
     [TestMethod]
+    [RegressionTestCase("model-override", "Override adds a missing model", "A model override must add the top-level model when the original request omitted it.")]
     public void Override_AddsModelWhenAbsent()
     {
         var (result, model) = Run("""{"keep":1}""", "gpt-5");
@@ -178,6 +211,7 @@ public sealed class ModelRemapTests
     }
 
     [TestMethod]
+    [RegressionTestCase("model-override", "Classic request is rewritten for reasoning models", "Classic-only sampling fields must be removed and max_tokens renamed before sending to a reasoning model.")]
     public void Override_ClassicToReasoning_RemovesAndRenamesFields()
     {
         const string body = """
@@ -203,6 +237,7 @@ public sealed class ModelRemapTests
     }
 
     [TestMethod]
+    [RegressionTestCase("model-override", "GPT-5 request is rewritten for classic models", "GPT-5-only reasoning fields must be removed and token fields restored before sending to a classic model.")]
     public void Override_Gpt5ToClassic_RemovesAndRenamesFields()
     {
         const string body = """
@@ -222,6 +257,7 @@ public sealed class ModelRemapTests
     }
 
     [TestMethod]
+    [RegressionTestCase("model-override", "Same-family override preserves compatible fields", "Changing to another model in the same family must update the model without deleting valid sampling settings.")]
     public void Override_SameFamily_NoFieldTransform()
     {
         var (result, _) = Run("""{"model":"gpt-4","temperature":0.2}""", "gpt-4o");
@@ -233,6 +269,7 @@ public sealed class ModelRemapTests
     }
 
     [TestMethod]
+    [RegressionTestCase("model-override", "Unsupported fields are removed case-insensitively", "Compatibility rewriting must remove unsupported fields even when clients use different property casing.")]
     public void Override_FieldRemovalIsCaseInsensitive()
     {
         var (result, _) = Run("""{"model":"gpt-4o","Temperature":0.5,"keep":1}""", "gpt-5");
@@ -243,6 +280,7 @@ public sealed class ModelRemapTests
     }
 
     [TestMethod]
+    [RegressionTestCase("model-override", "Nested request structures survive overrides", "Messages, metadata, arrays, and null values must remain intact while the top-level model is changed.")]
     public void Override_PreservesNestedStructures()
     {
         const string body = """
@@ -259,6 +297,7 @@ public sealed class ModelRemapTests
     }
 
     [TestMethod]
+    [RegressionTestCase("model-override", "Override without a source model avoids destructive transforms", "When the source family is unknown, the override must add the model but retain existing request fields.")]
     public void Override_NoSourceModel_AddsModelAndKeepsFields()
     {
         // No top-level model in body -> no family transform, override appended.
