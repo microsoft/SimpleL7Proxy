@@ -57,7 +57,7 @@ public sealed partial class PolicyScenarioIntegrationTests : IRegressionTestMeta
         if (localConfig == null)
         {
             Assert.Inconclusive(
-                "Create test/RegressionTests/configs/policy-test.local.json before running the APIM policy tests.");
+                "Create test/RegressionTests/configs/policy-test.local.json with proxyEnvironment.Host_apim before running the APIM policy tests.");
             return;
         }
 
@@ -67,7 +67,7 @@ public sealed partial class PolicyScenarioIntegrationTests : IRegressionTestMeta
         {
             Assert.Inconclusive(
                 "Set POLICY_TEST_APIM_URL to the proxy-relative APIM route, for example policytest, " +
-                "in test/RegressionTests/configs/policy-test.local.json or in the shell environment.");
+                "in the checked-in base config or shell environment.");
             return;
         }
 
@@ -818,30 +818,49 @@ public sealed partial class PolicyScenarioIntegrationTests : IRegressionTestMeta
 
         public static PolicyTestLocalConfig? Load()
         {
+            var basePath = Path.Combine(AppContext.BaseDirectory, "configs", "policy-test.json");
+            if (!File.Exists(basePath))
+            {
+                throw new FileNotFoundException(
+                    "Policy test base config was not found. Restore configs/policy-test.json.",
+                    basePath);
+            }
+
+            var config = JsonSerializer.Deserialize<PolicyTestLocalConfig>(
+                File.ReadAllText(basePath),
+                s_jsonOptions) ?? new PolicyTestLocalConfig();
             var configuredPath = Environment.GetEnvironmentVariable("POLICY_TEST_CONFIG_PATH");
             var path = string.IsNullOrWhiteSpace(configuredPath)
                 ? Path.Combine(AppContext.BaseDirectory, "configs", "policy-test.local.json")
                 : Path.GetFullPath(configuredPath);
-            if (!File.Exists(path))
+
+            if (File.Exists(path))
             {
-                return null;
+                var localConfig = JsonSerializer.Deserialize<PolicyTestLocalConfig>(
+                    File.ReadAllText(path),
+                    s_jsonOptions) ?? new PolicyTestLocalConfig();
+                foreach (var setting in localConfig.TestEnvironment)
+                {
+                    config.TestEnvironment[setting.Key] = setting.Value;
+                }
+                foreach (var setting in localConfig.ProxyEnvironment)
+                {
+                    config.ProxyEnvironment[setting.Key] = setting.Value;
+                }
             }
 
-            var config = JsonSerializer.Deserialize<PolicyTestLocalConfig>(
-                File.ReadAllText(path),
-                s_jsonOptions) ?? new PolicyTestLocalConfig();
             foreach (var requiredKey in new[] { "EVENT_LOGGERS", "LogToEvents", "LogHeaders", "DependancyHeaders" })
             {
                 if (!config.ProxyEnvironment.ContainsKey(requiredKey))
                 {
                     throw new InvalidOperationException(
-                        $"Policy test config '{path}' is missing proxyEnvironment.{requiredKey}.");
+                        $"Merged policy test config is missing proxyEnvironment.{requiredKey}.");
                 }
             }
-            if (!config.ProxyEnvironment.ContainsKey("Host_apim"))
+            if (!config.ProxyEnvironment.TryGetValue("Host_apim", out var hostApim) ||
+                string.IsNullOrWhiteSpace(hostApim))
             {
-                throw new InvalidOperationException(
-                    $"Policy test config '{path}' is missing proxyEnvironment.Host_apim.");
+                return null;
             }
             return config;
         }

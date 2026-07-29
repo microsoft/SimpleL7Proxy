@@ -77,11 +77,32 @@ The OPTIONS and POST operations share the same API ID, so reset removes the exac
 
 ## Run Through SimpleL7Proxy
 
-Edit the gitignored local configuration file:
+Shared defaults are checked in at:
+
+```text
+test/RegressionTests/configs/policy-test.json
+```
+
+Create the gitignored local overlay:
 
 ```text
 test/RegressionTests/configs/policy-test.local.json
 ```
+
+The harness loads the checked-in base first, then overlays matching `testEnvironment` and `proxyEnvironment` keys from the local file. Keep `APPINSIGHTS_CONNECTIONSTRING`, `ValidateAuthAppID`, `ValidateAuthConfig`, and `Host_apim` local because they control authentication, telemetry credentials, or backend credentials:
+
+```json
+{
+  "proxyEnvironment": {
+    "APPINSIGHTS_CONNECTIONSTRING": "",
+    "ValidateAuthAppID": "false",
+    "ValidateAuthConfig": "enabled=false, mode=none, header=S7P-KEY",
+    "Host_apim": "host=https://<apim-name>.azure-api.net; path=/; processor=MultiLineAllUsage; api-key-header=<header>; api-key=<key>; mode=apim; probe=/<probe>; enabled=true"
+  }
+}
+```
+
+Put shared non-security settings in `policy-test.json`. The loader does not restrict which keys can be overlaid locally; local values replace base values with the same case-insensitive key.
 
 Set the APIM API suffix as a proxy-relative route in `testEnvironment`:
 
@@ -103,7 +124,7 @@ http://127.0.0.1:<random-port>/<POLICY_TEST_APIM_URL>/...
 
 The proxy then selects `Host_apim` and forwards the request to APIM. The harness does not derive or override an APIM host.
 
-The local file is excluded by `.gitignore` because `Host_apim` can contain credentials. Shell environment values override matching JSON values. Set `POLICY_TEST_CONFIG_PATH` to load a different file.
+The local file is excluded by `.gitignore`. For `testEnvironment`, precedence is shell environment, local overlay, then checked-in base. Set `POLICY_TEST_CONFIG_PATH` to use a different overlay file; the checked-in base is still loaded first.
 
 Keep `"POLICY_TEST_SCENARIO": "healthy-200"` while checking connectivity. Set it to an empty string to run the complete catalog.
 
@@ -115,7 +136,7 @@ bash test/RegressionTests/run-policy-scenarios.sh
 
 The `proxyEnvironment` object is copied into the child proxy before startup. The harness owns only the random `Port`, per-scenario `LOGFILE_NAME`, and request `Timeout`.
 
-When the local config or `POLICY_TEST_APIM_URL` is absent, MSTest reports the suite as inconclusive. It never substitutes a direct simulator call.
+When no overlay supplies `Host_apim`, or when `POLICY_TEST_APIM_URL` is absent after applying defaults, MSTest reports the suite as inconclusive. It never substitutes a direct simulator call.
 
 ## Evidence
 

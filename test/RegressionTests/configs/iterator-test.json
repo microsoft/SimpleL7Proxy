@@ -1,0 +1,36 @@
+{
+  "testEnvironment": {
+    "ITERATOR_TEST_PYTHON": "python3",
+    "ITERATOR_TEST_TIMEOUT_SECONDS": "45",
+    "ITERATOR_TEST_KEEP_ARTIFACTS": "true"
+  },
+  "proxyEnvironment": {
+    "EVENT_LOGGERS": "file",
+    "LogToEvents": "backend,proxy",
+    "LogToConsole": "none",
+    "LogToAI": "none",
+    "LogHeaders": "S7P-ID,Attempts,Lifetime-Attempts,BackendHost",
+    "DependancyHeaders": "Backend-Host,Host-URL,Status,Duration,Error,Message,Request-Date,Attempt,Lifetime-Attempt",
+    "LOG_LEVEL": "Warning",
+    "AsyncModeEnabled": "false",
+    "UseProfiles": "false",
+    "UserConfigRequired": "false",
+    "Workers": "1",
+    "DefaultPriority": "1",
+    "PriorityKeyHeader": "S7PPriorityKey",
+    "PriorityKeys": "default",
+    "PriorityValues": "1",
+    "LoadBalanceMode": "roundrobin",
+    "IterationMode": "SinglePass",
+    "MaxAttempts": "5",
+    "UseSharedIterators": "true",
+    "MaxQueueLength": "100",
+    "PollInterval": "250",
+    "PollTimeout": "1000",
+    "Timeout": "5000",
+    "DefaultTTLSecs": "30",
+    "Host_iterator_a": "host=http://127.0.0.1:{BACKEND_A_PORT}; path=/; processor=DefaultStream; probe=/health; enabled=true",
+    "Host_iterator_b": "host=http://127.0.0.1:{BACKEND_B_PORT}; path=/; processor=DefaultStream; probe=/health; enabled=true",
+    "Host_iterator_c": "host=http://127.0.0.1:{BACKEND_C_PORT}; path=/; processor=DefaultStream; probe=/health; enabled=true"
+  }
+}

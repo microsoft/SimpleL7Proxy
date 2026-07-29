@@ -35,7 +35,8 @@
 - Treat proxy telemetry value `N/A` as missing evidence and continue to matching `Attempt-N-*` fields; proxy-generated errors can expose `x-MID` or only event/path correlation instead of a final HTTP `S7P-ID`.
 - A `JArray` attached to a staged `JObject` can diverge from the context-owned APIM policy array; mutate the context-owned activity log directly when later `backendLog` rendering reads that context variable.
 - An empty HTTP 200 means retry under the normal backend-selection rules; do not force failover or exclude the current backend unless the contract explicitly changes.
-- `test/RegressionTests/configs/policy-test.local.json` supplies stress environment defaults after test startup and can override defaults in `PolicyStressSettings`; keep both profiles aligned when changing the standard stress run.
+- `test/RegressionTests/configs/policy-test.json` supplies checked-in policy and stress defaults; `policy-test.local.json` overlays matching test and proxy settings. Keep security values local and keep the base stress profile aligned with `PolicyStressSettings` when changing the standard stress run.
 - In policy stress results, classify terminal HTTP 429 responses as incomplete, not failed; final drain still requires every started request to complete and `InFlight` to reach zero.
 - For `MSTest.Sdk` 3.7.0 projects, run the generated test assembly directly when a method-level `dotnet test --filter` is ignored: `dotnet path/to/Tests.dll --filter "Name=TestMethod"`.
 - Local proxy tests that wait on `/startup` need more than 30 seconds when profiles are disabled because `UserProfile` closes its readiness gate on a fixed 30-second timer; use at least a 45-second timeout.
+- After extracting a large declaration with `apply_patch`, inspect both source boundaries before proceeding; malformed context markers can be inserted literally even when the patch reports success.
