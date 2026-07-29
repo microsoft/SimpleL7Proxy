@@ -4,8 +4,24 @@ using System.Text.Json;
 namespace SimpleL7Proxy.Test;
 
 [TestClass]
-public sealed class RuleTests
+public sealed class RuleTests : IRegressionTestMetadata
 {
+    public IReadOnlyDictionary<string, RegressionFeature> RegressionFeatures { get; } =
+        new Dictionary<string, RegressionFeature>
+        {
+            ["first-match-routing"] = new("Rules & Configuration", "First-match routing", "Ensures a request follows the first applicable branch and uses the configured fallback when no condition matches."),
+            ["numeric-threshold-routing"] = new("Rules & Configuration", "Numeric threshold routing", "Prevents percentage and threshold rules from sending traffic down the wrong route."),
+            ["string-matching"] = new("Rules & Configuration", "String matching", "Keeps header- and metadata-based routing decisions consistent across casing and positive or negative operators."),
+            ["missing-data"] = new("Rules & Configuration", "Missing-data behavior", "Ensures incomplete request metadata follows a defined safe path instead of producing accidental matches."),
+            ["range-boundaries"] = new("Rules & Configuration", "Range boundary routing", "Ensures rollout percentages and numeric bands include or exclude boundary values exactly as configured."),
+            ["traffic-bucketing"] = new("Rules & Configuration", "Deterministic traffic bucketing", "Keeps the same request identity in a stable percentage bucket so gradual rollouts do not shift unpredictably."),
+            ["rule-traceability"] = new("Rules & Configuration", "Rule composition and traceability", "Ensures complex rule trees select the intended branch and report a traceable path explaining the decision."),
+            ["multi-rule-evaluation"] = new("Rules & Configuration", "Multi-rule evaluation", "Ensures all applicable routing rules are evaluated in a predictable order without losing valid results."),
+            ["pattern-matching"] = new("Rules & Configuration", "Pattern matching", "Ensures pattern-based routing matches intended values consistently and rejects invalid patterns during configuration."),
+            ["configuration-validation"] = new("Rules & Configuration", "Rule configuration validation", "Rejects unsafe or malformed rule configuration before it can affect live request routing."),
+            ["rule-concurrency"] = new("Reliability & Capacity", "Rule engine concurrency", "Confirms rule evaluation remains stable when many requests are evaluated concurrently.")
+        };
+
     private const string Json = """
     [
       {
@@ -31,6 +47,7 @@ public sealed class RuleTests
         => new(RuleConfigParser.ParseRules(Json));
 
     [TestMethod]
+    [RegressionTestCase("first-match-routing", "Matching condition selects the configured branch", "A matching request must receive the headers and priority values from the rule's then branch.")]
     public void ProcessFirst_ConditionTrue_ReturnsThenBranch()
     {
         var processor = CreateProcessor();
@@ -48,6 +65,7 @@ public sealed class RuleTests
     }
 
     [TestMethod]
+    [RegressionTestCase("first-match-routing", "Non-matching condition selects the fallback branch", "A request that misses the primary condition must receive the rule's configured else result.")]
     public void ProcessFirst_ConditionFalse_ReturnsElseBranch()
     {
         var processor = CreateProcessor();
@@ -60,6 +78,10 @@ public sealed class RuleTests
     }
 
     [DataTestMethod]
+    [RegressionTestCase(
+        "numeric-threshold-routing",
+        "Value {1} using {0} against {2} selects the {3} route",
+        "Compares actual value {1} with threshold {2} using {0}; the expected route is {3}.")]
     [DataRow("greaterThan", "10", "9", "green")]
     [DataRow("greaterThan", "10", "10", "blue")]
     [DataRow("greaterThanOrEqual", "10", "10", "green")]
@@ -92,6 +114,7 @@ public sealed class RuleTests
     }
 
     [DataTestMethod]
+    [RegressionTestCase("numeric-threshold-routing", "Invalid numeric input uses the safe fallback", "Non-numeric operands or thresholds must not match a numeric rule and must select its else branch.")]
     [DataRow("greaterThan", "not-a-number", "10")]
     [DataRow("lessThan", "10", "not-a-number")]
     public void ProcessFirst_NumericComparison_InvalidOperand_ReturnsElseBranch(
@@ -117,6 +140,7 @@ public sealed class RuleTests
     }
 
     [TestMethod]
+    [RegressionTestCase("missing-data", "Missing numeric fields use the fallback route", "A numeric rule whose source field is absent must not match and must select the configured else branch.")]
     public void ProcessFirst_NumericComparison_MissingField_ReturnsElseBranch()
     {
         var processor = new RuleProcessor(RuleConfigParser.ParseRules(
@@ -129,6 +153,7 @@ public sealed class RuleTests
     }
 
     [DataTestMethod]
+    [RegressionTestCase("string-matching", "String operators honor case-sensitivity settings", "Equals, contains, prefix, suffix, and negated operators must produce the configured result for case-sensitive and case-insensitive rules.")]
     [DataRow("equals", "Alpha", "alpha", true, true)]
     [DataRow("equals", "Alpha", "alpha", false, false)]
     [DataRow("notEquals", "Alpha", "alpha", false, true)]
@@ -157,6 +182,7 @@ public sealed class RuleTests
     }
 
     [DataTestMethod]
+    [RegressionTestCase("missing-data", "Missing strings follow defined negation behavior", "Positive string and numeric operators must fail on missing fields while negated operators use their documented safe result.")]
     [DataRow("equals", false)]
     [DataRow("notEquals", true)]
     [DataRow("contains", false)]
@@ -179,6 +205,7 @@ public sealed class RuleTests
     }
 
     [DataTestMethod]
+    [RegressionTestCase("range-boundaries", "Configured range mode controls boundary membership", "Open, closed, and half-open ranges must include and exclude lower and upper boundary values exactly as configured.")]
     [DataRow("inOpenClosedRange", "10", "outside")]
     [DataRow("inOpenClosedRange", "20", "inside")]
     [DataRow("inClosedOpenRange", "10", "inside")]
@@ -210,6 +237,7 @@ public sealed class RuleTests
     }
 
     [TestMethod]
+    [RegressionTestCase("range-boundaries", "Ranges default to closed boundaries", "A between rule without an explicit mode must include both configured endpoints.")]
     public void ProcessFirst_BetweenWithoutMode_DefaultsToClosedRange()
     {
         var processor = new RuleProcessor(RuleConfigParser.ParseRules(
@@ -225,6 +253,7 @@ public sealed class RuleTests
     }
 
     [DataTestMethod]
+    [RegressionTestCase("range-boundaries", "Invalid ranges never match", "Malformed operands, malformed bounds, and reversed bounds must fail safely instead of routing a request into the range.")]
     [DataRow("not-a-number", "10", "20")]
     [DataRow("15", "not-a-number", "20")]
     [DataRow("15", "10", "not-a-number")]
@@ -249,6 +278,7 @@ public sealed class RuleTests
     }
 
     [DataTestMethod]
+    [RegressionTestCase("range-boundaries", "Equal bounds match only a closed range", "When both bounds are equal, only the fully closed range mode may contain that value.")]
     [DataRow("inOpenClosedRange", false)]
     [DataRow("inClosedOpenRange", false)]
     [DataRow("inOpenRange", false)]
@@ -270,6 +300,7 @@ public sealed class RuleTests
     }
 
     [DataTestMethod]
+    [RegressionTestCase("range-boundaries", "Adjacent percentage bands select one route", "A chain of half-open ranges must assign boundary values to one and only one rollout cohort.")]
     [DataRow(0, "blue-1", "cohort/hash-0-25/blue-0-25")]
     [DataRow(25, "blue-2", "cohort/hash-25-50-clause/hash-25-50/blue-25-50")]
     [DataRow(50, "green-1", "cohort/hash-50-75-clause/hash-50-75/green-50-75")]
@@ -306,6 +337,7 @@ public sealed class RuleTests
     }
 
     [DataTestMethod]
+    [RegressionTestCase("traffic-bucketing", "S7P hash values select stable routes", "Known S7P hash values must remain in their expected rollout path so existing traffic assignments do not move.")]
     [DataRow(9, "green")]
     [DataRow(10, "blue")]
     public void Process_S7PHash_UsesPassedValue(int s7PHash, string expectedPath)
@@ -323,6 +355,7 @@ public sealed class RuleTests
     }
 
     [DataTestMethod]
+    [RegressionTestCase("traffic-bucketing", "Known identities produce stable FNV buckets", "Known input values must continue mapping to the same percentage buckets across releases.")]
     [DataRow("", 61)]
     [DataRow("a", 20)]
     [DataRow("b", 77)]
@@ -335,6 +368,7 @@ public sealed class RuleTests
     }
 
     [TestMethod]
+    [RegressionTestCase("traffic-bucketing", "Multiple hash values use an unambiguous separator", "Combining identity values must not create collisions caused by ambiguous concatenation.")]
     public void RuleHash_CalculateBucket_TwoValuesUsesSeparator()
     {
         var bucket = RuleHash.CalculateBucket("a".AsSpan(), "b".AsSpan());
@@ -345,6 +379,7 @@ public sealed class RuleTests
     }
 
     [TestMethod]
+    [RegressionTestCase("traffic-bucketing", "Named request fields can drive stable bucketing", "A Hash: field rule must bucket the named request value and select the corresponding rollout path.")]
     public void Process_HashField_HashesNamedContextValue()
     {
         var processor = new RuleProcessor(RuleConfigParser.ParseRules(
@@ -364,6 +399,7 @@ public sealed class RuleTests
     }
 
     [TestMethod]
+    [RegressionTestCase("traffic-bucketing", "Hash:S7PHash uses the supplied request bucket", "Rules referencing Hash:S7PHash must use the proxy's existing request hash instead of hashing its textual value again.")]
     public void Process_HashS7PHash_UsesPassedValueInsteadOfContext()
     {
         var expectedBucket = RuleHash.CalculateBucket("9".AsSpan());
@@ -378,6 +414,7 @@ public sealed class RuleTests
     }
 
     [TestMethod]
+    [RegressionTestCase("traffic-bucketing", "Every hash remains inside the percentage range", "All calculated buckets must stay between zero and ninety-nine so rollout rules always receive a valid percentage.")]
     public void RuleHash_CalculateBucket_AlwaysReturnsPercentageBucket()
     {
         for (var index = 0; index < 10_000; index++)
@@ -388,6 +425,7 @@ public sealed class RuleTests
     }
 
     [TestMethod]
+    [RegressionTestCase("rule-traceability", "Applied rule paths report actual branch decisions", "Decision telemetry must list only branches that changed the request, including explicit fallback branches.")]
     public void Process_MatchedRuleNames_ReportsAppliedThenAndElseBranchesOnly()
     {
         var processor = new RuleProcessor(RuleConfigParser.ParseRules(
@@ -424,6 +462,7 @@ public sealed class RuleTests
     }
 
     [DataTestMethod]
+    [RegressionTestCase("rule-traceability", "Nested rules expose the selected value and full decision path", "Nested and elseif branches must apply the intended result and expose the complete named path used to reach it.")]
     [DataRow("direct", "basic", "us", "direct", "outer/direct-channel/direct-set")]
     [DataRow("indirect", "premium", "eu", "premium-eu", "outer/secondary-rule/premium-tier/region-rule/eu-region/premium-eu-set")]
     [DataRow("indirect", "premium", "us", "premium-global", "outer/secondary-rule/premium-tier/region-rule/premium-global-set")]
@@ -469,6 +508,7 @@ public sealed class RuleTests
     }
 
     [TestMethod]
+    [RegressionTestCase("configuration-validation", "Rule nesting enforces the supported depth limit", "Configuration at the maximum supported nesting depth must compile while one additional level is rejected.")]
     public void RuleConfig_Compile_AllowsMaximumDepthAndRejectsNextLevel()
     {
         static RuleConfig CreateConfig(int nestedConditionCount)
@@ -523,6 +563,7 @@ public sealed class RuleTests
     }
 
     [TestMethod]
+    [RegressionTestCase("missing-data", "Missing hash sources select the fallback branch", "A Hash: rule without its source value must not create a bucket or accidentally match the primary route.")]
     public void ProcessFirst_HashField_MissingSource_ReturnsElseBranch()
     {
         var processor = new RuleProcessor(RuleConfigParser.ParseRules(
@@ -535,6 +576,7 @@ public sealed class RuleTests
     }
 
     [TestMethod]
+    [RegressionTestCase("first-match-routing", "No matching rule returns the configured default", "When no condition applies, first-match processing must return its documented default outcome.")]
     public void ProcessFirst_NoMatch_ReturnsDefault()
     {
         // Use rules where every branch can be null: a single rule with no else.
@@ -549,6 +591,7 @@ public sealed class RuleTests
     }
 
     [TestMethod]
+    [RegressionTestCase("multi-rule-evaluation", "All matching rules are returned in order", "Multi-rule processing must retain every applicable result in configuration order.")]
     public void Process_ReturnsAllMatchingResultsInOrder()
     {
         var processor = CreateProcessor();
@@ -569,6 +612,7 @@ public sealed class RuleTests
     }
 
     [TestMethod]
+    [RegressionTestCase("missing-data", "Rules without a fallback skip missing fields", "A rule whose source field is absent and has no else branch must be skipped without producing output.")]
     public void Process_MissingField_SkipsRuleWithoutElse()
     {
         var processor = CreateProcessor();
@@ -582,6 +626,7 @@ public sealed class RuleTests
     }
 
     [TestMethod]
+    [RegressionTestCase("pattern-matching", "Regex matching honors case-insensitive rules", "Pattern-based routing must match equivalent user-agent values regardless of letter casing.")]
     public void Regex_Matches_CaseInsensitive()
     {
         var processor = CreateProcessor();
@@ -593,6 +638,7 @@ public sealed class RuleTests
     }
 
     [TestMethod]
+    [RegressionTestCase("pattern-matching", "Invalid regex is rejected during configuration", "A malformed regular expression must fail at parse time rather than breaking request processing later.")]
     public void ParseRules_InvalidRegex_ThrowsAtParseTime()
     {
         Assert.ThrowsException<ArgumentException>(() =>
@@ -601,12 +647,14 @@ public sealed class RuleTests
     }
 
     [TestMethod]
+    [RegressionTestCase("configuration-validation", "Invalid JSON configuration is rejected", "Rule configuration that is not valid JSON must fail with a clear argument error before activation.")]
     public void ParseRules_InvalidJson_ThrowsArgumentException()
     {
         Assert.ThrowsException<ArgumentException>(() => RuleConfigParser.ParseRules("not json"));
     }
 
     [DataTestMethod]
+    [RegressionTestCase("configuration-validation", "Invalid rule structures are rejected with useful errors", "Missing names, conflicting node types, incomplete branches, and malformed elseif clauses must be rejected before routing begins.")]
     [DataRow(
         """[{ "if": { "name": "condition", "field": "x", "match": "equals", "value": "y" }, "then": { "name": "output", "set": { "k": "v" } } }]""",
         "Every rule node must have a name")]
@@ -642,6 +690,7 @@ public sealed class RuleTests
     }
 
     [DataTestMethod]
+    [RegressionTestCase("configuration-validation", "Unknown match operators are rejected", "String and numeric values outside the supported match-operator enum must not be accepted as rule configuration.")]
     [DataRow("\"unknown\"")]
     [DataRow("1")]
     public void ParseRules_InvalidMatchEnum_ThrowsArgumentException(string matchJson)
@@ -652,6 +701,7 @@ public sealed class RuleTests
     }
 
     [TestMethod]
+    [RegressionTestCase("configuration-validation", "Parse and TryParse report success and failure consistently", "Wrapped rule documents must parse successfully while TryParse returns a safe empty result and error for invalid input.")]
     public void ParseAndTryParse_WrappedRules_ReportSuccessAndFailure()
     {
         const string json =
@@ -671,6 +721,7 @@ public sealed class RuleTests
     }
 
     [TestMethod]
+    [RegressionTestCase("configuration-validation", "Rule files allow comments and trailing commas", "Operational rule files may use documented JSON conveniences without changing their routing behavior.")]
     public void Parse_WrappedRules_AllowsCommentsAndTrailingCommas()
     {
         const string json =
@@ -695,6 +746,7 @@ public sealed class RuleTests
     }
 
     [TestMethod]
+    [RegressionTestCase("configuration-validation", "Bundled rule sample produces expected routes", "The documented sample configuration must remain executable and produce its expected backend selections.")]
     public void RuleSample_Run_ParsesWrappedConfigAndReturnsExpectedResults()
     {
         var output = RuleSample.Run();
@@ -706,6 +758,7 @@ public sealed class RuleTests
     }
 
     [TestMethod]
+    [RegressionTestCase("configuration-validation", "Every shipped profile rule set parses", "All rule sets in the deployed profile configuration must compile before the configuration is considered releasable.")]
     public void ConfigJson_AllProfileRules_ParseSuccessfully()
     {
         var configPath = Path.Combine(AppContext.BaseDirectory, "configs", "profile-config.json");
@@ -728,6 +781,7 @@ public sealed class RuleTests
     }
 
     [TestMethod]
+    [RegressionTestCase("rule-concurrency", "Rule evaluation remains stable under 1,000 threads", "A realistic shared rule set must return the same route during ten seconds of concurrent evaluation without mismatches.")]
     public void Stress_ThousandThreads_TenSeconds_FromConfigFile()
     {
         const int threadCount = 1000;

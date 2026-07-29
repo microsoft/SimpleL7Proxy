@@ -12,8 +12,17 @@ namespace SimpleL7Proxy.Test;
 /// </summary>
 [TestClass]
 [DoNotParallelize]
-public sealed class PriorityLoadIntegrationTests
+public sealed class PriorityLoadIntegrationTests : IRegressionTestMetadata
 {
+    public IReadOnlyDictionary<string, RegressionFeature> RegressionFeatures { get; } =
+        new Dictionary<string, RegressionFeature>
+        {
+            ["priority-load"] = new(
+                "Reliability & Capacity",
+                "Priority processing under load",
+                "Confirms high, medium, and low priority traffic remains serviceable and observable under concurrent load.")
+        };
+
     private const int RequestCount = 1000;
     private const int ProcessTimeoutSeconds = 120;
     private const int StartupTimeoutSeconds = 180;
@@ -30,6 +39,10 @@ public sealed class PriorityLoadIntegrationTests
     /// Starts three processes and reports latency and outcome statistics for each built-in priority.
     /// </summary>
     [TestMethod]
+    [RegressionTestCase(
+        "priority-load",
+        "All priority classes complete under load",
+        "Runs 1,000 concurrent requests and requires every high, medium, and low priority request to complete successfully.")]
     [TestCategory("Integration")]
     [TestCategory("Load")]
     [Timeout(300_000)]

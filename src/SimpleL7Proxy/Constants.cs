@@ -16,7 +16,7 @@ public static class Constants
     public const string Server = "simplel7proxy";
     public const string S7PHash = "S7PHash";
 
-    public const string VERSION = "2.2.16";
+    public const string VERSION = "2.2.16.d1";
 
     public const int AnyPriority = -1;
 

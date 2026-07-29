@@ -14,6 +14,10 @@ public sealed partial class PolicyScenarioIntegrationTests
     private static readonly string[] s_stressPriorities = ["high", "medium", "low"];
 
     [TestMethod]
+    [RegressionTestCase(
+        "apim-policy-load",
+        "Policy remains stable under sustained concurrency",
+        "Runs 1,000 concurrent requestors through throttling and recovery and requires every started request to reach a terminal outcome.")]
     [TestCategory("Integration")]
     [TestCategory("APIMPolicy")]
     [TestCategory("Stress")]

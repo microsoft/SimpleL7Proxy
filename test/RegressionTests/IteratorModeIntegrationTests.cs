@@ -10,6 +10,10 @@ namespace SimpleL7Proxy.Test;
 public sealed partial class PolicyScenarioIntegrationTests
 {
     [TestMethod]
+    [RegressionTestCase(
+        "round-robin-load-balancer",
+        "Per-request mode controls retry breadth",
+        "Sends failing requests with default, MultiPass, SinglePass, and invalid iterator headers and confirms 3, 5, 3, and 3 backend attempts.")]
     [TestCategory("Integration")]
     [TestCategory("Iterator")]
     [Timeout(180_000)]

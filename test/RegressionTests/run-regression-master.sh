@@ -2,7 +2,9 @@
 
 _regression_script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 _regression_project="$_regression_script_dir/SimpleL7Proxy.Test.csproj"
-_regression_renderer="$_regression_script_dir/render-regression-results.py"
+_regression_renderer_project="$_regression_script_dir/ReportRenderer/RegressionReportRenderer.csproj"
+_regression_renderer_dll="$_regression_script_dir/ReportRenderer/bin/Debug/net10.0/RegressionReportRenderer.dll"
+_regression_test_assembly="$_regression_script_dir/bin/Debug/net10.0/SimpleL7Proxy.Test.dll"
 
 regression_usage() {
     cat <<'EOF'
@@ -13,12 +15,12 @@ Runs the regression project and appends its TRX results to one master HTML page.
 Options:
   --filter <expression>    MSTest filter expression.
   --label <text>           Label displayed for this execution.
-  --run-id <id>            Master execution ID. Defaults to a UTC timestamp and PID.
+    --run-id <id>            Master execution ID in yyyyMMdd-HH:mm:ss format.
   --results-root <path>    Report root. Defaults to test/RegressionTests/results.
   -h, --help               Show this help.
 
 To append separate scripts to one page:
-  export REGRESSION_MASTER_RUN_ID=my-master-run
+    export REGRESSION_MASTER_RUN_ID=$(date -u +%Y%m%d-%H:%M:%S)
     bash ./run-policy-scenarios.sh
     bash ./run-priority-load.sh
 EOF
@@ -33,20 +35,28 @@ regression_slug() {
 regression_initialize() {
     local default_label=${1:-Regression suite}
     local generated_id
-    generated_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+    generated_id="$(date -u +%Y%m%d-%H:%M:%S)"
 
     REGRESSION_MASTER_RUN_ID=${REGRESSION_MASTER_RUN_ID:-$generated_id}
+    if [[ ! "$REGRESSION_MASTER_RUN_ID" =~ ^[0-9]{8}-[0-9]{2}:[0-9]{2}:[0-9]{2}$ ]]; then
+        printf 'REGRESSION_MASTER_RUN_ID must use yyyyMMdd-HH:mm:ss format: %s\n' "$REGRESSION_MASTER_RUN_ID" >&2
+        return 2
+    fi
     REGRESSION_RESULTS_ROOT=${REGRESSION_RESULTS_ROOT:-$_regression_script_dir/results}
-    REGRESSION_MASTER_RESULTS_DIR=${REGRESSION_MASTER_RESULTS_DIR:-$REGRESSION_RESULTS_ROOT/$REGRESSION_MASTER_RUN_ID}
+    REGRESSION_HISTORY_ROOT=${REGRESSION_HISTORY_ROOT:-$REGRESSION_RESULTS_ROOT/history}
+    REGRESSION_MASTER_RESULTS_DIR=${REGRESSION_MASTER_RESULTS_DIR:-$REGRESSION_HISTORY_ROOT/$REGRESSION_MASTER_RUN_ID}
+    REGRESSION_LANDING_HTML=${REGRESSION_LANDING_HTML:-$REGRESSION_RESULTS_ROOT/index.html}
     REGRESSION_MASTER_HTML=${REGRESSION_MASTER_HTML:-$REGRESSION_MASTER_RESULTS_DIR/index.html}
     REGRESSION_MASTER_MANIFEST=${REGRESSION_MASTER_MANIFEST:-$REGRESSION_MASTER_RESULTS_DIR/results.json}
     REGRESSION_EXECUTION_LABEL=${REGRESSION_EXECUTION_LABEL:-$default_label}
 
-    mkdir -p -- "$REGRESSION_MASTER_RESULTS_DIR/trx" "$REGRESSION_MASTER_RESULTS_DIR/console"
+    mkdir -p -- "$REGRESSION_MASTER_RESULTS_DIR/runs"
 
     export REGRESSION_MASTER_RUN_ID
     export REGRESSION_RESULTS_ROOT
+    export REGRESSION_HISTORY_ROOT
     export REGRESSION_MASTER_RESULTS_DIR
+    export REGRESSION_LANDING_HTML
     export REGRESSION_MASTER_HTML
     export REGRESSION_MASTER_MANIFEST
 }
@@ -57,15 +67,17 @@ regression_prepare_execution() {
     slug=$(regression_slug "$label")
 
     REGRESSION_EXECUTION_LABEL=$label
-    REGRESSION_EXECUTION_ID="$(date -u +%Y%m%dT%H%M%S)-${slug}-$$-${RANDOM}"
-    REGRESSION_TRX_FILENAME="$REGRESSION_EXECUTION_ID.trx"
-    REGRESSION_TRX_DIR="$REGRESSION_MASTER_RESULTS_DIR/trx/$REGRESSION_EXECUTION_ID"
-    REGRESSION_TRX_PATH="$REGRESSION_TRX_DIR/$REGRESSION_TRX_FILENAME"
-    REGRESSION_CONSOLE_LOG="$REGRESSION_MASTER_RESULTS_DIR/console/$REGRESSION_EXECUTION_ID.log"
+    REGRESSION_EXECUTION_ID="$(date -u +%Y%m%d-%H:%M:%S)-${slug}-${RANDOM}"
+    REGRESSION_EXECUTION_DIR="$REGRESSION_MASTER_RESULTS_DIR/runs/$REGRESSION_EXECUTION_ID"
+    REGRESSION_TRX_FILENAME="result.trx"
+    REGRESSION_TRX_DIR="$REGRESSION_EXECUTION_DIR"
+    REGRESSION_TRX_PATH="$REGRESSION_EXECUTION_DIR/$REGRESSION_TRX_FILENAME"
+    REGRESSION_CONSOLE_LOG="$REGRESSION_EXECUTION_DIR/console.log"
     mkdir -p -- "$REGRESSION_TRX_DIR"
 
     export REGRESSION_EXECUTION_LABEL
     export REGRESSION_EXECUTION_ID
+    export REGRESSION_EXECUTION_DIR
     export REGRESSION_TRX_FILENAME
     export REGRESSION_TRX_DIR
     export REGRESSION_TRX_PATH
@@ -101,16 +113,21 @@ regression_finalize_execution() {
     local command_text=$2
     local started_utc=$3
     local completed_utc=$4
-    local report_python=${REGRESSION_REPORT_PYTHON:-python3}
+    if [[ ! -f "$_regression_renderer_dll" ]]; then
+        dotnet build "$_regression_renderer_project" >/dev/null
+    fi
 
-    "$report_python" "$_regression_renderer" \
+    dotnet "$_regression_renderer_dll" \
         --manifest "$REGRESSION_MASTER_MANIFEST" \
         --html "$REGRESSION_MASTER_HTML" \
+        --landing "$REGRESSION_LANDING_HTML" \
+        --history-root "$REGRESSION_HISTORY_ROOT" \
         --master-run-id "$REGRESSION_MASTER_RUN_ID" \
         --execution-id "$REGRESSION_EXECUTION_ID" \
         --label "$REGRESSION_EXECUTION_LABEL" \
         --trx "$REGRESSION_TRX_PATH" \
         --console-log "$REGRESSION_CONSOLE_LOG" \
+        --test-assembly "$_regression_test_assembly" \
         --exit-code "$exit_code" \
         --command "$command_text" \
         --started-utc "$started_utc" \

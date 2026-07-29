@@ -3,12 +3,25 @@ using Company.Function;
 namespace SimpleL7Proxy.Test;
 
 [TestClass]
-public sealed class PolicyStressStateTests
+public sealed class PolicyStressStateTests : IRegressionTestMetadata
 {
+    public IReadOnlyDictionary<string, RegressionFeature> RegressionFeatures { get; } =
+        new Dictionary<string, RegressionFeature>
+        {
+            ["rate-limit-simulation"] = new(
+                "Reliability & Capacity",
+                "Rate-limit simulation",
+                "Keeps stress-test throttle and capacity evidence accurate, isolated, and repeatable.")
+        };
+
     private static readonly DateTime s_windowStartUtc =
         new(2026, 7, 27, 12, 0, 0, DateTimeKind.Utc);
 
     [TestMethod]
+    [RegressionTestCase(
+        "rate-limit-simulation",
+        "Each backend receives an independent token budget",
+        "Exhausting one simulated backend must not reduce the token budget available to another backend.")]
     public void EachEndpointHasAnIndependentOneHundredThousandTokenBudget()
     {
         var state = new PolicyStressState();
@@ -38,6 +51,10 @@ public sealed class PolicyStressStateTests
     }
 
     [TestMethod]
+    [RegressionTestCase(
+        "rate-limit-simulation",
+        "Token budgets reset at UTC minute boundaries",
+        "The simulator must start a fresh budget each minute while retaining the completed minute for diagnostics.")]
     public void WindowRollsAtTheUtcMinuteBoundaryAndRetainsCompletedStats()
     {
         var state = new PolicyStressState();
@@ -59,6 +76,10 @@ public sealed class PolicyStressStateTests
     }
 
     [TestMethod]
+    [RegressionTestCase(
+        "rate-limit-simulation",
+        "Concurrent requests cannot exceed capacity",
+        "Concurrent callers must share one atomic backend budget so accepted tokens never exceed the configured limit.")]
     public void ConcurrentRequestsCannotExceedTheEndpointBudget()
     {
         var state = new PolicyStressState();
@@ -80,6 +101,10 @@ public sealed class PolicyStressStateTests
     }
 
     [TestMethod]
+    [RegressionTestCase(
+        "rate-limit-simulation",
+        "Reset clears only the selected stress run",
+        "Cleaning up one test run must not remove statistics or budgets belonging to another run.")]
     public void ResetRemovesOnlyTheRequestedRun()
     {
         var state = new PolicyStressState();

@@ -14,8 +14,25 @@ namespace SimpleL7Proxy.Test;
 /// </summary>
 [TestClass]
 [DoNotParallelize]
-public sealed partial class PolicyScenarioIntegrationTests
+public sealed partial class PolicyScenarioIntegrationTests : IRegressionTestMetadata
 {
+    public IReadOnlyDictionary<string, RegressionFeature> RegressionFeatures { get; } =
+        new Dictionary<string, RegressionFeature>
+        {
+            ["apim-failover"] = new(
+                "Traffic Routing",
+                "APIM policy failover",
+                "Confirms configured APIM failover paths return the intended result before policy changes reach production traffic."),
+            ["round-robin-load-balancer"] = new(
+                "Traffic Routing",
+                "Round-robin load balancer",
+                "Ensures requests rotate across configured backends while honoring per-request SinglePass and MultiPass retry behavior."),
+            ["apim-policy-load"] = new(
+                "Reliability & Capacity",
+                "APIM policy under load",
+                "Confirms the APIM policy can sustain concurrent demand, throttling, and recovery without losing started requests.")
+        };
+
     private const int StartupTimeoutSeconds = 180;
     private const int DefaultRequestTimeoutSeconds = 45;
     private const int EventFlushMilliseconds = 2_500;
@@ -27,6 +44,10 @@ public sealed partial class PolicyScenarioIntegrationTests
     public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]
+    [RegressionTestCase(
+        "apim-failover",
+        "Configured failover scenarios return expected outcomes",
+        "Runs every configured APIM policy scenario and checks response status, backend attempts, correlation, and backend decision logs.")]
     [TestCategory("Integration")]
     [TestCategory("APIMPolicy")]
     [Timeout(1_200_000)]
