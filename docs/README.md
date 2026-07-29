@@ -24,7 +24,7 @@
 |---|---|---|---|
 | | [App Configuration](how-to/configure-app-configuration.md) | [Common Scenarios](how-to/common-scenarios.md) | [Configure Backends](how-to/configure-backends.md) |
 | | [Configure Security](how-to/configure-security.md) | [Deploy Container Apps](how-to/deploy-container-apps.md) | [Deploy Sidecar](how-to/deploy-sidecar.md) |
-| | [LLM Simulator](how-to/llm-simulator.md) | [Overview](how-to/README.md) | |
+| | [LLM Simulator](how-to/llm-simulator.md) | [Overview](how-to/README.md) | [Customize Token Provider](how-to/customize-token-provider.md) |
 
 ## Reference
 

@@ -68,7 +68,7 @@ The `host` and `probe` keys are the minimum for a probed backend.
 
 #### What keys are supported in a `Host1` connection string? (`host=`, `probe=`, `weight=`, `usemi=`, `processor=`, etc.)
 
-SimpleL7Proxy supports these connection string keys: `host`, `probe`, `path`, `mode`, `ipaddress`, `processor`, `usemi` or `useoauth`, `audience`, `api-key`, `api-key-header`, `stripprefix`, and `retryafter`. See [→ Connection String Keys](../reference/backend-hosts.md#reference--connection-string-keys) for the full reference.
+SimpleL7Proxy supports these connection string keys: `host`, `probe`, `path`, `mode`, `ipaddress`, `processor`, `usemi` or `useoauth`, `audience`, `authprovider`, `api-key`, `api-key-header`, `stripprefix`, and `retryafter`. See [→ Connection String Keys](../reference/backend-hosts.md#reference--connection-string-keys) for the full reference.
 
 #### How does the proxy discover that a backend is healthy or unhealthy?
 
@@ -105,6 +105,8 @@ Host1="host=https://myaoai.openai.azure.com;probe=/health;usemi=true;audience=ht
 ```
 
 The proxy uses its [Managed Identity](../reference/glossary.md#authentication-and-security) to request a short-lived OAuth2 access token at runtime — nothing to rotate or accidentally leak. See [→ Keyless Auth](../reference/glossary.md#authentication-and-security).
+
+`authprovider` defaults to the exact class name `AzureProvider`. To register another `IBackendTokenProvider` implementation and select it per host, see [Customize a Backend Token Provider](customize-token-provider.md).
 
 ---
 

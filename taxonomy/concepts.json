@@ -219,8 +219,8 @@
       "subdomain_id": "sd02-01",
       "definition": "A single upstream endpoint the proxy can forward requests to. Configured as Host1 through Host9.",
       "key_settings": ["Host1","Host2","Host3","Host4","Host5","Host6","Host7","Host8","Host9"],
-      "connection_string_keys": ["host","probe","path","mode","processor","usemi","useoauth","api-key","api_key","api-key-header","audience","ipaddress","enabled","stripprefix","strippathprefix","retryafter","useretryafter"],
-      "related_concept_ids": ["c-connection-string-format", "c-health-poller", "c-circuit-breaker"],
+      "connection_string_keys": ["host","probe","path","mode","processor","usemi","useoauth","api-key","api_key","api-key-header","audience","authprovider","ipaddress","enabled","stripprefix","strippathprefix","retryafter","useretryafter"],
+      "related_concept_ids": ["c-connection-string-format", "c-health-poller", "c-circuit-breaker", "c-backend-token-provider"],
       "docs": ["reference/backend-hosts.md", "reference/environment-variables.md"]
     },
     {
@@ -1316,6 +1316,17 @@
     },
 
     {
+      "id": "c-backend-token-provider",
+      "name": "Backend Token Provider",
+      "code_file": "Auth/IBackendTokenProvider.cs",
+      "domain_id": "d08",
+      "definition": "Outbound OAuth token implementation registered at startup through AuthProviders and selected per backend by the authprovider connection-string key using its exact simple class name.",
+      "key_settings": ["AuthProviderClass"],
+      "connection_string_key": "authprovider",
+      "related_concept_ids": ["c-oauth2-bearer", "c-managed-identity", "c-cold-setting"],
+      "docs": ["how-to/customize-token-provider.md", "reference/backend-hosts.md"]
+    },
+    {
       "id": "c-managed-identity",
       "name": "Managed Identity",
       "domain_id": "d08",
@@ -1503,6 +1514,7 @@
     { "name": "EVENTHUB_STARTUP_SECONDS","type": "int",   "reload": "Cold",  "default": 10,      "unit": "s", "concept_ids": ["c-event-hubs"] },
     { "name": "LOGDATETIME",           "type": "bool",   "reload": "Cold",   "default": false,   "concept_ids": ["c-proxy-event"] },
     { "name": "ReuseEvents",           "type": "bool",   "reload": "Cold",   "default": false,   "concept_ids": ["c-proxy-event"] },
+    { "name": "AuthProviderClass",     "config_name": "AuthProviders", "type": "string", "reload": "Cold", "default": "Auth.AzureProvider", "format": "comma-separated type names", "concept_ids": ["c-backend-token-provider"] },
     { "name": "EnvPluginClass",        "type": "string", "reload": "Cold",   "default": "SimpleL7Proxy.Plugin.AzureConfigPlugin", "concept_ids": ["c-config-plugin"] },
     { "name": "GC2InternalSecs",       "type": "int",    "reload": "Cold",   "default": 300,     "unit": "s", "concept_ids": [] },
     { "name": "StreamFlushInterval",   "type": "int",    "reload": "Cold",   "default": 250,     "unit": "ms", "concept_ids": ["c-stream-flush-interval"] },

@@ -23,6 +23,7 @@ Configure any number of backend hosts (`Host1`…`Host9`) using a semicolon-sepa
 | `processor` | *(empty)* | Custom stream processor name. Required and auto-defaulted in `direct` mode. |
 | `usemi` / `useoauth` | `false` | Attach a Managed Identity / OAuth2 Bearer token to every request and probe. |
 | `audience` | *(empty)* | OAuth token audience. Required when `usemi=true`. |
+| `authprovider` | `AzureProvider` | Exact simple class name of an `IBackendTokenProvider` registered by `AuthProviders`. Matching is case-insensitive; no class-name suffix is implied. |
 | `api-key` | *(empty)* | API key value to send on every forwarded request and probe. Sets auth mode to API key. |
 | `api-key-header` | `api-key` | Header name used when `api-key` is set. |
 | `stripprefix` / `strippathprefix` | `true` | Strip the matched `path` prefix before forwarding. Set `false` to preserve the full original path. |
@@ -48,7 +49,7 @@ Host2="host=https://chat-service.internal;path=/chat;probe=/health"
 Host3="host=https://passthrough.internal;path=/api/v1;stripprefix=false"
 
 # Authenticated host (Managed Identity)
-Host4="host=https://secure-api.internal;usemi=true;audience=api://my-app-id;probe=/health"
+Host4="host=https://secure-api.internal;usemi=true;audience=api://my-app-id;authprovider=AzureProvider;probe=/health"
 
 # Authenticated host (API key with custom header)
 Host5="host=https://secure-api.internal;api-key-header=foo;api-key=bar;probe=/health"
@@ -69,6 +70,8 @@ Auth is configured per host via the `HostN` connection string, not by a global `
 | `useoauth=true` (or `usemi=true`) | OAuth2 / Managed Identity |
 | `api-key=<non-empty>` | API key mode (`<api-key-header>: <api-key>`) |
 | `useoauth=false` and empty `api-key` | No auth header added |
+
+For OAuth2 mode, `authprovider` selects one of the implementations registered globally through `AuthProviders`. The value MUST equal the implementation's simple runtime class name, such as `AzureProvider` or `ContosoTokenSource`; custom class names do not need to end in `Provider`.
 
 Example custom header mapping:
 
@@ -180,3 +183,4 @@ FilterActiveHosts:
 - [LOAD_BALANCING.md](load-balancing.md) — How hosts are ordered and retried per request
 - [CIRCUIT_BREAKER.md](circuit-breaker.md) — Per-request failure tracking and circuit state
 - [CONFIGURATION_SETTINGS.md](configuration.md) — `PollInterval`, `PollTimeout`, `SuccessRate` config keys
+- [Customize a Backend Token Provider](../how-to/customize-token-provider.md) — Implement, register, and select an outbound token provider

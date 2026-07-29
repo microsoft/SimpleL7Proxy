@@ -44,6 +44,7 @@ These settings determine how many requests the proxy can handle simultaneously a
 
 | App Configuration Key | Env Var | Default | Why It Matters |
 |---|---|---|---|
+| <small>`Server:AuthProviderClass`</small> | <small>`AuthProviders`</small> | <small>`Auth.AzureProvider`</small> | Comma-separated token-provider type names registered at startup. Cold setting; changes require a restart. |
 | <small>`Server:Port`</small> | <small>`Port`</small> | `8000`</small> | The container port the proxy listens on. |
 | <small>`Server:Workers`</small> | <small>`Workers`</small> | `10`</small> | The number of concurrent workers. |
 | <small>`Server:MaxQueueLength`</small> | <small>`MaxQueueLength`</small> | `1000`</small> | Maximum number of backlogged requests. |
@@ -213,6 +214,7 @@ Each host entry supports the following fields:
 |---|---|
 | <small>`host`</small> | Backend URL (required). |
 | <small>`audience`</small> | OAuth audience claim for token requests. |
+| <small>`authprovider`</small> | Exact simple class name of the registered `IBackendTokenProvider` selected for this host. Defaults to `AzureProvider`; no naming suffix is required. |
 | <small>`api-key`</small> | API key value. Sets auth mode to `ApiKey`. |
 | <small>`api-key-header`</small> | Header name used to send the API key to the backend. |
 | <small>`ipaddress`</small> | Override IP address for the backend connection. |

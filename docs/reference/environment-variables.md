@@ -2,8 +2,8 @@
 
 | Attribute | Value |
 |-----------|-------|
-| **Version** | 1.1 |
-| **Last Updated** | 2026-05-21 |
+| **Version** | 1.2 |
+| **Last Updated** | 2026-07-29 |
 | **Owner** | SimpleL7Proxy maintainers |
 | **Review Cycle** | Quarterly |
 
@@ -64,6 +64,7 @@ For production deployments, the following variables MUST also be set:
 
 | Variable                       | Type | Description                                                                                                                                                                                        | Default                                  |
 | ----------------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| **AuthProviders**             | string | Comma-separated token-provider type names resolved and registered at startup. This is a Cold setting; changes require a restart. | Auth.AzureProvider |
 | **MaxQueueLength**             | int | Sets the maximum number of requests allowed in the queue.                                                                                                                        | 1000                                     |
 | **Port**                      | int | The port on which SimpleL7Proxy listens for incoming traffic.                                                                                                                                    | 8000                                     |
 | **TERMINATION_GRACE_PERIOD_SECONDS** | int | The number of seconds SimpleL7Proxy waits before forcing itself to shut down.                                                                                                             | 30                                       |
@@ -237,7 +238,7 @@ These variables connect SimpleL7Proxy to [Azure App Configuration](https://learn
 | **MaxEvents**                 | int  | Maximum number of events the proxy can store in memory.                                                          | 100000                                   |
 
 > [!TIP]
-> The `Host1`–`Host9` connection string format (`host=…;probe=…;path=…`) MUST be used for all new deployments. The legacy per-variable format (`Probe_path1`, `IP1`) is deprecated. Per-host auth must be configured in `HostN` using `useoauth`/`usemi`, `audience`, `api-key`, and `api-key-header`. See [BACKEND_HOSTS.md](backend-hosts.md) for the complete key reference.
+> The `Host1`–`Host9` connection string format (`host=…;probe=…;path=…`) MUST be used for all new deployments. The legacy per-variable format (`Probe_path1`, `IP1`) is deprecated. Per-host auth must be configured in `HostN` using `useoauth`/`usemi`, `audience`, `authprovider`, `api-key`, and `api-key-header`. See [BACKEND_HOSTS.md](backend-hosts.md) for the complete key reference.
 
 ## User Profile Configuration
 
@@ -296,5 +297,6 @@ This is a JSON formatted file that gets read every hour. It can be fetched from 
 
 | Version | Date | Changes | Author |
 |---------|------|---------|--------|
+| 1.2 | 2026-07-29 | Added `AuthProviders`, the Cold startup list for backend token-provider implementations | SimpleL7Proxy maintainers |
 | 1.1 | 2026-05-21 | Removed legacy `Probe_path1` from minimum configuration; added metadata, TL;DR, Minimum Required Configuration section, [!TIP]/[!WARNING] per category, Validation & Compliance, Version History; tightened Additional Configuration Notes language | SimpleL7Proxy maintainers |
 | 1.0 | — | Initial version | SimpleL7Proxy maintainers |

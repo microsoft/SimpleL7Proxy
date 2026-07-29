@@ -219,6 +219,8 @@ public class ProxyConfig
     // public bool UseOAuth { get; set; } = false;
 
     // ── Server ──
+    [ConfigOption("Server:AuthProviderClass", ConfigName = "AuthProviders", Mode = ConfigMode.Cold)]
+    public string AuthProviderClass { get; set; } = "Auth.AzureProvider";
     [ConfigOption("Server:EnvPluginClass", ConfigName = "EnvPluginClass", Mode = ConfigMode.Cold)]
     public string EnvPluginClass { get; set; } = "SimpleL7Proxy.Plugin.AzureConfigPlugin";
     [ConfigOption("Server:GC2InternalSecs", ConfigName = "GC2InternalSecs", Mode = ConfigMode.Cold)]

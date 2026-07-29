@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Options;
 
+using SimpleL7Proxy.Auth;
 using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Backend.Iterators;
 
@@ -150,24 +151,22 @@ public class Program
         var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
         var logger = loggerFactory.CreateLogger("StreamProcessor");
 
-        var options = serviceProvider.GetRequiredService<IOptions<ProxyConfig>>();
-        Banner.Display(options.Value, appConfigBootstrap.Status());
+        var options = serviceProvider.GetRequiredService<IOptions<ProxyConfig>>().Value;
+        Banner.Display(options, appConfigBootstrap.Status());
 
         appConfigBootstrap.Notifier = serviceProvider.GetRequiredService<ConfigChangeNotifier>();
         appConfigBootstrap.HostCollection = serviceProvider.GetRequiredService<IHostHealthCollection>();
 
-        var backendTokenProvider = serviceProvider.GetRequiredService<BackendTokenProvider>();
 
         BaseStreamProcessor.SetLogger(logger);
 
         serviceProvider.GetRequiredService<ICommonEventData>();
         serviceProvider.GetRequiredService<ProxyEventInitializer>();
 
-
-        HostConfig.Initialize(backendTokenProvider, logger, serviceProvider);
+        HostConfig.Initialize(logger, serviceProvider);
 
         var hostCollection = serviceProvider.GetRequiredService<IHostHealthCollection>();
-        ConfigFactory.RegisterBackends(options.Value, null, appConfigBootstrap.WarmSettings, hostCollection);
+        ConfigFactory.RegisterBackends(options, null, appConfigBootstrap.WarmSettings, hostCollection);
 
         var readiness = serviceProvider.GetRequiredService<ReadinessRegistry>();
 
@@ -176,14 +175,14 @@ public class Program
         // registered as IHostedService in RegisterAsyncDI — the host starts them
         // in registration order and stops them in reverse. Per-service shutdown
         // ordering is handled via IShutdownParticipant in CoordinatedShutdownService.
-        if (options.Value.AsyncModeEnabled)
+        if (options.AsyncModeEnabled)
         {
             var fileStore = serviceProvider.GetRequiredService<IAsyncFileStore>();
             var streamingStore = serviceProvider.GetRequiredService<IAsyncStreamingStore>();
             var asyncWorkerLogger = loggerFactory.CreateLogger<AsyncWorker>();
             var probeService = serviceProvider.GetRequiredService<ProbeServer>();
             var messages = serviceProvider.GetRequiredService<TemplateLoader>();
-            AsyncWorker.Initialize(fileStore, streamingStore, asyncWorkerLogger, messages, options.Value, probeService);
+            AsyncWorker.Initialize(fileStore, streamingStore, asyncWorkerLogger, messages, options, probeService);
         }
 
         // ProbeServer is always started — must outlive every other service so the
@@ -194,7 +193,7 @@ public class Program
         appLifetime.ApplicationStarted.Register(async () =>
         {
             var composite = serviceProvider.GetRequiredService<CompositeEventClient>();
-            ConfigFactory.OutputEnvVars(options.Value);
+            ConfigFactory.OutputEnvVars(options);
 
             await readiness.WaitForReadyAsync().ConfigureAwait(false);
 
@@ -307,8 +306,28 @@ public class Program
         services.AddSingleton<RequestLifecycleManager>();
         services.AddSingleton<EventDataBuilder>();
 
-        services.AddSingleton<BackendTokenProvider>();
-        services.AddHostedService<BackendTokenProvider>(sp => sp.GetRequiredService<BackendTokenProvider>());
+        foreach (var provider in backendOptions.AuthProviderClass.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var providerType = typeof(Program).Assembly.GetType(provider, throwOnError: false)
+                ?? typeof(Program).Assembly.GetType($"{typeof(Program).Namespace}.{provider}", throwOnError: false);
+
+            if (providerType == null || providerType.IsAbstract || providerType.IsInterface
+                || !typeof(IBackendTokenProvider).IsAssignableFrom(providerType))
+            {
+                startupLogger.LogWarning(
+                    "[AUTH] Auth provider '{Provider}' was not found or does not implement {Interface}. Skipping.",
+                    provider,
+                    nameof(IBackendTokenProvider));
+                continue;
+            }
+
+            services.AddSingleton(providerType);
+            services.AddSingleton(typeof(IBackendTokenProvider), sp => sp.GetRequiredService(providerType));
+
+            if (typeof(IHostedService).IsAssignableFrom(providerType))
+                services.AddSingleton(typeof(IHostedService), sp => (IHostedService)sp.GetRequiredService(providerType));
+        }
+
         // services.AddSingleton<IBackgroundWorker, BackgroundWorker>();
 
         services.AddHostedService<Server>(provider => provider.GetRequiredService<Server>());
