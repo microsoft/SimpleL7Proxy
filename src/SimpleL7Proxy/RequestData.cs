@@ -198,9 +198,9 @@ public class RequestData : IDisposable, IAsyncDisposable
     public IterationModeEnum IterationMode { get; set; } =
         BackendOptionsStatic?.IterationMode ?? IterationModeEnum.SinglePass;
     
-    // Total attempts including retries by downstream services
-    public int LifetimePolicyCycleCounter { get; set; } = 0; 
-    public int PolicyCycleCounter { get; set; } = 0; 
+    // APIM policy cycles, including retries performed by the policy
+    public int LifetimeAPIMPolicyCycleCounter { get; set; } = 0;
+    public int APIMPolicyCycleCounter { get; set; } = 0;
 
     public bool Debug { get; set; }
     public bool SkipDispose { get; set; } = false;

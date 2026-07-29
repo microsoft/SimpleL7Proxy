@@ -73,7 +73,7 @@ public class RequeueDelayWorker : IRequeueWorker, IShutdownParticipant, IDisposa
 
                 request.SBStatus = ServiceBusMessageStatusEnum.Requeued;
 
-                request.PolicyCycleCounter = 0;
+                request.APIMPolicyCycleCounter = 0;
                 request.incompleteRequests = [];
                 request.BackendAttempts = 0;
 
