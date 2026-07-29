@@ -856,7 +856,10 @@ public class ProxyWorker : IConfigChangeSubscriber
         //byte[] bodyBytes = await request.CachBodyAsync().ConfigureAwait(false);
         List<S7PRequeueException> retryAfter = new();
 
+        var originalPath = request.Path;
         var (hostIterator, sharedIterator, modifiedPath) = CreateHostIterator(request);
+        IReadOnlyList<BaseHostHealth>? circuitBreakerHosts =
+            (sharedIterator as SharedHostIterator)?.GetHostsSnapshot();
 
         request.Path = modifiedPath;
 
@@ -913,6 +916,37 @@ public class ProxyWorker : IConfigChangeSubscriber
                 var cbStatus = host.Config.GetCircuitBreakerStatusString();
                 _logger.LogCritical("[ProxyToBackEnd:{Guid}] ⚠ Circuit breaker BLOCKING host: {Host} - CB-Status: {CBStatus}",
                     request.Guid, host.Host, cbStatus);
+
+                circuitBreakerHosts ??= IteratorFactory.GetFilteredHosts(
+                    _backends,
+                    _options.LoadBalanceMode,
+                    originalPath,
+                    out _);
+
+                bool allCircuitBreakersOpen = circuitBreakerHosts.Count > 0;
+                foreach (var candidateHost in circuitBreakerHosts)
+                {
+                    if (ReferenceEquals(candidateHost, host)) continue;
+
+                    if (!await candidateHost.Config.CheckFailedStatusAsync().ConfigureAwait(false))
+                    {
+                        allCircuitBreakersOpen = false;
+                        break;
+                    }
+                }
+
+                if (allCircuitBreakersOpen)
+                {
+                    const int retryAfterMs = 500;
+                    _logger.LogWarning(
+                        "[ProxyToBackEnd:{Guid}] All {HostCount} matching backend circuit breakers are open; requeueing after {RetryAfterMs}ms",
+                        request.Guid, circuitBreakerHosts.Count, retryAfterMs);
+                    throw new S7PRequeueException(
+                        "All matching backend circuit breakers are open",
+                        new ProxyData(),
+                        retryAfterMs);
+                }
+
                 continue;
             }
 
