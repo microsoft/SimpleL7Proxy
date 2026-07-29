@@ -75,7 +75,9 @@ public sealed class Test1
             Path = "/v1/chat/completions",
             Method = "POST",
             S7PHash = 73,
-            IterationMode = IterationModeEnum.MultiPass
+            IterationMode = IterationModeEnum.MultiPass,
+            APIMPolicyCycleCounter = 3,
+            LifetimeAPIMPolicyCycleCounter = 7
         };
         source.Headers["X-Test"] = "value";
 
@@ -89,6 +91,11 @@ public sealed class Test1
         Assert.AreEqual((short)73, restored.S7PHash);
         Assert.AreEqual(IterationModeEnum.MultiPass, deserialized.IterationMode);
         Assert.AreEqual(IterationModeEnum.MultiPass, restored.IterationMode);
+        Assert.AreEqual(7, deserialized.LifetimeAPIMPolicyCycleCounter);
+        Assert.AreEqual(7, restored.LifetimeAPIMPolicyCycleCounter);
+        Assert.AreEqual(0, restored.APIMPolicyCycleCounter);
+        StringAssert.Contains(json, "\"LifetimePolicyCycleCounter\": 7");
+        Assert.IsFalse(json.Contains("LifetimeAPIMPolicyCycleCounter", StringComparison.Ordinal));
         Assert.AreEqual(source.Guid, restored.Guid);
         Assert.AreEqual("value", restored.Headers["X-Test"]);
     }

@@ -86,10 +86,10 @@ public sealed partial class PolicyScenarioIntegrationTests
 
             var cases = new[]
             {
-                new IteratorCase("default", null, 3),
-                new IteratorCase("multi-pass", "MultiPass", 5),
-                new IteratorCase("single-pass", "SinglePass", 3),
-                new IteratorCase("invalid", "not-a-mode", 3)
+                new IteratorCase("default", null, 3, HttpStatusCode.InternalServerError, "\"Attempt-3\""),
+                new IteratorCase("multi-pass", "MultiPass", 5, HttpStatusCode.PreconditionFailed, "Maximum backend attempts reached (5)."),
+                new IteratorCase("single-pass", "SinglePass", 3, HttpStatusCode.InternalServerError, "\"Attempt-3\""),
+                new IteratorCase("invalid", "not-a-mode", 3, HttpStatusCode.InternalServerError, "\"Attempt-3\"")
             };
 
             foreach (var testCase in cases)
@@ -149,12 +149,20 @@ public sealed partial class PolicyScenarioIntegrationTests
         }
 
         using var response = await client.SendAsync(request);
-        await response.Content.CopyToAsync(Stream.Null);
+        var responseBody = await response.Content.ReadAsStringAsync();
         var responseHeaders = ReadResponseHeaders(response);
         var requestMid = FindHeader(responseHeaders, "x-MID");
         var responseAttempts = FindHeader(responseHeaders, "Attempts");
 
-        Assert.AreEqual(HttpStatusCode.InternalServerError, response.StatusCode, testCase.Name);
+        Assert.AreEqual(testCase.ExpectedStatusCode, response.StatusCode, testCase.Name);
+        Assert.IsTrue(
+            responseBody.StartsWith("No active hosts were able to handle the request: ", StringComparison.Ordinal),
+            $"{testCase.Name}: unexpected error prefix: {responseBody}");
+        StringAssert.Contains(responseBody, testCase.ExpectedBodyText, testCase.Name);
+        StringAssert.Contains(
+            responseBody,
+            $"\"Attempt-{testCase.ExpectedAttempts}\"",
+            $"{testCase.Name}: response must list every backend attempt");
         Assert.IsFalse(string.IsNullOrWhiteSpace(requestMid), $"{testCase.Name}: x-MID response header is missing.");
         Assert.AreEqual(
             testCase.ExpectedAttempts.ToString(CultureInfo.InvariantCulture),
@@ -468,6 +476,11 @@ public sealed partial class PolicyScenarioIntegrationTests
                 : defaultValue;
     }
 
-    private sealed record IteratorCase(string Name, string? IteratorHeader, int ExpectedAttempts);
+    private sealed record IteratorCase(
+        string Name,
+        string? IteratorHeader,
+        int ExpectedAttempts,
+        HttpStatusCode ExpectedStatusCode,
+        string ExpectedBodyText);
     private sealed record IteratorBackendAttempt(int Attempt, string BackendHost);
 }
