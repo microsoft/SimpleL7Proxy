@@ -156,6 +156,7 @@ namespace SimpleL7Proxy.Backend
             ?? throw new InvalidOperationException("ICircuitBreaker service not registered in DI container.");
 
         _circuitBreaker.ID = ParsedConfig.Host;
+        _circuitBreaker.TrackRetryAfter = UsesRetryAfter;
     }
 
     private ICircuitBreaker CircuitBreaker =>

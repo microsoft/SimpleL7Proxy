@@ -290,7 +290,17 @@ public class Program
         services.AddSingleton<IRequeueWorker, RequeueDelayWorker>();
         services.AddSingleton<IShutdownParticipant>(sp => (IShutdownParticipant)sp.GetRequiredService<IRequeueWorker>());
 
-        services.AddTransient<ICircuitBreaker, CircuitBreaker>();
+        // Each host gets a child breaker; the endpoint monitor owns the parent.
+        services.AddTransient<ICircuitBreaker>(sp => new CircuitBreaker(
+            sp.GetRequiredService<IOptions<ProxyConfig>>(),
+            sp.GetRequiredService<ILogger<CircuitBreaker>>(),
+            isParent: false));
+        services.AddKeyedSingleton<ICircuitBreaker>(
+            nameof(EndpointMonitorService),
+            (sp, _) => new CircuitBreaker(
+                sp.GetRequiredService<IOptions<ProxyConfig>>(),
+                sp.GetRequiredService<ILogger<CircuitBreaker>>(),
+                isParent: true));
         services.AddSingleton<ConfigChangeNotifier>();
         services.AddSingleton<ProxyEventInitializer>();
         services.AddSingleton<EndpointMonitorService>();

@@ -6,6 +6,8 @@ public interface ICircuitBreaker
 {
     public string ID { get; set; } 
     void TrackStatus(int code, bool wasFailure, string state, HttpResponseHeaders? responseHeaders = null);
+
+    public bool TrackRetryAfter { get; set; }
     
     public int GetBackpressureDelay();
     

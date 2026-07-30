@@ -16,11 +16,15 @@ public class CircuitBreaker : ICircuitBreaker, IDisposable
     private int _failureThreshold;
     private  int _failureTimeFrame;
     private HashSet<int> _allowableCodes = null!;
+    private string _allowableCodesLog = "";
     private readonly ILogger<CircuitBreaker> _logger;
+    private readonly bool _isParent;
     
-    // Global counters using Interlocked operations
+    // Existing global counters describe child (per-host) circuit breakers.
     private static int _totalCircuitBreakersCount = 0;
     private static int _blockedCircuitBreakersCount = 0;
+    private static int _totalParentCircuitBreakersCount = 0;
+    private static int _blockedParentCircuitBreakersCount = 0;
     private static readonly ConcurrentDictionary<CircuitBreaker, byte> s_allCircuitBreakers = new();
     private readonly ProxyEvent _circuitBreakerEvent = new ProxyEvent(4);  // Code, Time, Success, Count
     
@@ -51,29 +55,42 @@ public class CircuitBreaker : ICircuitBreaker, IDisposable
 
     
     public string ID { get; set; } = "";
+    public bool TrackRetryAfter { get; set; } = false;
 
-    public CircuitBreaker(IOptions<ProxyConfig> options, ILogger<CircuitBreaker> logger)
+    // if TrackRetryAfter is enabled, this property determines the next retry deadline.
+    public DateTime NextRetryDeadlineUtc { get; set; }
+
+    public CircuitBreaker(IOptions<ProxyConfig> options, ILogger<CircuitBreaker> logger, bool isParent = false)
     {
         ArgumentNullException.ThrowIfNull(options?.Value, nameof(options));
         ArgumentNullException.ThrowIfNull(logger, nameof(logger));
 
         var backendOptions = options.Value;
         _logger = logger;
+        _isParent = isParent;
         _options = backendOptions;
 
         InitVars();
 
-        // Register this circuit breaker globally
-        Interlocked.Increment(ref _totalCircuitBreakersCount);
+        if (_isParent)
+        {
+            Interlocked.Increment(ref _totalParentCircuitBreakersCount);
+        }
+        else
+        {
+            Interlocked.Increment(ref _totalCircuitBreakersCount);
+        }
         
         if (string.IsNullOrEmpty(ID))
         {
             ID = Guid.NewGuid().ToString();
         }
 
-        _logger.LogDebug("[STARTUP] Circuit breaker {ID} initialized with threshold: {Threshold}, timeframe: {TimeFrame}s. Total circuit breakers: {Total}", 
-            ID, _failureThreshold, _failureTimeFrame, _totalCircuitBreakersCount);
-    s_allCircuitBreakers.TryAdd(this, 0);
+        var role = _isParent ? "Parent" : "Child";
+        var roleTotal = _isParent ? _totalParentCircuitBreakersCount : _totalCircuitBreakersCount;
+        _logger.LogDebug("[STARTUP] {Role} circuit breaker {ID} initialized with threshold: {Threshold}, timeframe: {TimeFrame}s. Role total: {Total}",
+            role, ID, _failureThreshold, _failureTimeFrame, roleTotal);
+        s_allCircuitBreakers.TryAdd(this, 0);
     }
 
     private static void OnTimerTick(object? state)
@@ -83,13 +100,26 @@ public class CircuitBreaker : ICircuitBreaker, IDisposable
         try
         {
             var now = DateTime.UtcNow;
-            int blockedCount = 0;
-            foreach (var cb in s_allCircuitBreakers.Keys)
+            int blockedChildCount = 0;
+            int blockedParentCount = 0;
+            // Enumerate the dictionary directly — .Keys allocates a snapshot list every tick.
+            foreach (var kvp in s_allCircuitBreakers)
             {
-                if (cb.cleanQueue(now)) blockedCount++;
+                var cb = kvp.Key;
+                if (!cb.cleanQueue(now)) continue;
+
+                if (cb._isParent)
+                {
+                    blockedParentCount++;
+                }
+                else
+                {
+                    blockedChildCount++;
+                }
             }
 
-            Volatile.Write(ref _blockedCircuitBreakersCount, blockedCount);
+            Volatile.Write(ref _blockedCircuitBreakersCount, blockedChildCount);
+            Volatile.Write(ref _blockedParentCircuitBreakersCount, blockedParentCount);
         }
         finally
         {
@@ -102,6 +132,7 @@ public class CircuitBreaker : ICircuitBreaker, IDisposable
         _failureThreshold = _options.CircuitBreakerErrorThreshold;
         _failureTimeFrame = _options.CircuitBreakerTimeslice;
         _allowableCodes = new HashSet<int>(_options.AcceptableStatusCodes ?? new[] { 200, 401, 403, 408, 410, 412, 417, 400 });
+        _allowableCodesLog = string.Join(",", _allowableCodes);
 
         count_50percent = (int)(_failureThreshold * 0.5);
         count_60percent = (int)(_failureThreshold * 0.6);
@@ -141,39 +172,74 @@ public class CircuitBreaker : ICircuitBreaker, IDisposable
         {
             return;
         }
-        _logger.LogCritical("Tracking failure for circuit breaker {ID} with code {Code} : codes {codes}", ID, code, string.Join(",", _allowableCodes));
+        _logger.LogCritical("Tracking failure for circuit breaker {ID} with code {Code} : codes {codes}", ID, code, _allowableCodesLog);
 
         DateTime now = DateTime.UtcNow;
-
         hostFailureTimes2.Enqueue(now);
+
+        long retryTicks = 0;
+        if (TrackRetryAfter)
+        {
+            // Check response headers for Retry-After and Retry-After-Ms (.NET matches case insensitively already).
+            int? retryMs = null;
+            if (responseHeaders is not null)
+            {
+                if (responseHeaders.TryGetValues("Retry-After", out var retryAfterValues)
+                    && int.TryParse(retryAfterValues.FirstOrDefault(), out var retryAfterSeconds))
+                {
+                    retryMs = retryAfterSeconds * 1000;
+                }
+
+                if (responseHeaders.TryGetValues("Retry-After-Ms", out var retryAfterMsValues)
+                    && int.TryParse(retryAfterMsValues.FirstOrDefault(), out var retryAfterMs))
+                {
+                    retryMs = retryMs.HasValue ? Math.Max(retryMs.Value, retryAfterMs) : retryAfterMs;
+                }
+            }
+
+            if (retryMs.HasValue)
+            {
+                var retryDeadline = now.AddMilliseconds(retryMs.Value + Constants.RetryAfterJitterMaxMs);
+                NextRetryDeadlineUtc = retryDeadline;
+                retryTicks = retryDeadline.Ticks;
+            }
+        }
+
         var failureCount = hostFailureTimes2.Count;
 
         // If no more failures arrive, the breaker closes when enough oldest
         // entries expire to leave fewer than the configured threshold.
         var entriesToRemove = failureCount - _failureThreshold + 1;
-        long nextRetryDeadlineUtcTicks = 0;
+        long cbDeadlineTicks = 0;
         if (entriesToRemove > 0)
         {
             foreach (var failureTime in hostFailureTimes2)
             {
                 if (--entriesToRemove != 0) continue;
 
-                nextRetryDeadlineUtcTicks = failureTime.AddSeconds(_failureTimeFrame).Ticks;
+                cbDeadlineTicks = failureTime.AddSeconds(_failureTimeFrame).Ticks;
                 break;
             }
         }
 
-        if (nextRetryDeadlineUtcTicks > 0)
+        if (retryTicks > 0 && (cbDeadlineTicks <= 0 || retryTicks > cbDeadlineTicks))
         {
+            cbDeadlineTicks = retryTicks;
+        }
+
+        if (cbDeadlineTicks > 0)
+        {
+            NextRetryDeadlineUtc = new DateTime(cbDeadlineTicks, DateTimeKind.Utc);
+
             long currentDeadline;
             do
             {
                 currentDeadline = Volatile.Read(ref _nextRetryDeadlineUtcTicks);
-                if (currentDeadline >= nextRetryDeadlineUtcTicks) break;
+                if (currentDeadline >= cbDeadlineTicks) break;
             }
             while (Interlocked.CompareExchange(
                 ref _nextRetryDeadlineUtcTicks,
-                nextRetryDeadlineUtcTicks,
+                cbDeadlineTicks,
                 currentDeadline) != currentDeadline);
         }
 
@@ -197,6 +263,12 @@ public class CircuitBreaker : ICircuitBreaker, IDisposable
     /// </summary>
     public int GetMsToNextRetry()
     {
+        // Escalate backpressure at the parent once every child backend is blocked.
+        if (_isParent && AreAllCircuitBreakersBlocked())
+        {
+            return 2 * max_delay;
+        }
+
         if (_failureThreshold <= 0)
         {
             return 0;
@@ -240,16 +312,26 @@ public class CircuitBreaker : ICircuitBreaker, IDisposable
 
         _isDeregistered = true;
         _isCurrentlyBlocked = false;
-        Interlocked.Decrement(ref _totalCircuitBreakersCount);
+        if (_isParent)
+        {
+            Interlocked.Decrement(ref _totalParentCircuitBreakersCount);
+        }
+        else
+        {
+            Interlocked.Decrement(ref _totalCircuitBreakersCount);
+        }
 
-        _logger.LogDebug("[CB] Circuit breaker {ID} deregistered. Total: {Total}, Blocked: {Blocked}",
-            ID, _totalCircuitBreakersCount, _blockedCircuitBreakersCount);
+        var role = _isParent ? "Parent" : "Child";
+        var roleTotal = _isParent ? _totalParentCircuitBreakersCount : _totalCircuitBreakersCount;
+        var roleBlocked = _isParent ? _blockedParentCircuitBreakersCount : _blockedCircuitBreakersCount;
+        _logger.LogDebug("[CB] {Role} circuit breaker {ID} deregistered. Role total: {Total}, blocked: {Blocked}",
+            role, ID, roleTotal, roleBlocked);
     }
 
     public void Dispose() => Deregister();
 
     /// <summary>
-    /// Checks if all circuit breakers globally are in a failed state
+    /// Checks if all child circuit breakers globally are in a failed state
     /// </summary>
     /// <returns>True if all circuit breakers are blocked, false otherwise</returns>
     public static bool AreAllCircuitBreakersBlocked()
@@ -268,7 +350,7 @@ public class CircuitBreaker : ICircuitBreaker, IDisposable
     }
 
     /// <summary>
-    /// Gets the count of circuit breakers that are currently blocked
+    /// Gets the count of child circuit breakers that are currently blocked
     /// </summary>
     /// <returns>Number of blocked circuit breakers</returns>
     public static int GetBlockedCircuitBreakersCount()
@@ -277,7 +359,7 @@ public class CircuitBreaker : ICircuitBreaker, IDisposable
     }
 
     /// <summary>
-    /// Gets the total count of registered circuit breakers
+    /// Gets the total count of registered child circuit breakers
     /// </summary>
     /// <returns>Total number of circuit breakers</returns>
     public static int GetTotalCircuitBreakersCount()
@@ -314,19 +396,12 @@ public class CircuitBreaker : ICircuitBreaker, IDisposable
             ? newestFailure.Value - oldestFailure.Value
             : TimeSpan.Zero;
 
-        var d= new Dictionary<string, string>
-        {
-            ["cbId"] = ID,
-            ["errCnt"] = hostFailureTimes2.Count.ToString(),
-            ["errMax"] = _failureThreshold.ToString(),
-            ["winSec"] = _failureTimeFrame.ToString(),
-            ["blocked"] = _isCurrentlyBlocked.ToString(),
-            // ["failed"] = CheckFailedStatus().ToString(),
-            ["expIn"] = timeUntilOldestExpires?.ToString("F1") ?? "N/A",
-            ["span"] = delta.ToString("c")
-        };
+        var errCnt = hostFailureTimes2.Count;
+        var blocked = _isCurrentlyBlocked;
+        var expIn = timeUntilOldestExpires?.ToString("F1") ?? "N/A";
+        var span = delta.ToString("c");
 
-        return $"FailureCount: {d["errCnt"]}/{d["errMax"]}, IsBlocked: {d["blocked"]}, SecondsUntilUnblock: {d["expIn"]}, OldestFailure: {d["span"]}, NewestFailure: {d["span"]}";
+        return $"FailureCount: {errCnt}/{_failureThreshold}, IsBlocked: {blocked}, SecondsUntilUnblock: {expIn}, OldestFailure: {span}, NewestFailure: {span}";
     }
 
 

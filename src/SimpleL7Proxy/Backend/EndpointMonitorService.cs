@@ -5,6 +5,7 @@ using Azure.Core;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.DependencyInjection;
 using System.Threading;
 using System.Collections.Concurrent;
 
@@ -59,6 +60,7 @@ public class EndpointMonitorService : BackgroundService, IEndpointMonitorService
   //public Backends(List<BackendHost> hosts, HttpClient client, int interval, int successRate)
   public EndpointMonitorService(
       IOptions<ProxyConfig> options,
+      [FromKeyedServices(nameof(EndpointMonitorService))]
       ICircuitBreaker circuitBreaker,
       IHostHealthCollection backendHostCollection, //
       IHostApplicationLifetime appLifetime,               //

@@ -39,3 +39,19 @@
 - In policy stress results, classify terminal HTTP 429 responses as incomplete, not failed; final drain still requires every started request to complete and `InFlight` to reach zero.
 - For `MSTest.Sdk` 3.7.0 projects, run the generated test assembly directly when a method-level `dotnet test --filter` is ignored: `dotnet path/to/Tests.dll --filter "Name=TestMethod"`.
 - Local proxy tests that wait on `/startup` need more than 30 seconds when profiles are disabled because `UserProfile` closes its readiness gate on a fixed 30-second timer; use at least a 45-second timeout.
+- Focused backend integration tests can wait for the `S7P-Backend` event with the expected `ActiveHostsCount` instead of `/startup` when unrelated readiness participants are outside the test contract.
+- Circuit-breaker integration fixtures must not use `CBErrorThreshold=1` unless testing admission backpressure: percentage-bucket truncation makes the parent breaker return backpressure at zero failures. Use a threshold of at least 2 to isolate child `Retry-After` behavior.
+- `MSTest.Sdk` 3.7.0 emits appendable per-invocation TRX with `--report-trx --report-trx-filename <name> --results-directory <dir>`; `TestContext.WriteLine` content is available under each result's `StdOut`.
+- Keep explicit MSTest title/description fields separate from generated fallback metadata so repeated HTML report regeneration remains idempotent, especially for data-row input descriptions.
+- Before implementing a user-facing report or UI, confirm the information hierarchy and acceptance criteria. For regression reports, prioritize test title, description, outcome, and duration; keep commands, assemblies, TRX, and console logs in secondary diagnostics.
+- Preserve intentional control points, comments, and TODO direction in existing code. Wire requested behavior into them instead of removing or redesigning them unless the user explicitly requests a refactor.
+- Keep edits small enough for line-by-line review. Do not combine requested behavior with optional cleanup, abstraction changes, or design improvements.
+- Develop parsers and report renderers against representative fixtures covering passed, failed, skipped, parameterized, and output-producing tests. Run expensive integration tests only after fixture-based checks pass.
+- Treat a zero-test filtered regression execution as a configuration failure. Build once per master execution and reuse the generated test assembly for subsequent filters.
+- When command output is truncated or appears incomplete, inspect exit status, generated artifacts, timestamps, and running processes before rerunning or changing code.
+- If the same ad hoc operation is needed twice, implement a supported reusable command before doing it a third time.
+- Treat generated HTML and reports as validation artifacts. Make durable changes in their generator, then regenerate the artifact.
+- When VS Code's active buffer and the on-disk file disagree, preserve the user's active edit and verify through editor-aware tools before applying a patch.
+- Once the requested acceptance criteria and focused validations pass, stop. Do not expand scope without a new request.
+- The `shell: build SimpleL7Proxy only` VS Code task can pass its UNC workspace path to WSL as `//wsl.localhost/...` and fail with MSB1009; validate from WSL with `dotnet build src/SimpleL7Proxy/SimpleL7Proxy.csproj` instead.
+- Run terminal diagnostics sequentially because `run_in_terminal` reuses shell state; disable Git pagers with `git --no-pager` for non-interactive checks.
