@@ -442,13 +442,17 @@ public class Server : BackgroundService, IConfigChangeSubscriber
 
                     if (!notEnqued && !_isShuttingDown)
                     {
+                        int backpressureDelay = _backends.EMSGetBackpressureDelay();
                         int eventCount = _probeServer.EventCount;
-                        if (eventCount > halfMaxEvents)
-                        {
-                            int ticks = eventCount / 100;
 
+                        // combined pressure ratings
+                        int delayTicks = (eventCount > halfMaxEvents ? eventCount / 100 : 0)
+                            + (backpressureDelay > 0 ? backpressureDelay / 100 : 0);
+
+                        if (delayTicks > 0)
+                        {
                             // add a delay in case the number of events is high
-                            for (int i = 0; i < ticks; i++)
+                            for (int i = 0; i < delayTicks; i++)
                                 await ptimer.WaitForNextTickAsync(cancellationToken);
                         }
 
@@ -460,7 +464,7 @@ public class Server : BackgroundService, IConfigChangeSubscriber
                             retrymsg = ed["Message"] = "Max Events Exceeds Threshold";
                             logmsg = "MAX EVENTS  => 429:";
                         }
-                        else if (await _backends.CheckFailedStatusAsync())
+                        else if (backpressureDelay > 0)
                         // Check circuit breaker status and enqueue the request
                         {
                             notEnqued = true;

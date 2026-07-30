@@ -20,6 +20,9 @@ public static class Constants
 
     public const int AnyPriority = -1;
 
+    // Fixed jitter (ms) added to Retry-After/Retry-After-Ms derived deadlines.
+    public const int RetryAfterJitterMaxMs = 250;
+
     /// <summary>
     /// An array of probe route constants used for health checks and readiness checks.
     /// </summary>

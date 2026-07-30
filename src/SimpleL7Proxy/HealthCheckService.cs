@@ -543,7 +543,8 @@ public class HealthCheckService
     public (HealthStatusEnum, HealthStatusEnum, int, int) GetStatus()
     {
         int hostCount = _backends.ActiveHostCount();
-        bool hasFailed = _backends.CheckFailedStatusAsync(true).Result;
+        int backpressureDelay = _backends.EMSGetBackpressureDelay();
+        bool hasFailed = backpressureDelay > 0;
 
         int activeEvents = _eventClient?.Count ?? 0;
         bool tooManyEvents = activeEvents > _options.MaxUndrainedEvents;

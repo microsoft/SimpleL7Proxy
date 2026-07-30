@@ -1,5 +1,16 @@
 # Release Notes #
 
+Proxy:
+* Bug fix: host count increment increment incorrectly with CB host
+* Bug fix: Return 412 when max attempts has been reached
+* Read S7P-Iterator to override the default setting
+* Added custom auth token providers
+* If backends are all in CB Open state, requeue for 1 second
+* Implement Retry-After header parsing for direct backends
+
+Reegression tests:
+* Add single landing page
+
 2.2.16
 
 Proxy:
