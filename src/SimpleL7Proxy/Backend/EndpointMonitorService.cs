@@ -42,7 +42,7 @@ public class EndpointMonitorService : BackgroundService, IEndpointMonitorService
   private CancellationTokenSource _cancellationTokenSource;
   private CancellationToken _cancellationToken;
 
-  public Task<bool> CheckFailedStatusAsync(bool nosleep=false) => _circuitBreaker.CheckFailedStatusAsync(nosleep);
+  public int EMSGetBackpressureDelay() => _circuitBreaker.GetBackpressureDelay();
 
   private readonly IEventClient _eventClient;
   private readonly ISharedIteratorRegistry? _sharedIteratorRegistry;
@@ -53,7 +53,7 @@ public class EndpointMonitorService : BackgroundService, IEndpointMonitorService
   private readonly ProxyEvent _probeEvent = new ProxyEvent(6);  // ProxyHost, Backend-Host, Port, Path, Code, Latency/Timeout
 
 
-  CancellationTokenSource workerCancelTokenSource = new CancellationTokenSource();
+  //CancellationTokenSource workerCancelTokenSource = new CancellationTokenSource();
   private readonly ILogger<EndpointMonitorService> _logger;
   private static readonly ProxyEvent staticEvent = new ProxyEvent() { Type = EventType.Backend };
   //public Backends(List<BackendHost> hosts, HttpClient client, int interval, int successRate)

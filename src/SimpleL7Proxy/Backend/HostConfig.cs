@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
@@ -164,13 +165,14 @@ namespace SimpleL7Proxy.Backend
     /// <summary>
     /// Tracks status for circuit breaker
     /// </summary>
-    public void TrackStatus(int code, bool wasFailure, string state) => CircuitBreaker.TrackStatus(code, wasFailure, state);
+    public void TrackStatus(int code, bool wasFailure, string state, HttpResponseHeaders? responseHeaders = null) =>
+      CircuitBreaker.TrackStatus(code, wasFailure, state, responseHeaders);
 
     /// <summary>
     /// Checks if this host's circuit breaker is in failed state
     /// </summary>
-    public Task<bool> CheckFailedStatusAsync() => CircuitBreaker.CheckFailedStatusAsync();
-
+    public int HCGetBackpressureDelay() => CircuitBreaker.GetBackpressureDelay();
+    public int GetMsToNextRetry() => CircuitBreaker.GetMsToNextRetry();
     public string GetCircuitBreakerStatusString() => CircuitBreaker.GetCircuitBreakerStatusString();
 
     /// <summary>

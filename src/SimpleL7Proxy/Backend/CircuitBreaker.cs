@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using System.Runtime.InteropServices.Marshalling;
+using System.Net.Http.Headers;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 
@@ -9,7 +9,7 @@ using SimpleL7Proxy.Events;
 
 namespace SimpleL7Proxy.Backend;
 
-public class CircuitBreaker : ICircuitBreaker
+public class CircuitBreaker : ICircuitBreaker, IDisposable
 {
     static ProxyConfig _options = null!;
     private ConcurrentQueue<DateTime> hostFailureTimes2 = new();
@@ -21,11 +21,12 @@ public class CircuitBreaker : ICircuitBreaker
     // Global counters using Interlocked operations
     private static int _totalCircuitBreakersCount = 0;
     private static int _blockedCircuitBreakersCount = 0;
+    private static readonly ConcurrentDictionary<CircuitBreaker, byte> s_allCircuitBreakers = new();
     private readonly ProxyEvent _circuitBreakerEvent = new ProxyEvent(4);  // Code, Time, Success, Count
     
     // Instance state tracking
-    private bool _isCurrentlyBlocked = false;
-    private bool _isDeregistered = false;
+    private volatile bool _isCurrentlyBlocked = false;
+    private volatile bool _isDeregistered = false;
 
     private int count_50percent;
     private int count_60percent;
@@ -37,6 +38,16 @@ public class CircuitBreaker : ICircuitBreaker
     private static int delay_70percent = 300;
     private static int delay_80percent = 400;
     private static int delay_90percent = 500;
+    private static int max_delay = 1000;
+
+    private static readonly System.Threading.Timer _timer = new(
+        OnTimerTick,
+        null,
+        TimeSpan.FromMilliseconds(500),
+        TimeSpan.FromMilliseconds(500));
+    private static int s_timerRunning;
+
+    private long _nextRetryDeadlineUtcTicks;
 
     
     public string ID { get; set; } = "";
@@ -62,6 +73,28 @@ public class CircuitBreaker : ICircuitBreaker
 
         _logger.LogDebug("[STARTUP] Circuit breaker {ID} initialized with threshold: {Threshold}, timeframe: {TimeFrame}s. Total circuit breakers: {Total}", 
             ID, _failureThreshold, _failureTimeFrame, _totalCircuitBreakersCount);
+    s_allCircuitBreakers.TryAdd(this, 0);
+    }
+
+    private static void OnTimerTick(object? state)
+    {
+        if (Interlocked.Exchange(ref s_timerRunning, 1) != 0) return;
+
+        try
+        {
+            var now = DateTime.UtcNow;
+            int blockedCount = 0;
+            foreach (var cb in s_allCircuitBreakers.Keys)
+            {
+                if (cb.cleanQueue(now)) blockedCount++;
+            }
+
+            Volatile.Write(ref _blockedCircuitBreakersCount, blockedCount);
+        }
+        finally
+        {
+            Volatile.Write(ref s_timerRunning, 0);
+        }
     }
 
     public void InitVars()
@@ -77,7 +110,32 @@ public class CircuitBreaker : ICircuitBreaker
         count_90percent = (int)(_failureThreshold * 0.9);
     }
 
-    public void TrackStatus(int code, bool wasFailure, string state)
+    private bool cleanQueue(DateTime now)
+    {
+        if (_isDeregistered) return false;
+
+        while (hostFailureTimes2.TryPeek(out var t) && (now - t).TotalSeconds >= _failureTimeFrame)
+        {
+            hostFailureTimes2.TryDequeue(out var _);
+        }
+
+        bool wasBlocked = _isCurrentlyBlocked;
+        bool isCurrentlyFailed = hostFailureTimes2.Count >= _failureThreshold;
+        _isCurrentlyBlocked = isCurrentlyFailed;
+
+        if (isCurrentlyFailed && !wasBlocked)
+        {
+            _logger.LogCritical("[CB LOCK] ID: {ID}", ID);
+        }
+        else if (!isCurrentlyFailed && wasBlocked)
+        {
+            _logger.LogCritical("[CB UNLOCK] ID: {ID}", ID);
+        }
+
+        return !_isDeregistered && isCurrentlyFailed;
+    }
+
+    public void TrackStatus(int code, bool wasFailure, string state, HttpResponseHeaders? responseHeaders = null)
     {
         if (_allowableCodes.Contains(code) && !wasFailure)
         {
@@ -87,83 +145,89 @@ public class CircuitBreaker : ICircuitBreaker
 
         DateTime now = DateTime.UtcNow;
 
-        // truncate older entries
-        while (hostFailureTimes2.TryPeek(out var t) && (now - t).TotalSeconds >= _failureTimeFrame)
+        hostFailureTimes2.Enqueue(now);
+        var failureCount = hostFailureTimes2.Count;
+
+        // If no more failures arrive, the breaker closes when enough oldest
+        // entries expire to leave fewer than the configured threshold.
+        var entriesToRemove = failureCount - _failureThreshold + 1;
+        long nextRetryDeadlineUtcTicks = 0;
+        if (entriesToRemove > 0)
         {
-            hostFailureTimes2.TryDequeue(out var _);
+            foreach (var failureTime in hostFailureTimes2)
+            {
+                if (--entriesToRemove != 0) continue;
+
+                nextRetryDeadlineUtcTicks = failureTime.AddSeconds(_failureTimeFrame).Ticks;
+                break;
+            }
         }
 
-        hostFailureTimes2.Enqueue(now);
+        if (nextRetryDeadlineUtcTicks > 0)
+        {
+            long currentDeadline;
+            do
+            {
+                currentDeadline = Volatile.Read(ref _nextRetryDeadlineUtcTicks);
+                if (currentDeadline >= nextRetryDeadlineUtcTicks) break;
+            }
+            while (Interlocked.CompareExchange(
+                ref _nextRetryDeadlineUtcTicks,
+                nextRetryDeadlineUtcTicks,
+                currentDeadline) != currentDeadline);
+        }
+
         // Reuse and clear the circuit breaker event instance
         _circuitBreakerEvent.Clear();
         _circuitBreakerEvent.Type = EventType.CircuitBreakerError;
         _circuitBreakerEvent["Code"] = code.ToString();
         _circuitBreakerEvent["Time"] = now.ToString();
         _circuitBreakerEvent["Success"] = (!wasFailure).ToString();
-        _circuitBreakerEvent["Count"] = hostFailureTimes2.Count.ToString();
+        _circuitBreakerEvent["Count"] = failureCount.ToString();
 
         _circuitBreakerEvent.SendEvent();
 
         _logger.LogCritical("[CB-ERROR] cbid-{ID}, Error code: {Code}, Timeslice Errors: {Count}, State: {State}", 
-            ID, code, hostFailureTimes2.Count, state);
+            ID, code, failureCount, state);
     }
 
 
-    // returns true if the service is in failure state
-    public async Task<bool> CheckFailedStatusAsync(bool nosleep=false)
+    /// <summary>
+    /// Estimates the milliseconds until enough failures expire for the circuit breaker to close.
+    /// </summary>
+    public int GetMsToNextRetry()
+    {
+        if (_failureThreshold <= 0)
+        {
+            return 0;
+        }
+
+        var remainingTicks = Volatile.Read(ref _nextRetryDeadlineUtcTicks) - DateTime.UtcNow.Ticks;
+        if (remainingTicks <= 0)
+        {
+            return 0;
+        }
+
+        var remainingMs = ((remainingTicks - 1) / TimeSpan.TicksPerMillisecond) + 1;
+        return (int)Math.Min(int.MaxValue, remainingMs);
+    }
+
+    // returns the milliseconds of backpressure delay if the service is in failure state
+    public int GetBackpressureDelay()
     {
         int count = hostFailureTimes2.Count;
-        //    Console.WriteLine($"Checking failed status: {hostFailureTimes2.Count} >= {FailureThreshold}");
-        if (count < _failureThreshold)
-        {
-            if ( count >= count_50percent && !nosleep )
-            {
-                int delay = count >= count_90percent ? delay_90percent :
-                            count >= count_80percent ? delay_80percent :
-                            count >= count_70percent ? delay_70percent :
-                            count >= count_60percent ? delay_60percent : delay_50percent;
 
-                _logger.LogWarning("[CB-DELAY] Circuit breaker {ID} is experiencing elevated error rates. Count: {Count}, Introducing delay: {Delay}ms", 
-                    ID, count, delay);
-                await Task.Delay(delay).ConfigureAwait(false);
-            }
-            
-            // If we were previously blocked but now we're not, decrement the blocked count
-            if (_isCurrentlyBlocked)
-            {
-                _isCurrentlyBlocked = false;
-                Interlocked.Decrement(ref _blockedCircuitBreakersCount);
-                _logger.LogDebug("Circuit breaker {ID} unblocked. Blocked count: {BlockedCount}", 
-                    ID, _blockedCircuitBreakersCount);
-            }
-            return false;
-        }
-
-        DateTime now = DateTime.UtcNow;
-        while (hostFailureTimes2.TryPeek(out var t) && (now - t).TotalSeconds >= _failureTimeFrame)
+        // evals to efficient comparison
+        return count switch
         {
-            hostFailureTimes2.TryDequeue(out var _);
-        }
-        
-        bool isCurrentlyFailed = hostFailureTimes2.Count >= _failureThreshold;
-        
-        // Update global blocked count based on state change
-        if (isCurrentlyFailed && !_isCurrentlyBlocked)
-        {
-            _isCurrentlyBlocked = true;
-            Interlocked.Increment(ref _blockedCircuitBreakersCount);
-            _logger.LogCritical("[CB LOCK] ID: {ID}, Count: {BlockedCount}", 
-                ID, _blockedCircuitBreakersCount);
-        }
-        else if (!isCurrentlyFailed && _isCurrentlyBlocked)
-        {
-            _isCurrentlyBlocked = false;
-            Interlocked.Decrement(ref _blockedCircuitBreakersCount);
-            _logger.LogCritical("[CB UNLOCK] ID: {ID}, Count: {BlockedCount}", 
-                ID, _blockedCircuitBreakersCount);
-        }
-        
-        return isCurrentlyFailed;
+            _ when count < count_50percent => 0,
+            _ when count < count_60percent => delay_50percent,
+            _ when count < count_70percent => delay_60percent,
+            _ when count < count_80percent => delay_70percent,
+            _ when count < count_90percent => delay_80percent,
+            _ when count < _failureThreshold => delay_90percent,
+            _ => max_delay
+        };
     }
 
     /// <summary>
@@ -172,20 +236,17 @@ public class CircuitBreaker : ICircuitBreaker
     /// </summary>
     public void Deregister()
     {
-        if (_isDeregistered) return;
+        if (!s_allCircuitBreakers.TryRemove(this, out _)) return;
+
         _isDeregistered = true;
-
+        _isCurrentlyBlocked = false;
         Interlocked.Decrement(ref _totalCircuitBreakersCount);
-
-        if (_isCurrentlyBlocked)
-        {
-            _isCurrentlyBlocked = false;
-            Interlocked.Decrement(ref _blockedCircuitBreakersCount);
-        }
 
         _logger.LogDebug("[CB] Circuit breaker {ID} deregistered. Total: {Total}, Blocked: {Blocked}",
             ID, _totalCircuitBreakersCount, _blockedCircuitBreakersCount);
     }
+
+    public void Dispose() => Deregister();
 
     /// <summary>
     /// Checks if all circuit breakers globally are in a failed state
