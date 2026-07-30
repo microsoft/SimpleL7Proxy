@@ -427,20 +427,36 @@ public sealed partial class PolicyScenarioIntegrationTests
 
         public static IteratorTestLocalConfig Load()
         {
+            var basePath = Path.Combine(AppContext.BaseDirectory, "configs", "iterator-test.json");
+            if (!File.Exists(basePath))
+            {
+                throw new FileNotFoundException(
+                    "Iterator test base config was not found. Restore configs/iterator-test.json.",
+                    basePath);
+            }
+
+            var config = JsonSerializer.Deserialize<IteratorTestLocalConfig>(
+                File.ReadAllText(basePath),
+                s_jsonOptions) ?? new IteratorTestLocalConfig();
             var configuredPath = Environment.GetEnvironmentVariable("ITERATOR_TEST_CONFIG_PATH");
             var path = string.IsNullOrWhiteSpace(configuredPath)
                 ? Path.Combine(AppContext.BaseDirectory, "configs", "iterator-test.local.json")
                 : Path.GetFullPath(configuredPath);
-            if (!File.Exists(path))
+            if (File.Exists(path))
             {
-                throw new FileNotFoundException(
-                    "Iterator test config was not found. Set ITERATOR_TEST_CONFIG_PATH or restore the default config.",
-                    path);
+                var localConfig = JsonSerializer.Deserialize<IteratorTestLocalConfig>(
+                    File.ReadAllText(path),
+                    s_jsonOptions) ?? new IteratorTestLocalConfig();
+                foreach (var setting in localConfig.TestEnvironment)
+                {
+                    config.TestEnvironment[setting.Key] = setting.Value;
+                }
+                foreach (var setting in localConfig.ProxyEnvironment)
+                {
+                    config.ProxyEnvironment[setting.Key] = setting.Value;
+                }
             }
 
-            var config = JsonSerializer.Deserialize<IteratorTestLocalConfig>(
-                File.ReadAllText(path),
-                s_jsonOptions) ?? new IteratorTestLocalConfig();
             foreach (var requiredKey in new[]
             {
                 "EVENT_LOGGERS",
@@ -456,7 +472,7 @@ public sealed partial class PolicyScenarioIntegrationTests
                 if (!config.ProxyEnvironment.ContainsKey(requiredKey))
                 {
                     throw new InvalidOperationException(
-                        $"Iterator test config '{path}' is missing proxyEnvironment.{requiredKey}.");
+                        $"Merged iterator test config is missing proxyEnvironment.{requiredKey}.");
                 }
             }
             return config;

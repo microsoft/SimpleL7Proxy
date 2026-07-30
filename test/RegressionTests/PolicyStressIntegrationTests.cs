@@ -28,7 +28,7 @@ public sealed partial class PolicyScenarioIntegrationTests
         if (localConfig == null)
         {
             Assert.Inconclusive(
-                "Create test/RegressionTests/configs/policy-test.local.json before running the APIM policy stress test.");
+                "Create test/RegressionTests/configs/policy-test.local.json with proxyEnvironment.Host_apim before running the APIM policy stress test.");
             return;
         }
 

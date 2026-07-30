@@ -72,6 +72,7 @@ dkms.conf
 **/.vs/
 **/*.user
 **/*settings.json
+test/RegressionTests/configs/*.local.json
 
 events.log
 call*.sh
