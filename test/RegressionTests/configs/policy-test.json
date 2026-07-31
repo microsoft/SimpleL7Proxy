@@ -1,0 +1,29 @@
+{
+  "testEnvironment": {
+    "POLICY_TEST_APIM_URL": "policytest",
+    "POLICY_TEST_SIMULATOR_URL": "https://llmsim.wittybeach-67bb528b.eastus.azurecontainerapps.io",
+    "POLICY_TEST_TIMEOUT_SECONDS": "45",
+    "POLICY_TEST_SCENARIO": "",
+    "POLICY_TEST_KEEP_ARTIFACTS": "true",
+    "POLICY_STRESS_REQUESTORS": "1000",
+    "POLICY_STRESS_DURATION_SECONDS": "70",
+    "POLICY_STRESS_REPORT_INTERVAL_SECONDS": "15",
+    "POLICY_STRESS_REQUEST_TIMEOUT_SECONDS": "210",
+    "POLICY_STRESS_REQUEST_TTL_SECONDS": "180"
+  },
+  "proxyEnvironment": {
+    "EVENT_LOGGERS": "file",
+    "LogToEvents": "backend,proxy",
+    "LogHeaders": "S7P-ID,backendLog,retry-after,retry-after-ms,x-Backend-Attempts,x-PolicyCycleCounter,x-backend-affinity,x-backend-label,S7PREQUEUE,X-Sim-Case,X-Sim-Slot,X-Sim-Delay-Ms,X-Sim-Status,X-Sim-Body,X-Sim-Method,X-Sim-Path,X-Sim-Has-Authorization,X-Sim-Has-Api-Key",
+    "DependancyHeaders": "Backend-Host,Host-URL,Status,Duration,Error,Message,Request-Date,S7P-ID,backendLog,retry-after,retry-after-ms,x-Backend-Attempts,x-PolicyCycleCounter,x-backend-affinity,x-backend-label,S7PREQUEUE,X-Sim-Case,X-Sim-Slot,X-Sim-Delay-Ms,X-Sim-Status,X-Sim-Body,X-Sim-Method,X-Sim-Path,X-Sim-Has-Authorization,X-Sim-Has-Api-Key",
+    "LOG_LEVEL": "Warning",
+    "AsyncModeEnabled": "false",
+    "UseProfiles": "false",
+    "UserConfigRequired": "false",
+    "Workers": "4",
+    "PriorityKeyHeader": "S7PPriorityKey",
+    "PriorityKeys": "high,medium,low",
+    "PriorityValues": "1,2,3",
+    "PriorityWorkers": "2:1,3:1"
+  }
+}

@@ -1,13 +1,62 @@
 # Copilot Learnings
 
 - Treat `taxonomy/concepts.json` as the canonical source for documentation concept definitions, defaults, units, reload types, status values, and protocol headers.
+- Treat `deployment/deploy.sh` step 7 as the supported App Configuration setup path; it publishes every non-Hidden `[ConfigOption]` as `Warm:` or `Cold:` in one import and updates `Warm:Sentinel`.
+- Use `AZURE_APPCONFIG_REFRESH_INTERVAL_SECONDS` as the canonical deployment and runtime polling variable; step 7 accepts `AZURE_APPCONFIG_REFRESH_SECONDS` only as a legacy input alias.
+- The `Environment Variable Defaults (JSON)` printed by App Configuration step 7 maps environment-variable names to code defaults and can be retained as an ACA startup fallback template; it is not a copy of effective App Configuration values (use KVSet export for that).
+- **High-level understanding tone:** Follow `docs/nav/01-understand-the-proxy.md`. Begin with the reader's problem and the system's role, then explain the end-to-end flow through active, cause-and-effect language. Introduce terms in context and connect mechanisms to outcomes. Defer commands, configuration keys, defaults, and implementation caveats to task-specific documentation. Remain factual and avoid promotional claims.
+- **Operator tone:** Assume technical literacy. Lead with the task, prerequisites, supported path, and expected result. Use direct, neutral instructions with exact commands, settings, defaults, units, observable signals, and recovery steps. Explain why an action matters only when that prevents an operational mistake. Do not narrate obvious commands or repeat one workflow as a summary, prose instructions, and a checklist. Organize content around setup, change, verify, and troubleshoot; avoid marketing language, self-congratulation, and unnecessary conceptual background.
+- Operational warnings must name when the risk applies, give a concrete impact example, and provide the recovery procedure; prefer the Azure service's native restore UI and official Microsoft documentation over vague instructions to "back up" data.
+- When deployment generates a configuration catalog, teach operators to discover exact keys and labels from the deployed store before showing CLI examples; do not require them to infer or memorize setting names.
+- Keep deployment parameters, menu steps, prerequisites, and deployment-script side effects in `deployment/README.md`; feature operator guides should link to that section and focus on runtime behavior, day-two changes, verification, and troubleshooting.
 - Validate taxonomy-linked docs for behavioral semantics as well as literal setting values; stale descriptions can remain even when defaults match.
 - The `docs/nav/*.md` content-brief files treat their question checklists as content contracts, so when filling gaps, keep the original guidance text and add the answer directly under each question for easy review.
 - In `docs/nav/*.md`, Quick Answers headings are often duplicated in Full Answers; use `#...-1` anchors in quick links so they jump to the full-answer section instead of self-linking to the quick tile.
 - In `test/chat_tester`, the error dashboard behavior is owned primarily by `Components/Shared/Response/ErrorResultPanel.razor`; keep status-text normalization, chart behavior, hover previews, and error-detail modal behavior in that component instead of spreading UI logic into `InvestigatorPage.razor`.
-- A focused validation command for chat tester UI changes is `dotnet build test/chat_tester/chat_tester.csproj /property:GenerateFullPaths=true /consoleloggerparameters:NoSummary`.
+- A focused validation command for Chat Tester changes is `dotnet build src/ChatTester/chat_tester.csproj /property:GenerateFullPaths=true /consoleloggerparameters:NoSummary`.
 - When splitting a Razor page into separate pages, remove old backing members/events in the original page in the same edit to avoid orphaned references that can trigger misleading design-time Razor errors.
 - Check that a search command exists before using it as an `if` condition; a command-not-found result can enter the `else` branch and print a false validation success.
 - Anchor typo-validation patterns to word boundaries; a substring such as `assing` also matches valid words such as `assignment`.
 - Do not combine `Delete File` and `Add File` for the same path in one `apply_patch` call; the patch correction can merge old and new content. Delete and add in separate patch calls when a full replacement is necessary.
 - Do not advertise POCs as completing within a fixed time unless that duration was validated from a clean environment including all prerequisites; distinguish quick verification from Azure provisioning and policy setup.
+- When a rule condition formats computed values into a `stackalloc` buffer, consume each span within the branch that created it; merging those spans into a shared local can trigger CS8352.
+- When an `out var` parsed inside a chained Boolean expression is needed afterward, assign the nullable result in the successful branch instead of relying on definite assignment through the chain.
+- Use `test/nullserver/Python/stream_server.py --port <port>` for local process tests; it supports random ports plus `/health` and `/echo/resource` without response assets.
+- Run the integrated 1,000-request priority harness with `bash test/RegressionTests/run-priority-load.sh`; it starts the null server, proxy, and one parallel curl process, then prints per-priority statistics.
+- Write generated curl config files as BOM-free UTF-8. Curl 7.81 silently ignores the first directive when a UTF-8 BOM precedes it.
+- With `MSTest.Sdk` 3.7.0, large multiline standard output can crash the runner with duplicate `StandardOutputProperty` entries. Write the report to a file during the test and print it from the launcher after `dotnet test` exits.
+- For APIM policy reviews, treat successful acceptance by the target gateway as controlling evidence; report conflicts with generic policy-reference restrictions as compatibility risks instead of asserting rejection.
+- Preserve the APIM empty-200 retry guard: it handles a known PTU endpoint API failure that returns HTTP 200 with no content; broaden success handling around that guard, not through it.
+- Put multiple edits to the same file under one `Update File` block; repeating the path in one `apply_patch` call can be rejected as a duplicate path.
+- For this APIM retry policy, classify a backend response and consume its `Retry-After` headers in the next cycle's previous-attempt path; dependency `Response-retry-after` telemetry can confirm the header existed when a later post-`forward-request` expression did not process that attempt.
+- Do not attribute a header in APIM `context.Response` to a specific retry attempt from a post-call snapshot alone; compare snapshots immediately before and after `forward-request` or correlate the APIM dependency operation.
+- In `test/LLMSimulator`, `func start --no-build` does not discover functions because `.azurefunctions` is generated under `bin/output`; use the normal `func start` path for local endpoint validation.
+- When SimpleL7Proxy model detection is enabled, put the model in the JSON body and let the proxy emit `x-LLMModel`; adding the same client header creates duplicate values and can make APIM fall back to its default catalog entry.
+- Treat proxy telemetry value `N/A` as missing evidence and continue to matching `Attempt-N-*` fields; proxy-generated errors can expose `x-MID` or only event/path correlation instead of a final HTTP `S7P-ID`.
+- A `JArray` attached to a staged `JObject` can diverge from the context-owned APIM policy array; mutate the context-owned activity log directly when later `backendLog` rendering reads that context variable.
+- An empty HTTP 200 means retry under the normal backend-selection rules; do not force failover or exclude the current backend unless the contract explicitly changes.
+- `test/RegressionTests/configs/policy-test.json` supplies checked-in policy and stress defaults; `policy-test.local.json` overlays matching test and proxy settings. Keep security values local and keep the base stress profile aligned with `PolicyStressSettings` when changing the standard stress run.
+- In policy stress results, classify terminal HTTP 429 responses as incomplete, not failed; final drain still requires every started request to complete and `InFlight` to reach zero.
+- In policy stress results, medium-priority HTTP 412 is an expected request-TTL outcome; permit its count explicitly while continuing to reject other failures such as HTTP 408.
+- Keep load workloads in `test/RegressionTests/LoadTests` with `TestCategory("Load")`; the default master run excludes them, and `./run-regression-master.sh load` runs the consolidated load group.
+- For `MSTest.Sdk` 3.7.0 projects, run the generated test assembly directly when a method-level `dotnet test --filter` is ignored: `dotnet path/to/Tests.dll --filter "Name=TestMethod"`.
+- Rebuild RegressionTests after changing source or helpers before invoking its generated test assembly directly; direct assembly execution does not compile pending changes.
+- Local proxy tests that wait on `/startup` need more than 30 seconds when profiles are disabled because `UserProfile` closes its readiness gate on a fixed 30-second timer; use at least a 45-second timeout.
+- Focused backend integration tests can wait for the `S7P-Backend` event with the expected `ActiveHostsCount` instead of `/startup` when unrelated readiness participants are outside the test contract.
+- Circuit-breaker integration fixtures must not use `CBErrorThreshold=1` unless testing admission backpressure: percentage-bucket truncation makes the parent breaker return backpressure at zero failures. Use a threshold of at least 2 to isolate child `Retry-After` behavior.
+- `MSTest.Sdk` 3.7.0 emits appendable per-invocation TRX with `--report-trx --report-trx-filename <name> --results-directory <dir>`; `TestContext.WriteLine` content is available under each result's `StdOut`.
+- Keep explicit MSTest title/description fields separate from generated fallback metadata so repeated HTML report regeneration remains idempotent, especially for data-row input descriptions.
+- Before implementing a user-facing report or UI, confirm the information hierarchy and acceptance criteria. For regression reports, prioritize test title, description, outcome, and duration; keep commands, assemblies, TRX, and console logs in secondary diagnostics.
+- Preserve intentional control points, comments, and TODO direction in existing code. Wire requested behavior into them instead of removing or redesigning them unless the user explicitly requests a refactor.
+- Keep edits small enough for line-by-line review. Do not combine requested behavior with optional cleanup, abstraction changes, or design improvements.
+- Develop parsers and report renderers against representative fixtures covering passed, failed, skipped, parameterized, and output-producing tests. Run expensive integration tests only after fixture-based checks pass.
+- Treat a zero-test filtered regression execution as a configuration failure. Build once per master execution and reuse the generated test assembly for subsequent filters.
+- When command output is truncated or appears incomplete, inspect exit status, generated artifacts, timestamps, and running processes before rerunning or changing code.
+- If the same ad hoc operation is needed twice, implement a supported reusable command before doing it a third time.
+- Treat generated HTML and reports as validation artifacts. Make durable changes in their generator, then regenerate the artifact.
+- When VS Code's active buffer and the on-disk file disagree, preserve the user's active edit and verify through editor-aware tools before applying a patch.
+- Once the requested acceptance criteria and focused validations pass, stop. Do not expand scope without a new request.
+- The `shell: build SimpleL7Proxy only` VS Code task can pass its UNC workspace path to WSL as `//wsl.localhost/...` and fail with MSB1009; validate from WSL with `dotnet build src/SimpleL7Proxy/SimpleL7Proxy.csproj` instead.
+- Run terminal diagnostics sequentially because `run_in_terminal` reuses shell state; disable Git pagers with `git --no-pager` for non-interactive checks.
+- After extracting a large declaration with `apply_patch`, inspect both source boundaries before proceeding; malformed context markers can be inserted literally even when the patch reports success.
+- This repository's WSL environment does not include `rg`; use `git grep` for tracked-file searches.

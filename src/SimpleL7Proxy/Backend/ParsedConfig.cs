@@ -11,6 +11,7 @@ namespace SimpleL7Proxy.Backend
     public struct ParsedConfig
     {
         public string Audience;
+        public string AuthProvider;
         public string ApiKey;
         public string ApiKeyHeader;
         public bool DirectMode;

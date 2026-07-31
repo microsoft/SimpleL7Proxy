@@ -4,7 +4,7 @@ Use these guides to complete a specific deployment or configuration task.
 
 ## TL;DR
 
-- Configure backends, App Configuration, or request security.
+- Configure backends, custom token providers, App Configuration, or request security.
 - Deploy to Azure Container Apps or as a sidecar.
 - Use common scenarios and the simulator for repeatable setups.
 
@@ -77,6 +77,15 @@ Canonical, **copy-paste-ready** configuration blocks for common deployment shape
 Stand up a local **mock backend** to exercise the proxy without any cloud deployment — the included null server needs only **Python** and no extra dependencies.
 
 [LLM Simulator →](llm-simulator.md)
+
+</td>
+<td width="33%" valign="top">
+
+### Customize a Token Provider
+
+Implement `IBackendTokenProvider`, register one or more implementations at startup, and select the exact implementation class per backend.
+
+[Customize a Token Provider →](customize-token-provider.md)
 
 </td>
 </tr>

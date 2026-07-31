@@ -120,7 +120,6 @@ public static class ProxyHelperUtils
         out int currentStatusCode)
     {
         sb = new StringBuilder();
-        sb.AppendLine("Error processing request.  No active hosts were able to handle the request.");
         sb.AppendLine("Request Summary:");
         statusMatches = true;
         currentStatusCode = 503; // Default to Service Unavailable if no hosts attempted

@@ -44,6 +44,7 @@ These settings determine how many requests the proxy can handle simultaneously a
 
 | App Configuration Key | Env Var | Default | Why It Matters |
 |---|---|---|---|
+| <small>`Server:AuthProviderClass`</small> | <small>`AuthProviders`</small> | <small>`Auth.AzureProvider`</small> | Comma-separated token-provider type names registered at startup. Cold setting; changes require a restart. |
 | <small>`Server:Port`</small> | <small>`Port`</small> | `8000`</small> | The container port the proxy listens on. |
 | <small>`Server:Workers`</small> | <small>`Workers`</small> | `10`</small> | The number of concurrent workers. |
 | <small>`Server:MaxQueueLength`</small> | <small>`MaxQueueLength`</small> | `1000`</small> | Maximum number of backlogged requests. |
@@ -213,6 +214,7 @@ Each host entry supports the following fields:
 |---|---|
 | <small>`host`</small> | Backend URL (required). |
 | <small>`audience`</small> | OAuth audience claim for token requests. |
+| <small>`authprovider`</small> | Exact simple class name of the registered `IBackendTokenProvider` selected for this host. Defaults to `AzureProvider`; no naming suffix is required. |
 | <small>`api-key`</small> | API key value. Sets auth mode to `ApiKey`. |
 | <small>`api-key-header`</small> | Header name used to send the API key to the backend. |
 | <small>`ipaddress`</small> | Override IP address for the backend connection. |
@@ -241,9 +243,9 @@ The proxy polls each backend to determine which endpoints are healthy before rou
 | <small>`Server:PollTimeout`</small> | <small>`PollTimeout`</small> | <small>`3000`</small> | How long (in ms) the proxy waits for a health-check response before marking the endpoint unhealthy. Default = 3 seconds. |
 | <small>`CircuitBreaker:SuccessRate`</small> | <small>`SuccessRate`</small> | <small>`80`</small> | Minimum percentage of successful responses required for an endpoint to receive traffic. Below 80%, the endpoint is skipped. |
 | <small>`LoadBalancing:Mode`</small> | <small>`LoadBalanceMode`</small> | <small>`latency`</small> | Endpoint selection strategy. Options: `latency` (prefer fastest), `roundrobin`, or `random`. |
-| <small>`LoadBalancing:IterationMode`</small> | <small>`IterationMode`</small> | <small>`SinglePass`</small> | How endpoints are tried on retry. `SinglePass` tries each endpoint once per request. `MultiPass` allows repeated attempts up to `MaxAttempts`. |
+| <small>`LoadBalancing:IterationMode`</small> | <small>`IterationMode`</small> | <small>`SinglePass`</small> | How endpoints are tried on retry. `SinglePass` tries each endpoint once per request. `MultiPass` allows repeated attempts, capped by `MaxAttempts`. |
 | <small>`Request:DefaultTimeout`</small> | <small>`Timeout`</small> | <small>`1200000`</small> | How long (in ms) the proxy waits for a backend response before timing out. Default = 20 minutes. |
-| <small>`LoadBalancing:MultiPass:MaxAttempts`</small> | <small>`MaxAttempts`</small> | <small>`10`</small> | Maximum total backend attempts per request when `IterationMode` is `MultiPass`. |
+| <small>`LoadBalancing:MultiPass:MaxAttempts`</small> | <small>`MaxAttempts`</small> | <small>`10`</small> | Maximum total backend attempts per request in `MultiPass`; set to `0` to disable the attempt-count limit. |
 
 </details>
 

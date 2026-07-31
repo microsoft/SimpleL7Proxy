@@ -64,6 +64,7 @@ After host attempts are exhausted, the proxy requeues if at least one backend re
 | `S7PPriorityKey` | Looked up in `PriorityKeys`; matching entry sets the request priority from `PriorityValues`. Header name is configurable via `PriorityKeyHeader` |
 | `S7PTTL` | Time-to-live for the request (seconds). Expired requests return `412`. Default TTL is `DefaultTTLSecs` (300 s) |
 | `S7PTimeout` | Per-request timeout override (ms). Header name is configurable via `TimeoutHeader` |
+| `S7P-Iterator` | Per-request iteration mode override: `SinglePass` or `MultiPass` (case-insensitive). Missing or invalid values use the current `IterationMode` default |
 | `S7PREQUEUE` | Set by a **backend** on a `429` response to trigger requeue with retry-after logic |
 
 ---

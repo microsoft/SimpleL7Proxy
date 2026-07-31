@@ -27,7 +27,7 @@ Each goal below maps to one `set-variable` call in the policy (matching the `// 
 | `NO BACKENDS: retries exhausted` | `RetryCount <= 0`. |
 | `NO BACKENDS: all throttled ({label} - MM:SS, ...)` or `... (none)` | All priority backends throttling (PTU skipped if `contextWindowExceeded`). |
 | **Backend Throttled** | |
-| `THROTTLED: {label} Retry-After: MM:SS` | Temp error, or incomplete with 400/408/429/≥500. Reads `retry-after` header (+2s) or `defaultRetryAfter`; sets `isThrottling=true` and max `retryAfter`. |
+| `THROTTLED: {label} Retry-After: MM:SS` | Temp error, or incomplete with 400/408/429/≥500. Prefers `retry-after-ms` (+2s), then `retry-after` seconds (+2s), then `defaultRetryAfter`; sets `isThrottling=true` and max `retryAfter`. |
 | **Retry Decision** | |
 | `CALL SUCCESSFUL` | `callCompleted` and response status 200. |
 | `REQUEUE: true BACKENDS: [{i}]={label} Throttling={bool} RetryAfter={sec:F1}s ...` | `ShouldRequeue == true`. Repeated per priority backend. |

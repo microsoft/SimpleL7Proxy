@@ -63,7 +63,7 @@
 
     <!-- ================= PRIORITY RULES (edit me) =================
         For each request priority (1, 2, 3), set:
-            retryCount = how many times to retry
+            retryCount = the number of times a backend call will be attempted.  Loop cycles do not count as retries.
             requeue    = whether the request may be sent back to the queue -->
     <set-variable name="priorityCfg" value="@{
         return new JObject {
@@ -142,6 +142,7 @@
             backend["auth"] = (src["auth"] != null && src["auth"].Type != JTokenType.Null) ? src.Value<string>("auth") : "MI";
             backend["tokenProcessor"] = string.IsNullOrWhiteSpace(src.Value<string>("tokenProcessor")) ? "DefaultStream" : src.Value<string>("tokenProcessor");
             // acceptablePriorities may be a JArray ([1,2,3]) or a comma-separated string ("1,2,3").
+            // Missing, empty, or fully unparsable values intentionally allow all priorities.
             JToken ap = src["acceptablePriorities"];
             JArray priorities;
             if (ap != null && ap.Type == JTokenType.Array) {

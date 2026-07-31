@@ -1,11 +1,17 @@
 namespace SimpleL7Proxy.Backend;
 
+using System.Net.Http.Headers;
+
 public interface ICircuitBreaker
 {
     public string ID { get; set; } 
-    void TrackStatus(int code, bool wasFailure, string state);
+    void TrackStatus(int code, bool wasFailure, string state, HttpResponseHeaders? responseHeaders = null);
+
+    public bool TrackRetryAfter { get; set; }
     
-    Task<bool> CheckFailedStatusAsync(bool nosleep=false);
+    public int GetBackpressureDelay();
+    
+    public int GetMsToNextRetry();
 
     /// <summary>
     /// Removes this instance from the global circuit-breaker counters.

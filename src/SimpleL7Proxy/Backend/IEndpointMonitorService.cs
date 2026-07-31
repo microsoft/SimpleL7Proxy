@@ -13,7 +13,7 @@ public interface IEndpointMonitorService
   // BackendType BackendKind { get; }
   string HostStatus { get; }
   // void TrackStatus(int code, bool wasException);
-  Task<bool> CheckFailedStatusAsync(bool nosleep=false);
+  int EMSGetBackpressureDelay();
   // string OAuth2Token();
   Task WaitForStartupAsync();
   Task Stop();

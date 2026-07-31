@@ -219,8 +219,8 @@
       "subdomain_id": "sd02-01",
       "definition": "A single upstream endpoint the proxy can forward requests to. Configured as Host1 through Host9.",
       "key_settings": ["Host1","Host2","Host3","Host4","Host5","Host6","Host7","Host8","Host9"],
-      "connection_string_keys": ["host","probe","path","mode","processor","usemi","useoauth","api-key","api_key","api-key-header","audience","ipaddress","enabled","stripprefix","strippathprefix","retryafter","useretryafter"],
-      "related_concept_ids": ["c-connection-string-format", "c-health-poller", "c-circuit-breaker"],
+      "connection_string_keys": ["host","probe","path","mode","processor","usemi","useoauth","api-key","api_key","api-key-header","audience","authprovider","ipaddress","enabled","stripprefix","strippathprefix","retryafter","useretryafter"],
+      "related_concept_ids": ["c-connection-string-format", "c-health-poller", "c-circuit-breaker", "c-backend-token-provider"],
       "docs": ["reference/backend-hosts.md", "reference/environment-variables.md"]
     },
     {
@@ -479,7 +479,7 @@
       "name": "Iteration Mode",
       "domain_id": "d02",
       "subdomain_id": "sd02-03",
-      "definition": "Controls retry breadth. SinglePass tries each host at most once. MultiPass cycles through all hosts up to MaxAttempts total.",
+      "definition": "Controls retry breadth. SinglePass tries each host at most once. MultiPass cycles through all hosts until MaxAttempts is reached; set MaxAttempts to 0 to disable the cap.",
       "key_settings": ["IterationMode"],
       "allowed_values": ["SinglePass", "MultiPass"],
       "default_value": "SinglePass",
@@ -492,7 +492,7 @@
       "name": "Max Attempts",
       "domain_id": "d02",
       "subdomain_id": "sd02-03",
-      "definition": "Maximum total host attempts in MultiPass mode. Hosts skipped because their circuit is OPEN do not consume an attempt.",
+      "definition": "Maximum total host attempts in MultiPass mode. Set to 0 to disable the attempt-count limit. Hosts skipped because their circuit is OPEN do not consume an attempt.",
       "key_settings": ["MaxAttempts"],
       "default_value": 10,
       "reload_type": "Warm",
@@ -1316,6 +1316,17 @@
     },
 
     {
+      "id": "c-backend-token-provider",
+      "name": "Backend Token Provider",
+      "code_file": "Auth/IBackendTokenProvider.cs",
+      "domain_id": "d08",
+      "definition": "Outbound OAuth token implementation registered at startup through AuthProviders and selected per backend by the authprovider connection-string key using its exact simple class name.",
+      "key_settings": ["AuthProviderClass"],
+      "connection_string_key": "authprovider",
+      "related_concept_ids": ["c-oauth2-bearer", "c-managed-identity", "c-cold-setting"],
+      "docs": ["how-to/customize-token-provider.md", "reference/backend-hosts.md"]
+    },
+    {
       "id": "c-managed-identity",
       "name": "Managed Identity",
       "domain_id": "d08",
@@ -1503,6 +1514,7 @@
     { "name": "EVENTHUB_STARTUP_SECONDS","type": "int",   "reload": "Cold",  "default": 10,      "unit": "s", "concept_ids": ["c-event-hubs"] },
     { "name": "LOGDATETIME",           "type": "bool",   "reload": "Cold",   "default": false,   "concept_ids": ["c-proxy-event"] },
     { "name": "ReuseEvents",           "type": "bool",   "reload": "Cold",   "default": false,   "concept_ids": ["c-proxy-event"] },
+    { "name": "AuthProviderClass",     "config_name": "AuthProviders", "type": "string", "reload": "Cold", "default": "Auth.AzureProvider", "format": "comma-separated type names", "concept_ids": ["c-backend-token-provider"] },
     { "name": "EnvPluginClass",        "type": "string", "reload": "Cold",   "default": "SimpleL7Proxy.Plugin.AzureConfigPlugin", "concept_ids": ["c-config-plugin"] },
     { "name": "GC2InternalSecs",       "type": "int",    "reload": "Cold",   "default": 300,     "unit": "s", "concept_ids": [] },
     { "name": "StreamFlushInterval",   "type": "int",    "reload": "Cold",   "default": 250,     "unit": "ms", "concept_ids": ["c-stream-flush-interval"] },
@@ -1546,6 +1558,7 @@
     { "name": "S7PPriorityKey", "direction": "client-inbound",   "configurable_name_via": "PriorityKeyHeader", "definition": "Priority tier value. Looked up in PriorityKeys to determine the request's priority level.",       "concept_ids": ["c-priority-key-header","c-priority-mapping"] },
     { "name": "S7PTTL",         "direction": "client-inbound",   "configurable_name_via": "TTLHeader",         "definition": "Per-request TTL override in seconds. Formats: integer, decimal, absolute Unix timestamp, ISO 8601.", "concept_ids": ["c-ttl"] },
     { "name": "S7PTimeout",     "direction": "client-inbound",   "configurable_name_via": "TimeoutHeader",     "definition": "Per-request per-host timeout override in milliseconds.",                                            "concept_ids": ["c-timeout"] },
+    { "name": "S7P-Iterator",   "direction": "client-inbound",   "configurable_name_via": null,                "definition": "Per-request iteration mode override. Accepted values: SinglePass and MultiPass. Missing or invalid values use the current IterationMode default.", "concept_ids": ["c-iteration-mode"] },
     { "name": "S7PAsyncMode",   "direction": "client-inbound",   "configurable_name_via": "AsyncClientRequestHeader", "definition": "Opt-in header enabling async mode for this specific request.",                           "concept_ids": ["c-opt-in-header","c-async-mode"] },
     { "name": "S7PDEBUG",       "direction": "client-inbound",   "configurable_name_via": null,                "definition": "Set to true to enable per-request debug tracing in logs.",                                          "concept_ids": [] },
     { "name": "S7PREQUEUE",     "direction": "backend-response", "configurable_name_via": null,                "definition": "Set by a backend on a 429 response to signal the proxy should requeue the request.",                "concept_ids": ["c-s7prequeue-header","c-requeue"] },

@@ -2,8 +2,8 @@
 
 | Attribute | Value |
 |-----------|-------|
-| **Version** | 1.1 |
-| **Last Updated** | 2026-05-21 |
+| **Version** | 1.2 |
+| **Last Updated** | 2026-07-29 |
 | **Owner** | SimpleL7Proxy maintainers |
 | **Review Cycle** | Quarterly |
 
@@ -42,7 +42,7 @@ This document categorizes every SimpleL7Proxy configuration setting into three t
 | Env Var | Property | Mode | Default | Purpose |
 |---------|----------|------|---------|---------|
 | `Timeout` | `Timeout` | Warm | `1200000` ms (20 min) | Per-host request timeout; adjust for your SLAs |
-| `MaxAttempts` | `MaxAttempts` | Warm | `10` | Max retries per request |
+| `MaxAttempts` | `MaxAttempts` | Warm | `10` | Maximum total attempts in MultiPass; set to `0` to disable the attempt-count limit |
 | `DefaultPriority` | `DefaultPriority` | Warm | `2` | Base priority for requests without priority header |
 
 ---
@@ -176,7 +176,7 @@ This document categorizes every SimpleL7Proxy configuration setting into three t
 | `ValidateAuthKey1` | `ValidateAuthKey1` | Warm | `""` | First allowed inbound key value |
 | `ValidateAuthKey2` | `ValidateAuthKey2` | Warm | `""` | Second allowed inbound key value |
 
-Per-host auth should be configured in `HostN` connection strings using `useoauth` / `usemi`, `audience`, `api-key`, and `api-key-header`.
+Per-host auth should be configured in `HostN` connection strings using `useoauth` / `usemi`, `audience`, `authprovider`, `api-key`, and `api-key-header`.
 
 ### Logging (Advanced)
 | Env Var | Property | Mode | Default | Purpose |
@@ -199,6 +199,7 @@ Per-host auth should be configured in `HostN` connection strings using `useoauth
 ### Server / Performance Tuning (Advanced)
 | Env Var | Property | Mode | Default | Purpose |
 |---------|----------|------|---------|---------|
+| `AuthProviders` | `AuthProviderClass` | Cold | `Auth.AzureProvider` | Comma-separated token-provider types available for per-host selection through `authprovider` |
 | `GC2InternalSecs` | `GC2InternalSecs` | Cold | `300` s | Garbage collection internal cleanup interval |
 | `StreamFlushInterval` | `StreamFlushInterval` | Cold | `250` ms | Interval used by StreamFlusher to flush active response streams |
 | `SharedIteratorTTLSeconds` | `SharedIteratorTTLSeconds` | Cold | `60` s | TTL for an unused shared iterator |
@@ -235,6 +236,7 @@ Per-host auth should be configured in `HostN` connection strings using `useoauth
 
 | Version | Date | Changes | Author |
 |---------|------|---------|--------|
+| 1.2 | 2026-07-29 | Added the Cold `AuthProviders` setting used to register backend token-provider implementations | SimpleL7Proxy maintainers |
 | 1.1 | 2026-05-21 | Added metadata, TL;DR, Summary; removed internal meta-comment; fixed `BEGINNERDEVELOPMENT.md` → `BEGINNER_DEVELOPMENT.md`; added hyperlinks to all documents in mapping table; added Validation & Compliance and Version History sections | SimpleL7Proxy maintainers |
 | 1.0 | — | Initial version | SimpleL7Proxy maintainers |
 

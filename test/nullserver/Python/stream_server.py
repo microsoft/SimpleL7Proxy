@@ -4,6 +4,7 @@
 import time
 import random
 import json
+import math
 import signal
 import http.server
 import socket
@@ -121,6 +122,14 @@ def parse_delay(value):
 
 class MyHandler(http.server.BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
+    _rate_limit = 0
+    _rate_limit_lock = threading.Lock()
+    _rate_limit_window_start = 0.0
+    _rate_limit_request_count = 0
+    _retry_after_once_lock = threading.Lock()
+    _retry_after_once_keys = set()
+    _request_count_lock = threading.Lock()
+    _request_counts = {}
 
     def __init__(self, *args, **kwargs):
         self.gotAuth = ""
@@ -128,6 +137,9 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
     
     def log_message(self, format, *args):
         """Override the default log message to include Authorization and delay info"""
+        if os.environ.get('NULL_SERVER_QUIET', 'false').lower() == 'true':
+            return
+
         auth_info = f"[AUTH: {self.gotAuth}]" if self.gotAuth else "[AUTH: None]"
         delay_info = f" [DELAY: {self._delay_secs}s]" if getattr(self, '_delay_secs', 0) > 0 else ""
         # Insert auth and delay info before the request method
@@ -147,6 +159,50 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         self.do_GET()
         
     def do_GET(self):
+        parsed_path = urlparse(self.path)
+        query_params = parse_qs(parsed_path.query)
+
+        if parsed_path.path == '/stress-stats':
+            with MyHandler._request_count_lock:
+                body = json.dumps(MyHandler._request_counts, sort_keys=True).encode('utf-8')
+            self.send_fixed_response(200, body, content_type="application/json")
+            return
+
+        if parsed_path.path not in ('/health', '/status-0123456789abcdef'):
+            with MyHandler._request_count_lock:
+                MyHandler._request_counts[parsed_path.path] = MyHandler._request_counts.get(parsed_path.path, 0) + 1
+
+        if parsed_path.path not in ('/health', '/status-0123456789abcdef') and MyHandler._rate_limit > 0:
+            retry_after_seconds = None
+            retry_after_ms = None
+
+            with MyHandler._rate_limit_lock:
+                now = time.monotonic()
+                elapsed = now - MyHandler._rate_limit_window_start
+                if elapsed >= 5.0:
+                    elapsed_windows = int(elapsed // 5.0)
+                    MyHandler._rate_limit_window_start += elapsed_windows * 5.0
+                    MyHandler._rate_limit_request_count = 0
+
+                if MyHandler._rate_limit_request_count >= MyHandler._rate_limit:
+                    remaining = MyHandler._rate_limit_window_start + 5.0 - now
+                    retry_after_seconds = max(1, math.ceil(remaining))
+                    retry_after_ms = max(1, math.ceil(remaining * 1000))
+                else:
+                    MyHandler._rate_limit_request_count += 1
+
+            if retry_after_seconds is not None:
+                self.close_connection = True
+                self.send_fixed_response(
+                    429,
+                    b"Rate limit exceeded",
+                    extra_headers={
+                        "Retry-After": str(retry_after_seconds),
+                        "retry-after-ms": str(retry_after_ms),
+                        "Connection": "close"
+                    })
+                return
+
         processor = self.headers.get('X-TokenProcessor', 'MultiLineAllUsage')
         delayms = self.headers.get('X-DelaySecs', '0')
         streaming = self.headers.get('X-Streaming', 'false').lower() == 'true'
@@ -156,10 +212,6 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             sleep_time = random.uniform(delay_val, delay_val * 1.5)  # Random sleep time
             print("Sleeping for " + str(sleep_time) + " seconds before sending response.")
             time.sleep(sleep_time)
-
-
-        parsed_path = urlparse(self.path)
-        query_params = parse_qs(parsed_path.query)
 
         # All endpoints support ?delay=<value> (e.g. 1s, 500ms, 1000). Default 0 (no delay).
         delay_secs = parse_delay(query_params.get('delay', ['0'])[0])
@@ -182,6 +234,53 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
         if parsed_path.path == '/health':
             self.send_fixed_response(200, b"OK")
             return
+
+        if parsed_path.path == '/retry-after-once':
+            key = query_params.get('key', ['default'])[0]
+            try:
+                retry_after_ms = max(1, int(query_params.get('retryAfterMs', ['1500'])[0]))
+            except ValueError:
+                self.send_fixed_response(400, b"retryAfterMs must be a positive integer")
+                return
+
+            throttle_port = query_params.get('throttlePort', [None])[0]
+            if throttle_port is not None:
+                try:
+                    throttle_port = int(throttle_port)
+                except ValueError:
+                    self.send_fixed_response(400, b"throttlePort must be an integer")
+                    return
+
+                if self.server.server_address[1] != throttle_port:
+                    print(
+                        f"RETRY_AFTER_ONCE key={key} attempt=1 "
+                        f"timestamp={time.time():.6f} retry_after_ms={retry_after_ms} throttled=false",
+                        flush=True)
+                    self.send_fixed_response(200, b"Retry succeeded")
+                    return
+
+            with MyHandler._retry_after_once_lock:
+                first_attempt = key not in MyHandler._retry_after_once_keys
+                MyHandler._retry_after_once_keys.add(key)
+
+            attempt = 1 if first_attempt else 2
+            print(
+                f"RETRY_AFTER_ONCE key={key} attempt={attempt} "
+                f"timestamp={time.time():.6f} retry_after_ms={retry_after_ms} throttled={str(first_attempt).lower()}",
+                flush=True)
+
+            if first_attempt:
+                self.close_connection = True
+                self.send_fixed_response(
+                    503,
+                    b"Retry later",
+                    extra_headers={
+                        "Retry-After-Ms": str(retry_after_ms),
+                        "Connection": "close"
+                    })
+            else:
+                self.send_fixed_response(200, b"Retry succeeded")
+            return
         
         if parsed_path.path == '/429error':
             # Read the body
@@ -196,6 +295,13 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+            return
+
+        if parsed_path.path == '/429terminal':
+            self.send_fixed_response(
+                429,
+                b"Terminal rate limit",
+                extra_headers={"Retry-After-Ms": "100"})
             return
         
         # Pattern: /{code}error   ex: /412error, /500error, etc.
@@ -392,6 +498,18 @@ class ThreadedTCPServer(ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
 
     def server_bind(self):
+        rate_limit_value = os.environ.get('RATE_LIMIT_REQUESTS_PER_5_SECONDS', '0')
+        try:
+            rate_limit = int(rate_limit_value)
+        except ValueError as exc:
+            raise ValueError("RATE_LIMIT_REQUESTS_PER_5_SECONDS must be a non-negative integer") from exc
+        if rate_limit < 0:
+            raise ValueError("RATE_LIMIT_REQUESTS_PER_5_SECONDS must be a non-negative integer")
+
+        MyHandler._rate_limit = rate_limit
+        MyHandler._rate_limit_window_start = time.monotonic()
+        MyHandler._rate_limit_request_count = 0
+
         self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         super().server_bind()
 
@@ -417,10 +535,12 @@ def mt_main(port=None, shutdown_after=None):
         raise ValueError("Port must be between 1024 and 65535")
 
     httpd = ThreadedTCPServer(("localhost", effective_port), MyHandler)
+    rate_limit_status = (f"rate limit {MyHandler._rate_limit} requests/5s"
+                         if MyHandler._rate_limit > 0 else "rate limit disabled")
     if shutdown_after is not None:
-        print(f"Server started on port {effective_port} (will stop after {shutdown_after}s)...")
+        print(f"Server started on port {effective_port} ({rate_limit_status}, will stop after {shutdown_after}s)...")
     else:
-        print(f"Server started on port {effective_port}...")
+        print(f"Server started on port {effective_port} ({rate_limit_status})...")
 
     # Start server in a separate thread
     server_thread = threading.Thread(target=httpd.serve_forever)
@@ -452,7 +572,9 @@ def single_main():
 
     # Listen on port 3000
     httpd = ThreadedTCPServer(("localhost", 3000), MyHandler)
-    print("Server started on port 3000...")
+    rate_limit_status = (f"rate limit {MyHandler._rate_limit} requests/5s"
+                         if MyHandler._rate_limit > 0 else "rate limit disabled")
+    print(f"Server started on port 3000 ({rate_limit_status})...")
     try:
         httpd.serve_forever()
     finally:
