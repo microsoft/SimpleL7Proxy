@@ -1,5 +1,7 @@
 # Release Notes #
 
+2.2.17
+
 Proxy:
 * Bug fix: host count increment increment incorrectly with CB host
 * Bug fix: Return 412 when max attempts has been reached
