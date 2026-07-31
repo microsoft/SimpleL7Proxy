@@ -13,7 +13,7 @@ Usage: run-regression-master.sh [options] [-- <MSTest options>]
 Runs the regression project and appends its TRX results to one master HTML page.
 
 Options:
-  --filter <expression>    MSTest filter expression.
+    --filter <expression>    MSTest filter expression. Defaults to TestCategory!=Load.
   --label <text>           Label displayed for this execution.
     --run-id <id>            Master execution ID in yyyyMMdd-HH:mm:ss format.
   --results-root <path>    Report root. Defaults to test/RegressionTests/results.
@@ -23,6 +23,9 @@ To append separate scripts to one page:
     export REGRESSION_MASTER_RUN_ID=$(date -u +%Y%m%d-%H:%M:%S)
     bash ./run-policy-scenarios.sh
     bash ./run-priority-load.sh
+
+To run the consolidated load tests:
+    bash ./run-regression-master.sh --filter 'TestCategory=Load' --label 'Load tests'
 EOF
 }
 
@@ -177,7 +180,7 @@ regression_run() {
 
 regression_main() {
     local label=${REGRESSION_RUN_LABEL:-Full regression suite}
-    local filter=${REGRESSION_TEST_FILTER:-}
+    local filter=${REGRESSION_TEST_FILTER:-TestCategory!=Load}
     local -a extra_args=()
 
     while (($#)); do

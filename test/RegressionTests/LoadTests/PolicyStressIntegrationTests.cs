@@ -21,6 +21,7 @@ public sealed partial class PolicyScenarioIntegrationTests
     [TestCategory("Integration")]
     [TestCategory("APIMPolicy")]
     [TestCategory("Stress")]
+    [TestCategory("Load")]
     [Timeout(2_700_000)]
     public async Task V31Policy_SustainsOneThousandRequestorsForThirtyMinutes()
     {

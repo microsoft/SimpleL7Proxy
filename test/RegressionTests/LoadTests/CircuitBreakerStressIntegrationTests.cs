@@ -20,6 +20,7 @@ public sealed partial class PolicyScenarioIntegrationTests
     [TestCategory("Integration")]
     [TestCategory("CircuitBreaker")]
     [TestCategory("Stress")]
+    [TestCategory("Load")]
     [Timeout(240_000)]
     public async Task CircuitBreaker_ThreeHosts_CompletesSixtySecondsOfMixedTraffic()
     {
