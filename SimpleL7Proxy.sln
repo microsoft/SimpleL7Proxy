@@ -35,7 +35,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "RegressionTests", "Regressi
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ReportRenderer", "ReportRenderer", "{4281A764-117B-CFF7-4840-DD28D4153297}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RegressionReportRenderer", "test\RegressionTests\ReportRenderer\RegressionReportRenderer.csproj", "{23DE2DE2-59C1-499D-AEBF-DAADB7804655}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RegressionReportRenderer", "test\RegressionTests\Framework\ReportRenderer\RegressionReportRenderer.csproj", "{23DE2DE2-59C1-499D-AEBF-DAADB7804655}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

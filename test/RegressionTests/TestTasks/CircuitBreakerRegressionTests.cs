@@ -11,9 +11,22 @@ namespace SimpleL7Proxy.Test.CircuitBreakerRegression;
 
 [TestClass]
 [DoNotParallelize]
-public sealed class CircuitBreakerDeadlineTests
+public sealed class CircuitBreakerDeadlineTests : IRegressionTestMetadata
 {
+    public IReadOnlyDictionary<string, RegressionFeature> RegressionFeatures { get; } =
+        new Dictionary<string, RegressionFeature>
+        {
+            ["circuit-breaker-deadlines"] = new(
+                "Reliability & Capacity",
+                "Circuit-breaker retry deadlines",
+                "Confirms failure windows and Retry-After headers produce bounded backend retry deadlines and parent backpressure.")
+        };
+
     [TestMethod]
+    [RegressionTestCase(
+        "circuit-breaker-deadlines",
+        "Failures below the threshold leave the deadline closed",
+        "Tracks a failure without Retry-After headers and confirms it does not create a retry deadline below the configured threshold.")]
     public void TrackStatus_WithoutRetryHeaders_DoesNotSetDeadlineBelowThreshold()
     {
         using var breaker = CreateBreaker(threshold: 2, timeFrameSeconds: 30, trackRetryAfter: true);
@@ -26,6 +39,10 @@ public sealed class CircuitBreakerDeadlineTests
     }
 
     [TestMethod]
+    [RegressionTestCase(
+        "circuit-breaker-deadlines",
+        "Disabled Retry-After tracking ignores response headers",
+        "Confirms Retry-After headers do not affect the deadline when retry tracking is disabled for the backend.")]
     public void TrackStatus_WhenRetryTrackingDisabled_IgnoresRetryHeaders()
     {
         using var breaker = CreateBreaker(threshold: 2, timeFrameSeconds: 30, trackRetryAfter: false);
@@ -38,6 +55,10 @@ public sealed class CircuitBreakerDeadlineTests
     }
 
     [TestMethod]
+    [RegressionTestCase(
+        "circuit-breaker-deadlines",
+        "The larger Retry-After header controls the deadline",
+        "Supplies Retry-After in seconds and milliseconds and confirms the larger delay plus fixed jitter determines the deadline.")]
     public void TrackStatus_WithBothRetryHeaders_UsesLargerValueAndFixedJitter()
     {
         using var breaker = CreateBreaker(threshold: 2, timeFrameSeconds: 30, trackRetryAfter: true);
@@ -59,6 +80,10 @@ public sealed class CircuitBreakerDeadlineTests
     [DataTestMethod]
     [DataRow(5, 1000, 5000)]
     [DataRow(1, 3000, 3000 + Constants.RetryAfterJitterMaxMs)]
+    [RegressionTestCase(
+        "circuit-breaker-deadlines",
+        "The later retry constraint wins for a {0}-second failure window",
+        "Compares a {1} ms Retry-After value with the failure window and confirms the effective delay is {2} ms.")]
     public void TrackStatus_UsesLaterOfRetryAfterAndFailureWindow(
         int timeFrameSeconds,
         int retryAfterMs,
@@ -76,6 +101,10 @@ public sealed class CircuitBreakerDeadlineTests
     }
 
     [TestMethod]
+    [RegressionTestCase(
+        "circuit-breaker-deadlines",
+        "An all-blocked parent returns aggregate backpressure",
+        "Opens every child circuit breaker and confirms the parent reports twice the maximum child delay.")]
     public void Parent_WhenEveryChildIsBlocked_ReturnsDoubleMaximumDelay()
     {
         using var firstChild = CreateBreaker(threshold: 1, timeFrameSeconds: 30);
@@ -136,9 +165,22 @@ public sealed class CircuitBreakerDeadlineTests
 
 [TestClass]
 [DoNotParallelize]
-public sealed class NextHostCircuitBreakerTests
+public sealed class NextHostCircuitBreakerTests : IRegressionTestMetadata
 {
+    public IReadOnlyDictionary<string, RegressionFeature> RegressionFeatures { get; } =
+        new Dictionary<string, RegressionFeature>
+        {
+            ["circuit-breaker-host-availability"] = new(
+                "Traffic Routing",
+                "Circuit-breaker host availability",
+                "Confirms backend selection distinguishes all-open host sets from sets that still contain an eligible backend.")
+        };
+
     [TestMethod]
+    [RegressionTestCase(
+        "circuit-breaker-host-availability",
+        "All open hosts return the shortest retry delay",
+        "Evaluates three blocked hosts and confirms selection reports all open with the shortest available retry delay.")]
     public void EvalHostAvailability_WhenAllHostsOpen_ReturnsShortestRetry()
     {
         var firstBreaker = new StubCircuitBreaker(5000);
@@ -155,6 +197,10 @@ public sealed class NextHostCircuitBreakerTests
     }
 
     [TestMethod]
+    [RegressionTestCase(
+        "circuit-breaker-host-availability",
+        "An eligible peer keeps the host set available",
+        "Evaluates one blocked and one available host and confirms the host set remains selectable.")]
     public void EvalHostAvailability_WhenAnotherHostIsAvailable_ReturnsNotAllOpen()
     {
         var blockedBreaker = new StubCircuitBreaker(5000);
@@ -169,6 +215,10 @@ public sealed class NextHostCircuitBreakerTests
     }
 
     [TestMethod]
+    [RegressionTestCase(
+        "circuit-breaker-host-availability",
+        "Host availability is rescanned when cached state changes",
+        "Opens a previously available peer and confirms the next evaluation rescans the set and reports the shortest retry delay.")]
     public void EvalHostAvailability_WhenCachedAvailableHostOpens_RescansAllHosts()
     {
         var firstBreaker = new StubCircuitBreaker(5000);
@@ -185,6 +235,10 @@ public sealed class NextHostCircuitBreakerTests
     }
 
     [TestMethod]
+    [RegressionTestCase(
+        "circuit-breaker-host-availability",
+        "Per-request iteration visits every configured host",
+        "Traverses a two-host iterator and confirms each backend is returned exactly once for the request.")]
     public void TryGet_TraversesPerRequestIterator()
     {
         using var hosts = new HostFixture(new StubCircuitBreaker(0), new StubCircuitBreaker(0));
@@ -203,9 +257,22 @@ public sealed class NextHostCircuitBreakerTests
 
 [TestClass]
 [DoNotParallelize]
-public sealed class CircuitBreakerPerformanceTests
+public sealed class CircuitBreakerPerformanceTests : IRegressionTestMetadata
 {
+    public IReadOnlyDictionary<string, RegressionFeature> RegressionFeatures { get; } =
+        new Dictionary<string, RegressionFeature>
+        {
+            ["circuit-breaker-evaluation-throughput"] = new(
+                "Reliability & Capacity",
+                "Circuit-breaker evaluation throughput",
+                "Measures sustained all-open host evaluation while confirming each result remains correct under repeated calls.")
+        };
+
     [TestMethod]
+    [RegressionTestCase(
+        "circuit-breaker-evaluation-throughput",
+        "Three-host availability evaluation sustains repeated calls",
+        "Runs all-open host evaluation for ten seconds, reports throughput, and confirms every final availability field remains valid.")]
     [TestCategory("Performance")]
     public void EvalHostAvailability_ThreeOpenHosts_TenSecondsReportsThroughput()
     {

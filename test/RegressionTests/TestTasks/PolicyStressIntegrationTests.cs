@@ -184,10 +184,12 @@ public sealed partial class PolicyScenarioIntegrationTests
         Assert.IsTrue(totals.Started > 0, "The stress test did not start any requests.");
         Assert.AreEqual(totals.Started, totals.Completed, "Every started request must reach a terminal client outcome.");
         Assert.AreEqual(0L, totals.InFlight, "No requests may remain in flight after the drain phase.");
+        var mediumTtlExpired = medium.Outcomes.GetValueOrDefault(
+            ((int)HttpStatusCode.PreconditionFailed).ToString(CultureInfo.InvariantCulture));
         Assert.AreEqual(
-            0L,
+            mediumTtlExpired,
             medium.Failed,
-            "Medium-priority requests must requeue until they complete or reach their request TTL.");
+            "Medium-priority requests may complete or reach HTTP 412 at their request TTL; no other failure is allowed.");
         Assert.IsTrue(
             finalMetrics.Priorities
                 .Where(priority => priority.Priority != "ALL")

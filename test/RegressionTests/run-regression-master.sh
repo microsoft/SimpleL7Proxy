@@ -2,8 +2,8 @@
 
 _regression_script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 _regression_project="$_regression_script_dir/SimpleL7Proxy.Test.csproj"
-_regression_renderer_project="$_regression_script_dir/ReportRenderer/RegressionReportRenderer.csproj"
-_regression_renderer_dll="$_regression_script_dir/ReportRenderer/bin/Debug/net10.0/RegressionReportRenderer.dll"
+_regression_renderer_project="$_regression_script_dir/Framework/ReportRenderer/RegressionReportRenderer.csproj"
+_regression_renderer_dll="$_regression_script_dir/Framework/ReportRenderer/bin/Debug/net10.0/RegressionReportRenderer.dll"
 _regression_test_assembly="$_regression_script_dir/bin/Debug/net10.0/SimpleL7Proxy.Test.dll"
 
 regression_usage() {

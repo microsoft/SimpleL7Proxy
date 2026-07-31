@@ -37,6 +37,7 @@
 - An empty HTTP 200 means retry under the normal backend-selection rules; do not force failover or exclude the current backend unless the contract explicitly changes.
 - `test/RegressionTests/configs/policy-test.json` supplies checked-in policy and stress defaults; `policy-test.local.json` overlays matching test and proxy settings. Keep security values local and keep the base stress profile aligned with `PolicyStressSettings` when changing the standard stress run.
 - In policy stress results, classify terminal HTTP 429 responses as incomplete, not failed; final drain still requires every started request to complete and `InFlight` to reach zero.
+- In policy stress results, medium-priority HTTP 412 is an expected request-TTL outcome; permit its count explicitly while continuing to reject other failures such as HTTP 408.
 - For `MSTest.Sdk` 3.7.0 projects, run the generated test assembly directly when a method-level `dotnet test --filter` is ignored: `dotnet path/to/Tests.dll --filter "Name=TestMethod"`.
 - Local proxy tests that wait on `/startup` need more than 30 seconds when profiles are disabled because `UserProfile` closes its readiness gate on a fixed 30-second timer; use at least a 45-second timeout.
 - Focused backend integration tests can wait for the `S7P-Backend` event with the expected `ActiveHostsCount` instead of `/startup` when unrelated readiness participants are outside the test contract.
@@ -56,3 +57,4 @@
 - The `shell: build SimpleL7Proxy only` VS Code task can pass its UNC workspace path to WSL as `//wsl.localhost/...` and fail with MSB1009; validate from WSL with `dotnet build src/SimpleL7Proxy/SimpleL7Proxy.csproj` instead.
 - Run terminal diagnostics sequentially because `run_in_terminal` reuses shell state; disable Git pagers with `git --no-pager` for non-interactive checks.
 - After extracting a large declaration with `apply_patch`, inspect both source boundaries before proceeding; malformed context markers can be inserted literally even when the patch reports success.
+- This repository's WSL environment does not include `rg`; use `git grep` for tracked-file searches.

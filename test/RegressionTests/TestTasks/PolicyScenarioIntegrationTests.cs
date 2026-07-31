@@ -30,7 +30,19 @@ public sealed partial class PolicyScenarioIntegrationTests : IRegressionTestMeta
             ["apim-policy-load"] = new(
                 "Reliability & Capacity",
                 "APIM policy under load",
-                "Confirms the APIM policy can sustain concurrent demand, throttling, and recovery without losing started requests.")
+                "Confirms the APIM policy can sustain concurrent demand, throttling, and recovery without losing started requests."),
+            ["circuit-breaker-retry-after"] = new(
+                "Reliability & Capacity",
+                "Circuit-breaker Retry-After handling",
+                "Confirms Retry-After responses open the circuit breaker and delay retries until the backend is eligible again."),
+            ["circuit-breaker-multi-host-selection"] = new(
+                "Traffic Routing",
+                "Circuit-breaker backend selection",
+                "Confirms throttled backends are skipped while an eligible peer remains available."),
+            ["circuit-breaker-three-host-stress"] = new(
+                "Reliability & Capacity",
+                "Circuit-breaker mixed-traffic stress",
+                "Confirms three backends drain sustained mixed traffic across success, retry, expiration, and terminal failure paths.")
         };
 
     private const int StartupTimeoutSeconds = 180;
