@@ -8,25 +8,103 @@ _regression_test_assembly="$_regression_script_dir/bin/Debug/net10.0/SimpleL7Pro
 
 regression_usage() {
     cat <<'EOF'
-Usage: run-regression-master.sh [options] [-- <MSTest options>]
+SimpleL7Proxy test runner
 
-Runs the regression project and appends its TRX results to one master HTML page.
+Usage:
+  ./run-regression-master.sh [SUITE] [OPTIONS]
+  ./run-regression-master.sh test TEST_NAME [OPTIONS]
+  ./run-regression-master.sh category CATEGORY [OPTIONS]
+  ./run-regression-master.sh list [SUITE] [OPTIONS]
+
+Suites:
+  fast          Quick local checks; skips integration, load, and performance tests.
+  regression    Standard regression run without load tests. This is the default.
+  integration   Integration tests without load tests.
+  load          Load and stress tests. Requires their external dependencies.
+  all           Every test, including load and stress tests.
+
+Commands:
+  test NAME          Run one test method by name.
+  category NAME      Run one MSTest category, such as CircuitBreaker or Iterator.
+  list [SUITE]       Build and list matching tests without running them. Defaults to all.
 
 Options:
-    --filter <expression>    MSTest filter expression. Defaults to TestCategory!=Load.
-  --label <text>           Label displayed for this execution.
-    --run-id <id>            Master execution ID in yyyyMMdd-HH:mm:ss format.
-  --results-root <path>    Report root. Defaults to test/RegressionTests/results.
-  -h, --help               Show this help.
+  -l, --list             List matching tests instead of running them.
+  --filter EXPRESSION    Override the selection with an MSTest filter.
+  --label TEXT           Set the name shown in the HTML report.
+  --run-id ID            Append to a master run using yyyyMMdd-HH:mm:ss.
+  --results-root PATH    Store reports under PATH.
+  -h, --help             Show this help.
+  --                     Pass remaining options to MSTest.
 
-To append separate scripts to one page:
-    export REGRESSION_MASTER_RUN_ID=$(date -u +%Y%m%d-%H:%M:%S)
-    bash ./run-policy-scenarios.sh
-    bash ./run-priority-load.sh
-
-To run the consolidated load tests:
-    bash ./run-regression-master.sh --filter 'TestCategory=Load' --label 'Load tests'
+Examples:
+  ./run-regression-master.sh
+  ./run-regression-master.sh fast
+  ./run-regression-master.sh integration
+  ./run-regression-master.sh load
+  ./run-regression-master.sh test Reset_AllowsReIteration
+  ./run-regression-master.sh category CircuitBreaker
+  ./run-regression-master.sh list load
 EOF
+}
+
+regression_usage_error() {
+    printf 'Error: %s\n' "$1" >&2
+    printf 'Run ./run-regression-master.sh --help for usage.\n' >&2
+}
+
+regression_resolve_suite() {
+    local suite=$1
+    local -n target_label=$2
+    local -n target_filter=$3
+
+    case "$suite" in
+        fast)
+            target_label="Fast checks"
+            target_filter="TestCategory!=Integration&TestCategory!=Load&TestCategory!=Performance"
+            ;;
+        regression)
+            target_label="Regression"
+            target_filter="TestCategory!=Load"
+            ;;
+        integration)
+            target_label="Integration"
+            target_filter="TestCategory=Integration&TestCategory!=Load"
+            ;;
+        load)
+            target_label="Load and stress"
+            target_filter="TestCategory=Load"
+            ;;
+        all)
+            target_label="All tests"
+            target_filter=""
+            ;;
+        *)
+            return 2
+            ;;
+    esac
+}
+
+regression_list_tests() {
+    local label=$1
+    local filter=${2:-}
+    shift 2
+
+    printf '\nSimpleL7Proxy test catalog\n'
+    printf '  Selection: %s\n' "$label"
+    if [[ -n "$filter" ]]; then
+        printf '  Filter: %s\n' "$filter"
+    fi
+    printf '\n'
+
+    dotnet build "$_regression_project" --nologo --verbosity quiet
+
+    local -a command=(dotnet "$_regression_test_assembly" --list-tests)
+    if [[ -n "$filter" ]]; then
+        command+=(--filter "$filter")
+    fi
+    command+=("$@")
+    "${command[@]}"
 }
 
 regression_slug() {
@@ -136,7 +214,12 @@ regression_finalize_execution() {
         --started-utc "$started_utc" \
         --completed-utc "$completed_utc" >/dev/null
 
-    printf '\nRegression HTML report: %s\n' "$REGRESSION_MASTER_HTML"
+    if ((exit_code == 0)); then
+        printf '\nResult: PASS\n'
+    else
+        printf '\nResult: FAIL (exit code %s)\n' "$exit_code"
+    fi
+    printf 'Regression HTML report: %s\n' "$REGRESSION_MASTER_HTML"
 }
 
 regression_run() {
@@ -146,6 +229,15 @@ regression_run() {
 
     regression_initialize "$label"
     regression_prepare_execution "$label"
+
+    printf '\nSimpleL7Proxy tests\n'
+    printf '  Run: %s\n' "$label"
+    if [[ -n "$filter" ]]; then
+        printf '  Filter: %s\n' "$filter"
+    else
+        printf '  Filter: all tests\n'
+    fi
+    printf '  Report: %s\n\n' "$REGRESSION_MASTER_HTML"
 
     local -a command
     regression_build_command command "$filter" "$@"
@@ -179,27 +271,108 @@ regression_run() {
 }
 
 regression_main() {
-    local label=${REGRESSION_RUN_LABEL:-Full regression suite}
-    local filter=${REGRESSION_TEST_FILTER:-TestCategory!=Load}
+    local command=regression
+    local command_explicit=false
+    if (($#)) && [[ "$1" != -* ]]; then
+        command=$1
+        command_explicit=true
+        shift
+    fi
+
+    local default_label
+    local filter
+    local list_only=false
+
+    case "$command" in
+        fast|regression|integration|load|all)
+            if ! regression_resolve_suite "$command" default_label filter; then
+                regression_usage_error "Unknown suite '$command'."
+                return 2
+            fi
+            ;;
+        test)
+            if (($# == 0)) || [[ "$1" == -* ]]; then
+                regression_usage_error "The test command requires a test method name."
+                return 2
+            fi
+            default_label="Test: $1"
+            filter="Name=$1"
+            shift
+            ;;
+        category)
+            if (($# == 0)) || [[ "$1" == -* ]]; then
+                regression_usage_error "The category command requires a category name."
+                return 2
+            fi
+            default_label="Category: $1"
+            filter="TestCategory=$1"
+            shift
+            ;;
+        list)
+            list_only=true
+            local suite=all
+            if (($#)) && [[ "$1" != -* ]]; then
+                suite=$1
+                shift
+            fi
+            if ! regression_resolve_suite "$suite" default_label filter; then
+                regression_usage_error "Unknown suite '$suite'."
+                return 2
+            fi
+            ;;
+        help)
+            regression_usage
+            return 0
+            ;;
+        *)
+            regression_usage_error "Unknown command or suite '$command'."
+            return 2
+            ;;
+    esac
+
+    local label=${REGRESSION_RUN_LABEL:-$default_label}
+    if [[ "$command_explicit" == false ]]; then
+        filter=${REGRESSION_TEST_FILTER:-$filter}
+    fi
     local -a extra_args=()
 
     while (($#)); do
         case "$1" in
             --filter)
+                if (($# < 2)); then
+                    regression_usage_error "--filter requires an expression."
+                    return 2
+                fi
                 filter=$2
                 shift 2
                 ;;
             --label)
+                if (($# < 2)); then
+                    regression_usage_error "--label requires text."
+                    return 2
+                fi
                 label=$2
                 shift 2
                 ;;
             --run-id)
+                if (($# < 2)); then
+                    regression_usage_error "--run-id requires an ID."
+                    return 2
+                fi
                 REGRESSION_MASTER_RUN_ID=$2
                 shift 2
                 ;;
             --results-root)
+                if (($# < 2)); then
+                    regression_usage_error "--results-root requires a path."
+                    return 2
+                fi
                 REGRESSION_RESULTS_ROOT=$2
                 shift 2
+                ;;
+            -l|--list)
+                list_only=true
+                shift
                 ;;
             -h|--help)
                 regression_usage
@@ -210,13 +383,21 @@ regression_main() {
                 extra_args+=("$@")
                 break
                 ;;
+            -*)
+                regression_usage_error "Unknown option '$1'."
+                return 2
+                ;;
             *)
-                printf 'Unknown option: %s\n' "$1" >&2
-                regression_usage >&2
+                regression_usage_error "Unexpected argument '$1'."
                 return 2
                 ;;
         esac
     done
+
+    if [[ "$list_only" == true ]]; then
+        regression_list_tests "$label" "$filter" "${extra_args[@]}"
+        return
+    fi
 
     regression_run "$label" "$filter" "${extra_args[@]}"
 }

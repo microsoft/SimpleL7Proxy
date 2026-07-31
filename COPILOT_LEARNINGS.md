@@ -38,7 +38,7 @@
 - `test/RegressionTests/configs/policy-test.json` supplies checked-in policy and stress defaults; `policy-test.local.json` overlays matching test and proxy settings. Keep security values local and keep the base stress profile aligned with `PolicyStressSettings` when changing the standard stress run.
 - In policy stress results, classify terminal HTTP 429 responses as incomplete, not failed; final drain still requires every started request to complete and `InFlight` to reach zero.
 - In policy stress results, medium-priority HTTP 412 is an expected request-TTL outcome; permit its count explicitly while continuing to reject other failures such as HTTP 408.
-- Keep load workloads in `test/RegressionTests/LoadTests` with `TestCategory("Load")`; the default master run excludes them, and `--filter 'TestCategory=Load'` runs the consolidated load group.
+- Keep load workloads in `test/RegressionTests/LoadTests` with `TestCategory("Load")`; the default master run excludes them, and `./run-regression-master.sh load` runs the consolidated load group.
 - For `MSTest.Sdk` 3.7.0 projects, run the generated test assembly directly when a method-level `dotnet test --filter` is ignored: `dotnet path/to/Tests.dll --filter "Name=TestMethod"`.
 - Rebuild RegressionTests after changing source or helpers before invoking its generated test assembly directly; direct assembly execution does not compile pending changes.
 - Local proxy tests that wait on `/startup` need more than 30 seconds when profiles are disabled because `UserProfile` closes its readiness gate on a fixed 30-second timer; use at least a 45-second timeout.
