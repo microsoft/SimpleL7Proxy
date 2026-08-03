@@ -1,5 +1,8 @@
 # Release Notes #
 
+2.2.13.2.1
+Bug fix: refresh tokens 200ms before expiration, use tokens with at least 100ms, use atomic token list, reduce error time to 5s
+
 2.2.13.2
 Added Lifetime-Attempts, Policy-Cycle-Counter, Lifetime-Policy-Counter to Event Data
 
