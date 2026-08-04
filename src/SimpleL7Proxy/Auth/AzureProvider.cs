@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure.Core;
@@ -11,10 +12,11 @@ namespace SimpleL7Proxy.Auth
 {
     public class AzureProvider : IBackendTokenProvider, IHostedService, IReadinessParticipant
     {
+        private static readonly TimeSpan _tokenExpiryBuffer = TimeSpan.FromMilliseconds(100);
+        private static readonly TimeSpan _tokenRefreshExpiryBuffer = TimeSpan.FromMilliseconds(200);
         public ReadinessParticipantEnum Participant => ReadinessParticipantEnum.BackendTokens;
         public ReadinessRegistry Readiness { get; }
-        private readonly Dictionary<string, AccessToken> _tokenDict = new();
-        private readonly Dictionary<string, DateTimeOffset> _tokenExpiryDict = new();
+        private readonly ConcurrentDictionary<string, AccessToken> _tokenDict = new();
         private readonly HashSet<string> _audiences = new();
         private readonly Dictionary<string, Task> _refreshTasks = new();
         private static CancellationToken _cancellationToken = CancellationToken.None;
@@ -85,15 +87,16 @@ namespace SimpleL7Proxy.Auth
         {
             if (string.IsNullOrEmpty(audience)) return string.Empty;
 
-            if (!_tokenDict.ContainsKey(audience) || _tokenExpiryDict[audience] < DateTime.UtcNow)
+            while (true)
             {
-                // Wait for token to be refreshed
-                while (!_tokenDict.ContainsKey(audience) || _tokenExpiryDict[audience] < DateTime.UtcNow)
+                if (_tokenDict.TryGetValue(audience, out var token)
+                    && token.ExpiresOn > DateTimeOffset.UtcNow.Add(_tokenExpiryBuffer))
                 {
-                    await Task.Delay(100).ConfigureAwait(false);
+                    return token.Token ?? string.Empty;
                 }
+
+                await Task.Delay(100).ConfigureAwait(false);
             }
-            return _tokenDict[audience].Token ?? "";
         }
 
         /// <summary>
@@ -126,7 +129,6 @@ namespace SimpleL7Proxy.Auth
                             var tokenRequestContext = new TokenRequestContext(new[] { audience });
                             var token = await credential.GetTokenAsync(tokenRequestContext, _cancellationToken);
                             _tokenDict[audience] = token;
-                            _tokenExpiryDict[audience] = token.ExpiresOn;
                             this.RegisterReady(); // idempotent — first successful fetch satisfies the gate
                             _logger.LogInformation($"[TOKEN] Refreshed token for audience: {audience}, expires: {token.ExpiresOn}");
                             new ProxyEvent()
@@ -137,13 +139,13 @@ namespace SimpleL7Proxy.Auth
                                 ["ExpiresOn"] = token.ExpiresOn.ToString()
                             }.SendEvent();
 
-                            var delay = Math.Max(0, (token.ExpiresOn - DateTime.UtcNow).TotalMilliseconds - 100);
+                            var delay = Math.Max(0, (token.ExpiresOn - DateTimeOffset.UtcNow - _tokenRefreshExpiryBuffer).TotalMilliseconds);
                             await Task.Delay((int)delay, _cancellationToken);
                         }
                         catch (Exception ex)
                         {
                             _logger.LogError($"[TOKEN] Error refreshing token for audience {audience}: {ex.Message}");
-                            await Task.Delay(10000, _cancellationToken); // Wait 10s before retry
+                            await Task.Delay(5000, _cancellationToken); // Wait 5s before retry
                         }
                     }
                 }
