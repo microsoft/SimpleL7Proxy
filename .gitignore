@@ -7,8 +7,9 @@ launch.json
 deploy.parameters.sh
 appsettings.Development.json
 
-test/QueueBenchmarks/results/*
-test/RegressionTests/results/*
+test/QueueBenchmarks/results/
+test/RegressionTests/results/
+src/ChatTester/data/
 *.local.json
 .keys/
 test/chat_tester/artifacts
