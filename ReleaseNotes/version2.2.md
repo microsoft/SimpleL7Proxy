@@ -1,5 +1,8 @@
 # Release Notes #
 
+2.2.13.2.2
+Bug fix: capture client read errors
+
 2.2.13.2.1
 Bug fix: refresh tokens 200ms before expiration, use tokens with at least 100ms, use atomic token list, reduce error time to 5s
 
