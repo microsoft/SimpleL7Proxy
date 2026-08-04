@@ -64,7 +64,7 @@ public class ProxyConfig
     [ConfigOption("Logging:LogToConsole")]
     public List<string> LogToConsole { get; set; } = ["*", "-custom"];
     [ConfigOption("Logging:LogToEvents")]
-    public List<string> LogToEvents { get; set; } = ["async","backend","probe","circuitbreaker","custom","exception","profile","proxy","enqueued","auth"];
+    public List<string> LogToEvents { get; set; } = ["async","exception","backend","probe","circuitbreaker","custom","exception","profile","proxy","enqueued","auth"];
 
     // ── Profiles ──
     [ConfigOption("Profiles:Auth:ConfigUrl")]

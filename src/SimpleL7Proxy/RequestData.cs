@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Threading.Tasks;
@@ -201,6 +202,8 @@ public class RequestData : IDisposable, IAsyncDisposable
     public bool Debug { get; set; }
     public bool SkipDispose { get; set; } = false;
     public byte[]? BodyBytes { get; set; } = null;
+    public long BodyReadBytes { get; private set; }
+    public double BodyReadDurationMilliseconds { get; private set; }
     public DateTime DequeueTime { get; set; }
     public DateTime EnqueueTime { get; set; }
     public DateTime ExpiresAt { get; set; }
@@ -386,8 +389,17 @@ public class RequestData : IDisposable, IAsyncDisposable
         // Read the body stream once and reuse it
         using (MemoryStream ms = new())
         {
-            await Body.CopyToAsync(ms);
-            BodyBytes = ms.ToArray();
+            var bodyReadStart = Stopwatch.GetTimestamp();
+            try
+            {
+                await Body.CopyToAsync(ms).ConfigureAwait(false);
+                BodyBytes = ms.ToArray();
+            }
+            finally
+            {
+                BodyReadBytes = ms.Length;
+                BodyReadDurationMilliseconds = Stopwatch.GetElapsedTime(bodyReadStart).TotalMilliseconds;
+            }
         }
 
         return BodyBytes;

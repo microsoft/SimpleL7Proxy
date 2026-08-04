@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -427,9 +428,22 @@ public class ProxyWorker : IConfigChangeSubscriber
                 catch (S7PClientReadException e)
                 {
                     _lifecycleManager.TransitionToFailed(incomingRequest, HttpStatusCode.BadRequest, e.Message);
+                    var failedRequest = e.Request;
+                    var listenerRequest = failedRequest.Context?.Request;
+                    var innerException = e.InnerException ?? e;
+                    var declaredContentLength = listenerRequest?.ContentLength64 ?? -1;
+
                     eventData.Status = HttpStatusCode.BadRequest;
                     eventData["Error"] = "Client Read Exception";
-                    eventData["ErrorDetails"] = e.InnerException?.Message ?? e.Message;
+                    eventData["ErrorDetails"] = innerException.Message;
+                    eventData["ClientRead-ExceptionType"] = innerException.GetType().FullName ?? innerException.GetType().Name;
+                    eventData["ClientRead-ListenerErrorCode"] = innerException is HttpListenerException listenerException
+                        ? listenerException.ErrorCode.ToString(CultureInfo.InvariantCulture)
+                        : "N/A";
+                    eventData["ClientRead-DeclaredContentLength"] = declaredContentLength.ToString(CultureInfo.InvariantCulture);
+                    eventData["ClientRead-BytesRead"] = failedRequest.BodyReadBytes.ToString(CultureInfo.InvariantCulture);
+                    eventData["ClientRead-ReadDurationMs"] = failedRequest.BodyReadDurationMilliseconds.ToString("F3", CultureInfo.InvariantCulture);
+                    eventData["ClientRead-TransferEncoding"] = failedRequest.Headers["Transfer-Encoding"] ?? "N/A";
                     eventData.Type = EventType.Exception;
                     eventData.Exception = e;
 
