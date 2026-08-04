@@ -42,7 +42,11 @@ public sealed partial class PolicyScenarioIntegrationTests : IRegressionTestMeta
             ["circuit-breaker-three-host-stress"] = new(
                 "Reliability & Capacity",
                 "Circuit-breaker mixed-traffic stress",
-                "Confirms three backends drain sustained mixed traffic across success, retry, expiration, and terminal failure paths.")
+                "Confirms three backends drain sustained mixed traffic across success, retry, expiration, and terminal failure paths."),
+            ["request-body-read-failure"] = new(
+                "Request Lifecycle",
+                "Disconnected request body handling",
+                "Ensures an incomplete client request returns HTTP 400, emits exception telemetry, and is not forwarded to a backend.")
         };
 
     private const int StartupTimeoutSeconds = 180;
@@ -156,36 +160,23 @@ public sealed partial class PolicyScenarioIntegrationTests : IRegressionTestMeta
                     TestContext.WriteLine(
                         $"PASS {scenario.Name}: HTTP {result.StatusCode}, " +
                         $"attempts={result.BackendAttempts ?? "missing"}");
-                    if (!settings.KeepArtifacts)
-                    {
-                        Directory.Delete(result.ArtifactDirectory, recursive: true);
-                    }
                 }
                 else
                 {
                     failures.Add($"{scenario.Name}: {string.Join("; ", result.Errors)}");
-                    AttachScenarioArtifacts(result.ArtifactDirectory);
                 }
             }
             catch (Exception exception)
             {
                 failures.Add($"{scenario.Name}: harness failure: {exception.Message}");
-                var scenarioDirectory = Path.Combine(artifactRoot, SanitizePathPart(scenario.Name));
-                AttachScenarioArtifacts(scenarioDirectory);
             }
         }
 
         await proxy.StopAsync();
-
-        if (failures.Count == 0 && !settings.KeepArtifacts && Directory.Exists(artifactRoot))
-        {
-            Directory.Delete(artifactRoot, recursive: true);
-        }
+        AttachScenarioArtifacts(artifactRoot);
 
         if (failures.Count > 0)
         {
-            TestContext.AddResultFile(proxyOutputPath);
-            TestContext.AddResultFile(proxyErrorPath);
             Assert.Fail(
                 $"{failures.Count} of {scenarios.Count} policy scenarios failed:" +
                 Environment.NewLine +
@@ -634,7 +625,7 @@ public sealed partial class PolicyScenarioIntegrationTests : IRegressionTestMeta
             return;
         }
 
-        foreach (var file in Directory.EnumerateFiles(artifactDirectory))
+        foreach (var file in Directory.EnumerateFiles(artifactDirectory, "*", SearchOption.AllDirectories))
         {
             TestContext.AddResultFile(file);
         }

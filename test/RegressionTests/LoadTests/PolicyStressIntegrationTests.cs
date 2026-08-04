@@ -68,7 +68,7 @@ public sealed partial class PolicyScenarioIntegrationTests
             proxyAssembly,
             proxyPort,
             eventLogPath);
-        proxyStartInfo.Environment["EVENT_LOGGERS"] = "none";
+        proxyStartInfo.Environment["EVENT_LOGGERS"] = "file";
         proxyStartInfo.Environment["LOG_LEVEL"] = "Warning";
         proxyStartInfo.Environment["MaxQueueLength"] = Math.Max(
             5_000,

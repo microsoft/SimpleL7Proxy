@@ -21,7 +21,6 @@ public sealed partial class PolicyScenarioIntegrationTests
     {
         var config = IteratorTestLocalConfig.Load();
         var timeout = TimeSpan.FromSeconds(config.GetPositiveInt("ITERATOR_TEST_TIMEOUT_SECONDS", 30));
-        var keepArtifacts = config.GetBool("ITERATOR_TEST_KEEP_ARTIFACTS", true);
         var pythonExecutable = config.GetValue("ITERATOR_TEST_PYTHON", "python3");
 
         var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "SimpleL7Proxy.dll");
@@ -44,8 +43,6 @@ public sealed partial class PolicyScenarioIntegrationTests
 
         var backendProcesses = new List<LoggedProcess>();
         LoggedProcess? proxy = null;
-        var passed = false;
-
         try
         {
             for (int index = 0; index < backendPorts.Length; index++)
@@ -109,7 +106,6 @@ public sealed partial class PolicyScenarioIntegrationTests
                     $"hosts={string.Join(" -> ", result.Select(attempt => attempt.BackendHost))}");
             }
 
-            passed = true;
         }
         finally
         {
@@ -123,14 +119,7 @@ public sealed partial class PolicyScenarioIntegrationTests
                 await backend.DisposeAsync();
             }
 
-            if (!passed || keepArtifacts)
-            {
-                AttachScenarioArtifacts(artifactRoot);
-            }
-            else if (Directory.Exists(artifactRoot))
-            {
-                Directory.Delete(artifactRoot, recursive: true);
-            }
+            AttachScenarioArtifacts(artifactRoot);
         }
     }
 

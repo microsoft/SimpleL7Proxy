@@ -100,7 +100,7 @@ public sealed class PriorityLoadIntegrationTests : IRegressionTestMetadata
                     $"Priority '{priority.Key}' contains failed requests.");
             }
 
-            Directory.Delete(artifactDirectory, recursive: true);
+            AttachArtifacts(artifactDirectory);
         }
         catch
         {
@@ -126,6 +126,7 @@ public sealed class PriorityLoadIntegrationTests : IRegressionTestMetadata
         var nullServerError = Path.Combine(artifactDirectory, "null-server.stderr.log");
         var proxyOutput = Path.Combine(artifactDirectory, "proxy.stdout.log");
         var proxyError = Path.Combine(artifactDirectory, "proxy.stderr.log");
+        var eventLog = Path.Combine(artifactDirectory, "events.ndjson");
         var curlOutput = Path.Combine(artifactDirectory, "curl-results.tsv");
         var curlError = Path.Combine(artifactDirectory, "curl.stderr.log");
         var curlConfig = Path.Combine(artifactDirectory, "curl.cfg");
@@ -159,7 +160,7 @@ public sealed class PriorityLoadIntegrationTests : IRegressionTestMetadata
             "dotnet",
             [proxyAssembly],
             AppContext.BaseDirectory);
-        ConfigureProxyEnvironment(proxyStartInfo, nullServerPort, proxyPort);
+        ConfigureProxyEnvironment(proxyStartInfo, nullServerPort, proxyPort, eventLog);
 
         await using var proxy = LoggedProcess.Start(
             "proxy",
@@ -234,7 +235,8 @@ public sealed class PriorityLoadIntegrationTests : IRegressionTestMetadata
     private static void ConfigureProxyEnvironment(
         ProcessStartInfo startInfo,
         int nullServerPort,
-        int proxyPort)
+        int proxyPort,
+        string eventLogPath)
     {
         foreach (var key in startInfo.Environment.Keys.ToArray())
         {
@@ -254,7 +256,8 @@ public sealed class PriorityLoadIntegrationTests : IRegressionTestMetadata
         startInfo.Environment.Remove("AppendHostsFile");
         startInfo.Environment["Host1"] = $"host=http://127.0.0.1:{nullServerPort};mode=direct";
         startInfo.Environment["Port"] = proxyPort.ToString(CultureInfo.InvariantCulture);
-        startInfo.Environment["EVENT_LOGGERS"] = "none";
+        startInfo.Environment["EVENT_LOGGERS"] = "file";
+        startInfo.Environment["LOGFILE_NAME"] = eventLogPath;
         startInfo.Environment["LOG_LEVEL"] = "Warning";
         startInfo.Environment["APPINSIGHTS_CONNECTIONSTRING"] = string.Empty;
         startInfo.Environment["AsyncModeEnabled"] = "false";

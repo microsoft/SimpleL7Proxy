@@ -430,6 +430,25 @@ public class ProxyWorker : IConfigChangeSubscriber
                     _wrkCntxt.RequeueWorker.DelayAsync(incomingRequest, e.RetryAfter);
 
                 }
+                catch (S7PClientReadException e)
+                {
+                    _lifecycleManager.TransitionToFailed(incomingRequest, HttpStatusCode.BadRequest, e.Message);
+                    eventData.Status = HttpStatusCode.BadRequest;
+                    eventData["Error"] = "Client Read Exception";
+                    eventData["ErrorDetails"] = e.InnerException?.Message ?? e.Message;
+                    eventData.Type = EventType.Exception;
+                    eventData.Exception = e;
+
+                    if (lcontext != null)
+                    {
+                        await WriteErrorToClientAsync(
+                            lcontext,
+                            HttpStatusCode.BadRequest,
+                            e.Message,
+                            eventData,
+                            incomingRequest.Guid);
+                    }
+                }
                 catch (ProxyErrorException e)
                 {
                     _lifecycleManager.TransitionToFailed(incomingRequest, e.StatusCode, e.Message);
@@ -1013,7 +1032,16 @@ public class ProxyWorker : IConfigChangeSubscriber
                 requestState = "Cache Body";
 
                 // Read the body stream once and reuse it
-                ReadOnlyMemory<byte> bodyBytes = await request.CacheBodyAsync(out bool wasCached).ConfigureAwait(false);
+                ReadOnlyMemory<byte> bodyBytes;
+                bool wasCached = false;
+                try 
+                {
+                    bodyBytes = await request.CacheBodyAsync(out wasCached).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    throw new S7PClientReadException("Unable to read request body: " + ex.Message, request, ex);
+                }
 
                 if (detectModel && !wasCached && bodyBytes.Length > 0)
                 {
@@ -1280,6 +1308,12 @@ public class ProxyWorker : IConfigChangeSubscriber
                         // or when worker shuts down via DecrementActiveWorkers
                     }
                 }
+            }
+            catch (S7PClientReadException)
+            {
+                TriggerHostCB = false;
+                intCode = (int)HttpStatusCode.BadRequest;
+                throw;
             }
             catch (OutOfMemoryException oomEx)
             {
