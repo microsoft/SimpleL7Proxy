@@ -185,8 +185,13 @@ namespace SimpleL7Proxy.Backend
     /// </summary>
     public HostConfig(string hostname, string? probepath = "", string? ip = null)//, string? audience = "")
     {
+
+      // were legacy oauth settings set?
+      var envUseOauth = Environment.GetEnvironmentVariable("UseOAuth")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) ?? false;
+      var envAudience = Environment.GetEnvironmentVariable("OAuthAudience")?.Trim();
+
       _logger?.LogDebug("[CONFIGS] Configuring backend host: {hostname}", hostname);
-      ParsedConfig = TryParseConfig(hostname, probepath, ip);//, audience);
+      ParsedConfig = TryParseConfig(hostname, probepath, ip, envUseOauth, envAudience);
 
       // parse the host, protocol and port
       Uri uri = new Uri(ParsedConfig.Host);
@@ -228,7 +233,7 @@ namespace SimpleL7Proxy.Backend
     }
 
 
-    private static ParsedConfig TryParseConfig(string hostname, string? probepath, string? ip)//, string? audience = "")
+    private static ParsedConfig TryParseConfig(string hostname, string? probepath, string? ip, bool useOauth = false, string? audience = "")
     /// <summary>
     /// Parses a backend configuration string into a ParsedConfig struct.
     /// </summary>
@@ -241,8 +246,8 @@ namespace SimpleL7Proxy.Backend
         IpAddr = ip ?? "",
         PartialPath = "/",
         StripPrefix = true,
-        AuthMode = AuthModeEnum.None,
-        Audience = "",
+        AuthMode = useOauth ? AuthModeEnum.OAuth2 : AuthModeEnum.None,
+        Audience = audience,
         ApiKey = "",
         ApiKeyHeader = "api-key",
         UsesRetryAfter = true

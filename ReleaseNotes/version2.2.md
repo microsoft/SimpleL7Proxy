@@ -2,6 +2,7 @@
 
 2.2.13.2.4
 Bug fix: Add empty token check 
+Bug fix: Regression fix for auth settings
 
 2.2.13.2.3
 Bug fix: Potential authrization header corruption
