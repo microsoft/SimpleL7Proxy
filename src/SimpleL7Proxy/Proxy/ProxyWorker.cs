@@ -1760,7 +1760,7 @@ public class ProxyWorker : IConfigChangeSubscriber
     /// Copies response headers into the request attempt event and parses retry-after timing.
     /// </summary>
     /// <returns>(shouldRequeue: true if S7PREQUEUE="true", retryMs: delay before requeue)</returns>
-    private (bool shouldRequeue, int retryMs) CheckRequeueResponse(
+    internal static (bool shouldRequeue, int retryMs) CheckRequeueResponse(
         HttpResponseMessage proxyResponse,
         int intCode,
         ProxyEvent requestAttempt,

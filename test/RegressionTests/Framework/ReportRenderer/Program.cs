@@ -293,7 +293,18 @@ internal static class Program
         {
             builder.Append(invalid.Contains(character) || char.IsWhiteSpace(character) ? '-' : character);
         }
-        return builder.ToString().Trim('-');
+
+        var sanitized = builder.ToString().Trim('-');
+        const int maxPathPartLength = 80;
+        if (sanitized.Length <= maxPathPartLength)
+        {
+            return sanitized;
+        }
+
+        var hashBytes = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(sanitized));
+        var hash = Convert.ToHexString(hashBytes.AsSpan(0, 6)).ToLowerInvariant();
+        var prefixLength = maxPathPartLength - hash.Length - 1;
+        return $"{sanitized[..prefixLength].TrimEnd('-')}-{hash}";
     }
 
     private static FileStream AcquireLock(string path, TimeSpan timeout)

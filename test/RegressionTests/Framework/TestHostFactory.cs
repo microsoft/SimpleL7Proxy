@@ -39,7 +39,7 @@ public static class TestHostFactory
                 opts.AcceptableStatusCodes = [200, 401, 403, 408, 410, 412, 417, 400];
             });
             services.AddSingleton<IBackendTokenProvider, SimpleL7Proxy.Test.CircuitBreakerRegression.AzureProvider>();
-            services.AddTransient<ICircuitBreaker, CircuitBreaker>();
+            services.AddTransient<ICircuitBreaker>(_ => new SimpleL7Proxy.Test.CircuitBreakerRegression.StubCircuitBreaker(0));
 
             _serviceProvider = services.BuildServiceProvider();
             var logger = _serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("TestHostFactory");
