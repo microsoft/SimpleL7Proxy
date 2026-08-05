@@ -201,7 +201,7 @@ namespace SimpleL7Proxy.Backend
       var envAudience = Environment.GetEnvironmentVariable("OAuthAudience")?.Trim();
 
       _logger?.LogDebug("[CONFIGS] Configuring backend host: {hostname}", hostname);
-      ParsedConfig = TryParseConfig(hostname, probepath, ip, envUseOauth, envAudience);
+      ParsedConfig = TryParseConfig(hostname, probepath, ip, envUseOauth, envAudience ?? string.Empty);
 
       if (!ParsedConfig.Enabled)
       {
