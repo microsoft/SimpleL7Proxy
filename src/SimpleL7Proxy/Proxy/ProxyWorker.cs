@@ -976,27 +976,6 @@ public class ProxyWorker : IConfigChangeSubscriber
                 //     requestAttempt.Uri = request.Context!.Request.Url!;
                 // else
                 requestAttempt.Uri = new Uri(modifiedPath);
-
-
-                switch (host.Config.AuthMode)
-                {
-                    case AuthModeEnum.OAuth2:
-                        // Get a token
-                        var oaToken = await host.Config.OAuth2Token().ConfigureAwait(false);
-                        if (request.Debug)
-                        {
-                            _logger.LogDebug("OAuth Token retrieved for backend {BackendHost}", host.Host);
-                        }
-                        // Set the token in the headers
-                        request.Headers.Set("Authorization", $"Bearer {oaToken}");
-                        break;
-                    case AuthModeEnum.ApiKey:
-                        // Set the API key in the headers
-                        request.Headers.Set(host.Config.ApiKeyHeader, host.Config.ApiKey);
-                        break;
-                }
-
-
                 requestState = "Calc ExpiresAt";
 
                 // Validate request hasn't expired
@@ -1073,6 +1052,27 @@ public class ProxyWorker : IConfigChangeSubscriber
                         proxyRequest.Content.Headers.ContentLength = bodyBytes.Length;
 
                     //proxyRequest.Headers.ConnectionClose = true;
+
+                    switch (host.Config.AuthMode)
+                    {
+                        case AuthModeEnum.OAuth2:
+                            // Get a token
+                            var oaToken = await host.Config.OAuth2Token().ConfigureAwait(false);
+                            if (request.Debug)
+                            {
+                                _logger.LogDebug("OAuth Token retrieved for backend {BackendHost}", host.Host);
+                            }
+
+                            // Set the token in the headers
+                            proxyRequest.Headers.Authorization =
+                                new AuthenticationHeaderValue("Bearer", oaToken);
+                            break;
+                        case AuthModeEnum.ApiKey:
+                            // Set the API key in the headers
+                            proxyRequest.Headers.Remove(host.Config.ApiKeyHeader);
+                            proxyRequest.Headers.TryAddWithoutValidation(host.Config.ApiKeyHeader, host.Config.ApiKey);
+                            break;
+                    }
 
                     // Log request headers if debugging is enabled
                     if (request.Debug)

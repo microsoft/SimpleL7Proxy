@@ -1,5 +1,8 @@
 # Release Notes #
 
+2.2.13.2.3
+Bug fix: Potential authrization header corruption
+
 2.2.13.2.2
 Bug fix: capture client read errors
 
