@@ -90,9 +90,10 @@ namespace SimpleL7Proxy.Auth
             while (true)
             {
                 if (_tokenDict.TryGetValue(audience, out var token)
-                    && token.ExpiresOn > DateTimeOffset.UtcNow.Add(_tokenExpiryBuffer))
+                    && token.ExpiresOn > DateTimeOffset.UtcNow.Add(_tokenExpiryBuffer)
+                    && !string.IsNullOrWhiteSpace(token.Token))
                 {
-                    return token.Token ?? string.Empty;
+                    return token.Token;
                 }
 
                 await Task.Delay(100).ConfigureAwait(false);
@@ -128,6 +129,21 @@ namespace SimpleL7Proxy.Auth
                         {
                             var tokenRequestContext = new TokenRequestContext(new[] { audience });
                             var token = await credential.GetTokenAsync(tokenRequestContext, _cancellationToken);
+                            if (string.IsNullOrWhiteSpace(token.Token))
+                            {
+                                new ProxyEvent()
+                                {
+                                    Type = EventType.Exception,
+                                    ["Error"] = "EmptyToken",
+                                    ["Message"] = $"OAuth2 token refresh returned an empty token for audience: {audience}, expires: {token.ExpiresOn}",
+                                    ["Audience"] = audience,
+                                    ["ExpiresOn"] = token.ExpiresOn.ToString()
+                                }.SendEvent();
+
+                                await Task.Delay(500, _cancellationToken);
+                                continue;
+                            }
+
                             _tokenDict[audience] = token;
                             this.RegisterReady(); // idempotent — first successful fetch satisfies the gate
                             _logger.LogInformation($"[TOKEN] Refreshed token for audience: {audience}, expires: {token.ExpiresOn}");

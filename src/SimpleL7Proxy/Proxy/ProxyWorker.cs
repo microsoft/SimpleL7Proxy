@@ -981,7 +981,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                 ParentId = request.ParentId,
                 MID = $"{request.MID}-{request.LifetimeBackendAttempts}",
                 Method = request.Method,
-                ["Request-Date"] = DateTime.UtcNow.ToString("o"),
+                ["Request-Date"] = proxyStartDate.ToString("o"),
                 ["Backend-Host"] = host.Host,
                 ["Host-URL"] = host.Url,
                 ["Attempt"] = request.BackendAttempts.ToString(),
@@ -995,27 +995,6 @@ public class ProxyWorker : IConfigChangeSubscriber
                 //     requestAttempt.Uri = request.Context!.Request.Url!;
                 // else
                 requestAttempt.Uri = new Uri(modifiedPath);
-
-
-                switch (host.Config.AuthMode)
-                {
-                    case AuthModeEnum.OAuth2:
-                        // Get a token
-                        var oaToken = await host.Config.OAuth2Token().ConfigureAwait(false);
-                        if (request.Debug)
-                        {
-                            _logger.LogDebug("OAuth Token retrieved for backend {BackendHost}", host.Host);
-                        }
-                        // Set the token in the headers
-                        request.Headers.Set("Authorization", $"Bearer {oaToken}");
-                        break;
-                    case AuthModeEnum.ApiKey:
-                        // Set the API key in the headers
-                        request.Headers.Set(host.Config.ApiKeyHeader, host.Config.ApiKey);
-                        break;
-                }
-
-
                 requestState = "Calc ExpiresAt";
 
                 // Validate request hasn't expired
@@ -1112,7 +1091,6 @@ public class ProxyWorker : IConfigChangeSubscriber
                         proxyRequest.Headers.Add("S7PDEBUG", "True");
                     }
 
-
                     var contentType = request.Context?.Request.ContentType ?? "application/json";
                     if (!MediaTypeHeaderValue.TryParse(contentType, out var req_mediaType))
                     {
@@ -1122,10 +1100,27 @@ public class ProxyWorker : IConfigChangeSubscriber
                     req_mediaType.CharSet ??= "utf-8";
                     proxyRequest.Content.Headers.ContentType = req_mediaType;
 
-                    if (bodyBytes.Length > 0)
-                        proxyRequest.Content.Headers.ContentLength = bodyBytes.Length;
+                    //if (bodyBytes.Length > 0)
+                    //    proxyRequest.Content.Headers.ContentLength = bodyBytes.Length;
 
                     //proxyRequest.Headers.ConnectionClose = true;
+                    switch (host.Config.AuthMode)
+                    {
+                        case AuthModeEnum.OAuth2:
+                            // Get a token
+                            var oaToken = await host.Config.OAuth2Token().ConfigureAwait(false);
+
+                            // Set the token in the headers
+                            proxyRequest.Headers.Authorization =
+                                new AuthenticationHeaderValue("Bearer", oaToken);
+
+                            break;
+                        case AuthModeEnum.ApiKey:
+                            // Set the API key in the headers
+                            proxyRequest.Headers.Remove(host.Config.ApiKeyHeader);
+                            proxyRequest.Headers.TryAddWithoutValidation(host.Config.ApiKeyHeader, host.Config.ApiKey);
+                            break;
+                    }
 
                     // Log request headers if debugging is enabled
                     if (request.Debug)
@@ -1146,7 +1141,6 @@ public class ProxyWorker : IConfigChangeSubscriber
                         // ASYNC: Calculate the timeout, start async worker
                         _isEvictingAsyncRequest = false;
                         requestState = "Backend Attempt ";
-
 
                         // Create ASYNC Worker if needed, and setup the timeout
                         // SEND THE REQUEST TO THE BACKEND USING THE APROPRIATE TIMEOUT.
