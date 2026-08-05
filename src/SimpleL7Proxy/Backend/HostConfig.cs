@@ -142,8 +142,8 @@ namespace SimpleL7Proxy.Backend
     {
         if (_circuitBreaker is not null) return;
 
-      if (_serviceProvider == null)
-        throw new InvalidOperationException("HostConfig service provider not initialized. Call Initialize first.");
+        if (_serviceProvider == null)
+            throw new InvalidOperationException("HostConfig service provider not initialized. Call Initialize first.");
 
         _tokenProvider = _serviceProvider.GetServices<IBackendTokenProvider>()
             .FirstOrDefault(provider => provider.GetType().Name.Equals(AuthProvider, StringComparison.OrdinalIgnoreCase))
@@ -195,8 +195,13 @@ namespace SimpleL7Proxy.Backend
     /// </summary>
     public HostConfig(string hostname, string? probepath = "", string? ip = null)//, string? audience = "")
     {
+
+      // were legacy oauth settings set?
+      var envUseOauth = Environment.GetEnvironmentVariable("UseOAuth")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) ?? false;
+      var envAudience = Environment.GetEnvironmentVariable("OAuthAudience")?.Trim();
+
       _logger?.LogDebug("[CONFIGS] Configuring backend host: {hostname}", hostname);
-      ParsedConfig = TryParseConfig(hostname, probepath, ip);//, audience);
+      ParsedConfig = TryParseConfig(hostname, probepath, ip, envUseOauth, envAudience ?? string.Empty);
 
       if (!ParsedConfig.Enabled)
       {
@@ -244,7 +249,7 @@ namespace SimpleL7Proxy.Backend
     }
 
 
-    private static ParsedConfig TryParseConfig(string hostname, string? probepath, string? ip)//, string? audience = "")
+    private static ParsedConfig TryParseConfig(string hostname, string? probepath, string? ip, bool useOauth, string audience = "")
     /// <summary>
     /// Parses a backend configuration string into a ParsedConfig struct.
     /// </summary>
@@ -258,8 +263,8 @@ namespace SimpleL7Proxy.Backend
         IpAddr = ip ?? "",
         PartialPath = "/",
         StripPrefix = true,
-        AuthMode = AuthModeEnum.None,
-        Audience = "",
+        AuthMode = useOauth ? AuthModeEnum.OAuth2 : AuthModeEnum.None,
+        Audience = audience,
         AuthProvider = "AzureProvider",
         ApiKey = "",
         ApiKeyHeader = "api-key",
@@ -301,7 +306,7 @@ namespace SimpleL7Proxy.Backend
               break;
             case "enabled":
                 result.Enabled = kvp.Value.Equals("true", StringComparison.OrdinalIgnoreCase);
-                break;
+              break;
             case "host":
               result.Host = NormalizeHostUrl(kvp.Value);
               break;

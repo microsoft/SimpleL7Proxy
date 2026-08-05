@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using SimpleL7Proxy.Auth;
 using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Config;
 
@@ -37,11 +38,12 @@ public static class TestHostFactory
                 opts.CircuitBreakerTimeslice = 60;
                 opts.AcceptableStatusCodes = [200, 401, 403, 408, 410, 412, 417, 400];
             });
-            services.AddTransient<ICircuitBreaker, CircuitBreaker>();
+            services.AddSingleton<IBackendTokenProvider, SimpleL7Proxy.Test.CircuitBreakerRegression.AzureProvider>();
+            services.AddTransient<ICircuitBreaker>(_ => new SimpleL7Proxy.Test.CircuitBreakerRegression.StubCircuitBreaker(0));
 
             _serviceProvider = services.BuildServiceProvider();
             var logger = _serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("TestHostFactory");
-            HostConfig.Initialize(null!, logger, _serviceProvider);
+            HostConfig.Initialize(logger, _serviceProvider);
             _initialized = true;
         }
     }

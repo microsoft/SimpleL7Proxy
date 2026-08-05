@@ -430,6 +430,25 @@ public class ProxyWorker : IConfigChangeSubscriber
                     _wrkCntxt.RequeueWorker.DelayAsync(incomingRequest, e.RetryAfter);
 
                 }
+                catch (S7PClientReadException e)
+                {
+                    _lifecycleManager.TransitionToFailed(incomingRequest, HttpStatusCode.BadRequest, e.Message);
+                    eventData.Status = HttpStatusCode.BadRequest;
+                    eventData["Error"] = "Client Read Exception";
+                    eventData["ErrorDetails"] = e.InnerException?.Message ?? e.Message;
+                    eventData.Type = EventType.Exception;
+                    eventData.Exception = e;
+
+                    if (lcontext != null)
+                    {
+                        await WriteErrorToClientAsync(
+                            lcontext,
+                            HttpStatusCode.BadRequest,
+                            e.Message,
+                            eventData,
+                            incomingRequest.Guid);
+                    }
+                }
                 catch (ProxyErrorException e)
                 {
                     _lifecycleManager.TransitionToFailed(incomingRequest, e.StatusCode, e.Message);
@@ -962,7 +981,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                 ParentId = request.ParentId,
                 MID = $"{request.MID}-{request.LifetimeBackendAttempts}",
                 Method = request.Method,
-                ["Request-Date"] = DateTime.UtcNow.ToString("o"),
+                ["Request-Date"] = proxyStartDate.ToString("o"),
                 ["Backend-Host"] = host.Host,
                 ["Host-URL"] = host.Url,
                 ["Attempt"] = request.BackendAttempts.ToString(),
@@ -976,27 +995,6 @@ public class ProxyWorker : IConfigChangeSubscriber
                 //     requestAttempt.Uri = request.Context!.Request.Url!;
                 // else
                 requestAttempt.Uri = new Uri(modifiedPath);
-
-
-                switch (host.Config.AuthMode)
-                {
-                    case AuthModeEnum.OAuth2:
-                        // Get a token
-                        var oaToken = await host.Config.OAuth2Token().ConfigureAwait(false);
-                        if (request.Debug)
-                        {
-                            _logger.LogDebug("OAuth Token retrieved for backend {BackendHost}", host.Host);
-                        }
-                        // Set the token in the headers
-                        request.Headers.Set("Authorization", $"Bearer {oaToken}");
-                        break;
-                    case AuthModeEnum.ApiKey:
-                        // Set the API key in the headers
-                        request.Headers.Set(host.Config.ApiKeyHeader, host.Config.ApiKey);
-                        break;
-                }
-
-
                 requestState = "Calc ExpiresAt";
 
                 // Validate request hasn't expired
@@ -1013,7 +1011,16 @@ public class ProxyWorker : IConfigChangeSubscriber
                 requestState = "Cache Body";
 
                 // Read the body stream once and reuse it
-                ReadOnlyMemory<byte> bodyBytes = await request.CacheBodyAsync(out bool wasCached).ConfigureAwait(false);
+                ReadOnlyMemory<byte> bodyBytes;
+                bool wasCached = false;
+                try 
+                {
+                    bodyBytes = await request.CacheBodyAsync(out wasCached).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    throw new S7PClientReadException("Unable to read request body: " + ex.Message, request, ex);
+                }
 
                 if (detectModel && !wasCached && bodyBytes.Length > 0)
                 {
@@ -1084,7 +1091,6 @@ public class ProxyWorker : IConfigChangeSubscriber
                         proxyRequest.Headers.Add("S7PDEBUG", "True");
                     }
 
-
                     var contentType = request.Context?.Request.ContentType ?? "application/json";
                     if (!MediaTypeHeaderValue.TryParse(contentType, out var req_mediaType))
                     {
@@ -1094,10 +1100,27 @@ public class ProxyWorker : IConfigChangeSubscriber
                     req_mediaType.CharSet ??= "utf-8";
                     proxyRequest.Content.Headers.ContentType = req_mediaType;
 
-                    if (bodyBytes.Length > 0)
-                        proxyRequest.Content.Headers.ContentLength = bodyBytes.Length;
+                    //if (bodyBytes.Length > 0)
+                    //    proxyRequest.Content.Headers.ContentLength = bodyBytes.Length;
 
                     //proxyRequest.Headers.ConnectionClose = true;
+                    switch (host.Config.AuthMode)
+                    {
+                        case AuthModeEnum.OAuth2:
+                            // Get a token
+                            var oaToken = await host.Config.OAuth2Token().ConfigureAwait(false);
+
+                            // Set the token in the headers
+                            proxyRequest.Headers.Authorization =
+                                new AuthenticationHeaderValue("Bearer", oaToken);
+
+                            break;
+                        case AuthModeEnum.ApiKey:
+                            // Set the API key in the headers
+                            proxyRequest.Headers.Remove(host.Config.ApiKeyHeader);
+                            proxyRequest.Headers.TryAddWithoutValidation(host.Config.ApiKeyHeader, host.Config.ApiKey);
+                            break;
+                    }
 
                     // Log request headers if debugging is enabled
                     if (request.Debug)
@@ -1118,7 +1141,6 @@ public class ProxyWorker : IConfigChangeSubscriber
                         // ASYNC: Calculate the timeout, start async worker
                         _isEvictingAsyncRequest = false;
                         requestState = "Backend Attempt ";
-
 
                         // Create ASYNC Worker if needed, and setup the timeout
                         // SEND THE REQUEST TO THE BACKEND USING THE APROPRIATE TIMEOUT.
@@ -1280,6 +1302,12 @@ public class ProxyWorker : IConfigChangeSubscriber
                         // or when worker shuts down via DecrementActiveWorkers
                     }
                 }
+            }
+            catch (S7PClientReadException)
+            {
+                TriggerHostCB = false;
+                intCode = (int)HttpStatusCode.BadRequest;
+                throw;
             }
             catch (OutOfMemoryException oomEx)
             {
@@ -1732,7 +1760,7 @@ public class ProxyWorker : IConfigChangeSubscriber
     /// Copies response headers into the request attempt event and parses retry-after timing.
     /// </summary>
     /// <returns>(shouldRequeue: true if S7PREQUEUE="true", retryMs: delay before requeue)</returns>
-    private (bool shouldRequeue, int retryMs) CheckRequeueResponse(
+    internal static (bool shouldRequeue, int retryMs) CheckRequeueResponse(
         HttpResponseMessage proxyResponse,
         int intCode,
         ProxyEvent requestAttempt,

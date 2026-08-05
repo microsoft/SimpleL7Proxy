@@ -20,13 +20,11 @@ public sealed partial class PolicyScenarioIntegrationTests
     [TestCategory("Integration")]
     [TestCategory("CircuitBreaker")]
     [TestCategory("Stress")]
+    [TestCategory("Load")]
     [Timeout(240_000)]
     public async Task CircuitBreaker_ThreeHosts_CompletesSixtySecondsOfMixedTraffic()
     {
         var pythonExecutable = Environment.GetEnvironmentVariable("CIRCUIT_BREAKER_TEST_PYTHON") ?? "python3";
-        var keepArtifacts = !bool.TryParse(
-            Environment.GetEnvironmentVariable("CIRCUIT_BREAKER_STRESS_KEEP_ARTIFACTS"),
-            out var configuredKeepArtifacts) || configuredKeepArtifacts;
         var proxyAssembly = Path.Combine(AppContext.BaseDirectory, "SimpleL7Proxy.dll");
         var streamServerPath = Path.Combine(AppContext.BaseDirectory, "tools", "stream_server.py");
         Assert.IsTrue(File.Exists(proxyAssembly), $"Proxy assembly not found: {proxyAssembly}");
@@ -43,8 +41,6 @@ public sealed partial class PolicyScenarioIntegrationTests
         var backendUrls = backendPorts.Select(port => $"http://127.0.0.1:{port}").ToArray();
         var backends = new List<LoggedProcess>();
         LoggedProcess? proxy = null;
-        var passed = false;
-
         try
         {
             for (int backendIndex = 0; backendIndex < backendPorts.Length; backendIndex++)
@@ -163,7 +159,6 @@ public sealed partial class PolicyScenarioIntegrationTests
             Assert.AreEqual(0, backendStats[2].GetValueOrDefault("/500error"));
             Assert.AreEqual(0, backendStats[2].GetValueOrDefault("/retry-after-once"));
 
-            passed = true;
         }
         finally
         {
@@ -177,14 +172,7 @@ public sealed partial class PolicyScenarioIntegrationTests
                 await backend.DisposeAsync();
             }
 
-            if (!passed || keepArtifacts)
-            {
-                AttachScenarioArtifacts(artifactRoot);
-            }
-            else if (Directory.Exists(artifactRoot))
-            {
-                Directory.Delete(artifactRoot, recursive: true);
-            }
+            AttachScenarioArtifacts(artifactRoot);
         }
     }
 

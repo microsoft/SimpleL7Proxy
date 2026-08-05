@@ -7,7 +7,10 @@ launch.json
 deploy.parameters.sh
 appsettings.Development.json
 
-test/QueueBenchmarks/results/*
+test/QueueBenchmarks/results/
+test/RegressionTests/results/
+src/ChatTester/data/
+*.local.json
 .keys/
 test/chat_tester/artifacts
 *.log
@@ -72,7 +75,6 @@ dkms.conf
 **/.vs/
 **/*.user
 **/*settings.json
-test/RegressionTests/configs/*.local.json
 
 events.log
 call*.sh

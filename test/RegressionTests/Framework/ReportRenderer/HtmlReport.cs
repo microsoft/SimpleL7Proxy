@@ -78,7 +78,8 @@ internal static class HtmlReport
     {
         var state = OutcomeClass(test.Outcome);
         var hasDetails = !string.IsNullOrEmpty(test.Stdout) || !string.IsNullOrEmpty(test.Stderr) ||
-                         !string.IsNullOrEmpty(test.ErrorMessage) || !string.IsNullOrEmpty(test.StackTrace);
+                         !string.IsNullOrEmpty(test.ErrorMessage) || !string.IsNullOrEmpty(test.StackTrace) ||
+                         test.Artifacts.Count > 0;
         var search = string.Join(' ', new[]
         {
             test.Name, test.Title, test.Description, test.Domain, test.Feature, test.Why,
@@ -92,7 +93,13 @@ internal static class HtmlReport
         if (!hasDetails) return $"<div {attributes}>{columns}</div>";
 
         var details = RenderOutput("Test output", test.Stdout) + RenderOutput("Standard error", test.Stderr) +
-                      RenderOutput("Failure", test.ErrorMessage) + RenderOutput("Stack trace", test.StackTrace);
+                      RenderOutput("Failure", test.ErrorMessage) + RenderOutput("Stack trace", test.StackTrace) +
+                      (test.Artifacts.Count == 0
+                          ? string.Empty
+                          : "<h5>Artifacts</h5><div class=\"artifact-links\">" +
+                            string.Join(" &middot; ", test.Artifacts.Select(path =>
+                                $"<a href=\"{Encode(path)}\">{Encode(Path.GetFileName(path))}</a>")) +
+                            "</div>");
         return $"<details {attributes}{(state == "failed" ? " open" : string.Empty)}><summary>{columns}</summary>" +
                $"<div class=\"test-body\"><div class=\"test-context\"><span><strong>Test:</strong> {Encode(test.Name)}</span>" +
                $"<span><strong>Hierarchy:</strong> {Encode(test.Domain)} / {Encode(test.Feature)}</span>" +

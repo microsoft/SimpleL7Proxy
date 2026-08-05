@@ -301,6 +301,7 @@ public class Program
                 sp.GetRequiredService<IOptions<ProxyConfig>>(),
                 sp.GetRequiredService<ILogger<CircuitBreaker>>(),
                 isParent: true));
+
         services.AddSingleton<ConfigChangeNotifier>();
         services.AddSingleton<ProxyEventInitializer>();
         services.AddSingleton<EndpointMonitorService>();
