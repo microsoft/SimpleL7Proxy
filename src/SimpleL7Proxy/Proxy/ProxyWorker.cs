@@ -1066,6 +1066,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                             // Set the token in the headers
                             proxyRequest.Headers.Authorization =
                                 new AuthenticationHeaderValue("Bearer", oaToken);
+
                             break;
                         case AuthModeEnum.ApiKey:
                             // Set the API key in the headers
