@@ -15,7 +15,7 @@ public static class Constants
     public const string Random = "random";
     public const string Server = "simplel7proxy";
 
-    public const string VERSION = "2.2.13.2.4";
+    public const string VERSION = "2.2.13.2.5";
 
     public const int AnyPriority = -1;
 
