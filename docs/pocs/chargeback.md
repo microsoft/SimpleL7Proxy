@@ -3,23 +3,23 @@
 **Purpose:** Report token consumption in a smart router deployment.
 
 > [!CONCEPT]
-> **Token consumption data is stored in Application Insights and transmitted via an EventHub to CosmosDB or other DB. The chargeback is calculated by attributing each caller to a user, department or group and enriching the token data with it. Once in a queryable state, the chargeback is reportable via KQL, SQL, etc...**
+> **When you're sharing an endpoint across multiple users or groups, you want to know everyone's share of the usage. The proxy can seamlessly capture the token consumption data and store it in Application Insights or an Event Hub. Once the data is stored, the chargeback can be reported via KQL, SQL, etc.**
 
 ## TL;DR
 
-1. The proxy assigns a reporting entity to each request by transforming request headers such as `X-UserID`.
-2. The proxy captures token usage from each response and logs it to Application Insights.
-3. The KQL query confirms that token usage is attributed to each `X-UserID`.
+1. The proxy identifies the caller and enriches the request.
+2. The proxy captures token usage from each response and logs it.
+3. A KQL query confirms that token usage is attributed to each caller.
 
 ## What you will observe
 
-The proxy can intercept LLM requests and log metrics in near real time to Application Insights. You can then generate chargebacks to usrs or departments based on data from Log Analytics or an alternate sink such as Event Hubs.
+The proxy can intercept LLM requests and log metrics in real time to Application Insights. You can then generate chargebacks to usrs or departments based on data from Log Analytics or an alternate sink such as Event Hubs.
 
 ## How it works
 
-The proxy identifies the caller making each request, looks up the caller's profile, enriches the request, and forwards the request to the backend. As the response is proxied back to the caller, its token metrics are paired with the caller information. All captured metrics can be logged to Application Insights or an Event Hub.
+The proxy identifies the caller, looks up the caller's profile, and enriches the request. It then pairs the response's token metrics with the caller's identity.
 
-From the caller's perspective, the entire process is transparent, requiring only the inclusion of a unique header. This can simply be the `applicationId` that is embedded in the OAuth token, or it can be a custom combination of several headers. For this POC, we bypass the profile lookup and instead opt to directly include `X-UserID` in each request.
+The caller's identity can come from the `applicationId` embedded in the OAuth token or from a custom combination of headers. For this POC, we bypass the profile lookup and include `X-UserID` directly in each request.
 
 ---
 
@@ -30,32 +30,16 @@ From the caller's perspective, the entire process is transparent, requiring only
 - An Application Insights resource 
 - A client to make calls: ( curl or other ) 
 
-**Optional ( when smart routing capabiities are required  ):**
+**Optional ( when smart governance capabiities are required  ):**
 - An APIM configured with the reference policies.
-
-<!-- 
-
-1. Use APIM routing instead of direct backend routing.
-2. Use the LLM Simulator instead of the Azure OpenAI endpoint. See [`test/LLMSimulator/Readme.md`](../../test/LLMSimulator/Readme.md).
-
-See [CONFIGURATION_SETTINGS.md](../reference/configuration.md) for all environment variable options covering endpoints, logging, workers, and timeouts.
-- connection string configured:
-  export APPINSIGHTS_CONNECTIONSTRING="..."
-- Logging enabled:
-  export LogToAI="*" (this is the default value)
-
-Required behavior:
-- Each request MUST include a unique `X-UserID` header
-- The backend MUST return token usage (simulator already does) -->
 
 ---
 
 ## Step 1. Validate connectivity
 
-We'll start with a simple health check. Replace the hostname with your proxy URL. In this example, the proxy 
-is already running locally on port 8000. 
+You already have a running proxy. Now, we want to make sure that everything is working before we begin the POC. We'll start with a simple health check. Replace the hostname with your proxy URL. In this example, the proxy is running on port 8000 on the local machine.
 
-If your proxy is deployed in an internal VNet, run this check from the same VNet.
+If your proxy is deployed in an internal VNet, make sure to run this check from a machine in the same VNet.
 
 ```bash
 # proxy running on localhost port 8000
@@ -69,7 +53,7 @@ curl -i $PROXYHOST/health
 
 **Optional connectivity checks:**
 
-Check that the APIM is responding to the health probe as well:
+If you are using an APIM, check that it is responding to its health probe as well:
 
 Replace `<apim-name>` with the name of your APIM instance.
 
@@ -77,42 +61,41 @@ Replace `<apim-name>` with the name of your APIM instance.
 ```bash
 # Health probe - APIM's built-in health probe
 curl -i https://<apim-name>.azure-api.net/status-0123456789abcdef
+
 # → 200 OK
 ```
 ---
 
 ## Step 2. Configure a backend in the proxy
-S
-The proxy backends are specified with `Host1`, `Host2`, `Host3`, and so on, or with a named `Host_<name>` environment variable. Each variable contains a comma- or semicolon-separated list of `key=value` fields. 
 
-For this POC, we only need a single endpoint and the following fields:
+The proxy can load balance across multiple backends, but we only need a single backend for this POC. The simplest way to specify a backend is to set `Host1` to a comma-separated list of `key=value` fields.
 
 - `host`: The LLM endpoint URL.
 - `mode`: How the proxy connects to the endpoint. Use `direct` for this setup or `apim` for the optional APIM setup.
-- `usemi=true, audience=<audience>`  **[ if using managed identity ]**
-- `api-key=<api-key>;api-key-header=api-key` **[ if using keys ]**
-- `Processor=MultiLineAllUsage`: The token processing algorithm. See [Reference](#reference) **[ direct mode ]**
-- Other optional fields are explained in [backend host settings](../reference/backend-hosts.md)
+- `usemi=true, audience=<audience>` **[if using managed identity]**
+- `api-key=<api-key>;api-key-header=api-key` **[if using API-key authentication]**
+- `Processor=MultiLineAllUsage`: The token processing algorithm. See [Reference](#reference) **[direct mode]**
+- Other optional fields are explained in [backend host settings](../reference/backend-hosts.md).
 
 ### Direct Host 
 
-Combine the values to construct the setting.
+If the proxy will connect to the LLM endpoint directly, it is called a direct host.  Combine the above values to construct the setting.  
 
 ```bash
-export Host1="host=https://<endpoint>.openai.azure.com;mode=direct;api-key=<api-key>"
+export Host1="host=https://<endpoint>.openai.azure.com;mode=direct;api-key=<api-key>,api-key-header=<headername>"
 ```
 
-### Apim mode 
+### APIM Mode
 
-
-Set `mode=apim` and add `probe=/status-012345678abcdef`. Construct the remaining parameters based on the auth moed.
+If the proxy connects to an APIM instance, it uses APIM mode. Set `mode=apim` and add `probe=/status-0123456789abcdef`. Construct the remaining parameters based on the authentication mode.
 
 ```bash
-export Host1="host=https://<apim-name>.azure-api.net;mode=apim;probe=/status-0123456789abcdef;api-key-header=keyvalue;api-key=<apim-key>"
+export Host1="host=https://<apim-name>.azure-api.net;mode=apim;probe=/status-0123456789abcdef;api-key-header=<headername>;api-key=<apim-key>"
 ```
-The APIM can route to multiple models and so needs to return the appropriate processor for the selected model. The included APIM policy already does this.
 
-Alternatively, set the `TOKENPROCESSOR` response header in the APIM policy `<outbound>` block to `OpenAI`, `AllUsage-2`, or `MultiLineAllUsage`:
+APIM can route to multiple models, so it needs to return the appropriate processor for the selected model. The included APIM policy already does this.  
+
+If you choose not to use the included policy, set the `TOKENPROCESSOR` response header in the APIM policy `<outbound>` block to `OpenAI`, `AllUsage-2`, or `MultiLineAllUsage`:
 
 ```xml
 <outbound>
@@ -123,7 +106,6 @@ Alternatively, set the `TOKENPROCESSOR` response header in the APIM policy `<out
 </outbound>
 ```
 
-See [backend host settings](../reference/backend-hosts.md) for other `Host1` options.
 
 ---
 
