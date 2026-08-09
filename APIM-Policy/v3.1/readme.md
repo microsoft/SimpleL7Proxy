@@ -4,8 +4,9 @@ Configure Azure API Management to route LLM requests by model, priority, endpoin
 
 ## Overview
 
-<img width="1308" height="534" alt="image" src="https://github.com/user-attachments/assets/60b20f0c-cee1-44b7-8f6a-b97d84f590bf" />
-
+<table>
+<tr>
+<td width="50%" valign="top">
 This policy can configure an APIM instance to:
 
 - Route each model to its own set of endpoints.
@@ -14,6 +15,12 @@ This policy can configure an APIM instance to:
 - Set endpoint-call attempts, throttling behavior, and whether a request can be requeued.
 - Authenticate to endpoints with Managed Identity or an API key.
 - Control streaming and token processing and return routing diagnostics.
+</td>
+<td width="50%" valign="top">
+<img alt="image" src="fragment.png" />
+
+</td>
+</tr></table>
 
 ### How Routing Works
 
