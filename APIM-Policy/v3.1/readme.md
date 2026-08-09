@@ -4,7 +4,7 @@ Configure Azure API Management to route LLM requests by model, priority, endpoin
 
 ## Overview
 
-<img width="1308" height="334" alt="image" src="https://github.com/user-attachments/assets/60b20f0c-cee1-44b7-8f6a-b97d84f590bf" />
+<img width="1308" height="534" alt="image" src="https://github.com/user-attachments/assets/60b20f0c-cee1-44b7-8f6a-b97d84f590bf" />
 
 This policy can configure an APIM instance to:
 
