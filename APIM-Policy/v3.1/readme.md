@@ -2,9 +2,6 @@
 
 Configure Azure API Management to route LLM requests by model, priority, endpoint availability, and authentication mode.
 
-> [!IMPORTANT]
-> Create the policy fragment before applying the API policy. `Priority-with-retry.xml` references a fragment with the exact ID `endpoint_selection_frag_30`.
-
 ## Overview
 
 <img width="1308" height="334" alt="image" src="https://github.com/user-attachments/assets/60b20f0c-cee1-44b7-8f6a-b97d84f590bf" />
@@ -18,36 +15,65 @@ This policy can configure an APIM instance to:
 - Authenticate to endpoints with Managed Identity or an API key.
 - Control streaming and token processing and return routing diagnostics.
 
-`endpoint_selection_frag_30.xml` defines these settings, and `Priority-with-retry.xml` applies them to each request. Configure the marked sections in the fragment, set `DefaultModel` in the API policy, deploy the fragment first, and then deploy and verify the API policy.
+### How Routing Works
+
+When a request arrives, the list of eligible endpoints is loaded into memory. The policy tries the lowest priority group for the requested model and selects a random endpoint from that group. If the request succeeds or returns a permanent error, the response is returned, and APIM processing is complete as the proxy takes over.  If the request times out (408) or is throttled (429), the endpoint is marked as throttled, and the next endpoint in the group is attempted. If no endpoints remain, the policy moves to the next group. This process continues until the configured number of attempts is reached. At that point, the policy can ask the proxy to requeue the request in memory and try it later, or it can return an incomplete status to the caller.
 
 ## Prerequisites
 
 - An existing Azure API Management instance with a target API.
 - One or more reachable LLM endpoints.
 - Permission to manage APIM policy fragments and API policies.
+
+one of:
 - For Managed Identity authentication, the APIM system-assigned identity must have data-plane access to every endpoint configured with `auth = "MI"`.
 - For API-key authentication, store keys in APIM named values or Key Vault-backed named values. Do not commit literal keys to this file.
 
 ## Configure
 
-Edit only the four sections marked `edit me` near the top of `endpoint_selection_frag_30.xml`. Leave the runtime variables below them unchanged.
+The policy is broken up into two parts.  The fragment is intended to be shared across API's with each API having its own retry policy.  The fragment is the single place to configure headers, models and endpoints.  The policy includes the fragment and specifies the specific model name.
 
-### 1. Set Request Headers
+Make a local copy of `endpoint_selection_frag_30.xml` and `Priority-with-retry.xml` .
 
-These variables map the request headers used for model selection, priority, affinity, and retry tracking. SimpleL7Proxy sends them automatically; standalone clients can omit them to use policy defaults, but must send `x-LLMModel` to override `DefaultModel`.
+### Edit the fragment:
+
+#### 1. Set Request Headers
+
+Near the top of the fragement, unless you have modified the proxy defaults, you can leave these unedited.
+
+If you are not using the proxy but wish to use the policy, send your requests with these optional headers. Leave unedited if not using them. 
 
 ```xml
-<set-variable name="priorityHeaderName" value="x-S7PPriority" />
-<set-variable name="PolicyCycleCounterHeaderName" value="x-PolicyCycleCounter" />
-<set-variable name="AffinityHeaderName" value="x-backend-affinity" />
-<set-variable name="modelHeaderName" value="x-LLMModel" />
+<set-variable name="priorityHeaderName" value="x-S7PPriority" />                   <!-- 1, 2 or 3 -->
+<set-variable name="PolicyCycleCounterHeaderName" value="x-PolicyCycleCounter" />  <!-- debug stats -->
+<set-variable name="AffinityHeaderName" value="x-backend-affinity" />              <!-- for cached endpoint selection -->
+<set-variable name="modelHeaderName" value="x-LLMModel" />                         <!-- gpt-4o, gpt-5o, ... >
 ```
+
+Note:  The `LLMModel` header is not needed if you edit the `DefaultModel` in the API policy.
 
 ### 2. Add Models and Endpoints
 
-Each top-level key in `backendCatalog` is a model; each nested entry is an endpoint. Replace every sample URL and keep a `DEFAULT` model block for unmatched model names. The example below prefers PTU capacity and uses PAYGO as the fallback for `gpt-4o` and uses managed identity for authentication.
+The `backendCatalog` section in `endpoint_selection_frag_30.xml` defines the available models, endpoints, and endpoint priority groups. The configuration is organized by model, with each model containing one or more labeled endpoints. Diagnostics and telemetry use these labels to identify which endpoint is selected, attempted, throttled, retried, or failed.
 
-See [Endpoint Fields and Defaults](#endpoint-fields-and-defaults) for all endpoint options.
+A `DEFAULT` model block must always be present. It defines the endpoint configuration used when the requested model name does not match an explicitly configured model.
+
+Each endpoint entry consists of a label and its settings:
+
+- **Label**: The nested key, such as `PTU` or `PAYGO`, that uniquely identifies the endpoint in diagnostics and logs.
+- **`url`**: The LLM endpoint URL. This is the only required endpoint field.
+- **`priorityGroup`**: The endpoint priority group used for selection and failover. It defaults to `1`.
+- **`auth`**: The endpoint authentication method. It defaults to `MI` and accepts:
+  - `MI` for Managed Identity authentication.
+  - `{{endpoint-api-key}}` to load an API key from an APIM named value.
+  - `""` when the endpoint requires no authentication.
+
+See [Endpoint Fields and Defaults](#endpoint-fields-and-defaults) for the remaining optional settings.
+
+When a request reaches APIM, the API policy determines the model, which in turn selects the endpoints defined for that model in the fragment. Once a model is selected, the policy tries endpoints from the lowest priority group in random order. If that group is exhausted, the policy moves to the next higher group. If an endpoint returns HTTP 429 during this process, it is marked as throttled and will not be attempted again until the retry period expires.
+
+The example below uses Managed Identity, prefers PTU capacity for `gpt-4o`, and falls back to PAYGO.
+
 ```csharp
 ["gpt-4o"] = new JObject {
   ["PTU"] = new JObject {
@@ -63,17 +89,9 @@ See [Endpoint Fields and Defaults](#endpoint-fields-and-defaults) for all endpoi
 }
 ```
 
-### 3. Set Authentication
+### 3. Managed Identity Audience
 
-Set `auth` to `MI` for Managed Identity, an APIM named-value expression for API-key authentication, or an empty string for no endpoint authentication.
-
-```csharp
-["auth"] = "MI"
-// or
-["auth"] = "{{endpoint-api-key}}"
-```
-
-For Managed Identity, grant the APIM system-assigned identity data-plane access to the LLM endpoint and map the model to its token audience:
+For Managed Identity, grant the APIM system-assigned identity data-plane access to the LLM endpoint and map the model to its token audience in the `authResourceByModel` section.
 
 ```csharp
 ["gpt-4o"] = "https://cognitiveservices.azure.com",
