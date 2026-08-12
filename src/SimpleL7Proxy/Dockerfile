@@ -24,9 +24,11 @@ WORKDIR /app/SimpleL7Proxy
 RUN dotnet publish -c Release -o /app/out
 
 # Use ASP.NET Core runtime image
-#FROM mcr.microsoft.com/dotnet/aspnet:10.0
-#FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled
+# Must match <TargetFramework> in SimpleL7Proxy.csproj (net9.0): a
+# framework-dependent app does not roll forward across a major version.
+#FROM mcr.microsoft.com/dotnet/aspnet:9.0
+#FROM mcr.microsoft.com/dotnet/aspnet:9.0-alpine
+FROM mcr.microsoft.com/dotnet/aspnet:9.0-noble-chiseled
 
 # Set the working directory.
 WORKDIR /app
