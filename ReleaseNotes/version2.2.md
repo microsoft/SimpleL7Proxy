@@ -1,5 +1,8 @@
 # Release Notes #
 
+2.2.13.2.6
+Bug fix validation : Reverting the code to make use of dotnet 9
+
 2.2.13.2.5
 Bug fix: Add empty token check 
 Bug fix: Regression fix for auth settings
