@@ -11,7 +11,7 @@
 2. Set `BASE` to your function host URL.
 3. Copy any `curl` from [Use every model](#use-every-model-cut--paste) or [Trigger failures](#trigger-failures) — check `X-Sample-File` and HTTP status to confirm what was served.
 
-**What it returns:** model routes always return `200 OK` with a canned provider-shaped JSON body; `/api/error/429` returns `429` with a real `Retry-After`; `/api/delay` returns after the requested duration.
+**What it returns:** model routes return canned provider-shaped bodies; fixed error routes return common failures; `/api/policy-scenario` returns a path-defined delay, status, headers, and body for APIM policy tests.
 
 ## Deploy
 
@@ -198,6 +198,89 @@ curl -i "$BASE/delay?delay=2000"
 
 ---
 
+## Drive APIM policy scenarios
+
+**What matters:** one request path carries independent specifications for backend slots `a` and `b`; each APIM backend fixes its own slot and reads the matching specification.
+
+Configure the two APIM test backends with these base URLs:
+
+```text
+Backend A: https://<funcapp>.azurewebsites.net/api/policy-scenario/a
+Backend B: https://<funcapp>.azurewebsites.net/api/policy-scenario/b
+```
+
+The remaining request path has this shape:
+
+```text
+/{caseId}/{specA}/{specB}/{provider-suffix}
+```
+
+`specA` and `specB` are Base64Url-encoded JSON. The provider suffix is ignored by the simulator but lets APIM forward a realistic path such as `openai/v1/chat/completions`.
+
+### Build a scenario path
+
+```bash
+b64url() {
+  printf "%s" "$1" | base64 | tr -d '\r\n=' | tr '+/' '-_'
+}
+
+SPEC_A=$(b64url '{"delayMs":250,"status":429,"body":"json-error","headers":{"Retry-After":"30","retry-after-ms":["9716"]}}')
+SPEC_B=$(b64url '{"delayMs":0,"status":200,"body":"openai","headers":{"X-Test-Backend":"b"}}')
+
+curl -i -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-4o","messages":[{"role":"user","content":"test"}]}' \
+  "$BASE/policy-scenario/a/retry-seconds-wins/$SPEC_A/$SPEC_B/openai/v1/chat/completions"
+```
+
+Change `/a/` to `/b/` in the URL to execute `SPEC_B` without changing either encoded specification.
+
+### Scenario specification
+
+| Field | Required | Allowed values | Behavior |
+| :--- | :--- | :--- | :--- |
+| `delayMs` | No | `0`–`120000`; default `0` | Exact delay before the response is written. No random jitter is added. |
+| `status` | No | `200`–`599`; default `200` | HTTP response status. |
+| `headers` | No | Object with string or string-array values | Response headers to return. Header names are case-insensitive. |
+| `body` | No | `openai`, `text`, `json-error`, `empty`, `context-length`, `sse`, `abort`; default `openai` | Selects the response-body behavior. |
+| `bodyText` | No | Up to 16,384 characters | Overrides the message for `text`, `json-error`, or `context-length`. |
+
+Body modes:
+
+| Mode | Result |
+| :--- | :--- |
+| `openai` | Non-streaming Azure OpenAI chat-completion sample. |
+| `text` | Plain text from `bodyText`, or a generated scenario description. |
+| `json-error` | JSON `{ "error": { "code": "simulated_error", ... } }`. |
+| `empty` | No response body. |
+| `context-length` | Azure OpenAI-style `context_length_exceeded` JSON error. |
+| `sse` | Existing OpenAI SSE sample with `text/event-stream`. |
+| `abort` | Aborts the HTTP connection after `delayMs`; no complete response is returned. |
+
+Every completed scenario response includes this evidence contract:
+
+| Header | Source | Test purpose |
+| :--- | :--- | :--- |
+| `S7P-ID` | Incoming `x-S7P-ID`; then `x-ms-client-request-id`; then `sim-{caseId}-{slot}` | Correlates proxy HTTP responses, APIM attempts, and proxy NDJSON records. |
+| `X-Sim-Case` | `{caseId}` route value | Confirms the intended scenario reached the simulator. |
+| `X-Sim-Slot` | `{slot}` route value | Confirms APIM selected backend A or B. |
+| `X-Sim-Delay-Ms` | Selected specification `delayMs` | Confirms the applied deterministic delay configuration. |
+| `X-Sim-Status` | Selected specification `status` | Confirms the simulator applied the intended status. |
+| `X-Sim-Body` | Selected specification `body` | Confirms the intended response-body mode. |
+| `X-Sim-Method` | Received HTTP method | Confirms APIM forwarded the request method. |
+| `X-Sim-Path` | Received request path | Confirms APIM selected the intended slot and preserved the encoded scenario path. |
+| `X-Sim-Has-Authorization` | Presence of incoming `Authorization` | Tests Managed Identity application and credential clearing without exposing the token. |
+| `X-Sim-Has-Api-Key` | Presence of incoming `api-key` | Tests API-key application and credential clearing without exposing the key. |
+
+The simulator does not generate `backendLog`, `x-Backend-Attempts`, `x-PolicyCycleCounter`, `x-backend-affinity`, `x-backend-label`, `S7PREQUEUE`, `retry-after`, or `retry-after-ms` unless a scenario explicitly configures the two retry headers. Those fields are APIM policy outputs and remain independent test evidence.
+
+> [!WARNING]
+> The endpoint rejects CR/LF header values, more than 32 headers, more than 8 values per header, and framework, correlation, or hop-by-hop headers such as `Content-Length`, `Transfer-Encoding`, `Connection`, `Host`, `S7P-ID`, and `Server`. `S7P-ID` and `X-Sim-*` are reserved for simulator diagnostics.
+
+Invalid specifications return `400` with `error: invalid_policy_scenario`. Each decoded specification is limited to 8,192 bytes.
+
+---
+
 ## Deploy alternatives
 
 **What matters:** the portal ZIP deploy above is the fastest path. Use the options below only if you need to rebuild or script the deploy.
@@ -240,7 +323,7 @@ Edit `RESOURCE_GROUP` and `FUNCTION_APP` at the top of [`deploy-flex.sh`](./depl
 | Providers | Azure OpenAI (chat / responses / embeddings), public OpenAI `/v1`, Anthropic `/v1/messages` (model from JSON body), Google Gemini `/v1beta/models/{model}:generateContent` and `:streamGenerateContent` |
 | Modes | Streaming (SSE) and at-once on every model endpoint |
 | Toggles | `?stream=true|false` per request · `X-Force-Stream` header · `FORCE_STREAM` env var (global) |
-| Failure injection | `/api/error/429` with `Retry-After`, `/api/error/500`, `/api/error/302` (configurable target), `/api/delay?delay=<ms>` |
+| Failure injection | Fixed error routes plus `/api/policy-scenario/{slot}/{caseId}/{specA}/{specB}` for deterministic delay, status, headers, body, and connection abort |
 | Fixtures | `/api/samples/lorem`, `/api/samples/multiline`, `/api/streamdelay`, `/api/health`, `/api/profile` |
 | Deploy | Pre-built `function.zip` for portal ZIP deploy · `deploy-flex.sh` for scripted deploy · `func start` for local |
 | Compatible with | SimpleL7Proxy, APIM policies, OpenAI / Anthropic / Google SDKs, LangChain, Semantic Kernel, custom clients, load-test rigs |
@@ -256,6 +339,7 @@ All routes accept `GET` and `POST` with **anonymous** auth. Real clients can hit
 | `/api/error/429` | 429 | Sets `Retry-After`, `retry-after-ms`, and `S7PREQUEUE: true`. Override with `?retryAfter=<sec>` (default 10). |
 | `/api/error/500` | 500 | Classified as temporary error. |
 | `/api/error/302` | 302 | Sets `Location`. Override target with `?to=<url>`. |
+| `/api/policy-scenario/{slot}/{caseId}/{specA}/{specB}/{*suffix}` | Configured | Selects the `a` or `b` Base64Url JSON specification from the request path. |
 
 #### Azure OpenAI
 
@@ -369,6 +453,7 @@ az functionapp config appsettings set \
 | Streaming response arrives all at once | `FORCE_STREAM=false` or `?stream=false` overriding route default | Check the toggle precedence table; remove `FORCE_STREAM` or change the query param |
 | `X-Sample-File` shows unexpected file | Anthropic `model` field not matching expected pattern | Check the Anthropic model → sample mapping table; confirm `model` value in request body |
 | Client SDK fails with schema error | Outdated sample file | Update the `.txt` file in `Samples/` to match the current provider response shape |
+| `/api/policy-scenario` returns `400` | Invalid Base64Url JSON, unsupported body mode, unsafe header, or value outside its bound | Read the `invalid_policy_scenario` response and decode the selected slot specification locally |
 
 
 

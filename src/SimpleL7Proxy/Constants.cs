@@ -16,9 +16,12 @@ public static class Constants
     public const string Server = "simplel7proxy";
     public const string S7PHash = "S7PHash";
 
-    public const string VERSION = "2.2.16";
+    public const string VERSION = "2.2.17";
 
     public const int AnyPriority = -1;
+
+    // Fixed jitter (ms) added to Retry-After/Retry-After-Ms derived deadlines.
+    public const int RetryAfterJitterMaxMs = 250;
 
     /// <summary>
     /// An array of probe route constants used for health checks and readiness checks.

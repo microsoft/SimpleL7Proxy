@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
@@ -9,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
 
+using SimpleL7Proxy.Auth;
 using SimpleL7Proxy.Config;
 
 namespace SimpleL7Proxy.Backend
@@ -19,13 +21,14 @@ namespace SimpleL7Proxy.Backend
   /// </summary>
   public class HostConfig
   {
-    public static BackendTokenProvider? _tokenProvider;
     private static ILogger? _logger = Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
     private static IServiceProvider? _serviceProvider;
+    public IBackendTokenProvider? _tokenProvider;
     private ICircuitBreaker? _circuitBreaker;
     public Guid Guid { get; } = Guid.NewGuid();
     private ParsedConfig ParsedConfig { get; set; }
     public string Audience => ParsedConfig.Audience;
+    public string AuthProvider => ParsedConfig.AuthProvider;
     public string ApiKey => ParsedConfig.ApiKey;
     public string ApiKeyHeader => ParsedConfig.ApiKeyHeader;
 
@@ -61,6 +64,7 @@ namespace SimpleL7Proxy.Backend
         // Order must stay stable — append every ParsedConfig field.
         var sb = new StringBuilder(512);
         sb.Append(Audience).Append('|');
+        sb.Append(AuthProvider).Append('|');
         sb.Append(DirectMode).Append('|');
         sb.Append(Host).Append('|');
         sb.Append(Hostname).Append('|');
@@ -138,8 +142,12 @@ namespace SimpleL7Proxy.Backend
     {
         if (_circuitBreaker is not null) return;
 
-        if (_serviceProvider == null)
-            throw new InvalidOperationException("HostConfig service provider not initialized. Call Initialize first.");
+      if (_serviceProvider == null)
+        throw new InvalidOperationException("HostConfig service provider not initialized. Call Initialize first.");
+
+        _tokenProvider = _serviceProvider.GetServices<IBackendTokenProvider>()
+            .FirstOrDefault(provider => provider.GetType().Name.Equals(AuthProvider, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"IBackendTokenProvider '{AuthProvider}' is not registered in the DI container.");
 
         RegisterWithTokenProvider();
         OAuth2Token().ConfigureAwait(false).GetAwaiter().GetResult();
@@ -148,6 +156,7 @@ namespace SimpleL7Proxy.Backend
             ?? throw new InvalidOperationException("ICircuitBreaker service not registered in DI container.");
 
         _circuitBreaker.ID = ParsedConfig.Host;
+        _circuitBreaker.TrackRetryAfter = UsesRetryAfter;
     }
 
     private ICircuitBreaker CircuitBreaker =>
@@ -157,21 +166,22 @@ namespace SimpleL7Proxy.Backend
     /// <summary>
     /// Tracks status for circuit breaker
     /// </summary>
-    public void TrackStatus(int code, bool wasFailure, string state) => CircuitBreaker.TrackStatus(code, wasFailure, state);
+    public void TrackStatus(int code, bool wasFailure, string state, HttpResponseHeaders? responseHeaders = null) =>
+      CircuitBreaker.TrackStatus(code, wasFailure, state, responseHeaders);
 
     /// <summary>
     /// Checks if this host's circuit breaker is in failed state
     /// </summary>
-    public Task<bool> CheckFailedStatusAsync() => CircuitBreaker.CheckFailedStatusAsync();
-
+    public int HCGetBackpressureDelay() => CircuitBreaker.GetBackpressureDelay();
+    public int GetMsToNextRetry() => CircuitBreaker.GetMsToNextRetry();
     public string GetCircuitBreakerStatusString() => CircuitBreaker.GetCircuitBreakerStatusString();
 
     /// <summary>
     /// Initializes the HostConfig with required dependencies
     /// </summary>
-    public static void Initialize(BackendTokenProvider tokenProvider, ILogger logger, IServiceProvider serviceProvider)
+    public static void Initialize(ILogger logger, IServiceProvider serviceProvider)
     {
-      _tokenProvider = tokenProvider;
+      //_tokenProvider = tokenProvider;
       _logger = logger;
       _serviceProvider = serviceProvider;
     }
@@ -250,6 +260,7 @@ namespace SimpleL7Proxy.Backend
         StripPrefix = true,
         AuthMode = AuthModeEnum.None,
         Audience = "",
+        AuthProvider = "AzureProvider",
         ApiKey = "",
         ApiKeyHeader = "api-key",
         UsesRetryAfter = true
@@ -276,6 +287,9 @@ namespace SimpleL7Proxy.Backend
           {
             case "audience":
               result.Audience = kvp.Value;
+              break;
+            case "authprovider":
+              result.AuthProvider = kvp.Value;
               break;
             case "api_key":
             case "api-key":

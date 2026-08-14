@@ -8,6 +8,8 @@ deploy.parameters.sh
 appsettings.Development.json
 
 test/QueueBenchmarks/results/*
+test/RegressionTests/results/*
+*.local.json
 .keys/
 test/chat_tester/artifacts
 *.log

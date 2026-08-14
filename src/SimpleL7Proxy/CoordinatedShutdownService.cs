@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
+using SimpleL7Proxy.Auth;
 using SimpleL7Proxy.Backend;
 using SimpleL7Proxy.Async.BlobStorage;
 using SimpleL7Proxy.Config;
@@ -27,7 +28,7 @@ public class CoordinatedShutdownService : IHostedService
     // Inject other services if needed
     private readonly ILogger<CoordinatedShutdownService> _logger;
     private readonly Server _server;
-    private readonly BackendTokenProvider _backendTokenProvider;
+    private readonly IEnumerable<IBackendTokenProvider> _backendTokenProviders;
     private readonly ProxyConfig _options;
     // private readonly IEventClient? _eventClient;
     private readonly ISBTopicService _sbTopicService;
@@ -46,7 +47,7 @@ public class CoordinatedShutdownService : IHostedService
     public CoordinatedShutdownService(IHostApplicationLifetime appLifetime,
         IOptions<ProxyConfig> backendOptions,
         IConcurrentPriQueue<RequestData> queue,
-        BackendTokenProvider backendTokenProvider,
+        IEnumerable<IBackendTokenProvider> backendTokenProviders,
         IEndpointMonitorService backends,
         // IEventClient? eventClient,
         ISBTopicService sbTopicService,
@@ -67,7 +68,7 @@ public class CoordinatedShutdownService : IHostedService
         _sbTopicService = sbTopicService;
         _sbQueueService = sbQueueService;
         _asyncFeeder = asyncFeeder;
-        _backendTokenProvider = backendTokenProvider;
+        _backendTokenProviders = backendTokenProviders;
         _requeueWorker = requeueWorker;
         _blobWriteQueue = serviceProvider.GetService<BlobWorkerPump>();
         _shutdownParticipants = serviceProvider.GetServices<IShutdownParticipant>();
@@ -169,8 +170,11 @@ public class CoordinatedShutdownService : IHostedService
                 await participant.ShutdownAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            if (_backendTokenProvider != null)
-                await _backendTokenProvider.StopAsync(cancellationToken).ConfigureAwait(false);
+            foreach (var backendTokenProvider in _backendTokenProviders)
+            {
+                if (backendTokenProvider is IHostedService hostedService)
+                    await hostedService.StopAsync(cancellationToken).ConfigureAwait(false);
+            }
 
             // // BackupAPIService is NOT registered as IHostedService - we control its shutdown explicitly here
             // // to ensure it stops AFTER all proxy workers have completed and flushed their status updates

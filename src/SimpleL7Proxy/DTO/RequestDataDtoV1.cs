@@ -2,6 +2,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using SimpleL7Proxy.Backend.Iterators;
 
 namespace SimpleL7Proxy.DTO
 {
@@ -17,7 +18,9 @@ namespace SimpleL7Proxy.DTO
         public List<Dictionary<string, string>> IncompleteRequests { get; set; }
         public int AsyncBlobAccessTimeoutSecs { get; set; }
         public int LifetimeBackendAttempts { get; set; }
-        public int LifetimePolicyCycleCounter { get; set; }
+        [JsonPropertyName("LifetimePolicyCycleCounter")]
+        public int LifetimeAPIMPolicyCycleCounter { get; set; }
+        public IterationModeEnum? IterationMode { get; set; }
         public int Priority { get; set; }
         public int Priority2 { get; set; }
         public short S7PHash { get; set; }
@@ -38,7 +41,8 @@ namespace SimpleL7Proxy.DTO
         {
             AsyncBlobAccessTimeoutSecs = data.AsyncBlobAccessTimeoutSecs;
             LifetimeBackendAttempts = data.LifetimeBackendAttempts;
-            LifetimePolicyCycleCounter = data.LifetimePolicyCycleCounter;
+            LifetimeAPIMPolicyCycleCounter = data.LifetimeAPIMPolicyCycleCounter;
+            IterationMode = data.IterationMode;
             BlobContainerName = data.BlobContainerName;
             DequeueTime = data.DequeueTime;
             EnqueueTime = data.EnqueueTime;
@@ -143,8 +147,10 @@ namespace SimpleL7Proxy.DTO
             data.AsyncBlobAccessTimeoutSecs = this.AsyncBlobAccessTimeoutSecs;
             data.LifetimeBackendAttempts = this.LifetimeBackendAttempts;
             data.BackendAttempts = 0;
-            data.LifetimePolicyCycleCounter = this.LifetimePolicyCycleCounter;
-            data.PolicyCycleCounter = 0;
+            data.LifetimeAPIMPolicyCycleCounter = this.LifetimeAPIMPolicyCycleCounter;
+            data.APIMPolicyCycleCounter = 0;
+            if (IterationMode.HasValue)
+                data.IterationMode = IterationMode.Value;
             data.BlobContainerName = BlobContainerName;
             data.DequeueTime = DequeueTime;
             data.EnqueueTime = EnqueueTime;

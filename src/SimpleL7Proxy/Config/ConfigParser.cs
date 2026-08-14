@@ -15,6 +15,7 @@ public static class ConfigParser
 
     private static readonly (string envVar, string property)[] SimpleFields =
     [
+        ("AuthProviders", "AuthProviderClass"),
         ("AsyncBlobWorkerCount", "AsyncBlobWorkerCount"),
         ("AsyncBlobMaxQueue", "AsyncBlobMaxQueue"),
         ("AsyncStreamingBufferSizeBytes", "AsyncStreamingBufferSizeBytes"),

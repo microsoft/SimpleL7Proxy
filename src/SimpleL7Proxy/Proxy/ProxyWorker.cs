@@ -746,7 +746,7 @@ public class ProxyWorker : IConfigChangeSubscriber
     private async Task HandleProbeRequestAsync(RequestData req, HttpListenerContext lcontext)
     {
         int hostCount = _backends.ActiveHostCount();
-        bool hasFailedHosts = _backends.CheckFailedStatusAsync(true).Result;
+        bool hasFailedHosts = _backends.EMSGetBackpressureDelay() > 0;
         _wrkCntxt.HealthCheckService.BuildHealthResponse(req.Path, hostCount, hasFailedHosts, req.Timestamp, out int probeStatus, out string probeMessage);
 
         lcontext.Response.StatusCode = probeStatus;
@@ -850,18 +850,23 @@ public class ProxyWorker : IConfigChangeSubscriber
         HttpStatusCode lastStatusCode = HttpStatusCode.ServiceUnavailable;
         var requestSummary = request.EventData;
         int intCode = 0;
+        bool ttlExpired = false;
 
         // Read the body stream once and reuse it
         //byte[] bodyBytes = await request.CachBodyAsync().ConfigureAwait(false);
         List<S7PRequeueException> retryAfter = new();
 
+        var originalPath = request.Path;
         var (hostIterator, sharedIterator, modifiedPath) = CreateHostIterator(request);
+
+        // create next host processor
+        var nextHost = new NextHost(hostIterator, sharedIterator, _backends, _options.LoadBalanceMode, originalPath);
 
         request.Path = modifiedPath;
 
         // Use the host count from the already-created iterator (avoids redundant GetActiveHosts call
         // and fixes a bug where the old code compared stripped path against configured PartialPath)
-        var matchingHostCount = sharedIterator?.HostCount ?? hostIterator?.HostCount ?? 0;
+        var matchingHostCount = nextHost.HostCount;
         _logger.LogDebug("[ProxyToBackEnd:{Guid}] Found {HostCount} backend hosts for path {Path}",
             request.Guid, matchingHostCount, request.Path);
 
@@ -884,9 +889,8 @@ public class ProxyWorker : IConfigChangeSubscriber
         // Try the request on each active host, stop if it worked
         // Use helper method to abstract over shared vs per-request iterators
 
-        // TODO: Replace dummy parameters with request header lookup (e.g. request.Headers["x-S7P-IterationMode"])
-        bool loop_once = true;
-        bool loop_for_max_attempts = false;
+        bool loop_once = request.IterationMode == IterationModeEnum.SinglePass;
+        bool loop_for_max_attempts = request.IterationMode == IterationModeEnum.MultiPass;
 
         // For shared iterators, compute the max attempts for this request so the
         // circular iterator doesn't spin forever.  Per-request iterators already
@@ -896,23 +900,47 @@ public class ProxyWorker : IConfigChangeSubscriber
         {
             if (loop_once)
                 maxSharedAttempts = matchingHostCount;              // SinglePass: try each host once
-            else if (loop_for_max_attempts)
+            else if (loop_for_max_attempts && _options.MaxAttempts > 0)
                 maxSharedAttempts = _options.MaxAttempts;           // MultiPass: use configured max
-            // else: no limit (original circular behaviour)
+            // else: no attempt-count limit
         }
 
         BaseHostHealth? host;
-        while (request.BackendAttempts < maxSharedAttempts
-            && TryGetNextHost(hostIterator, sharedIterator, out host) && host != null)
+        while (request.BackendAttempts < maxSharedAttempts && nextHost.TryGet(out host) && host != null)
         {
             DateTime proxyStartDate = DateTime.UtcNow;
 
-            // Check circuit breaker before sending request to avoid unnecessary load on unhealthy hosts [ will delay if failure > 50% ]
-            if (await host.Config.CheckFailedStatusAsync().ConfigureAwait(false))
+            // Check circuit breaker before sending request 
+            int timeToRetry = host.Config.GetMsToNextRetry();
+            if (timeToRetry > 0)
             {
-                var cbStatus = host.Config.GetCircuitBreakerStatusString();
-                _logger.LogCritical("[ProxyToBackEnd:{Guid}] ⚠ Circuit breaker BLOCKING host: {Host} - CB-Status: {CBStatus}",
-                    request.Guid, host.Host, cbStatus);
+                if (request.Debug) {
+                    _logger.LogWarning("[ProxyToBackEnd:{Guid}] ⚠ Circuit breaker host: {Host} - retrying after {TimeToRetry}ms",
+                        request.Guid, host.Host, timeToRetry);
+                }
+
+                // Evaluates other matching hosts and reports whether all are blocked and the shortest retry delay.
+                var (allCircuitBreakersOpen, retryAfterMs, checkedHostCount) = nextHost.EvalHostAvailability(host, timeToRetry);
+
+                if (allCircuitBreakersOpen)
+                {
+                    if (loop_once)
+                    {
+                        _logger.LogWarning(
+                            "[ProxyToBackEnd:{Guid}] All {HostCount} matching backend circuit breakers are open; SinglePass will return the terminal backend result",
+                            request.Guid, checkedHostCount);
+                        break;
+                    }
+
+                    _logger.LogWarning(
+                        "[ProxyToBackEnd:{Guid}] All {HostCount} matching backend circuit breakers are open; requeueing after {RetryAfterMs}ms",
+                        request.Guid, checkedHostCount, retryAfterMs);
+                    throw new S7PRequeueException(
+                        "All matching backend circuit breakers are open",
+                        new ProxyData(),
+                        retryAfterMs);
+                }
+
                 continue;
             }
 
@@ -924,6 +952,7 @@ public class ProxyWorker : IConfigChangeSubscriber
             bool SuccessfulRequest = false;
             bool TriggerHostCB = true;
             string requestState = "Init";
+            HttpResponseHeaders? responseHeaders = null;
             // bool newcode = false;
             ProxyEvent requestAttempt = null!;
 
@@ -1043,8 +1072,8 @@ public class ProxyWorker : IConfigChangeSubscriber
                     // proxyRequest.Version = HttpVersion.Version11;
                     // proxyRequest.VersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
 
-                    proxyRequest.Headers.Add("x-PolicyCycleCounter", request.PolicyCycleCounter.ToString());
-                    proxyRequest.Headers.Add("x-LifetimePolicyCycleCounter", request.LifetimePolicyCycleCounter.ToString());
+                    proxyRequest.Headers.Add("x-PolicyCycleCounter", request.APIMPolicyCycleCounter.ToString());
+                    proxyRequest.Headers.Add("x-LifetimePolicyCycleCounter", request.LifetimeAPIMPolicyCycleCounter.ToString());
                     proxyRequest.Headers.Add("x-LLMModel", request.Model);
                     ProxyHelperUtils.CopyHeaders(request.Headers, proxyRequest, true, s_stripRequestHeaders);
 
@@ -1104,6 +1133,7 @@ public class ProxyWorker : IConfigChangeSubscriber
 
                             var proxyResponse = await _options.Client!.SendAsync(
                                 proxyRequest, HttpCompletionOption.ResponseHeadersRead, requestCts.Token).ConfigureAwait(false);
+                            responseHeaders = proxyResponse.Headers;
                             responseDate = DateTime.UtcNow;
                             lastStatusCode = proxyResponse.StatusCode;
                             requestAttempt.Status = proxyResponse.StatusCode;
@@ -1184,13 +1214,13 @@ public class ProxyWorker : IConfigChangeSubscriber
                             }
 
 
-                            if (proxyResponse.Headers.TryGetValues("x-PolicyCycleCounter", out var policyAttempts))
+                            if (proxyResponse.Headers.TryGetValues("x-PolicyCycleCounter", out var apimPolicyAttempts))
                             {
-                                if (int.TryParse(policyAttempts.FirstOrDefault(), out var pAttempts))
+                                if (int.TryParse(apimPolicyAttempts.FirstOrDefault(), out var apimPolicyCycleCounter))
                                 {
-                                    var delta = pAttempts - request.PolicyCycleCounter;
-                                    request.LifetimePolicyCycleCounter += delta;
-                                    request.PolicyCycleCounter = pAttempts;
+                                    var apimPolicyCycleDelta = apimPolicyCycleCounter - request.APIMPolicyCycleCounter;
+                                    request.LifetimeAPIMPolicyCycleCounter += apimPolicyCycleDelta;
+                                    request.APIMPolicyCycleCounter = apimPolicyCycleCounter;
                                 }
                             }
 
@@ -1280,6 +1310,7 @@ public class ProxyWorker : IConfigChangeSubscriber
 
                 if (e.Type == ProxyErrorException.ErrorType.TTLExpired)
                 {
+                    ttlExpired = true;
                     intCode = 412;//(int)HttpResponseCode.PreconditionFailed; // 412
                     lastStatusCode = HttpStatusCode.PreconditionFailed;
                     TriggerHostCB = false;
@@ -1373,7 +1404,7 @@ public class ProxyWorker : IConfigChangeSubscriber
 
                 // Track host status for circuit breaker
                 if (intCode != 412 && intCode != 429 && !_isEvictingAsyncRequest)
-                    host.Config.TrackStatus(intCode, TriggerHostCB, "Attempt-" + request.LifetimeBackendAttempts);
+                    host.Config.TrackStatus(intCode, TriggerHostCB, "Attempt-" + request.LifetimeBackendAttempts, responseHeaders);
 
                 if (!SuccessfulRequest)
                 {
@@ -1394,7 +1425,12 @@ public class ProxyWorker : IConfigChangeSubscriber
 
         // If we get here, then no hosts were able to handle the request
 
-        if (retryAfter.Count > 0)
+        var maxAttemptsReached = !ttlExpired &&
+            request.IterationMode == IterationModeEnum.MultiPass &&
+            _options.MaxAttempts > 0 &&
+            request.BackendAttempts >= _options.MaxAttempts;
+
+        if (!maxAttemptsReached && retryAfter.Count > 0)
         {
             // If we have retry after values, return the smallest one
             var exc = retryAfter.MinBy(x => x.RetryAfter);
@@ -1410,8 +1446,26 @@ public class ProxyWorker : IConfigChangeSubscriber
         int currentStatusCode;
         ProxyHelperUtils.GenerateErrorMessage(incompleteRequests, out sb, out statusMatches, out currentStatusCode);
 
-        // 502 Bad Gateway  or   call status code form all attempts ( if they are the same )
-        lastStatusCode = statusMatches ? (HttpStatusCode)currentStatusCode : HttpStatusCode.BadGateway;
+        string errorDetail;
+        if (maxAttemptsReached)
+        {
+            lastStatusCode = HttpStatusCode.PreconditionFailed;
+            errorDetail = $"Maximum backend attempts reached ({_options.MaxAttempts}).";
+        }
+        else
+        {
+            // 502 Bad Gateway or the common status code when all attempts match
+            lastStatusCode = statusMatches ? (HttpStatusCode)currentStatusCode : HttpStatusCode.BadGateway;
+            errorDetail = ttlExpired
+                ? "Request TTL expired."
+                : incompleteRequests.Count == 0
+                    ? "No backend attempts were completed."
+                    : statusMatches
+                        ? $"All backend attempts returned HTTP {currentStatusCode}."
+                        : "Backends returned mixed status codes.";
+        }
+        var errorMessage = $"No active hosts were able to handle the request: {errorDetail}";
+        sb.Insert(0, errorMessage + Environment.NewLine);
         // requestSummary.Type = EventType.ProxyError;
 
         // ASYNC: Synchronize with AsyncWorker if it was started, even for error responses
@@ -1434,7 +1488,7 @@ public class ProxyWorker : IConfigChangeSubscriber
 
         var errorBodyStr = sb.ToString();
         var errorBytes = Encoding.UTF8.GetBytes(errorBodyStr);
-        var recordedStatusCode = ProxyHelperUtils.RecordIncompleteRequests(requestSummary, lastStatusCode, "No active hosts were able to handle the request", incompleteRequests);
+        var recordedStatusCode = ProxyHelperUtils.RecordIncompleteRequests(requestSummary, lastStatusCode, errorMessage, incompleteRequests);
 
         if (request.AsyncTriggered)
         {
@@ -1601,7 +1655,7 @@ public class ProxyWorker : IConfigChangeSubscriber
         else
         {
             // Use per-request iterator (original behavior)
-            hostIterator = _options.IterationMode switch
+            hostIterator = request.IterationMode switch
             {
                 IterationModeEnum.SinglePass => IteratorFactory.CreateSinglePassIterator(
                     _backends,
@@ -2033,36 +2087,5 @@ public class ProxyWorker : IConfigChangeSubscriber
         "Content-Length", "Transfer-Encoding", "Connection", "Proxy-Connection",
         "Keep-Alive", "Upgrade", "Trailer", "TE", "Date", "Server"
     );
-
-    /// <summary>
-    /// Helper method to abstract over shared vs per-request iterators.
-    /// For shared iterators: uses TryGetNextHost (circular, thread-safe)
-    /// For per-request iterators: uses MoveNext/Current pattern
-    /// </summary>
-    /// <param name="perRequestIterator">Per-request iterator (null if using shared)</param>
-    /// <param name="sharedIterator">Shared iterator (null if using per-request)</param>
-    /// <param name="host">Output: the next host, or null if none available</param>
-    /// <returns>True if a host was retrieved, false if iteration is complete</returns>
-    private static bool TryGetNextHost(
-        IHostIterator? perRequestIterator,
-        ISharedHostIterator? sharedIterator,
-        out BaseHostHealth? host)
-    {
-        if (sharedIterator != null)
-        {
-            // Shared iterator - uses atomic TryGetNextHost
-            return sharedIterator.TryGetNextHost(out host);
-        }
-        
-        if (perRequestIterator != null && perRequestIterator.MoveNext())
-        {
-            host = perRequestIterator.Current;
-            return true;
-        }
-        
-        host = null;
-        return false;
-    }
-
 
 }

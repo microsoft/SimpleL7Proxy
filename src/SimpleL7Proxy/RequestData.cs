@@ -8,6 +8,7 @@ using Microsoft.Extensions.ObjectPool;
 using Shared.RequestAPI.Models;
 using SimpleL7Proxy.Async.ServiceBus.SBQueue;
 using SimpleL7Proxy.Async.ServiceBus.SBTopic;
+using SimpleL7Proxy.Backend.Iterators;
 using SimpleL7Proxy.Config;
 using SimpleL7Proxy.DTO;
 using SimpleL7Proxy.Events;
@@ -193,10 +194,13 @@ public class RequestData : IDisposable, IAsyncDisposable
     // Number of times Proxy calls the backend
     public int BackendAttempts { get; set; } = 0;
     public int LifetimeBackendAttempts { get; set; } = 0;
+    /// <summary>Routing mode captured from the current proxy configuration when the request is created.</summary>
+    public IterationModeEnum IterationMode { get; set; } =
+        BackendOptionsStatic?.IterationMode ?? IterationModeEnum.SinglePass;
     
-    // Total attempts including retries by downstream services
-    public int LifetimePolicyCycleCounter { get; set; } = 0; 
-    public int PolicyCycleCounter { get; set; } = 0; 
+    // APIM policy cycles, including retries performed by the policy
+    public int LifetimeAPIMPolicyCycleCounter { get; set; } = 0;
+    public int APIMPolicyCycleCounter { get; set; } = 0;
 
     public bool Debug { get; set; }
     public bool SkipDispose { get; set; } = false;
