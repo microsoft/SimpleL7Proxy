@@ -9,7 +9,7 @@ public class TimeToFirstByteHostIterator : HostIterator
     private int _currentHostIndex;
 
     public TimeToFirstByteHostIterator(List<BaseHostHealth> hosts, IterationModeEnum mode, int maxAttempts)
-        : base(hosts?.OrderBy(h => h.AverageLatency()).ToList() ?? throw new ArgumentNullException(nameof(hosts)), mode, maxAttempts)
+        : base(hosts?.OrderBy(h => h.TimeToFirstByteMs).ToList() ?? throw new ArgumentNullException(nameof(hosts)), mode, maxAttempts)
     {
         _currentHostIndex = -1; // Will be incremented on first MoveNext
     }

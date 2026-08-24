@@ -94,6 +94,7 @@ public static class IteratorFactory
         {
             Constants.RoundRobin => new RoundRobinHostIterator(filteredHosts, mode, maxAttempts),
             Constants.Latency => new LatencyBasedHostIterator(filteredHosts, mode, maxAttempts),
+            Constants.TimeToFirstByte => new TimeToFirstByteHostIterator(filteredHosts, mode, maxAttempts),
             Constants.Random => new RandomHostIterator(filteredHosts, mode, maxAttempts),
             _ => new RandomHostIterator(filteredHosts, mode, maxAttempts)
         };
@@ -224,6 +225,7 @@ public static class IteratorFactory
         var orderedHosts = loadBalanceMode switch
         {
             Constants.Latency => filteredHosts.OrderBy(h => h.AverageLatencyMs).ToList(),
+            Constants.TimeToFirstByte => filteredHosts.OrderBy(h => h.TimeToFirstByteMs).ToList(),
             Constants.Random => filteredHosts.OrderBy(_ => _threadRandom.Value!.Next()).ToList(),
             _ => filteredHosts // Round-robin uses natural order
         };
@@ -263,6 +265,7 @@ public static class IteratorFactory
         return loadBalanceMode switch
         {
             Constants.Latency => filteredHosts.OrderBy(h => h.AverageLatencyMs).ToList(),
+            Constants.TimeToFirstByte => filteredHosts.OrderBy(h => h.TimeToFirstByteMs).ToList(),
             Constants.Random => filteredHosts.OrderBy(_ => _threadRandom.Value!.Next()).ToList(),
             _ => filteredHosts
         };

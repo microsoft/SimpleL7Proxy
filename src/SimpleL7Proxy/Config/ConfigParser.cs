@@ -445,6 +445,7 @@ public static class ConfigParser
     {
         backendOptions.LoadBalanceMode = backendOptions.LoadBalanceMode.Trim().ToLowerInvariant();
         if (backendOptions.LoadBalanceMode != Constants.Latency &&
+            backendOptions.LoadBalanceMode != Constants.TimeToFirstByte &&
             backendOptions.LoadBalanceMode != Constants.RoundRobin &&
             backendOptions.LoadBalanceMode != Constants.Random)
         {
