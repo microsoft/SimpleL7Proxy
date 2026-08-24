@@ -213,6 +213,11 @@ class MyHandler(http.server.BaseHTTPRequestHandler):
             print("Sleeping for " + str(sleep_time) + " seconds before sending response.")
             time.sleep(sleep_time)
 
+        # Optional process-wide delay for a specific backend in a test harness.
+        process_delay_ms = float(os.environ.get('NULL_SERVER_DELAY_MS', '0') or '0')
+        if process_delay_ms > 0 and parsed_path.path not in ('/health', '/status-0123456789abcdef', '/stress-stats'):
+            time.sleep(process_delay_ms / 1000.0)
+
         # All endpoints support ?delay=<value> (e.g. 1s, 500ms, 1000). Default 0 (no delay).
         delay_secs = parse_delay(query_params.get('delay', ['0'])[0])
         self._delay_secs = delay_secs

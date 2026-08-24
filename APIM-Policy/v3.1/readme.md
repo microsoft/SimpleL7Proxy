@@ -7,10 +7,10 @@ Configure Azure API Management to route LLM requests by model, priority, endpoin
 <table>
 <tr>
 <td width="50%" valign="top">
-This policy can configure an APIM instance to:
+This policy configures an APIM instance to:
 
 - Route each model to its own set of endpoints.
-- Try endpoints in priority order, load balance endpoints in the same group, and fail over when needed.
+- Load balance endpoints in priority order and fail over when needed.
 - Restrict endpoints to specific request priorities.
 - Set endpoint-call attempts, throttling behavior, and whether a request can be requeued.
 - Authenticate to endpoints with Managed Identity or an API key.
@@ -24,7 +24,7 @@ This policy can configure an APIM instance to:
 
 ### How Routing Works
 
-When a request arrives, the list of eligible endpoints is loaded into memory. The policy tries the lowest priority group for the requested model and selects a random endpoint from that group. If the request succeeds or returns a permanent error, the response is returned, and APIM processing is complete as the proxy takes over.  If the request times out (408) or is throttled (429), the endpoint is marked as throttled, and the next endpoint in the group is attempted. If no endpoints remain, the policy moves to the next group. This process continues until the configured number of attempts is reached. At that point, the policy can ask the proxy to requeue the request in memory and try it later, or it can return an incomplete status to the caller.
+When a request arrives, the policy idendifies the list of eligible endpoints and segregates them into priority groups.  All the endpoints will be attempted one by one until they the request compeltes.  Every endpoint in a group is attempted before moving onto the next group.  At any time, if the request succeeds or returns a permanent error, the response is returned, and APIM processing is complete as the proxy takes over.  If the request times out (408) or is throttled (429), the endpoint is marked as throttled, and the next endpoint in the group is attempted. If no endpoints remain, the policy moves to the next group. This process continues until the configured number of attempts is reached. At that point, the policy can ask the proxy to requeue the request in memory and try it later, or it can return an incomplete status to the caller.
 
 ## Prerequisites
 

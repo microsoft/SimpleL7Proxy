@@ -1161,8 +1161,11 @@ public class ProxyWorker : IConfigChangeSubscriber
                             lastStatusCode = proxyResponse.StatusCode;
                             requestAttempt.Status = proxyResponse.StatusCode;
 
+                            var responseTimeToFirstByteMs = (responseDate - proxyStartDate).TotalMilliseconds;
+                            host.TimeToFirstByteMs = responseTimeToFirstByteMs;
+
                             _logger.LogDebug("[ProxyToBackEnd:{Guid}] Received response from {Host} - Status: {StatusCode}, Duration: {Duration}ms",
-                                request.Guid, host.Host, lastStatusCode, (responseDate - proxyStartDate).TotalMilliseconds);
+                                request.Guid, host.Host, lastStatusCode, responseTimeToFirstByteMs);
 
                             requestState = "Process Backend Response";
 
