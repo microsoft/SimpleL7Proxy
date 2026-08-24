@@ -174,6 +174,8 @@ public static class ConfigFactory
 
       // Host keys are handled separately via RegisterBackends.
       if (key.StartsWith("Host", StringComparison.OrdinalIgnoreCase)
+        || key.StartsWith("Path_", StringComparison.OrdinalIgnoreCase)
+        || key.StartsWith("Path-", StringComparison.OrdinalIgnoreCase)
         || key.StartsWith("Probe", StringComparison.OrdinalIgnoreCase)
         || key.StartsWith("IP", StringComparison.OrdinalIgnoreCase)
         || key.StartsWith("Api_Key", StringComparison.OrdinalIgnoreCase))
@@ -258,6 +260,8 @@ public static class ConfigFactory
 
       var key = kvp.Key;
       if (key.StartsWith("Host", StringComparison.OrdinalIgnoreCase)
+        || key.StartsWith("Path_", StringComparison.OrdinalIgnoreCase)
+        || key.StartsWith("Path-", StringComparison.OrdinalIgnoreCase)
         || key.StartsWith("Probe", StringComparison.OrdinalIgnoreCase)
         || key.StartsWith("IP", StringComparison.OrdinalIgnoreCase)
         || key.StartsWith("Api_Key", StringComparison.OrdinalIgnoreCase))
@@ -498,8 +502,11 @@ public static class ConfigFactory
     }
 
     var hostsFileContent = new StringBuilder();
+    var hostConfigs = new List<HostConfig>();
+    var hasInvalidHost = false;
 
     var namedHostKeys = CollectNamedHostKeys(appConfigSettings, fallbackConfig);
+    var namedPathKeys = CollectNamedPathKeys(appConfigSettings, fallbackConfig);
 
     foreach (var entry in ReadHostEntries(ReadWithFallback, namedHostKeys))
     {
@@ -511,25 +518,55 @@ public static class ConfigFactory
           hostname += $";api-key={entry.ApiKey}";
         }
 
-        var hostConfig = new HostConfig(hostname, entry.ProbePath, entry.Ip);//, backendOptions.OAuthAudience);
-        hostCollection?.StageHost(hostConfig);
+        var hostConfig = new HostConfig(hostname, entry.ProbePath, entry.Ip, entry.HostKey);//, backendOptions.OAuthAudience);
+        hostConfigs.Add(hostConfig);
         hostsFileContent.AppendLine($"{entry.Ip} {hostConfig.Host}");
       }
       catch (HostConfigDisabledException e)
       {
         _logger?.LogInformation(e, "Skipping disabled backend host {HostKey}: {Host}", entry.HostKey, e.Host);
       }
-      catch (UriFormatException e)
+      catch (Exception e) when (e is UriFormatException or ArgumentException)
       {
         _logger?.LogError(e, "{msg}: Could not add {HostKey} with {Hostname}", e.Message, entry.HostKey, entry.Hostname);
+        hasInvalidHost = true;
       }
     }
 
-    AppendHostsFileIfEnabled(
-        ReadWithFallback("APPENDHOSTSFILE") ?? ReadWithFallback("AppendHostsFile"),
-        hostsFileContent);
+    if (hasInvalidHost)
+    {
+      _logger?.LogError("[CONFIGS] Backend configuration rejected; retaining the last known-good snapshot");
+      return;
+    }
 
-    hostCollection?.Activate();
+    var routeDefinitions = new List<PathRouteDefinition>();
+    foreach (var pathKey in namedPathKeys)
+    {
+      var routeValue = ReadWithFallback(pathKey);
+      if (string.IsNullOrWhiteSpace(routeValue)) continue;
+
+      try
+      {
+        routeDefinitions.Add(ParsePathRoute(pathKey, routeValue));
+      }
+      catch (UriFormatException e)
+      {
+        _logger?.LogError(e, "{Message}: Could not add {PathKey} with {RouteValue}", e.Message, pathKey, routeValue);
+        return;
+      }
+    }
+
+    try
+    {
+      hostCollection?.ReplaceConfiguration(hostConfigs, routeDefinitions);
+      AppendHostsFileIfEnabled(
+          ReadWithFallback("APPENDHOSTSFILE") ?? ReadWithFallback("AppendHostsFile"),
+          hostsFileContent);
+    }
+    catch (Exception e) when (e is InvalidOperationException or UriFormatException or ArgumentException)
+    {
+      _logger?.LogError(e, "[CONFIGS] Backend configuration rejected; retaining the last known-good snapshot");
+    }
   }
 
   private record ParsedHostEntry(string HostKey, string Hostname, string? ProbePath, string? Ip, string? ApiKey);
@@ -610,6 +647,60 @@ public static class ConfigFactory
     return roots;
   }
 
+  private static List<string> CollectNamedPathKeys(
+      Dictionary<string, string>? appConfigSettings,
+      IConfiguration? fallbackConfig)
+  {
+    var roots = new List<string>();
+    var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    foreach (var rawKey in EnumerateConfigKeys(appConfigSettings, fallbackConfig))
+    {
+      var key = StripWarmColdPrefix(rawKey);
+      if (IsNamedPathRoot(key) && seen.Add(key))
+        roots.Add(key);
+    }
+
+    return roots;
+  }
+
+  private static PathRouteDefinition ParsePathRoute(string pathKey, string routeValue)
+  {
+    var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    foreach (var part in routeValue.Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+    {
+      var splitIndex = part.IndexOf('=');
+      if (splitIndex <= 0 || splitIndex >= part.Length - 1)
+        throw new UriFormatException($"Invalid path route configuration part: {part}");
+      values[part[..splitIndex].Trim()] = part[(splitIndex + 1)..].Trim();
+    }
+
+    foreach (var key in values.Keys)
+    {
+      if (!key.Equals("prefix", StringComparison.OrdinalIgnoreCase) &&
+          !key.Equals("hosts", StringComparison.OrdinalIgnoreCase) &&
+          !key.Equals("stripprefix", StringComparison.OrdinalIgnoreCase) &&
+          !key.Equals("strippathprefix", StringComparison.OrdinalIgnoreCase))
+      {
+        throw new UriFormatException($"Invalid path route configuration key: {key}");
+      }
+    }
+
+    if (!values.TryGetValue("prefix", out var prefix))
+      throw new UriFormatException($"Path route '{pathKey}' requires prefix.");
+    if (!values.TryGetValue("hosts", out var hostsValue))
+      throw new UriFormatException($"Path route '{pathKey}' requires hosts.");
+
+    var stripPrefixValue = values.GetValueOrDefault("stripprefix")
+        ?? values.GetValueOrDefault("strippathprefix");
+    var stripPrefix = true;
+    if (stripPrefixValue != null && !bool.TryParse(stripPrefixValue, out stripPrefix))
+      throw new UriFormatException($"Invalid stripprefix value: {stripPrefixValue}");
+
+    var hostKeys = hostsValue.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    return new PathRouteDefinition(pathKey, prefix, hostKeys, stripPrefix);
+  }
+
   private static IEnumerable<string> EnumerateConfigKeys(
       Dictionary<string, string>? appConfigSettings,
       IConfiguration? fallbackConfig)
@@ -682,6 +773,15 @@ public static class ConfigFactory
     }
 
     return true;
+  }
+
+  private static bool IsNamedPathRoot(string key)
+  {
+    if (key.Length < 6 || !key.StartsWith("Path", StringComparison.OrdinalIgnoreCase))
+      return false;
+
+    var separator = key["Path".Length];
+    return (separator == '-' || separator == '_') && key.Length > "Path".Length + 1;
   }
 
   /// <summary>Appends host/IP pairs to /etc/hosts when APPENDHOSTSFILE=true.</summary>

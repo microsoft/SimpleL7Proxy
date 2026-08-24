@@ -38,6 +38,7 @@ public class EmptyBackendHostIterator : IHostIterator
     /// Gets the total number of hosts. Always returns 0 since there are no hosts.
     /// </summary>
     public int HostCount => 0;
+    public IReadOnlyList<BaseHostHealth> Hosts => Array.Empty<BaseHostHealth>();
 
     /// <summary>
     /// Attempts to move to the next host. Always returns false since there are no hosts.

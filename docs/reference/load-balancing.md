@@ -1,10 +1,11 @@
 # Load Balancing & Backend Selection
 
-The proxy selects backends through a three-stage pipeline on every request: filter by path → order by load-balance mode → gate by circuit breaker.
+The proxy selects backends through a five-stage pipeline on every request: match path → filter priority → select priority group → order peers → gate by circuit breaker.
 
 > **TL;DR**
-> - **Specific-path hosts always win** — if any configured host matches the request path, catch-all hosts are never tried.
-> - **`LoadBalanceMode`** controls host order (round-robin / latency / random); **`IterationMode`** controls how many attempts are made.
+> - **The longest named path wins** — a priority miss does not fall through to a broader route.
+> - **`priorityGroup` controls failover order** — `LoadBalanceMode` orders hosts only within the current group.
+> - **`LoadBalanceMode`** controls peer order (`roundrobin`, `latency`, `timetofirstbyte`, or `random`); **`IterationMode`** controls attempt breadth.
 > - **A `429` with `S7PREQUEUE`** makes the request eligible for requeue after attempts are exhausted; acceptable status codes return directly; TTL expiry stops iteration with `412`.
 
 ---
@@ -13,7 +14,7 @@ The proxy selects backends through a three-stage pipeline on every request: filt
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LoadBalanceMode` | `latency` | Host ordering: `roundrobin`, `latency`, or `random` |
+| `LoadBalanceMode` | `latency` | Peer ordering within a priority group: `roundrobin`, `latency`, `timetofirstbyte`, or `random` |
 | `IterationMode` | `SinglePass` | Retry strategy: `SinglePass` or `MultiPass` |
 | `MaxAttempts` | `10` | Maximum total attempts in MultiPass mode; set to `0` to disable the attempt-count limit |
 | `UseSharedIterators` | `true` | Share iterator state across concurrent requests to the same path |
@@ -29,22 +30,28 @@ Request arrives
       │
       ▼
 ┌─────────────────────────────────────────────────────┐
-│ 1. PATH FILTER                                      │
-│    Specific-path hosts match?  ──Yes──► use them    │
-│                                ──No───► use catch-all│
+│ 1. ROUTE + PRIORITY FILTER                          │
+│    Longest path → acceptablePriorities              │
 └─────────────────────────────────────────────────────┘
       │
       ▼
 ┌─────────────────────────────────────────────────────┐
-│ 2. ITERATOR  (LoadBalanceMode)                      │
+│ 2. PRIORITY GROUP                                   │
+│    Lowest eligible group first; exhaust before next │
+└─────────────────────────────────────────────────────┘
+      │
+      ▼
+┌─────────────────────────────────────────────────────┐
+│ 3. ITERATOR  (LoadBalanceMode within current group) │
 │    roundrobin → global counter order                │
 │    latency    → sorted lowest avg latency first     │
+│    timetofirstbyte → lowest observed TTFB first     │
 │    random     → shuffled each request               │
 └─────────────────────────────────────────────────────┘
       │
       ▼
 ┌─────────────────────────────────────────────────────┐
-│ 3. FOR EACH HOST  (IterationMode / MaxAttempts)     │
+│ 4. FOR EACH HOST  (IterationMode / MaxAttempts)     │
 │    circuit OPEN?  ──Yes──► skip, next host          │
 │    TTL expired?   ──Yes──► 412, stop                │
 │    send request                                     │
@@ -75,6 +82,7 @@ LoadBalanceMode=latency   # try fastest host first
 |------|----------|
 | `roundrobin` | Homogeneous backends; fair distribution |
 | `latency` | Backends with measurably different response times |
+| `timetofirstbyte` | Streaming or model endpoints with different response-start latency |
 | `random` | Avoiding predictable traffic patterns |
 
 > [!NOTE]
@@ -110,6 +118,8 @@ Send `S7P-Iterator: SinglePass` or `S7P-Iterator: MultiPass` to override `Iterat
 <summary>Shared Iterators</summary>
 
 Set `UseSharedIterators=true` when many concurrent requests target the same path and you need strict round-robin fairness across them. Each path then maintains a single shared counter instead of per-request counters.
+
+Priority-aware hosts and named routes use request-local traversal so each request starts in its lowest eligible group and cannot reuse another priority's candidate pool.
 
 </details>
 

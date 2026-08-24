@@ -19,6 +19,7 @@ public interface IEndpointMonitorService
   Task Stop();
   List<BaseHostHealth> GetSpecificPathHosts();
   List<BaseHostHealth> GetCatchAllHosts();
+  PathRouteMatch? MatchRoute(string requestPath) => null;
   //IHostIterator GetHostIterator(string loadBalanceMode, IterationModeEnum mode = IterationModeEnum.SinglePass, int maxRetries = 1, string fullURL = "/");
 }
 

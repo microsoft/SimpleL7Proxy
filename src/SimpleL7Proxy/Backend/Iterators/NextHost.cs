@@ -61,11 +61,12 @@ internal sealed class NextHost
         _availableCircuitBreakerHost = null;
         _circuitBreakerHosts ??=
             (_sharedIterator as SharedHostIterator)?.GetHostsSnapshot()
-            ?? IteratorFactory.GetFilteredHosts(
-                _backends,
-                _loadBalanceMode,
-                _requestPath,
-                out _);
+                        ?? _hostIterator?.Hosts
+                        ?? IteratorFactory.GetFilteredHosts(
+                            _backends,
+                            _loadBalanceMode,
+                            _requestPath,
+                            out _);
 
         hostCount = _circuitBreakerHosts.Count;
         var allOpen = hostCount > 0;

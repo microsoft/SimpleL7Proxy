@@ -1661,7 +1661,11 @@ public class ProxyWorker : IConfigChangeSubscriber
         IHostIterator? hostIterator = null;
         ISharedHostIterator? sharedIterator = null;
 
-        if (_options.UseSharedIterators && _wrkCntxt.SharedIteratorRegistry != null)
+        var usesPriorityRouting = _backends.MatchRoute(request.Path) != null ||
+            _backends.GetHosts().Any(host =>
+                host.Config.PriorityGroup != 1 || host.Config.AcceptablePriorities.Count > 0);
+
+        if (_options.UseSharedIterators && _wrkCntxt.SharedIteratorRegistry != null && !usesPriorityRouting)
         {
             // Use shared iterator - multiple requests to same path share the same iterator
             // The modifiedPath is stored on the iterator itself, so we don't need a second filtering call
@@ -1673,6 +1677,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                         _backends,
                         _options.LoadBalanceMode,
                         request.Path,
+                        request.Priority,
                         out var mp);
                     return (iterator, mp);
                 });
@@ -1693,6 +1698,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                     _backends,
                     _options.LoadBalanceMode,
                     request.Path,
+                    request.Priority,
                     out modifiedPath),
 
                 IterationModeEnum.MultiPass => IteratorFactory.CreateMultiPassIterator(
@@ -1700,12 +1706,14 @@ public class ProxyWorker : IConfigChangeSubscriber
                     _options.LoadBalanceMode,
                     _options.MaxAttempts,
                     request.Path,
+                    request.Priority,
                     out modifiedPath),
 
                 _ => IteratorFactory.CreateSinglePassIterator(
                     _backends,
                     _options.LoadBalanceMode,
                     request.Path,
+                    request.Priority,
                     out modifiedPath)
             };
         }

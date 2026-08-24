@@ -58,6 +58,7 @@ public abstract class HostIterator : IHostIterator
     /// Gets the total number of hosts in this iterator.
     /// </summary>
     public int HostCount => _hosts.Count;
+    public IReadOnlyList<BaseHostHealth> Hosts => _hosts;
 
     /// <summary>
     /// Moves to the next host. Handles common pass completion logic.

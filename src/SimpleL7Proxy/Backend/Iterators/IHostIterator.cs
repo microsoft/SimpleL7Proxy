@@ -9,4 +9,5 @@ public interface IHostIterator : IEnumerator<BaseHostHealth>
     /// Gets the total number of hosts in this iterator.
     /// </summary>
     int HostCount { get; }
+    IReadOnlyList<BaseHostHealth> Hosts { get; }
 }

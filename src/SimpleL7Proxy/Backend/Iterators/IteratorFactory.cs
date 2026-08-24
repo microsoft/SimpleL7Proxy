@@ -32,7 +32,17 @@ public static class IteratorFactory
         string requestPath,
         out string modifiedPath)
     {
-        return CreateIteratorInternal(backendService, loadBalanceMode, IterationModeEnum.SinglePass, 1, requestPath, out modifiedPath);
+        return CreateSinglePassIterator(backendService, loadBalanceMode, requestPath, Constants.AnyPriority, out modifiedPath);
+    }
+
+    public static IHostIterator CreateSinglePassIterator(
+        IEndpointMonitorService backendService,
+        string loadBalanceMode,
+        string requestPath,
+        int requestPriority,
+        out string modifiedPath)
+    {
+        return CreateIteratorInternal(backendService, loadBalanceMode, IterationModeEnum.SinglePass, 1, requestPath, requestPriority, out modifiedPath);
     }
 
     /// <summary>
@@ -52,7 +62,18 @@ public static class IteratorFactory
         string requestPath,
         out string modifiedPath)
     {
-        return CreateIteratorInternal(backendService, loadBalanceMode, IterationModeEnum.MultiPass, maxAttempts, requestPath, out modifiedPath);
+        return CreateMultiPassIterator(backendService, loadBalanceMode, maxAttempts, requestPath, Constants.AnyPriority, out modifiedPath);
+    }
+
+    public static IHostIterator CreateMultiPassIterator(
+        IEndpointMonitorService backendService,
+        string loadBalanceMode,
+        int maxAttempts,
+        string requestPath,
+        int requestPriority,
+        out string modifiedPath)
+    {
+        return CreateIteratorInternal(backendService, loadBalanceMode, IterationModeEnum.MultiPass, maxAttempts, requestPath, requestPriority, out modifiedPath);
     }
 
     /// <summary>
@@ -66,8 +87,26 @@ public static class IteratorFactory
         IterationModeEnum mode,
         int maxAttempts,
         string requestPath,
+        int requestPriority,
         out string modifiedPath)
     {
+        var routeMatch = backendService.MatchRoute(requestPath);
+        if (routeMatch != null)
+        {
+            modifiedPath = routeMatch.Value.ModifiedPath;
+            var activeHashes = backendService.GetActiveHosts()
+                .Select(host => host.Config.FrozenHash)
+                .Where(hash => hash != null)
+                .ToHashSet(StringComparer.Ordinal);
+            var routeHosts = routeMatch.Value.Route
+                .GetCandidateHosts(requestPriority)
+                .Where(host => !host.Config.IsSpinningDown &&
+                    (host.Config.DirectMode ||
+                     (host.Config.FrozenHash != null && activeHashes.Contains(host.Config.FrozenHash))))
+                .ToList();
+            return CreateIterator(routeHosts, loadBalanceMode, mode, maxAttempts);
+        }
+
         // Get pre-categorized hosts from backend service
         var specificHosts = backendService.GetSpecificPathHosts();
         var catchAllHosts = backendService.GetCatchAllHosts();    
@@ -79,7 +118,7 @@ public static class IteratorFactory
         }
 
         // requestPath is already normalized by server.cs
-        var (filteredHosts, mp) = FilterHostsByPath(specificHosts!, catchAllHosts!, requestPath);
+        var (filteredHosts, mp) = FilterHostsByPath(specificHosts!, catchAllHosts!, requestPath, requestPriority);
         modifiedPath = mp;
 
         if (filteredHosts.Count == 0)
@@ -90,13 +129,28 @@ public static class IteratorFactory
         // TODO: Store or use modifiedPath - it needs to be passed to the iterator or stored somewhere
         // For now, you'll need to decide where to use the modifiedPath
 
+        return CreateIterator(filteredHosts, loadBalanceMode, mode, maxAttempts);
+    }
+
+    private static IHostIterator CreateIterator(
+        List<BaseHostHealth> hosts,
+        string loadBalanceMode,
+        IterationModeEnum mode,
+        int maxAttempts)
+    {
+        if (hosts.Count == 0)
+            return new EmptyBackendHostIterator();
+
+        if (hosts.Select(host => host.Config.PriorityGroup).Distinct().Skip(1).Any())
+            return new PriorityGroupHostIterator(hosts, loadBalanceMode, mode, maxAttempts);
+
         return loadBalanceMode switch
         {
-            Constants.RoundRobin => new RoundRobinHostIterator(filteredHosts, mode, maxAttempts),
-            Constants.Latency => new LatencyBasedHostIterator(filteredHosts, mode, maxAttempts),
-            Constants.TimeToFirstByte => new TimeToFirstByteHostIterator(filteredHosts, mode, maxAttempts),
-            Constants.Random => new RandomHostIterator(filteredHosts, mode, maxAttempts),
-            _ => new RandomHostIterator(filteredHosts, mode, maxAttempts)
+            Constants.RoundRobin => new RoundRobinHostIterator(hosts, mode, maxAttempts),
+            Constants.Latency => new LatencyBasedHostIterator(hosts, mode, maxAttempts),
+            Constants.TimeToFirstByte => new TimeToFirstByteHostIterator(hosts, mode, maxAttempts),
+            Constants.Random => new RandomHostIterator(hosts, mode, maxAttempts),
+            _ => new RandomHostIterator(hosts, mode, maxAttempts)
         };
     }
 
@@ -107,7 +161,8 @@ public static class IteratorFactory
     private static (List<BaseHostHealth> hosts, string modifiedPath) FilterHostsByPath(
         List<BaseHostHealth> specificHosts, 
         List<BaseHostHealth> catchAllHosts, 
-        string requestPath)
+        string requestPath,
+        int requestPriority = Constants.AnyPriority)
     {
         // Evaluate all matches once, excluding hosts marked for spin-down
         var matchedHosts = specificHosts
@@ -119,11 +174,19 @@ public static class IteratorFactory
         if (matchedHosts.Count > 0)
         {
             // Use the stripped path from the first match (all should strip the same way)
-            return (matchedHosts.Select(x => x.host).ToList(), matchedHosts[0].result.StrippedPath);
+            return (
+                matchedHosts
+                    .Where(x => requestPriority == Constants.AnyPriority || x.host.Config.AcceptsPriority(requestPriority))
+                    .Select(x => x.host)
+                    .ToList(),
+                matchedHosts[0].result.StrippedPath);
         }
         
         // No specific match - return catch-all hosts, excluding spinning-down ones
-        var activeCatchAll = catchAllHosts.Where(h => !h.Config.IsSpinningDown).ToList();
+        var activeCatchAll = catchAllHosts
+            .Where(host => !host.Config.IsSpinningDown &&
+                (requestPriority == Constants.AnyPriority || host.Config.AcceptsPriority(requestPriority)))
+            .ToList();
         return (activeCatchAll, requestPath);
     }
 

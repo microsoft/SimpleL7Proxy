@@ -26,22 +26,28 @@ namespace SimpleL7Proxy.Backend
     public IBackendTokenProvider? _tokenProvider;
     private ICircuitBreaker? _circuitBreaker;
     public Guid Guid { get; } = Guid.NewGuid();
+    public string ConfigKey { get; }
     private ParsedConfig ParsedConfig { get; set; }
     public string Audience => ParsedConfig.Audience;
     public string AuthProvider => ParsedConfig.AuthProvider;
     public string ApiKey => ParsedConfig.ApiKey;
     public string ApiKeyHeader => ParsedConfig.ApiKeyHeader;
+    public IReadOnlyList<int> AcceptablePriorities => ParsedConfig.AcceptablePriorities;
 
-    public bool DirectMode => ParsedConfig.DirectMode;
+    public HostModeEnum Mode => ParsedConfig.Mode;
+    public bool DirectMode => Mode == HostModeEnum.Direct;
+    public bool IndirectMode => Mode == HostModeEnum.Indirect;
     public string Host => ParsedConfig.Host;
     public string Hostname => ParsedConfig.Hostname;
     public string? IpAddr => ParsedConfig.IpAddr;
     public string PartialPath => ParsedConfig.PartialPath;
+    public int PriorityGroup => ParsedConfig.PriorityGroup;
     public string ProbePath => ParsedConfig.ProbePath;
     public string Processor => ParsedConfig.Processor;
     public bool StripPrefix => ParsedConfig.StripPrefix;
     public AuthModeEnum AuthMode => ParsedConfig.AuthMode;
     public bool UsesRetryAfter => ParsedConfig.UsesRetryAfter;
+    public string Via => ParsedConfig.Via;
     public string Protocol { get; private set; }
     public int Port { get; private set; }
     // Cached path matching properties for performance
@@ -63,20 +69,24 @@ namespace SimpleL7Proxy.Backend
     {
         // Order must stay stable — append every ParsedConfig field.
         var sb = new StringBuilder(512);
+        sb.Append(ConfigKey).Append('|');
         sb.Append(Audience).Append('|');
         sb.Append(AuthProvider).Append('|');
-        sb.Append(DirectMode).Append('|');
+        sb.Append(Mode).Append('|');
         sb.Append(Host).Append('|');
         sb.Append(Hostname).Append('|');
         sb.Append(IpAddr ?? string.Empty).Append('|');
+        sb.AppendJoin(':', AcceptablePriorities).Append('|');
         sb.Append(PartialPath).Append('|');
+        sb.Append(PriorityGroup).Append('|');
         sb.Append(ProbePath).Append('|');
         sb.Append(Processor ?? string.Empty).Append('|');
         sb.Append(StripPrefix).Append('|');
         sb.Append(AuthMode).Append('|');
         sb.Append(ApiKey ?? string.Empty).Append('|');
         sb.Append(ApiKeyHeader ?? string.Empty).Append('|');
-        sb.Append(UsesRetryAfter);
+        sb.Append(UsesRetryAfter).Append('|');
+        sb.Append(Via);
 
         Span<byte> hashBytes = stackalloc byte[SHA256.HashSizeInBytes];
         SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()), hashBytes);
@@ -188,13 +198,14 @@ namespace SimpleL7Proxy.Backend
 
     // Can pass in hostname  and probepath
     // or
-    // hostname=host=<host:port>;probe=<path>;mode=<direct|apim|>;ipaddress=<ipaddress>;path=<partialpath>;usesretryafter=<true|false>
+    // hostname=host=<host:port>;probe=<path>;mode=<direct|apim|indirect>;ipaddress=<ipaddress>;path=<partialpath>;usesretryafter=<true|false>
     // Comma-delimited key/value pairs are also accepted.
     /// <summary>
     /// Constructs a BackendHostConfig from a hostname and optional probe path.
     /// </summary>
-    public HostConfig(string hostname, string? probepath = "", string? ip = null)//, string? audience = "")
+    public HostConfig(string hostname, string? probepath = "", string? ip = null, string? configKey = null)//, string? audience = "")
     {
+      ConfigKey = configKey?.Trim() ?? string.Empty;
 
       // were legacy oauth settings set?
       var envUseOauth = Environment.GetEnvironmentVariable("UseOAuth")?.Trim().Equals("true", StringComparison.OrdinalIgnoreCase) ?? false;
@@ -218,7 +229,7 @@ namespace SimpleL7Proxy.Backend
       var trimmedPath = PartialPath?.Trim();
       _isCatchAllPath = string.IsNullOrEmpty(trimmedPath) || trimmedPath == "/" || trimmedPath == "/*";
 
-      if (!DirectMode)
+      if (Mode == HostModeEnum.Apim)
       {
         string hostOrIp = string.IsNullOrEmpty(IpAddr) ? Hostname : IpAddr;
         _logger?.LogDebug("Making probe url with Protocol: {Protocol} Host: {Host} Port: {Port} ProbePath: {ProbePath}",
@@ -242,6 +253,10 @@ namespace SimpleL7Proxy.Backend
         _logger?.LogDebug("[CONFIGS] ✓ Direct host configured: {Host} | Path: {PartialPath}", Host, PartialPath);
         probepath = String.Empty;
       }
+      else if (IndirectMode)
+      {
+        _logger?.LogDebug("[CONFIGS] ✓ Indirect host configured: {Host} | Via: {Via}", Host, Via);
+      }
       else
       {
         _logger?.LogDebug("[CONFIGS] ✓ APIM  host configured: {Host} | Probe: /{ProbePath}", Host, ProbePath);
@@ -258,17 +273,20 @@ namespace SimpleL7Proxy.Backend
       {
         Host = hostname,
         ProbePath = probepath?.TrimStart('/') ?? "echo/resource?param1=sample",
-        DirectMode = false,
+        Mode = HostModeEnum.Apim,
         Enabled = true,
         IpAddr = ip ?? "",
+        AcceptablePriorities = [],
         PartialPath = "/",
+        PriorityGroup = 1,
         StripPrefix = true,
         AuthMode = useOauth ? AuthModeEnum.OAuth2 : AuthModeEnum.None,
         Audience = audience,
         AuthProvider = "AzureProvider",
         ApiKey = "",
         ApiKeyHeader = "api-key",
-        UsesRetryAfter = true
+        UsesRetryAfter = true,
+        Via = ""
       };
 
       if (hostname.Contains(';') || hostname.Contains(','))
@@ -281,8 +299,8 @@ namespace SimpleL7Proxy.Backend
           if (splitIndex <= 0 || splitIndex >= part.Length - 1)
             throw new UriFormatException($"Invalid backend host configuration part: {part}");
 
-          var key = part[..splitIndex];
-          var value = part[(splitIndex + 1)..];
+          var key = part[..splitIndex].Trim();
+          var value = part[(splitIndex + 1)..].Trim();
           configDict[key] = value;
         }
 
@@ -290,6 +308,25 @@ namespace SimpleL7Proxy.Backend
         {
           switch (kvp.Key.ToLowerInvariant())
           {
+            case "acceptablepriorities":
+              if (kvp.Value == "*")
+              {
+                result.AcceptablePriorities = [];
+                break;
+              }
+
+              var priorities = new SortedSet<int>();
+              foreach (var priorityValue in kvp.Value.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+              {
+                if (!int.TryParse(priorityValue, out var priority) || priority <= 0)
+                  throw new UriFormatException($"Invalid acceptablePriorities value: {kvp.Value}");
+                priorities.Add(priority);
+              }
+
+              if (priorities.Count == 0)
+                throw new UriFormatException($"Invalid acceptablePriorities value: {kvp.Value}");
+              result.AcceptablePriorities = [.. priorities];
+              break;
             case "audience":
               result.Audience = kvp.Value;
               break;
@@ -314,10 +351,21 @@ namespace SimpleL7Proxy.Backend
               result.IpAddr = kvp.Value;
               break;
             case "mode":
-              result.DirectMode = kvp.Value.Equals("direct", StringComparison.OrdinalIgnoreCase);
+              result.Mode = kvp.Value.ToLowerInvariant() switch
+              {
+                "apim" => HostModeEnum.Apim,
+                "direct" => HostModeEnum.Direct,
+                "indirect" => HostModeEnum.Indirect,
+                _ => throw new UriFormatException($"Invalid backend host mode: {kvp.Value}")
+              };
               break;
             case "path":
               result.PartialPath = kvp.Value;
+              break;
+            case "prioritygroup":
+              if (!int.TryParse(kvp.Value, out var priorityGroup) || priorityGroup <= 0)
+                throw new UriFormatException($"Invalid priorityGroup value: {kvp.Value}");
+              result.PriorityGroup = priorityGroup;
               break;
             case "probe":
               result.ProbePath = kvp.Value;
@@ -340,33 +388,38 @@ namespace SimpleL7Proxy.Backend
             case "retryafter":
               result.UsesRetryAfter = kvp.Value.Equals("true", StringComparison.OrdinalIgnoreCase);
               break;
+            case "via":
+              result.Via = kvp.Value.Trim();
+              break;
             default:
               throw new UriFormatException($"Invalid backend host configuration key: {kvp.Key}");
           }
 
-          if (result.DirectMode)                // For DirectMode, ignore probe path
-          {
-            result.ProbePath = "";
-          }
         }
       }
 
-      // try an parse the hostname if for non direct mode hosts.
-      if (!result.DirectMode)
+      if (result.Mode == HostModeEnum.Indirect && string.IsNullOrWhiteSpace(result.Via))
+        throw new UriFormatException("mode=indirect requires via=Host_<gateway>.");
+      if (result.Mode != HostModeEnum.Indirect && !string.IsNullOrWhiteSpace(result.Via))
+        throw new UriFormatException("via is only valid when mode=indirect.");
+
+      result.Hostname = result.Host;
+      if (result.Mode != HostModeEnum.Apim)
+        result.ProbePath = "";
+
+      if (result.Mode == HostModeEnum.Direct)
       {
-        result.Hostname = result.Host;
-      } else 
-      {
-        // Console.WriteLine($"Direct mode host detected: {result.Host}");
-        result.Hostname = new Uri(result.Host).Host;
         if (string.IsNullOrEmpty(result.Processor))
         {
           result.Processor = StreamProcessor.StreamProcessorFactory.DEFAULT_PROCESSOR;
         }
-      } 
+      }
       
       return result;
     }
+
+    public bool AcceptsPriority(int priority) =>
+      ParsedConfig.AcceptablePriorities.Length == 0 || Array.BinarySearch(ParsedConfig.AcceptablePriorities, priority) >= 0;
 
     public void RegisterWithTokenProvider()
     {

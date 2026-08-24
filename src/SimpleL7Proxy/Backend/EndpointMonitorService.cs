@@ -136,6 +136,10 @@ public class EndpointMonitorService : BackgroundService, IEndpointMonitorService
   {
     return _backendHostCollection.Current.CatchAllHosts;
   }
+  public PathRouteMatch? MatchRoute(string requestPath)
+  {
+    return _backendHostCollection.Current.MatchRoute(requestPath);
+  }
   public Task WaitForStartupAsync()
   {
     var start = DateTime.Now;

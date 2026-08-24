@@ -1,6 +1,6 @@
 # When should traffic go directly to a backend or through APIM?
 
-What each mode is, when to use direct mode, and when to route through APIM.
+What `direct`, `apim`, and `indirect` mean, and when to use each mode.
 
 [← Back to FAQ index](README.md)
 
@@ -29,6 +29,18 @@ An APIM backend points a `Host_<name>` entry at Azure API Management. `mode=apim
 ```bash
 Host_<name>="host=https://gateway.azure-api.net;mode=apim;path=/shared;probe=/health"
 ```
+
+### What is an indirect backend?
+
+An indirect backend is endpoint metadata that APIM may select. The proxy never calls or probes it; instead, `via` names the APIM gateway that receives the request. Indirect backends must be referenced by a named `Path_*` route.
+
+```bash
+Host_apim="host=https://gateway.azure-api.net;mode=apim;probe=/health"
+Host_ptu="host=https://ptu.openai.azure.com;mode=indirect;via=Host_apim"
+Path_models="prefix=/models;hosts=Host_ptu;stripprefix=false"
+```
+
+`mode=indirect` requires `via`, and the `via` target must use `mode=apim`. Existing APIM hosts without `via` remain valid and continue to work as opaque gateways.
 
 ### Why put APIM behind the proxy?
 

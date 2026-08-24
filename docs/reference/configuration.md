@@ -218,8 +218,11 @@ Each host entry supports the following fields:
 | <small>`api-key`</small> | API key value. Sets auth mode to `ApiKey`. |
 | <small>`api-key-header`</small> | Header name used to send the API key to the backend. |
 | <small>`ipaddress`</small> | Override IP address for the backend connection. |
-| <small>`mode`</small> | Set to `direct` if the endpoints do not support probes. Set to `apim` if using an APIM. |
+| <small>`mode`</small> | `apim` (default) calls and probes the host; `direct` calls it without probes; `indirect` delegates through the host named by `via`. |
 | <small>`path`</small> | Path prefix to append to forwarded requests. |
+| <small>`acceptablePriorities`</small> | Colon-separated numeric request priorities; omission or `*` accepts all. |
+| <small>`priorityGroup`</small> | Positive failover group; lower groups are exhausted first. |
+| <small>`via`</small> | Required for `mode=indirect`; names a `mode=apim` gateway host. |
 | <small>`probe`</small> | Health-check path for this endpoint. |
 | <small>`processor`</small> | Custom processor class for this endpoint's responses. |
 | <small>`stripprefix` / `strippathprefix`</small> | Set to `true` to strip the incoming path prefix before forwarding. |
