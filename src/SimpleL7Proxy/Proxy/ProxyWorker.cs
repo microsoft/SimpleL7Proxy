@@ -1193,11 +1193,11 @@ public class ProxyWorker : IConfigChangeSubscriber
                                 ResponseDate = responseDate,
                                 StatusCode = lastStatusCode,
                                 FullURL = request.FullURL,
-                                CalculatedHostLatency = host.CalculatedAverageLatency,
+                                CalculatedHostLatency = host.AverageLatencyMs,
                                 BackendHostname = host.Host
                             };
 
-                            host.AddPxLatency((responseDate - proxyStartDate).TotalMilliseconds);
+                            host.AddProxyLatency((responseDate - proxyStartDate).TotalMilliseconds);
 
                             // Capture the response
                             try

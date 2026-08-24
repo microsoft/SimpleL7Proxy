@@ -16,16 +16,16 @@ public abstract class BaseHostHealth
   public string Url => Config.Url;
   public string IpAddr => Config.IpAddr ?? Config.Host;
   public string Protocol => Config.Protocol;
-  public double CalculatedAverageLatency { get; set; }
-  public double CalculatedTimeToFirstByte { get; set; }
+  public double AverageLatencyMs { get; set; }
+  public double TimeToFirstByteMs { get; set; }
 
-  private const int MaxData = 50;
-  private const int MaxPxLatencyQueueSize = 1000; // Limit queue to prevent unbounded growth
-  protected readonly Queue<double> _connectionLatency = new();
+  private const int MaxLatencySamples = 50;
+  private const int MaxProxyLatencyQueueSize = 1000; // Limit queue to prevent unbounded growth
+  protected readonly Queue<double> _connectionLatencySamples = new();
 
   // Runtime performance tracking (separate from health checks)
-  private ConcurrentQueue<double> _pxLatency = new ConcurrentQueue<double>();
-  private int _errors;
+  private ConcurrentQueue<double> _proxyLatencySamples = new ConcurrentQueue<double>();
+  private int _errorCount;
 
   protected BaseHostHealth(HostConfig config, ILogger logger)
   {
@@ -64,35 +64,35 @@ public abstract class BaseHostHealth
 
   #region Runtime Performance Tracking
 
-  public void AddPxLatency(double latency)
+  public void AddProxyLatency(double latency)
   {
-    _pxLatency.Enqueue(latency);
+    _proxyLatencySamples.Enqueue(latency);
 
     // Prevent unbounded growth - if queue exceeds limit, remove oldest entries
-    while (_pxLatency.Count > MaxPxLatencyQueueSize)
+    while (_proxyLatencySamples.Count > MaxProxyLatencyQueueSize)
     {
-        _pxLatency.TryDequeue(out _);
+        _proxyLatencySamples.TryDequeue(out _);
     }
   }
 
   public void AddError()
   {
-    Interlocked.Increment(ref _errors);
+    Interlocked.Increment(ref _errorCount);
   }
 
   public string GetStatus(out int calls, out int errorCalls, out double average)
   {
-    if (_pxLatency.Count == 0)
+    if (_proxyLatencySamples.Count == 0)
     {
-      errorCalls = _errors;
+      errorCalls = _errorCount;
       average = 0;
       calls = 0;
-      _errors = 0;
+      _errorCount = 0;
       return " - ";
     }
 
-    var status = _pxLatency;
-    errorCalls = _errors;
+    var status = _proxyLatencySamples;
+    errorCalls = _errorCount;
     average = Math.Round(status.Average(), 3);
     calls = status.Count;
 
@@ -101,8 +101,8 @@ public abstract class BaseHostHealth
 
   public void ResetStatus()
   {
-    _pxLatency = new ConcurrentQueue<double>();
-    Interlocked.Exchange(ref _errors, 0);
+    _proxyLatencySamples = new ConcurrentQueue<double>();
+    Interlocked.Exchange(ref _errorCount, 0);
   }
 
   #endregion
@@ -111,18 +111,18 @@ public abstract class BaseHostHealth
 
   public void AddLatency(double latency)
   {
-    if (_connectionLatency.Count == MaxData)
-      _connectionLatency.Dequeue();
-    _connectionLatency.Enqueue(latency);
+    if (_connectionLatencySamples.Count == MaxLatencySamples)
+      _connectionLatencySamples.Dequeue();
+    _connectionLatencySamples.Enqueue(latency);
   }
 
-  protected Queue<double> GetLatencies() => _connectionLatency;
+  protected Queue<double> GetLatencies() => _connectionLatencySamples;
 
   public virtual double AverageLatency()
   {
-    if (_connectionLatency.Count == 0)
+    if (_connectionLatencySamples.Count == 0)
       return 0.0;
-    return _connectionLatency.Average() + (1 - SuccessRate()) * 100;
+    return _connectionLatencySamples.Average() + (1 - SuccessRate()) * 100;
   }
 
   #endregion

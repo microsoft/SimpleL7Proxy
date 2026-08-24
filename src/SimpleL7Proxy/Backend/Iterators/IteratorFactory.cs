@@ -223,7 +223,7 @@ public static class IteratorFactory
         // Order hosts based on load balance mode for initial distribution
         var orderedHosts = loadBalanceMode switch
         {
-            Constants.Latency => filteredHosts.OrderBy(h => h.CalculatedAverageLatency).ToList(),
+            Constants.Latency => filteredHosts.OrderBy(h => h.AverageLatencyMs).ToList(),
             Constants.Random => filteredHosts.OrderBy(_ => _threadRandom.Value!.Next()).ToList(),
             _ => filteredHosts // Round-robin uses natural order
         };
@@ -262,7 +262,7 @@ public static class IteratorFactory
         // Order hosts based on load balance mode
         return loadBalanceMode switch
         {
-            Constants.Latency => filteredHosts.OrderBy(h => h.CalculatedAverageLatency).ToList(),
+            Constants.Latency => filteredHosts.OrderBy(h => h.AverageLatencyMs).ToList(),
             Constants.Random => filteredHosts.OrderBy(_ => _threadRandom.Value!.Next()).ToList(),
             _ => filteredHosts
         };

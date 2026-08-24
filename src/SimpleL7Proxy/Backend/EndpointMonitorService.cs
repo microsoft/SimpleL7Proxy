@@ -389,7 +389,7 @@ public class EndpointMonitorService : BackgroundService, IEndpointMonitorService
             .Where(h => h.SuccessRate() >= _successRate)
             .Select(h =>
             {
-              h.CalculatedAverageLatency = h.AverageLatency();
+              h.AverageLatencyMs = h.AverageLatency();
               return h;
             })
             .ToList();
@@ -402,12 +402,12 @@ public class EndpointMonitorService : BackgroundService, IEndpointMonitorService
     if (hostsChanged)
     {
       InvalidateIteratorCache();
-      _lastLatencyOrder = newActiveHosts.OrderBy(h => h.CalculatedAverageLatency).Select(h => h.guid).ToList();
+      _lastLatencyOrder = newActiveHosts.OrderBy(h => h.AverageLatencyMs).Select(h => h.guid).ToList();
     }
     else if (string.Equals(_options.LoadBalanceMode, Constants.Latency, StringComparison.OrdinalIgnoreCase))
     {
       // Only invalidate shared iterators when the latency-based ordering actually changed
-      var newOrder = newActiveHosts.OrderBy(h => h.CalculatedAverageLatency).Select(h => h.guid).ToList();
+      var newOrder = newActiveHosts.OrderBy(h => h.AverageLatencyMs).Select(h => h.guid).ToList();
       if (!newOrder.SequenceEqual(_lastLatencyOrder))
       {
         _sharedIteratorRegistry?.InvalidateAll();
