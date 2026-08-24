@@ -1019,6 +1019,7 @@ public class ProxyWorker : IConfigChangeSubscriber
                 }
                 catch (Exception ex)
                 {
+                    _logger.LogCritical(ex, "[ProxyToBackEnd:{Guid}] Unable to read request body for {FullURL}", request.Guid, request.FullURL);
                     throw new S7PClientReadException("Unable to read request body: " + ex.Message, request, ex);
                 }
 

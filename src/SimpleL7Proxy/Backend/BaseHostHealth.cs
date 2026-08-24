@@ -17,10 +17,11 @@ public abstract class BaseHostHealth
   public string IpAddr => Config.IpAddr ?? Config.Host;
   public string Protocol => Config.Protocol;
   public double CalculatedAverageLatency { get; set; }
+  public double CalculatedTimeToFirstByte { get; set; }
 
   private const int MaxData = 50;
   private const int MaxPxLatencyQueueSize = 1000; // Limit queue to prevent unbounded growth
-  protected readonly Queue<double> _latencies = new();
+  protected readonly Queue<double> _connectionLatency = new();
 
   // Runtime performance tracking (separate from health checks)
   private ConcurrentQueue<double> _pxLatency = new ConcurrentQueue<double>();
@@ -49,7 +50,7 @@ public abstract class BaseHostHealth
   // Direct backend | Auth=MI, aud=api://orders-service | https://orders.internal.contoso.local
   // Direct backend | Auth=MI | https://reports.internal.contoso.local
   // APIM backend | No Auth | https://apim.contoso.com | Path: /orders | Probe: /health
-  // APIM backend | Auth=key | https://apim.contoso.com | Path: /inventory | Probe: /healthz
+  // APIM backend | Auth=key | https://apim.contoso.com | Path: /inventory | Probe: /health
   // APIM backend | Auth=MI, aud=api://payments-service | https://apim.contoso.com | Path: /payments | Probe: /ready
   // APIM backend | Auth=MI | https://apim.contoso.com | Path: /analytics | Probe: /probe
   public override string ToString()
@@ -110,18 +111,18 @@ public abstract class BaseHostHealth
 
   public void AddLatency(double latency)
   {
-    if (_latencies.Count == MaxData)
-      _latencies.Dequeue();
-    _latencies.Enqueue(latency);
+    if (_connectionLatency.Count == MaxData)
+      _connectionLatency.Dequeue();
+    _connectionLatency.Enqueue(latency);
   }
 
-  protected Queue<double> GetLatencies() => _latencies;
+  protected Queue<double> GetLatencies() => _connectionLatency;
 
   public virtual double AverageLatency()
   {
-    if (_latencies.Count == 0)
+    if (_connectionLatency.Count == 0)
       return 0.0;
-    return _latencies.Average() + (1 - SuccessRate()) * 100;
+    return _connectionLatency.Average() + (1 - SuccessRate()) * 100;
   }
 
   #endregion
