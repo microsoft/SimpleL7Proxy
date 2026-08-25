@@ -24,7 +24,7 @@ namespace SimpleL7Proxy.Backend.Iterators;
 /// │                                                                             │
 /// └─────────────────────────────────────────────────────────────────────────────┘
 /// </summary>
-public sealed class SharedHostIterator : ISharedHostIterator, IDisposable
+public sealed class SharedHostIterator : BaseIterator, ISharedHostIterator, IDisposable
 {
     private readonly List<BaseHostHealth> _hosts;
     private readonly string _path;
@@ -60,7 +60,21 @@ public sealed class SharedHostIterator : ISharedHostIterator, IDisposable
     public DateTime LastUsed => _lastUsed;
 
     /// <inheritdoc/>
-    public int HostCount => _hosts.Count;
+    public override int HostCount => _hosts.Count;
+
+    /// <summary>
+    /// Circular and never exhausts on its own, so SinglePass is capped by host count instead.
+    /// </summary>
+    protected override int SinglePassCap => HostCount;
+
+    /// <inheritdoc/>
+    public override IReadOnlyList<BaseHostHealth> Hosts => GetHostsSnapshot();
+
+    /// <summary>
+    /// Fetches one candidate via the atomic circular index — no lap concept to reset.
+    /// </summary>
+    protected override bool FetchCandidate(IterationState state, out BaseHostHealth? host)
+        => TryGetNextHost(out host);
 
     /// <summary>
     /// Atomically gets the next host from the iterator.
@@ -102,7 +116,7 @@ public sealed class SharedHostIterator : ISharedHostIterator, IDisposable
     /// </summary>
     /// <param name="host">The host that was used</param>
     /// <param name="success">Whether the request was successful</param>
-    public void RecordResult(BaseHostHealth host, bool success)
+    public override void RecordResult(BaseHostHealth host, bool success)
     {
         // For shared iterators, we don't adjust selection based on individual results
         // The circuit breaker at the host level handles failure tracking

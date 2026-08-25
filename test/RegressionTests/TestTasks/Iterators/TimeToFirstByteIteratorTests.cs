@@ -59,17 +59,14 @@ public class TimeToFirstByteIteratorTests : IRegressionTestMetadata
         // Arrange
         var hosts = TestHostFactory.CreateHosts(3);
         var iterator = new TimeToFirstByteHostIterator(hosts);
-        var nextHost = new NextHost(
-            iterator, sharedIterator: null, backends: null!,
-            Constants.TimeToFirstByte, requestPath: "/",
-            IterationModeEnum.MultiPass, maxAttempts: 4);
+        var state = new IterationState(IterationModeEnum.MultiPass, maxAttempts: 4);
 
         int attempts = 0;
 
         // Act
-        while (nextHost.TryGet(out var host) && host != null)
+        while (iterator.TryGet(state, out var host) && host != null)
         {
-            nextHost.RecordResult(host, success: false);
+            iterator.RecordResult(state, host, success: false);
             attempts++;
         }
 

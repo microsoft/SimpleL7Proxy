@@ -1,56 +1,30 @@
-using System;
-using System.Collections.Generic;
-
 namespace SimpleL7Proxy.Backend.Iterators;
 
 /// <summary>
 /// Iterator used when there are no active backend hosts available.
 /// Always returns false on MoveNext() to indicate no hosts to iterate.
 /// </summary>
-public class EmptyBackendHostIterator : IHostIterator
+public class EmptyBackendHostIterator : HostIterator
 {
+    public EmptyBackendHostIterator() : base([])
+    {
+    }
+
     /// <summary>
     /// Gets the current host. Always throws since there are no hosts.
     /// </summary>
-    public BaseHostHealth Current => throw new InvalidOperationException("No active hosts available.");
-
-    /// <summary>
-    /// Gets the current host as object. Always throws since there are no hosts.
-    /// </summary>
-    object System.Collections.IEnumerator.Current => Current;
-
-    /// <summary>
-    /// Gets the total number of hosts. Always returns 0 since there are no hosts.
-    /// </summary>
-    public int HostCount => 0;
-    public IReadOnlyList<BaseHostHealth> Hosts => Array.Empty<BaseHostHealth>();
+    public override BaseHostHealth Current => throw new InvalidOperationException("No active hosts available.");
 
     /// <summary>
     /// Attempts to move to the next host. Always returns false since there are no hosts.
     /// </summary>
-    public bool MoveNext() => false;
-
-    /// <summary>
-    /// Records the result of a request. Does nothing since there are no hosts.
-    /// </summary>
-    public void RecordResult(BaseHostHealth host, bool success)
-    {
-        // No-op - there are no hosts to record results for
-    }
+    public override bool MoveNext() => false;
 
     /// <summary>
     /// Resets the iterator. Does nothing since there are no hosts.
     /// </summary>
-    public void Reset()
+    public override void Reset()
     {
         // No-op - nothing to reset
-    }
-
-    /// <summary>
-    /// Disposes the iterator. Does nothing since there are no resources to clean up.
-    /// </summary>
-    public void Dispose()
-    {
-        // No-op - no resources to dispose
     }
 }

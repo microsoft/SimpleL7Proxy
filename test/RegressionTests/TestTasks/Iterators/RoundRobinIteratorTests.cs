@@ -157,7 +157,7 @@ public class RoundRobinIteratorTests : IRegressionTestMetadata
     }
 
     // ──────────────────────────────────────────────────────────────
-    //  MultiPass Mode (via NextHost — pass/attempt control lives there now)
+    //  MultiPass Mode (via BaseIterator — pass/attempt control lives there now)
     // ──────────────────────────────────────────────────────────────
 
     [TestMethod]
@@ -170,20 +170,17 @@ public class RoundRobinIteratorTests : IRegressionTestMetadata
         var hosts = TestHostFactory.CreateHosts(3);
         int maxAttempts = 7;
         var iterator = new RoundRobinHostIterator(hosts);
-        var nextHost = new NextHost(
-            iterator, sharedIterator: null, backends: null!,
-            Constants.RoundRobin, requestPath: "/",
-            IterationModeEnum.MultiPass, maxAttempts);
+        var state = new IterationState(IterationModeEnum.MultiPass, maxAttempts);
 
         int selectedHostCount = 0;
         int attemptCount = 0;
-        while (nextHost.TryGet(out var host) && host != null)
+        while (iterator.TryGet(state, out var host) && host != null)
         {
             selectedHostCount++;
             if (selectedHostCount == 1)
                 continue; // Simulate a host skipped by the circuit breaker
 
-            nextHost.RecordResult(host, success: false);
+            iterator.RecordResult(state, host, success: false);
             attemptCount++;
         }
 
@@ -204,22 +201,19 @@ public class RoundRobinIteratorTests : IRegressionTestMetadata
     {
         var hosts = TestHostFactory.CreateHosts(3);
         var iterator = new RoundRobinHostIterator(hosts);
-        var nextHost = new NextHost(
-            iterator, sharedIterator: null, backends: null!,
-            Constants.RoundRobin, requestPath: "/",
-            IterationModeEnum.MultiPass, disabledMaxAttempts);
+        var state = new IterationState(IterationModeEnum.MultiPass, disabledMaxAttempts);
 
-        Assert.AreEqual(disabledMaxAttempts, nextHost.ConfiguredMaxAttempts);
+        Assert.AreEqual(disabledMaxAttempts, state.MaxAttempts);
 
         int attemptsBeyondOnePass = hosts.Count * 3;
         for (int attempt = 0; attempt < attemptsBeyondOnePass; attempt++)
         {
-            Assert.IsTrue(nextHost.TryGet(out var host) && host != null,
+            Assert.IsTrue(iterator.TryGet(state, out var host) && host != null,
                 $"MaxAttempts={disabledMaxAttempts} should remain enabled beyond one host pass.");
-            nextHost.RecordResult(host!, success: false);
+            iterator.RecordResult(state, host!, success: false);
         }
 
-        Assert.IsTrue(nextHost.TryGet(out var extraHost) && extraHost != null,
+        Assert.IsTrue(iterator.TryGet(state, out var extraHost) && extraHost != null,
             $"MaxAttempts={disabledMaxAttempts} should not stop after {attemptsBeyondOnePass} attempts.");
     }
 
@@ -233,16 +227,13 @@ public class RoundRobinIteratorTests : IRegressionTestMetadata
         var hosts = TestHostFactory.CreateHosts(2);
         int maxAttempts = 6;
         var iterator = new RoundRobinHostIterator(hosts);
-        var nextHost = new NextHost(
-            iterator, sharedIterator: null, backends: null!,
-            Constants.RoundRobin, requestPath: "/",
-            IterationModeEnum.MultiPass, maxAttempts);
+        var state = new IterationState(IterationModeEnum.MultiPass, maxAttempts);
 
         var visited = new List<BaseHostHealth>();
-        while (nextHost.TryGet(out var host) && host != null)
+        while (iterator.TryGet(state, out var host) && host != null)
         {
             visited.Add(host);
-            nextHost.RecordResult(host, success: false);
+            iterator.RecordResult(state, host, success: false);
         }
 
         // With 2 hosts and 6 attempts, both hosts should appear multiple times

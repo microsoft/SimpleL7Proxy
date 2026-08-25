@@ -20,7 +20,7 @@ public static class IteratorFactory
 
     /// <summary>
     /// Creates a host-ordering iterator for the given load balance mode and path.
-    /// Pass/repeat control (SinglePass vs MultiPass, MaxAttempts) is owned by NextHost,
+    /// Pass/repeat control (SinglePass vs MultiPass, MaxAttempts) is owned by BaseIterator,
     /// not the iterator, so the same iterator works for either mode.
     /// </summary>
     /// <param name="backendService">The backend service to get active hosts from</param>

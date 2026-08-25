@@ -37,7 +37,7 @@ public class RoundRobinHostIterator : HostIterator
 
     /// <summary>
     /// Moves to the next host in round-robin order. Returns false once every host in
-    /// this lap has been visited; NextHost calls Reset() to start a new lap.
+    /// this lap has been visited; BaseIterator calls Reset() to start a new lap.
     /// </summary>
     public override bool MoveNext()
     {
